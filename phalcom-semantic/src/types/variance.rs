@@ -3,6 +3,7 @@
 use super::id::{TypeId, TypeParameterId};
 use super::store::{TypeData, TypeStore};
 use crate::identity::DeclarationId;
+use crate::field_key::FieldKey;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Variance {
@@ -73,7 +74,7 @@ pub enum VarianceStep {
         index: u32,
     },
     RecordField {
-        name: Box<str>,
+        key: FieldKey,
     },
     UnionMember {
         index: u32,
@@ -191,7 +192,7 @@ pub fn compute_variance_occurrence(
             let row = store.record_row(*row_id);
             let mut result_variance = None;
             for f in row.fields.iter() {
-                path.push(VarianceStep::RecordField { name: f.name.clone() });
+                path.push(VarianceStep::RecordField { key: f.key.clone() });
                 if let Some((occ, p)) = compute_variance_occurrence(store, param, f.ty, context_polarity, path) {
                     result_variance = match result_variance {
                         None => Some((occ, p)),

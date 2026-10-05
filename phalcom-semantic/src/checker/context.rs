@@ -495,7 +495,7 @@ pub struct CheckingContext<'a> {
     pub internal_failure_policy: InternalFailurePolicy,
     pub control: CheckerControl,
     pub expected_return: Option<CallableReturnContract>,
-    stable_record_row_lacks: HashSet<(crate::types::id::TypeParameterId, Box<str>)>,
+    stable_record_row_lacks: HashSet<(crate::types::id::TypeParameterId, crate::field_key::FieldKey)>,
     pub scopes: Vec<HashMap<String, LocalBindingInfo>>,
     pub flow: FlowState,
     pub(crate) normal_return_exits: Vec<crate::checker::analysis::NormalReturnFact>,
@@ -1277,10 +1277,10 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
-    pub(crate) fn stable_record_row_lacks(&self, parameter: crate::types::id::TypeParameterId, field: &str) -> bool {
+    pub(crate) fn stable_record_row_lacks(&self, parameter: crate::types::id::TypeParameterId, field: &crate::field_key::FieldKey) -> bool {
         self.stable_record_row_lacks
             .iter()
-            .any(|(candidate, name)| *candidate == parameter && name.as_ref() == field)
+            .any(|(candidate, key)| *candidate == parameter && key == field)
     }
 
     pub(crate) fn owning_cause_for_current_expression(&self) -> Option<DiagnosticCauseId> {
@@ -3759,7 +3759,7 @@ fn collect_equivalent_rigid_bindings(left: &LocalType, right: &LocalType, bindin
             }
         }
         (LocalType::Record(left), LocalType::Record(right)) if left.len() == right.len() => {
-            for (left, right) in left.iter().zip(right.iter()).filter(|(left, right)| left.name == right.name) {
+            for (left, right) in left.iter().zip(right.iter()).filter(|(left, right)| left.key == right.key) {
                 collect_equivalent_rigid_bindings(&left.ty, &right.ty, bindings);
             }
         }
@@ -3812,7 +3812,7 @@ fn rewrite_local_rigids(local: &LocalType, bindings: &BTreeMap<crate::types::id:
             fields
                 .iter()
                 .map(|field| crate::types::rigid::LocalRecordField {
-                    name: field.name.clone(),
+                    key: field.key.clone(),
                     ty: rewrite_local_rigids(&field.ty, bindings),
                 })
                 .collect(),

@@ -3175,7 +3175,7 @@ fn match_conformance_head_with_mode(
                     .fields
                     .iter()
                     .zip(right.fields.iter())
-                    .all(|(left, right)| left.name == right.name && match_conformance_head_with_mode(store, left.ty, right.ty, mode, bindings))
+                    .all(|(left, right)| left.key == right.key && match_conformance_head_with_mode(store, left.ty, right.ty, mode, bindings))
                 && match (left.tail, right.tail) {
                     (RecordRowTail::Closed, RecordRowTail::Closed) => true,
                     (RecordRowTail::Parameter(p1), RecordRowTail::Parameter(p2)) => p1 == p2,
@@ -4232,8 +4232,14 @@ fn collect_impl_params_in_row(store: &TypeStore, row: RecordRowId, impl_id: &Imp
         collect_impl_params_in_type(store, field.ty, impl_id, out);
     }
     match row_data.tail {
-        RecordRowTail::Closed | RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => {}
-        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => collect_impl_params_in_type(store, ty, impl_id, out),
+        RecordRowTail::Closed => {}
+        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type }) => {
+            collect_impl_params_in_type(store, key_type, impl_id, out)
+        }
+        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type }) => {
+            collect_impl_params_in_type(store, key_type, impl_id, out);
+            collect_impl_params_in_type(store, value_type, impl_id, out);
+        }
         RecordRowTail::Parameter(parameter) => {
             if matches!(&store.type_parameter(parameter).owner, TypeParameterOwner::Impl(owner) if owner == impl_id) {
                 out.insert(parameter);

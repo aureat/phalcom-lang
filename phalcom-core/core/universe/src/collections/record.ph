@@ -1,5 +1,8 @@
 intrinsic type data RecordFields
 
+type FieldKey = Symbol | String | Int | Bool
+
+export FieldKey
 export RecordFields
 
 impl RecordFields {

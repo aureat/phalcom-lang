@@ -522,7 +522,7 @@ fn bind_declaration_pattern(
             for entry in entries {
                 let field_knowledge = source_row
                     .as_ref()
-                    .and_then(|row| row.find_field(&entry.label))
+                    .and_then(|row| entry.label().and_then(|label| row.find_field(&crate::field_key::FieldKey::symbol(label))))
                     .map(|field_ty| fact.knowledge.derive_known_type(field_ty, EvidenceOrigin::PatternDecomposition))
                     .unwrap_or_else(|| match &fact.knowledge {
                         TypeKnowledge::Unknown(reason) => TypeKnowledge::Unknown(reason.clone()),
@@ -547,7 +547,7 @@ fn bind_declaration_pattern(
                     let remainder_fields = row
                         .fields
                         .into_iter()
-                        .filter(|field| !entries.iter().any(|entry| entry.label == field.name.as_ref()))
+                        .filter(|field| !entries.iter().any(|entry| entry.label().is_some_and(|label| field.key == crate::field_key::FieldKey::symbol(label))))
                         .collect();
                     match ctx.store.record_row_checked(remainder_fields, row.tail) {
                         Ok(row_id) => {

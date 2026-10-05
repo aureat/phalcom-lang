@@ -41,3 +41,18 @@ impl From<BigInt> for StaticInt {
         Self::new(value)
     }
 }
+
+impl Ord for StaticInt {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (Self::Small(a), Self::Small(b)) => a.cmp(b),
+            _ => self.to_bigint().cmp(&other.to_bigint()),
+        }
+    }
+}
+
+impl PartialOrd for StaticInt {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}

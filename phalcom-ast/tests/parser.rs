@@ -588,7 +588,7 @@ let Map { #name: value } = mapping
         &rest_binding.pattern,
         Pattern::Record { entries, rest: Some(rest), .. }
             if entries.len() == 1
-                && entries[0].label == "name"
+                && entries[0].label() == Some("name")
                 && matches!(rest.as_ref(), Pattern::Name { name, .. } if name == "rest")
     ));
 
@@ -1394,8 +1394,8 @@ fn parse_structural_record_types() {
     match &alias.type_form_body().unwrap().expr {
         TypeAnnotationExpr::Record { fields, tail, .. } => {
             assert_eq!(fields.len(), 2);
-            assert_eq!(fields[0].name, "name");
-            assert_eq!(fields[1].name, "age");
+            assert_eq!(fields[0].name(), Some("name"));
+            assert_eq!(fields[1].name(), Some("age"));
             assert!(matches!(tail.as_ref().unwrap(), phalcom_ast::ast::RecordRowTailSyntax::Captured(tail) if tail.name == "R"));
         }
         other => panic!("expected Record, got {other:?}"),
@@ -1408,13 +1408,13 @@ fn parse_structural_record_types() {
     match &alias2.type_form_body().unwrap().expr {
         TypeAnnotationExpr::Record { fields, tail, .. } => {
             assert_eq!(fields.len(), 2);
-            assert_eq!(fields[0].name, "name");
+            assert_eq!(fields[0].name(), Some("name"));
             assert!(!fields[0].optional);
-            assert_eq!(fields[1].name, "age");
+            assert_eq!(fields[1].name(), Some("age"));
             assert!(fields[1].optional);
             assert!(matches!(
                 tail.as_ref().unwrap(),
-                phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Unconstrained(_))
+                phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRecordRemainderSyntax::Unconstrained(_))
             ));
         }
         other => panic!("expected Record, got {other:?}"),
@@ -1429,7 +1429,7 @@ fn parse_structural_record_types() {
             assert_eq!(fields.len(), 1);
             assert!(matches!(
                 tail.as_ref().unwrap(),
-                phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Typed { .. })
+                phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedValue { .. })
             ));
         }
         other => panic!("expected Record, got {other:?}"),

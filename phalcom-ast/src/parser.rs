@@ -2722,6 +2722,44 @@ impl<'source> Parser<'source> {
     }
 
     /// Parses a structural record type `{ ... }`.
+    fn parse_record_key_syntax(&mut self) -> ParserResult<RecordKeySyntax> {
+        let start = self.cur_start();
+        if self.eat(&Token::LBracket) {
+            self.skip_newlines();
+            let expr = self.parse_expr()?;
+            self.expect(&Token::RBracket, &["]"])?;
+            Ok(RecordKeySyntax::Computed {
+                expr: Box::new(expr),
+                range: (start..self.prev_end).into(),
+            })
+        } else if let Token::Identifier(name) = self.peek().clone() {
+            self.advance();
+            Ok(RecordKeySyntax::Symbol {
+                name,
+                range: (start..self.prev_end).into(),
+            })
+        } else if let Token::QuotedSymbol(name) = self.peek().clone() {
+            self.advance();
+            Ok(RecordKeySyntax::Symbol {
+                name,
+                range: (start..self.prev_end).into(),
+            })
+        } else if self.eat(&Token::Hash) {
+            let sym = self.parse_hash_symbol()?;
+            let name = match sym {
+                SymbolLiteralKind::Name(n) => n,
+                SymbolLiteralKind::Selector { name, .. } => name,
+                _ => return Err(self.error_here(strs(&["a symbol name"]))),
+            };
+            Ok(RecordKeySyntax::Symbol {
+                name,
+                range: (start..self.prev_end).into(),
+            })
+        } else {
+            Err(self.error_here(strs(&["field name", "\"[\""])))
+        }
+    }
+
     pub fn parse_record_type(&mut self) -> ParserResult<TypeAnnotation> {
         let start = self.cur_start();
         self.expect(&Token::LBrace, &["\"{\""])?;
@@ -2738,7 +2776,7 @@ impl<'source> Parser<'source> {
                 if tail.is_some() {
                     return Err(self.error_message_here("duplicate record remainder or row tail"));
                 }
-                tail = Some(RecordRowTailSyntax::Anonymous(AnonymousRemainderSyntax::Unconstrained(tail_range)));
+                tail = Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::Unconstrained(tail_range)));
                 self.skip_newlines();
                 self.eat(&Token::Comma);
                 self.skip_newlines();
@@ -2756,11 +2794,32 @@ impl<'source> Parser<'source> {
                 if self.eat(&Token::Colon) {
                     self.skip_newlines();
                     let rem = if self.eat(&Token::DotDotDot) {
-                        AnonymousRemainderSyntax::Unconstrained((tail_start..self.prev_end).into())
+                        AnonymousRecordRemainderSyntax::Unconstrained((tail_start..self.prev_end).into())
                     } else {
                         let constraint = self.parse_type_form()?;
-                        AnonymousRemainderSyntax::Typed {
-                            constraint: Box::new(constraint),
+                        AnonymousRecordRemainderSyntax::TypedValue {
+                            value_type: Box::new(constraint),
+                            range: (tail_start..self.prev_end).into(),
+                        }
+                    };
+                    tail = Some(RecordRowTailSyntax::Anonymous(rem));
+                } else if self.eat(&Token::LBracket) {
+                    self.skip_newlines();
+                    let key_type = self.parse_type_form()?;
+                    self.expect(&Token::RBracket, &["]"])?;
+                    self.skip_newlines();
+                    self.expect(&Token::Colon, &["\":\""])?;
+                    self.skip_newlines();
+                    let rem = if self.eat(&Token::DotDotDot) {
+                        AnonymousRecordRemainderSyntax::TypedKey {
+                            key_type: Box::new(key_type),
+                            range: (tail_start..self.prev_end).into(),
+                        }
+                    } else {
+                        let value_type = self.parse_type_form()?;
+                        AnonymousRecordRemainderSyntax::Typed {
+                            key_type: Box::new(key_type),
+                            value_type: Box::new(value_type),
                             range: (tail_start..self.prev_end).into(),
                         }
                     };
@@ -2782,7 +2841,7 @@ impl<'source> Parser<'source> {
             }
 
             let field_start = self.cur_start();
-            let name = self.expect_identifier(&["field name"])?;
+            let key = self.parse_record_key_syntax()?;
             self.skip_newlines();
             let optional = self.eat(&Token::Question);
             self.skip_newlines();
@@ -2791,7 +2850,7 @@ impl<'source> Parser<'source> {
             let ty = self.parse_type_form()?;
             let field_range = (field_start..self.prev_end).into();
             fields.push(RecordTypeField {
-                name,
+                key,
                 ty,
                 optional,
                 range: field_range,
@@ -3774,19 +3833,24 @@ impl<'source> Parser<'source> {
                     break;
                 }
                 let entry_start = self.cur_start();
-                let label = self.parse_pattern_label()?;
+                let key = self.parse_record_key_syntax()?;
                 self.skip_newlines();
                 let pattern = if self.eat(&Token::Colon) {
                     self.skip_newlines();
                     self.parse_pattern()?
                 } else {
-                    Pattern::Name {
-                        name: label.clone(),
-                        range: (entry_start..self.prev_end).into(),
+                    match &key {
+                        RecordKeySyntax::Symbol { name, .. } => Pattern::Name {
+                            name: name.clone(),
+                            range: (entry_start..self.prev_end).into(),
+                        },
+                        RecordKeySyntax::Computed { .. } => {
+                            return Err(self.error_message_here("computed record pattern key requires explicit `: pattern`"));
+                        }
                     }
                 };
                 entries.push(RecordPatternEntry {
-                    label,
+                    key,
                     pattern,
                     range: (entry_start..self.prev_end).into(),
                 });

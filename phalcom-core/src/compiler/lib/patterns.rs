@@ -343,7 +343,8 @@ impl<'vm> Compiler<'vm> {
             Pattern::Record { entries, rest, range } => {
                 self.emit_class_test(value_slot, "Record", failures, *range)?;
                 for entry in entries {
-                    let key = Value::symbol(self.vm.interner.intern(&entry.label));
+                    let label = entry.label().unwrap_or("");
+                    let key = Value::symbol(self.vm.interner.intern(label));
                     let option = self.emit_lookup_temp(value_slot, key, entry.range)?;
                     self.emit_option_test(option, true, failures, entry.range)?;
                     if !matches!(&entry.pattern, Pattern::Name { .. }) {
@@ -352,7 +353,7 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
                 if let Some(rest_pattern) = rest {
-                    let matched: Vec<String> = entries.iter().map(|e| e.label.clone()).collect();
+                    let matched: Vec<String> = entries.iter().filter_map(|e| e.label().map(|s| s.to_string())).collect();
                     let child = self.emit_record_rest_temp(value_slot, &matched, rest_pattern.range())?;
                     self.emit_pattern_match_tests(rest_pattern, child, failures)?;
                 }
@@ -460,7 +461,8 @@ impl<'vm> Compiler<'vm> {
             }
             Pattern::Record { entries, .. } => {
                 for entry in entries {
-                    let key = Value::symbol(self.vm.interner.intern(&entry.label));
+                    let label = entry.label().unwrap_or("");
+                    let key = Value::symbol(self.vm.interner.intern(label));
                     let option = self.emit_lookup_temp(value_slot, key, entry.range)?;
                     let child = self.emit_option_value_temp(option, entry.range)?;
                     self.assign_pattern_from_slot(&entry.pattern, child)?;
@@ -823,17 +825,18 @@ impl<'vm> Compiler<'vm> {
             Pattern::Record { entries, rest, range } => {
                 self.emit_required_class_check(value_slot, "Record", *range)?;
                 for entry in entries {
-                    let key_sym = Value::symbol(self.vm.interner.intern(&entry.label));
+                    let label = entry.label().unwrap_or("");
+                    let key_sym = Value::symbol(self.vm.interner.intern(label));
                     let child = self.emit_required_lookup_value(
                         value_slot,
                         key_sym,
                         entry.range,
-                        format!("destructuring record missing field `{}`", entry.label),
+                        format!("destructuring record missing field `{}`", label),
                     )?;
                     self.compile_pattern_bind_from_slot(&entry.pattern, child, mutable, as_global)?;
                 }
                 if let Some(rest_pattern) = rest {
-                    let matched: Vec<String> = entries.iter().map(|e| e.label.clone()).collect();
+                    let matched: Vec<String> = entries.iter().filter_map(|e| e.label().map(|s| s.to_string())).collect();
                     let rest_slot = self.emit_record_rest_temp(value_slot, &matched, rest_pattern.range())?;
                     self.compile_pattern_bind_from_slot(rest_pattern, rest_slot, mutable, as_global)?;
                 }

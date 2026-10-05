@@ -7508,8 +7508,20 @@ fn collect_alias_dependencies(
             for field in fields {
                 collect_alias_dependencies(&field.ty, module, resolver, aliases, dependencies);
             }
-            if let Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. })) = tail {
-                collect_alias_dependencies(constraint, module, resolver, aliases, dependencies);
+            if let Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(rem)) = tail {
+                match rem {
+                    phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedValue { value_type, .. } => {
+                        collect_alias_dependencies(value_type, module, resolver, aliases, dependencies);
+                    }
+                    phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedKey { key_type, .. } => {
+                        collect_alias_dependencies(key_type, module, resolver, aliases, dependencies);
+                    }
+                    phalcom_ast::ast::AnonymousRecordRemainderSyntax::Typed { key_type, value_type, .. } => {
+                        collect_alias_dependencies(key_type, module, resolver, aliases, dependencies);
+                        collect_alias_dependencies(value_type, module, resolver, aliases, dependencies);
+                    }
+                    phalcom_ast::ast::AnonymousRecordRemainderSyntax::Unconstrained(_) => {}
+                }
             }
         }
         TypeAnnotationExpr::TypeLambda { body, .. } => collect_alias_dependencies(body, module, resolver, aliases, dependencies),
@@ -7625,8 +7637,20 @@ fn collect_associated_projection_targets(
             for field in fields {
                 collect_associated_projection_targets(&field.ty, module, surface, targets);
             }
-            if let Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. })) = tail {
-                collect_associated_projection_targets(constraint, module, surface, targets);
+            if let Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(rem)) = tail {
+                match rem {
+                    phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedValue { value_type, .. } => {
+                        collect_associated_projection_targets(value_type, module, surface, targets);
+                    }
+                    phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedKey { key_type, .. } => {
+                        collect_associated_projection_targets(key_type, module, surface, targets);
+                    }
+                    phalcom_ast::ast::AnonymousRecordRemainderSyntax::Typed { key_type, value_type, .. } => {
+                        collect_associated_projection_targets(key_type, module, surface, targets);
+                        collect_associated_projection_targets(value_type, module, surface, targets);
+                    }
+                    phalcom_ast::ast::AnonymousRecordRemainderSyntax::Unconstrained(_) => {}
+                }
             }
         }
         TypeAnnotationExpr::Callable { parameters, result, .. } => {

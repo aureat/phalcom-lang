@@ -1,5 +1,6 @@
 //! Record-row inference domain kept separate from ordinary type inference.
 
+use crate::field_key::FieldKey;
 use crate::identity::InferVarId;
 use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::instantiation::GenericInstantiation;
@@ -18,17 +19,17 @@ use super::inference::InferenceTerm;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InferenceRecordField {
-    pub name: Box<str>,
+    pub key: FieldKey,
     pub term: InferenceTerm,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum InferenceRecordTail {
     Closed,
     Parameter(TypeParameterId),
     Var(RecordRowVarId),
     Projection(TypeId),
-    Anonymous(crate::types::row::AnonymousRecordRemainder),
+    Anonymous(Box<crate::types::row::AnonymousRecordRemainder<InferenceTerm>>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -42,7 +43,7 @@ pub struct InferenceRecord {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct StableRecordRowLack {
     pub parameter: TypeParameterId,
-    pub field: Box<str>,
+    pub field: FieldKey,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -73,13 +74,19 @@ fn lift_canonical_row_failure(failure: RecordRowFailure<TypeId>) -> RecordRowFai
                     .fields
                     .iter()
                     .map(|field| crate::types::row::RecordRowField {
-                        name: field.name.clone(),
+                        key: field.key.clone(),
                         ty: InferenceTerm::Canonical(field.ty),
                         presence: field.presence,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
-                tail: term.tail,
+        tail: match term.tail.clone() {
+                    RecordRowTermTail::Closed => RecordRowTermTail::Closed,
+                    RecordRowTermTail::Parameter(parameter) => RecordRowTermTail::Parameter(parameter),
+                    RecordRowTermTail::Projection(projection) => RecordRowTermTail::Projection(projection),
+                    RecordRowTermTail::Var(variable) => RecordRowTermTail::Var(variable),
+                    RecordRowTermTail::Anonymous(remainder) => RecordRowTermTail::Anonymous(remainder.map(InferenceTerm::Canonical)),
+                },
             },
         },
         RecordRowFailure::LacksViolation { field, row } => RecordRowFailure::LacksViolation {
@@ -89,21 +96,42 @@ fn lift_canonical_row_failure(failure: RecordRowFailure<TypeId>) -> RecordRowFai
                     .fields
                     .iter()
                     .map(|field| crate::types::row::RecordRowField {
-                        name: field.name.clone(),
+                        key: field.key.clone(),
                         ty: InferenceTerm::Canonical(field.ty),
                         presence: field.presence,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
-                tail: row.tail,
+                tail: match row.tail {
+                    RecordRowTermTail::Closed => RecordRowTermTail::Closed,
+                    RecordRowTermTail::Parameter(parameter) => RecordRowTermTail::Parameter(parameter),
+                    RecordRowTermTail::Projection(projection) => RecordRowTermTail::Projection(projection),
+                    RecordRowTermTail::Var(variable) => RecordRowTermTail::Var(variable),
+                    RecordRowTermTail::Anonymous(remainder) => RecordRowTermTail::Anonymous(remainder.map(InferenceTerm::Canonical)),
+                },
             },
         },
         RecordRowFailure::IncompatibleFields { field, expected, actual } => RecordRowFailure::IncompatibleFields { field, expected, actual },
         RecordRowFailure::MissingField { field } => RecordRowFailure::MissingField { field },
         RecordRowFailure::ExtraField { field } => RecordRowFailure::ExtraField { field },
         RecordRowFailure::DuplicateField(field) => RecordRowFailure::DuplicateField(field),
-        RecordRowFailure::RigidTailMismatch { expected, actual } => RecordRowFailure::RigidTailMismatch { expected, actual },
+        RecordRowFailure::RigidTailMismatch { expected, actual } => RecordRowFailure::RigidTailMismatch {
+            expected: lift_canonical_row_tail(expected),
+            actual: lift_canonical_row_tail(actual),
+        },
         RecordRowFailure::KindMismatch => RecordRowFailure::KindMismatch,
+    }
+}
+
+fn lift_canonical_row_tail(tail: RecordRowTermTail<TypeId>) -> RecordRowTermTail<InferenceTerm> {
+    match tail {
+        RecordRowTermTail::<TypeId>::Closed => RecordRowTermTail::<InferenceTerm>::Closed,
+        RecordRowTermTail::<TypeId>::Parameter(parameter) => RecordRowTermTail::<InferenceTerm>::Parameter(parameter),
+        RecordRowTermTail::<TypeId>::Projection(projection) => RecordRowTermTail::<InferenceTerm>::Projection(projection),
+        RecordRowTermTail::<TypeId>::Var(variable) => RecordRowTermTail::<InferenceTerm>::Var(variable),
+        RecordRowTermTail::<TypeId>::Anonymous(remainder) => {
+            RecordRowTermTail::<InferenceTerm>::Anonymous(remainder.map(InferenceTerm::Canonical))
+        }
     }
 }
 
@@ -118,7 +146,7 @@ struct StableRowLackCollector<'a> {
     visited_domains: HashSet<crate::types::id::StaticDomainId>,
     visited_lambdas: HashSet<crate::types::id::TypeLambdaId>,
     visited_scoped_types: HashSet<crate::types::id::ScopedTypeId>,
-    emitted: HashSet<(TypeParameterId, Box<str>)>,
+    emitted: HashSet<(TypeParameterId, FieldKey)>,
     lacks: Vec<StableRecordRowLack>,
 }
 
@@ -272,11 +300,11 @@ impl<'a> StableRowLackCollector<'a> {
         let row = self.store.record_row(row_id).clone();
         if let RecordRowTail::Parameter(parameter) = row.tail {
             for field in row.fields.iter() {
-                let key = (parameter, field.name.clone());
+                let key = (parameter, field.key.clone());
                 if self.emitted.insert(key) {
                     self.lacks.push(StableRecordRowLack {
                         parameter,
-                        field: field.name.clone(),
+                        field: field.key.clone(),
                     });
                 }
             }
@@ -329,11 +357,11 @@ impl<'a> StableRowLackCollector<'a> {
             ScopedTypeData::OpenRecord(record) => {
                 if let ScopedRecordTail::FreeParameter(parameter) = record.tail {
                     for field in record.fields.iter() {
-                        let key = (parameter, field.name.clone());
+                        let key = (parameter, field.key.clone());
                         if self.emitted.insert(key) {
                             self.lacks.push(StableRecordRowLack {
                                 parameter,
-                                field: field.name.clone(),
+                                field: field.key.clone(),
                             });
                         }
                     }
@@ -345,11 +373,11 @@ impl<'a> StableRowLackCollector<'a> {
             ScopedTypeData::RecordRow(row) => {
                 if let ScopedRecordRowTail::FreeParameter(parameter) = row.tail {
                     for field in row.fields.iter() {
-                        let key = (parameter, field.name.clone());
+                        let key = (parameter, field.key.clone());
                         if self.emitted.insert(key) {
                             self.lacks.push(StableRecordRowLack {
                                 parameter,
-                                field: field.name.clone(),
+                                field: field.key.clone(),
                             });
                         }
                     }
@@ -436,18 +464,21 @@ fn materialize_query_row_term(
             session
                 .materialize(&field.ty, store)
                 .map(|ty| crate::types::row::RecordRowField {
-                    name: field.name.clone(),
+                    key: field.key.clone(),
                     ty,
                     presence: field.presence,
                 })
                 .map_err(|_| CombinedInferenceFailure::UnderconstrainedType(parameter))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let tail = match term.tail {
+    let tail = match term.tail.clone() {
         RecordRowTermTail::Closed => RecordRowTail::Closed,
         RecordRowTermTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
         RecordRowTermTail::Projection(projection) => RecordRowTail::Projection(projection),
-        RecordRowTermTail::Anonymous(remainder) => RecordRowTail::Anonymous(remainder),
+        RecordRowTermTail::Anonymous(remainder) => RecordRowTail::Anonymous(
+            remainder
+                .try_map(|term| session.materialize(&term, store).map_err(|_| CombinedInferenceFailure::UnderconstrainedType(parameter)))?,
+        ),
         RecordRowTermTail::Var(variable) => {
             if !visiting.insert(variable) {
                 return Err(CombinedInferenceFailure::RowZonk {
@@ -760,10 +791,10 @@ impl GenericApplicationSession {
         let actual_row = store.record_row(*actual_row_id).clone();
         let mut ordinary = Vec::new();
         for required in formal.fields.iter() {
-            let Some(actual_field) = actual_row.find_field(&required.name) else {
+            let Some(actual_field) = actual_row.find_field(&required.key) else {
                 return if actual_row.tail == RecordRowTail::Closed {
                     Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(
-                        RecordRowFailure::MissingField { field: required.name.clone() },
+                        RecordRowFailure::MissingField { field: required.key.clone() },
                     )))
                 } else {
                     Err(CombinedInferenceFailure::Blocked(BlockReason::RecursiveFixpoint))
@@ -775,45 +806,40 @@ impl GenericApplicationSession {
         let extra = actual_row
             .fields
             .iter()
-            .filter(|field| !formal.fields.iter().any(|required| required.name == field.name))
+            .filter(|field| !formal.fields.iter().any(|required| required.key == field.key))
             .cloned()
             .collect::<Vec<_>>();
-        let actual_tail = match actual_row.tail {
+        let actual_tail_canonical: RecordRowTermTail<TypeId> = match actual_row.tail {
             RecordRowTail::Closed => RecordRowTermTail::Closed,
             RecordRowTail::Parameter(parameter) => RecordRowTermTail::Parameter(parameter),
             RecordRowTail::Projection(proj) => RecordRowTermTail::Projection(proj),
             RecordRowTail::Anonymous(rem) => RecordRowTermTail::Anonymous(rem),
         };
-        match formal.tail {
+        let actual_tail = lift_canonical_row_tail(actual_tail_canonical.clone());
+        match formal.tail.clone() {
             InferenceRecordTail::Closed => {}
             InferenceRecordTail::Parameter(parameter) => {
                 if !extra.is_empty() || actual_tail != RecordRowTermTail::Parameter(parameter) {
-                    return Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(
-                        RecordRowFailure::RigidTailMismatch {
-                            expected: RecordRowTermTail::Parameter(parameter),
-                            actual: actual_tail,
-                        },
-                    )));
+                    return Err(CombinedInferenceFailure::RowRejected(RecordRowFailure::RigidTailMismatch {
+                        expected: RecordRowTermTail::Parameter(parameter),
+                        actual: actual_tail,
+                    }));
                 }
             }
             InferenceRecordTail::Projection(proj) => {
                 if !extra.is_empty() || actual_tail != RecordRowTermTail::Projection(proj) {
-                    return Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(
-                        RecordRowFailure::RigidTailMismatch {
-                            expected: RecordRowTermTail::Projection(proj),
-                            actual: actual_tail,
-                        },
-                    )));
+                    return Err(CombinedInferenceFailure::RowRejected(RecordRowFailure::RigidTailMismatch {
+                        expected: RecordRowTermTail::Projection(proj),
+                        actual: actual_tail,
+                    }));
                 }
             }
             InferenceRecordTail::Anonymous(rem) => {
-                if !extra.is_empty() || actual_tail != RecordRowTermTail::Anonymous(rem) {
-                    return Err(CombinedInferenceFailure::RowRejected(lift_canonical_row_failure(
-                        RecordRowFailure::RigidTailMismatch {
-                            expected: RecordRowTermTail::Anonymous(rem),
-                            actual: actual_tail,
-                        },
-                    )));
+                if !extra.is_empty() || actual_tail != RecordRowTermTail::Anonymous(rem.as_ref().clone()) {
+                    return Err(CombinedInferenceFailure::RowRejected(RecordRowFailure::RigidTailMismatch {
+                        expected: RecordRowTermTail::Anonymous(rem.as_ref().clone()),
+                        actual: actual_tail,
+                    }));
                 }
             }
             InferenceRecordTail::Var(variable) => {
@@ -826,7 +852,7 @@ impl GenericApplicationSession {
                         fields: extra
                             .into_iter()
                             .map(|field| InferenceRecordField {
-                                name: field.name,
+                                key: field.key,
                                 term: InferenceTerm::Canonical(field.ty),
                             })
                             .collect::<Vec<_>>()
@@ -836,7 +862,7 @@ impl GenericApplicationSession {
                             RecordRowTermTail::Parameter(parameter) => InferenceRecordTail::Parameter(parameter),
                             RecordRowTermTail::Projection(projection) => InferenceRecordTail::Projection(projection),
                             RecordRowTermTail::Var(variable) => InferenceRecordTail::Var(variable),
-                            RecordRowTermTail::Anonymous(rem) => InferenceRecordTail::Anonymous(rem),
+                            RecordRowTermTail::Anonymous(rem) => InferenceRecordTail::Anonymous(Box::new(rem)),
                         },
                     };
                     session.borrow_mut().enqueue_record_row_equation(&left, &right);
@@ -848,7 +874,7 @@ impl GenericApplicationSession {
                         },
                         RecordRowTerm {
                             fields: extra.into_boxed_slice(),
-                            tail: actual_tail,
+                            tail: actual_tail_canonical,
                         },
                     ));
                 }
@@ -865,7 +891,7 @@ impl GenericApplicationSession {
         &mut self,
         parameter: TypeParameterId,
         fields: Vec<InferenceRecordField>,
-        fixed_fields: Vec<Box<str>>,
+        fixed_fields: Vec<FieldKey>,
     ) -> Result<(), CombinedInferenceFailure<InferenceTerm>> {
         let Some(GenericInferenceBinding::RecordRow(variable)) = self.parameter_bindings.get(&parameter).copied() else {
             return Err(CombinedInferenceFailure::UnderconstrainedRow(parameter));
@@ -1017,7 +1043,12 @@ impl GenericApplicationSession {
         proof
     }
 
-    pub fn solve_rows(&mut self, store: &TypeStore, budget: &mut QueryBudget, cancellation: &CancellationToken) -> RecordRowSolveResult {
+    pub fn solve_rows(
+        &mut self,
+        store: &TypeStore,
+        budget: &mut QueryBudget,
+        cancellation: &CancellationToken,
+    ) -> RecordRowSolveResult {
         self.rows.solve_many(&self.row_equations, store, budget, cancellation)
     }
 

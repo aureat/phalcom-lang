@@ -471,18 +471,8 @@ fn lowers_structural_record_annotations() {
     let record_ann = TypeAnnotation {
         expr: TypeAnnotationExpr::Record {
             fields: vec![
-                phalcom_ast::ast::RecordTypeField {
-                    name: "x".into(),
-                    ty: reference("Int"),
-                    optional: false,
-                    range: RANGE,
-                },
-                phalcom_ast::ast::RecordTypeField {
-                    name: "y".into(),
-                    ty: reference("Int"),
-                    optional: false,
-                    range: RANGE,
-                },
+                phalcom_ast::ast::RecordTypeField::symbol("x", reference("Int"), false, RANGE),
+                phalcom_ast::ast::RecordTypeField::symbol("y", reference("Int"), false, RANGE),
             ],
             tail: None,
             range: RANGE,
@@ -508,12 +498,7 @@ fn open_record_tail_is_preserved_without_closed_record_recovery() {
     env.resolver.insert_record_row_binding("R", row_parameter);
     let closed = TypeAnnotation {
         expr: TypeAnnotationExpr::Record {
-            fields: vec![phalcom_ast::ast::RecordTypeField {
-                name: "name".into(),
-                ty: reference("String"),
-                optional: false,
-                range: RANGE,
-            }],
+            fields: vec![phalcom_ast::ast::RecordTypeField::symbol("name", reference("String"), false, RANGE)],
             tail: None,
             range: RANGE,
         },
@@ -524,12 +509,7 @@ fn open_record_tail_is_preserved_without_closed_record_recovery() {
 
     let open = TypeAnnotation {
         expr: TypeAnnotationExpr::Record {
-            fields: vec![phalcom_ast::ast::RecordTypeField {
-                name: "name".into(),
-                ty: reference("String"),
-                optional: false,
-                range: RANGE,
-            }],
+            fields: vec![phalcom_ast::ast::RecordTypeField::symbol("name", reference("String"), false, RANGE)],
             tail: Some(phalcom_ast::ast::RecordRowTailSyntax::Captured(phalcom_ast::ast::RecordRowTail {
                 name: "R".into(),
                 range: RANGE,
@@ -554,12 +534,7 @@ fn wrong_kind_record_row_tail_is_reported_at_checked_boundary() {
     env.resolver.insert_type_form_binding("R", int_form);
     let annotation = TypeAnnotation {
         expr: TypeAnnotationExpr::Record {
-            fields: vec![phalcom_ast::ast::RecordTypeField {
-                name: "value".into(),
-                ty: reference("Int"),
-                optional: false,
-                range: RANGE,
-            }],
+            fields: vec![phalcom_ast::ast::RecordTypeField::symbol("value", reference("Int"), false, RANGE)],
             tail: Some(phalcom_ast::ast::RecordRowTailSyntax::Captured(phalcom_ast::ast::RecordRowTail {
                 name: "R".into(),
                 range: RANGE,
@@ -676,12 +651,7 @@ fn scoped_open_record_captures_free_record_row_tail() {
     env.resolver.insert_record_row_binding("R", row_parameter);
     let body = TypeAnnotation {
         expr: TypeAnnotationExpr::Record {
-            fields: vec![phalcom_ast::ast::RecordTypeField {
-                name: "value".into(),
-                ty: reference("T"),
-                optional: false,
-                range: RANGE,
-            }],
+            fields: vec![phalcom_ast::ast::RecordTypeField::symbol("value", reference("T"), false, RANGE)],
             tail: Some(phalcom_ast::ast::RecordRowTailSyntax::Captured(phalcom_ast::ast::RecordRowTail {
                 name: "R".into(),
                 range: RANGE,
@@ -1896,12 +1866,7 @@ fn intrinsic_record_application_keeps_the_record_row_identity_outside_type_id() 
 
     let record_shape = TypeAnnotation {
         expr: TypeAnnotationExpr::Record {
-            fields: vec![phalcom_ast::ast::RecordTypeField {
-                name: "name".into(),
-                ty: reference("String"),
-                optional: false,
-                range: RANGE,
-            }],
+            fields: vec![phalcom_ast::ast::RecordTypeField::symbol("name", reference("String"), false, RANGE)],
             tail: None,
             range: RANGE,
         },
@@ -2101,12 +2066,7 @@ fn scoped_record_row_type_fields_substitute_and_alpha_normalize() {
                 operator_range: RANGE,
                 operand: TypeAnnotation {
                     expr: TypeAnnotationExpr::Record {
-                        fields: vec![phalcom_ast::ast::RecordTypeField {
-                            name: "payload".into(),
-                            ty: reference(parameter),
-                            optional: false,
-                            range: RANGE,
-                        }],
+                        fields: vec![phalcom_ast::ast::RecordTypeField::symbol("payload", reference(parameter), false, RANGE)],
                         tail: None,
                         range: RANGE,
                     },

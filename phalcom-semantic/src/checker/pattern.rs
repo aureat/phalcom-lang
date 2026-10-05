@@ -172,7 +172,7 @@ fn resolve_pattern_with_mode(
                         let remainder_fields: Vec<crate::types::row::RecordRowField> = row
                             .fields
                             .iter()
-                            .filter(|f| !entries.iter().any(|e| e.label == f.name.as_ref()))
+                            .filter(|f| !entries.iter().any(|e| e.label().is_some_and(|name| f.key == crate::field_key::FieldKey::symbol(name))))
                             .cloned()
                             .collect();
                         let remainder_row_id = ctx.store.record_row_checked(remainder_fields, row.tail).unwrap_or(row_id);
@@ -204,27 +204,32 @@ fn resolve_record_pattern(
     let mut resolved = Vec::with_capacity(entries.len());
 
     for entry in entries {
-        let field_ty = match &known_row {
-            Some(row) => match row.find_field(&entry.label) {
+        let label_opt = entry.label();
+        let key_opt = label_opt.map(crate::field_key::FieldKey::symbol);
+        let field_ty = match (&known_row, key_opt.as_ref()) {
+            (Some(row), Some(key)) => match row.find_field(key) {
                 Some(ty) => Some(ty),
                 None if matches!(row.tail, crate::types::row::RecordRowTail::Closed) => {
                     ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
                         crate::diagnostic::DiagnosticCode::MatchPatternFieldMismatch,
-                        format!("record field `{}` is not present in scrutinee type", entry.label),
+                        format!("record field `{}` is not present in scrutinee type", key),
                         entry.range,
                     ));
                     None
                 }
                 None => None,
             },
-            None => None,
+            _ => None,
         };
         let child_ty = field_ty.unwrap_or_else(|| conservative_pattern_type(ctx, subject.canonical));
-        let child_subject = record_field_subject(subject, &entry.label, child_ty);
+        let child_subject = key_opt
+            .as_ref()
+            .map(|key| record_field_subject(subject, key, child_ty))
+            .unwrap_or_else(|| CoverageSubject::canonical(child_ty));
         let child = resolve_pattern_with_mode(ctx, &entry.pattern, &child_subject, bindings, binding_mode);
         resolved.push(crate::match_semantics::ResolvedRecordFieldPattern {
-            label: entry.label.clone().into_boxed_str(),
+            label: label_opt.unwrap_or("").into(),
             child: Box::new(child),
         });
     }
@@ -270,9 +275,9 @@ fn conservative_pattern_type(ctx: &mut CheckingContext<'_>, fallback: TypeId) ->
     ctx.core_type(&ctx.core_ids.object.clone()).unwrap_or(fallback)
 }
 
-fn record_field_subject(subject: &CoverageSubject, label: &str, canonical: TypeId) -> CoverageSubject {
+fn record_field_subject(subject: &CoverageSubject, key: &crate::field_key::FieldKey, canonical: TypeId) -> CoverageSubject {
     let local = match &subject.local {
-        LocalType::Record(fields) => fields.iter().find(|field| field.name.as_ref() == label).map(|field| field.ty.clone()),
+        LocalType::Record(fields) => fields.iter().find(|field| &field.key == key).map(|field| field.ty.clone()),
         _ => None,
     };
     CoverageSubject::from_parts(canonical, local.unwrap_or(LocalType::Canonical(canonical)))

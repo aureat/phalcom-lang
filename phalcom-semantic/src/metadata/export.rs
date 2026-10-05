@@ -6,6 +6,7 @@ use crate::data_semantics::DataSemanticTable;
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::declarations::DeclarationTypeTable;
 use crate::enum_semantics::EnumSemanticTable;
+use crate::field_key::{FieldKey, FieldKeyKind};
 use crate::identity::AssociatedStaticDomainDeclarationId;
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::type_alias::TypeAliasTable;
@@ -60,6 +61,10 @@ pub enum MetadataExportError {
     InvalidGenericSignature(GenericSignaturePublicationError),
     #[error("non-exportable internal form: {0:?}")]
     NonExportableForm(TypeId),
+    #[error("legacy metadata cannot represent a {0:?} Record field key")]
+    NonExportableRecordKey(FieldKeyKind),
+    #[error("legacy metadata cannot represent a Record remainder outside the Symbol key domain")]
+    NonExportableRecordKeyDomain,
     #[error("cannot export scoped pack form before stable P2 metadata lowering")]
     ScopedPackForm,
     #[error("resolved-project metadata requires ProjectUniverse identity context")]
@@ -164,6 +169,25 @@ pub struct MetadataExporter<'a> {
 }
 
 impl<'a> MetadataExporter<'a> {
+    fn legacy_record_field_name(key: &FieldKey) -> Result<Box<str>, MetadataExportError> {
+        match key {
+            FieldKey::Symbol(name) => Ok(name.as_ref().into()),
+            other => Err(MetadataExportError::NonExportableRecordKey(other.kind())),
+        }
+    }
+
+    fn is_legacy_symbol_key_domain(&self, key_type: TypeId) -> bool {
+        let symbol = crate::core_surface::CoreDeclarationIds::default().symbol;
+        matches!(self.store.get(key_type), TypeData::Nominal { declaration } if declaration == &symbol)
+    }
+
+    fn is_scoped_legacy_symbol_key_domain(&self, key_type: ScopedTypeId) -> bool {
+        match self.store.arena().get_scoped(key_type) {
+            ScopedTypeData::Free(ty) => self.is_legacy_symbol_key_domain(*ty),
+            _ => false,
+        }
+    }
+
     fn stable_module(&self, module: &phalcom_modules::ModuleId) -> phalcom_type_meta::identity::StableModuleRef {
         self.identity_context
             .as_ref()
@@ -556,7 +580,7 @@ impl<'a> MetadataExporter<'a> {
                         crate::types::store::StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
                     };
                     fields.push(RecordFieldRef {
-                        name: field.name.clone(),
+                        name: Self::legacy_record_field_name(&field.key)?,
                         ty: self.export_type_form(field.ty)?,
                         presence,
                     });
@@ -566,9 +590,17 @@ impl<'a> MetadataExporter<'a> {
                     crate::types::row::RecordRowTail::Parameter(parameter) => (Some(self.export_type_parameter(parameter)?), None),
                     crate::types::row::RecordRowTail::Anonymous(rem) => {
                         let rem_ref = match rem {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained => AnonymousRecordRemainderRef::Unconstrained,
-                            crate::types::row::AnonymousRecordRemainder::Typed(ty) => {
-                                let id = self.export_type_form(ty)?;
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type } => {
+                                if !self.is_legacy_symbol_key_domain(key_type) {
+                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
+                                }
+                                AnonymousRecordRemainderRef::Unconstrained
+                            }
+                            crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type } => {
+                                if !self.is_legacy_symbol_key_domain(key_type) {
+                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
+                                }
+                                let id = self.export_type_form(value_type)?;
                                 AnonymousRecordRemainderRef::Typed(id)
                             }
                         };
@@ -807,26 +839,6 @@ impl<'a> MetadataExporter<'a> {
         Ok(param_ref)
     }
 
-    fn export_scoped_free_type_node(&mut self, global_id: TypeNodeId) -> ScopedTypeNodeId {
-        let scoped_node = ScopedTypeNode::Free(global_id);
-        if let Some(&id) = self.scoped_map.get(&scoped_node) {
-            return id;
-        }
-        let mut fp_b = FingerprintBuilder::new();
-        fp_b.write_u8(2);
-        fp_b.write_fingerprint(self.types[global_id.0 as usize].structural_fingerprint);
-        let structural_fingerprint = fp_b.finish();
-        let id = ScopedTypeNodeId(self.scoped_types.len() as u32);
-        let kind = self.types[global_id.0 as usize].kind;
-        self.scoped_types.push(ScopedTypeNodeEntry {
-            kind,
-            form: scoped_node.clone(),
-            structural_fingerprint,
-        });
-        self.scoped_map.insert(scoped_node, id);
-        id
-    }
-
     pub fn export_scoped_type(&mut self, scoped_id: ScopedTypeId) -> Result<ScopedTypeNodeId, MetadataExportError> {
         self.export_scoped_type_with_binders(scoped_id, &[])
     }
@@ -886,7 +898,7 @@ impl<'a> MetadataExporter<'a> {
                         crate::types::store::StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
                     };
                     f_nodes.push(ScopedRecordFieldRef {
-                        name: f.name.clone(),
+                        name: Self::legacy_record_field_name(&f.key)?,
                         ty,
                         presence,
                     });
@@ -904,7 +916,7 @@ impl<'a> MetadataExporter<'a> {
                             crate::types::store::StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
                         };
                         Ok(ScopedRecordFieldRef {
-                            name: field.name.clone(),
+                            name: Self::legacy_record_field_name(&field.key)?,
                             ty,
                             presence,
                         })
@@ -917,10 +929,18 @@ impl<'a> MetadataExporter<'a> {
                     }
                     crate::types::type_lambda::ScopedRecordTail::Anonymous(remainder) => {
                         let rem = match remainder {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained => ScopedAnonymousRecordRemainderRef::Unconstrained,
-                            crate::types::row::AnonymousRecordRemainder::Typed(ty) => {
-                                let node_id = self.export_type_form(ty)?;
-                                ScopedAnonymousRecordRemainderRef::Typed(self.export_scoped_free_type_node(node_id))
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type } => {
+                                if !self.is_scoped_legacy_symbol_key_domain(key_type) {
+                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
+                                }
+                                ScopedAnonymousRecordRemainderRef::Unconstrained
+                            }
+                            crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type } => {
+                                if !self.is_scoped_legacy_symbol_key_domain(key_type) {
+                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
+                                }
+                                let node_id = self.export_scoped_type_with_binders(value_type, binder_kinds)?;
+                                ScopedAnonymousRecordRemainderRef::Typed(node_id)
                             }
                         };
                         ScopedRecordTailRef::Anonymous(rem)
@@ -942,7 +962,7 @@ impl<'a> MetadataExporter<'a> {
                             crate::types::store::StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
                         };
                         Ok(ScopedRecordFieldRef {
-                            name: field.name.clone(),
+                            name: Self::legacy_record_field_name(&field.key)?,
                             ty,
                             presence,
                         })
@@ -959,10 +979,18 @@ impl<'a> MetadataExporter<'a> {
                     }
                     crate::types::type_lambda::ScopedRecordRowTail::Anonymous(remainder) => {
                         let rem = match remainder {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained => ScopedAnonymousRecordRemainderRef::Unconstrained,
-                            crate::types::row::AnonymousRecordRemainder::Typed(ty) => {
-                                let node_id = self.export_type_form(ty)?;
-                                ScopedAnonymousRecordRemainderRef::Typed(self.export_scoped_free_type_node(node_id))
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type } => {
+                                if !self.is_scoped_legacy_symbol_key_domain(key_type) {
+                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
+                                }
+                                ScopedAnonymousRecordRemainderRef::Unconstrained
+                            }
+                            crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type } => {
+                                if !self.is_scoped_legacy_symbol_key_domain(key_type) {
+                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
+                                }
+                                let node_id = self.export_scoped_type_with_binders(value_type, binder_kinds)?;
+                                ScopedAnonymousRecordRemainderRef::Typed(node_id)
                             }
                         };
                         ScopedRecordRowTailRef::Anonymous(rem)
@@ -1525,7 +1553,7 @@ impl<'a> MetadataExporter<'a> {
                         StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
                     };
                     field_refs.push(RecordFieldRef {
-                        name: f.name.clone(),
+                        name: Self::legacy_record_field_name(&f.key)?,
                         ty: ty_id,
                         presence,
                     });
@@ -1538,8 +1566,18 @@ impl<'a> MetadataExporter<'a> {
                     }),
                     crate::types::row::RecordRowTail::Anonymous(remainder) => {
                         let rem_ref = match remainder {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained => AnonymousRecordRemainderRef::Unconstrained,
-                            crate::types::row::AnonymousRecordRemainder::Typed(t) => AnonymousRecordRemainderRef::Typed(self.export_type_form(t)?),
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type } => {
+                                if !self.is_legacy_symbol_key_domain(key_type) {
+                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
+                                }
+                                AnonymousRecordRemainderRef::Unconstrained
+                            }
+                            crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type } => {
+                                if !self.is_legacy_symbol_key_domain(key_type) {
+                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
+                                }
+                                AnonymousRecordRemainderRef::Typed(self.export_type_form(value_type)?)
+                            }
                         };
                         TypeNode::AnonymousRecord(AnonymousRecordTypeRef {
                             fields: field_refs.into_boxed_slice(),

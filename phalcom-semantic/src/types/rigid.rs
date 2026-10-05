@@ -7,6 +7,7 @@
 use super::id::{KindId, RigidScopeId, RigidTypeVariableId, TypeId};
 use super::row::RecordRowTail;
 use super::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeData, TypeStore};
+use crate::field_key::FieldKey;
 use crate::identity::VariantId;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -84,7 +85,7 @@ pub struct LocalTupleElement {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct LocalRecordField {
-    pub name: Box<str>,
+    pub key: FieldKey,
     pub ty: LocalType,
 }
 
@@ -224,7 +225,7 @@ impl LocalType {
                         && left
                             .iter()
                             .zip(right.iter())
-                            .all(|(left, right)| left.name == right.name && compare(&left.ty, &right.ty, mapping, reverse))
+                            .all(|(left, right)| left.key == right.key && compare(&left.ty, &right.ty, mapping, reverse))
                 }
                 (
                     LocalType::Callable {
@@ -285,7 +286,7 @@ impl LocalType {
                 let mut record = Vec::with_capacity(fields.len());
                 for field in fields.iter() {
                     record.push(RecordTypeField {
-                        name: field.name.clone(),
+                        key: field.key.clone(),
                         ty: field.ty.materialize(store)?,
                         presence: crate::types::row::StructuralMemberPresence::Required,
                     });
@@ -346,7 +347,7 @@ impl LocalType {
                     .fields
                     .iter()
                     .map(|field| LocalRecordField {
-                        name: field.name.clone(),
+                        key: field.key.clone(),
                         ty: Self::from_canonical(store, field.ty, replacements),
                     })
                     .collect(),
@@ -408,7 +409,7 @@ impl LocalType {
                     .fields
                     .iter()
                     .map(|field| LocalRecordField {
-                        name: field.name.clone(),
+                        key: field.key.clone(),
                         ty: Self::from_canonical_types(store, field.ty, replacements),
                     })
                     .collect(),

@@ -349,7 +349,7 @@ fn materialize_row(
         .iter()
         .map(|field| {
             Ok(RecordRowField {
-                name: field.name.clone(),
+                key: field.key.clone(),
                 ty: materialize_type_inner(store, field.ty, instantiation, row_mode, visiting_rows)?,
                 presence: field.presence,
             })

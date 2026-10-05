@@ -229,7 +229,7 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
             let subst_fields: Vec<RecordRowField> = fields
                 .into_iter()
                 .map(|f| RecordRowField {
-                    name: f.name,
+                    key: f.key,
                     ty: materialize_view(store, f.ty, env),
                     presence: f.presence,
                 })

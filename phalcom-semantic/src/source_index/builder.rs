@@ -568,8 +568,20 @@ impl TypeReferenceTargetCollector<'_> {
                 for field in fields {
                     self.annotation(&field.ty, bound);
                 }
-                if let Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. })) = tail {
-                    self.annotation(constraint, bound);
+                if let Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(rem)) = tail {
+                    match rem {
+                        phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedValue { value_type, .. } => {
+                            self.annotation(value_type, bound);
+                        }
+                        phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedKey { key_type, .. } => {
+                            self.annotation(key_type, bound);
+                        }
+                        phalcom_ast::ast::AnonymousRecordRemainderSyntax::Typed { key_type, value_type, .. } => {
+                            self.annotation(key_type, bound);
+                            self.annotation(value_type, bound);
+                        }
+                        phalcom_ast::ast::AnonymousRecordRemainderSyntax::Unconstrained(_) => {}
+                    }
                 }
             }
             TypeAnnotationExpr::TypeLambda { parameters, body, .. } => {
@@ -836,8 +848,20 @@ impl SourceScopeBuilder<'_> {
                 for field in fields {
                     self.visit_annotation_projection_targets(&field.ty);
                 }
-                if let Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. })) = tail {
-                    self.visit_annotation_projection_targets(constraint);
+                if let Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(rem)) = tail {
+                    match rem {
+                        phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedValue { value_type, .. } => {
+                            self.visit_annotation_projection_targets(value_type);
+                        }
+                        phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedKey { key_type, .. } => {
+                            self.visit_annotation_projection_targets(key_type);
+                        }
+                        phalcom_ast::ast::AnonymousRecordRemainderSyntax::Typed { key_type, value_type, .. } => {
+                            self.visit_annotation_projection_targets(key_type);
+                            self.visit_annotation_projection_targets(value_type);
+                        }
+                        phalcom_ast::ast::AnonymousRecordRemainderSyntax::Unconstrained(_) => {}
+                    }
                 }
             }
             TypeAnnotationExpr::Callable { parameters, result, .. } => {

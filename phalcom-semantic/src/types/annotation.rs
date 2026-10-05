@@ -23,8 +23,12 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::identity::{DeclarationId, DispatchSide, ModuleId};
 use crate::traits::{AssociatedTypeRequirementId, TraitRef};
 use phalcom_ast::ast::{
-    ExpansionMode, GenericConstraintSyntax, GenericParameterSyntax, KindSyntax, TypeAnnotation, TypeAnnotationExpr, VarianceSyntax, WhereClauseSyntax,
+    ExpansionMode, Expr, GenericConstraintSyntax, GenericParameterSyntax, KindSyntax, TypeAnnotation, TypeAnnotationExpr, VarianceSyntax,
+    WhereClauseSyntax,
 };
+use crate::field_key::FieldKey;
+use crate::scalar::StaticInt;
+use num_bigint::BigInt;
 use std::collections::BTreeMap;
 
 /// Lexical type-level binding domain. Record-row binders cannot be represented as value type forms.
@@ -354,7 +358,9 @@ pub enum TypeFormationInvalid {
     TooManyTypeArguments,
     TypeArgumentKindMismatch,
     MalformedTypeLambda,
-    DuplicateRecordField(Box<str>),
+    DuplicateRecordField(FieldKey),
+    RecordKeyNotStatic,
+    InvalidRecordFieldKey,
     GenericConstraintOperandNotType,
     InvalidVariance,
     RecordRowTailKindMismatch { actual: KindId },
@@ -757,6 +763,41 @@ macro_rules! scoped_ready_or_propagate {
 
 fn intern_scoped_free(store: &mut TypeStore, ty: TypeId) -> crate::types::id::ScopedTypeId {
     store.arena_mut().intern_scoped(ScopedTypeData::Free(ty))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RecordKeyProjectionFailure {
+    NotStatic,
+    InvalidFieldKey,
+}
+
+/// Projects the exact, already-decoded scalar literal forms into owned Record
+/// keys. General expressions stay with the checker-owned static-resolution
+/// path; annotation lowering never evaluates or resolves names here.
+fn record_field_key_literal(expr: &Expr) -> Result<FieldKey, RecordKeyProjectionFailure> {
+    match expr {
+        Expr::Int { digits, radix, .. } => {
+            let digits = digits.replace('_', "");
+            BigInt::parse_bytes(digits.as_bytes(), *radix)
+                .map(|value| FieldKey::int(StaticInt::new(value)))
+                .ok_or(RecordKeyProjectionFailure::InvalidFieldKey)
+        }
+        Expr::String { value, .. } => Ok(FieldKey::string(value.clone())),
+        Expr::Boolean { value, .. } => Ok(FieldKey::bool(*value)),
+        Expr::Float { .. } => Err(RecordKeyProjectionFailure::InvalidFieldKey),
+        Expr::Symbol(symbol) => match &symbol.kind {
+            phalcom_ast::ast::SymbolLiteralKind::Name(name) => Ok(FieldKey::symbol(name.clone())),
+            _ => Err(RecordKeyProjectionFailure::InvalidFieldKey),
+        },
+        _ => Err(RecordKeyProjectionFailure::NotStatic),
+    }
+}
+
+fn record_key_syntax(key: &phalcom_ast::ast::RecordKeySyntax) -> Result<FieldKey, RecordKeyProjectionFailure> {
+    match key {
+        phalcom_ast::ast::RecordKeySyntax::Symbol { name, .. } => Ok(FieldKey::symbol(name.clone())),
+        phalcom_ast::ast::RecordKeySyntax::Computed { expr, .. } => record_field_key_literal(expr),
+    }
 }
 
 fn scoped_kind(store: &mut TypeStore, scoped: crate::types::id::ScopedTypeId, binders: &ScopedBinderStack) -> KindResolution {
@@ -1259,7 +1300,7 @@ fn lower_scoped_type_form(
                                     .fields
                                     .iter()
                                     .map(|field| ScopedRecordField {
-                                        name: field.name.clone(),
+                                        key: field.key.clone(),
                                         ty: intern_scoped_free(store, field.ty),
                                         presence: field.presence,
                                     })
@@ -1269,7 +1310,9 @@ fn lower_scoped_type_form(
                                     RecordRowTail::Closed => ScopedRecordRowTail::Closed,
                                     RecordRowTail::Parameter(parameter) => ScopedRecordRowTail::FreeParameter(parameter),
                                     RecordRowTail::Projection(projection) => ScopedRecordRowTail::Projection(projection),
-                                    RecordRowTail::Anonymous(remainder) => ScopedRecordRowTail::Anonymous(remainder),
+                                    RecordRowTail::Anonymous(remainder) => {
+                                        ScopedRecordRowTail::Anonymous(remainder.map(|ty| intern_scoped_free(store, ty)))
+                                    }
                                 };
                                 store.arena_mut().intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow { fields, tail }))
                             }
@@ -1612,8 +1655,35 @@ fn lower_scoped_type_form(
             let mut names = std::collections::HashSet::new();
             let mut scoped_fields = Vec::with_capacity(fields.len());
             for field in fields {
-                if !names.insert(field.name.clone()) {
-                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::DuplicateRecordField(field.name.clone().into()));
+                let key = match record_key_syntax(&field.key) {
+                    Ok(key) => key,
+                    Err(RecordKeyProjectionFailure::NotStatic) => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::RecordKeyNotStatic,
+                            "computed Record type key must be a supported static literal",
+                            field.key.range(),
+                        ));
+                        return TypeFormationOutcome::Invalid(TypeFormationInvalid::RecordKeyNotStatic);
+                    }
+                    Err(RecordKeyProjectionFailure::InvalidFieldKey) => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::RecordInvalidFieldKey,
+                            "computed Record type key must be Symbol, String, Int, or Bool",
+                            field.key.range(),
+                        ));
+                        return TypeFormationOutcome::Invalid(TypeFormationInvalid::InvalidRecordFieldKey);
+                    }
+                };
+                if !names.insert(key.clone()) {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::RecordDuplicateField,
+                        format!("duplicate field `{key}` in record type annotation"),
+                        field.range,
+                    ));
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::DuplicateRecordField(key));
                 }
                 let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, &field.ty, diagnostics,));
                 scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, field.range, diagnostics));
@@ -1623,7 +1693,7 @@ fn lower_scoped_type_form(
                     super::row::StructuralMemberPresence::Required
                 };
                 scoped_fields.push(ScopedRecordField {
-                    name: field.name.clone().into(),
+                    key,
                     ty,
                     presence,
                 });
@@ -1670,17 +1740,35 @@ fn lower_scoped_type_form(
                         }
                     }
                 }
-                phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Unconstrained(_)) => {
-                    ScopedRecordTail::Anonymous(super::row::AnonymousRecordRemainder::Unconstrained)
+                phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRecordRemainderSyntax::Unconstrained(_)) => {
+                    let key_ty = store.field_key_type(declarations);
+                    ScopedRecordTail::Anonymous(super::row::AnonymousRecordRemainder::Unconstrained {
+                        key_type: intern_scoped_free(store, key_ty),
+                    })
                 }
-                phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, range }) => {
-                    let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, constraint, diagnostics));
-                    scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, *range, diagnostics));
-                    if let ScopedTypeData::Free(ty_id) = store.arena().get_scoped(ty) {
-                        ScopedRecordTail::Anonymous(super::row::AnonymousRecordRemainder::Typed(*ty_id))
-                    } else {
-                        ScopedRecordTail::Anonymous(super::row::AnonymousRecordRemainder::Unconstrained)
-                    }
+                phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedValue { value_type, range }) => {
+                    let value_ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, value_type, diagnostics));
+                    scoped_ready_or_propagate!(require_scoped_proper(store, value_ty, binders, current_module, *range, diagnostics));
+                    let key_ty = store.field_key_type(declarations);
+                    ScopedRecordTail::Anonymous(super::row::AnonymousRecordRemainder::Typed {
+                        key_type: intern_scoped_free(store, key_ty),
+                        value_type: value_ty,
+                    })
+                }
+                phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedKey { key_type, range }) => {
+                    let key_ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, key_type, diagnostics));
+                    scoped_ready_or_propagate!(require_scoped_proper(store, key_ty, binders, current_module, *range, diagnostics));
+                    ScopedRecordTail::Anonymous(super::row::AnonymousRecordRemainder::Unconstrained { key_type: key_ty })
+                }
+                phalcom_ast::ast::RecordRowTailSyntax::Anonymous(phalcom_ast::ast::AnonymousRecordRemainderSyntax::Typed { key_type, value_type, range }) => {
+                    let key_ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, key_type, diagnostics));
+                    scoped_ready_or_propagate!(require_scoped_proper(store, key_ty, binders, current_module, *range, diagnostics));
+                    let value_ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, value_type, diagnostics));
+                    scoped_ready_or_propagate!(require_scoped_proper(store, value_ty, binders, current_module, *range, diagnostics));
+                    ScopedRecordTail::Anonymous(super::row::AnonymousRecordRemainder::Typed {
+                        key_type: key_ty,
+                        value_type: value_ty,
+                    })
                 }
             };
             TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord {
@@ -3032,7 +3120,7 @@ pub fn resolve_type_form(
                                         format!("duplicate label `{}` in tuple type annotation", label),
                                         elem.range,
                                     ));
-                                    return TypeFormResolution::Invalid(TypeFormationInvalid::DuplicateRecordField(label.clone().into()));
+                                    return TypeFormResolution::Invalid(TypeFormationInvalid::DuplicateRecordField(FieldKey::symbol(label.clone())));
                                 }
                                 tuple_elements.push(super::store::TupleTypeElement {
                                     label: Some(label.clone().into()),
@@ -3220,6 +3308,7 @@ pub fn resolve_type_form(
             }
         }
         TypeAnnotationExpr::Record { fields, tail, range: _ } => {
+            let default_key_type = store.field_key_type(declarations);
             let record_tail = match tail {
                 None => RecordRowTail::Closed,
                 Some(phalcom_ast::ast::RecordRowTailSyntax::Captured(tail)) => match resolver.resolve_type_level_binding(&tail.name) {
@@ -3245,11 +3334,13 @@ pub fn resolve_type_form(
                     }
                 },
                 Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(rem)) => match rem {
-                    phalcom_ast::ast::AnonymousRemainderSyntax::Unconstrained(_) => {
-                        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained)
+                    phalcom_ast::ast::AnonymousRecordRemainderSyntax::Unconstrained(_) => {
+                        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained {
+                            key_type: default_key_type,
+                        })
                     }
-                    phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, range } => {
-                        let ty = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, constraint, diagnostics));
+                    phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedValue { value_type, range } => {
+                        let ty = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, value_type, diagnostics));
                         if store.kind_of(ty) != KindId::TYPE {
                             diagnostics.push(SemanticDiagnostic::error_in(
                                 current_module.clone(),
@@ -3259,21 +3350,81 @@ pub fn resolve_type_form(
                             ));
                             return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: store.kind_of(ty) });
                         }
-                        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty))
+                        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed {
+                            key_type: default_key_type,
+                            value_type: ty,
+                        })
+                    }
+                    phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedKey { key_type, range } => {
+                        let ty = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, key_type, diagnostics));
+                        if store.kind_of(ty) != KindId::TYPE {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::KindExpectedType,
+                                "record remainder key constraint must be a proper type",
+                                *range,
+                            ));
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: store.kind_of(ty) });
+                        }
+                        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type: ty })
+                    }
+                    phalcom_ast::ast::AnonymousRecordRemainderSyntax::Typed { key_type, value_type, range } => {
+                        let key_ty = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, key_type, diagnostics));
+                        if store.kind_of(key_ty) != KindId::TYPE {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::KindExpectedType,
+                                "record remainder key constraint must be a proper type",
+                                *range,
+                            ));
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: store.kind_of(key_ty) });
+                        }
+                        let ty = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, value_type, diagnostics));
+                        if store.kind_of(ty) != KindId::TYPE {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::KindExpectedType,
+                                "record remainder type constraint must be a proper type",
+                                *range,
+                            ));
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: store.kind_of(ty) });
+                        }
+                        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed { key_type: key_ty, value_type: ty })
                     }
                 },
             };
             let mut record_fields = Vec::with_capacity(fields.len());
             let mut seen_names = std::collections::HashSet::new();
             for field in fields {
-                if !seen_names.insert(field.name.clone()) {
+                let key = match record_key_syntax(&field.key) {
+                    Ok(key) => key,
+                    Err(RecordKeyProjectionFailure::NotStatic) => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::RecordKeyNotStatic,
+                            "computed Record type key must be a supported static literal",
+                            field.key.range(),
+                        ));
+                        return TypeFormResolution::Invalid(TypeFormationInvalid::RecordKeyNotStatic);
+                    }
+                    Err(RecordKeyProjectionFailure::InvalidFieldKey) => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::RecordInvalidFieldKey,
+                            "computed Record type key must be Symbol, String, Int, or Bool",
+                            field.key.range(),
+                        ));
+                        return TypeFormResolution::Invalid(TypeFormationInvalid::InvalidRecordFieldKey);
+                    }
+                };
+                if !seen_names.insert(key.clone()) {
                     diagnostics.push(SemanticDiagnostic::error_in(
                         current_module.clone(),
                         DiagnosticCode::RecordDuplicateField,
-                        format!("duplicate field `{}` in record type annotation", field.name),
+                        format!("duplicate field `{key}` in record type annotation"),
                         field.range,
                     ));
-                    return TypeFormResolution::Invalid(TypeFormationInvalid::DuplicateRecordField(field.name.clone().into()));
+                    return TypeFormResolution::Invalid(TypeFormationInvalid::DuplicateRecordField(key));
                 }
                 let f_res = resolve_type_form(store, declarations, resolver, site, &field.ty, diagnostics);
                 let ty = match f_res {
@@ -3299,7 +3450,7 @@ pub fn resolve_type_form(
                     TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
                 };
                 record_fields.push(crate::types::row::RecordRowField {
-                    name: field.name.clone().into(),
+                    key,
                     ty,
                     presence: if field.optional {
                         crate::types::row::StructuralMemberPresence::Optional
@@ -3321,6 +3472,12 @@ pub fn resolve_type_form(
                 }
                 Err(crate::types::row::RecordRowFormationError::FieldNotProperType { .. }) => {
                     TypeFormResolution::InternalFailure("record field escaped proper-type validation".into())
+                }
+                Err(crate::types::row::RecordRowFormationError::TailKeyDomainInvalid(key_type)) => {
+                    TypeFormResolution::InternalFailure(format!("record tail key domain escaped proper-type validation: {key_type:?}"))
+                }
+                Err(crate::types::row::RecordRowFormationError::TailValueNotProperType(value_type)) => {
+                    TypeFormResolution::InternalFailure(format!("record tail value escaped proper-type validation: {value_type:?}"))
                 }
             }
         }

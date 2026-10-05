@@ -483,12 +483,15 @@ fn materialize_record_expansion(
     };
     let row_data = store.record_row(row);
     for field in row_data.fields.iter() {
+        let Some(name) = field.key.as_symbol() else {
+            return Err(DataProductShapeMaterializationError::InvalidRecordExpansion);
+        };
         append_record_component(
             components,
             DataProductMaterializedComponent {
                 component: None,
-                local_name: Some(field.name.clone()),
-                label: Some(field.name.clone()),
+                local_name: Some(name.into()),
+                label: Some(name.into()),
                 ty: Some(field.ty),
                 source: None,
                 expansion_source: expansion.source.clone(),

@@ -1566,24 +1566,61 @@ impl TypeStore {
         ))
     }
 
+    /// Synthesizes the canonical `FieldKey = Symbol | String | Int | Bool` union.
+    pub fn field_key_type(&mut self, declarations: &crate::declarations::DeclarationTypeTable) -> TypeId {
+        let core = crate::core_surface::CoreDeclarationIds::default();
+        let sym = declarations.form(&core.symbol).unwrap_or_else(|| self.nominal_type(core.symbol.clone()));
+        let str = declarations.form(&core.string).unwrap_or_else(|| self.nominal_type(core.string.clone()));
+        let int = declarations.form(&core.int).unwrap_or_else(|| self.nominal_type(core.int.clone()));
+        let bool = declarations.form(&core.bool_).unwrap_or_else(|| self.nominal_type(core.bool_.clone()));
+        self.union(&[sym, str, int, bool])
+    }
+
+    /// Synthesizes `FieldKey` using nominal universe declarations without requiring a declaration table.
+    pub fn field_key_type_from_core(&mut self) -> TypeId {
+        let core = crate::core_surface::CoreDeclarationIds::default();
+        let sym = self.nominal_type(core.symbol);
+        let str = self.nominal_type(core.string);
+        let int = self.nominal_type(core.int);
+        let bool = self.nominal_type(core.bool_);
+        self.union(&[sym, str, int, bool])
+    }
+
     /// Interns a record row into the store.
     pub fn record_row_checked(&mut self, fields: Vec<RecordRowField>, tail: RecordRowTail) -> Result<RecordRowId, crate::types::row::RecordRowFormationError> {
         for field in &fields {
             if !self.is_proper_type(field.ty) {
                 return Err(crate::types::row::RecordRowFormationError::FieldNotProperType {
-                    field: field.name.clone(),
+                    field: field.key.clone(),
                     ty: field.ty,
                 });
             }
         }
 
-        if let RecordRowTail::Parameter(parameter) = tail {
-            let Some(data) = self.try_type_parameter(parameter) else {
-                return Err(crate::types::row::RecordRowFormationError::TailParameterMissing(parameter));
-            };
-            if data.kind != KindId::RECORD_ROW {
-                return Err(crate::types::row::RecordRowFormationError::TailParameterWrongKind { parameter, actual: data.kind });
+        match tail {
+            RecordRowTail::Closed => {}
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type }) => {
+                if !self.is_proper_type(key_type) {
+                    return Err(crate::types::row::RecordRowFormationError::TailKeyDomainInvalid(key_type));
+                }
             }
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                if !self.is_proper_type(key_type) {
+                    return Err(crate::types::row::RecordRowFormationError::TailKeyDomainInvalid(key_type));
+                }
+                if !self.is_proper_type(value_type) {
+                    return Err(crate::types::row::RecordRowFormationError::TailValueNotProperType(value_type));
+                }
+            }
+            RecordRowTail::Parameter(parameter) => {
+                let Some(data) = self.try_type_parameter(parameter) else {
+                    return Err(crate::types::row::RecordRowFormationError::TailParameterMissing(parameter));
+                };
+                if data.kind != KindId::RECORD_ROW {
+                    return Err(crate::types::row::RecordRowFormationError::TailParameterWrongKind { parameter, actual: data.kind });
+                }
+            }
+            RecordRowTail::Projection(_) => {}
         }
 
         let row = RecordRowData::new_with_tail(fields, tail)
@@ -1803,17 +1840,35 @@ impl TypeStore {
                     .iter()
                     .map(|f| {
                         let opt = if f.presence.is_optional() { "?" } else { "" };
-                        format!("{}{opt}: {}", f.name, self.format_type(f.ty))
+                        match &f.key {
+                            crate::field_key::FieldKey::Symbol(name) => {
+                                format!("{}{opt}: {}", name, self.format_type(f.ty))
+                            }
+                            other => {
+                                format!("[{other}]{opt}: {}", self.format_type(f.ty))
+                            }
+                        }
                     })
                     .collect();
                 match row.tail {
                     RecordRowTail::Closed => format!("{{{}}}", fields.join(", ")),
-                    RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained) => {
-                        fields.push("...".to_string());
+                    RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type }) => {
+                        let k_str = self.format_type(key_type);
+                        if k_str == "FieldKey" || k_str == "Symbol | String | Int | Bool" {
+                            fields.push("...".to_string());
+                        } else {
+                            fields.push(format!("**[{k_str}]: ..."));
+                        }
                         format!("{{{}}}", fields.join(", "))
                     }
-                    RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(ty)) => {
-                        fields.push(format!("**: {}", self.format_type(ty)));
+                    RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                        let k_str = self.format_type(key_type);
+                        let v_str = self.format_type(value_type);
+                        if k_str == "FieldKey" || k_str == "Symbol | String | Int | Bool" {
+                            fields.push(format!("**: {v_str}"));
+                        } else {
+                            fields.push(format!("**[{k_str}]: {v_str}"));
+                        }
                         format!("{{{}}}", fields.join(", "))
                     }
                     RecordRowTail::Parameter(p) => {
@@ -2103,9 +2158,15 @@ impl TypeStore {
                 let row = self.record_row(*row_id);
                 row.fields.iter().any(|f| self.contains_type_parameter(f.ty, target))
                     || match row.tail {
+                        RecordRowTail::Closed => false,
                         RecordRowTail::Parameter(parameter) => parameter == target,
-                        RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(t)) => self.contains_type_parameter(t, target),
-                        _ => false,
+                        RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type }) => {
+                            self.contains_type_parameter(key_type, target)
+                        }
+                        RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                            self.contains_type_parameter(key_type, target) || self.contains_type_parameter(value_type, target)
+                        }
+                        RecordRowTail::Projection(proj) => self.contains_type_parameter(proj, target),
                     }
             }
             TypeData::Callable(call) => {

@@ -6,6 +6,7 @@ use super::row::{RecordRowFormationError, RecordRowTail};
 use super::store::{PackFormationError, StaticArgument, TypeData, TypeStore};
 use super::substitution::TypeSubstitution;
 use crate::diagnostic::SemanticSourceSpan;
+use crate::field_key::FieldKey;
 use std::collections::HashMap;
 
 /// Representation of scoped types inside a type lambda body arena.
@@ -92,9 +93,11 @@ pub enum ScopedPackProjectionLane {
     Complete,
 }
 
+pub type ScopedAnonymousRecordRemainder = super::row::AnonymousRecordRemainder<ScopedTypeId>;
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ScopedRecordField {
-    pub name: Box<str>,
+    pub key: FieldKey,
     pub ty: ScopedTypeId,
     pub presence: super::row::StructuralMemberPresence,
 }
@@ -103,7 +106,7 @@ pub struct ScopedRecordField {
 pub enum ScopedRecordTail {
     Bound { depth: u32, index: u32 },
     FreeParameter(TypeParameterId),
-    Anonymous(super::row::AnonymousRecordRemainder),
+    Anonymous(ScopedAnonymousRecordRemainder),
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -115,7 +118,7 @@ pub struct ScopedOpenRecord {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ScopedRecordRowTail {
     Closed,
-    Anonymous(super::row::AnonymousRecordRemainder),
+    Anonymous(ScopedAnonymousRecordRemainder),
     Bound { depth: u32, index: u32 },
     FreeParameter(TypeParameterId),
     Projection(TypeId),
@@ -258,10 +261,28 @@ impl TypeLambdaArena {
             ScopedTypeData::Record(fields) => fields.iter().any(|f| self.has_free_bound(f.ty, current_depth)),
             ScopedTypeData::OpenRecord(record) => {
                 matches!(record.tail, ScopedRecordTail::Bound { depth, .. } if depth >= current_depth)
+                    || match record.tail {
+                        ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => {
+                            self.has_free_bound(key_type, current_depth)
+                        }
+                        ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                            self.has_free_bound(key_type, current_depth) || self.has_free_bound(value_type, current_depth)
+                        }
+                        _ => false,
+                    }
                     || record.fields.iter().any(|f| self.has_free_bound(f.ty, current_depth))
             }
             ScopedTypeData::RecordRow(row) => {
                 matches!(row.tail, ScopedRecordRowTail::Bound { depth, .. } if depth >= current_depth)
+                    || match row.tail {
+                        ScopedRecordRowTail::Anonymous(ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => {
+                            self.has_free_bound(key_type, current_depth)
+                        }
+                        ScopedRecordRowTail::Anonymous(ScopedAnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                            self.has_free_bound(key_type, current_depth) || self.has_free_bound(value_type, current_depth)
+                        }
+                        _ => false,
+                    }
                     || row.fields.iter().any(|field| self.has_free_bound(field.ty, current_depth))
             }
             ScopedTypeData::Callable(call) => {
@@ -490,7 +511,7 @@ impl TypeLambdaArena {
                 let fields = fields
                     .iter()
                     .map(|field| ScopedRecordField {
-                        name: field.name.clone(),
+                        key: field.key.clone(),
                         ty: self.substitute_free_scoped(field.ty, substitution, store),
                         presence: field.presence,
                     })
@@ -503,20 +524,34 @@ impl TypeLambdaArena {
                     .fields
                     .iter()
                     .map(|field| ScopedRecordField {
-                        name: field.name.clone(),
+                        key: field.key.clone(),
                         ty: self.substitute_free_scoped(field.ty, substitution, store),
                         presence: field.presence,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
-                self.intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord { fields, tail: record.tail }))
+                let tail = match record.tail {
+                    ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => {
+                        ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Unconstrained {
+                            key_type: self.substitute_free_scoped(key_type, substitution, store),
+                        })
+                    }
+                    ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                        ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Typed {
+                            key_type: self.substitute_free_scoped(key_type, substitution, store),
+                            value_type: self.substitute_free_scoped(value_type, substitution, store),
+                        })
+                    }
+                    other => other,
+                };
+                self.intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord { fields, tail }))
             }
             ScopedTypeData::RecordRow(row) => {
                 let fields = row
                     .fields
                     .iter()
                     .map(|field| ScopedRecordField {
-                        name: field.name.clone(),
+                        key: field.key.clone(),
                         ty: self.substitute_free_scoped(field.ty, substitution, store),
                         presence: field.presence,
                     })
@@ -524,6 +559,17 @@ impl TypeLambdaArena {
                     .into_boxed_slice();
                 let tail = match row.tail {
                     ScopedRecordRowTail::Projection(projection) => ScopedRecordRowTail::Projection(substitution.apply_with_arena(store, self, projection)),
+                    ScopedRecordRowTail::Anonymous(ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => {
+                        ScopedRecordRowTail::Anonymous(ScopedAnonymousRecordRemainder::Unconstrained {
+                            key_type: self.substitute_free_scoped(key_type, substitution, store),
+                        })
+                    }
+                    ScopedRecordRowTail::Anonymous(ScopedAnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                        ScopedRecordRowTail::Anonymous(ScopedAnonymousRecordRemainder::Typed {
+                            key_type: self.substitute_free_scoped(key_type, substitution, store),
+                            value_type: self.substitute_free_scoped(value_type, substitution, store),
+                        })
+                    }
                     tail => tail,
                 };
                 self.intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow { fields, tail }))
@@ -687,7 +733,7 @@ impl TypeLambdaArena {
                     .iter()
                     .map(|f| {
                         Ok(super::store::RecordTypeField {
-                            name: f.name.clone(),
+                            key: f.key.clone(),
                             ty: self.subst_scoped_to_canonical(f.ty, depth, args, store)?,
                             presence: f.presence,
                         })
@@ -703,7 +749,7 @@ impl TypeLambdaArena {
                     .iter()
                     .map(|field| {
                         Ok(super::store::RecordTypeField {
-                            name: field.name.clone(),
+                            key: field.key.clone(),
                             ty: self.subst_scoped_to_canonical(field.ty, depth, args, store)?,
                             presence: field.presence,
                         })
@@ -711,7 +757,15 @@ impl TypeLambdaArena {
                     .collect::<Result<Vec<_>, BetaReductionError>>()?;
                 let tail = match record.tail {
                     ScopedRecordTail::FreeParameter(parameter) => RecordRowTail::Parameter(parameter),
-                    ScopedRecordTail::Anonymous(remainder) => RecordRowTail::Anonymous(remainder),
+                    ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => {
+                        let k = self.subst_scoped_to_canonical(key_type, depth, args, store)?;
+                        RecordRowTail::Anonymous(super::row::AnonymousRecordRemainder::Unconstrained { key_type: k })
+                    }
+                    ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                        let k = self.subst_scoped_to_canonical(key_type, depth, args, store)?;
+                        let v = self.subst_scoped_to_canonical(value_type, depth, args, store)?;
+                        RecordRowTail::Anonymous(super::row::AnonymousRecordRemainder::Typed { key_type: k, value_type: v })
+                    }
                     ScopedRecordTail::Bound { .. } => return Err(BetaReductionError::UnsupportedRecordRowArgument),
                 };
                 store.record_row_type_checked(can_fields, tail).map_err(BetaReductionError::RecordRowFormation)
@@ -876,7 +930,7 @@ impl TypeLambdaArena {
             .iter()
             .map(|field| {
                 Ok(super::store::RecordTypeField {
-                    name: field.name.clone(),
+                    key: field.key.clone(),
                     ty: self.subst_scoped_to_canonical(field.ty, depth, args, store)?,
                     presence: field.presence,
                 })
@@ -887,7 +941,15 @@ impl TypeLambdaArena {
             ScopedRecordRowTail::Bound { .. } => return Err(BetaReductionError::UnsupportedRecordRowArgument),
             ScopedRecordRowTail::FreeParameter(parameter) => RecordRowTail::Parameter(parameter),
             ScopedRecordRowTail::Projection(projection) => RecordRowTail::Projection(projection),
-            ScopedRecordRowTail::Anonymous(remainder) => RecordRowTail::Anonymous(remainder),
+            ScopedRecordRowTail::Anonymous(ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => {
+                let k = self.subst_scoped_to_canonical(key_type, depth, args, store)?;
+                RecordRowTail::Anonymous(super::row::AnonymousRecordRemainder::Unconstrained { key_type: k })
+            }
+            ScopedRecordRowTail::Anonymous(ScopedAnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                let k = self.subst_scoped_to_canonical(key_type, depth, args, store)?;
+                let v = self.subst_scoped_to_canonical(value_type, depth, args, store)?;
+                RecordRowTail::Anonymous(super::row::AnonymousRecordRemainder::Typed { key_type: k, value_type: v })
+            }
         };
         let row = store.record_row_checked(fields, tail).map_err(BetaReductionError::RecordRowFormation)?;
         Ok(StaticArgument::RecordRow(row))
@@ -937,7 +999,7 @@ impl TypeLambdaArena {
                 let s_fields: Vec<ScopedRecordField> = fields
                     .iter()
                     .map(|f| ScopedRecordField {
-                        name: f.name.clone(),
+                        key: f.key.clone(),
                         ty: self.subst_scoped_partial(f.ty, depth, args, store),
                         presence: f.presence,
                     })
@@ -949,20 +1011,34 @@ impl TypeLambdaArena {
                     .fields
                     .iter()
                     .map(|field| ScopedRecordField {
-                        name: field.name.clone(),
+                        key: field.key.clone(),
                         ty: self.subst_scoped_partial(field.ty, depth, args, store),
                         presence: field.presence,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
-                self.intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord { fields, tail: record.tail }))
+                let tail = match record.tail {
+                    ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => {
+                        ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Unconstrained {
+                            key_type: self.subst_scoped_partial(key_type, depth, args, store),
+                        })
+                    }
+                    ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                        ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Typed {
+                            key_type: self.subst_scoped_partial(key_type, depth, args, store),
+                            value_type: self.subst_scoped_partial(value_type, depth, args, store),
+                        })
+                    }
+                    other => other,
+                };
+                self.intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord { fields, tail }))
             }
             ScopedTypeData::RecordRow(row) => {
                 let fields = row
                     .fields
                     .iter()
                     .map(|field| ScopedRecordField {
-                        name: field.name.clone(),
+                        key: field.key.clone(),
                         ty: self.subst_scoped_partial(field.ty, depth, args, store),
                         presence: field.presence,
                     })
@@ -975,9 +1051,17 @@ impl TypeLambdaArena {
                             index: index - args.len() as u32,
                         }
                     }
-                    // A consumed row binder cannot be supplied through this
-                    // type-only beta-reduction API. Source RecordFields
-                    // TypeLambda binders remain rejected by annotation lowering.
+                    ScopedRecordRowTail::Anonymous(ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => {
+                        ScopedRecordRowTail::Anonymous(ScopedAnonymousRecordRemainder::Unconstrained {
+                            key_type: self.subst_scoped_partial(key_type, depth, args, store),
+                        })
+                    }
+                    ScopedRecordRowTail::Anonymous(ScopedAnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                        ScopedRecordRowTail::Anonymous(ScopedAnonymousRecordRemainder::Typed {
+                            key_type: self.subst_scoped_partial(key_type, depth, args, store),
+                            value_type: self.subst_scoped_partial(value_type, depth, args, store),
+                        })
+                    }
                     tail => tail,
                 };
                 self.intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow { fields, tail }))

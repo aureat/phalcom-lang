@@ -7,7 +7,7 @@ use std::fmt;
 use std::sync::Arc;
 
 /// The closed kind domain accepted for unordered Record fields.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum FieldKeyKind {
     Symbol,
     String,
@@ -50,6 +50,20 @@ impl FieldKey {
         }
     }
 
+    pub fn as_symbol(&self) -> Option<&str> {
+        match self {
+            Self::Symbol(s) => Some(s.as_ref()),
+            _ => None,
+        }
+    }
+
+    pub fn as_string(&self) -> Option<&str> {
+        match self {
+            Self::String(s) => Some(s.as_ref()),
+            _ => None,
+        }
+    }
+
     /// Compares by the language-defined kind order and then by exact content.
     pub fn canonical_cmp(&self, other: &Self) -> Ordering {
         let kind_order = self.kind_rank().cmp(&other.kind_rank());
@@ -59,7 +73,7 @@ impl FieldKey {
 
         match (self, other) {
             (Self::Symbol(left), Self::Symbol(right)) | (Self::String(left), Self::String(right)) => left.as_ref().cmp(right.as_ref()),
-            (Self::Int(left), Self::Int(right)) => left.to_bigint().cmp(&right.to_bigint()),
+            (Self::Int(left), Self::Int(right)) => left.cmp(right),
             (Self::Bool(left), Self::Bool(right)) => left.cmp(right),
             _ => Ordering::Equal,
         }
@@ -112,5 +126,35 @@ impl fmt::Display for FieldKey {
             Self::Int(value) => write!(f, "{}", value.to_bigint()),
             Self::Bool(value) => write!(f, "{value}"),
         }
+    }
+}
+
+impl Ord for FieldKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.canonical_cmp(other)
+    }
+}
+
+impl PartialOrd for FieldKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl From<StaticInt> for FieldKey {
+    fn from(value: StaticInt) -> Self {
+        Self::Int(value)
+    }
+}
+
+impl From<bool> for FieldKey {
+    fn from(value: bool) -> Self {
+        Self::Bool(value)
+    }
+}
+
+impl From<i64> for FieldKey {
+    fn from(value: i64) -> Self {
+        Self::Int(StaticInt::Small(value))
     }
 }

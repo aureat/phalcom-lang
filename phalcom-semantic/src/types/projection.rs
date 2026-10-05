@@ -286,7 +286,7 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
                 symbolic |= result.is_symbolic();
                 let Some(ty) = result.type_id() else { return result };
                 fields.push(RecordRowField {
-                    name: field.name,
+                    key: field.key,
                     ty,
                     presence: field.presence,
                 });
@@ -1016,7 +1016,7 @@ fn normalize_intrinsic_projection(
                 let norm_res = normalize_type(store, applied, context);
                 let Some(norm_ty) = norm_res.type_id() else { return Some(norm_res) };
                 transformed_fields.push(RecordRowField {
-                    name: field.name.clone(),
+                    key: field.key.clone(),
                     ty: norm_ty,
                     presence: field.presence,
                 });

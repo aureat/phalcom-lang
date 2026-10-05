@@ -958,7 +958,7 @@ pub fn check_record_row_subtype(
 
     // 1. Check all target fields in sup_row.
     for target_field in sup_row.fields.iter() {
-        if let Some(source_field) = sub_row.fields.iter().find(|f| f.name == target_field.name) {
+        if let Some(source_field) = sub_row.fields.iter().find(|f| f.key == target_field.key) {
             // Presence check: source Optional cannot satisfy target Required.
             // `{ k?: S } <: { k: T }` is Refuted even when S <: T.
             if target_field.presence.is_required() && source_field.presence.is_optional() {
@@ -981,13 +981,13 @@ pub fn check_record_row_subtype(
             // Optional target field absent in sub_row
             match sub_row.tail {
                 RecordRowTail::Closed => {}
-                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(elem_ty)) => {
+                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed { value_type: elem_ty, .. }) => {
                     let outcome = check_subtype_impl(store, hierarchy, elem_ty, target_field.ty, budget, cancellation, visited, depth + 1);
                     if !outcome.is_proven() {
                         return outcome;
                     }
                 }
-                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained)
+                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained { .. })
                 | RecordRowTail::Parameter(_)
                 | RecordRowTail::Projection(_) => {
                     return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
@@ -1001,7 +1001,7 @@ pub fn check_record_row_subtype(
 
     // 2. Check extra source fields (fields in sub_row not in sup_row)
     for source_field in sub_row.fields.iter() {
-        if !sup_row.fields.iter().any(|f| f.name == source_field.name) {
+        if !sup_row.fields.iter().any(|f| f.key == source_field.key) {
             match sup_row.tail {
                 RecordRowTail::Closed => {
                     return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
@@ -1009,8 +1009,8 @@ pub fn check_record_row_subtype(
                         expected: sup_ty,
                     });
                 }
-                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => {}
-                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(target_elem)) => {
+                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained { .. }) => {}
+                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed { value_type: target_elem, .. }) => {
                     let outcome = check_subtype_impl(store, hierarchy, source_field.ty, target_elem, budget, cancellation, visited, depth + 1);
                     if !outcome.is_proven() {
                         return outcome;
@@ -1032,15 +1032,15 @@ pub fn check_record_row_subtype(
                 expected: sup_ty,
             }),
         },
-        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => match sub_row.tail {
+        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained { .. }) => match sub_row.tail {
             RecordRowTail::Closed | RecordRowTail::Anonymous(_) | RecordRowTail::Parameter(_) | RecordRowTail::Projection(_) => RelationOutcome::proven(()),
         },
-        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(sup_elem)) => match sub_row.tail {
+        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed { value_type: sup_elem, .. }) => match sub_row.tail {
             RecordRowTail::Closed => RelationOutcome::proven(()),
-            RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(sub_elem)) => {
+            RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed { value_type: sub_elem, .. }) => {
                 check_subtype_impl(store, hierarchy, sub_elem, sup_elem, budget, cancellation, visited, depth + 1)
             }
-            RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+            RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained { .. }) => RelationOutcome::Refuted(RelationFailure::TypeMismatch {
                 actual: sub_ty,
                 expected: sup_ty,
             }),

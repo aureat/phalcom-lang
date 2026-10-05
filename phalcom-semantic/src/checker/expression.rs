@@ -2872,7 +2872,7 @@ fn expected_record_field(ctx: &CheckingContext<'_>, expected: &ExpectedType, nam
         origin,
     } = expected
     {
-        if let Some(field) = record.fields.iter().find(|field| field.name.as_ref() == name) {
+        if let Some(field) = record.fields.iter().find(|field| field.key.as_symbol() == Some(name)) {
             return ExpectedType::inference_from(*context, field.term.clone(), *origin);
         }
     }
@@ -2883,7 +2883,7 @@ fn expected_record_field(ctx: &CheckingContext<'_>, expected: &ExpectedType, nam
 #[derive(Clone, Debug)]
 enum RecordLiteralShapeFailure {
     DuplicateField {
-        field: Box<str>,
+        field: crate::field_key::FieldKey,
         range: SourceRange,
     },
     MapSpreadSource {
@@ -2898,12 +2898,17 @@ enum RecordLiteralShapeFailure {
     },
     LacksUnproven {
         parameter: TypeParameterId,
-        field: Box<str>,
+        field: crate::field_key::FieldKey,
         range: SourceRange,
     },
 }
 
-fn record_extension_lacks_is_proven(ctx: &CheckingContext<'_>, expected: &ExpectedType, parameter: TypeParameterId, field: &str) -> bool {
+fn record_extension_lacks_is_proven(
+    ctx: &CheckingContext<'_>,
+    expected: &ExpectedType,
+    parameter: TypeParameterId,
+    field: &crate::field_key::FieldKey,
+) -> bool {
     if ctx.stable_record_row_lacks(parameter, field) {
         return true;
     }
@@ -2914,7 +2919,7 @@ fn record_extension_lacks_is_proven(ctx: &CheckingContext<'_>, expected: &Expect
         return false;
     };
     let row = ctx.store.record_row(*row_id);
-    row.tail == RecordRowTail::Parameter(parameter) && row.fields.iter().any(|candidate| candidate.name.as_ref() == field)
+    row.tail == RecordRowTail::Parameter(parameter) && row.fields.iter().any(|candidate| candidate.key == *field)
 }
 
 fn emit_record_literal_shape_failure(ctx: &mut CheckingContext<'_>, failure: RecordLiteralShapeFailure, result: &mut TypedExpression) {
@@ -2975,6 +2980,13 @@ fn emit_record_literal_formation_failure(ctx: &mut CheckingContext<'_>, error: R
             range,
             result,
         ),
+        RecordRowFormationError::TailKeyDomainInvalid(ty) | RecordRowFormationError::TailValueNotProperType(ty) => record_record_literal_internal_failure(
+            ctx,
+            "record literal contains an invalid Record tail after inference",
+            format!("record literal tail type `{}` was not a proper type", ctx.store.format_type(ty)),
+            range,
+            result,
+        ),
     }
 }
 
@@ -3002,7 +3014,7 @@ fn record_record_literal_internal_failure(
 }
 
 fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::ast::RecordLiteralExpr, expected: &ExpectedType) -> TypedExpression {
-    let mut names: Vec<Box<str>> = Vec::new();
+    let mut names: Vec<crate::field_key::FieldKey> = Vec::new();
     let mut knowledge = Vec::new();
     let mut operands = Vec::new();
     let mut open_tail = None;
@@ -3010,14 +3022,15 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
     for entry in &rec.entries {
         match entry {
             RecordLiteralEntry::Field(f) => {
-                let name = product_label_name(&f.label);
+                let name = product_label_name(&f.label).map(crate::field_key::FieldKey::symbol);
                 let field_expected = name
-                    .as_deref()
+                    .as_ref()
+                    .and_then(crate::field_key::FieldKey::as_symbol)
                     .map(|name| expected_record_field(ctx, expected, name))
                     .unwrap_or(ExpectedType::None);
                 let typed = analyze_expression(ctx, &f.value, &field_expected);
                 if let Some(name) = name {
-                    if names.iter().any(|existing| existing.as_ref() == name.as_ref()) {
+                    if names.iter().any(|existing| existing == &name) {
                         shape_failure = Some(RecordLiteralShapeFailure::DuplicateField {
                             field: name.clone(),
                             range: f.range,
@@ -3114,8 +3127,8 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
                 .iter()
                 .cloned()
                 .zip(types.iter().copied())
-                .map(|(name, ty)| RecordTypeField {
-                    name,
+                .map(|(key, ty)| RecordTypeField {
+                    key,
                     ty,
                     presence: crate::types::row::StructuralMemberPresence::Required,
                 })

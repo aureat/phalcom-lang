@@ -648,10 +648,12 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
                 let row = store.record_row(row_id);
                 row.fields.iter().any(|field| contains_any_type_parameter(store, field.ty))
                     || match row.tail {
-                        crate::types::row::RecordRowTail::Closed
-                        | crate::types::row::RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
-                        crate::types::row::RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => {
-                            contains_any_type_parameter(store, ty)
+                        crate::types::row::RecordRowTail::Closed => false,
+                        crate::types::row::RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type }) => {
+                            contains_any_type_parameter(store, key_type)
+                        }
+                        crate::types::row::RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                            contains_any_type_parameter(store, key_type) || contains_any_type_parameter(store, value_type)
                         }
                         crate::types::row::RecordRowTail::Parameter(_) => true,
                         crate::types::row::RecordRowTail::Projection(projection) => contains_any_type_parameter(store, projection),
@@ -676,18 +678,26 @@ use crate::types::type_lambda::{ScopedPackRemainder, ScopedRecordRowTail, Scoped
             ScopedTypeData::OpenRecord(record) => {
                 let tail_contains = match record.tail {
                     ScopedRecordTail::FreeParameter(_) => true,
-                    ScopedRecordTail::Bound { .. } | ScopedRecordTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
-                    ScopedRecordTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => contains_any_type_parameter(store, ty),
+                    ScopedRecordTail::Bound { .. } => false,
+                    ScopedRecordTail::Anonymous(crate::types::type_lambda::ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => {
+                        scoped_contains_any_type_parameter(store, key_type)
+                    }
+                    ScopedRecordTail::Anonymous(crate::types::type_lambda::ScopedAnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                        scoped_contains_any_type_parameter(store, key_type) || scoped_contains_any_type_parameter(store, value_type)
+                    }
                 };
                 tail_contains || record.fields.iter().any(|field| scoped_contains_any_type_parameter(store, field.ty))
             }
             ScopedTypeData::RecordRow(row) => {
                 row.fields.iter().any(|field| scoped_contains_any_type_parameter(store, field.ty))
                     || match row.tail {
-                        ScopedRecordRowTail::Closed
-                        | ScopedRecordRowTail::Bound { .. }
-                        | ScopedRecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
-                        ScopedRecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => contains_any_type_parameter(store, ty),
+                        ScopedRecordRowTail::Closed | ScopedRecordRowTail::Bound { .. } => false,
+                        ScopedRecordRowTail::Anonymous(crate::types::type_lambda::ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => {
+                            scoped_contains_any_type_parameter(store, key_type)
+                        }
+                        ScopedRecordRowTail::Anonymous(crate::types::type_lambda::ScopedAnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                            scoped_contains_any_type_parameter(store, key_type) || scoped_contains_any_type_parameter(store, value_type)
+                        }
                         ScopedRecordRowTail::FreeParameter(_) => true,
                         ScopedRecordRowTail::Projection(projection) => contains_any_type_parameter(store, projection),
                     }

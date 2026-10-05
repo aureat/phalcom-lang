@@ -38,7 +38,7 @@ pub struct CompiledTupleElement {
 /// Field in an exported record type.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompiledRecordField {
-    pub name: Box<str>,
+    pub key: crate::field_key::FieldKey,
     pub ty: CompiledTypeRef,
 }
 
@@ -143,7 +143,7 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
             let rec_fields = row
                 .fields
                 .iter()
-                .map(|f| export_type_form(store, f.ty).map(|t| CompiledRecordField { name: f.name.clone(), ty: t }))
+                .map(|f| export_type_form(store, f.ty).map(|t| CompiledRecordField { key: f.key.clone(), ty: t }))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(CompiledTypeRef::Record(rec_fields.into_boxed_slice()))
         }

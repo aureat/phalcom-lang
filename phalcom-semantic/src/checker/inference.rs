@@ -330,18 +330,18 @@ fn record_term_for_row_solver(record: &InferenceRecord) -> RecordRowTerm<Inferen
             .fields
             .iter()
             .map(|field| RecordRowField {
-                name: field.name.clone(),
+                key: field.key.clone(),
                 ty: field.term.clone(),
                 presence: crate::types::row::StructuralMemberPresence::Required,
             })
             .collect::<Vec<_>>()
             .into_boxed_slice(),
-        tail: match record.tail {
+        tail: match record.tail.clone() {
             InferenceRecordTail::Closed => RecordRowTermTail::Closed,
             InferenceRecordTail::Parameter(parameter) => RecordRowTermTail::Parameter(parameter),
             InferenceRecordTail::Projection(projection) => RecordRowTermTail::Projection(projection),
             InferenceRecordTail::Var(variable) => RecordRowTermTail::Var(variable),
-            InferenceRecordTail::Anonymous(rem) => RecordRowTermTail::Anonymous(rem),
+            InferenceRecordTail::Anonymous(rem) => RecordRowTermTail::Anonymous(rem.as_ref().clone()),
         },
     }
 }
@@ -1107,7 +1107,7 @@ impl InferenceSession {
                         .fields
                         .iter()
                         .map(|field| InferenceRecordField {
-                            name: field.name.clone(),
+                            key: field.key.clone(),
                             term: self.type_id_to_inference(field.ty, subst, store),
                         })
                         .collect::<Vec<_>>()
@@ -1116,7 +1116,7 @@ impl InferenceSession {
                         RecordRowTail::Closed => InferenceRecordTail::Closed,
                         RecordRowTail::Parameter(parameter) => InferenceRecordTail::Parameter(parameter),
                         RecordRowTail::Projection(proj) => InferenceRecordTail::Projection(proj),
-                        RecordRowTail::Anonymous(rem) => InferenceRecordTail::Anonymous(rem),
+                        RecordRowTail::Anonymous(rem) => InferenceRecordTail::Anonymous(Box::new(rem.map(InferenceTerm::Canonical))),
                     },
                 })
             }
@@ -1293,7 +1293,7 @@ impl InferenceSession {
                         .fields
                         .iter()
                         .map(|field| InferenceRecordField {
-                            name: field.name.clone(),
+                            key: field.key.clone(),
                             term: self.type_id_to_inference_with_rows(field.ty, subst, row_subst, store),
                         })
                         .collect::<Vec<_>>()
@@ -1305,7 +1305,9 @@ impl InferenceSession {
                             .copied()
                             .map_or(InferenceRecordTail::Parameter(parameter), InferenceRecordTail::Var),
                         RecordRowTail::Projection(proj) => InferenceRecordTail::Projection(proj),
-                        RecordRowTail::Anonymous(rem) => InferenceRecordTail::Anonymous(rem),
+                        RecordRowTail::Anonymous(rem) => InferenceRecordTail::Anonymous(Box::new(
+                            rem.map(|ty| self.type_id_to_inference_with_rows(ty, subst, row_subst, store)),
+                        )),
                     },
                 })
             }
@@ -1451,7 +1453,7 @@ impl InferenceSession {
                 .fields
                 .iter()
                 .map(|field| InferenceRecordField {
-                    name: field.name.clone(),
+                    key: field.key.clone(),
                     term: self.type_id_to_inference_with_rows(field.ty, subst, row_subst, store),
                 })
                 .collect::<Vec<_>>()
@@ -1463,7 +1465,9 @@ impl InferenceSession {
                     .copied()
                     .map_or(InferenceRecordTail::Parameter(parameter), InferenceRecordTail::Var),
                 RecordRowTail::Projection(projection) => InferenceRecordTail::Projection(projection),
-                RecordRowTail::Anonymous(rem) => InferenceRecordTail::Anonymous(rem),
+                RecordRowTail::Anonymous(rem) => InferenceRecordTail::Anonymous(Box::new(
+                    rem.map(|ty| self.type_id_to_inference_with_rows(ty, subst, row_subst, store)),
+                )),
             },
         }
     }
@@ -1484,7 +1488,7 @@ impl InferenceSession {
                         .fields
                         .iter()
                         .map(|field| InferenceRecordField {
-                            name: field.name.clone(),
+                            key: field.key.clone(),
                             term: self.type_id_to_inference_with_rows(field.ty, subst, row_subst, store),
                         })
                         .collect::<Vec<_>>()
@@ -1496,7 +1500,9 @@ impl InferenceSession {
                             .copied()
                             .map_or(InferenceRecordTail::Parameter(parameter), InferenceRecordTail::Var),
                         RecordRowTail::Projection(projection) => InferenceRecordTail::Projection(projection),
-                        RecordRowTail::Anonymous(rem) => InferenceRecordTail::Anonymous(rem),
+                        RecordRowTail::Anonymous(rem) => InferenceRecordTail::Anonymous(Box::new(
+                            rem.map(|ty| self.type_id_to_inference_with_rows(ty, subst, row_subst, store)),
+                        )),
                     },
                 })
             }
@@ -1586,17 +1592,21 @@ impl InferenceSession {
                     .iter()
                     .map(|field| {
                         Some(crate::types::row::RecordRowField {
-                            name: field.name.clone(),
+                            key: field.key.clone(),
                             ty: self.materialize_for_expected(&field.term, store)?,
                             presence: crate::types::row::StructuralMemberPresence::Required,
                         })
                     })
                     .collect::<Option<Vec<_>>>()?;
-                let tail = match record.tail {
+                let tail = match record.tail.clone() {
                     InferenceRecordTail::Closed => RecordRowTail::Closed,
                     InferenceRecordTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
                     InferenceRecordTail::Projection(proj) => RecordRowTail::Projection(proj),
-                    InferenceRecordTail::Anonymous(rem) => RecordRowTail::Anonymous(rem),
+                    InferenceRecordTail::Anonymous(rem) => RecordRowTail::Anonymous(
+                        (*rem)
+                            .try_map(|ty| self.materialize_for_expected(&ty, store).ok_or(()))
+                            .ok()?,
+                    ),
                     InferenceRecordTail::Var(_) => return None,
                 };
                 store.record_row_type_checked(fields, tail).ok()
@@ -1717,17 +1727,21 @@ impl InferenceSession {
                     .iter()
                     .map(|field| {
                         Some(crate::types::row::RecordRowField {
-                            name: field.name.clone(),
+                            key: field.key.clone(),
                             ty: self.materialize_for_expected(&field.term, store)?,
                             presence: crate::types::row::StructuralMemberPresence::Required,
                         })
                     })
                     .collect::<Option<Vec<_>>>()?;
-                let tail = match row.tail {
+                let tail = match row.tail.clone() {
                     InferenceRecordTail::Closed => RecordRowTail::Closed,
                     InferenceRecordTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
                     InferenceRecordTail::Projection(projection) => RecordRowTail::Projection(projection),
-                    InferenceRecordTail::Anonymous(rem) => RecordRowTail::Anonymous(rem),
+                    InferenceRecordTail::Anonymous(rem) => RecordRowTail::Anonymous(
+                        (*rem)
+                            .try_map(|ty| self.materialize_for_expected(&ty, store).ok_or(()))
+                            .ok()?,
+                    ),
                     InferenceRecordTail::Var(_) => return None,
                 };
                 store.record_row_checked(fields, tail).ok().map(crate::types::store::StaticArgument::RecordRow)
@@ -1755,6 +1769,27 @@ impl InferenceSession {
         self.scoped_to_inference(lambda.body, 0, &arguments, store)
     }
 
+    fn scoped_remainder_to_inference(
+        &self,
+        remainder: crate::types::type_lambda::ScopedAnonymousRecordRemainder,
+        depth: u32,
+        arguments: &[InferenceTerm],
+        store: &TypeStore,
+    ) -> Option<crate::types::row::AnonymousRecordRemainder<InferenceTerm>> {
+        use crate::types::row::AnonymousRecordRemainder as Remainder;
+        use crate::types::type_lambda::ScopedAnonymousRecordRemainder as ScopedRemainder;
+
+        Some(match remainder {
+            ScopedRemainder::Unconstrained { key_type } => Remainder::Unconstrained {
+                key_type: self.scoped_to_inference(key_type, depth, arguments, store)?,
+            },
+            ScopedRemainder::Typed { key_type, value_type } => Remainder::Typed {
+                key_type: self.scoped_to_inference(key_type, depth, arguments, store)?,
+                value_type: self.scoped_to_inference(value_type, depth, arguments, store)?,
+            },
+        })
+    }
+
     fn scoped_to_inference(&self, scoped: crate::types::id::ScopedTypeId, depth: u32, arguments: &[InferenceTerm], store: &TypeStore) -> Option<InferenceTerm> {
         match store.arena().get_scoped(scoped).clone() {
             ScopedTypeData::Bound { depth: bound_depth, index } => (bound_depth == depth).then(|| arguments.get(index as usize).cloned()).flatten(),
@@ -1773,7 +1808,11 @@ impl InferenceSession {
                                 ScopedRecordRowTail::Bound { .. } => return None,
                                 ScopedRecordRowTail::FreeParameter(parameter) => InferenceRecordTail::Parameter(parameter),
                                 ScopedRecordRowTail::Projection(projection) => InferenceRecordTail::Projection(projection),
-                                ScopedRecordRowTail::Anonymous(rem) => InferenceRecordTail::Anonymous(rem),
+                                ScopedRecordRowTail::Anonymous(rem) => {
+                                    InferenceRecordTail::Anonymous(Box::new(
+                                        self.scoped_remainder_to_inference(rem, depth, arguments, store)?,
+                                    ))
+                                }
                             };
                             Some(InferenceStaticArgument::RecordRow(InferenceRecord {
                                 fields: row
@@ -1781,7 +1820,7 @@ impl InferenceSession {
                                     .iter()
                                     .map(|field| {
                                         Some(InferenceRecordField {
-                                            name: field.name.clone(),
+                                            key: field.key.clone(),
                                             term: self.scoped_to_inference(field.ty, depth, arguments, store)?,
                                         })
                                     })
@@ -1819,7 +1858,7 @@ impl InferenceSession {
                     .iter()
                     .map(|field| {
                         Some(InferenceRecordField {
-                            name: field.name.clone(),
+                            key: field.key.clone(),
                             term: self.scoped_to_inference(field.ty, depth, arguments, store)?,
                         })
                     })
@@ -1831,7 +1870,9 @@ impl InferenceSession {
                 let tail = match record.tail {
                     ScopedRecordTail::FreeParameter(parameter) => InferenceRecordTail::Parameter(parameter),
                     ScopedRecordTail::Bound { .. } => return None,
-                    ScopedRecordTail::Anonymous(rem) => InferenceRecordTail::Anonymous(rem),
+                    ScopedRecordTail::Anonymous(rem) => {
+                        InferenceRecordTail::Anonymous(Box::new(self.scoped_remainder_to_inference(rem, depth, arguments, store)?))
+                    }
                 };
                 Some(InferenceTerm::Record(InferenceRecord {
                     fields: record
@@ -1839,7 +1880,7 @@ impl InferenceSession {
                         .iter()
                         .map(|field| {
                             Some(InferenceRecordField {
-                                name: field.name.clone(),
+                                key: field.key.clone(),
                                 term: self.scoped_to_inference(field.ty, depth, arguments, store)?,
                             })
                         })
@@ -1854,7 +1895,9 @@ impl InferenceSession {
                     ScopedRecordRowTail::Bound { .. } => return None,
                     ScopedRecordRowTail::FreeParameter(parameter) => InferenceRecordTail::Parameter(parameter),
                     ScopedRecordRowTail::Projection(projection) => InferenceRecordTail::Projection(projection),
-                    ScopedRecordRowTail::Anonymous(rem) => InferenceRecordTail::Anonymous(rem),
+                    ScopedRecordRowTail::Anonymous(rem) => {
+                        InferenceRecordTail::Anonymous(Box::new(self.scoped_remainder_to_inference(rem, depth, arguments, store)?))
+                    }
                 };
                 Some(InferenceTerm::Record(InferenceRecord {
                     fields: row
@@ -1862,7 +1905,7 @@ impl InferenceSession {
                         .iter()
                         .map(|field| {
                             Some(InferenceRecordField {
-                                name: field.name.clone(),
+                                key: field.key.clone(),
                                 term: self.scoped_to_inference(field.ty, depth, arguments, store)?,
                             })
                         })
@@ -2232,12 +2275,12 @@ impl InferenceSession {
                     .fields
                     .iter()
                     .map(|field| InferenceRecordField {
-                        name: field.name.clone(),
+                        key: field.key.clone(),
                         term: self.term_for_expected(&field.term),
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
-                tail: record.tail,
+                tail: record.tail.clone(),
             }),
             InferenceTerm::Family(family) => InferenceTerm::Family(
                 family
@@ -2341,7 +2384,7 @@ impl InferenceSession {
                 .fields
                 .iter()
                 .map(|field| InferenceRecordField {
-                    name: field.name.clone(),
+                    key: field.key.clone(),
                     term: self.term_for_expected(&field.ty),
                 })
                 .collect::<Vec<_>>()
@@ -2351,7 +2394,7 @@ impl InferenceSession {
                 RecordRowTermTail::Parameter(parameter) => InferenceRecordTail::Parameter(parameter),
                 RecordRowTermTail::Projection(projection) => InferenceRecordTail::Projection(projection),
                 RecordRowTermTail::Var(variable) => InferenceRecordTail::Var(variable),
-                RecordRowTermTail::Anonymous(rem) => InferenceRecordTail::Anonymous(rem),
+                RecordRowTermTail::Anonymous(rem) => InferenceRecordTail::Anonymous(Box::new(rem)),
             },
         }
     }
@@ -2364,12 +2407,12 @@ impl InferenceSession {
                     .fields
                     .iter()
                     .map(|field| InferenceRecordField {
-                        name: field.name.clone(),
+                        key: field.key.clone(),
                         term: self.term_for_expected(&field.term),
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
-                tail: row.tail,
+                tail: row.tail.clone(),
             }),
             InferenceStaticArgument::DynamicType => InferenceStaticArgument::DynamicType,
         }
@@ -2747,7 +2790,7 @@ impl InferenceSession {
                     .fields
                     .iter()
                     .map(|f| InferenceRecordField {
-                        name: f.name.clone(),
+                        key: f.key.clone(),
                         term: self.term_substitute_variables(&f.term),
                     })
                     .collect::<Vec<_>>()
@@ -4203,7 +4246,7 @@ impl InferenceSession {
                 }
                 let mut changed = false;
                 for (left_field, right_field) in left_record.fields.iter().zip(right_record.fields.iter()) {
-                    if left_field.name != right_field.name {
+                    if left_field.key != right_field.key {
                         return Err(InferenceFailureReason::StructuralMismatch {
                             left: Box::new(left.clone()),
                             right: Box::new(right.clone()),
@@ -4769,7 +4812,7 @@ impl InferenceSession {
             (InferenceTerm::Record(left), InferenceTerm::Record(right)) => {
                 let mut changed = false;
                 for right_field in right.fields.iter() {
-                    let Some(left_field) = left.fields.iter().find(|field| field.name == right_field.name) else {
+                    let Some(left_field) = left.fields.iter().find(|field| field.key == right_field.key) else {
                         return Err(InferenceFailureReason::StructuralMismatch {
                             left: Box::new(sub.clone()),
                             right: Box::new(sup.clone()),
@@ -5014,24 +5057,20 @@ impl InferenceSession {
                     .iter()
                     .map(|field| {
                         Ok(crate::types::row::RecordRowField {
-                            name: field.name.clone(),
+                            key: field.key.clone(),
                             ty: self.materialize(&field.ty, store)?,
                             presence: field.presence,
                         })
                     })
                     .collect::<Result<Vec<_>, InferenceMaterializationFailure>>()?;
-                store
-                    .record_row_type_checked(
-                        fields,
-                        match normalized.tail {
-                            RecordRowTermTail::Closed => RecordRowTail::Closed,
-                            RecordRowTermTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
-                            RecordRowTermTail::Projection(proj) => RecordRowTail::Projection(proj),
-                            RecordRowTermTail::Anonymous(rem) => RecordRowTail::Anonymous(rem),
-                            RecordRowTermTail::Var(_) => return Err(InferenceMaterializationFailure::UnsupportedDomain),
-                        },
-                    )
-                    .map_err(|_| InferenceMaterializationFailure::InternalInvariant)
+                let tail = match normalized.tail {
+                    RecordRowTermTail::Closed => RecordRowTail::Closed,
+                    RecordRowTermTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
+                    RecordRowTermTail::Projection(proj) => RecordRowTail::Projection(proj),
+                    RecordRowTermTail::Anonymous(rem) => RecordRowTail::Anonymous(rem.try_map(|ty| self.materialize(&ty, store))?),
+                    RecordRowTermTail::Var(_) => return Err(InferenceMaterializationFailure::UnsupportedDomain),
+                };
+                store.record_row_type_checked(fields, tail).map_err(|_| InferenceMaterializationFailure::InternalInvariant)
             }
             InferenceTerm::Family(family) => {
                 let members = family
@@ -5148,7 +5187,7 @@ impl InferenceSession {
                     .iter()
                     .map(|field| {
                         Ok(crate::types::row::RecordRowField {
-                            name: field.name.clone(),
+                            key: field.key.clone(),
                             ty: self.materialize(&field.ty, store)?,
                             presence: field.presence,
                         })
@@ -5158,7 +5197,9 @@ impl InferenceSession {
                     RecordRowTermTail::Closed => RecordRowTail::Closed,
                     RecordRowTermTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
                     RecordRowTermTail::Projection(projection) => RecordRowTail::Projection(projection),
-                    RecordRowTermTail::Anonymous(rem) => RecordRowTail::Anonymous(rem),
+                    RecordRowTermTail::Anonymous(rem) => RecordRowTail::Anonymous(
+                        rem.try_map(|ty| self.materialize(&ty, store))?,
+                    ),
                     RecordRowTermTail::Var(_) => return Err(InferenceMaterializationFailure::UnsupportedDomain),
                 };
                 store
@@ -5358,7 +5399,7 @@ impl InferenceCoordinator {
     pub(crate) fn add_record_row_lacks(
         &mut self,
         variable: RecordRowVarId,
-        field: Box<str>,
+        field: crate::field_key::FieldKey,
     ) -> Result<(), crate::types::row_solver::RecordRowFailure<InferenceTerm>> {
         self.rows.borrow_mut().add_lacks(variable, field)
     }

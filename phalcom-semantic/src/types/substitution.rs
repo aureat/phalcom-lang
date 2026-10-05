@@ -217,17 +217,24 @@ impl TypeSubstitution {
         let subst_fields: Vec<RecordRowField> = fields
             .into_iter()
             .map(|field| RecordRowField {
-                name: field.name,
+                key: field.key,
                 ty: self.apply_with_arena(store, arena, field.ty),
                 presence: field.presence,
             })
             .collect();
         let subst_tail = match tail {
             RecordRowTail::Closed => RecordRowTail::Closed,
-            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(t)) => {
-                RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(self.apply_with_arena(store, arena, t)))
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type }) => {
+                RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained {
+                    key_type: self.apply_with_arena(store, arena, key_type),
+                })
             }
-            RecordRowTail::Anonymous(rem) => RecordRowTail::Anonymous(rem),
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+                    key_type: self.apply_with_arena(store, arena, key_type),
+                    value_type: self.apply_with_arena(store, arena, value_type),
+                })
+            }
             RecordRowTail::Parameter(param) => RecordRowTail::Parameter(param),
             RecordRowTail::Projection(proj) => RecordRowTail::Projection(self.apply_with_arena(store, arena, proj)),
         };
@@ -628,17 +635,24 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
             let subst_fields: Vec<RecordRowField> = fields
                 .into_iter()
                 .map(|field| RecordRowField {
-                    name: field.name,
+                    key: field.key,
                     ty: specialize_self_type(store, declarations, receiver, field.ty),
                     presence: field.presence,
                 })
                 .collect();
             let subst_tail = match tail {
                 RecordRowTail::Closed => RecordRowTail::Closed,
-                RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(t)) => {
-                    RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(specialize_self_type(store, declarations, receiver, t)))
+                RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type }) => {
+                    RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained {
+                        key_type: specialize_self_type(store, declarations, receiver, key_type),
+                    })
                 }
-                RecordRowTail::Anonymous(rem) => RecordRowTail::Anonymous(rem),
+                RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                    RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+                        key_type: specialize_self_type(store, declarations, receiver, key_type),
+                        value_type: specialize_self_type(store, declarations, receiver, value_type),
+                    })
+                }
                 RecordRowTail::Parameter(param) => RecordRowTail::Parameter(param),
                 RecordRowTail::Projection(proj) => RecordRowTail::Projection(specialize_self_type(store, declarations, receiver, proj)),
             };

@@ -1462,12 +1462,75 @@ pub struct WhereClauseSyntax {
     pub range: SourceRange,
 }
 
+/// Context-specific Record key syntax (TDR-0090, LANG007.C4.P4).
+///
+/// Record keys support Symbol, String, Int, and Bool via either bare identifiers
+/// or computed bracket syntax `[expr]`.
+#[derive(Debug, Clone)]
+pub enum RecordKeySyntax {
+    /// A statically-named symbol key, written as a bare identifier `name` or explicit `#name`.
+    Symbol {
+        name: String,
+        range: SourceRange,
+    },
+    /// A computed key expression written as `[expr]`.
+    Computed {
+        expr: Box<Expr>,
+        range: SourceRange,
+    },
+}
+
+impl PartialEq for RecordKeySyntax {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Symbol { name: a, .. }, Self::Symbol { name: b, .. }) => a == b,
+            (Self::Computed { range: a, .. }, Self::Computed { range: b, .. }) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl RecordKeySyntax {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Symbol { range, .. } | Self::Computed { range, .. } => *range,
+        }
+    }
+
+    pub fn symbol_name(&self) -> Option<&str> {
+        match self {
+            Self::Symbol { name, .. } => Some(name.as_str()),
+            Self::Computed { .. } => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordTypeField {
-    pub name: String,
+    pub key: RecordKeySyntax,
     pub ty: TypeAnnotation,
     pub optional: bool,
     pub range: SourceRange,
+}
+
+impl RecordTypeField {
+    pub fn new(key: RecordKeySyntax, ty: TypeAnnotation, optional: bool, range: SourceRange) -> Self {
+        Self { key, ty, optional, range }
+    }
+
+    pub fn symbol(name: impl Into<String>, ty: TypeAnnotation, optional: bool, range: SourceRange) -> Self {
+        let name = name.into();
+        Self {
+            key: RecordKeySyntax::Symbol { name, range },
+            ty,
+            optional,
+            range,
+        }
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        self.key.symbol_name()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1492,9 +1555,42 @@ impl AnonymousRemainderSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum AnonymousRecordRemainderSyntax {
+    /// `...` -> default FieldKey, unconstrained value
+    Unconstrained(SourceRange),
+    /// `**: V` -> default FieldKey, value constrained by V
+    TypedValue {
+        value_type: Box<TypeAnnotation>,
+        range: SourceRange,
+    },
+    /// `**[K]: ...` -> key constrained by K, unconstrained value
+    TypedKey {
+        key_type: Box<TypeAnnotation>,
+        range: SourceRange,
+    },
+    /// `**[K]: V` -> key constrained by K, value constrained by V
+    Typed {
+        key_type: Box<TypeAnnotation>,
+        value_type: Box<TypeAnnotation>,
+        range: SourceRange,
+    },
+}
+
+impl AnonymousRecordRemainderSyntax {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Unconstrained(r) => *r,
+            Self::TypedValue { range, .. }
+            | Self::TypedKey { range, .. }
+            | Self::Typed { range, .. } => *range,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum RecordRowTailSyntax {
     Captured(RecordRowTail),
-    Anonymous(AnonymousRemainderSyntax),
+    Anonymous(AnonymousRecordRemainderSyntax),
 }
 
 impl RecordRowTailSyntax {
@@ -2290,12 +2386,31 @@ pub struct VariantPatternArgument {
     pub range: SourceRange,
 }
 
-/// A required record field in a pattern.
+/// A required or computed record field in a pattern.
 #[derive(Debug, Clone)]
 pub struct RecordPatternEntry {
-    pub label: String,
+    pub key: RecordKeySyntax,
     pub pattern: Pattern,
     pub range: SourceRange,
+}
+
+impl RecordPatternEntry {
+    pub fn new(key: RecordKeySyntax, pattern: Pattern, range: SourceRange) -> Self {
+        Self { key, pattern, range }
+    }
+
+    pub fn symbol(name: impl Into<String>, pattern: Pattern, range: SourceRange) -> Self {
+        let name = name.into();
+        Self {
+            key: RecordKeySyntax::Symbol { name, range },
+            pattern,
+            range,
+        }
+    }
+
+    pub fn label(&self) -> Option<&str> {
+        self.key.symbol_name()
+    }
 }
 
 /// A stable literal key and required value pattern in a map pattern.

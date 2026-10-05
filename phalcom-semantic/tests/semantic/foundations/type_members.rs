@@ -82,12 +82,7 @@ fn record_ann(fields: Vec<(&str, TypeAnnotation)>) -> TypeAnnotation {
         expr: TypeAnnotationExpr::Record {
             fields: fields
                 .into_iter()
-                .map(|(name, ty)| phalcom_ast::ast::RecordTypeField {
-                    name: name.into(),
-                    ty,
-                    optional: false,
-                    range: RANGE,
-                })
+                .map(|(name, ty)| phalcom_ast::ast::RecordTypeField::symbol(name, ty, false, RANGE))
                 .collect(),
             tail: None,
             range: RANGE,

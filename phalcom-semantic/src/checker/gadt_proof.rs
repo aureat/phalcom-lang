@@ -135,7 +135,7 @@ pub(crate) fn apply_branch_proof_to_local(store: &mut TypeStore, proof: &BranchP
             fields
                 .iter()
                 .map(|f| crate::types::rigid::LocalRecordField {
-                    name: f.name.clone(),
+                    key: f.key.clone(),
                     ty: apply_branch_proof_to_local(store, proof, &f.ty),
                 })
                 .collect(),
@@ -244,7 +244,7 @@ fn unify_local_types(
                 && left
                     .iter()
                     .zip(right.iter())
-                    .all(|(left, right)| left.name == right.name && unify_local_types(store, case, &left.ty, &right.ty, bindings, exact_case_observation))
+                    .all(|(left, right)| left.key == right.key && unify_local_types(store, case, &left.ty, &right.ty, bindings, exact_case_observation))
         }
         (
             LocalType::Callable {
@@ -562,7 +562,7 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                 let fields = fields
                     .into_iter()
                     .map(|field| crate::types::row::RecordRowField {
-                        name: field.name,
+                        key: field.key,
                         ty: normalize(store, substitution, field.ty, states),
                         presence: field.presence,
                     })
@@ -910,7 +910,7 @@ fn unify_record_rows(
     let right = store.record_row(right_row_id).clone();
 
     for left_field in left.fields.iter() {
-        if let Some(right_field) = right.fields.iter().find(|field| field.name == left_field.name) {
+        if let Some(right_field) = right.fields.iter().find(|field| field.key == left_field.key) {
             if !unify_equality(store, substitution, left_field.ty, right_field.ty) {
                 return false;
             }
@@ -919,7 +919,7 @@ fn unify_record_rows(
         }
     }
     for right_field in right.fields.iter() {
-        if !left.fields.iter().any(|field| field.name == right_field.name) && left.tail == RecordRowTail::Closed && right.tail == RecordRowTail::Closed {
+        if !left.fields.iter().any(|field| field.key == right_field.key) && left.tail == RecordRowTail::Closed && right.tail == RecordRowTail::Closed {
             return false;
         }
     }

@@ -684,7 +684,7 @@ impl StaticValueStore {
                     .iter()
                     .map(|field| {
                         self.static_value_type(field.value, types, data, enums)
-                            .map(|ty| RecordRowField::required(field.key.clone(), ty))
+                            .map(|ty| RecordRowField::required(crate::field_key::FieldKey::symbol(field.key.clone()), ty))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 types

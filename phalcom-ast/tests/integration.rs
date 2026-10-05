@@ -7,5 +7,6 @@ mod match_patterns;
 mod match_syntax;
 mod parser;
 mod probe_continuation;
+mod record_field_key;
 mod rest_diagnostics;
 mod trait_syntax;

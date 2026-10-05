@@ -1,5 +1,6 @@
 use crate::checker::analysis::AnalysisStatus;
 use crate::checker::typed_expr::TypedExpression;
+use crate::field_key::FieldKey;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
 use crate::types::row::RecordRowTail;
@@ -107,7 +108,7 @@ pub(crate) fn project_tuple_elements(store: &TypeStore, knowledge: &TypeKnowledg
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RecordProjection {
-    pub fields: Vec<(Box<str>, TypeKnowledge)>,
+    pub fields: Vec<(FieldKey, TypeKnowledge)>,
     pub tail: RecordRowTail,
 }
 
@@ -133,7 +134,7 @@ pub(crate) fn project_record_shape(store: &TypeStore, knowledge: &TypeKnowledge)
                         fields: row
                             .fields
                             .iter()
-                            .map(|field| (field.name.clone(), knowledge.derive_known_type(field.ty, EvidenceOrigin::PatternDecomposition)))
+                            .map(|field| (field.key.clone(), knowledge.derive_known_type(field.ty, EvidenceOrigin::PatternDecomposition)))
                             .collect(),
                         tail: row.tail,
                     })
@@ -150,7 +151,7 @@ pub(crate) fn project_record_shape(store: &TypeStore, knowledge: &TypeKnowledge)
                             element
                                 .label
                                 .clone()
-                                .map(|name| (name, knowledge.derive_known_type(element.ty, EvidenceOrigin::PatternDecomposition)))
+                                .map(|name| (FieldKey::symbol(name), knowledge.derive_known_type(element.ty, EvidenceOrigin::PatternDecomposition)))
                         })
                         .collect(),
                     tail: RecordRowTail::Closed,
@@ -164,7 +165,7 @@ pub(crate) fn project_record_shape(store: &TypeStore, knowledge: &TypeKnowledge)
 }
 
 /// Complete field enumeration is only sound for a closed Record row.
-pub(crate) fn project_complete_record_fields(store: &TypeStore, knowledge: &TypeKnowledge) -> Result<Vec<(Box<str>, TypeKnowledge)>, TypeKnowledge> {
+pub(crate) fn project_complete_record_fields(store: &TypeStore, knowledge: &TypeKnowledge) -> Result<Vec<(FieldKey, TypeKnowledge)>, TypeKnowledge> {
     match knowledge {
         TypeKnowledge::Known(_) => {
             let Some(source_ty) = knowledge.ty() else {
@@ -179,7 +180,7 @@ pub(crate) fn project_complete_record_fields(store: &TypeStore, knowledge: &Type
                     Ok(row
                         .fields
                         .iter()
-                        .map(|field| (field.name.clone(), knowledge.derive_known_type(field.ty, EvidenceOrigin::PatternDecomposition)))
+                        .map(|field| (field.key.clone(), knowledge.derive_known_type(field.ty, EvidenceOrigin::PatternDecomposition)))
                         .collect())
                 }
                 _ => Err(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)),
@@ -201,7 +202,7 @@ pub(crate) fn lookup_record_field(store: &TypeStore, knowledge: &TypeKnowledge, 
             match store.get(source_ty) {
                 TypeData::Record(row_id) => {
                     let row = store.record_row(*row_id);
-                    match row.find_field(name) {
+                    match row.find_field(&FieldKey::symbol(name)) {
                         Some(field_ty) => Ok(knowledge.derive_known_type(field_ty, EvidenceOrigin::PatternDecomposition)),
                         None => Err(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)),
                     }

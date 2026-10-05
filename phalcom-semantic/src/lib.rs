@@ -192,6 +192,8 @@ pub use source_index::{
 pub use source_index::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, OccurrenceView, SemanticOccurrence};
 pub use source_index::{SourceSite, SourceSiteKind};
 pub use stable_identity::*;
+pub use field_key::{FieldKey, FieldKeyKind};
+pub use scalar::StaticInt;
 pub use surface::{DeclarationSurface, MemberVisibility};
 pub use types::{
     Assignability, BlockReason, BudgetKind, BudgetReport, CallableParameterType, CallableType, CancellationToken, ConstraintSet, ContractAssumptionEligibility,

@@ -98,13 +98,13 @@ impl DataConstructorShapeAdapter {
         expansions.next().is_none().then_some(expansion)
     }
 
-    fn fixed_record_field_names(&self) -> Vec<Box<str>> {
+    fn fixed_record_field_names(&self) -> Vec<crate::field_key::FieldKey> {
         self.template
             .parameters
             .iter()
             .filter_map(|contribution| match contribution {
                 DataConstructorParameterContribution::Parameter(parameter) if self.shape == DataShape::Record => {
-                    Some(parameter.external_label.as_ref().unwrap_or(&parameter.local_name).clone())
+                    Some(crate::field_key::FieldKey::symbol(parameter.external_label.as_ref().unwrap_or(&parameter.local_name).clone()))
                 }
                 _ => None,
             })
@@ -1561,7 +1561,10 @@ fn apply_generic_callable_in_context(
                             expansion_terms.parameter = Some(parameter);
                             expansion_terms
                                 .fields
-                                .push(crate::checker::row_inference::InferenceRecordField { name: label, term });
+                                .push(crate::checker::row_inference::InferenceRecordField {
+                                    key: crate::field_key::FieldKey::symbol(label),
+                                    term,
+                                });
                         }
                         DataConstructorArgumentRole::Fixed { .. } => unreachable!(),
                     }
@@ -2542,6 +2545,12 @@ fn record_row_formation_failure(ctx: &mut CheckingContext<'_>, error: RecordRowF
             format!("generic return materialization found a non-proper type in record field `{field}`"),
             range,
         ),
+        RecordRowFormationError::TailKeyDomainInvalid(ty) | RecordRowFormationError::TailValueNotProperType(ty) => record_internal_row_failure(
+            ctx,
+            "generic return type contains an invalid Record tail after inference",
+            format!("generic return materialization found a non-proper tail type `{}`", ctx.store.format_type(ty)),
+            range,
+        ),
     }
 }
 
@@ -2790,8 +2799,11 @@ impl<'a> ParameterUseWalker<'a> {
         let row = self.store.record_row(row_id).clone();
         row.fields.iter().any(|field| self.visit_type(field.ty))
             || match row.tail {
-                RecordRowTail::Closed | RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
-                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => self.visit_type(ty),
+                RecordRowTail::Closed => false,
+                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type }) => self.visit_type(key_type),
+                RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                    self.visit_type(key_type) || self.visit_type(value_type)
+                }
                 RecordRowTail::Parameter(parameter) => self.parameters.contains(&parameter),
                 RecordRowTail::Projection(projection) => self.visit_type(projection),
             }
@@ -2826,8 +2838,13 @@ impl<'a> ParameterUseWalker<'a> {
                 record.fields.iter().any(|field| self.visit_scoped_type(field.ty))
                     || match record.tail {
                         ScopedRecordTail::FreeParameter(parameter) => self.parameters.contains(&parameter),
-                        ScopedRecordTail::Bound { .. } | ScopedRecordTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
-                        ScopedRecordTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => self.visit_type(ty),
+                        ScopedRecordTail::Bound { .. } => false,
+                        ScopedRecordTail::Anonymous(crate::types::type_lambda::ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => {
+                            self.visit_scoped_type(key_type)
+                        }
+                        ScopedRecordTail::Anonymous(crate::types::type_lambda::ScopedAnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                            self.visit_scoped_type(key_type) || self.visit_scoped_type(value_type)
+                        }
                     }
             }
             ScopedTypeData::RecordRow(row) => {
@@ -2835,8 +2852,13 @@ impl<'a> ParameterUseWalker<'a> {
                     || match row.tail {
                         ScopedRecordRowTail::Closed
                         | ScopedRecordRowTail::Bound { .. }
-                        | ScopedRecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained) => false,
-                        ScopedRecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed(ty)) => self.visit_type(ty),
+                        => false,
+                        ScopedRecordRowTail::Anonymous(crate::types::type_lambda::ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => {
+                            self.visit_scoped_type(key_type)
+                        }
+                        ScopedRecordRowTail::Anonymous(crate::types::type_lambda::ScopedAnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                            self.visit_scoped_type(key_type) || self.visit_scoped_type(value_type)
+                        }
                         ScopedRecordRowTail::FreeParameter(parameter) => self.parameters.contains(&parameter),
                         ScopedRecordRowTail::Projection(projection) => self.visit_type(projection),
                     }
