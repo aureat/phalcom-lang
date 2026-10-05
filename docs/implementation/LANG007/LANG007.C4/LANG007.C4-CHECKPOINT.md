@@ -2486,3 +2486,19 @@ dependencies, mixed-cycle behavior, and focused acceptance remain outstanding.
 The next implementation action is T7.0C-D: integrate projection at existing
 type owners, then add exact forcing, invalidation/republication, and mixed-cycle
 handling. T7.0E remains unstarted; do not begin T7.1 before it passes.
+
+### T7.0C owner-projection handoff foundation — 2026-10-05
+
+Added an owner-relative `RecordKeyUseId` (`QueryKey` plus deterministic
+traversal ordinal) and a short-lived checked-projection set carrying the shared
+`CheckedStaticExpression`, `Concrete`/`DeferredToP7`/`Invalid` result, and
+checker-selected semantic dependencies. Type formation can consume those
+precomputed facts through a resolver overlay; it does not check or evaluate key
+expressions. A deferred key propagates as unresolved and cannot enter a
+canonical row. The focused `cargo check -p phalcom-semantic` passed after this
+change.
+
+This is an integration seam only: no existing publishing owner supplies the
+facts yet. Exact forcing, owner dependency publication, invalidation and
+republication, and mixed-cycle handling remain open. P4 stays
+`IN_PROGRESS / PARTIAL / UNVERIFIED`; T7.0E has not run.

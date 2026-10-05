@@ -1,13 +1,32 @@
 //! Projection of checker-authorized static expressions to canonical Record keys.
 
-use crate::db::{CancellationToken, QueryBudget, QueryOutcome};
+use crate::db::{CancellationToken, QueryBudget, QueryKey, QueryOutcome};
 use crate::field_key::FieldKey;
 use crate::static_constant::{CheckedStaticExpression, StaticConstantId, StaticConstantTable};
 use crate::static_definition::StaticDefinitionTable;
 use crate::static_eval::{StaticEvalError, StaticEvalOutcome, StaticEvaluator};
 use crate::static_value::{StaticValueStore, StaticValueStoreError};
 use crate::types::store::TypeStore;
+use phalcom_ast::ast::RecordKeySyntax;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::marker::PhantomData;
 use std::sync::Arc;
+
+/// Stable identity for one computed Record key within its publishing owner.
+///
+/// `ordinal` is assigned by deterministic source traversal within `owner`.
+/// It is deliberately independent of source ranges and expression-local IDs.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RecordKeyUseId {
+    pub owner: QueryKey,
+    pub ordinal: u32,
+}
+
+impl RecordKeyUseId {
+    pub fn new(owner: QueryKey, ordinal: u32) -> Self {
+        Self { owner, ordinal }
+    }
+}
 
 /// Outcome of reducing a checked static expression at a Record-key site.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -34,6 +53,86 @@ pub enum StaticKeyProjectionError {
     Recursive,
     #[error("reduced static value is not a Record key: {0}")]
     InvalidFieldKey(StaticValueStoreError),
+}
+
+/// Checked projection facts supplied by the semantic owner before type-form
+/// construction. The syntax-address index is short-lived plumbing only; the
+/// retained identity is the owner-relative [`RecordKeyUseId`].
+#[derive(Clone, Debug)]
+pub struct ProjectedRecordKeyFact {
+    pub use_id: RecordKeyUseId,
+    pub checked: Arc<CheckedStaticExpression>,
+    pub projection: StaticKeyProjection,
+}
+
+/// Owner-local set of already checked key projections for one annotation
+/// borrow. It carries no query/product identity of its own.
+#[derive(Debug)]
+pub struct ProjectedRecordKeySet<'a> {
+    owner: QueryKey,
+    by_syntax_address: HashMap<usize, RecordKeyUseId>,
+    facts: BTreeMap<RecordKeyUseId, ProjectedRecordKeyFact>,
+    _syntax_lifetime: PhantomData<&'a RecordKeySyntax>,
+}
+
+impl<'a> ProjectedRecordKeySet<'a> {
+    pub fn new(owner: QueryKey) -> Self {
+        Self {
+            owner,
+            by_syntax_address: HashMap::new(),
+            facts: BTreeMap::new(),
+            _syntax_lifetime: PhantomData,
+        }
+    }
+
+    /// Adds one fact for a computed key. The caller supplies the deterministic
+    /// owner-local traversal ordinal used in its stable identity.
+    pub fn insert(
+        &mut self,
+        syntax: &'a RecordKeySyntax,
+        ordinal: u32,
+        checked: Arc<CheckedStaticExpression>,
+        projection: StaticKeyProjection,
+    ) -> Result<RecordKeyUseId, RecordKeyUseId> {
+        if !matches!(syntax, RecordKeySyntax::Computed { .. }) {
+            let use_id = RecordKeyUseId::new(self.owner.clone(), ordinal);
+            return Err(use_id);
+        }
+        let use_id = RecordKeyUseId::new(self.owner.clone(), ordinal);
+        let address = std::ptr::from_ref(syntax) as usize;
+        if self.facts.contains_key(&use_id) || self.by_syntax_address.contains_key(&address) {
+            return Err(use_id);
+        }
+        self.by_syntax_address.insert(address, use_id.clone());
+        self.facts.insert(
+            use_id.clone(),
+            ProjectedRecordKeyFact {
+                use_id: use_id.clone(),
+                checked,
+                projection,
+            },
+        );
+        Ok(use_id)
+    }
+
+    pub fn owner(&self) -> &QueryKey {
+        &self.owner
+    }
+
+    pub fn fact_for(&self, syntax: &RecordKeySyntax) -> Option<&ProjectedRecordKeyFact> {
+        let address = std::ptr::from_ref(syntax) as usize;
+        let use_id = self.by_syntax_address.get(&address)?;
+        self.facts.get(use_id)
+    }
+
+    pub fn facts(&self) -> impl Iterator<Item = &ProjectedRecordKeyFact> {
+        self.facts.values()
+    }
+
+    /// All exact semantic dependencies selected while checking projected keys.
+    pub fn dependencies(&self) -> BTreeSet<crate::checker::analysis::SemanticDependency> {
+        self.facts.values().flat_map(|fact| fact.checked.dependencies.iter().cloned()).collect()
+    }
 }
 
 /// Reduces one ordinary-checker-approved expression to an owned canonical

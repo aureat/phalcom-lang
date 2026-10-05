@@ -287,6 +287,10 @@ impl TypeResolver for TrackingTypeResolver<'_> {
         declaration
     }
 
+    fn projected_record_key(&self, syntax: &phalcom_ast::ast::RecordKeySyntax) -> Option<crate::static_key::ProjectedRecordKeyFact> {
+        self.inner.projected_record_key(syntax)
+    }
+
     fn resolve_trait_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
         if is_query_owned_module(current_module) {
             record_query_dependency(&self.dependencies, SemanticDependency::LinkedName(current_module.clone(), root.to_string()));

@@ -956,6 +956,11 @@ fn resolve_algebraic_payload_annotation(
         crate::types::annotation::TypeFormResolution::Unresolved(crate::types::annotation::TypeFormationUnresolved::SelfOutsideOwner) => {
             TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::UnresolvedName("Self".into()))
         }
+        crate::types::annotation::TypeFormResolution::Unresolved(crate::types::annotation::TypeFormationUnresolved::ComputedStaticKey(use_id)) => {
+            TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::UnresolvedName(
+                format!("computed Record key {}", use_id.ordinal).into(),
+            ))
+        }
         crate::types::annotation::TypeFormResolution::Blocked(_) => TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::InferenceBlocked),
         crate::types::annotation::TypeFormResolution::Cancelled => TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::InferenceCancelled),
         crate::types::annotation::TypeFormResolution::BudgetExceeded(_) => {

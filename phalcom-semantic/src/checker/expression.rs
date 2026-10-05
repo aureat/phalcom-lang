@@ -953,6 +953,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 crate::types::annotation::TypeFormResolution::Unresolved(reason) => TypedExpression::new(TypeKnowledge::Unknown(match reason {
                     crate::types::annotation::TypeFormationUnresolved::Name(name) => UnknownReason::UnresolvedName(name),
                     crate::types::annotation::TypeFormationUnresolved::SelfOutsideOwner => UnknownReason::UnresolvedName("Self".into()),
+                    crate::types::annotation::TypeFormationUnresolved::ComputedStaticKey(use_id) => {
+                        UnknownReason::UnresolvedName(format!("computed Record key {}", use_id.ordinal).into())
+                    }
                 })),
                 crate::types::annotation::TypeFormResolution::Missing(_) | crate::types::annotation::TypeFormResolution::Invalid(_) => {
                     TypedExpression::new(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause))

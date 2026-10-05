@@ -126,6 +126,13 @@ pub trait TypeResolver {
     /// Resolve an unqualified or qualified nominal type name to a DeclarationId.
     fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId>;
 
+    /// Returns an owner-computed projection for this exact computed Record
+    /// key syntax node. This is a read-only handoff: implementations must not
+    /// check or evaluate the key expression here.
+    fn projected_record_key(&self, _syntax: &phalcom_ast::ast::RecordKeySyntax) -> Option<crate::static_key::ProjectedRecordKeyFact> {
+        None
+    }
+
     /// Resolve a trait name at a conformance-bound formation site.
     ///
     /// Implementations that track semantic dependencies may distinguish the
@@ -198,6 +205,71 @@ pub trait TypeResolver {
     }
 }
 
+/// Resolver overlay for owner-computed Record key facts. The publishing owner
+/// checks and projects expressions before constructing this view; normal type
+/// resolution continues through `parent` unchanged.
+pub struct ProjectedRecordKeyResolver<'a> {
+    pub parent: &'a dyn TypeResolver,
+    pub projections: &'a crate::static_key::ProjectedRecordKeySet<'a>,
+}
+
+impl TypeResolver for ProjectedRecordKeyResolver<'_> {
+    fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
+        self.parent.resolve_type_name(current_module, root, members)
+    }
+
+    fn projected_record_key(&self, syntax: &phalcom_ast::ast::RecordKeySyntax) -> Option<crate::static_key::ProjectedRecordKeyFact> {
+        self.projections.fact_for(syntax).cloned()
+    }
+
+    fn resolve_trait_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
+        self.parent.resolve_trait_name(current_module, root, members)
+    }
+
+    fn resolve_type_level_binding(&self, name: &str) -> Option<TypeLevelBinding> {
+        self.parent.resolve_type_level_binding(name)
+    }
+
+    fn resolve_alias_form(&self, declaration: &DeclarationId) -> Option<TypeId> {
+        self.parent.resolve_alias_form(declaration)
+    }
+
+    fn resolve_static_definition(&self, declaration: &DeclarationId) -> Option<std::sync::Arc<crate::static_definition::StaticDefinitionProduct>> {
+        self.parent.resolve_static_definition(declaration)
+    }
+
+    fn resolve_module_alias(&self, current_module: &ModuleId, alias: &str) -> Option<ModuleId> {
+        self.parent.resolve_module_alias(current_module, alias)
+    }
+
+    fn resolve_associated_type_requirement(&self, trait_declaration: &DeclarationId, name: &str) -> Option<AssociatedTypeRequirementId> {
+        self.parent.resolve_associated_type_requirement(trait_declaration, name)
+    }
+
+    fn resolve_associated_type_member(
+        &self,
+        owner: &DeclarationId,
+        selector: &TypeMemberSelector,
+    ) -> Option<std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>> {
+        self.parent.resolve_associated_type_member(owner, selector)
+    }
+
+    fn resolve_static_case_catalog(
+        &self,
+        domain: &crate::identity::StaticDomainDeclarationId,
+    ) -> Option<std::sync::Arc<crate::static_case::StaticDomainCaseCatalogProduct>> {
+        self.parent.resolve_static_case_catalog(domain)
+    }
+
+    fn resolve_static_case_signature(&self, case: &crate::identity::StaticCaseId) -> Option<std::sync::Arc<crate::static_case::StaticCaseSignatureProduct>> {
+        self.parent.resolve_static_case_signature(case)
+    }
+
+    fn resolve_associated_static_domain(&self, owner: &DeclarationId, name: &str) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
+        self.parent.resolve_associated_static_domain(owner, name)
+    }
+}
+
 /// A scoped type resolver overlaying lexical type parameters on top of a parent resolver.
 pub struct ScopedTypeResolver<'a> {
     pub parent: &'a dyn TypeResolver,
@@ -207,6 +279,10 @@ pub struct ScopedTypeResolver<'a> {
 impl<'a> TypeResolver for ScopedTypeResolver<'a> {
     fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
         self.parent.resolve_type_name(current_module, root, members)
+    }
+
+    fn projected_record_key(&self, syntax: &phalcom_ast::ast::RecordKeySyntax) -> Option<crate::static_key::ProjectedRecordKeyFact> {
+        self.parent.projected_record_key(syntax)
     }
 
     fn resolve_trait_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
@@ -345,6 +421,7 @@ pub enum TypeFormationMissing {
 pub enum TypeFormationUnresolved {
     Name(Box<str>),
     SelfOutsideOwner,
+    ComputedStaticKey(crate::static_key::RecordKeyUseId),
 }
 
 /// Reason a source type form is malformed or violates formation rules.
@@ -765,10 +842,12 @@ fn intern_scoped_free(store: &mut TypeStore, ty: TypeId) -> crate::types::id::Sc
     store.arena_mut().intern_scoped(ScopedTypeData::Free(ty))
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum RecordKeyProjectionFailure {
     NotStatic,
     InvalidFieldKey,
+    DeferredToP7(crate::static_key::RecordKeyUseId),
+    InvalidProjection(crate::static_key::RecordKeyUseId),
 }
 
 /// Projects the exact, already-decoded scalar literal forms into owned Record
@@ -799,10 +878,19 @@ pub(crate) fn literal_record_field_key(expr: &Expr) -> Option<FieldKey> {
     record_field_key_literal(expr).ok()
 }
 
-fn record_key_syntax(key: &phalcom_ast::ast::RecordKeySyntax) -> Result<FieldKey, RecordKeyProjectionFailure> {
+fn record_key_syntax(key: &phalcom_ast::ast::RecordKeySyntax, resolver: &dyn TypeResolver) -> Result<FieldKey, RecordKeyProjectionFailure> {
     match key {
         phalcom_ast::ast::RecordKeySyntax::Symbol { name, .. } => Ok(FieldKey::symbol(name.clone())),
-        phalcom_ast::ast::RecordKeySyntax::Computed { expr, .. } => record_field_key_literal(expr),
+        phalcom_ast::ast::RecordKeySyntax::Computed { expr, .. } => {
+            if let Some(fact) = resolver.projected_record_key(key) {
+                return match fact.projection {
+                    crate::static_key::StaticKeyProjection::Concrete(key) => Ok(key),
+                    crate::static_key::StaticKeyProjection::DeferredToP7 => Err(RecordKeyProjectionFailure::DeferredToP7(fact.use_id)),
+                    crate::static_key::StaticKeyProjection::Invalid(_) => Err(RecordKeyProjectionFailure::InvalidProjection(fact.use_id)),
+                };
+            }
+            record_field_key_literal(expr)
+        }
     }
 }
 
@@ -1661,7 +1749,7 @@ fn lower_scoped_type_form(
             let mut names = std::collections::HashSet::new();
             let mut scoped_fields = Vec::with_capacity(fields.len());
             for field in fields {
-                let key = match record_key_syntax(&field.key) {
+                let key = match record_key_syntax(&field.key, resolver) {
                     Ok(key) => key,
                     Err(RecordKeyProjectionFailure::NotStatic) => {
                         diagnostics.push(SemanticDiagnostic::error_in(
@@ -1677,6 +1765,18 @@ fn lower_scoped_type_form(
                             current_module.clone(),
                             DiagnosticCode::RecordInvalidFieldKey,
                             "computed Record type key must be Symbol, String, Int, or Bool",
+                            field.key.range(),
+                        ));
+                        return TypeFormationOutcome::Invalid(TypeFormationInvalid::InvalidRecordFieldKey);
+                    }
+                    Err(RecordKeyProjectionFailure::DeferredToP7(use_id)) => {
+                        return TypeFormationOutcome::Unresolved(TypeFormationUnresolved::ComputedStaticKey(use_id));
+                    }
+                    Err(RecordKeyProjectionFailure::InvalidProjection(_)) => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::RecordInvalidFieldKey,
+                            "computed Record type key projection is invalid",
                             field.key.range(),
                         ));
                         return TypeFormationOutcome::Invalid(TypeFormationInvalid::InvalidRecordFieldKey);
@@ -3402,7 +3502,7 @@ pub fn resolve_type_form(
             let mut record_fields = Vec::with_capacity(fields.len());
             let mut seen_names = std::collections::HashSet::new();
             for field in fields {
-                let key = match record_key_syntax(&field.key) {
+                let key = match record_key_syntax(&field.key, resolver) {
                     Ok(key) => key,
                     Err(RecordKeyProjectionFailure::NotStatic) => {
                         diagnostics.push(SemanticDiagnostic::error_in(
@@ -3418,6 +3518,18 @@ pub fn resolve_type_form(
                             current_module.clone(),
                             DiagnosticCode::RecordInvalidFieldKey,
                             "computed Record type key must be Symbol, String, Int, or Bool",
+                            field.key.range(),
+                        ));
+                        return TypeFormResolution::Invalid(TypeFormationInvalid::InvalidRecordFieldKey);
+                    }
+                    Err(RecordKeyProjectionFailure::DeferredToP7(use_id)) => {
+                        return TypeFormResolution::Unresolved(TypeFormationUnresolved::ComputedStaticKey(use_id));
+                    }
+                    Err(RecordKeyProjectionFailure::InvalidProjection(_)) => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::RecordInvalidFieldKey,
+                            "computed Record type key projection is invalid",
                             field.key.range(),
                         ));
                         return TypeFormResolution::Invalid(TypeFormationInvalid::InvalidRecordFieldKey);
@@ -4524,6 +4636,9 @@ pub fn resolve_type_annotation(
         TypeFormResolution::Dynamic => TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape),
         TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(name)) => TypeKnowledge::Unknown(UnknownReason::UnresolvedName(name)),
         TypeFormResolution::Unresolved(TypeFormationUnresolved::SelfOutsideOwner) => TypeKnowledge::Unknown(UnknownReason::UnresolvedName("Self".into())),
+        TypeFormResolution::Unresolved(TypeFormationUnresolved::ComputedStaticKey(use_id)) => {
+            TypeKnowledge::Unknown(UnknownReason::UnresolvedName(format!("computed Record key {}", use_id.ordinal).into()))
+        }
         TypeFormResolution::Invalid(_) | TypeFormResolution::Missing(_) => TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause),
         TypeFormResolution::Blocked(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
         TypeFormResolution::Cancelled => TypeKnowledge::Unknown(UnknownReason::InferenceCancelled),
