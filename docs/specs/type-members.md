@@ -170,7 +170,8 @@ is required, for example:
 
 Domain-native members are available only when the subject domain is statically
 known to provide them. A parameter known only as `T: Type` does not
-automatically acquire structural `Map`; a parameter known as `P: PositionalTypePack` may use the operations exposed for positional Packs.
+automatically acquire structural `Map`; a parameter known as
+`P: PositionalPack<Type>` may use the operations exposed for positional Packs.
 
 Lookup must not choose a candidate by source order, spelling precedence, or
 runtime class. Member declaration identity and applicable semantic evidence

@@ -40,7 +40,7 @@ next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 03967716
 next_action: >
-  P3 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED. P4 is active on main at 80e4e854841e71b8292df27a8932f109f6ae2ca5. T1 has introduced the FieldKey scalar and shared StaticInt owner, but has no post-edit verification; Record-specific AST/parser work remains. Continue T1 and preserve P3 Pack branches.
+  P3 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED. P4 remains the primary active plan on local main at 419ec6e66ce90cba6003b7627eb4c99fa2345a7a; Record-specific AST/parser and FieldKey migration edits are in progress and unverified. P10 has completed its pre-S1 safe write-set in the isolated codex/lang007-c4-p10 worktree and has focused evidence for T1-T5, T7-T8, and the non-while T9 harnesses. Commit that work, then wait for a stable P4 frontend revision before synchronizing at S1. Preserve P3 Pack branches and do not start P10 T6 before S1.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -161,7 +161,8 @@ The intended C4 decomposition is:
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
 | `LANG007.C4.P3` | First-class Pack and call/rest convergence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T1–T9 implemented and verified; G1 semantic/static vertical, G2 runtime/rest/spread vertical, G3 fixed-call/resource invariants, G4 compatibility/stabilization gates pass; unblocks P4/P5 |
-| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | PARTIAL | UNVERIFIED | integrated to `main` at `80e4e854841e71b8292df27a8932f109f6ae2ca5`; T0 focused baselines passed; T1 FieldKey scalar and shared StaticInt extraction are present but unverified; Record AST/parser, rows, runtime, patterns, and metadata work remain |
+| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | PARTIAL | UNVERIFIED | active in local `main` working tree based at `419ec6e66ce90cba6003b7627eb4c99fa2345a7a`; Record-specific AST/parser, FieldKey/scalar, source-index, Universe, and focused test edits are uncommitted and have no post-edit verification; P4 remains primary `active_plan` |
+| `LANG007.C4.P10` | Parallel structural classification, static-control, and convergence foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | active in isolated worktree `codex/lang007-c4-p10` at `/Users/altunhasanli/.codex/worktrees/lang007-c4-p10/phalcom`, starting from `419ec6e66ce90cba6003b7627eb4c99fa2345a7a`; T1-T5 implemented/focused-tested, T7/T8 audit completed, and Pack plus non-loop evaluator T9 harnesses focused-tested; T6 and while-dependent T9 cases wait for S1; inherited fixed-call Pack runtime regression was interrupted after remaining idle for more than 60 seconds, so it is unverified; P4 remains primary `active_plan` |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
@@ -201,6 +202,28 @@ P3             P4
 static-value/result-domain seams.
 
 Do not reorder P5 before both P3 and P4 are semantically stable.
+
+## 2.1 Parallel P4/P10 execution state
+
+P4 remains the checkpoint's primary `active_plan`; P10 is a concurrent active
+plan and does not change `latest_completed_plan` or the singleton `next_plan`
+metadata. At P10 takeover, local `main` and `origin/main` both pointed to
+`419ec6e66ce90cba6003b7627eb4c99fa2345a7a`, while the shared `main` working
+tree held uncommitted P4 edits across the AST/parser, FieldKey/scalar,
+source-index, Record Universe, and focused test files. P10's separate worktree
+was created clean from that committed anchor, and only the named P10 plan was
+copied into it. P10 has since implemented and focused-tested T1-T5, completed
+the T7/T8 audits, and added focused Pack and non-loop evaluator resource
+harnesses for T9. These P10 changes remain isolated until synchronization.
+
+Before P10 T6 edits `Expr` or the parser, S1 requires a coherent P4 frontend
+revision to be integrated or explicitly handed off, P10 pre-S1 work to be
+committed, the branch to be synchronized, and the post-P4 AST/parser architecture
+to be re-audited. P4 remains uncommitted in the main working tree, so S1 is not
+yet open. P10's checkpoint changes must be merged semantically with any
+concurrent P4 lifecycle updates. The inherited focused fixed-call Pack runtime
+test was interrupted after it remained idle for over 60 seconds; it produced no
+test result and is not counted as verification evidence.
 
 ---
 

@@ -63,7 +63,7 @@ All tasks (T0–T9) and verification gates (G1–G4) are implemented, verified, 
   - Added `ValueTag::EmptyPack` (tag 12) in `phalcom-core/src/value/repr.rs` for `Pack()`. Zero allocation.
 - Heap representations:
   - `Object::PackRoot`: immutable root storage for positional values and labeled (Symbol, value) pairs.
-  - `Object::PackSlice`: sub-slice referencing an existing Pack root or slice, with positional offset/length and labeled offset/length.
+  - `Object::PackSlice`: sub-slice referencing the original Pack root directly, with composed positional and labeled offsets/lengths; slice-of-slice chains are normalized away.
 - GC tracing: `ObjectTracer` traverses Pack root and Pack slice handles.
 - Slicing semantics (`phalcom-core/src/primitive/pack.rs`):
   - `pack_raw_positional_rest_slice`: slices positional lane while preserving visible labeled lane length (`lab_len`).

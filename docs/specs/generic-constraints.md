@@ -90,7 +90,7 @@ Where the declaration form permits parameter-domain annotations, a binder may
 classify a parameter directly:
 
 ```phalcom
-<F: Type -> Type, P: PositionalTypePack, I: Int>
+<F: Type -> Type, P: PositionalPack<Type>, I: Int>
 ```
 
 `F` is a type-level callable-domain parameter. `P` is a static Pack of `Type` values.
@@ -232,18 +232,21 @@ Pack lane:
 ***Es    -> complete Pack capture
 ```
 
-The resulting public Type-valued families are `PositionalTypePack`,
-`LabeledTypePack`, and `CompleteTypePack`; they are Pack specializations rather than
-independent TypePack kinds.
+The resulting public Type-valued families are `PositionalPack<Type>`,
+`LabeledPack<Type>`, and `CompletePack<Type>`; they are proper Pack specializations
+rather than independent TypePack kinds. The canonical aliases and their element-type
+parameterization are owned by [Type-Level Domains](type-level-domains.md).
 
 Expansion punctuation is also used by structural owner grammars. A Record field/tail
 form such as `Record<**Fs>` is interpreted by the Record/unordered-product grammar and
 does not become an ordered LabeledPack merely because it uses `**`.
 
 The parameter's checked semantic domain therefore comes from the declaration/form that
-owns the binder, not from punctuation alone. Unordered row correlation uses the
-UnorderedShape/tail model from [Structural Products](structural-products.md), not a
-public `RecordFields` kind.
+owns the binder, not from punctuation alone. Unordered row correlation and public
+reflection use the UnorderedShape/tail model from
+[Structural Products](structural-products.md). `RecordFields` remains the
+context-specific kinded binder domain for Record field expansions; it is not the public
+unordered-reflection ontology.
 
 A `where` kind constraint directly constrains a generic parameter. Compound type expressions are kind-checked through ordinary type formation.
 
