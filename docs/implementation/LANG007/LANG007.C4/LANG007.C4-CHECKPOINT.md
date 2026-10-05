@@ -40,7 +40,7 @@ next_plan: LANG007.C4.P3
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P3-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521
 next_action: >
-  P3 is IN_PROGRESS. T1 complete (canonical Pack proper type, typed remainder syntax, Pack metadata and roundtrip, PackFromPacks normalization verified). T2 complete (StaticPack storage, slicing, equality, type projection, DeferredStructural materialization descriptor, and GenericParameterMode retention on value-domain static parameters verified). T3 complete (runtime Pack root/slice object, EmptyPack immediate, product shape, GC trace, and floor primitives in phalcom-core verified). Next action is T4: First-class Pack construction, builder finalization, scalable duplicates, and bytecode lowering.
+  P3 is IN_PROGRESS. T1 complete (canonical Pack proper type, typed remainder syntax, Pack metadata and roundtrip, PackFromPacks normalization verified). T2 complete (StaticPack storage, slicing, equality, type projection, DeferredStructural materialization descriptor, and GenericParameterMode retention on value-domain static parameters verified). T3 complete (runtime Pack root/slice object, EmptyPack immediate, product shape, GC trace, and floor primitives in phalcom-core verified). T4 in progress (T4.1 complete: ArgumentPackBuilderObject scalable thresholded duplicate label index verified). Next action is continuing T4 (T4.2-T4.5: FinishPack & BuildStaticPack opcodes, semantic lowering identity, compiler bytecode generation, outgoing_packs_completion tests).
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
