@@ -9,7 +9,7 @@ data Person {
 // Parental relationship args
 //
 
-type ParentalRelationshipArgs = ( Person, Person )
+type ParentalRelationshipArgs = (Person, Person)
 
 //
 // Predicates
@@ -37,12 +37,12 @@ let descendant =
 
 let queryGrandchildren =
   Query.of(
-    grandparent(Alice, descendant),
+    grandparent(Alice, descendant)
   )
 
 let queryDescendants =
   Query.of(
-    ancestor(Alice, descendant),
+    ancestor(Alice, descendant)
   )
 
 
@@ -120,7 +120,7 @@ let family =
 
     grandparentIsParentOfParent,
     parentIsAncestor,
-    parentOfAncestorIsAncestor,
+    parentOfAncestorIsAncestor
   )
 
 

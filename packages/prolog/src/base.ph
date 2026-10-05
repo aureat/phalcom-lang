@@ -23,14 +23,6 @@ data KnowledgeBase<*Clauses> private(
 )
 
 impl<*Clauses> KnowledgeBase<*Clauses> {
-  Self.of(
-    *clauses: *Clauses
-  ) -> Self<*Clauses> {
-    Self(
-      clauses,
-    )
-  }
-
   size -> Int {
     clauses.size
   }

@@ -1,17 +1,23 @@
+from .predicate import (
+  Predicate,
+  PredicateId
+)
+
 data Predicate<*Ts> private(
   id: PredicateId,
   name: Symbol,
 )
 
 impl<*Ts> Predicate<*Ts> {
-  Self.named(name: Symbol) -> Self<*Ts> {
+  @class
+  named(name: Symbol) -> Self<*Ts> {
     Predicate(
       PredicateId.fresh,
-      name,
+      name
     )
   }
 
-  call(*args: *Ts) -> Relationship<*Ts> {
+  call(*args) -> Relationship<*Ts> {
     Relationship {
       predicate: self,
       args: args

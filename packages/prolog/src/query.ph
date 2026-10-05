@@ -8,8 +8,8 @@ data Query<*Goals> {
 }
 
 impl<*Goals> Query<*Goals> {
-  class.of(
-    *goals: *Goals
+  @class of(
+    *goals
   ) -> Query<*Goals> {
     Query {
       goals: goals,

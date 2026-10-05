@@ -31,5 +31,6 @@ impl<Head, *Body> Rule<Head, *Body> {
 
 impl<Head, *Body> Clause for Rule<Head, *Body> {}
 
+let rule = Rule()
 
 export Rule

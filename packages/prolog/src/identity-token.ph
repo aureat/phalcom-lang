@@ -16,17 +16,21 @@
 // I have no idea whether these rules are coherent
 //
 class IdentityToken {
-  mut Self._next: Int = 0
-  private mut Self.next via _next
+  mut _next: Int = 0
+
+  @class
+  next via _next
 
   _id: Int
-  private id via _id
+  id via _id
 
-  private Self(id uniqueId: Int) -> Self {
-    Self { _id = uniqueId }
+  @constructor
+  new(id uniqueId: Int) -> Self {
+    _id = uniqueId
   }
 
-  Self.fresh -> Self {
+  @class
+  fresh -> Self {
     Self(++next) // technically, self(++next) would work too, but this is more explicit
   }
 
@@ -48,7 +52,8 @@ data Id<Tag> private(
 )
 
 impl<Tag> Id<Tag> {
-  Self.fresh -> Id<Tag> {
+  @class
+  fresh -> Id<Tag> {
     Id(IdentityToken.fresh)
   }
 
