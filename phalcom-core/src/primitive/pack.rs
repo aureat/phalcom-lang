@@ -45,18 +45,20 @@ pub fn pack_raw_labeled_value_at(vm: &mut VM, receiver: &Value, args: &[Value]) 
 pub fn pack_raw_positional_rest_slice(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let view = expect_pack_view(vm, receiver)?;
     let pos_len = view.positional_len() as u32;
+    let lab_len = view.labeled_len() as u32;
     if pos_len == 0 {
         return Ok(Value::empty_pack());
     }
-    finish_pack_slice_value(vm, *receiver, 1, pos_len - 1, 0, 0)
+    finish_pack_slice_value(vm, *receiver, 1, pos_len - 1, 0, lab_len)
 }
 
 #[phalcom_native_macros::primitive(Pack, "rawLabeledRestSlice", visibility = internal)]
 pub fn pack_raw_labeled_rest_slice(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let view = expect_pack_view(vm, receiver)?;
+    let pos_len = view.positional_len() as u32;
     let lab_len = view.labeled_len() as u32;
     if lab_len == 0 {
         return Ok(Value::empty_pack());
     }
-    finish_pack_slice_value(vm, *receiver, 0, 0, 1, lab_len - 1)
+    finish_pack_slice_value(vm, *receiver, 0, pos_len, 1, lab_len - 1)
 }

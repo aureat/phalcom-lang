@@ -2675,6 +2675,7 @@ pub fn static_definition_product_fingerprint(product: &crate::static_definition:
     for p in def.signature.parameters.iter() {
         p.name.hash(&mut hasher);
         p.domain.hash(&mut hasher);
+        p.mode.hash(&mut hasher);
         p.index.hash(&mut hasher);
         p.type_parameter_id.is_some().hash(&mut hasher);
     }
