@@ -6,7 +6,7 @@ checkpoint: LANG007.C4
 plan: LANG007.C4.P4
 kind: implementation-plan
 title: "Generalized FieldKey and Unordered-Product Calculus"
-status: IN_PROGRESS
+status: BLOCKED
 completion: PARTIAL
 verification: UNVERIFIED
 started_against_revision: 03967716867684a513cffd6a044af36366859b18
@@ -15,6 +15,10 @@ worktree_path: /Users/altunhasanli/.codex/worktrees/lang007-c4-p4/phalcom
 integrated_branch: main
 integrated_revision: 80e4e854841e71b8292df27a8932f109f6ae2ca5
 started: 2026-10-05
+continued_against_revision: 6fea110003ae8d21f40173d8339fc31222336625
+continued_branch: main
+continued_worktree_path: /Users/altunhasanli/dev/phalcom/phalcom
+continued: 2026-10-05
 depends_on:
   - LANG007.C4.P2
 parallel_with:
@@ -1788,7 +1792,9 @@ Use new focused semantic selectors only, e.g.:
 ```sh
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::record_rows_field_keys::canonical_ -- --nocapture
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::record_rows_field_keys::tail_ -- --nocapture
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::record_rows_field_keys::static_key_ -- --nocapture
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::type_annotations::record_type_static_literal_keys_reduce_to_canonical_field_keys -- --nocapture
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::type_annotations::record_type_names_and_general_expressions_fail_closed_before_row_interning -- --nocapture
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::type_annotations::anonymous_record_tail_key_domains_default_and_substitute_correctly -- --nocapture
 ```
 
 Then:
@@ -2685,6 +2691,89 @@ The projection must:
 
 If existing checked products cannot provide stable identity and dependency edges
 without a new parallel authority, stop and consult before changing ownership.
+
+#### T7.0 architecture consultation disposition — BLOCKED (2026-10-05)
+
+The required follow-up consultation found no safe bounded implementation
+contract in the current plan or live query/session architecture. T7.0 is stopped;
+T7.1–T7.5 cannot start until the principal architect resolves the decisions
+below and amends this plan. The requirements above remain fixed acceptance
+invariants, not permission to invent the missing owner or scheduling model.
+
+Live-tree evidence:
+
+- `TypeFormationSite` in `phalcom-semantic/src/types/annotation.rs` carries
+  module/type context but no stable query-owner or source-expression identity.
+  `record_field_key_literal` deliberately projects literals only; general
+  computed expressions are not checked or evaluated there.
+- `QueryKey` in `phalcom-semantic/src/db/key.rs` has owner queries such as
+  `CallableSignature`, `CallableBody`, `TypeMemberDeclaration`,
+  `StaticDefinition`, and `StaticConstant`, but no computed-key projection
+  query. A checker `ExpressionId` is currently local to an analyzed body and is
+  not a uniform identity for type-annotation expressions.
+- `SemanticWorkspaceSession` forms type annotations and callable signatures
+  before its static-constant publication stage. `StaticConstantProduct` is
+  therefore unavailable to those early consumers. Static-constant checking
+  also consumes the binding contract's expected `TypeId`, so blindly moving
+  every constant ahead of all type formation would create a reverse dependency.
+- Existing semantic query dependencies can express an exact
+  `SemanticDependency::StaticConstant(id)`, but no established owner currently
+  records that edge for a type-key projection and no session contract rebuilds
+  already-published type/signature/pattern consumers after the constant product
+  changes.
+- `docs/specs/static-evaluation.md` defines reduced/symbolic/recursive outcomes
+  and closed-constant requirements, but does not define cycles spanning static
+  constant checking and computed-key-dependent type formation.
+
+Before implementation, the architect must resolve all of the following in a
+plan amendment (and add/ratify an ADR if the choice establishes new architecture):
+
+1. **Stable owner and query/product.** Choose the canonical owner for every
+   computed-key site: declaration/type-member/callable-signature annotations,
+   constant declared-type annotations, and callable-body patterns. Decide
+   whether checked projections are embedded in each existing owner product or
+   published through one new checked-key product with a stable owner/site ID.
+   The choice must reuse one ordinary-checker projection and must not add a
+   parallel evaluator or resolver.
+2. **Exact dependency owner.** Name the query key that records
+   `SemanticDependency::StaticConstant(StaticConstantId(SymbolId))` for each
+   projected key, and define the dependency edge from that projection to its
+   consuming type/signature/pattern product. Do not substitute a whole-module
+   dependency when the selected constant identity is known.
+3. **Publication order.** Define how ordinary binding selection, constant
+   checking/evaluation, key projection, and canonical mutable-`TypeStore` row
+   formation are scheduled. The order must account for a constant's expected
+   type being produced by type formation that may itself use a computed key.
+4. **Invalidation and republication.** Define the cold and incremental path
+   after one constant changes: invalidate only exact dependent projection and
+   consumer products, recompute the canonical row in the checker/type-form
+   owner, and republish every affected signature/body/pattern consumer. Never
+   mutate an interned row or leave a ready consumer carrying an obsolete
+   `TypeId`.
+5. **Mixed dependency cycles.** Specify the result when constant checking
+   depends on a type/pattern containing a computed key whose selected constant
+   transitively depends on that check. Options include diagnosing a mixed
+   dependency SCC as a closed static cycle, defining a staging rule that
+   breaks the dependency, or defining fixed-point semantics; the latter needs
+   explicit interaction with P7 residualization. The current specification
+   does not choose between these semantics.
+
+Architectural recommendation for the ruling: keep one shared checker-owned
+projection and make exact semantic dependency edges drive an explicit staged
+rebuild/worklist; diagnose only a proven mixed dependency cycle that prevents a
+closed constant from reducing, while leaving genuinely generic residualization
+to P7. This is a recommendation, not an implementation decision. Do not begin
+T7.0 until the owner/query model, publication/republication contract, and mixed
+cycle semantics are accepted and written here.
+
+**Resume gate:** after the ruling, split T7.0 into independently verifiable
+units for the shared checked projection, type-annotation owner integration,
+and pattern owner integration as needed. Before T7.1, focused semantic evidence
+must prove stable owner identities, exact constant-only invalidation, cold vs
+incremental parity, changed-row/signature republication, a non-cyclic const-key
+success, a mixed-cycle diagnostic matching the accepted rule, and canonical
+duplicate rejection after specialization. Do not run T7.0 acceptance tests or
+begin implementation while the owner/order/cycle contract remains unresolved.
 
 #### T7.1 Static pattern keys
 

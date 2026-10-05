@@ -40,7 +40,7 @@ next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 03967716
 next_action: >
-  Continue P4 T2 canonical row/store/tail acceptance. The P4 frontend and P10 pre-barrier work are integrated on main; synchronization barrier S1 is complete. Focused AST/parser, row/key, classifier, reflection, and static-body checks passed, but P4 T2 remains partial and its full acceptance remains open. P10 T6 and while-dependent T9 cases are still unimplemented; S1 permits that next step. Unsupported const/general/symbolic type keys remain assigned to T7.0 after T4-T6, and lossless metadata schema staging remains T8. See the P4 T2 and P10 S1 incident reports.
+  P4 implementation is stopped at T7.0 pending the principal architect's ruling on stable key-projection ownership, query/dependency publication, consumer republication, and mixed constant/type cycles. The active plan records the required decisions and resume gate. T1-T6 remain implemented and focused-tested; P4 is BLOCKED / PARTIAL / UNVERIFIED. Do not start T7.1-T8 or run T7.0 acceptance tests before the ruling. P10 T6 and while-dependent T9 cases remain outside active P4 scope.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -72,7 +72,9 @@ recursive generic static computation with bounded deterministic evaluation
 normalized semantic residualization
 cross-module durable static products and specialization
 compiler materialization of static results without re-executing initializers
-public ontology migration away from the old TypePack/RecordFields surface
+removal of the competing legacy unordered-product ontology while retaining
+C3's kinded Pack domains and migrating the public RecordFields surface where
+replaced by Product/UnorderedShape vocabulary
 tooling, documentation, incrementality, and performance closure
 ```
 
@@ -161,7 +163,7 @@ The intended C4 decomposition is:
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
 | `LANG007.C4.P3` | First-class Pack and call/rest convergence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T1–T9 implemented and verified; G1 semantic/static vertical, G2 runtime/rest/spread vertical, G3 fixed-call/resource invariants, G4 compatibility/stabilization gates pass; unblocks P4/P5 |
-| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | PARTIAL | UNVERIFIED | T1 complete and focused-tested; the T2 source slice is committed at `59976d25`, the merged AST/semantic/core check passed, and focused FieldKey/materialization/inference/row/presence selectors now pass. Full T2 acceptance remains open. Unsupported nonliteral/const/symbolic type keys fail closed for T2; checked type/pattern projection and dependency invalidation are deferred to T7.0. |
+| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | BLOCKED | PARTIAL | UNVERIFIED | T1-T6 are implemented and focused-tested: canonical rows/tails, row solving/relation/lookup, static Record values, runtime shape/construction/lookup, canonical equality/hash, heterogeneous Record spread, and the Symbol-only ordered-label boundary. T7.0 and dependent T7.1-T8 are stopped pending an architecture ruling; see the 2026-10-05 T7.0 consultation disposition. |
 | `LANG007.C4.P10` | Parallel structural classification, static-control, and convergence foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | pre-barrier work through `46d00056` is integrated on main and S1 is complete; focused synchronization checks passed. T1-T5 remain implemented/focused-tested, T7/T8 audits completed, and Pack plus non-loop evaluator T9 harnesses focused-tested. T6 and while-dependent T9 cases are unstarted; an inherited fixed-call Pack runtime test remains unverified. |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
@@ -514,18 +516,28 @@ Do not export evaluator continuations or raw AST as the semantic contract.
 
 ## C4-I-18 — immediate public ontology cutover
 
-C4 uses a hard migration away from the public legacy:
+C4 removes the competing legacy public dual ontology while retaining the
+canonical C3 compiler/static kinded Pack domains:
 
 ```text
 TypePack
 LabeledTypePack
 CompleteTypePack
+    = retained C3 kinded domains
+
+PositionalPack<T>
+LabeledPack<T>
+CompletePack<T>
+    = proper first-class Pack types
+
 RecordFields
+    = legacy/public unordered ontology targeted for migration
+      where replaced by Product/UnorderedShape vocabulary
 ```
 
-where first-class Pack/Product concepts replace them.
-
-Optimized internal C1–C3 representations may remain.
+Do not treat the retained kinded-domain names as migration debris. Optimized
+internal representations may remain where the public migration does not replace
+them.
 
 ## C4-I-19 — Pack equality is structural semantic equality
 
@@ -2230,13 +2242,13 @@ and unordered-product calculus) proceeding concurrently in a separate worktree.
 and exact `StaticInt`, Record-specific key/remainder syntax, CV-01/02/03, and P3
 Pack discriminators were verified as recorded above.
 
-**T2** is `IN_PROGRESS / PARTIAL / UNVERIFIED`. The canonical row field and
-anonymous-tail representation are being migrated through scoped, inference,
-substitution, type formation, and metadata compatibility paths. A live
-`RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic` completed after
-the final cleanup with 25 warnings and no compiler errors. No T2 tests were run
-during this continuation, so T2 remains `UNVERIFIED`; the old 167-error
-compiler result is superseded by this later successful check.
+**T2** completed as `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Focused checks
+covered canonical mixed-key row identity and duplicates, tail forms and
+substitution, supported literal projection, unsupported expression
+fail-closed behavior, and legacy metadata compatibility. The live semantic
+crate check passed after the migration. The earlier statement in this record
+that no T2 tests had run described the initial continuation state and is
+superseded by the acceptance evidence below.
 
 ### T2.6 consultation and amendment
 
@@ -2276,9 +2288,11 @@ The T2 write set is amended to include only
 decision and implementation state are recorded in
 [`LANG007.C4.P4-T2-implementation-incident-2026-10-05.md`](LANG007.C4.P4/LANG007.C4.P4-T2-implementation-incident-2026-10-05.md).
 
-The next action is to complete the plan's focused T2 acceptance checks. T2.6,
-CV-10B, and P4 remain open; static-constant and general-expression key
-resolution is not accepted by this amendment.
+At that point, the next action was to complete focused T2 acceptance. That
+historical next-action statement is superseded by the completed T2/T3/T4 gates
+below. T2.6's checked nonliteral key resolution, CV-10B, and P4 remain open;
+static-constant and general-expression key resolution is not accepted by this
+amendment.
 
 ### T2.8 acceptance and dependency consultation — 2026-10-05
 
@@ -2303,3 +2317,105 @@ symbolic/generic keys. Those unsupported expressions must never enter
 The active plan carries the full T7.0 contract. This decision unblocks T2
 structural completion, T3, and T4 without claiming the deferred key semantics
 are implemented.
+
+### T2-T4 continuation acceptance — 2026-10-05
+
+T2 is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`; focused semantic tests and
+`cargo check -p phalcom-semantic` passed. T3 is `COMPLETE / IMPLEMENTED /
+FOCUSED_TESTED`: `foundations::record_rows_field_keys` passed (11 tests),
+`foundations::expression_composition::record_literal_` passed (2 tests),
+`advanced::structural_presence` passed (16 tests), and the directly relevant
+`advanced::record_rows` gate passed (12 tests).
+
+The broader `foundations::expression_composition` run selected 26 tests: 24
+passed and two failed. Both failures were reproduced unchanged in a temporary
+clean worktree at predecessor revision `6fea110003ae8d21f40173d8339fc31222336625`
+and are classified D (baseline):
+
+- `incompatible_open_record_expansions_have_explicit_diagnostic` receives an
+  unresolved-name diagnostic instead of the expected row conflict;
+- `map_expansion_does_not_fabricate_record_row` supplies a Record literal and
+  expects an unknown result.
+
+The temporary worktree was removed; neither baseline failure was modified.
+
+T4 is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. `foundations::static_values_record_keys`
+passed (4 tests), the targeted `integration::static_definition_bodies` test
+passed, and the existing `foundations::static_values_pack` and
+`foundations::static_values_structural` selectors each passed. This preserves
+the P3 Pack isolation check. These focused gates do not complete P4: T5 runtime
+construction/access, T6 equality/hash/spread, T7.0, pattern lowering, T8
+metadata, T9 incrementality, and the remaining acceptance/performance gates
+are still open. Next action: execute T5 against the live runtime shape,
+construction, and access paths.
+
+### T5 runtime Record acceptance — 2026-10-05
+
+T5 is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Runtime Records now use
+content-owned heterogeneous `FieldKey` shapes with canonical logical ordering
+and a source-presentation permutation. Construction, key validation, duplicate
+timing, heterogeneous access/observation, semantic lowering facts, empty
+Record representation, and runtime typing-overlay reflection are covered.
+Computed duplicate keys are rejected before evaluating the duplicate field's
+value; Record spread conflicts are checked while fields are appended.
+
+Executed focused verification:
+
+- `record_field_keys::construction_`: 6 passed;
+- `record_field_keys::lookup_`: 3 passed;
+- `record_field_keys::evaluation_order_`: 2 passed;
+- `record_field_keys::typing_overlay_reflection_preserves_heterogeneous_field_keys`: 1 passed;
+- `cargo check -p phalcom-core`: passed;
+- exact live P3 selector `core_outgoing_packs_completion::p3_pack_spreading_preserves_lanes_and_fuses_builders`: 1 passed.
+
+The focused core integration test target initially exposed three shared
+typing-support assertions that still read the removed Symbol-only row `name`
+field; the helper now observes its Symbol key through `FieldKey`. No broad core
+suite, semantic suite, or release gate was run. T6 equality/hash, Record
+spread, and ordered call-lane behavior are the next action; T7.0 remains the
+owner of checked type/pattern key projection.
+
+### T6 Record equality/hash/spread acceptance — 2026-10-05
+
+T6 is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Record equality compares
+canonical key sets and corresponding logical values in O(n); Record hashing
+uses the same canonical order. Record-to-Record spreading preserves exact
+FieldKeys, while Tuple/Pack labeled lanes project only Symbol keys into
+Records. Closed checked Record shapes with non-Symbol keys are rejected for
+`**` call, Pack, and Tuple labeled lanes with
+`record.spread_non_symbol_call_key`; dynamic Record results retain runtime
+enforcement and never coerce String/Int/Bool keys into Symbols. Record-spread
+duplicates are rejected before a later field value executes.
+
+Executed focused verification:
+
+- `record_field_keys::equality_hash_`: 2 passed, including a reordered 256-field shape;
+- `record_field_keys::spread_`: Record/Pack/Tuple paths and known-shape diagnostics passed; after the dynamic fixture was changed to produce an actually dynamic Record result, its runtime-boundary test passed separately;
+- `record_field_keys::spread_duplicate_prevents_later_record_field_value`: 1 passed;
+- exact P3 `core_outgoing_packs_completion::p3_pack_spreading_preserves_lanes_and_fuses_builders`: 1 passed;
+- exact P3 `core_outgoing_packs_completion::p3_duplicate_from_earlier_pack_spread_prevents_later_value`: 1 passed;
+- fixed-call guard `core_outgoing_packs_completion::static_calls_and_static_tuple_emit_no_pack_machinery`: 1 passed;
+- `cargo check -p phalcom-core`: passed.
+
+No broad semantic/core suite or release gate was run. The next action was to
+consult before T7.0; the consultation disposition below now supersedes it.
+
+### T7.0 ownership and query-order consultation — 2026-10-05
+
+The read-only architectural consultation returned **PLAN NEEDS MATERIAL
+AMENDMENT**. Live type/signature consumers are formed before static-constant
+products are published, `TypeFormationSite` has no stable per-key query owner,
+and the current query model does not define how those early consumers are
+invalidated and republished after a key projection changes. Existing
+`StaticConstantId`, exact `SemanticDependency::StaticConstant`, ordinary
+checker binding identity, and `StaticValueStore::field_key_of` remain the
+required authorities; this is an ownership and scheduling gap, not a T5/T6
+failure.
+
+The principal-architect plan review amended T7.0 with five required decisions:
+stable key-site/query identity, exact dependency ownership, publication order,
+consumer invalidation/republication, and mixed constant/type dependency-cycle
+semantics. T7.0 is BLOCKED, and T7.1-T8 cannot begin until a principal-architect
+ruling is durable. No T7 source edits or tests were made. The P4 plan records
+the proposed dependency order and focused resume gates; that recommendation is
+not adopted architecture until approved. T1-T6 evidence remains unchanged.
