@@ -24,20 +24,19 @@ orthogonal after parsing, but noncanonical source permutations are rejected.
 
 ```phalcom
 native class Buffer {
-  private _storage: Bytes
-  module _cursor: Int
-  package _scratch: ScratchState
+  private mut _storage: Bytes
+  module mut _cursor: Int
+  package mut _scratch: ScratchState
 
   internal native rawCapacity -> Int
   package normalizeIndex(_ index: Int) -> Int { ... }
   at(_ index: Int) -> Byte { ... }
 }
 
-intrinsic class Tuple {
-  intrinsic type Positionals: TypePack
-  intrinsic type Labeled: LabeledTypePack
-  intrinsic type At<I: Int>: Type
-  intrinsic type Map<F: Type -> Type>: Type
+intrinsic data Pack<***Es>(***Es)
+
+impl<T: Type> PositionalPack<T> {
+  intrinsic type View: PositionalPackView<T>
 }
 ```
 
@@ -88,9 +87,14 @@ privilege.
 
 Fields use ordinary source-field identity. A field's visibility is explicit in
 the declaration model and defaults to `Public`; implementations that want
-restricted storage must write the corresponding modifier. Selector identity is
-the ordinary selector identity produced by the signature, independent of
-visibility and implementation origin.
+restricted storage must write the corresponding modifier.
+
+Field mutability and initialization are owned by
+[Bindings and Fields](bindings-and-fields.md): fields are immutable by default,
+`mut` marks mutable storage, and assignment never implicitly declares a field.
+
+Selector identity is the ordinary selector identity produced by the signature,
+independent of visibility and implementation origin.
 
 The authored `_$name` implementation-selector namespace is retired. The general
 `__name` implementation-field namespace is also retired. Such spellings must

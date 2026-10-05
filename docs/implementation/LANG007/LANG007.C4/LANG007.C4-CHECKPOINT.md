@@ -136,6 +136,20 @@ C4 does not own:
 - a permanent compatibility layer for the pre-C4 TypePack/RecordFields public
   ontology.
 
+## 1.4 Authoritative specifications and decisions
+
+C4 semantics and structural-static rules are owned by:
+
+- Decision: [TDR-0090](../../../decisions/accepted/0090-structural-static-evaluation-packs-products-sums-and-binding-semantics.md)
+- [Bindings and Fields](../../../specs/bindings-and-fields.md)
+- [Static Evaluation](../../../specs/static-evaluation.md)
+- [Type-Level and Static Domains](../../../specs/type-level-domains.md)
+- [Type Members](../../../specs/type-members.md)
+- [Structural Products](../../../specs/structural-products.md)
+- [Structural Sums](../../../specs/structural-sums.md)
+- [Arguments and Parameters](../../../specs/callables/arguments.md)
+- [VM Products](../../../specs/vm/products.md)
+
 ---
 
 # 2. Plans ledger

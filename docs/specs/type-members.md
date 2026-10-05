@@ -106,36 +106,37 @@ nominal owner.
 Associated static cases belong to the associated domain. They are static terms,
 not runtime values, methods, or invocation targets.
 
-The compiler-intrinsic structural declaration surface is:
+The compiler-intrinsic structural declaration surface is defined by
+[Structural Products](structural-products.md). Representative members include:
 
-```phalcom
-intrinsic data Tuple<***Es>(***Es)
-intrinsic data Record<**Fs> { **Fs }
-
-impl<***Es> Tuple<***Es> {
-  intrinsic type Entries: CompleteTypePack
-  intrinsic type Positionals: TypePack
-  intrinsic type Labeled: LabeledTypePack
-  intrinsic type Element: Type
-  intrinsic type At<I: Int>: Type
-  intrinsic type Map<F: Type -> Type>: Type
+```telos
+impl<T: Type> PositionalPack<T> {
+  intrinsic type View: PositionalPackView<T>
 }
 
-impl<**Fs> Record<**Fs> {
-  intrinsic type Fields: RecordFields
-  intrinsic type Value: Type
-  intrinsic type Map<F: Type -> Type>: Type
+impl<T: Type> LabeledPack<T> {
+  intrinsic type View: LabeledPackView<T>
+}
+
+impl<T: Type> CompletePack<T> {
+  intrinsic type PositionalEntries: PositionalPack<T>
+  intrinsic type LabeledEntries: LabeledPack<T>
+}
+
+impl UnorderedShape {
+  intrinsic type View: UnorderedShapeView
+  intrinsic type Tail: UnorderedTail
+  intrinsic type Lookup<K: FieldKey>: FieldLookup
 }
 ```
 
-The declarations live on the canonical Universe anchors for discovery,
-documentation, and reflection while semantic applications reuse the existing
-Tuple/Record structural domains. The `***` and `**` application forms expand
-complete type packs and RecordFields values. `Tuple::Positionals`,
-`Tuple::Labeled`, and `Tuple::Entries` project the positional, labeled, and
-complete packs. The canonical semantic member for integer indexing is the
-type-level Subscript member; `T[I]` and `Tuple::At<I>` are presentations of
-that operation.
+Compiler-derived Product/Sum associated surfaces may likewise return ordinary static
+data such as `ProductShape`, `OrderedShape`, `UnorderedShape`, and `Variants`.
+
+The declarations live on canonical Universe anchors for discovery, documentation, and
+reflection while semantic applications reuse optimized canonical compiler terms.
+Historical internal TypePack/RecordRow representations do not create independent public
+member domains.
 
 ## 3. Identity
 
@@ -169,8 +170,7 @@ is required, for example:
 
 Domain-native members are available only when the subject domain is statically
 known to provide them. A parameter known only as `T: Type` does not
-automatically acquire structural `Map`; a parameter known as `P: TypePack` may
-use the operations exposed for `TypePack`.
+automatically acquire structural `Map`; a parameter known as `P: PositionalTypePack` may use the operations exposed for positional Packs.
 
 Lookup must not choose a candidate by source order, spelling precedence, or
 runtime class. Member declaration identity and applicable semantic evidence
@@ -182,10 +182,13 @@ Member arguments are checked against the member declaration's parameter domains.
 The result is classified by the declaration's result domain. In particular:
 
 ```text
-Positionals : TypePack
-Labeled     : LabeledTypePack
-At<I>       : Type
-Map<F>      : Type
+View                         : PositionalPackView<T> / LabeledPackView<T>
+PositionalEntries            : PositionalPack<T>
+LabeledEntries               : LabeledPack<T>
+UnorderedShape::Lookup<K>    : FieldLookup
+Product::Shape               : ProductShape
+Sum::Variants                : Variants
+At<I>                        : Type
 ```
 
 A projection is therefore domain-neutral. It is not required to be represented
@@ -215,8 +218,7 @@ Stuck     the operation is valid but an abstract subject/argument prevents reduc
 Invalid   a concrete domain, arity, lookup, or operation obligation fails
 ```
 
-For example, `P::Map<F>` is a valid symbolic projection when `P: TypePack` and
-`F: Type -> Type`, even when `P` is abstract. Conversely, a concrete
+For example, `P::View` is a valid symbolic projection when `P: PositionalPack<Type>`, even when `P` is abstract. Conversely, a concrete
 out-of-range `At` index or an argument of the wrong kind is invalid. A stuck
 projection must not be silently changed to `Dynamic`, `Never`, or an unrelated
 proper type.
@@ -278,32 +280,39 @@ An associated requirement being bodyless means that it is a requirement. It is
 not thereby an intrinsic or native declaration. A bodyless `intrinsic type` is
 bodyless because its compiler/semantic normalizer supplies the result.
 
-## 10. Structural domain members
+## 10. Structural and reflection members
 
-The following are domain-native members specified by
-[Structural Products](structural-products.md):
+Structural members are specified by [Structural Products](structural-products.md) and
+[Structural Sums](structural-sums.md).
+
+They may return proper Types or ordinary static data domains. Availability is based on
+canonical semantic subject/domain facts and compiler-derived capability evidence.
+
+Representative operations include:
 
 ```text
-Tuple-family       Positionals, Labeled, At<I>, Map<F>
-TypePack           Map<F>
-LabeledTypePack    Map<F>
-Record-family      Map<F>
-RecordFields       Map<F>
+PositionalPack<T>  View
+LabeledPack<T>     View
+CompletePack<T>    PositionalEntries, LabeledEntries
+UnorderedShape     View, Tail, Lookup<K>
+Product            Kind, Shape
+OrderedProduct     OrderedShape, Entries, PositionalEntries, LabeledEntries
+UnorderedProduct   UnorderedShape
+Sum                Variants
 ```
 
-Their availability is domain-based. A source declaration may provide a
-Universe/documentation/reflection anchor, but such an anchor does not create a
-competing semantic member database.
+A source declaration may provide a Universe/documentation/reflection anchor, but such an
+anchor does not create a competing semantic member database.
 
 ## 11. Invariants
 
 | ID | Requirement |
 |---|---|
 | **TM-DECLARATION-IDENTITY** | Type-member identity is declaration/domain identity, not spelling identity. |
-| **TM-PROJECTION-DOMAIN** | Projection results may be `Type`, `TypePack`, `LabeledTypePack`, `RecordFields`, or another declared domain. |
+| **TM-PROJECTION-DOMAIN** | Projection results may be `Type` or any declared static result domain, including Pack/Product/Sum reflection data. |
 | **TM-PARAMETERS-LOCAL** | Member-local parameters belong to the member application. |
 | **TM-PROJECTION-SYMBOLIC** | A valid unreduced projection remains symbolic. |
 | **TM-INVALID-DISTINCT-FROM-STUCK** | Concrete invalidity and lack of reduction information are distinct outcomes. |
 | **TM-SUBSCRIPT-AT-IDENTITY** | `T[I]` and `T::At<I>` are one semantic operation with Subscript as canonical identity and `At` as presentation alias. |
 | **TM-INTRINSIC-NO-VM** | Intrinsic type-member normalization is compiler/semantic work and never runtime VM dispatch. |
-| **TM-CLOSED-CALCULUS** | Domain-native operations do not introduce arbitrary user-defined type families or arbitrary compile-time execution. |
+| **TM-STATIC-BOUNDARY** | Intrinsic/domain-native member normalization remains compiler-defined; reusable source static computation is expressed through the static `type` model from `static-evaluation.md`, not runtime dispatch. |

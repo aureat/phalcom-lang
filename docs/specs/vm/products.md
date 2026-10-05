@@ -133,7 +133,8 @@ The canonical taxonomy is:
 |---|---|---|---|
 | `Unit` | zero product | canonical singleton value | canonical zero-component product |
 | Tuple | structural ordered product | structural | anonymous product |
-| Record | structural key product | structural | anonymous product |
+| Pack | named intrinsic ordered variadic product | structural value + Pack type identity | argument/rest/spread product |
+| Record | structural unordered product | structural | anonymous product |
 | `data` | nominal transparent product | nominal + component value | named product |
 | enum root | nominal closed sum | nominal sum identity | owns variants, not itself a payload product |
 | enum constructor variant | exact nominal case | variant identity + payload values | payload is a product |
@@ -160,7 +161,7 @@ ProductLayoutId
 
 ## 4. Transparent products
 
-`Unit`, Tuple, Record, and `data` are **transparent value products**.
+`Unit`, Tuple, Pack, Record, and `data` are **transparent value products**.
 
 Transparency means that their language-level value identity is defined independently of the identity of any materialized backing allocation.
 
@@ -278,34 +279,71 @@ and:
 
 have different tuple shapes.
 
-### 7.2 Record
+### 7.2 Pack
 
-A Record is structurally identified by its key set, while preserving a separate observable presentation order.
-
-The runtime therefore distinguishes:
+A materialized Pack has two independent logical lanes:
 
 ```text
-presentation coordinates
-logical/storage coordinates
+ordered positional values
+ordered Symbol labels + aligned labeled values
 ```
 
-`RecordProductShape` stores:
+The VM MAY realize Pack using:
+
+- flat product storage;
+- an argument-window view;
+- a shared immutable slice/range over backing storage;
+- scalar-replaced/virtual components;
+- a materialized Pack object.
+
+A one-step Pack rest/view MUST admit an O(1) slice representation. The VM MUST NOT
+require recursively linked cons storage to satisfy Pack semantics.
+
+An ordinary fixed-shape invocation MUST NOT allocate a Pack solely because the language
+models its complete argument shape as Pack.
+
+Dynamic multi-spread construction SHOULD build one final argument window/materialized
+Pack in O(total contributed entries), rather than repeatedly concatenating immutable
+Pack objects.
+
+Pack labels are Symbols and are unique.
+
+### 7.3 Record
+
+A Record is structurally identified by its `FieldKey` set. Source/insertion order does
+not participate in structural identity.
+
+Runtime shape metadata therefore uses a runtime-stable representation of the language
+FieldKey domain:
+
+```text
+Symbol | String | Int | Bool
+```
+
+The runtime representation MUST NOT use process-local Symbol numeric IDs or heap object
+addresses as durable semantic key identity.
+
+If the runtime retains presentation coordinates for diagnostics or value presentation,
+it must keep them separate from canonical logical/storage coordinates.
+
+Conceptually:
 
 ```rust
 pub struct RecordProductShape {
-    pub presentation_labels: Box<[Symbol]>,
-    pub logical_labels: Box<[Symbol]>,
+    pub presentation_keys: Box<[RuntimeFieldKey]>,
+    pub logical_keys: Box<[RuntimeFieldKey]>,
     pub presentation_to_logical: Box<[u32]>,
 }
 ```
 
-`presentation_to_logical[p]` identifies the canonical logical coordinate corresponding to presentation position `p`.
+The exact Rust representation is non-normative.
 
-The mapping MUST be a complete permutation.
+`logical_keys` follows the language-defined canonical FieldKey order from
+[Structural Products](../structural-products.md). `presentation_to_logical`, when
+present, is a complete permutation.
 
-This split allows record identity and canonical storage to be order-independent while preserving encounter order for operations where presentation is observable.
+### 7.4 `data`
 
-### 7.3 `data`
 
 A `data` declaration owns named semantic components.
 
@@ -313,7 +351,7 @@ Each component has a semantic identity and a logical index.
 
 The runtime product layout uses the logical index; the semantic layer remains the authority for the component's declaration identity and source name.
 
-### 7.4 Enum constructor payload
+### 7.5 Enum constructor payload
 
 A constructor variant owns zero or more payload fields.
 

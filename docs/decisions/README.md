@@ -10,7 +10,7 @@ This is Phalcom's single decision registry. A Telos Decision Record (TDR) record
 - Status, supersession, amendment, and related-decision edges remain in each record's metadata and body. The legacy source identifier is listed below for lookup.
 - `docs/design/` is outside this registry. Proposals and research there cannot override the specification or an accepted TDR.
 
-The consolidation contains 89 accepted TDRs, 9 proposed records, and 9 retired records. Accepted numbering excludes every proposed and retired record, including legacy files that were stored in the wrong status directory.
+The consolidation contains 90 accepted TDRs, 9 proposed records, and 9 retired records. Accepted numbering excludes every proposed and retired record, including legacy files that were stored in the wrong status directory.
 
 A `*` date was inferred because the source lacked an explicit ratification date. A `†` date uses the explicit ratification date because it conflicts with the source's older `Date` field.
 
@@ -69,7 +69,7 @@ A `*` date was inferred because the source lacked an explicit ratification date.
 | [TDR-0049](./accepted/0049-index-operator-as-real-selector.md) | 2026-07-14 | `[]` Is a Real, Overridable Selector — No `at` Lowering | ADR-0060 | Accepted |
 | [TDR-0050](./accepted/0050-amend-floor-admit-string-byte-and-raw-write-primitives.md) | 2026-07-15† | Amend the floor: admit String byte/slice accessors + raw stdout write | ADR-0049 | Accepted |
 | [TDR-0051](./accepted/0051-constructors-are-ordinary-class-side-methods.md) | 2026-07-15 | Constructors are ordinary class-side methods: `@constructor`/`@class` decorators, `new_` allocator | ADR-0063 | Accepted |
-| [TDR-0052](./accepted/0052-let-const-bindings-and-field-mutability.md) | 2026-07-15 | `let`/`const` bindings; unkeyworded mutable fields | ADR-0064 | Accepted |
+| [TDR-0052](./accepted/0052-let-const-bindings-and-field-mutability.md) | 2026-07-15 | `let`/`const` bindings; unkeyworded mutable fields | ADR-0064 | **Superseded by TDR-0090** |
 | [TDR-0053](./accepted/0053-classes-are-closed.md) | 2026-07-19 | Classes are closed: remove class reopening | PDR-0001 | Accepted |
 | [TDR-0054](./accepted/0054-class-declarations-join-the-binding-namespace.md) | 2026-07-19 | Class declarations join the binding namespace; the duplicate diagnostic carries both spans | PDR-0002 | Accepted |
 | [TDR-0055](./accepted/0055-no-user-visible-threads-fibers-and-isolates.md) | 2026-07-20 | No user-visible shared-memory threads: fibers now, isolates if ever | PDR-0003 | Accepted |
@@ -107,6 +107,7 @@ A `*` date was inferred because the source lacked an explicit ratification date.
 | [TDR-0087](./accepted/0087-structural-map-is-shape-preserving.md) | 2026-09-21 | Structural `Map<F>` preserves shape and transforms payload types | - | Accepted |
 | [TDR-0088](./accepted/0088-native-type-operations-use-closed-compiler-normalization.md) | 2026-09-21 | Native type operations use a closed compiler-normalized calculus, not VM execution | - | Accepted |
 | [TDR-0089](./accepted/0089-intrinsic-is-a-first-class-implementation-keyword.md) | 2026-09-22 | `intrinsic` Is a First-Class Implementation-Kind Keyword and `@intrinsic` Is Retired | - | Accepted |
+| [TDR-0090](./accepted/0090-structural-static-evaluation-packs-products-sums-and-binding-semantics.md) | 2026-10-04 | Structural static evaluation, Pack/Product/Sum reflection, and binding semantics | LANG007.C4 | Accepted |
 
 ## Proposed registry
 

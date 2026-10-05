@@ -444,6 +444,14 @@ Existing behavior may then be reused as witness evidence.
 > **Explicitness invariant**
 >
 > Structural member coincidence may satisfy a witness obligation inside an explicit conformance, but it does not create the conformance itself.
+>
+> The only exception is a capability that another authoritative specification explicitly
+> defines as compiler-derived and sealed. C4 structural capabilities
+> `Product`, `OrderedProduct`, `UnorderedProduct`, and `Sum` are such capabilities.
+> Their evidence is synthesized from canonical data-declaration shape and cannot be
+> created by an ordinary user `impl`. See
+> [Structural Products](../structural-products.md) and
+> [Structural Sums](../structural-sums.md).
 
 ---
 

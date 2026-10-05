@@ -90,12 +90,13 @@ Where the declaration form permits parameter-domain annotations, a binder may
 classify a parameter directly:
 
 ```phalcom
-<F: Type -> Type, P: TypePack, I: Int>
+<F: Type -> Type, P: PositionalTypePack, I: Int>
 ```
 
-`F` and `P` are kinded parameters. `I` is a compile-time value parameter in
-`Const(Int)`; `Int` is not treated as a kind. The complete domain model is
-owned by [Type-Level Domains](type-level-domains.md).
+`F` is a type-level callable-domain parameter. `P` is a static Pack of `Type` values.
+`I` is a compile-time value parameter in the `Int` domain; `Int` is not treated as a
+kind merely because the value is compile time. The complete domain model is owned by
+[Type-Level Domains](type-level-domains.md).
 
 Trait, subtype, and equivalence bounds belong in `where`:
 
@@ -207,7 +208,7 @@ parameter is instead declared on its binder:
 <I: Int>
 ```
 
-means `Domain(I) = Const(Int)`, not `Kind(I) = Int`. `Int` remains a proper
+means that `I` is a static value in the `Int` domain, not that `Int` becomes a kind. `Int` remains a proper
 type of kind `Type`. This specification does not introduce `where I: Int` as
 a redundant restatement. Neither form states trait conformance.
 
@@ -219,14 +220,30 @@ where
 
 contains two independent propositions.
 
-An ordinary generic parameter has kind `Type` unless an explicit kind
-annotation or its expansion prefix supplies another domain. Binder prefixes
-have fixed defaults: `*` means `TypePack`, `**` means `RecordFields`, and
-`***` means `CompleteTypePack`; there is no contextual kind inference. An
-explicit compatible annotation may select a different domain, so
-`**Ls: LabeledTypePack` remains valid. `TypePack`, `LabeledTypePack`,
-`CompleteTypePack`, and `RecordFields` are distinct kind domains; compile-time
-values are classified by `Const(τ)` as specified by [Type-Level Domains](type-level-domains.md).
+An ordinary generic parameter defaults to the proper `Type` domain unless an explicit
+annotation or expansion prefix supplies another static parameter domain.
+
+For static algorithms over ordered Packs, expansion binders capture the corresponding
+Pack lane:
+
+```text
+*Ts      -> positional Pack capture
+**Ls     -> labeled Pack capture
+***Es    -> complete Pack capture
+```
+
+The resulting public Type-valued families are `PositionalTypePack`,
+`LabeledTypePack`, and `CompleteTypePack`; they are Pack specializations rather than
+independent TypePack kinds.
+
+Expansion punctuation is also used by structural owner grammars. A Record field/tail
+form such as `Record<**Fs>` is interpreted by the Record/unordered-product grammar and
+does not become an ordered LabeledPack merely because it uses `**`.
+
+The parameter's checked semantic domain therefore comes from the declaration/form that
+owns the binder, not from punctuation alone. Unordered row correlation uses the
+UnorderedShape/tail model from [Structural Products](structural-products.md), not a
+public `RecordFields` kind.
 
 A `where` kind constraint directly constrains a generic parameter. Compound type expressions are kind-checked through ordinary type formation.
 

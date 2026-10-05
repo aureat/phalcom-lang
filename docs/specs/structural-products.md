@@ -1,89 +1,99 @@
 # Structural Products
 
-**Status:** Normative
-**Language area:** Static Tuple/Record/Pack typing and structural type operations
-**Specification role:** Authoritative specification for structural Tuple/Record/Pack formation and closed type-level operations
+**Status:** Normative  
+**Semantic ownership:** Pack, Tuple, Record, Product capabilities, ordered/unordered
+payload shapes, structural tails, field keys and presence, structural lookup, structural
+iteration, and structural product equality.
 
-This specification defines static structural Tuple, Record, and proper Pack
-types and the closed type-level operations provided for them and their shape
-domains. Runtime storage, product layouts, garbage collection, and VM
-descriptors remain owned by [VM Products](vm/products.md) and [VM Values and
-Objects](vm/values-and-objects.md).
+Runtime physical layout remains owned by [VM Products](vm/products.md). Argument
+packing/rest/spread semantics are also constrained by
+[Arguments and Parameters](callables/arguments.md). Static execution is owned by
+[Static Evaluation](static-evaluation.md).
 
-## 1. Structural domains
+## 1. Product ontology
 
-The type-level domains are distinct:
+A **Product** has one structural payload.
 
-```text
-TypePack          ordered sequence of proper type forms
-LabeledTypePack   ordered sequence of (label, proper type) pairs
-RecordFields      unordered key/type associations, possibly with an open tail
+Public structural capabilities are:
+
+```telos
+trait Product {
+    type Kind: ProductKind
+    type Shape: ProductShape
+}
+
+trait OrderedProduct {
+    type OrderedShape: OrderedShape
+    type Entries: CompletePack<Type>
+    type PositionalEntries: PositionalPack<Type>
+    type LabeledEntries: LabeledPack<Type>
+}
+
+trait UnorderedProduct {
+    type UnorderedShape: UnorderedShape
+}
 ```
 
-`LabeledTypePack` is not `RecordFields`. A labeled pack preserves sequence order;
-a record row preserves key association and is unordered for structural identity.
+The compiler derives these sealed capabilities from canonical data-declaration shape.
+Ordinary user `impl` declarations cannot forge them.
 
-The structural mapping algebra is:
-
-| Domain | Payload | Labels | Identity/order law | `Map<F>` result |
-|---|---|---|---|---|
-| `TypePack` | proper types | none | ordered | `TypePack` |
-| `LabeledTypePack` | proper types | labels | ordered | `LabeledTypePack` |
-| `RecordFields` | proper types | keys | unordered key set | `RecordFields` |
-| Tuple proper type | pack plus labeled pack | ordered labels | ordered | Tuple proper type |
-| Record proper type | row | record keys | unordered key set | Record proper type |
-
-Universe publishes intrinsic `type data` anchors for `TypePack`,
-`LabeledTypePack`, `CompleteTypePack`, and `RecordFields`. These names expose
-the existing compiler-owned domains; they do not create replacement semantic
-identities.
-
-Expansion prefixes and semantic kinds are separate concepts. When the kind is
-omitted, `*Ts` defaults to `TypePack`, `**Fs` to `RecordFields`, and `***Es` to
-`CompleteTypePack`; there is no contextual kind inference. Explicit compatible
-kind annotations remain available.
-
-## 2. Tuple formation and lane structure
-
-A Tuple type consists of two independent structural lanes:
-1. an ordered **positional lane** containing positional elements;
-2. an ordered **labeled lane** containing uniquely labeled elements.
+The traits are independent; inheritance among them is not required.
 
 ```text
-Tuple(P, L, Rem_P, Rem_L)
+ordered product data
+    -> Product
+    -> OrderedProduct
+
+unordered product data
+    -> Product
+    -> UnorderedProduct
 ```
 
-where `P : TypePack`, `L : LabeledTypePack`, `Rem_P` is the positional remainder state, and `Rem_L` is the labeled remainder state.
+Declaration identity remains on the owning type. Equivalent reflected payload shapes do
+not make distinct nominal data declarations equal.
 
-Positional entries must precede labeled entries. Tuple fixed elements (both positional and labeled) are always required (`name: T`). Tuple variability is expressed exclusively through positional and labeled lane remainders (`*: T`, `**: T`).
+## 2. Pack
 
-### 2.1 Tuple remainders
-The positional and labeled lanes have independent closed/open states:
-- `Closed` — admits no elements beyond the declared fixed prefix;
-- `Typed(T)` — admits zero or more additional elements in that lane, each constrained to subtype of `T` (`*: T` for positional, `**: T` for labeled);
-- `Unconstrained` — admits zero or more additional elements in that lane without a common element type constraint (`*: ...` for positional, `**: ...` for labeled, or `...` / `***: ...` for both lanes).
-
-Tuple complete remainder `(***: T)` is shorthand for `(*: T, **: T)`.
-Tuple unconstrained remainder `(...)` is shorthand for `(*: ..., **: ...)`.
-
-### 2.2 Proper Pack types
-
-`Pack` is a proper structural transport type with the same two ordered lanes
-and remainder states as Tuple:
+`Pack` is a first-class immutable ordered structural transport product with two
+independent lanes:
 
 ```text
-Pack(P, L, Rem_P, Rem_L) : Type
+positional lane: ordered sequence of positional values
+labeled lane: ordered (Symbol, value) entries
 ```
 
-Pack elements are required, positional elements precede labeled elements,
-labeled entries have unique labels, and each lane preserves its own order. A
-typed or unconstrained remainder admits zero or more additional entries in its
-lane under the rules in §2.1. An empty Pack remains a Pack and is distinct from
-Unit and every Tuple type, including an empty Tuple.
+Order within each lane participates in structural identity. Lane identity participates
+in structural identity. Labeled entries use `Symbol` labels and duplicate labels are
+invalid. Pack labels remain `Symbol`-only; `FieldKey` belongs exclusively to unordered
+Record/product structure.
+
+`Pack()` is the empty Pack. It is a proper first-class value with an immediate runtime
+representation and is distinct from `Unit` / `()` and from the empty Record.
+
+### 2.1 Pack types and remainders
+
+The proper `Pack` type constructor has two independent ordered lanes and remainder
+states:
+
+```telos
+intrinsic data Pack<***Es>(***Es)
+
+type PositionalPack<T: Type> =
+    Pack<*: T>
+
+type LabeledPack<T: Type> =
+    Pack<**: T>
+
+type CompletePack<T: Type> =
+    Pack<***: T>
+```
+
+Pack elements are required, positional elements precede labeled elements, labeled
+entries have unique Symbol labels, and each lane preserves its own order.
 
 The type constructor's anonymous remainder forms are:
 
-```phalcom
+```telos
 Pack<*: T>       // typed positional remainder
 Pack<**: T>      // typed labeled remainder
 Pack<***: T>     // same typed remainder in both lanes
@@ -92,75 +102,101 @@ Pack<**: ...>    // unconstrained labeled remainder
 Pack<***: ...>   // unconstrained remainder in both lanes
 ```
 
-These are structural Pack type forms only when the origin resolves to the
-canonical intrinsic Pack declaration. `Pack<*P>`, `Pack<**L>`, and
-`Pack<***E>` remain explicit expansions of existing type-level pack terms;
-they form the corresponding Pack from those lanes and do not declare an open
-remainder. Anonymous remainder syntax is not accepted by ordinary generic
-constructors. The kinded `TypePack`, `LabeledTypePack`, and `CompleteTypePack`
-domains remain distinct from the proper `Pack` type.
+These are structural Pack type forms only when the origin resolves to the canonical
+intrinsic Pack declaration.
 
-## 3. Record formation and presence
+There is a vital semantic distinction between expansion and remainder declaration:
+- `Pack<*P>`, `Pack<**L>`, and `Pack<***E>` remain explicit expansions of existing
+  type-level pack terms; they form the corresponding Pack from those lanes and do not
+  declare an open remainder.
+- `Pack<*: T>`, `Pack<**: T>`, and `Pack<***: T>` declare open typed lane remainders.
+- `Pack<*: ...>`, `Pack<**: ...>`, and `Pack<***: ...>` declare unconstrained lane
+  remainders.
 
-A Record type is formed from a set of uniquely labeled fields and an optional tail:
+Anonymous remainder syntax is not accepted by ordinary generic constructors.
 
-```text
-Record(Fields, Tail)
+Under `INC-P3-2`, C3 kinded domains (`TypePack`, `LabeledTypePack`, `CompleteTypePack`)
+remain compiler/static kinded domains established by C3 and exposed through intrinsic
+facades. Proper first-class Pack aliases (`PositionalPack<T>`, `LabeledPack<T>`,
+`CompletePack<T>`) are proper Pack specializations and are not competing spellings for
+the kinded domains.
+
+### 2.2 Pack performance contract
+
+Pack is specialized for variadic structural transport: construction, rest capture,
+slicing, spreading, and static structural computation.
+
+The implementation must preserve these semantic-performance properties:
+
+- Pack may use flat contiguous storage, argument windows, slices, scalar replacement,
+  compiler-virtual segments, or equivalent representations;
+- lane lengths are O(1);
+- a one-step rest/view can be represented in O(1) without copying the remaining Pack,
+  sharing root backing storage;
+- rest slicing in one lane preserves the opposite lane;
+- Pack is not required to use recursively linked cons storage;
+- materializing/finalizing n Pack entries is O(n);
+- multi-spread lowering is O(total contributed entries), not repeated immutable
+  concatenation (fused spread construction);
+- an ordinary fixed-shape call does not allocate a Pack solely because its argument
+  shape is semantically Pack-shaped.
+
+These representation freedoms are not observable through Telos value semantics.
+
+### 2.3 Pack views
+
+```telos
+intrinsic data PositionalPackView<T> {
+    Empty
+    Entry(
+        _ value: T,
+        _ rest: PositionalPack<T>,
+    )
+}
+
+intrinsic data LabeledPackView<T> {
+    Empty
+    Entry(
+        _ label: Symbol,
+        _ value: T,
+        _ rest: LabeledPack<T>,
+    )
+}
 ```
 
-where `Fields` is an unordered key/type/presence association, and `Tail` is the row tail state.
+A View is one-step semantic decomposition. `rest` may be an O(1) slice over the same
+backing storage. Constructing or matching a View does not require constructing a
+recursive chain of view nodes.
 
-Each field has an explicit presence qualifier:
-- **Required** (`name: T`): the field must be present on instances of the record type.
-- **Optional** (`name?: T`): the field may be absent; if present, its value must have type `T`.
+```telos
+impl<T: Type> PositionalPack<T> {
+    intrinsic type View: PositionalPackView<T>
+}
 
-Optionality is **member presence**, not `Option<T>` or `T | Unit`. A field `{ name?: String }` is satisfied by an instance with no `name` field, or an instance with `name: String`.
+impl<T: Type> LabeledPack<T> {
+    intrinsic type View: LabeledPackView<T>
+}
 
-### 3.1 Record remainders and row tails
-A Record row tail has one of four categories:
-1. `Closed` (`{ a: Int }`) — exactly the declared fields; admits no surplus fields.
-2. `Captured(R)` (`{ a: Int, **R }`) — row polymorphism with correlated row variable `R`.
-3. `Anonymous Typed(T)` (`{ a: Int, **: T }`) — admits zero or more additional fields, each constrained to type `T`.
-4. `Anonymous Unconstrained` (`{ a: Int, ... }` or `{ a: Int, **: ... }`) — admits zero or more additional fields without a common value type constraint.
+impl<T: Type> CompletePack<T> {
+    intrinsic type PositionalEntries: PositionalPack<T>
+    intrinsic type LabeledEntries: LabeledPack<T>
+}
+```
 
-Captured row tails preserve correlated row identity. Anonymous remainders (`...`, `**: T`) introduce no row variable or solver identity.
+## 3. Tuple and Record
 
-### 3.2 Record subtyping and compatibility
-Ordinary `<:` applies strictly between proper `Type` terms (`KindId::TYPE`).
+```telos
+intrinsic data Tuple<***Es>(***Es)
 
-For Record types:
-1. **Target required field `k: T`**: source must provably contain `k` with Required presence (`k: S` where `S <: T`). An optional source field `k?: S` cannot satisfy a required target field (`{ k?: S } </: { k: T }`).
-2. **Target optional field `k?: T`**:
-   - If source provably contains `k: S` (Required) or `k?: S` (Optional), `S <: T` is required.
-   - If source is closed and omits `k`, the target field is satisfied (absence).
-   - If source has an anonymous remainder that could contain `k`, the source remainder must be typed `**: S` with `S <: T` to prove compatibility; an unconstrained source remainder `...` cannot prove compatibility for an optional target field.
-3. **Extra source fields**:
-   - Closed target rejects surplus source fields (`{ a: Int, b: String } </: { a: Int }`).
-   - Open target with typed remainder `**: T` requires every surplus source field (and source remainder) to satisfy `<: T`.
-   - Open target with unconstrained remainder `...` accepts surplus source fields.
-4. **Source openness**: an open source cannot satisfy a closed target.
+intrinsic data Record<**Fs> {
+    **Fs
+}
+```
 
-### 3.3 Record values and spread
+Tuple and Pack are distinct named ordered products and may expose equivalent
+`OrderedShape` values.
 
-Record value literals use bare braces, such as `{name: value}`. A `**source`
-entry contributes a statically projectable `RecordFields` shape. A Record
-source contributes its closed or symbolic row. A labeled Tuple source may
-contribute only its labeled lane, through the checked
-`LabeledTypePack`-to-`RecordFields` projection; its positional lane does not
-participate. Row composition preserves symbolic tails and enforces the
-canonical duplicate/lacks obligations.
-
-A Map is not a legal Record spread source, including an explicit Map literal:
-Map type does not encode a statically exact key set. The source forms remain
-distinct: `{...}` is Record syntax, `Map {...}` is Map syntax, and `#{...}` is
-Set syntax. This identifies their heads only; it does not redefine broader
-Map or Set entry semantics.
-
-Record spread does not create a mixed Tuple/Record destructuring rule or a
-generalized product protocol. The shared runtime product substrate does not
-collapse Tuple, Record, Map, and Set into one source-level product category.
-
-## 4. Zero product and `Unit`
+### 3.1 Zero product and Unit
 
 The syntax `()` denotes the zero-arity Tuple. Its canonical proper type is
 `Unit = Tuple<>`, not a second empty Tuple type:
@@ -174,21 +210,36 @@ runtime class mapping is specified by the VM and maps Unit to Tuple.
 Positive-arity Tuple shapes remain structural Tuple types.
 
 An empty Record remains the structural type `Record({})`, canonically aliased
-as `EmptyRecord = Record<>`; it is not the same static type as `Unit`. Runtime
-representation and class mapping are specified by the VM value and product
-specifications.
+as `EmptyRecord = Record<>`; it is not the same static type as `Unit`.
 
-The empty product operations are:
+`Pack()` is the empty Pack and is distinct from both `Unit` / `()` and `EmptyRecord`.
+
+### 3.2 Tuple formation, lane structure, and remainders
+
+A Tuple type consists of two independent structural lanes:
+1. an ordered **positional lane** containing positional elements;
+2. an ordered **labeled lane** containing uniquely labeled elements with `Symbol` labels.
 
 ```text
-()::Positionals = []
-()::Labeled     = []
-()::Map<F>      ≡ ()
+Tuple(P, L, Rem_P, Rem_L)
 ```
 
-Indexing the empty product is invalid for every integer index.
+where `P : TypePack`, `L : LabeledTypePack`, `Rem_P` is the positional remainder state,
+and `Rem_L` is the labeled remainder state. Positional entries must precede labeled
+entries.
 
-## 5. Tuple projections
+The positional and labeled lanes have independent closed/open states:
+- `Closed` — admits no elements beyond the declared fixed prefix;
+- `Typed(T)` — admits zero or more additional elements in that lane constrained to `<: T`
+  (`*: T` for positional, `**: T` for labeled);
+- `Unconstrained` — admits zero or more additional elements in that lane without a common
+  element type constraint (`*: ...` for positional, `**: ...` for labeled, or
+  `...` / `***: ...` for both lanes).
+
+Tuple complete remainder `(***: T)` is shorthand for `(*: T, **: T)`.
+Tuple unconstrained remainder `(...)` is shorthand for `(*: ..., **: ...)`.
+
+### 3.3 Tuple projections and operations
 
 Tuple-family type members are domain-native operations:
 
@@ -199,205 +250,355 @@ At<I>       : Type
 Map<F>      : Type
 ```
 
-For a Tuple `Tuple(P, L)`, `Positionals` returns `P` and `Labeled` returns
-`L`. They are type-level results, not runtime Tuple values.
+For `At<I>`, integer indexing uses 0-based indexing for `I >= 0` and end-relative
+indexing `N + I` for `I < 0`. Type subscript is the same operation: `T[I] ≡ T::At<I>`.
 
-`At<I>` accepts only a compile-time integer argument (`I :const Int`) in the
-initial release. Symbol lookup and Range slicing remain runtime operations and
-are not implicitly type-level `At` forms.
+### 3.4 Record formation, presence, and remainders
 
-For a concrete Tuple with total arity `N`, integer indexing uses:
-
-```text
-j = I       when I >= 0
-j = N + I   when I < 0
-```
-
-The projection is valid exactly when `0 <= j < N`; otherwise it is statically
-invalid. The linear order is all positional entries followed by labeled entries
-in declared order:
-
-```phalcom
-(Int, String, name: Symbol, flag: Bool)::At<0>  == Int
-(Int, String, name: Symbol, flag: Bool)::At<2>  == Symbol
-(Int, String, name: Symbol, flag: Bool)::At<-1> == Bool
-```
-
-Type subscript is the same operation:
+A Record type is formed from an unordered set of uniquely keyed fields and an optional
+tail:
 
 ```text
-T[I] ≡ T::At<I>
+Record(Fields, Tail)
 ```
 
-The two spellings share one semantic type-member identity.
+Record keys belong to `FieldKey` (`Symbol | String | Int | Bool`).
 
-## 6. Shape-preserving mapping
+Each field has an explicit presence qualifier:
+- **Required** (`key: T`): the field must be present on instances of the record type.
+- **Optional** (`key?: T`): the field may be absent; if present, its value must have type `T`.
 
-`Map<F>` requires:
+Optionality is **member presence**, not `Option<T>` or `T | Unit`.
+
+Record row tails have four categories:
+1. `Closed` (`{ a: Int }`) — exactly the declared fields; admits no surplus fields.
+2. `Captured(R)` (`{ a: Int, **R }`) — row polymorphism with correlated row variable `R`.
+3. `Anonymous Typed(T)` (`{ a: Int, **: T }`) — admits zero or more additional fields, each constrained to type `T`.
+4. `Anonymous Unconstrained` (`{ a: Int, ... }` or `{ a: Int, **: ... }`) — admits zero or more additional fields without a common value type constraint.
+
+Captured row tails preserve correlated row identity. Anonymous remainders (`...`, `**: T`)
+introduce no row variable or solver identity.
+
+### 3.5 Record subtyping and compatibility
+
+Ordinary `<:` applies strictly between proper `Type` terms:
+1. **Target required field `k: T`**: source must provably contain `k` with Required presence (`k: S` where `S <: T`). An optional source field `k?: S` cannot satisfy a required target field (`{ k?: S } </: { k: T }`).
+2. **Target optional field `k?: T`**:
+   - If source provably contains `k: S` (Required) or `k?: S` (Optional), `S <: T` is required.
+   - If source is closed and omits `k`, the target field is satisfied (absence).
+   - If source has an anonymous remainder that could contain `k`, the source remainder must be typed `**: S` with `S <: T` to prove compatibility; an unconstrained source remainder `...` cannot prove compatibility for an optional target field.
+3. **Extra source fields**:
+   - Closed target rejects surplus source fields (`{ a: Int, b: String } </: { a: Int }`).
+   - Open target with typed remainder `**: T` requires every surplus source field (and source remainder) to satisfy `<: T`.
+   - Open target with unconstrained remainder `...` accepts surplus source fields.
+4. **Source openness**: an open source cannot satisfy a closed target.
+
+### 3.6 Record values and spread
+
+Record value literals use bare braces, such as `{name: value}`. A `**source` entry
+contributes a statically projectable record shape. A Record source contributes its closed
+or symbolic row. A labeled Tuple source may contribute only its labeled lane, through
+checked projection; its positional lane does not participate.
+
+A Map is not a legal Record spread source: Map does not encode a statically exact key set.
+Record spread does not create a mixed Tuple/Record destructuring rule or a generalized
+product protocol.
+
+## 4. Ordered shape
+
+Ordered-product constituents are **entries**. A labeled entry has a `Symbol` **label**.
+
+```telos
+intrinsic data OrderedTail<Rest> {
+    Closed
+
+    Typed(
+        _ valueType: Type,
+    )
+
+    Unconstrained
+
+    Captured(
+        _ rest: Rest,
+    )
+}
+
+type PositionalTail =
+    OrderedTail<PositionalPack<Type>>
+
+type LabeledTail =
+    OrderedTail<LabeledPack<Type>>
+
+intrinsic data OrderedShape(
+    _ entries: CompletePack<Type>,
+    _ positionalTail: PositionalTail,
+    _ labeledTail: LabeledTail,
+)
+```
+
+`Closed` admits no additional entries. `Typed` admits zero or more additional
+entries constrained by a common value Type. `Unconstrained` admits additional entries
+without a common value-Type constraint. `Captured` preserves the exact correlated
+remainder.
+
+Anonymous open tails describe possible structure and are not finite iterable
+collections. A captured concrete Pack may be iterated.
+
+## 5. Unordered products
+
+Unordered-product constituents are **fields**. A field has a **key**.
+
+### 5.1 FieldKey
+
+```telos
+type FieldKey =
+    Symbol | String | Int | Bool
+```
+
+Ordered-product labels remain `Symbol`s. `FieldKey` belongs exclusively to unordered
+Record/product structure.
+
+FieldKey has a language-defined version-stable total order used for canonical
+reflection, row normalization, fingerprints, and metadata:
 
 ```text
-F : Type -> Type
+Symbol < String < Int < Bool
 ```
 
-It transforms payload types while preserving the subject shape and its identity
-laws. `Int` is therefore invalid as `F`, while `Option` is valid when
-`Option : Type -> Type`.
+Within a kind:
+- Symbol ordering uses stable semantic symbol spelling/identity, never process-local
+  interner IDs;
+- String ordering is by canonical UTF-8 string content;
+- Int ordering is mathematical integer order;
+- Bool ordering is `false < true`.
 
-### 6.1 Packs
+Source/insertion order does not participate in unordered structural identity.
 
-```text
-MapPack([T₀, ..., Tₙ], F)
-    = [F<T₀>, ..., F<Tₙ>]
+### 5.2 Presence and fixed fields
+
+```telos
+intrinsic data Presence {
+    Required
+    Optional
+}
+
+intrinsic data FieldInfo(
+    _ type: Type,
+    _ presence: Presence,
+)
+
+intrinsic data ProductField(
+    _ key: FieldKey,
+    _ type: Type,
+    _ presence: Presence,
+)
+
+type FixedFields =
+    Record<**[FieldKey]: FieldInfo>
 ```
 
-Order is preserved. For a labeled pack:
+Optionality is field presence, not `Option<T>`.
 
-```text
-MapLabeledPack([(l₀,T₀), ..., (lₙ,Tₙ)], F)
-    = [(l₀,F<T₀>), ..., (lₙ,F<Tₙ>)]
+A required target field requires a provably required source field. An optional source
+field cannot satisfy a required target field merely because the value Types match.
+
+### 5.3 Unordered tails
+
+```telos
+intrinsic data UnorderedTail {
+    Closed
+
+    Typed(
+        _ keyType: Type,
+        _ valueType: Type,
+    )
+
+    Unconstrained(
+        _ keyType: Type,
+    )
+
+    Captured(
+        _ rest: UnorderedShape,
+    )
+}
+
+intrinsic data UnorderedShape(
+    _ fields: FixedFields,
+    _ tail: UnorderedTail,
+)
 ```
 
-Labels and label order are preserved.
+`Closed` admits no unknown fields.
 
-### 6.2 Tuple
+`Typed(K,V)` permits additional fields whose keys conform to K and whose values
+conform to V.
 
-```text
-Tuple(P, L)::Map<F>
-    = Tuple(MapPack(P,F), MapLabeledPack(L,F))
+`Unconstrained(K)` constrains possible key domain without a common value Type.
+
+`Captured(rest)` preserves an exact correlated remainder.
+
+Static computed FieldKeys that reduce to concrete keys become fixed fields. A collision
+that appears after specialization is an error, never overwrite/last-write-wins.
+
+### 5.4 Lookup
+
+```telos
+intrinsic data FieldLookup {
+    Required(_ type: Type)
+    Optional(_ type: Type)
+    Absent
+    Unknown
+}
 ```
 
-The result is canonical structural Tuple type, or `()` when the subject is the
-zero product.
+`UnorderedShape::Lookup<K>` returns the strongest result justified by fixed fields,
+presence, key-domain information, and tail state.
 
-### 6.3 Record rows and Records
-
-For a closed row:
-
-```text
-MapRow({ l₀:T₀, ..., lₙ:Tₙ }, F)
-    = { l₀:F<T₀>, ..., lₙ:F<Tₙ> }
+```telos
+impl UnorderedShape {
+    intrinsic type Lookup<K: FieldKey>: FieldLookup
+}
 ```
 
-For an open row:
+`Unknown` is a structural lookup result and is distinct from the internal proof-state
+uncertainty described by [Static Evaluation](static-evaluation.md).
 
-```text
-MapRow({ l₀:T₀, ..., lₙ:Tₙ, **R }, F)
-    = { l₀:F<T₀>, ..., lₙ:F<Tₙ>, **MapRow(R,F) }
+### 5.5 Unordered shape view
+
+```telos
+intrinsic data UnorderedShapeView {
+    Empty(
+        _ tail: UnorderedTail,
+    )
+
+    Field(
+        _ field: ProductField,
+        _ rest: UnorderedShape,
+    )
+}
+
+impl UnorderedShape {
+    intrinsic type View: UnorderedShapeView
+    intrinsic type Tail: UnorderedTail
+}
 ```
 
-The unknown tail must be transformed; it must not remain unchanged. Record
-mapping is:
+The view walks fixed fields in canonical FieldKey order and preserves the tail.
+It is a one-step decomposition and does not require recursively linked storage.
 
-```text
-Record(R)::Map<F> = Record(MapRow(R,F))
+## 6. General Product reflection
+
+```telos
+intrinsic data ProductKind {
+    Ordered
+    Unordered
+}
+
+intrinsic data ProductShape {
+    Ordered(
+        _ shape: OrderedShape,
+    )
+
+    Unordered(
+        _ shape: UnorderedShape,
+    )
+}
 ```
 
-The result preserves the Record key set and unordered identity law.
+Reflection describes payload structure only.
 
-## 7. Mapping laws
+For a recursive product such as a node containing another node, a reflected entry stores
+the contained `Type` value. Reflection does not recursively expand that Type's own
+shape.
 
-For every valid operation:
+Creating a Pack, ProductShape, OrderedShape, UnorderedShape, Variant, or related
+intrinsic static value never implicitly requests reflection of the value's own Type.
 
-```text
-shape(S::Map<F>) = shape(S)
-labels(T::Map<F>) = labels(T)
-(T::Map<F>)::At<I> ≡ F<T::At<I>>
-Lookup(Record(R)::Map<F>, K) ≡ F<Lookup(Record(R), K)>
+Capability derivation and shape reflection share lower-level canonical declaration
+facts. Capability is not proved from reflection and reflection is not proved from
+capability.
+
+## 7. Structural static iteration
+
+Static structural iteration is specified by [Static Evaluation](static-evaluation.md)
+and uses these shapes directly.
+
+Ordered value/type iteration:
+
+```telos
+for value in orderedProduct {
+    // positional entries
+}
+
+for [label]: value in orderedProduct {
+    // labeled entries
+}
 ```
 
-The laws apply when the relevant index or key exists. This release does not
-require map-fusion syntax or implicit union distribution. A structural
-projection over a union reduces only when ordinary member applicability makes
-the exact subject domain available; it does not automatically distribute over
-union branches.
+Unordered value/type iteration:
 
-## 8. Symbolic operations and normalization
+```telos
+for [key]: value in unorderedProduct {
+    ...
+}
 
-The following are valid semantic forms when their domains are established:
-
-```text
-P::Map<F>       when P : TypePack
-L::Map<F>       when L : LabeledTypePack
-R::Map<F>       when R : RecordFields
-T::At<I>        when T and I satisfy member applicability/domain rules
-T::Map<F>
+for [key]: FieldInfo(FieldType, presence) in UnorderedProductType {
+    ...
+}
 ```
 
-They may remain symbolic when their subject or argument is abstract. A concrete
-invalid index, wrong mapper kind, or non-constant index is a static error. A
-valid but unreduced operation is stuck, not invalid.
+Unordered static iteration follows canonical FieldKey order.
 
-For `T::At<I>`, validity requires that the available static information proves
-Tuple-family member applicability and `I :const Int`. A parameter known only as
-`T: Type` does not satisfy that obligation. No structural operation implicitly
-distributes over a union in the initial surface.
+Only finite fixed entries/fields are iterated. Anonymous open tails are not expanded.
 
-Normalization is closed and compiler-known. It does not execute arbitrary
-Phalcom code, inspect arbitrary runtime values, or turn LANG007 into an open
-type-family language.
+Heterogeneous static iteration preserves exact per-iteration entry refinement rather
+than collapsing all elements into one imprecise common Type.
 
-## 9. Runtime boundary
+## 8. Structural equality and hashing
 
-Static Tuple/Record types and type-level packs/rows are semantic products. They
-do not imply runtime `TypePack` or `RecordFields` objects. Runtime Tuple and Record
-values retain their existing behavior and representation contracts, including
-zero-product normalization, Tuple label ordering, and Record key-set identity.
+Pack uses structural semantic equality.
 
-Tuple and Record structural types use their canonical Universe family
-declarations as behavior owners for inherent implementations. The authorization
-and overlap rules are specified by
-[Implementation Declarations](objects/impl.md). Other structural type
-expressions do not gain inherent behavior owners through this rule.
+Two Packs are equal exactly when:
+- they have the same lane structure;
+- positional lengths and ordered values are equal;
+- labeled lengths, Symbol labels, order, and corresponding values are equal.
+
+Contained values use their ordinary Telos semantic equality. Hashing must be consistent
+with equality, including the language's canonical numeric/Float equality policy.
+
+Product shape equality is structural and does not erase nominal identity of the owning
+data Type.
+
+Type-containing structures compare/hash Type values through canonical semantic Type
+identity/equality; they never recursively expand Type reflection to compare them.
+
+## 9. Public-ontology cutover and `INC-P3-2` reconciliation
+
+C4 establishes the Pack/Product model as the canonical public structural language.
+
+Under `INC-P3-2`:
+- `TypePack`, `LabeledTypePack`, and `CompleteTypePack` remain canonical compiler/static
+  kinded domains established by C3. They are published as intrinsic Universe anchors and
+  are not replaced or shadowed by proper Pack types.
+- `Pack` is the first-class proper structural value and type introduced by C4.P3.
+- `PositionalPack<T>`, `LabeledPack<T>`, and `CompletePack<T>` are proper first-class
+  Pack specializations (`Pack<*: T>`, `Pack<**: T>`, `Pack<***: T>`).
+- Internal `TypePack` machinery is not replaced or retired merely because first-class
+  `Pack` now exists.
+- For unordered products, the public ontology uses `UnorderedShape`, `FieldKey`,
+  `FieldInfo`, and `UnorderedTail` instead of the internal `RecordFields` / `RecordRow`
+  implementation terminology.
 
 ## 10. Invariants
 
-| ID | Requirement |
-|---|---|
-| **STRUCT-TUPLE-LANE-ORDER** | A Tuple is an ordered positional prefix followed by an ordered labeled suffix. |
-| **STRUCT-TUPLE-LABEL-ORDER** | Tuple label order participates in structural identity. |
-| **STRUCT-RECORD-KEY-IDENTITY** | Record identity is determined by key/type association, not presentation order. |
-| **STRUCT-PACK-ROW-DISTINCT** | `LabeledTypePack` and `RecordFields` are distinct domains and identities. |
-| **STRUCT-ZERO-PRODUCT** | `()` is the zero-arity Tuple and canonicalizes to `Unit = Tuple<>`; an empty Record canonicalizes to distinct `EmptyRecord = Record<>`. |
-| **STRUCT-AT-IDENTITY** | `T[I]` and `T::At<I>` are one semantic operation. |
-| **STRUCT-AT-BOUNDS** | A concrete out-of-range Tuple index is statically invalid. |
-| **STRUCT-MAP-SHAPE** | `Map<F>` preserves structural shape and maps every payload type. |
-| **STRUCT-MAP-OPEN** | Mapping an open row maps its unknown tail symbolically. |
-| **STRUCT-MAP-KIND** | `Map<F>` requires `F : Type -> Type`. |
-| **LANG007-CLOSED-CALCULUS** | Structural operations are a closed compiler-known set, not arbitrary compile-time execution. |
-
-## 11. Examples
-
-```phalcom
-(Int, String)::Positionals
-// [Int, String] : TypePack
-
-(Int, name: String)::Labeled
-// [(name, String)] : LabeledTypePack
-
-(Int, String)[0]
-// Int
-
-(Int, String)::At<-1>
-// String
-
-(Int, String)::Map<Option>
-// (Option<Int>, Option<String>)
-
-(Int, name: String)::Map<Option>
-// (Option<Int>, name: Option<String>)
-
-{name: String, age: Int}::Map<Option>
-// {name: Option<String>, age: Option<Int>}
-
-P::Map<Option>
-// valid symbolic result when P : TypePack
-```
-
-The following are invalid:
-
-```phalcom
-(Int, String)::Map<Int>       // mapper has kind Type, not Type -> Type
-(Int, String)::At<2>          // concrete index is out of range
-(Int, String)::At<runtimeIndex> // argument is not a compile-time Int term
-T::Map<Option>                // unavailable when T is known only as T: Type
-```
+- **PRODUCT-DERIVED** — structural Product capabilities are compiler-derived and sealed.
+- **PRODUCT-NOMINALITY** — payload-shape equality does not erase owning declaration identity.
+- **PACK-DISTINCT** — Pack is a proper first-class structural type/value, distinct from Tuple, Unit, and Record.
+- **PACK-LABELS-SYMBOL** — Pack and Tuple labels remain `Symbol`-only; `FieldKey` belongs exclusively to unordered Record/product structure.
+- **PACK-FLAT-FREEDOM** — Pack semantics do not require recursive physical storage.
+- **PACK-REST-O1** — semantic rest/view admits O(1) slice implementations over shared root backing.
+- **PACK-CALL-FASTPATH** — fixed calls do not require Pack allocation.
+- **PACK-FUSED-SPREAD** — multi-spread construction may be fused into one operation.
+- **FIELDKEY-STABLE** — canonical key ordering is stable and independent of runtime IDs.
+- **TAIL-NOT-ITERABLE** — anonymous open tails are descriptions, not finite sequences.
+- **REFLECTION-SHALLOW** — contained recursive Types remain Type references rather than recursively expanded shapes.

@@ -18,12 +18,16 @@ prepared: 2026-10-03
 
 ## Handoff for continued analysis and complete implementation
 
+> **Historical note (2026-10-05):** This handoff document was prepared on 2026-10-03
+> against `8c3a98aab41ed8631e9f8746a6b29984cf77581d` to launch C4 implementation.
+> Implementation has since progressed through completed plans P1, P2, and P3, with
+> P4 active. Current lifecycle truth is maintained in `LANG007.C4-CHECKPOINT.md`.
+>
 > **Repository:** `aureat/phalcom-lang`  
 > **Branch:** `main`  
 > **Prepared against:** `8c3a98aab41ed8631e9f8746a6b29984cf77581d`  
 > **Checkpoint:** `LANG007.C4`  
-> **Status:** semantics largely ratified; implementation not started as one coherent checkpoint  
-> **Primary obligation of the next agent:** strengthen the remaining implementation analysis, resolve explicitly listed open details without undoing ratified language semantics, then implement C4 vertically and completely.
+> **Status:** historical handoff launching C4 implementation; current state is in `LANG007.C4-CHECKPOINT.md`
 
 ---
 
