@@ -1,0 +1,3 @@
+trait Clause {}
+
+export Clause
