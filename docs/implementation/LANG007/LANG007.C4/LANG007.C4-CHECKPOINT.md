@@ -219,6 +219,27 @@ pre-barrier checks, and re-audit the actual Record AST/parser architecture.
 P10 T6 and its explicit `while` AST edits remain blocked until those S1 steps
 complete. Preserve both plans' checkpoint state during synchronization.
 
+### S1 merge-conflict audit — 2026-10-05
+
+A read-only three-way merge preview of main at `ac1c2019` and P10 at
+`46d00056` found two content conflicts:
+
+- `phalcom-semantic/src/checker/context.rs`: retain P4's `FieldKey`-typed
+  stable Record-row lacks set and P10's `expected_kinded_return` field,
+  initialization, and clone propagation. These are independent context facts
+  and both are required.
+- this checkpoint: preserve P4's latest T2/T7.0 decisions and verification
+  state together with P10's ledger, pre-barrier evidence, and S1 status. Do not
+  choose one side wholesale.
+
+The preview auto-merged the overlapping edits in `checker/expression.rs`,
+`checker/statement.rs`, `lib.rs`, and `tests/semantic/foundations/mod.rs`. The
+P10 plan has identical content on both sides. P10's pre-barrier changes do not
+touch the P4 AST/parser files; explicit `while` AST work remains T6 and must
+wait for S1. This is a conflict analysis only: P10 has not yet been merged,
+and its directly affected checks plus the post-P4 AST/parser audit remain
+outstanding.
+
 ---
 
 # 3. Ratified checkpoint architecture
