@@ -6,6 +6,7 @@ use crate::heap::InstanceObject;
 use crate::heap::ListObject;
 use crate::heap::MapObject;
 use crate::heap::ModuleObject;
+use crate::heap::PackObject;
 use crate::heap::RangeObject;
 use crate::heap::RecordObject;
 use crate::heap::StringObject;
@@ -118,6 +119,8 @@ pub enum Object {
     Tuple(TupleObject),
     /// A native immutable labeled product. Boxed to preserve arena slot size.
     Record(Box<RecordObject>),
+    /// A native immutable first-class Pack object (root or slice). Boxed to preserve arena slot size.
+    Pack(Box<PackObject>),
     /// A native range bounds descriptor ([`RangeObject`],
     /// [ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).

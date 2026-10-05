@@ -123,6 +123,7 @@ impl Universe {
         // `Set` (Q5: immutable ⇒ value-hashable, a valid `Map`/`Set` key).
         let tuple_class = make_core_class(heap, "Tuple", collection_class, metaclass_class);
         let record_class = make_core_class(heap, "Record", object_class, metaclass_class);
+        let pack_class = make_core_class(heap, "Pack", object_class, metaclass_class);
 
         // Kernel `Range` (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 3): a lazy
         // numeric interval, three bound fields, no element storage (RG-2).
@@ -228,6 +229,7 @@ impl Universe {
             set_class,
             tuple_class,
             record_class,
+            pack_class,
             range_class,
             bytes_class,
             message_class,
@@ -288,6 +290,7 @@ impl Universe {
             res.set_class,
             res.tuple_class,
             res.record_class,
+            res.pack_class,
             res.range_class,
             res.bytes_class,
             res.fiber_class,
@@ -461,6 +464,8 @@ pub struct CoreClasses {
     pub tuple_class: ClassId,
     /// `Record`, the immutable labeled product representation.
     pub record_class: ClassId,
+    /// `Pack`, the first-class immutable Pack representation.
+    pub pack_class: ClassId,
     /// `Range`, the native bounds descriptor
     /// ([ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
@@ -586,6 +591,7 @@ impl CoreClasses {
             UniverseKey::Set => self.set_class,
             UniverseKey::Tuple => self.tuple_class,
             UniverseKey::Record => self.record_class,
+            UniverseKey::Pack => self.pack_class,
             UniverseKey::Range => self.range_class,
             UniverseKey::Bytes => self.bytes_class,
             UniverseKey::Module => self.module_class,
@@ -673,6 +679,7 @@ impl CoreClasses {
             set_class,
             tuple_class,
             record_class,
+            pack_class,
             range_class,
             bytes_class,
             message_class,
@@ -737,6 +744,7 @@ impl CoreClasses {
             set_class,
             tuple_class,
             record_class,
+            pack_class,
             range_class,
             bytes_class,
             message_class,

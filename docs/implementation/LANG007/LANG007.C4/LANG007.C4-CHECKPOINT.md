@@ -40,7 +40,7 @@ next_plan: LANG007.C4.P3
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P3-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521
 next_action: >
-  P3 is IN_PROGRESS. T1 complete (canonical Pack proper type, typed remainder syntax, Pack metadata and roundtrip, PackFromPacks normalization verified). T2 complete (StaticPack storage, slicing, equality, type projection, DeferredStructural materialization descriptor, and GenericParameterMode retention on value-domain static parameters verified). Next action is T3: Runtime Pack root/slice object, EmptyPack immediate, product shape, GC trace, and floor primitives in phalcom-core.
+  P3 is IN_PROGRESS. T1 complete (canonical Pack proper type, typed remainder syntax, Pack metadata and roundtrip, PackFromPacks normalization verified). T2 complete (StaticPack storage, slicing, equality, type projection, DeferredStructural materialization descriptor, and GenericParameterMode retention on value-domain static parameters verified). T3 complete (runtime Pack root/slice object, EmptyPack immediate, product shape, GC trace, and floor primitives in phalcom-core verified). Next action is T4: First-class Pack construction, builder finalization, scalable duplicates, and bytecode lowering.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -146,7 +146,7 @@ The intended C4 decomposition is:
 |---|---|---|---|---|---|
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
-| `LANG007.C4.P3` | First-class Pack and call/rest convergence | IN_PROGRESS | PARTIAL | UNVERIFIED | T0 takeover verified; T1 complete (proper Pack type, syntax, metadata, normalization verified); T2 complete (StaticPack storage, slicing, equality, type projection, DeferredStructural materialization descriptor, variadic static parameter modes verified); T3 next |
+| `LANG007.C4.P3` | First-class Pack and call/rest convergence | IN_PROGRESS | PARTIAL | UNVERIFIED | T0 takeover verified; T1 complete (proper Pack type, syntax, metadata, normalization verified); T2 complete (StaticPack storage, slicing, equality, type projection, DeferredStructural materialization descriptor, variadic static parameter modes verified); T3 complete (runtime Pack root/slice, EmptyPack immediate, product shape, GC trace, and floor primitives verified); T4 next |
 | `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | PROPOSED | NOT_STARTED | UNVERIFIED | planned |

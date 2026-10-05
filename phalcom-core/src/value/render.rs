@@ -30,6 +30,9 @@ impl Value {
         if self.is_unit() {
             return "()".to_string();
         }
+        if self.is_empty_pack() {
+            return "Pack()".to_string();
+        }
         if let Some(b) = self.as_bool() {
             return bool_literal(b).to_string();
         }
@@ -74,6 +77,18 @@ impl Value {
                         .map(|tuple| tuple.values().into_iter().map(|v| v.to_string(vm)).collect())
                         .unwrap_or_default();
                     format!("({})", parts.join(", "))
+                }
+                Object::Pack(_) => {
+                    if let Some(pack) = vm.pack_view(id) {
+                        let mut parts: Vec<String> = pack.positionals().into_iter().map(|v| v.to_string(vm)).collect();
+                        for (label, val) in pack.labeled_entries() {
+                            let label_str = vm.interner.lookup(label);
+                            parts.push(format!("{}: {}", label_str, val.to_string(vm)));
+                        }
+                        format!("Pack({})", parts.join(", "))
+                    } else {
+                        "<pack>".to_string()
+                    }
                 }
                 Object::Range(range) => {
                     let lower = range.lower().map_or_else(String::new, |value| value.to_string(vm));
@@ -133,6 +148,9 @@ impl Value {
         if self.is_unit() {
             return "()".to_string();
         }
+        if self.is_empty_pack() {
+            return "Pack()".to_string();
+        }
         if let Some(b) = self.as_bool() {
             return bool_literal(b).to_string();
         }
@@ -172,6 +190,7 @@ impl Value {
                 Object::Set(_) => "<set>".to_string(),
                 Object::Tuple(_) => "<tuple>".to_string(),
                 Object::Record(_) => "<record>".to_string(),
+                Object::Pack(_) => "<pack>".to_string(),
                 Object::Range(_) => "<range>".to_string(),
                 Object::Family(_) => "<family>".to_string(),
                 Object::Selector(sel) => format!("Selector(#{})", sel.selector.encode()),
@@ -237,6 +256,7 @@ fn fmt_base_value(f: &mut fmt::Formatter<'_>, base: Value) -> fmt::Result {
         ValueTag::Nil => write!(f, "nil"),
         ValueTag::Unit => write!(f, "()"),
         ValueTag::EmptyRecord => write!(f, "{{}}"),
+        ValueTag::EmptyPack => write!(f, "Pack()"),
         ValueTag::Bool => write!(f, "{}", base.as_bool().unwrap_or(false)),
         ValueTag::Int => write!(f, "{}", base.as_int().unwrap_or(0)),
         ValueTag::Float => write!(f, "{}", render_float(base.as_float().unwrap_or(0.0))),

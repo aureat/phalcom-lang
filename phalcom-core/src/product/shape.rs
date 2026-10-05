@@ -13,11 +13,12 @@ use std::collections::HashMap;
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ProductShapeId(pub u32);
 
-/// Discriminates Tuple vs Record anonymous product kinds.
+/// Discriminates Tuple vs Record vs Pack anonymous product kinds.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum AnonymousProductKind {
     Tuple,
     Record,
+    Pack,
 }
 
 /// Coordinate shape for a Tuple product.
@@ -32,6 +33,27 @@ impl TupleProductShape {
         // Assert label uniqueness
         for (i, label) in labels.iter().enumerate() {
             assert!(!labels[..i].contains(label), "Tuple shape labels must be unique");
+        }
+        Self { positional_len, labels }
+    }
+
+    pub fn total_len(&self) -> u32 {
+        self.positional_len + self.labels.len() as u32
+    }
+}
+
+/// Coordinate shape for a Pack product.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct PackProductShape {
+    pub positional_len: u32,
+    pub labels: Box<[Symbol]>,
+}
+
+impl PackProductShape {
+    pub fn new(positional_len: u32, labels: Box<[Symbol]>) -> Self {
+        // Assert label uniqueness
+        for (i, label) in labels.iter().enumerate() {
+            assert!(!labels[..i].contains(label), "Pack shape labels must be unique");
         }
         Self { positional_len, labels }
     }
@@ -126,6 +148,7 @@ impl RecordProductShape {
 pub enum ProductShape {
     Tuple(TupleProductShape),
     Record(RecordProductShape),
+    Pack(PackProductShape),
 }
 
 /// VM-level registry managing interned product shapes.
@@ -175,6 +198,13 @@ impl ProductShapeRegistry {
     pub fn get_record(&self, id: ProductShapeId) -> Option<&RecordProductShape> {
         match self.get(id) {
             Some(ProductShape::Record(r)) => Some(r),
+            _ => None,
+        }
+    }
+
+    pub fn get_pack(&self, id: ProductShapeId) -> Option<&PackProductShape> {
+        match self.get(id) {
+            Some(ProductShape::Pack(p)) => Some(p),
             _ => None,
         }
     }

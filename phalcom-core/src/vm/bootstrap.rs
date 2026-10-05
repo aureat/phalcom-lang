@@ -580,6 +580,7 @@ impl VM {
         // native heap arm mirroring `List`.
         add_class!(tuple_class);
         add_class!(record_class);
+        add_class!(pack_class);
         // `Range` (ADR-0039, U-COLLTYPES Phase 3): ordinary class global,
         // native heap arm mirroring `List`.
         add_class!(range_class);
@@ -1017,6 +1018,7 @@ impl VM {
             c.set_class,
             c.tuple_class,
             c.record_class,
+            c.pack_class,
             c.range_class,
             c.message_class,
             c.error_class,

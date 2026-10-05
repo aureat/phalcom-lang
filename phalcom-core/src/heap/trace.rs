@@ -252,6 +252,22 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
                 }
             }
         }
+        Object::Pack(pack) => match pack.storage() {
+            crate::heap::pack::PackStorage::Root { storage, .. } => {
+                if let Some(layout) = layouts.get(storage.layout_id()) {
+                    for &offset in layout.value_slot_offsets() {
+                        let offset = offset as usize;
+                        trace_value(
+                            Value::from_raw_words(storage.words()[offset], storage.words()[offset + 1]),
+                            push,
+                        );
+                    }
+                }
+            }
+            crate::heap::pack::PackStorage::Slice { root } => {
+                push(*root);
+            }
+        },
         Object::Range(range) => {
             if let Some(lower) = range.lower() {
                 trace_value(lower, push);

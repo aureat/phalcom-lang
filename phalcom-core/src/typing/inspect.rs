@@ -535,6 +535,60 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                         }
                     )
                 }
+                TypeNode::Pack(pack) => {
+                    let mut parts = pack
+                        .elements
+                        .iter()
+                        .map(|element| {
+                            let mut s = String::new();
+                            if let Some(label) = &element.label {
+                                s.push_str(label);
+                                s.push_str(": ");
+                            }
+                            s.push_str(&display_inner(
+                                context,
+                                registry,
+                                heap,
+                                RuntimeTypeRef::Base { pool, node: element.ty },
+                                depth + 1,
+                            ));
+                            if matches!(element.presence, phalcom_type_meta::type_node::StructuralMemberPresenceRef::Optional) {
+                                s.push('?');
+                            }
+                            s
+                        })
+                        .collect::<Vec<_>>();
+                    match &pack.positional_remainder {
+                        phalcom_type_meta::type_node::AnonymousTupleRemainderRef::None => {}
+                        phalcom_type_meta::type_node::AnonymousTupleRemainderRef::Unconstrained => {
+                            parts.push("*...".to_string());
+                        }
+                        phalcom_type_meta::type_node::AnonymousTupleRemainderRef::Typed(ty) => {
+                            parts.push(format!(
+                                "*: {}",
+                                display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *ty }, depth + 1)
+                            ));
+                        }
+                    }
+                    match &pack.labeled_remainder {
+                        phalcom_type_meta::type_node::AnonymousTupleRemainderRef::None => {}
+                        phalcom_type_meta::type_node::AnonymousTupleRemainderRef::Unconstrained => {
+                            parts.push("**...".to_string());
+                        }
+                        phalcom_type_meta::type_node::AnonymousTupleRemainderRef::Typed(ty) => {
+                            parts.push(format!(
+                                "**: {}",
+                                display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *ty }, depth + 1)
+                            ));
+                        }
+                    }
+                    format!("Pack<{}>", parts.join(", "))
+                }
+                TypeNode::PackFromPacks { positionals, labeled } => format!(
+                    "PackFromPacks({}, {})",
+                    display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *positionals }, depth + 1),
+                    display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *labeled }, depth + 1)
+                ),
             },
             None => "<invalid-type>".to_string(),
         },

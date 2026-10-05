@@ -10,9 +10,9 @@ pub mod view;
 pub use anonymous::{RuntimeAnonymousProductDescriptor, RuntimeAnonymousProductDescriptorId, RuntimeAnonymousProductDescriptorRegistry};
 pub use layout::{ProductComponentLayout, ProductComponentSpec, ProductLayout, ProductLayoutId, ProductLayoutSpec, ProductSlotRepr};
 pub use registry::ProductLayoutRegistry;
-pub use shape::{AnonymousProductKind, ProductShape, ProductShapeId, ProductShapeRegistry, RecordProductShape, TupleProductShape};
+pub use shape::{AnonymousProductKind, PackProductShape, ProductShape, ProductShapeId, ProductShapeRegistry, RecordProductShape, TupleProductShape};
 pub use storage::ProductStorage;
-pub use view::{RecordView, TupleView};
+pub use view::{PackView, RecordView, TupleView};
 
 use crate::error::PhResult;
 use crate::error::RuntimeError;
@@ -143,6 +143,113 @@ pub(crate) fn finish_record(vm: &mut VM, fields: Vec<(Symbol, Value)>) -> Result
         .anonymous_product_descriptors
         .register(AnonymousProductKind::Record, shape_id, layout_id, None);
     Ok(Value::obj(vm.heap.alloc_record_nonempty(descriptor, storage)))
+}
+
+/// Finalizes a Pack at the product representation boundary.
+///
+/// Both lanes empty normalizes directly to immediate `EmptyPack`.
+/// Otherwise, allocates an immutable root Pack object with distinct `AnonymousProductKind::Pack` descriptor.
+pub(crate) fn finish_pack(
+    vm: &mut VM,
+    mut positionals: Vec<Value>,
+    labeled: Vec<(Symbol, Value)>,
+) -> Result<Value, ProductBuildError> {
+    unique(&labeled)?;
+    if positionals.is_empty() && labeled.is_empty() {
+        return Ok(Value::empty_pack());
+    }
+    let pos_len = positionals.len() as u32;
+    let lab_len = labeled.len() as u32;
+
+    let mut labels = Vec::with_capacity(labeled.len());
+    for (label, value) in labeled {
+        labels.push(label);
+        positionals.push(value);
+    }
+
+    let shape = ProductShape::Pack(PackProductShape::new(pos_len, labels.into_boxed_slice()));
+    let shape_id = vm.product_shapes.register(shape);
+    let layout_spec = ProductLayoutSpec::new(
+        (0..positionals.len())
+            .map(|logical_index| ProductComponentSpec {
+                logical_index: logical_index as u32,
+                repr: ProductSlotRepr::Value,
+            })
+            .collect(),
+    );
+    let layout = layout_spec.build_layout().map_err(ProductBuildError::Storage)?;
+    let layout_id = vm.heap.product_layouts.register(layout);
+    let layout = vm
+        .heap
+        .product_layouts
+        .get(layout_id)
+        .ok_or(ProductBuildError::Storage("missing registered layout"))?;
+    let storage = ProductStorage::from_values(layout_id, layout, &positionals).map_err(ProductBuildError::Storage)?;
+    let descriptor = vm
+        .anonymous_product_descriptors
+        .register(AnonymousProductKind::Pack, shape_id, layout_id, None);
+    Ok(Value::obj(vm.heap.alloc_pack_root(descriptor, storage, pos_len, lab_len)))
+}
+
+/// Public VM-facing Pack construction adapter for integration boundaries.
+pub fn finish_pack_value(vm: &mut VM, positionals: Vec<Value>, labeled: Vec<(Symbol, Value)>) -> PhResult<Value> {
+    finish_pack(vm, positionals, labeled).map_err(|error| runtime_error(vm, "Pack label", error).into())
+}
+
+/// Constructs an O(1) slice of an existing Pack value.
+///
+/// Slicing a slice composes ranges and normalizes directly to the original root.
+/// If the resulting slice has zero visible components in both lanes, returns `EmptyPack`.
+pub(crate) fn finish_pack_slice(
+    vm: &mut VM,
+    pack_val: Value,
+    pos_offset: u32,
+    pos_len: u32,
+    lab_offset: u32,
+    lab_len: u32,
+) -> Result<Value, ProductBuildError> {
+    if pos_len == 0 && lab_len == 0 {
+        return Ok(Value::empty_pack());
+    }
+    let Some(obj_ref) = pack_val.as_obj() else {
+        return Err(ProductBuildError::InvalidSpec);
+    };
+    let pack_obj = vm.heap.as_pack(obj_ref).ok_or(ProductBuildError::InvalidSpec)?;
+
+    if pos_offset.checked_add(pos_len).ok_or(ProductBuildError::InvalidSpec)? > pack_obj.positional_len()
+        || lab_offset.checked_add(lab_len).ok_or(ProductBuildError::InvalidSpec)? > pack_obj.labeled_len()
+    {
+        return Err(ProductBuildError::InvalidSpec);
+    }
+
+    let (root_ref, base_pos_start, base_lab_start) = match pack_obj.storage() {
+        crate::heap::pack::PackStorage::Root { .. } => (obj_ref, pack_obj.positional_start(), pack_obj.labeled_start()),
+        crate::heap::pack::PackStorage::Slice { root } => (*root, pack_obj.positional_start(), pack_obj.labeled_start()),
+    };
+
+    let new_pos_start = base_pos_start + pos_offset;
+    let new_lab_start = base_lab_start + lab_offset;
+
+    Ok(Value::obj(vm.heap.alloc_pack_slice(
+        root_ref,
+        new_pos_start,
+        pos_len,
+        new_lab_start,
+        lab_len,
+    )))
+}
+
+/// Public VM-facing Pack slice construction adapter.
+pub fn finish_pack_slice_value(
+    vm: &mut VM,
+    pack_val: Value,
+    pos_offset: u32,
+    pos_len: u32,
+    lab_offset: u32,
+    lab_len: u32,
+) -> PhResult<Value> {
+    finish_pack_slice(vm, pack_val, pos_offset, pos_len, lab_offset, lab_len)
+        .map_err(|error| runtime_error(vm, "Pack slice", error).into())
 }
 
 fn materialize_exact_type(vm: &mut VM, recipe: RuntimeTypeRecipe) -> Result<RuntimeTypeRef, ProductBuildError> {

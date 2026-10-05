@@ -7,6 +7,7 @@ use crate::heap::InstanceObject;
 use crate::heap::ListObject;
 use crate::heap::MapObject;
 use crate::heap::ModuleObject;
+use crate::heap::PackObject;
 use crate::heap::RangeObject;
 use crate::heap::RecordLiteralBuilderObject;
 use crate::heap::RecordObject;
@@ -381,6 +382,23 @@ impl Heap {
     pub fn as_record(&self, id: ObjRef) -> Option<&RecordObject> {
         match self.objects.get(id) {
             Some(Object::Record(record)) => Some(record),
+            _ => None,
+        }
+    }
+
+    /// Borrows the immutable [`PackObject`] behind `id`.
+    pub fn pack(&self, id: ObjRef) -> &PackObject {
+        match self.get(id) {
+            Object::Pack(pack) => pack,
+            _ => panic!("ObjRef {id:?} is not an Object::Pack"),
+        }
+    }
+
+    /// Returns the immutable [`PackObject`] behind `id`, if present.
+    /// There is deliberately no `pack_mut`.
+    pub fn as_pack(&self, id: ObjRef) -> Option<&PackObject> {
+        match self.objects.get(id) {
+            Some(Object::Pack(pack)) => Some(pack),
             _ => None,
         }
     }

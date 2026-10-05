@@ -29,6 +29,7 @@ pub(crate) enum ValueTag {
     DataSingleton = 9,
     EmptyRecord = 10,
     UninitializedBinding = 11,
+    EmptyPack = 12,
 }
 
 impl ValueTag {
@@ -47,6 +48,7 @@ impl ValueTag {
             9 => Self::DataSingleton,
             10 => Self::EmptyRecord,
             11 => Self::UninitializedBinding,
+            12 => Self::EmptyPack,
             _ => panic!("invalid ValueTag"),
         }
     }
@@ -82,6 +84,14 @@ impl Value {
         Self {
             payload: 0,
             meta: ValueTag::EmptyRecord as u64,
+        }
+    }
+
+    #[inline]
+    pub const fn empty_pack() -> Self {
+        Self {
+            payload: 0,
+            meta: ValueTag::EmptyPack as u64,
         }
     }
 
@@ -235,6 +245,11 @@ impl Value {
     }
 
     #[inline]
+    pub fn is_empty_pack(self) -> bool {
+        self.tag() == ValueTag::EmptyPack && self.some_depth_raw() == 0
+    }
+
+    #[inline]
     pub fn is_bool(self) -> bool {
         self.tag() == ValueTag::Bool && self.some_depth_raw() == 0
     }
@@ -319,7 +334,7 @@ impl PartialEq for Value {
         }
 
         match self.tag() {
-            ValueTag::Nil | ValueTag::Unit | ValueTag::EmptyRecord | ValueTag::None => true,
+            ValueTag::Nil | ValueTag::Unit | ValueTag::EmptyRecord | ValueTag::EmptyPack | ValueTag::None => true,
             ValueTag::Bool => (self.payload != 0) == (other.payload != 0),
             ValueTag::Int => (self.payload as i64) == (other.payload as i64),
             ValueTag::Float => {
@@ -346,7 +361,7 @@ impl Hash for Value {
         self.some_depth_raw().hash(state);
 
         match self.tag() {
-            ValueTag::Nil | ValueTag::Unit | ValueTag::EmptyRecord | ValueTag::None => {}
+            ValueTag::Nil | ValueTag::Unit | ValueTag::EmptyRecord | ValueTag::EmptyPack | ValueTag::None => {}
             ValueTag::Bool => (self.payload != 0).hash(state),
             ValueTag::Int => (self.payload as i64).hash(state),
             ValueTag::Float => {

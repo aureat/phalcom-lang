@@ -537,6 +537,36 @@ impl VM {
             (None, None) => {}
         }
 
+        let lhs_pack = lhs.as_obj().filter(|id| self.heap.as_pack(*id).is_some());
+        let rhs_pack = rhs.as_obj().filter(|id| self.heap.as_pack(*id).is_some());
+        match (lhs_pack, rhs_pack) {
+            (Some(lhs_id), Some(rhs_id)) => {
+                let Some(lhs_view) = self.pack_view(lhs_id) else { return false };
+                let Some(rhs_view) = self.pack_view(rhs_id) else { return false };
+                if lhs_view.positional_len() != rhs_view.positional_len() || lhs_view.labeled_len() != rhs_view.labeled_len() {
+                    return false;
+                }
+                if lhs_view.labels() != rhs_view.labels() {
+                    return false;
+                }
+                let pos_equal = lhs_view
+                    .positionals()
+                    .into_iter()
+                    .zip(rhs_view.positionals())
+                    .all(|(left, right)| self.semantic_same(left, right));
+                if !pos_equal {
+                    return false;
+                }
+                return lhs_view
+                    .labeled_values()
+                    .into_iter()
+                    .zip(rhs_view.labeled_values())
+                    .all(|(left, right)| self.semantic_same(left, right));
+            }
+            (Some(_), None) | (None, Some(_)) => return false,
+            (None, None) => {}
+        }
+
         // DataSingleton vs DataSingleton
         if let (Some(da), Some(db)) = (lhs.as_data_singleton(), rhs.as_data_singleton()) {
             return da == db;
