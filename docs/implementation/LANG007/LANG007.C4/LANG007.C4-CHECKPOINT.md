@@ -40,7 +40,7 @@ next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 03967716
 next_action: >
-  P3 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED. P4 remains the primary active plan on local main at 419ec6e66ce90cba6003b7627eb4c99fa2345a7a; Record-specific AST/parser and FieldKey migration edits are in progress and unverified. P10 has completed its pre-S1 safe write-set in the isolated codex/lang007-c4-p10 worktree and has focused evidence for T1-T5, T7-T8, and the non-while T9 harnesses. Commit that work, then wait for a stable P4 frontend revision before synchronizing at S1. Preserve P3 Pack branches and do not start P10 T6 before S1.
+  P3 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED. P4 remains the primary active plan on local main at 419ec6e66ce90cba6003b7627eb4c99fa2345a7a; Record-specific AST/parser and FieldKey migration edits are in progress and unverified. P10's pre-S1 work is committed in codex/lang007-c4-p10 through f0a9a62b (four commits; clean and 4 ahead of origin/main) with focused evidence for T1-T5, T7-T8, and non-while T9 harnesses. Wait for a stable P4 frontend revision, then synchronize at S1. Preserve P3 Pack branches and do not start P10 T6 before S1.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -214,12 +214,14 @@ source-index, Record Universe, and focused test files. P10's separate worktree
 was created clean from that committed anchor, and only the named P10 plan was
 copied into it. P10 has since implemented and focused-tested T1-T5, completed
 the T7/T8 audits, and added focused Pack and non-loop evaluator resource
-harnesses for T9. These P10 changes remain isolated until synchronization.
+harnesses for T9. This pre-S1 work is committed on `codex/lang007-c4-p10`
+through `f0a9a62b`; the branch is clean and remains isolated until S1.
 
 Before P10 T6 edits `Expr` or the parser, S1 requires a coherent P4 frontend
 revision to be integrated or explicitly handed off, P10 pre-S1 work to be
 committed, the branch to be synchronized, and the post-P4 AST/parser architecture
-to be re-audited. P4 remains uncommitted in the main working tree, so S1 is not
+to be re-audited. P10's pre-S1 commits are present, but P4 remains uncommitted
+in the main working tree, so S1 is not
 yet open. P10's checkpoint changes must be merged semantically with any
 concurrent P4 lifecycle updates. The inherited focused fixed-call Pack runtime
 test was interrupted after it remained idle for over 60 seconds; it produced no
