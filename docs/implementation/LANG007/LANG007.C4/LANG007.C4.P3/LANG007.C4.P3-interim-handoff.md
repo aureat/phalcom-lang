@@ -13,10 +13,31 @@ for: next implementer (taking over LANG007.C4.P3 through closure)
 
 - **Plan**: `docs/implementation/LANG007/LANG007.C4/LANG007.C4.P3/LANG007.C4.P3-luna-patch-grade-implementation-plan.md`
 - **Checkpoint**: `docs/implementation/LANG007/LANG007.C4/LANG007.C4-CHECKPOINT.md`
-- **State**: `IN_PROGRESS` (Completion: `PARTIAL`, Verification: `FOCUSED_TESTED`)
-- **Current Head**: Commit `79ec2d7d` on `main`. Working tree is completely clean.
+- **State**: `IN_PROGRESS` (Completion: `PARTIAL`, Verification: `UNVERIFIED`)
+- **Current Head**: Commit `b9f72cfe` on `main`, synchronized with `origin/main`. The worktree has uncommitted lifecycle-record updates and one test file with a T7 root-versus-slice equality reproducer.
 
-This handoff captures all established architecture, contracts, committed milestones, and exact step-by-step instructions for the remaining tasks required to bring **LANG007.C4.P3** to full completion and lifecycle closure.
+### Current continuation update — 2026-10-05
+
+This update supersedes the old T4–T7 task status and next-action text below;
+the active numbered plan and C4 checkpoint remain authoritative.
+
+- The semantic T1 source-formation continuation, T4 construction, T5 rest
+  convergence, and T6 spreading work are committed and pushed. The source-name
+  decision preserves C3 `TypePack`, `LabeledTypePack`, and `CompleteTypePack`;
+  proper Pack aliases are `PositionalPack<T>`, `LabeledPack<T>`, and
+  `CompletePack<T>`.
+- Full-Universe rest-capture integration passes. T7 source-view testing passes
+  for empty/Entry variants, labels/order, and repeated O(1) root-backed slices.
+- A second source equality test fails at `root == slice` for a root and an
+  equivalent visible slice. Its test-only reproducer is uncommitted in
+  `phalcom-core/tests/core/collections/outgoing_packs_completion.rs`. The cause
+  was not diagnosed; later hash/order assertions in that test are unverified.
+- Next: diagnose the root/slice source equality path; finish T7 equality/hash,
+  rendering, and no-Iterator boundary evidence; complete T8.1–T8.6 and serial
+  G1–G4; then perform T9 lifecycle closure with the P3 walkthrough and final
+  handoff. P3 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+This handoff captures established architecture, current evidence, and the remaining tasks required to bring **LANG007.C4.P3** to full completion and lifecycle closure.
 
 ---
 
@@ -71,9 +92,15 @@ This handoff captures all established architecture, contracts, committed milesto
 
 ---
 
-## 3. Remaining Tasks Until P3 Closure
+## 3. Original Task Breakdown (Superseded Where It Conflicts With the Current Update)
 
-Below is the concrete roadmap for finishing T4 through T9 and closing P3.
+Use the ordered current next steps in the continuation update and the active
+plan. The detailed T4–T6 instructions below are historical and already
+implemented; they are retained as architectural context only.
+
+The following original breakdown predates later implementation. Use it as design
+reference only; the active plan contains current task status and exact closure
+gates.
 
 ### Phase 1: Complete T4 (Bytecode Lowering & First-Class Pack Construction)
 

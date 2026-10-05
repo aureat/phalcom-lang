@@ -8,6 +8,7 @@
 use phalcom_core::heap::{ObjRef, Object};
 use phalcom_core::interpret::Interpreter;
 use phalcom_core::value::Value;
+use phalcom_core::vm::VM;
 use std::fs;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -53,6 +54,35 @@ fn global_value(interp: &mut Interpreter, module: ObjRef, name: &str) -> Value {
     module
         .get(symbol)
         .unwrap_or_else(|| panic!("global `{name}` was not defined before the expected failure"))
+}
+
+fn run_compiled_source(source: &str) -> (VM, ObjRef) {
+    use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
+
+    let temporary = tempfile::tempdir().expect("temporary Pack view project");
+    let root = temporary.path();
+    std::fs::create_dir_all(root.join("src")).expect("create temporary source directory");
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"pack_view_test\"\nnamespace = \"pack_view_test\"\nversion = \"0.1.0\"\nentry = \"pack_view_test.main\"\n",
+    )
+    .expect("write temporary project manifest");
+    std::fs::write(root.join("src/package.ph"), "expose .main\n").expect("write temporary package manifest");
+    std::fs::write(root.join("src/main.ph"), source).expect("write temporary entry module");
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Project(root.to_path_buf())).expect("compile source project");
+    let mut vm = VM::new();
+    vm.materialize_program(&program).expect("materialize source");
+    vm.run_compiled(&program).expect("execute source");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    (vm, module)
+}
+
+fn compiled_global_value(vm: &mut VM, module: ObjRef, name: &str) -> Value {
+    let symbol = vm.interner.intern(name);
+    let Object::Module(module) = vm.heap.get(module) else {
+        panic!("compiled test module is not a module");
+    };
+    module.get(symbol).unwrap_or_else(|| panic!("global `{name}` was not defined"))
 }
 
 fn instance_slot(interp: &Interpreter, value: Value, slot: usize) -> Value {
@@ -810,4 +840,138 @@ let result = Pack(**Pack(left: 1), left: probe())
     let error = result.expect_err("a duplicate from Pack expansion must fail");
     assert!(error.contains("duplicate argument label `left`"), "unexpected error: {error}");
     assert_eq!(global_value(&mut interp, main, "state"), Value::int(0), "the later explicit value must not run");
+}
+
+#[test]
+fn p3_pack_source_views_decompose_one_step_over_shared_roots() {
+    on_large_stack(|| {
+        let source = r#"
+from universe.collections.pack import PositionalPackView, LabeledPackView
+let empty_positional = match Pack().positionalView {
+  PositionalPackView::Empty => true
+  _ => false
+}
+let empty_labeled = match Pack().labeledView {
+  LabeledPackView::Empty => true
+  _ => false
+}
+let positional_root = Pack(10, 20, 30)
+let positional_view = positional_root.positionalView
+let positional_first = match positional_view {
+  PositionalPackView::Empty => -1
+  PositionalPackView::Entry(value, _) => value
+  _ => -2
+}
+let positional_rest_a = match positional_view {
+  PositionalPackView::Empty => Pack()
+  PositionalPackView::Entry(_, rest) => rest
+  _ => Pack()
+}
+let positional_rest_b = match positional_root.positionalView {
+  PositionalPackView::Empty => Pack()
+  PositionalPackView::Entry(_, rest) => rest
+  _ => Pack()
+}
+let positional_rest_next = match positional_rest_a.positionalView {
+  PositionalPackView::Empty => Pack()
+  PositionalPackView::Entry(_, rest) => rest
+  _ => Pack()
+}
+let labeled_root = Pack(right: 40, left: 50)
+let labeled_view = labeled_root.labeledView
+let labeled_first = match labeled_view {
+  LabeledPackView::Empty => -1
+  LabeledPackView::Entry(_, value, _) => value
+  _ => -2
+}
+let labeled_first_name = match labeled_view {
+  LabeledPackView::Empty => Symbol.new("")
+  LabeledPackView::Entry(label, _, _) => label
+  _ => Symbol.new("")
+}
+let labeled_rest = match labeled_view {
+  LabeledPackView::Empty => Pack()
+  LabeledPackView::Entry(_, _, rest) => rest
+  _ => Pack()
+}
+let labeled_second_name = match labeled_rest.labeledView {
+  LabeledPackView::Empty => Symbol.new("")
+  LabeledPackView::Entry(label, _, _) => label
+  _ => Symbol.new("")
+}
+"#;
+        let (mut vm, main) = run_compiled_source(source);
+
+        assert_eq!(compiled_global_value(&mut vm, main, "empty_positional"), Value::bool(true));
+        assert_eq!(compiled_global_value(&mut vm, main, "empty_labeled"), Value::bool(true));
+        assert_eq!(compiled_global_value(&mut vm, main, "positional_first"), Value::int(10));
+        assert_eq!(compiled_global_value(&mut vm, main, "labeled_first"), Value::int(40));
+        for (name, expected) in [("labeled_first_name", "right"), ("labeled_second_name", "left")] {
+            let symbol = compiled_global_value(&mut vm, main, name).as_symbol().expect("view labels are Symbols");
+            assert_eq!(vm.resolve_symbol(symbol), expected);
+        }
+
+        let root = compiled_global_value(&mut vm, main, "positional_root").as_obj().expect("positional root object");
+        for (name, expected_start) in [("positional_rest_a", 1), ("positional_rest_b", 1), ("positional_rest_next", 2)] {
+            let slice = compiled_global_value(&mut vm, main, name).as_obj().expect("rest view must be a Pack slice");
+            let pack = vm.heap.pack(slice);
+            let phalcom_core::heap::pack::PackStorage::Slice { root: slice_root } = pack.storage() else {
+                panic!("{name} must retain shared root storage");
+            };
+            assert_eq!(*slice_root, root, "{name} must point directly at the original Pack root");
+            assert_eq!(pack.positional_start(), expected_start);
+        }
+
+        let labeled_root = compiled_global_value(&mut vm, main, "labeled_root").as_obj().expect("labeled root object");
+        let labeled_rest = compiled_global_value(&mut vm, main, "labeled_rest").as_obj().expect("labeled rest Pack slice");
+        let labeled_pack = vm.heap.pack(labeled_rest);
+        let phalcom_core::heap::pack::PackStorage::Slice { root: slice_root } = labeled_pack.storage() else {
+            panic!("labeled rest must retain shared root storage");
+        };
+        assert_eq!(*slice_root, labeled_root);
+        assert_eq!(labeled_pack.labeled_start(), 1);
+    });
+}
+
+#[test]
+fn p3_pack_source_equality_hash_and_rendering_use_visible_lanes() {
+    on_large_stack(|| {
+        let source = r#"
+from universe.collections.pack import PositionalPackView, LabeledPackView
+let root = Pack(1, 2, right: 3, left: 4)
+let equal_root = Pack(1, 2, right: 3, left: 4)
+let padded = Pack(0, 1, 2, hidden: 99, right: 3, left: 4)
+let after_positional = match padded.positionalView {
+  PositionalPackView::Empty => Pack()
+  PositionalPackView::Entry(_, rest) => rest
+  _ => Pack()
+}
+let slice = match after_positional.labeledView {
+  LabeledPackView::Empty => Pack()
+  LabeledPackView::Entry(_, _, rest) => rest
+  _ => Pack()
+}
+let root_equal = root == equal_root
+let slice_equal = root == slice
+let root_hash_equal = root.hash == equal_root.hash
+let slice_hash_equal = root.hash == slice.hash
+let position_order_differs = Pack(1, 2) != Pack(2, 1)
+let label_order_differs = Pack(left: 1, right: 2) != Pack(right: 2, left: 1)
+let label_identity_differs = Pack(left: 1) != Pack(right: 1)
+let lane_differs = Pack(1, item: 2) != Pack(1, 2)
+let nested_equal = Pack(Pack(7)) == Pack(Pack(7))
+let nested_hash_equal = Pack(Pack(7)).hash == Pack(Pack(7)).hash
+"#;
+        let (mut vm, main) = run_compiled_source(source);
+
+        for name in ["root_equal", "slice_equal", "root_hash_equal", "slice_hash_equal", "nested_equal", "nested_hash_equal"] {
+            assert_eq!(compiled_global_value(&mut vm, main, name), Value::bool(true), "{name}");
+        }
+        for name in ["position_order_differs", "label_order_differs", "label_identity_differs", "lane_differs"] {
+            assert_eq!(compiled_global_value(&mut vm, main, name), Value::bool(true), "{name}");
+        }
+
+        let root = compiled_global_value(&mut vm, main, "root");
+        assert_eq!(root.to_string(&vm), "Pack(1, 2, right: 3, left: 4)");
+    });
 }

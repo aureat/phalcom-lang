@@ -20,7 +20,7 @@ prepared: 2026-10-05
 
 ## Luna patch-grade implementation plan
 
-> **Execution status:** P3 is in progress. T1–T3 were inherited as implemented; T1 source-form remainder acceptance was reopened and is now implemented/focused-tested under amendment `INC-P3-1`. T4–T6 have focused implementation evidence. The user resolved `INC-P3-2` by preserving C3 domain names and dropping colliding proper-type aliases; the focused full-Universe rest-capture integration passes with `PositionalPack<T>`, `LabeledPack<T>`, and `CompletePack<T>`. T7 view/native/equality checks, T8–T9, and certification gates remain incomplete.
+> **Execution status:** P3 is in progress. T1 source-form remainder acceptance was reopened and focused-tested under `INC-P3-1`; covered T4–T6 paths have focused evidence. The user resolved `INC-P3-2` by preserving C3 domain names and dropping colliding proper-type aliases. T7's full-Universe source-view/root-sharing test passes, while its root-versus-equivalent-slice source equality assertion fails; later hash/order assertions remain unverified. T7 completion, T8, T9, and G1–G4 remain open.
 >
 > **Repository anchor:** `aureat/phalcom-lang`, `main`, `5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521`.
 >
@@ -1457,8 +1457,10 @@ TypePack domains. The user resolved checkpoint incident `INC-P3-2` by
 preserving C3 names and dropping the conflicting proper-type aliases. The
 full-Universe source integration selector
 `core_outgoing_packs_completion::p3_language_rest_capture_converges_on_pack`
-passes with the three `*Pack<T>` aliases above; T7's remaining view/native/
-equality work continues.
+passes with the three `*Pack<T>` aliases above. The source-view/root-sharing
+selector also passes. The source equality selector fails for a root Pack and
+its equivalent visible slice; diagnose this before completing T7. Hash/order
+assertions after that failure have not yet run successfully.
 
 ## T1.3 — relation/visitor integration
 

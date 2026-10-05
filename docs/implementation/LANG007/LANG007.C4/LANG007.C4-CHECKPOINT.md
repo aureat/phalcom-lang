@@ -40,7 +40,7 @@ next_plan: LANG007.C4.P3
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P3-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521
 next_action: >
-  P3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. T1 canonical typed/unconstrained Pack remainder formation is implemented and focused-tested; T4 construction, T5 rest convergence, and T6 spreading are also focused-tested. The user resolved T7 incident INC-P3-2 by preserving C3 TypePack/LabeledTypePack/CompleteTypePack names and omitting colliding proper-type aliases. The focused full-Universe Pack rest-capture integration now passes; continue T7 view/native/equality source checks. T8/T9 remain open.
+  P3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. T1 source remainder formation and T4-T6 covered construction/rest/spread paths have focused evidence. T7 source views and O(1) root-backed rest slices pass a full-Universe project test, but source equality fails for a root Pack compared with an equivalent visible slice (`root == slice`); hash/order checks after that assertion remain unverified. Next diagnose T7 equality dispatch/semantics, finish T7 source acceptance including the no-Iterator dependency boundary, then complete T8 incremental/metadata/compatibility/resource gates G1-G4 and T9 lifecycle closure. Do not run the broad language corpus absent a separate request.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -146,7 +146,7 @@ The intended C4 decomposition is:
 |---|---|---|---|---|---|
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
-| `LANG007.C4.P3` | First-class Pack and call/rest convergence | IN_PROGRESS | PARTIAL | UNVERIFIED | T0 takeover; T1 source formation reopened by integration evidence and user-directed semantic-layer continuation; T2-T3 inherited; T4 construction, T5 rest convergence, and T6 spreading implemented/focused-tested; T7 follows T1 source-form acceptance; T8-T9 remain |
+| `LANG007.C4.P3` | First-class Pack and call/rest convergence | IN_PROGRESS | PARTIAL | UNVERIFIED | T1 source formation and covered T4-T6 paths focused-tested; T7 view/root-sharing test passes, but root-vs-slice source equality fails; T8 gates and T9 lifecycle closure remain |
 | `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
@@ -1873,8 +1873,10 @@ continuation and T4, T5, and T6 have focused implementation evidence recorded
 below. The user resolved T7's source-name conflict by preserving the existing
 C3 domain names and omitting colliding proper-type aliases. The focused
 full-Universe rest-capture integration now passes with the proper Pack aliases
-`PositionalPack<T>`, `LabeledPack<T>`, and `CompletePack<T>`. Continue T7's
-view/native/equality checks; T8 and T9 remain unstarted.
+`PositionalPack<T>`, `LabeledPack<T>`, and `CompletePack<T>`. T7 source-view
+testing also passes for empty and nonempty lanes and direct root-backed repeated
+slices, but source equality fails for a root Pack versus an equivalent visible
+slice. T8 and T9 remain unstarted.
 
 The user resolved incident `INC-P3-1` by directing canonical typed Pack
 remainder formation in the semantic layer. That T1 continuation now passes its
@@ -2001,9 +2003,8 @@ resolved and scoped type formation, plus tests for all three remainder modes,
 generic type-lambda substitution, and rejection on a non-Pack constructor. The
 owning structural-products specification now defines proper Pack remainders.
 **Verification:** the parser remainder test and four matching semantic tests
-passed. The core Pack rest integration command is being used to verify the
-source module. **Status:** T1 source formation is implemented and focused
-tested. See `INC-P3-2` for the remaining T7 source-module conflict.
+passed. The core Pack rest integration selector later passed after resolving
+`INC-P3-2`. **Status:** T1 source formation is implemented and focused-tested.
 
 ### INC-P3-2 — C3 `CompleteTypePack` name conflicts with the proper Pack alias
 
@@ -2048,3 +2049,38 @@ proper-type aliases. The three proper Pack source aliases are
 integration `core_outgoing_packs_completion::p3_language_rest_capture_converges_on_pack`
 passed 1/1. T7 remains active until its view, native-floor, equality/hash, and
 rendering checks are complete.
+
+### T7 source view/equality continuation — 2026-10-05
+
+**View evidence:**
+`core_outgoing_packs_completion::p3_pack_source_views_decompose_one_step_over_shared_roots`
+passed 1/1 in full-Universe project context. Empty variants, positional and
+labeled Entry payloads, label encounter order, and repeated positional/labeled
+rest slices were exercised. Repeated and nested positional remainders point
+directly to the original Pack root with the expected offsets.
+
+**Open correctness failure:**
+`core_outgoing_packs_completion::p3_pack_source_equality_hash_and_rendering_use_visible_lanes`
+failed at `root == slice`. `root` is `Pack(1, 2, right: 3, left: 4)`; `slice`
+is formed from `Pack(0, 1, 2, hidden: 99, right: 3, left: 4)` by dropping the
+first positional and labeled entries. The earlier root-to-root equality
+assertion passed. Hash equality, lane/order inequality, nested equality/hash,
+and the final rendering assertion occur later in that test and are therefore
+not verified. No cause was established and no corrective edit was attempted.
+The test-only reproducer currently remains uncommitted in
+`phalcom-core/tests/core/collections/outgoing_packs_completion.rs`.
+
+**Next action:** diagnose whether the canonical Pack equality method is selected
+for a root and a slice and whether both expose identical visible lane values;
+then complete the remaining T7 equality/hash/rendering and no-Iterator boundary
+evidence. Keep P3 `IN_PROGRESS / PARTIAL / UNVERIFIED` until T7 and T8 gates
+pass.
+
+**Remaining P3 closure sequence:** finish T7; perform T8.1 exhaustive visitor
+and enum-arm audit, T8.2 warm/cold and targeted invalidation tests, T8.3 stable
+metadata round-trip/fingerprint checks, T8.4 focused C1-C3/P2 compatibility,
+T8.5 structural allocation/backing/fixed-call evidence, and T8.6 spec coverage;
+run G1-G4 serially and classify any non-P3 failures. Then perform T9 scoped-diff
+review, finalize checkpoint and plan lifecycle state, and create the normal P3
+walkthrough and completion handoff. The slow full `language-corpus` is not a
+P3 gate unless separately requested.
