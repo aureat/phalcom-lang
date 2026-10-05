@@ -33,6 +33,9 @@
 			"include": "#phalcom.type-declaration"
 		},
 		{
+			"include": "#phalcom.trait-declaration"
+		},
+		{
 			"include": "#phalcom.class-declaration"
 		},
 		{
@@ -350,6 +353,48 @@
 				}
 			]
 		},
+		"phalcom.trait-declaration": {
+			"patterns": [
+				{
+					"comment": "Generic trait declaration, including its type-parameter binders.",
+					"begin": "\\b(trait)\\s+([A-Z][a-zA-Z0-9_]*)\\s*(<)",
+					"beginCaptures": {
+						"1": {
+							"name": "keyword.declaration.phalcom"
+						},
+						"2": {
+							"name": "entity.name.type.interface.phalcom"
+						},
+						"3": {
+							"name": "punctuation.definition.generic.begin.phalcom"
+						}
+					},
+					"end": ">",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.definition.generic.end.phalcom"
+						}
+					},
+					"patterns": [
+						{
+							"include": "#phalcom.generic-parameter-declaration"
+						}
+					]
+				},
+				{
+					"comment": "Non-generic trait declaration.",
+					"match": "\\b(trait)\\s+([A-Z][a-zA-Z0-9_]*)",
+					"captures": {
+						"1": {
+							"name": "keyword.declaration.phalcom"
+						},
+						"2": {
+							"name": "entity.name.type.interface.phalcom"
+						}
+					}
+				}
+			]
+		},
 		"phalcom.class-declaration": {
 			"patterns": [
 				{
@@ -463,8 +508,8 @@
 			]
 		},
 		"phalcom.generic-callable-declaration": {
-			"comment": "Generic function/method declaration head such as map<B>(...) -> ... { . The same-line lookahead prevents generic calls from being mistaken for declarations.",
-			"begin": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(<)(?=[^\\r\\n{]*>[^\\r\\n{]*\\{)",
+			"comment": "Generic function/method declaration head such as map<B>(...) -> ... { . Require an argument list before the body so generic impl headers and generic type names are not treated as callable names.",
+			"begin": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(<)(?=[^\\r\\n{]*>[^\\r\\n{]*\\([^\\r\\n{]*\\)\\s*(?:->[^\\r\\n{]+)?\\s*\\{)",
 			"beginCaptures": {
 				"1": {
 					"name": "entity.name.function.phalcom"
@@ -640,7 +685,7 @@
 		},
 		"phalcom.type-builtin": {
 			"name": "support.type.builtin.phalcom",
-			"match": "\\b(Type|Self|Any|Never|Unit|Int|Float|String|Bool|Symbol|None)\\b"
+			"match": "\\b(Type|Self|Any|Never|Unit|Dynamic|Int|Float|String|Bool|Symbol|None)\\b"
 		},
 		"phalcom.type-parameter-reference": {
 			"comment": "Conservative lexical heuristic for conventional one-letter generic parameters. Semantic highlighting should recognize arbitrary declared type-parameter names.",
@@ -746,6 +791,19 @@
 		"phalcom.keyword": {
 			"patterns": [
 				{
+					"comment": "Contextual try-handler clause words are highlighted only with their clause-shaped syntax.",
+					"name": "keyword.control.phalcom",
+					"match": "\\b(on)(?=\\s+[A-Z][a-zA-Z0-9_]*\\s+[a-zA-Z_][a-zA-Z0-9_]*\\s*\\{)"
+				},
+				{
+					"name": "keyword.control.phalcom",
+					"match": "\\b(catch)(?=\\s+[a-zA-Z_][a-zA-Z0-9_]*\\s*\\{)"
+				},
+				{
+					"name": "keyword.control.phalcom",
+					"match": "\\b(ensure)(?=\\s*\\{)"
+				},
+				{
 					"comment": "`mut` is contextual: this pattern only marks a declaration modifier when a binding name follows.",
 					"match": "\\b(let)(\\s+)(mut)(?=\\s+[^=:])",
 					"captures": {
@@ -760,15 +818,20 @@
 				{
 					"comment": "Declaration keywords. The Phalcom theme should color these the same as keyword.declaration.annotation.phalcom.",
 					"name": "keyword.declaration.phalcom",
-					"match": "\\b(let|const|type|class|data|trait|impl|native|foreign|private|protected|module|package|internal)\\b"
+					"match": "\\b(let|const|fn|type|class|data|trait|impl|native|foreign|intrinsic|private|protected|module|package|internal|static|construct)\\b"
 				},
 				{
 					"name": "keyword.control.phalcom",
-					"match": "\\b(try|catch|on|ensure|throw|break|continue|match|when|return|while|for|if|else|import|from|export|expose)\\b"
+					"match": "\\b(try|throw|break|continue|match|return|while|for|if|else|import|from|export|expose)\\b"
+				},
+				{
+					"comment": "Contextual relation words are operators only between expression-shaped operands; elsewhere they remain identifiers.",
+					"name": "keyword.operator.word.phalcom",
+					"match": "(?<=[A-Za-z0-9_] )\\b(matches|understands)\\b(?=\\s+[A-Za-z0-9_(])"
 				},
 				{
 					"name": "keyword.operator.word.phalcom",
-					"match": "\\b(and|or|not|in|as|is|matches|understands)\\b"
+					"match": "\\b(and|or|not|in|as|is)\\b"
 				},
 				{
 					"name": "constant.language.boolean.phalcom",
@@ -908,6 +971,22 @@
 					}
 				},
 				{
+					"comment": "Current data syntax places @variant on the line before its bare variant declaration.",
+					"name": "meta.data.variant.declaration.phalcom",
+					"begin": "(@variant)\\s*$",
+					"beginCaptures": {
+						"1": {
+							"name": "storage.modifier.annotation.structure.phalcom"
+						}
+					},
+					"end": "^[ \\t]*([a-zA-Z_][a-zA-Z0-9_]*)\\b(?=\\s*(?:\\(|<|$))",
+					"endCaptures": {
+						"1": {
+							"name": "entity.name.type.variant.phalcom"
+						}
+					}
+				},
+				{
 					"comment": "Generic dot-prefixed case syntax under consideration, e.g. .Some<T>(...) or .Case<T>.",
 					"begin": "(\\.)([A-Z][a-zA-Z0-9_]*)\\s*(<)",
 					"beginCaptures": {
@@ -952,7 +1031,7 @@
 			"patterns": [
 				{
 					"comment": "Qualified generic variant in a match arm, e.g. Option.Some<T>(x) => ...",
-					"begin": "\\b([A-Z][a-zA-Z0-9_]*)(\\.)([A-Z][a-zA-Z0-9_]*)(<)(?=[^>\\r\\n]+>\\s*(?:\\(|\\bwhen\\b|=>))(?=[^\\r\\n]*=>)",
+					"begin": "\\b([A-Z][a-zA-Z0-9_]*)(\\.)([A-Z][a-zA-Z0-9_]*)(<)(?=[^>\\r\\n]+>\\s*(?:\\(|=>))(?=[^\\r\\n]*=>)",
 					"beginCaptures": {
 						"1": {
 							"name": "entity.name.type.phalcom"
@@ -999,7 +1078,7 @@
 					]
 				},
 				{
-					"comment": "Qualified variant in a match arm, e.g. Option.Some(tuple) when ... => ...",
+					"comment": "Qualified variant in a match arm, e.g. Option.Some(tuple) => ...",
 					"match": "\\b([A-Z][a-zA-Z0-9_]*)(\\.)([A-Z][a-zA-Z0-9_]*)\\b(?=[^\\r\\n]*=>)",
 					"captures": {
 						"1": {
@@ -1015,7 +1094,7 @@
 				},
 				{
 					"comment": "Unqualified generic variant in a match arm.",
-					"begin": "\\b([A-Z][a-zA-Z0-9_]*)(<)(?=[^>\\r\\n]+>\\s*(?:\\(|\\bwhen\\b|=>))(?=[^\\r\\n]*=>)",
+					"begin": "\\b([A-Z][a-zA-Z0-9_]*)(<)(?=[^>\\r\\n]+>\\s*(?:\\(|=>))(?=[^\\r\\n]*=>)",
 					"beginCaptures": {
 						"1": {
 							"name": "entity.name.type.variant.phalcom"
@@ -1058,7 +1137,7 @@
 				{
 					"comment": "Unqualified variant constructor/nullary case on the pattern side of a match arm: Some(...), None => ...",
 					"name": "entity.name.type.variant.phalcom",
-					"match": "\\b[A-Z][a-zA-Z0-9_]*\\b(?=\\s*(?:\\(|\\bwhen\\b|=>))(?=[^\\r\\n]*=>)"
+					"match": "\\b[A-Z][a-zA-Z0-9_]*\\b(?=\\s*(?:\\(|=>))(?=[^\\r\\n]*=>)"
 				},
 				{
 					"comment": "Wildcard in a match arm.",
