@@ -5,7 +5,6 @@ use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use std::sync::Arc;
 
-
 #[test]
 fn uninitialized_binding_is_not_none() {
     let v = Value::uninitialized_binding();
@@ -17,7 +16,7 @@ fn uninitialized_binding_is_not_none() {
 
 #[test]
 fn uninitialized_binding_sentinel_does_not_allocate_heap_objects() {
-    let vm = VM::new();
+    let vm = VM::new_kernel();
     let before = vm.heap.live_count();
     for _ in 0..128 {
         std::hint::black_box(Value::uninitialized_binding());
@@ -220,8 +219,14 @@ let compute = || {
         .expect("inner closure found");
     let chunk = &vm.heap.closure(inner_closure_ref).callable.chunk;
 
-    assert!(chunk.code.iter().any(|op| matches!(op, Bytecode::GetLocal(_))), "proven local should emit GetLocal");
-    assert!(!chunk.code.iter().any(|op| matches!(op, Bytecode::GetLocalChecked(..))), "proven local must not emit GetLocalChecked");
+    assert!(
+        chunk.code.iter().any(|op| matches!(op, Bytecode::GetLocal(_))),
+        "proven local should emit GetLocal"
+    );
+    assert!(
+        !chunk.code.iter().any(|op| matches!(op, Bytecode::GetLocalChecked(..))),
+        "proven local must not emit GetLocalChecked"
+    );
 }
 
 #[test]
@@ -257,7 +262,10 @@ let compute = |flag: Bool| {
         .expect("inner closure found");
     let chunk = &vm.heap.closure(inner_closure_ref).callable.chunk;
 
-    assert!(chunk.code.iter().any(|op| matches!(op, Bytecode::GetLocalChecked(..))), "uncertain local should emit GetLocalChecked");
+    assert!(
+        chunk.code.iter().any(|op| matches!(op, Bytecode::GetLocalChecked(..))),
+        "uncertain local should emit GetLocalChecked"
+    );
 }
 
 #[test]
@@ -339,6 +347,12 @@ let compute = |flag: Bool| {
         .expect("inner closure found");
     let chunk = &vm.heap.closure(inner_closure_ref).callable.chunk;
 
-    assert!(!chunk.code.iter().any(|op| matches!(op, Bytecode::InvokeLocal(..))), "checked getlocal must not fuse into InvokeLocal");
-    assert!(chunk.code.iter().any(|op| matches!(op, Bytecode::GetLocalChecked(..))), "checked getlocal must be preserved");
+    assert!(
+        !chunk.code.iter().any(|op| matches!(op, Bytecode::InvokeLocal(..))),
+        "checked getlocal must not fuse into InvokeLocal"
+    );
+    assert!(
+        chunk.code.iter().any(|op| matches!(op, Bytecode::GetLocalChecked(..))),
+        "checked getlocal must be preserved"
+    );
 }

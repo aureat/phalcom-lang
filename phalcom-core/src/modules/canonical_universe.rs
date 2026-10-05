@@ -120,6 +120,8 @@ pub(crate) fn canonical_universe_program() -> Result<&'static CanonicalUniverseP
 }
 
 fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, CanonicalUniverseBuildError> {
+    #[cfg(any(test, feature = "test-timings"))]
+    crate::instrumentation::record_canonical_universe_product_build();
     #[cfg(test)]
     SOURCE_INDEX_BUILDS.fetch_add(1, Ordering::Relaxed);
     let source_index = Arc::new(NativeSourceIndex::build().map_err(CanonicalUniverseBuildError::SourceIndex)?);

@@ -401,6 +401,20 @@ impl TypeStore {
         store
     }
 
+    /// Create a fork from a canonical prefix.
+    ///
+    /// All node IDs allocated in `self` are preserved with identical numeric
+    /// values in the fork. The fork receives a fresh `TypeStoreId` so that
+    /// type references qualified by store identity remain unambiguous.
+    ///
+    /// The fork starts fully independent: mutations to the fork do not affect
+    /// `self` or any other fork derived from `self`.
+    pub fn fork_from_baseline(&self) -> Self {
+        let mut fork = self.clone();
+        fork.id = TypeStoreId(NEXT_TYPE_STORE_ID.fetch_add(1, Ordering::Relaxed));
+        fork
+    }
+
     pub fn id(&self) -> TypeStoreId {
         self.id
     }

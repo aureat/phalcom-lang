@@ -297,6 +297,9 @@ pub struct VM {
     pub runtime_roots: Option<RuntimeRoots>,
     /// Source/bootstrap census captured during VM construction.
     pub(crate) universe_bootstrap_measurement: UniverseBootstrapMeasurement,
+    /// Opt-in timing of construction phases used by corpus-test instrumentation.
+    #[cfg(any(test, feature = "test-timings"))]
+    pub(crate) bootstrap_timing: crate::instrumentation::VmBootstrapTiming,
     /// Set of modules with privileged Universe status.
     pub privileged_modules: std::collections::HashSet<ObjRef>,
     /// Canonical source-derived semantic values, absent below full Universe
@@ -876,6 +879,12 @@ impl VM {
     /// Returns source discovery and bootstrap execution counts from VM startup.
     pub fn universe_bootstrap_measurement(&self) -> UniverseBootstrapMeasurement {
         self.universe_bootstrap_measurement
+    }
+
+    /// Returns measured bootstrap phases when test timing instrumentation is enabled.
+    #[cfg(any(test, feature = "test-timings"))]
+    pub fn bootstrap_timing(&self) -> crate::instrumentation::VmBootstrapTiming {
+        self.bootstrap_timing
     }
 
     /// Returns source-derived semantic roots when full Universe bootstrap has

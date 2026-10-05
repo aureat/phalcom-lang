@@ -101,3 +101,10 @@ mod repl_source_maps;
 
 #[path = "audit_probes/mod.rs"]
 mod audit_probes;
+
+#[test]
+#[cfg(feature = "test-timings")]
+#[ignore = "enable in T7 after runtime image lands"]
+fn image_instances_do_not_recompile_universe() {
+    // Filled in with structural assertions once the runtime image is implemented.
+}

@@ -68,6 +68,16 @@ pub enum WorkspaceSourceBatchMutation {
         revision: SourceRevision,
         recovered_program: Option<Arc<Program>>,
     },
+    /// Replaces a compiler-owned synthetic module's overlay while retaining
+    /// its identity and publishing the supplied fixture-specific source path.
+    /// The source ID must remain stable for the lifetime of the module.
+    SetOverlayForModule {
+        module: ModuleId,
+        source: SourceLocation,
+        text: Arc<str>,
+        revision: SourceRevision,
+        recovered_program: Option<Arc<Program>>,
+    },
     SetDiskSnapshot {
         source: SourceLocation,
         text: Arc<str>,
@@ -213,6 +223,20 @@ pub enum WorkspaceModuleSessionError {
     UnknownSource(SourceId),
     #[error("source path is not a supported Phalcom module: {0}")]
     InvalidSourcePath(PathBuf),
+    #[error("stable source replacement requires a synthetic root module identity: {0}")]
+    InvalidReplacementModule(ModuleId),
+    #[error("stable source identity {source_id} is already bound to module {existing}, not {requested}")]
+    ReplacementIdentityConflict {
+        source_id: SourceId,
+        existing: ModuleId,
+        requested: ModuleId,
+    },
+    #[error("module {module} already uses source identity {existing}, not {requested}")]
+    StableSourceIdentityChanged {
+        module: ModuleId,
+        existing: SourceId,
+        requested: SourceId,
+    },
 }
 
 /// A staged overlay wrapper over any SourceProvider that intercepts overlay reads
@@ -1192,6 +1216,77 @@ impl WorkspaceModuleSession {
                     removed_sources.remove(&module);
                     changed_modules.insert(module);
                 }
+                WorkspaceSourceBatchMutation::SetOverlayForModule {
+                    module,
+                    source,
+                    text,
+                    revision,
+                    recovered_program,
+                } => {
+                    if module.project.as_synthetic().is_none() || module.path != ModulePath::root() {
+                        return Err(WorkspaceModuleSessionError::InvalidReplacementModule(module));
+                    }
+                    if let Some(existing) = self
+                        .modules_by_source
+                        .get(&source.source_id)
+                        .or_else(|| mutated_modules_by_source.get(&source.source_id))
+                        && existing != &module
+                    {
+                        return Err(WorkspaceModuleSessionError::ReplacementIdentityConflict {
+                            source_id: source.source_id,
+                            existing: existing.clone(),
+                            requested: module,
+                        });
+                    }
+                    if self
+                        .sources_by_module
+                        .get(&module)
+                        .is_some_and(|state| state.location.source_id != source.source_id)
+                    {
+                        let existing = self.sources_by_module[&module].location.source_id.clone();
+                        return Err(WorkspaceModuleSessionError::StableSourceIdentityChanged {
+                            module,
+                            existing,
+                            requested: source.source_id,
+                        });
+                    }
+
+                    content_invalidations.insert(source.source_id.clone());
+                    let parsed = recovered_program.map_or_else(
+                        || parse_source(module.clone(), ModuleKind::Module, source.clone(), text.clone()),
+                        |program| {
+                            Ok(Arc::new(ParsedModuleUnit::new(
+                                module.clone(),
+                                ModuleKind::Module,
+                                Some(source.clone()),
+                                text.clone(),
+                                program,
+                            )))
+                        },
+                    )?;
+                    overlay_ops.push(OverlayOp::Set(SourceOverlay::new(
+                        module.clone(),
+                        ModuleKind::Module,
+                        source.clone(),
+                        parsed.text.clone(),
+                    )));
+                    let state = WorkspaceSourceState {
+                        module: module.clone(),
+                        kind: ModuleKind::Module,
+                        location: source.clone(),
+                        revision,
+                        text: parsed.text.clone(),
+                        parsed,
+                        open_overlay: true,
+                    };
+                    mutated_modules_by_source.insert(source.source_id.clone(), module.clone());
+                    if !self.sources_by_module.contains_key(&module) && !mutated_sources.contains_key(&module) {
+                        topology_invalidations = true;
+                    }
+                    mutated_sources.insert(module.clone(), state);
+                    removed_sources.remove(&module);
+                    changed_modules.insert(module);
+                }
                 WorkspaceSourceBatchMutation::SetDiskSnapshot {
                     source,
                     text,
@@ -1668,6 +1763,22 @@ impl WorkspaceModuleSession {
                 recovered_program,
             } => WorkspaceSourceBatchMutation::SetOverlay {
                 source: Self::canonicalize_source_location(source, aliases),
+                text,
+                revision,
+                recovered_program,
+            },
+            WorkspaceSourceBatchMutation::SetOverlayForModule {
+                module,
+                source,
+                text,
+                revision,
+                recovered_program,
+            } => WorkspaceSourceBatchMutation::SetOverlayForModule {
+                module,
+                source: SourceLocation {
+                    source_id: source.source_id,
+                    display_path: crate::source::canonicalize_path(&source.display_path),
+                },
                 text,
                 revision,
                 recovered_program,
@@ -2528,6 +2639,53 @@ mod tests {
         assert_eq!(state.text.as_ref(), invalid_text.as_ref());
         assert!(Arc::ptr_eq(&state.parsed.program, &recovered_program));
         assert!(Arc::ptr_eq(&update.sources[&module].program, &recovered_program));
+    }
+
+    #[test]
+    fn stable_module_replacement_updates_source_location_without_changing_identity() {
+        let root = tempdir().unwrap();
+        let module = ModuleId::synthetic(SyntheticProjectIdAllocator.allocate(), ModulePath::root());
+        let source_id = SourceId("phalcom-test:stable-fixture".into());
+        let first_path = root.path().join("first.ph");
+        let second_path = root.path().join("second.ph");
+        let mut session = WorkspaceModuleSession::new();
+
+        let first_update = session
+            .apply_batch([WorkspaceSourceBatchMutation::SetOverlayForModule {
+                module: module.clone(),
+                source: SourceLocation {
+                    source_id: source_id.clone(),
+                    display_path: first_path,
+                },
+                text: Arc::from("class FirstFixture {}\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            }])
+            .unwrap();
+        assert_eq!(first_update.changed_modules, BTreeSet::from([module.clone()]));
+        assert_eq!(session.module_for_source(&source_id), Some(&module));
+
+        let second_update = session
+            .apply_batch([WorkspaceSourceBatchMutation::SetOverlayForModule {
+                module: module.clone(),
+                source: SourceLocation {
+                    source_id: source_id.clone(),
+                    display_path: second_path.clone(),
+                },
+                text: Arc::from("class SecondFixture {}\n"),
+                revision: SourceRevision(2),
+                recovered_program: None,
+            }])
+            .unwrap();
+
+        let state = session.source(&module).expect("replacement source state");
+        assert_eq!(second_update.changed_modules, BTreeSet::from([module.clone()]));
+        assert!(second_update.removed_modules.is_empty());
+        assert_eq!(session.sources().len(), 1);
+        assert_eq!(state.module, module);
+        assert_eq!(state.location.source_id, source_id);
+        assert_eq!(state.location.display_path, crate::source::canonicalize_path(&second_path));
+        assert_eq!(state.text.as_ref(), "class SecondFixture {}\n");
     }
 
     #[test]

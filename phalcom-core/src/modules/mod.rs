@@ -8,6 +8,7 @@ pub mod artifact;
 pub mod builtin_materialize;
 pub(crate) mod canonical_universe;
 pub mod compile;
+pub mod compile_session;
 pub mod context;
 pub mod initialize;
 pub mod linkage;
@@ -22,6 +23,7 @@ pub(crate) use canonical_universe::{CanonicalUniverseProgram, canonical_universe
 pub use compile::{
     AnalyzedProgram, CompiledModule, CompiledProgram, EntrySelection, ProgramAnalyzer, ProgramCompileError, ProgramCompiler, ProgramSemanticDiagnostics,
 };
+pub use compile_session::ProgramCompilationSession;
 pub use context::ModuleExecutionContext;
 pub use linkage::{BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRead, TopLevelBindingInfo, TopLevelBindingKind};
 pub use reflection_cache::ReflectionCache;

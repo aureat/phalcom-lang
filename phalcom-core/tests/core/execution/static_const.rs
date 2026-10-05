@@ -1,20 +1,26 @@
-use std::sync::Arc;
 use num_bigint::BigInt;
 use phalcom_core::bytecode::Bytecode;
 use phalcom_core::heap::Object;
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
+use std::sync::Arc;
 
-fn run_inline_module(source: &str) -> (VM, phalcom_core::heap::ObjRef) {
-    let mut vm = VM::new();
+fn run_inline_module_with_vm(source: &str, mut vm: VM) -> (VM, phalcom_core::heap::ObjRef) {
     let src: Arc<str> = source.into();
-    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(src))
-        .expect("source should compile cleanly");
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(src)).expect("source should compile cleanly");
     vm.run_compiled(&program).expect("program execution should succeed");
     let entry_id = program.initialization_order.last().expect("entry module");
     let mod_obj = vm.module_registry.get(entry_id).unwrap().object;
     (vm, mod_obj)
+}
+
+fn run_inline_module(source: &str) -> (VM, phalcom_core::heap::ObjRef) {
+    run_inline_module_with_vm(source, VM::new())
+}
+
+fn run_inline_module_native(source: &str) -> (VM, phalcom_core::heap::ObjRef) {
+    run_inline_module_with_vm(source, VM::new_native())
 }
 
 fn get_module_global(vm: &VM, mod_obj: phalcom_core::heap::ObjRef, name: &str) -> Value {
@@ -30,7 +36,7 @@ fn test_unit_runtime_use() {
 const U: Unit = ()
 let mut y = U
 "#;
-    let (vm, mod_obj) = run_inline_module(source);
+    let (vm, mod_obj) = run_inline_module_native(source);
     let val = get_module_global(&vm, mod_obj, "y");
     assert!(val.is_unit(), "expected Unit value");
 }
@@ -43,7 +49,7 @@ const B_False: Bool = false
 let mut t = B_True
 let mut f = B_False
 "#;
-    let (vm, mod_obj) = run_inline_module(source);
+    let (vm, mod_obj) = run_inline_module_native(source);
     let val_t = get_module_global(&vm, mod_obj, "t");
     let val_f = get_module_global(&vm, mod_obj, "f");
     assert_eq!(val_t.as_bool(), Some(true));
@@ -83,7 +89,7 @@ const Zero: Float = 0.0
 let mut p = Pi
 let mut z = Zero
 "#;
-    let (vm, mod_obj) = run_inline_module(source);
+    let (vm, mod_obj) = run_inline_module_native(source);
     let val_p = get_module_global(&vm, mod_obj, "p");
     let val_z = get_module_global(&vm, mod_obj, "z");
 
@@ -102,7 +108,7 @@ fn test_string_content() {
 const Greeting: String = "hello static world"
 let mut s = Greeting
 "#;
-    let (vm, mod_obj) = run_inline_module(source);
+    let (vm, mod_obj) = run_inline_module_native(source);
     let val_s = get_module_global(&vm, mod_obj, "s");
     let obj = val_s.as_obj().expect("String must be a heap object");
     let str_content = vm.heap.as_string(obj).expect("must be String");
@@ -115,7 +121,7 @@ fn test_symbol_spelling() {
 const Sym: Symbol = #my_const_symbol
 let mut s = Sym
 "#;
-    let (vm, mod_obj) = run_inline_module(source);
+    let (vm, mod_obj) = run_inline_module_native(source);
     let val_s = get_module_global(&vm, mod_obj, "s");
     let sym = val_s.as_symbol().expect("must be a symbol");
     assert_eq!(vm.resolve_symbol(sym), "my_const_symbol");
@@ -128,7 +134,7 @@ const ConstVal: Int = 40 + 2
 let mut a = ConstVal
 let mut b = ConstVal
 "#;
-    let (vm, mod_obj) = run_inline_module(source);
+    let (vm, mod_obj) = run_inline_module_native(source);
     let val_a = get_module_global(&vm, mod_obj, "a");
     let val_b = get_module_global(&vm, mod_obj, "b");
     assert_eq!(val_a.as_int(), Some(42));
@@ -149,16 +155,14 @@ const BigNum: Int = 999999999999999999999999999999
 let mut result = BigNum
 "#;
     let src: Arc<str> = source_str.into();
-    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(src))
-        .expect("compile entry selection");
-    let mut vm = VM::new();
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(src)).expect("compile entry selection");
+    let mut vm = VM::new_native();
     vm.materialize_program(&program).expect("materialize program");
 
     let entry_id = program.initialization_order.last().expect("entry module");
     let compiled_mod = &program.modules[entry_id];
     let source_text = compiled_mod.source_text.as_ref().expect("source text");
-    vm.compile_program_module_closure(entry_id, source_text, &program)
-        .expect("compile closure");
+    vm.compile_program_module_closure(entry_id, source_text, &program).expect("compile closure");
 
     let mod_obj = vm.module_registry.get(entry_id).unwrap().object;
     let closure_ref = vm.heap.module(mod_obj).closure.expect("closure must exist");

@@ -650,6 +650,10 @@ impl UniverseSourceProvider {
         Ok(provider)
     }
 
+    pub fn is_canonical(&self) -> bool {
+        !self.has_test_source_overrides()
+    }
+
     pub(crate) fn has_test_source_overrides(&self) -> bool {
         #[cfg(feature = "test-support")]
         {

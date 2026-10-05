@@ -9,7 +9,7 @@ use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 
 fn settled_vm() -> VM {
-    let mut vm = VM::new();
+    let mut vm = VM::new_kernel();
     vm.force_gc();
     vm
 }

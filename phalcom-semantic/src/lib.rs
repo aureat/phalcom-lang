@@ -10,6 +10,7 @@ pub mod access;
 pub mod advisory;
 pub mod algebraic_semantics;
 pub mod associated;
+pub mod canonical_baseline;
 pub mod checker;
 pub mod contracts;
 pub mod control_summary;
@@ -32,12 +33,14 @@ pub mod generic_evidence;
 pub mod hierarchy_product;
 pub mod identity;
 pub mod impls;
+#[cfg(any(test, feature = "test-timings"))]
+pub mod instrumentation;
 pub mod invalidation;
 pub mod match_semantics;
+pub mod materialization;
 pub mod metadata;
 pub mod module_bindings;
 pub mod module_product;
-pub mod materialization;
 pub mod prelude;
 pub mod presentation;
 pub mod prover;
@@ -76,6 +79,7 @@ pub use advisory::{
     MAX_SHAPE_UNION, ValueShape, analyze_expr, analyze_statements,
 };
 pub use associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedFamilyTable, AssociatedMemberId, AssociatedSurface};
+pub use canonical_baseline::*;
 pub use checker::{
     AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CallableReferenceResolution, CallableReferenceResolutionIndex,
     CallableReferenceResolutionKind, CheckingContext, FamilyApplicationCandidate, FamilyApplicationResolution, FamilyApplicationResolutionIndex,
@@ -123,6 +127,8 @@ pub use identity::{
     InvocationTargetId, ModuleId, ProperTypeId, SemanticRevision, SemanticTargetId, SnapshotId, SnapshotTypeRef, SourceOwner, SourceSiteId, SourceSiteLocalId,
     SourceSiteRef, TypeStoreId, VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId, WorkspaceId,
 };
+#[cfg(any(test, feature = "test-timings"))]
+pub use instrumentation::*;
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
 pub use match_semantics::*;
 pub use module_bindings::{ModuleBindingFact, ModuleBindingPhase, ModuleStaticBindingIndex};
@@ -149,13 +155,10 @@ pub use source_index::{
     EditorSymbolKind, ModuleReferenceContribution, ReferenceIndex, SourceIndexUpdateStats, TargetReferenceSet, WorkspaceSymbolEntry, WorkspaceSymbolId,
     WorkspaceSymbolIndex,
 };
-pub use static_constant::{
-    CheckedStaticConstantInitializer, StaticConstantId, StaticConstantProduct, StaticConstantTable,
-};
+pub use static_constant::{CheckedStaticConstantInitializer, StaticConstantId, StaticConstantProduct, StaticConstantTable};
 pub use static_definition::{
     CheckedStaticBody, StaticBodyId, StaticDefinition, StaticDefinitionBodyRepr, StaticDefinitionProduct, StaticDefinitionSignature, StaticDefinitionTable,
-    StaticParameter,
-    resolve_static_definition,
+    StaticParameter, resolve_static_definition,
 };
 pub use static_domain::{StaticDomainResolution, StaticValueDomain, is_proper_type, resolve_static_domain, validate_proper_type};
 pub use static_intrinsic::{

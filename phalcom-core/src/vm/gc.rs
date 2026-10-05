@@ -62,6 +62,9 @@ impl VM {
             module_registry,
             runtime_roots,
             universe_bootstrap_measurement: _,
+            // Opt-in timing metadata contains durations only, never heap handles.
+            #[cfg(any(test, feature = "test-timings"))]
+                bootstrap_timing: _,
             privileged_modules,
             semantic_roots,
 

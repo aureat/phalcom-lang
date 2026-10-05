@@ -275,13 +275,13 @@ pub struct AnalyzedProgram {
 /// Analyzer that coordinates discovery, linking, and whole-workspace semantic analysis.
 pub struct ProgramAnalyzer;
 
-struct DiscoveredProgramClosure {
-    interfaces: BTreeMap<ModuleId, phalcom_modules::UnlinkedModuleInterface>,
-    sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
-    resolved: BTreeMap<(ModuleId, String), ModuleId>,
+pub(crate) struct DiscoveredProgramClosure {
+    pub(crate) interfaces: BTreeMap<ModuleId, phalcom_modules::UnlinkedModuleInterface>,
+    pub(crate) sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    pub(crate) resolved: BTreeMap<(ModuleId, String), ModuleId>,
 }
 
-fn discover_reachable_dependencies<P: SourceProvider>(
+pub(crate) fn discover_reachable_dependencies<P: SourceProvider>(
     resolver: &mut ModuleResolver<'_, P>,
     universe: &ProjectUniverse,
     mut interfaces: BTreeMap<ModuleId, phalcom_modules::UnlinkedModuleInterface>,
