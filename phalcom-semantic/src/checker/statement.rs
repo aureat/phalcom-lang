@@ -218,6 +218,34 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                     };
                 }
             }
+            if let Some(expected_kind) = ctx.expected_kinded_return {
+                let actual_kind = match val_typed.denotation.as_ref() {
+                    Some(crate::types::denotation::SemanticDenotation::TypeForm(form) | crate::types::denotation::SemanticDenotation::StaticTerm(form)) => {
+                        match ctx.store.get(*form) {
+                            crate::types::store::TypeData::Lambda(lambda) => Some(ctx.store.arena().get_lambda(*lambda).result_kind),
+                            _ => Some(ctx.store.kind_of(*form)),
+                        }
+                    }
+                    Some(crate::types::denotation::SemanticDenotation::StaticApplication(application)) => ctx
+                        .checked_static_applications
+                        .iter()
+                        .find(|candidate| candidate.id == *application)
+                        .and_then(|candidate| candidate.signature.result_domain.as_kind()),
+                    _ => None,
+                };
+                if actual_kind != Some(expected_kind) {
+                    let actual = actual_kind.map_or_else(|| "a non-kinded value".to_string(), |kind| ctx.store.format_kind(kind));
+                    let expected = ctx.store.format_kind(expected_kind);
+                    if let Some(cause) = ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::TypeMismatch,
+                        format!("returned static term has kind {actual}, expected {expected}"),
+                        ret.range,
+                    )) {
+                        val_typed.invalidate(cause);
+                    }
+                }
+            }
             ctx.sync_expression_outcome(&val_typed);
 
             let mut parents = val_typed
