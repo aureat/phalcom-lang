@@ -7,7 +7,7 @@ kind: checkpoint-record
 title: "Structural Static Upgrade"
 status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 requires:
   - LANG007.C1
   - LANG007.C2
@@ -33,14 +33,14 @@ program: LANG007
 checkpoint: LANG007.C4
 status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 active_plan: LANG007.C4.P4
 latest_completed_plan: LANG007.C4.P3
 next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 03967716
 next_action: >
-  P3 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED. P4 is active on main at 80e4e854841e71b8292df27a8932f109f6ae2ca5. T1 has introduced the FieldKey scalar and shared StaticInt owner, but has no post-edit verification; Record-specific AST/parser work remains. Continue T1 and preserve P3 Pack branches.
+  Continue P4 T2 canonical row/store/tail migration. The current P4 source slice is integrated on main at 59976d25; the semantic crate check passed with 25 warnings, but no T2 tests ran, so P4 remains UNVERIFIED. T1's focused evidence remains recorded. P10 pre-barrier work is committed through 46d00056 on codex/lang007-c4-p10. S1 is not complete: synchronize P10 with latest main, run its directly affected checks, and re-audit the post-P4 AST/parser before allowing T6. Unsupported const/general/symbolic type keys fail closed for T2 and are assigned to T7.0 after T4-T6; metadata schema staging remains T8. See the T2 incident report.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -161,7 +161,8 @@ The intended C4 decomposition is:
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
 | `LANG007.C4.P3` | First-class Pack and call/rest convergence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T1–T9 implemented and verified; G1 semantic/static vertical, G2 runtime/rest/spread vertical, G3 fixed-call/resource invariants, G4 compatibility/stabilization gates pass; unblocks P4/P5 |
-| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | PARTIAL | UNVERIFIED | integrated to `main` at `80e4e854841e71b8292df27a8932f109f6ae2ca5`; T0 focused baselines passed; T1 FieldKey scalar and shared StaticInt extraction are present but unverified; Record AST/parser, rows, runtime, patterns, and metadata work remain |
+| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | PARTIAL | UNVERIFIED | T1 complete and focused-tested; the T2 source slice is committed at `59976d25`, and `cargo check -p phalcom-semantic` passed, but T2 focused checks remain outstanding. Unsupported nonliteral/const/symbolic type keys fail closed for T2; checked type/pattern projection and dependency invalidation are deferred to T7.0. |
+| `LANG007.C4.P10` | Parallel structural classification, static-control, and convergence foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | active in isolated worktree `codex/lang007-c4-p10` at `/Users/altunhasanli/.codex/worktrees/lang007-c4-p10/phalcom`, based at `419ec6e66ce90cba6003b7627eb4c99fa2345a7a`; T1-T5 implemented/focused-tested, T7/T8 audits completed, and Pack plus non-loop evaluator T9 harnesses focused-tested; T6 and while-dependent T9 cases wait for S1. An inherited fixed-call Pack runtime test was interrupted before a result and remains unverified. |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
@@ -201,6 +202,22 @@ P3             P4
 static-value/result-domain seams.
 
 Do not reorder P5 before both P3 and P4 are semantically stable.
+
+## 2.1 Parallel P4/P10 execution state
+
+P4 remains the checkpoint's primary `active_plan`; P10 is concurrent and does
+not change `latest_completed_plan` or singleton `next_plan` metadata. P10's
+worktree was created clean from the shared `419ec6e66ce90cba6003b7627eb4c99fa2345a7a`
+anchor while P4 edits were active in the main checkout. P10's pre-barrier work
+is committed on `codex/lang007-c4-p10` through `46d00056`; the worktree remains
+isolated pending S1.
+
+The coherent P4 frontend and current T2 source slice are now integrated into
+main at `59976d25`. This makes synchronization eligible, but does not complete
+S1. P10 must synchronize with the latest main, run only directly affected
+pre-barrier checks, and re-audit the actual Record AST/parser architecture.
+P10 T6 and its explicit `while` AST edits remain blocked until those S1 steps
+complete. Preserve both plans' checkpoint state during synchronization.
 
 ---
 
@@ -2160,3 +2177,83 @@ nested Pack equality/hash, and canonical rendering.
 
 `LANG007.C4.P3` is closed. Next plan is `LANG007.C4.P4` (Generalized `FieldKey`
 and unordered-product calculus) proceeding concurrently in a separate worktree.
+
+## P4 Implementation Progress — 2026-10-05
+
+**T1** remains `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`: canonical `FieldKey`
+and exact `StaticInt`, Record-specific key/remainder syntax, CV-01/02/03, and P3
+Pack discriminators were verified as recorded above.
+
+**T2** is `IN_PROGRESS / PARTIAL / UNVERIFIED`. The canonical row field and
+anonymous-tail representation are being migrated through scoped, inference,
+substitution, type formation, and metadata compatibility paths. A live
+`RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic` completed after
+the final cleanup with 25 warnings and no compiler errors. No T2 tests were run
+during this continuation, so T2 remains `UNVERIFIED`; the old 167-error
+compiler result is superseded by this later successful check.
+
+### T2.6 consultation and amendment
+
+The plan's mandatory stop condition fired: the type-form path has no checker-
+owned computed-expression projection, and the current annotation resolver was
+using a synthetic `[computed@range]` field name. The consultation verified a
+P2 `StaticConstantProduct` exists with stable `StaticConstantId(SymbolId)`, a
+checked initializer, reduced value, and query dependencies, but same-module
+static constants are published after session type-form processing. The active
+`TypeResolver` exposes type/static-definition resolution only.
+
+Decision recorded in the active plan's T2.6 amendment:
+
+- exact supported literal expressions may be projected directly to owned
+  `FieldKey` values;
+- computed names, calls, operators, constant references, and symbolic/generic
+  results must not be evaluated or interned as fixed row fields through the
+  current annotation path;
+- any future constant-key path must use ordinary binding identity, the current
+  `StaticConstantProduct`, owned value content, and a dependency on that stable
+  constant identity; `TypeResolver` will not become a second evaluator.
+
+This amendment bounded the original T2.6 implementation path. A follow-up
+architecture decision below supersedes its effect on T2/T3/T4 sequencing;
+T2.6's nonliteral-key acceptance remains open for T7.0.
+
+### T2.7 metadata compatibility consultation and amendment
+
+A read-only architecture consultation confirmed that lossless metadata schema
+staging belongs to T8, not T2 or T4. The semantic exporter may keep the current
+name-only schema only under its existing contract: Symbol keys and exact Symbol
+remainder key domains export; heterogeneous keys/domains fail closed. Typed
+remainders preserve their value type. `phalcom-type-meta` remains untouched.
+
+The T2 write set is amended to include only
+`phalcom-semantic/src/metadata/export.rs` for this compatibility bridge. The
+decision and implementation state are recorded in
+[`LANG007.C4.P4-T2-implementation-incident-2026-10-05.md`](LANG007.C4.P4/LANG007.C4.P4-T2-implementation-incident-2026-10-05.md).
+
+The next action is to complete the plan's focused T2 acceptance checks. T2.6,
+CV-10B, and P4 remain open; static-constant and general-expression key
+resolution is not accepted by this amendment.
+
+### T2.8 acceptance and dependency consultation — 2026-10-05
+
+A follow-up architecture consultation resolved the sequencing loop. T2 may
+complete its FieldKey row/tail substrate with supported literal projection and
+tested fail-closed behavior for const references, general expressions, and
+symbolic/generic keys. Those unsupported expressions must never enter
+`RecordRowData`.
+
+- T3 requires only the completed, focused-tested canonical row/tail substrate;
+  it does not require type-annotation expression evaluation.
+- T4 owns static Record value evaluation and value-to-FieldKey conversion, not
+  type annotation or pattern projection.
+- CV-10 is split: CV-10A covers static Record values; CV-10B covers checked
+  type/pattern key projection, stable identities, targeted dependencies,
+  invalidation, specialization, and duplicate detection.
+- New T7.0 follows T4/T5/T6 and precedes pattern lowering. It consumes ordinary
+  checker binding identity and the current `StaticConstantProduct`; no second
+  evaluator or resolver is permitted.
+- CV-10B, P4, and P4-INV-43 remain open until T7.0 is implemented and verified.
+
+The active plan carries the full T7.0 contract. This decision unblocks T2
+structural completion, T3, and T4 without claiming the deferred key semantics
+are implemented.

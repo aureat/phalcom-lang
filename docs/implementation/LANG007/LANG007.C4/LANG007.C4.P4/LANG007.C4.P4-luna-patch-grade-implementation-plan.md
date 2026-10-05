@@ -36,7 +36,7 @@ prepared: 2026-10-05
 
 # 0. Executor contract
 
-This plan is written for a capable implementation model operating under bounded architectural authority. It converts the accepted `LANG007.C4.P4` requirements analysis into an executable patch sequence. It is a plan only: it does **not** claim that P4 implementation or verification has begun.
+This plan is written for a capable implementation model operating under bounded architectural authority. It converts the accepted `LANG007.C4.P4` requirements analysis into an executable patch sequence. It defines intended work; actual progress and verification are recorded in the C4 checkpoint and the plan's completion records.
 
 The implementer:
 
@@ -1078,7 +1078,8 @@ Never rerun an unchanged failing test unless relevant code/configuration/evidenc
 | CV-07 | relation/optionality | 10–14,29,44 | required/optional/width/tail matrix |
 | CV-08 | lookup | 10–14,44 | Required/Optional/Absent/Unknown cases |
 | CV-09 | static Record | 01–08,21,38 | all key kinds, equality/hash/fingerprint, duplicates |
-| CV-10 | static key bridge | 30,39,43 | static value->FieldKey; invalid/symbolic behavior |
+| CV-10A | static Record value key bridge | 30,39 | static value->FieldKey; invalid value behavior |
+| CV-10B | checked type/pattern key bridge | 30,39,43 | stable binding/product identity; dependencies, specialization, invalid/nonstatic behavior |
 | CV-11 | runtime conversion | 01–06,22,23,40 | all key kinds, invalid key timing, huge Int |
 | CV-12 | runtime shape | 09,22–24,38,45 | logical order, presentation permutation, lookup |
 | CV-13 | runtime construction | 08,19,20,35,40,47 | fixed/dynamic/spread/empty/duplicate behavior |
@@ -1573,6 +1574,7 @@ phalcom-semantic/src/types/projection.rs
 phalcom-semantic/src/types/rigid.rs          # if live row forms use it
 phalcom-semantic/src/checker/row_inference.rs
 phalcom-semantic/src/checker/inference.rs
+phalcom-semantic/src/metadata/export.rs       # bounded legacy-schema compile bridge; T8 owns lossless schema staging
 ```
 
 ### Required implementation shape
@@ -1669,6 +1671,86 @@ Literal fast paths are allowed only if they are semantically equivalent projecti
 
 When specialization finally yields a concrete key, canonical row formation reruns duplicate detection, satisfying P4-INV-39.
 
+#### T2.6 consultation amendment — 2026-10-05
+
+The mandatory consultation confirmed that the live P2 static-constant product is
+not currently available to the type-form path. `StaticConstantProduct` carries a
+stable `StaticConstantId(SymbolId)`, checked initializer, reduced value, and
+query dependencies, but session type-form processing precedes same-module static
+constant publication. `TypeResolver` and `CheckingContext::resolve_type_form`
+also expose no checked expression/static-value projection for Record keys.
+
+For the current T2 slice:
+
+- bare Symbol keys continue to project directly to `FieldKey::Symbol`;
+- a computed key may be projected only when its AST is a supported static
+  literal and conversion exactly preserves P2 literal semantics;
+- computed names, calls, operators, const references, and generic/symbolic
+  results must not be evaluated or inserted into `RecordRowData` by annotation
+  resolution; no placeholder field identity is permitted;
+- do not add expression/name lookup to `TypeResolver` or create a second key
+  evaluator.
+
+This first amendment bounded the implementation but left T2 acceptance blocked
+on the type-form key seam. The follow-up architecture consultation below
+supersedes that sequencing consequence: T2 may complete its structural
+row/tail substrate while const-reference, general-expression, and
+generic/symbolic type/pattern keys continue to fail closed. The deferred seam is
+assigned to T7.0 after the static Record value bridge and runtime Record tasks.
+
+#### T2.7 metadata compatibility compile bridge — 2026-10-05
+
+A read-only architecture consultation confirmed that T2 must not migrate the
+shared `phalcom-type-meta` schema. T8 owns lossless `FieldKeyRef` staging,
+fingerprints, codec/compatibility audit, and its tests. To keep the semantic
+crate compiling during T2, the bounded `phalcom-semantic/src/metadata/export.rs`
+write-set is added:
+
+- legacy `name` fields accept `FieldKey::Symbol` only;
+- legacy anonymous remainders are exported only when their key domain is the
+  exact nominal `Symbol` type; typed remainders preserve their value type;
+- String/Int/Bool keys and all other remainder key domains return an explicit
+  metadata export error;
+- apply the same boundary to static row arguments and scoped Record,
+  OpenRecord, and RecordRow forms;
+- do not modify `phalcom-type-meta`, stringify heterogeneous keys, or drop a
+  remainder key/value type.
+
+This is a compile-integration amendment only. It does not satisfy T8 metadata
+acceptance or close T2's separate static-constant key-resolution seam. The
+implementation incident is recorded in
+`LANG007.C4.P4-T2-implementation-incident-2026-10-05.md`.
+
+#### T2.8 acceptance and dependency amendment — 2026-10-05
+
+A follow-up architecture consultation resolved the T2/T3/T4 dependency loop.
+T2 owns the canonical `FieldKey` row/tail substrate and direct supported-literal
+projection. For this structural gate, const references, general expressions,
+and generic/symbolic keys must fail closed and must never enter
+`RecordRowData`; they do not block T2 completion once this behavior is tested.
+
+- T3's precondition is the completed, focused-tested canonical row/tail
+  substrate. T3 does not depend on type-annotation expression evaluation.
+- T4 owns static Record **value** evaluation and value-to-FieldKey conversion;
+  it does not resolve Record type annotations or pattern keys.
+- Split CV-10 into CV-10A (static Record value conversion/construction) and
+  CV-10B (checked type/pattern key resolution, dependencies, specialization,
+  and post-specialization duplicate detection).
+- Add T7.0 after T4, T5, and T6 and before T7 pattern lowering. T7.0 wires type
+  and pattern key consumers to one checker-owned projection. It must use the
+  binding selected by ordinary checking, stable `SymbolId`/
+  `StaticConstantId`, the current `StaticConstantProduct`, and targeted
+  dependency invalidation. It must not add evaluator/name lookup to
+  `TypeResolver`, intern symbolic keys, or create a pattern-only evaluator.
+- Keep CV-10B and P4/P4-INV-43 open until T7.0 is implemented and verified.
+
+T7.0 must cover literal parity; const/operation conversion; invalid/nonstatic
+diagnostics with no row insertion; const-only targeted invalidation;
+generic/symbolic specialization; post-specialization collisions; and shared
+type/pattern projection without a duplicate evaluator. If checked facts cannot
+provide this authority without a parallel evaluator or resolver, stop and
+consult before implementation.
+
 ### Forbidden approaches
 
 - partial migration leaving some canonical row identities as strings;
@@ -1682,7 +1764,7 @@ When specialization finally yields a concrete key, canonical row formation rerun
 
 ### Test changes required
 
-Cover CV-04, CV-05, CV-10:
+Cover CV-04 and CV-05, plus the T2 deferred-key fail-closed boundary:
 
 - mixed canonical sort;
 - same fields/different source order same `RecordRowId`;
@@ -1694,9 +1776,10 @@ Cover CV-04, CV-05, CV-10:
 - each tail syntax normalizes correctly;
 - invalid key-domain type rejected;
 - scoped key-domain substitution;
-- static literal/const key reduces to FieldKey;
-- unresolved/runtime key cannot enter fixed canonical row;
-- post-specialization collision diagnosed.
+- supported static literal key projects to FieldKey;
+- const-reference, general-expression, and symbolic/generic keys fail closed
+  and cannot enter a fixed canonical row;
+- post-specialization collision is covered by T7.0 / CV-10B.
 
 ### Tests to run now
 
@@ -1724,7 +1807,9 @@ Full solver/relation matrix; runtime; patterns; metadata.
 - anonymous tails have key domains;
 - one canonical checked row formation path owns ordering/duplicates;
 - captured-tail identity remains unchanged;
-- fixed computed type keys cannot bypass P2 static semantics.
+- supported literal type keys project directly without a second evaluator;
+- unsupported computed/symbolic type keys fail closed and cannot bypass P2
+  static semantics; their checked projection is deferred to T7.0.
 
 ### Local STOP / CONSULT triggers
 
@@ -1747,7 +1832,9 @@ Make the existing row calculus fully FieldKey-aware, remove avoidable quadratic 
 
 ### Preconditions
 
-T2 canonical row migration complete.
+T2 canonical row/tail substrate complete and focused-tested. The deferred
+type/pattern expression-key projection is assigned to T7.0 and is not a T3
+precondition.
 
 ### Consumes
 
@@ -2047,7 +2134,7 @@ Audit every changed exhaustive match. `StaticPackBacking.labels` remain P3 Symbo
 
 ### Test changes required
 
-Cover CV-09, CV-10, CV-19, CV-22, CV-23:
+Cover CV-09, CV-10A, CV-19, CV-22, CV-23:
 
 - intern each key kind and mixed keys;
 - same mapping/different input order same semantic equality/hash/fingerprint;
@@ -2056,7 +2143,8 @@ Cover CV-09, CV-10, CV-19, CV-22, CV-23:
 - Int/Bool distinct;
 - exact huge Int;
 - `field_key_of` valid/invalid matrix;
-- evaluator computed static keys;
+- evaluator computed keys for static Record values (not type annotations or
+  pattern keys);
 - invalid key evaluation timing;
 - P2 existing static structural-value tests unchanged;
 - P3 static Pack tests unchanged.
@@ -2575,6 +2663,29 @@ phalcom-core/src/primitive/record.rs
 
 ### Required implementation shape
 
+#### T7.0 Checked type/pattern key projection
+
+This task is scheduled after T4, T5, and T6, before pattern lowering. It closes
+the deferred T2.6 type-annotation seam and supplies the same checked projection
+to Record patterns. T4's evaluator conversion for static Record values is a
+separate producer and must not be reused as a second expression resolver.
+
+The projection must:
+
+- consume ordinary-checker binding selection and its stable source identity;
+- query the current `StaticConstantProduct` by `StaticConstantId(SymbolId)`;
+- convert concrete static value content to owned `FieldKey` values;
+- record targeted dependencies on the owning type/annotation product and
+  invalidate only affected dependents after a constant edit;
+- retain generic/symbolic results for specialization without inserting
+  placeholders into canonical rows;
+- rerun canonical duplicate detection after specialization;
+- share one checked projection between Record type and pattern keys, without
+  adding evaluation/name lookup to `TypeResolver` or a pattern-only evaluator.
+
+If existing checked products cannot provide stable identity and dependency edges
+without a new parallel authority, stop and consult before changing ownership.
+
 #### T7.1 Static pattern keys
 
 Pattern forms:
@@ -2588,7 +2699,8 @@ Pattern forms:
 
 must resolve to concrete FieldKey before canonical pattern resolution. Runtime key expressions are not fixed structural pattern keys.
 
-Consume the same checked static-key seam as Record type keys where possible. Do not create a pattern-only evaluator.
+Consume the shared T7.0 checked static-key projection. Do not create a
+pattern-only evaluator.
 
 #### T7.2 Semantic pattern product
 
@@ -2631,7 +2743,7 @@ Publish the resolved Record pattern facts in the same semantic products P6's sta
 
 ### Test changes required
 
-Cover CV-16 and relevant CV-08/CV-10:
+Cover CV-16, CV-10B, and relevant CV-08:
 
 - match each key kind;
 - same-text Symbol/String distinction;
@@ -3050,9 +3162,12 @@ CV-05 tail formation
 CV-06 solver/lacks
 CV-07 relation/optionality
 CV-08 unordered lookup
-CV-10 static key bridge where type formation depends on it
 CV-21 query resources
 ```
+
+G1 also verifies that unsupported const-reference, general-expression, and
+symbolic/generic type keys fail closed and do not enter canonical rows. CV-10B
+acceptance remains deferred until T7.0.
 
 ### Run
 
@@ -3087,7 +3202,7 @@ Prove one FieldKey semantics from static value through runtime Record constructi
 
 ```text
 CV-09 static Record
-CV-10 static key bridge
+CV-10A static Record value key bridge
 CV-11 runtime conversion
 CV-12 runtime shape
 CV-13 runtime construction
@@ -3127,6 +3242,7 @@ Prove generalized unordered Record behavior does not leak into ordered labels an
 ```text
 CV-15 call/Pack boundary
 CV-16 patterns
+CV-10B checked type/pattern key projection
 CV-22 P2 compatibility as shared checker/static seams require
 CV-23 P3 compatibility
 ```
@@ -3220,7 +3336,8 @@ At completion, map actual executed evidence to every coverage obligation.
 | CV-07 | subtyping/optionality matrix | PASS |
 | CV-08 | shared unordered lookup tests | PASS |
 | CV-09 | Static Record tests | PASS |
-| CV-10 | checked static key reduction/invalid cases | PASS |
+| CV-10A | static Record value key conversion/construction | PASS |
+| CV-10B | checked type/pattern key resolution, invalidation, specialization | PASS |
 | CV-11 | runtime conversion tests | PASS |
 | CV-12 | runtime shape/lookup/presentation tests | PASS |
 | CV-13 | construction/spread/duplicate tests | PASS |
