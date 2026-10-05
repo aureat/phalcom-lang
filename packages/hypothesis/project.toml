@@ -1,0 +1,5 @@
+[project]
+name = "hypothesis"
+namespace = "hypothesis"
+version = "0.1.0"
+entry = "hypothesis.main"
