@@ -132,6 +132,7 @@ fn callable_analysis() -> CallableAnalysis {
         return_explanation: None,
         dependencies: Arc::from([]),
         semantic_dependencies: Arc::from([]),
+        constructor_super_initializer: None,
         dependency_fingerprint: ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     }
@@ -657,6 +658,7 @@ fn callable_body_product_distinguishes_flow_evidence_status() {
             contract: None,
             consistency: BindingConsistency::Unconstrained,
             mutable: false,
+            initialization: phalcom_semantic::checker::flow::InitializationState::DefinitelyInitialized,
         },
     );
     let mut assumed = established.clone();
@@ -676,12 +678,50 @@ fn callable_body_product_distinguishes_unknown_and_dynamic_flow() {
             contract: None,
             consistency: BindingConsistency::Unconstrained,
             mutable: false,
+            initialization: phalcom_semantic::checker::flow::InitializationState::DefinitelyInitialized,
         },
     );
     let mut dynamic = unknown.clone();
     dynamic.entry_flow.bindings.get_mut(&binding).expect("flow binding").knowledge = TypeKnowledge::Dynamic(phalcom_semantic::DynamicReason::RuntimeReflection);
 
     assert_ne!(callable_body_product_fingerprint(&unknown), callable_body_product_fingerprint(&dynamic));
+}
+
+#[test]
+fn changing_only_initialization_safety_changes_callable_product_fingerprint() {
+    let binding = phalcom_semantic::identity::BindingId(11);
+    let expr_id = ExpressionId::new(BodyId(1), LocalExpressionId(1));
+    let mut definite = callable_analysis();
+    definite.bindings.insert(
+        binding,
+        BindingState::new(
+            binding,
+            "x",
+            SourceRange::default(),
+            None,
+            TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow),
+            true,
+        ),
+    );
+    let mut expr = ExpressionAnalysis::ready(expr_id, SourceRange::default(), TypeKnowledge::established(TypeId(1), EvidenceOrigin::Flow));
+    expr.binding_read_safety = Some(phalcom_semantic::checker::flow::BindingReadSafety::ProvenInitialized);
+    expr.binding_read = Some(binding);
+    definite.expressions.insert(expr_id, expr);
+
+    let mut another_binding = definite.clone();
+    another_binding.expressions.get_mut(&expr_id).expect("expr").binding_read = Some(phalcom_semantic::identity::BindingId(12));
+    assert_ne!(
+        callable_body_product_fingerprint(&definite),
+        callable_body_product_fingerprint(&another_binding),
+        "changing the resolved local binding must invalidate the callable product"
+    );
+
+    let mut runtime_check = definite.clone();
+    runtime_check.bindings.get_mut(&binding).expect("binding").initialization = phalcom_semantic::checker::flow::InitializationState::MaybeInitialized;
+    runtime_check.expressions.get_mut(&expr_id).expect("expr").binding_read_safety =
+        Some(phalcom_semantic::checker::flow::BindingReadSafety::RuntimeCheckRequired);
+
+    assert_ne!(callable_body_product_fingerprint(&definite), callable_body_product_fingerprint(&runtime_check));
 }
 
 #[test]
@@ -848,4 +888,134 @@ fn semantic_component_product_changes_when_resolved_target_changes() {
         semantic_component_product_fingerprint(&linked_a),
         semantic_component_product_fingerprint(&linked_b)
     );
+}
+
+#[test]
+fn constructor_products_refresh_when_attributes_and_field_defaults_change() {
+    use phalcom_common::selector::{Selector, SelectorSlot};
+    use phalcom_semantic::identity::DispatchSide;
+    use phalcom_semantic::session::SemanticWorkspaceSession;
+
+    let module = module("constructor_products");
+    let initial = "@construct\nclass Parent {\n  _required: Int\n  _defaulted: Int = 1\n}\nclass Child is Parent {\n  _child: Int = 3\n}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session.update(super::support::single_module_input(module.clone(), initial, 1));
+    let owner = DeclarationId::new(module.clone(), "Parent".into());
+    let generated = CallableId::new(
+        owner.clone(),
+        Selector::method("new", [SelectorSlot::Label("required".into())]).unwrap(),
+        DispatchSide::Class,
+    );
+    assert_eq!(
+        first.snapshot.constructor_initializations.get(&generated).map(|product| product.origin),
+        Some(phalcom_semantic::ConstructorOrigin::Construct)
+    );
+
+    let changed_default = "@construct\nclass Parent {\n  _required: Int\n  _defaulted: Int = 9\n}\nclass Child is Parent {\n  _child: Int = 3\n}\n";
+    let second = session.update(super::support::single_module_input(module.clone(), changed_default, 2));
+    assert_ne!(
+        first
+            .snapshot
+            .constructor_initializations
+            .get(&generated)
+            .map(|product| product.field_input_fingerprint),
+        second
+            .snapshot
+            .constructor_initializations
+            .get(&generated)
+            .map(|product| product.field_input_fingerprint),
+        "editing a field declaration/default changes the canonical construction product"
+    );
+
+    let without_attribute = "class Parent {\n  _required: Int\n  _defaulted: Int = 2\n}\nclass Child is Parent {\n  _child: Int = 3\n}\n";
+    let third = session.update(super::support::single_module_input(module.clone(), without_attribute, 3));
+    assert!(
+        third.snapshot.constructor_initializations.get(&generated).is_none(),
+        "removed @construct path must not survive as a stale product"
+    );
+    let default_only = CallableId::new(owner.clone(), Selector::method("new", Vec::new()).unwrap(), DispatchSide::Class);
+    assert_eq!(
+        third.snapshot.constructor_initializations.get(&default_only).map(|product| product.origin),
+        Some(phalcom_semantic::ConstructorOrigin::DefaultOnly)
+    );
+    let child_owner = DeclarationId::new(module.clone(), "Child".into());
+    let child_default = CallableId::new(child_owner, Selector::method("new", Vec::new()).unwrap(), DispatchSide::Class);
+    assert!(
+        third.snapshot.constructor_initializations.get(&child_default).is_none(),
+        "a default-only child path cannot omit the parent's required initialization lifecycle"
+    );
+
+    let no_defaults = "class Parent {}\nclass Child is Parent {\n  _child: Int = 3\n}\n";
+    let fourth = session.update(super::support::single_module_input(module.clone(), no_defaults, 4));
+    assert!(
+        fourth.snapshot.constructor_initializations.get(&default_only).is_none(),
+        "removing the final default must remove the default-only path"
+    );
+    assert_eq!(
+        fourth.snapshot.constructor_initializations.get(&child_default).map(|product| product.origin),
+        Some(phalcom_semantic::ConstructorOrigin::DefaultOnly),
+        "removing the parent's lifecycle refreshes the child's eligible default-only path"
+    );
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold = cold.update(super::support::single_module_input(module, no_defaults, 1));
+    assert_eq!(
+        &*fourth.snapshot.constructor_initializations, &*cold.snapshot.constructor_initializations,
+        "incremental constructor products must match a cold final snapshot"
+    );
+}
+
+#[test]
+fn parent_constructor_product_change_revalidates_explicit_super_body() {
+    use phalcom_common::selector::Selector;
+    use phalcom_semantic::db::QueryKey;
+    use phalcom_semantic::identity::DispatchSide;
+    use phalcom_semantic::session::SemanticWorkspaceSession;
+
+    let module = module("constructor_super_dependency");
+    let initial = "class ParentDefaults {\n  _base: Int = 1\n}\nclass Child is ParentDefaults {\n  @constructor new() { super.new() }\n}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session.update(super::support::single_module_input(module.clone(), initial, 1));
+    let parent = DeclarationId::new(module.clone(), "ParentDefaults".into());
+    let parent_factory = CallableId::new(parent.clone(), Selector::method("new", Vec::new()).unwrap(), DispatchSide::Class);
+    let parent_key = QueryKey::ConstructorInitialization(parent);
+    let initial_field_fingerprint = first.snapshot.constructor_initializations.get(&parent_factory).unwrap().field_input_fingerprint;
+    let initial_owner_fingerprint = session.db().ready_product_fingerprint(&parent_key);
+    let child = CallableId::new(
+        DeclarationId::new(module.clone(), "Child".into()),
+        Selector::method("new", Vec::new()).unwrap(),
+        DispatchSide::Instance,
+    );
+    assert!(first.snapshot.callable_analyses[&child].constructor_super_initializer.is_some());
+    assert!(
+        session
+            .db()
+            .index()
+            .dependents_of(&parent_key)
+            .is_some_and(|dependents| dependents.contains(&QueryKey::CallableBody(child.clone()))),
+        "the child body query must publish its constructor-owner dependency edge"
+    );
+
+    let changed = "class ParentDefaults {\n  _base: Int = 2\n}\nclass Child is ParentDefaults {\n  @constructor new() { super.new() }\n}\n";
+    let second = session.update(super::support::single_module_input(module, changed, 2));
+    assert_ne!(
+        initial_field_fingerprint,
+        second
+            .snapshot
+            .constructor_initializations
+            .get(&parent_factory)
+            .unwrap()
+            .field_input_fingerprint,
+        "changing a parent default changes its constructor input fingerprint"
+    );
+    assert_ne!(
+        initial_owner_fingerprint,
+        session.db().ready_product_fingerprint(&parent_key),
+        "the owner query fingerprint publishes the changed constructor product"
+    );
+    assert!(
+        session.db().revision_recomputed_keys().any(|key| key == &QueryKey::CallableBody(child.clone())),
+        "a changed direct-parent construction product must recompute the subclass constructor body"
+    );
+    assert!(second.snapshot.callable_analyses[&child].constructor_super_initializer.is_some());
 }

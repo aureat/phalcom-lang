@@ -50,7 +50,7 @@ data Expr<T> {
 class Eval {
   @class
   eval<T>(_ value: Expr<T>) {
-    let out: Int = 0
+    let mut out: Int = 0
     match value {
       Expr::Pack(x) => out = x
     }

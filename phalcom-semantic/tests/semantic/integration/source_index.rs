@@ -367,7 +367,7 @@ fn lexical_scope_preserves_source_order_and_nested_shadowing() {
 
 #[test]
 fn source_index_publishes_canonical_member_source_metadata() {
-    let source = "class Sample {\n  const _field: Int = 1\n  compute(value: Int) -> Int { value }\n}\n";
+    let source = "class Sample {\n  _field: Int = 1\n  compute(value: Int) -> Int { value }\n}\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
     let module = ModuleId::universe_root();
@@ -484,7 +484,7 @@ fn same_scope_redeclaration_keeps_first_lexical_target() {
 
 #[test]
 fn compiler_scope_index_covers_closure_and_destructure_bindings() {
-    let source = "let mapper = |value| value\nlet (x, y) = (1, \"hello\")\n";
+    let source = "let mapper = |value| value\nlet (x, y) = (1, \"hello\")\nlet mut (a, b) = (2, \"world\")\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
     let index = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &SourceIndexContext::default());
@@ -494,15 +494,18 @@ fn compiler_scope_index_covers_closure_and_destructure_bindings() {
         .binding_for_declaration((parameter_start..parameter_start + "value".len()).into())
         .expect("closure binding");
     assert_eq!(parameter.kind, SourceBindingKind::ClosureParameter);
-    assert!(parameter.mutable);
+    assert!(!parameter.mutable);
 
     let destructured = index
         .bindings
         .values()
         .filter(|binding| matches!(binding.kind, SourceBindingKind::Destructure))
         .collect::<Vec<_>>();
-    assert_eq!(destructured.len(), 2);
-    assert!(destructured.iter().all(|binding| binding.mutable));
+    assert_eq!(destructured.len(), 4);
+    let imm = destructured.iter().filter(|b| b.name.as_ref() == "x" || b.name.as_ref() == "y");
+    assert!(imm.clone().all(|binding| !binding.mutable));
+    let mut_binds = destructured.iter().filter(|b| b.name.as_ref() == "a" || b.name.as_ref() == "b");
+    assert!(mut_binds.clone().all(|binding| binding.mutable));
 }
 
 #[test]
@@ -852,7 +855,7 @@ fn dependency_paths_exports_and_exposed_children_use_canonical_targets() {
 }
 
 #[test]
-fn for_binding_is_owned_by_loop_scope_and_is_mutable() {
+fn for_binding_is_owned_by_loop_scope_and_is_immutable() {
     let source = "let values = [1, 2]\nfor value in values { value }\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
@@ -860,7 +863,7 @@ fn for_binding_is_owned_by_loop_scope_and_is_mutable() {
     let value = index.bindings.values().find(|binding| binding.name.as_ref() == "value").expect("for binding");
 
     assert_eq!(value.kind, SourceBindingKind::ForBinding);
-    assert!(value.mutable);
+    assert!(!value.mutable);
     assert_ne!(value.scope, index.root);
 }
 
@@ -966,6 +969,9 @@ fn formal_products_attach_by_callable_and_checker_ids() {
                 causal_invalidity: Default::default(),
                 explanation: None,
                 call: None,
+                binding_read_safety: None,
+                binding_read: Some(binding_id),
+                binding_write: None,
             },
         )]),
         bindings: BTreeMap::from([(
@@ -996,6 +1002,7 @@ fn formal_products_attach_by_callable_and_checker_ids() {
         return_explanation: None,
         dependencies: Arc::from([]),
         semantic_dependencies: Arc::from([]),
+        constructor_super_initializer: None,
         dependency_fingerprint: ProductFingerprint::new(1),
         status: CallableAnalysisStatus::Complete,
     };

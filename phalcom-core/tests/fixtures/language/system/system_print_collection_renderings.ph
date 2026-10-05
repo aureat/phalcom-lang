@@ -6,21 +6,21 @@
 // `#sym: val` rendering, `Set(...)`, tuple parens, and `Range`'s `a..b`
 // syntax-literal-shaped render, plus `None`/`Some(_)` for good measure.
 
-const l = []
+let l = []
 l.append(1)
 l.append(2)
 System.print(l)
 
-const m = Map {a: 1, b: 2}
+let m = Map {a: 1, b: 2}
 System.print(m)
 
-const s = #{1, 2}
+let s = #{1, 2}
 System.print(s)
 
-const t = (3, 4)
+let t = (3, 4)
 System.print(t)
 
-const r = 1..=3
+let r = 1..=3
 System.print(r)
 
 System.print(None)

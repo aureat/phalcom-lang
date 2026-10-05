@@ -18,7 +18,7 @@ fn internal_probe_primitive(_vm: &mut VM, _receiver: &Value, _args: &[Value]) ->
 
 #[test]
 fn compiler_internal_dispatch_authority_is_transient() {
-    let mut vm = VM::new();
+    let mut vm = VM::new_kernel();
     let selector = vm.interner.intern("compilerAuthorityProbe()");
     let owner = vm.universe.classes.object_class;
 

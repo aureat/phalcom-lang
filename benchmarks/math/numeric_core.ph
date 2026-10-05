@@ -20,7 +20,7 @@ class Check {
   /// @returns a `Bool`: `true` iff `|a - b| < 1e-6`
   @class
   approx(_ a, _ b) {
-    const d = a - b
+    let d = a - b
     if (d < 0) { d = 0 - d }
     return d < 0.000001
   }
@@ -44,8 +44,8 @@ class Math {
   @class
   sqrt(_ a) {
     if (a == 0) { return 0 }
-    const g = a
-    const i = 0
+    let g = a
+    let i = 0
     while (i < 40) {
       g = (g + a / g) / 2
       i = i + 1
@@ -67,8 +67,8 @@ class Math {
 
   @class
   factIter(_ n) {
-    const acc = 1
-    const k = 2
+    let acc = 1
+    let k = 2
     while (k <= n) {
       acc = acc * k
       k = k + 1
@@ -86,8 +86,8 @@ class Math {
   @class
   ipow(_ base, _ e) {
     if (e == 0) { return 1 }
-    const half = Math.ipow(base, (e - (e % 2)) / 2)
-    const sq = half * half
+    let half = Math.ipow(base, (e - (e % 2)) / 2)
+    let sq = half * half
     if (e % 2 == 1) { return sq * base }
     return sq
   }
@@ -96,7 +96,7 @@ class Math {
   @class
   isPrime(_ n) {
     if (n < 2) { return false }
-    const d = 2
+    let d = 2
     while (d * d <= n) {
       if (n % d == 0) { return false }
       d = d + 1

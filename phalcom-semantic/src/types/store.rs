@@ -85,6 +85,29 @@ impl TupleType {
     }
 }
 
+pub type PackTypeElement = TupleTypeElement;
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct PackType {
+    pub elements: Box<[PackTypeElement]>,
+    pub positional_remainder: AnonymousTupleRemainder,
+    pub labeled_remainder: AnonymousTupleRemainder,
+}
+
+impl PackType {
+    pub fn closed(elements: Box<[PackTypeElement]>) -> Self {
+        Self {
+            elements,
+            positional_remainder: AnonymousTupleRemainder::None,
+            labeled_remainder: AnonymousTupleRemainder::None,
+        }
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.positional_remainder == AnonymousTupleRemainder::None && self.labeled_remainder == AnonymousTupleRemainder::None
+    }
+}
+
 pub type RecordTypeField = RecordRowField;
 
 use phalcom_ast::ast::RestMode;
@@ -213,6 +236,10 @@ pub enum TypeData {
     LabeledTypePackConcat(Box<[TypeId]>),
     /// Tuple type formed from symbolic positional and labeled packs.
     TupleFromPacks { positionals: TypeId, labeled: TypeId },
+    /// First-class proper Pack type.
+    Pack(PackType),
+    /// Proper Pack type formed from symbolic positional and labeled packs.
+    PackFromPacks { positionals: TypeId, labeled: TypeId },
     /// Callable type formed from symbolic positional and labeled packs with a return type.
     CallableFromPacks {
         positionals: TypeId,
@@ -399,6 +426,20 @@ impl TypeStore {
         store.unit_id = store.intern_with_kind(TypeData::Unit, KindId::TYPE);
 
         store
+    }
+
+    /// Create a fork from a canonical prefix.
+    ///
+    /// All node IDs allocated in `self` are preserved with identical numeric
+    /// values in the fork. The fork receives a fresh `TypeStoreId` so that
+    /// type references qualified by store identity remain unambiguous.
+    ///
+    /// The fork starts fully independent: mutations to the fork do not affect
+    /// `self` or any other fork derived from `self`.
+    pub fn fork_from_baseline(&self) -> Self {
+        let mut fork = self.clone();
+        fork.id = TypeStoreId(NEXT_TYPE_STORE_ID.fetch_add(1, Ordering::Relaxed));
+        fork
     }
 
     pub fn id(&self) -> TypeStoreId {
@@ -846,6 +887,18 @@ impl TypeStore {
         self.nominal_form(declaration, KindId::TYPE)
     }
 
+    /// Returns an already-interned proper nominal type without mutating the store.
+    pub fn nominal_type_id(&self, declaration: &DeclarationId) -> Option<TypeId> {
+        self.type_to_id
+            .get(&(
+                TypeData::Nominal {
+                    declaration: declaration.clone(),
+                },
+                KindId::TYPE,
+            ))
+            .copied()
+    }
+
     pub fn class_object_type(&mut self, declaration: DeclarationId) -> TypeId {
         self.intern_with_kind(TypeData::ClassObject { declaration }, KindId::TYPE)
     }
@@ -1037,6 +1090,65 @@ impl TypeStore {
         )
     }
 
+    /// Interns a closed proper Pack type with full validation.
+    pub fn pack(&mut self, elements: Box<[PackTypeElement]>) -> Result<TypeId, PackFormationError> {
+        self.open_pack(elements, AnonymousTupleRemainder::None, AnonymousTupleRemainder::None)
+    }
+
+    /// Interns a proper Pack type with optional lane remainders and full validation.
+    pub fn open_pack(
+        &mut self,
+        elements: Box<[PackTypeElement]>,
+        positional_remainder: AnonymousTupleRemainder,
+        labeled_remainder: AnonymousTupleRemainder,
+    ) -> Result<TypeId, PackFormationError> {
+        let mut seen_labels = std::collections::HashSet::new();
+        let mut seen_labeled = false;
+        for elem in elements.iter() {
+            if !self.is_proper_type(elem.ty) {
+                return Err(PackFormationError::ElementNotProperType {
+                    ty: elem.ty,
+                    kind: self.kind_of(elem.ty),
+                });
+            }
+            if let Some(ref l) = elem.label {
+                seen_labeled = true;
+                if !seen_labels.insert(l.clone()) {
+                    return Err(PackFormationError::DuplicateLabel(l.to_string()));
+                }
+            } else if seen_labeled {
+                return Err(PackFormationError::ElementNotProperType {
+                    ty: elem.ty,
+                    kind: self.kind_of(elem.ty),
+                });
+            }
+        }
+        if let AnonymousTupleRemainder::Typed(ty) = positional_remainder {
+            if !self.is_proper_type(ty) {
+                return Err(PackFormationError::ElementNotProperType {
+                    ty,
+                    kind: self.kind_of(ty),
+                });
+            }
+        }
+        if let AnonymousTupleRemainder::Typed(ty) = labeled_remainder {
+            if !self.is_proper_type(ty) {
+                return Err(PackFormationError::ElementNotProperType {
+                    ty,
+                    kind: self.kind_of(ty),
+                });
+            }
+        }
+        Ok(self.intern_with_kind(
+            TypeData::Pack(PackType {
+                elements,
+                positional_remainder,
+                labeled_remainder,
+            }),
+            KindId::TYPE,
+        ))
+    }
+
     /// Interns a TypePack into the store after validation.
     pub fn type_pack(&mut self, elements: Box<[TypeId]>) -> Result<TypeId, PackFormationError> {
         for &elem in elements.iter() {
@@ -1123,10 +1235,20 @@ impl TypeStore {
             return Ok(ty);
         }
         match self.get(ty).clone() {
-            TypeData::CompleteTypePack { positionals, .. } | TypeData::TupleFromPacks { positionals, .. } => Ok(positionals),
+            TypeData::CompleteTypePack { positionals, .. }
+            | TypeData::TupleFromPacks { positionals, .. }
+            | TypeData::PackFromPacks { positionals, .. } => Ok(positionals),
             TypeData::Tuple(tuple) => self.type_pack(
                 tuple
                     .elements
+                    .iter()
+                    .filter(|element| element.label.is_none())
+                    .map(|element| element.ty)
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            TypeData::Pack(pack) => self.type_pack(
+                pack.elements
                     .iter()
                     .filter(|element| element.label.is_none())
                     .map(|element| element.ty)
@@ -1157,10 +1279,24 @@ impl TypeStore {
             return Ok(ty);
         }
         match self.get(ty).clone() {
-            TypeData::CompleteTypePack { labeled, .. } | TypeData::TupleFromPacks { labeled, .. } => Ok(labeled),
+            TypeData::CompleteTypePack { labeled, .. }
+            | TypeData::TupleFromPacks { labeled, .. }
+            | TypeData::PackFromPacks { labeled, .. } => Ok(labeled),
             TypeData::Tuple(tuple) => self.labeled_type_pack(
                 tuple
                     .elements
+                    .iter()
+                    .filter_map(|element| {
+                        element.label.as_ref().map(|label| LabeledTypePackElement {
+                            label: label.clone(),
+                            element: element.ty,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            TypeData::Pack(pack) => self.labeled_type_pack(
+                pack.elements
                     .iter()
                     .filter_map(|element| {
                         element.label.as_ref().map(|label| LabeledTypePackElement {
@@ -1195,7 +1331,7 @@ impl TypeStore {
             return Ok(ty);
         }
         match self.get(ty) {
-            TypeData::Tuple(_) | TypeData::TupleFromPacks { .. } | TypeData::Unit => {
+            TypeData::Tuple(_) | TypeData::TupleFromPacks { .. } | TypeData::Pack(_) | TypeData::PackFromPacks { .. } | TypeData::Unit => {
                 let positionals = self.project_positionals(ty)?;
                 let labeled = self.project_labeled(ty)?;
                 self.complete_type_pack(positionals, labeled)
@@ -1347,6 +1483,40 @@ impl TypeStore {
         }
 
         Ok(self.intern_with_kind(TypeData::TupleFromPacks { positionals, labeled }, KindId::TYPE))
+    }
+
+    /// Interns a proper Pack type formed from symbolic positional and labeled packs.
+    ///
+    /// If both lanes are concrete, normalizes directly into `TypeData::Pack(PackType)`.
+    /// Note that unlike `TupleFromPacks`, which collapses `() + {}` to `Unit`, empty Pack
+    /// normalizes to empty `TypeData::Pack(PackType)` (never `Unit` or `EmptyRecord`).
+    pub fn pack_from_packs(&mut self, positionals: TypeId, labeled: TypeId) -> Result<TypeId, PackFormationError> {
+        let pos_kind = self.kind_of(positionals);
+        if pos_kind != KindId::TYPE_PACK {
+            return Err(PackFormationError::InvalidTuplePackComponent {
+                ty: positionals,
+                kind: pos_kind,
+            });
+        }
+        let lab_kind = self.kind_of(labeled);
+        if lab_kind != KindId::LABELED_TYPE_PACK {
+            return Err(PackFormationError::InvalidTuplePackComponent { ty: labeled, kind: lab_kind });
+        }
+
+        let pos_data = self.get(positionals).clone();
+        let lab_data = self.get(labeled).clone();
+        if let (TypeData::TypePack(pos_elems), TypeData::LabeledTypePack(lab_elems)) = (pos_data, lab_data) {
+            let mut elements = Vec::with_capacity(pos_elems.len() + lab_elems.len());
+            for &elem in pos_elems.iter() {
+                elements.push(PackTypeElement::unlabeled(elem));
+            }
+            for elem in lab_elems.iter() {
+                elements.push(PackTypeElement::labeled(elem.label.clone(), elem.element));
+            }
+            return self.pack(elements.into_boxed_slice());
+        }
+
+        Ok(self.intern_with_kind(TypeData::PackFromPacks { positionals, labeled }, KindId::TYPE))
     }
 
     /// Interns a callable type formed from symbolic positional and labeled packs and a return type.
@@ -1749,6 +1919,31 @@ impl TypeStore {
             TypeData::TupleFromPacks { positionals, labeled } => {
                 format!("TupleFromPacks({}, {})", self.format_type(*positionals), self.format_type(*labeled))
             }
+            TypeData::Pack(pack) => {
+                let mut parts = Vec::new();
+                for elem in pack.elements.iter() {
+                    let t_str = self.format_type(elem.ty);
+                    if let Some(ref l) = elem.label {
+                        parts.push(format!("{l}: {t_str}"));
+                    } else {
+                        parts.push(t_str);
+                    }
+                }
+                match pack.positional_remainder {
+                    AnonymousTupleRemainder::None => {}
+                    AnonymousTupleRemainder::Unconstrained => parts.push("*:".to_string()),
+                    AnonymousTupleRemainder::Typed(t) => parts.push(format!("*: {}", self.format_type(t))),
+                }
+                match pack.labeled_remainder {
+                    AnonymousTupleRemainder::None => {}
+                    AnonymousTupleRemainder::Unconstrained => parts.push("**:".to_string()),
+                    AnonymousTupleRemainder::Typed(t) => parts.push(format!("**: {}", self.format_type(t))),
+                }
+                format!("Pack<{}>", parts.join(", "))
+            }
+            TypeData::PackFromPacks { positionals, labeled } => {
+                format!("PackFromPacks({}, {})", self.format_type(*positionals), self.format_type(*labeled))
+            }
             TypeData::CallableFromPacks {
                 positionals,
                 labeled,
@@ -1889,6 +2084,20 @@ impl TypeStore {
                         AnonymousTupleRemainder::Typed(t) => self.contains_type_parameter(t, target),
                         _ => false,
                     }
+            }
+            TypeData::Pack(pack) => {
+                pack.elements.iter().any(|e| self.contains_type_parameter(e.ty, target))
+                    || match pack.positional_remainder {
+                        AnonymousTupleRemainder::Typed(t) => self.contains_type_parameter(t, target),
+                        _ => false,
+                    }
+                    || match pack.labeled_remainder {
+                        AnonymousTupleRemainder::Typed(t) => self.contains_type_parameter(t, target),
+                        _ => false,
+                    }
+            }
+            TypeData::PackFromPacks { positionals, labeled } => {
+                self.contains_type_parameter(*positionals, target) || self.contains_type_parameter(*labeled, target)
             }
             TypeData::Record(row_id) => {
                 let row = self.record_row(*row_id);

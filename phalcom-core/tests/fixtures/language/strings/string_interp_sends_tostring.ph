@@ -22,7 +22,7 @@
 
 class Secret { toString { "<redacted>" }
 }
-const p = Secret.new()
+let p = Secret.new()
 
 // The three paths must agree.
 System.print(p)
@@ -36,7 +36,7 @@ System.print("\(Secret)")
 // Values the native path DID render correctly must not regress. Each of these
 // reaches a real `toString`: Number/Symbol/List native, String `{ self }`, Bool /
 // Map / Set / Tuple / Range derived in core.ph.
-const m = Map.new()
+let m = Map.new()
 m.at("a", put: 1)
 System.print("\(1) \("s") \(true) \([1, 2]) \(m) \((1, 2)) \(1..=5)")
 
@@ -44,7 +44,7 @@ System.print("\(1) \("s") \(true) \([1, 2]) \(m) \((1, 2)) \(1..=5)")
 // `Option#toString` and the new `Map#toString` are BOTH derived in core.ph, so
 // they recurse by sending `toString`.
 System.print("\(Some(p))")
-const m2 = Map.new()
+let m2 = Map.new()
 m2.at("k", put: p)
 System.print("\(m2)")
 

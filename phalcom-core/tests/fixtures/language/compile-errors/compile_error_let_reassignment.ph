@@ -7,7 +7,7 @@
 // implementation-spec.md §1.3 — even though the fixture body now uses
 // `const`.)
 
-const x = 1
+let x = 1
 System.print(x)
 x = 2
 System.print(x)

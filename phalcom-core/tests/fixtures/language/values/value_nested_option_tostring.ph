@@ -4,7 +4,7 @@
 // Raw display rendering and the ordinary `toString` message agree for nested
 // immediate Options, while the payload remains recursively rendered.
 
-const value = Some(Some("payload"))
+let value = Some(Some("payload"))
 System.print(value)
 System.print(value.toString)
 System.print(Some(Some(None)).toString)

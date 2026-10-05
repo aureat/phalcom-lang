@@ -5,6 +5,6 @@
 from universe.time.calendar.date import Date
 from universe.time.calendar.month import Month
 
-const epoch = Date.new(1970, Month::January, 1)
+let epoch = Date.new(1970, Month::January, 1)
 System.print(epoch.daysSince)
 System.print(epoch.weekday.number)

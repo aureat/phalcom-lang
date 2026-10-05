@@ -33,40 +33,40 @@ class EitherGenericProbe {
 class EitherInferenceProbe {
     @class
     contextualLeft() {
-        let contextualLeft: Either<String, Int> = Either::Left("failure")
+        let mut contextualLeft: Either<String, Int> = Either::Left("failure")
     }
 
     @class
     contextualRight() {
-        let contextualRight: Either<String, Int> = Either::Right(42)
+        let mut contextualRight: Either<String, Int> = Either::Right(42)
     }
 
     @class
     canonicalPaths() {
-        let fromLeft: Either<String, Int> = Either::Left("left")
-        let fromRight: Either<String, Int> = Either::Right(42)
+        let mut fromLeft: Either<String, Int> = Either::Left("left")
+        let mut fromRight: Either<String, Int> = Either::Right(42)
     }
 
     @class
     mapInference() {
-        let source: Either<String, Int> = Either::Right(42)
-        let mapped = source.map(|value| {
+        let mut source: Either<String, Int> = Either::Right(42)
+        let mut mapped = source.map(|value| {
             value > 0
         })
     }
 
     @class
     mapLeftInference() {
-        let source: Either<String, Int> = Either::Right(42)
-        let mappedLeft = source.mapLeft(|value| {
+        let mut source: Either<String, Int> = Either::Right(42)
+        let mut mappedLeft = source.mapLeft(|value| {
             value == "failure"
         })
     }
 
     @class
     bimapInference() {
-        let source: Either<String, Int> = Either::Right(42)
-        let bimapped = source.bimap(
+        let mut source: Either<String, Int> = Either::Right(42)
+        let mut bimapped = source.bimap(
             left: |value| { value == "failure" },
             right: |value| { value > 0 }
         )
@@ -74,31 +74,31 @@ class EitherInferenceProbe {
 
     @class
     swapInference() {
-        let source: Either<String, Int> = Either::Right(42)
-        let swapped = source.swap
+        let mut source: Either<String, Int> = Either::Right(42)
+        let mut swapped = source.swap
     }
 
     @class
     orElseInference() {
-        let source: Either<String, Int> = Either::Left("failure")
-        let replacement: Either<Bool, Int> = Either::Right(100)
-        let recovered = source.orElse(replacement)
+        let mut source: Either<String, Int> = Either::Left("failure")
+        let mut replacement: Either<Bool, Int> = Either::Right(100)
+        let mut recovered = source.orElse(replacement)
     }
 
     @class
     chainedInference() {
-        let initial: Either<String, Int> = Either::Right(41)
-        let mapped = initial.map(|value| { value == 41 })
-        let leftMapped = mapped.mapLeft(|value| { 100 })
-        let swapped = leftMapped.swap
+        let mut initial: Either<String, Int> = Either::Right(41)
+        let mut mapped = initial.map(|value| { value == 41 })
+        let mut leftMapped = mapped.mapLeft(|value| { 100 })
+        let mut swapped = leftMapped.swap
     }
 }
 
 class EitherHigherOrderProbe {
     @class
     inferAcrossArguments() {
-        let source: Either<String, Int> = Either::Right(41)
-        let lifted = EitherGenericProbe.lift(
+        let mut source: Either<String, Int> = Either::Right(41)
+        let mut lifted = EitherGenericProbe.lift(
             source,
             |value| { value == 41 }
         )
@@ -106,14 +106,14 @@ class EitherHigherOrderProbe {
 
     @class
     freshCalls() {
-        let firstInput: Either<String, Int> = Either::Right(41)
-        let first = EitherGenericProbe.lift(
+        let mut firstInput: Either<String, Int> = Either::Right(41)
+        let mut first = EitherGenericProbe.lift(
             firstInput,
             |value| { value == 41 }
         )
 
-        let secondInput: Either<Int, Bool> = Either::Right(true)
-        let second = EitherGenericProbe.lift(
+        let mut secondInput: Either<Int, Bool> = Either::Right(true)
+        let mut second = EitherGenericProbe.lift(
             secondInput,
             |value| { "second" }
         )
@@ -123,16 +123,16 @@ class EitherHigherOrderProbe {
 class EitherNestedProbe {
     @class
     flattenNested() {
-        let inner: Either<String, Int> = Either::Right(73)
-        let outer: Either<String, Either<String, Int>> = Either::Right(inner)
-        let flattened = EitherGenericProbe.flatten(outer)
+        let mut inner: Either<String, Int> = Either::Right(73)
+        let mut outer: Either<String, Either<String, Int>> = Either::Right(inner)
+        let mut flattened = EitherGenericProbe.flatten(outer)
     }
 
     @class
     repeatedVariable() {
-        let left: Either<Int, Int> = Either::Left(10)
-        let right: Either<Int, Int> = Either::Right(20)
-        let leftValue = EitherGenericProbe.merge(left)
-        let rightValue = EitherGenericProbe.merge(right)
+        let mut left: Either<Int, Int> = Either::Left(10)
+        let mut right: Either<Int, Int> = Either::Right(20)
+        let mut leftValue = EitherGenericProbe.merge(left)
+        let mut rightValue = EitherGenericProbe.merge(right)
     }
 }

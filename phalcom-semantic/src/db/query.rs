@@ -48,6 +48,8 @@ pub struct FormalQueryInputs<'a> {
     pub type_aliases: &'a crate::type_alias::TypeAliasTable,
     pub field_signatures: Option<&'a crate::signature::FieldSignatureTable>,
     pub field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
+    pub constructor_initializations: Option<&'a crate::signature::ConstructorInitializationTable>,
+    pub callable_signatures: Option<&'a crate::signature::CallableSignatureTable>,
     pub data_semantics: Option<&'a crate::data_semantics::DataSemanticTable>,
     pub enum_semantics: Option<&'a crate::enum_semantics::EnumSemanticTable>,
     pub associated_families: Option<&'a crate::associated::AssociatedFamilyTable>,
@@ -80,6 +82,7 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::TraitHeader(declaration) => QueryKey::TraitHeader(declaration.clone()),
         crate::checker::analysis::SemanticDependency::CallableSignature(callable) => QueryKey::CallableSignature(callable.clone()),
         crate::checker::analysis::SemanticDependency::FieldSignature(field) => QueryKey::FieldSignature(field.clone()),
+        crate::checker::analysis::SemanticDependency::ConstructorInitialization(owner) => QueryKey::ConstructorInitialization(owner.clone()),
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => QueryKey::DeclarationSurface(declaration.clone()),
         crate::checker::analysis::SemanticDependency::TraitSurface(declaration) => QueryKey::TraitSurface(declaration.clone()),
         crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) => QueryKey::ConformanceDispatch(impl_id.clone()),
@@ -91,9 +94,12 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::TypeMemberDeclaration(declaration) => QueryKey::TypeMemberDeclaration(declaration.clone()),
         crate::checker::analysis::SemanticDependency::StaticDomainCaseCatalog(domain) => QueryKey::StaticDomainCaseCatalog(domain.clone()),
         crate::checker::analysis::SemanticDependency::StaticCaseSignature(case) => QueryKey::StaticCaseSignature(case.clone()),
+        crate::checker::analysis::SemanticDependency::StaticDefinition(declaration) => QueryKey::StaticDefinition(declaration.clone()),
         crate::checker::analysis::SemanticDependency::ResolvedImport(site) => QueryKey::ResolvedImport(site.clone()),
         crate::checker::analysis::SemanticDependency::LinkedName(module, name) => QueryKey::LinkedName(module.clone(), name.clone()),
         crate::checker::analysis::SemanticDependency::PublicExport(module, name) => QueryKey::PublicExport(module.clone(), name.clone()),
+        crate::checker::analysis::SemanticDependency::ModuleStaticBindings(module) => QueryKey::ModuleStaticBindings(module.clone()),
+        crate::checker::analysis::SemanticDependency::StaticConstant(id) => QueryKey::StaticConstant(id.clone()),
     }
 }
 
@@ -103,6 +109,7 @@ fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::
         QueryKey::TraitHeader(declaration) => Some(crate::checker::analysis::SemanticDependency::TraitHeader(declaration.clone())),
         QueryKey::CallableSignature(callable) => Some(crate::checker::analysis::SemanticDependency::CallableSignature(callable.clone())),
         QueryKey::FieldSignature(field) => Some(crate::checker::analysis::SemanticDependency::FieldSignature(field.clone())),
+        QueryKey::ConstructorInitialization(owner) => Some(crate::checker::analysis::SemanticDependency::ConstructorInitialization(owner.clone())),
         QueryKey::DeclarationSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration.clone())),
         QueryKey::TraitSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::TraitSurface(declaration.clone())),
         QueryKey::ConformanceDispatch(impl_id) => Some(crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id.clone())),
@@ -114,9 +121,12 @@ fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::
         QueryKey::TypeMemberDeclaration(declaration) => Some(crate::checker::analysis::SemanticDependency::TypeMemberDeclaration(declaration.clone())),
         QueryKey::StaticDomainCaseCatalog(domain) => Some(crate::checker::analysis::SemanticDependency::StaticDomainCaseCatalog(domain.clone())),
         QueryKey::StaticCaseSignature(case) => Some(crate::checker::analysis::SemanticDependency::StaticCaseSignature(case.clone())),
+        QueryKey::StaticDefinition(declaration) => Some(crate::checker::analysis::SemanticDependency::StaticDefinition(declaration.clone())),
         QueryKey::ResolvedImport(site) => Some(crate::checker::analysis::SemanticDependency::ResolvedImport(site.clone())),
         QueryKey::LinkedName(module, name) => Some(crate::checker::analysis::SemanticDependency::LinkedName(module.clone(), name.clone())),
         QueryKey::PublicExport(module, name) => Some(crate::checker::analysis::SemanticDependency::PublicExport(module.clone(), name.clone())),
+        QueryKey::ModuleStaticBindings(module) => Some(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(module.clone())),
+        QueryKey::StaticConstant(id) => Some(crate::checker::analysis::SemanticDependency::StaticConstant(id.clone())),
         _ => None,
     }
 }
@@ -1063,6 +1073,247 @@ pub fn query_type_member_declaration(
     QueryOutcome::Ready(product)
 }
 
+/// Publishes the ordinary module binding handoff for static-body consumers.
+pub fn query_module_static_bindings(
+    db: &mut SemanticDb,
+    product: Arc<crate::module_bindings::ModuleStaticBindingIndex>,
+) -> QueryOutcome<Arc<crate::module_bindings::ModuleStaticBindingIndex>> {
+    let key = QueryKey::ModuleStaticBindings(product.module().clone());
+    let input_fingerprint = product.input_fingerprint();
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_module_static_bindings()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    let product_fingerprint = product.product_fingerprint();
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::ModuleStaticBindings(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
+/// Publishes the sole cached owner of ordinary checker facts for one static body.
+/// Every recorded semantic dependency and the module binding handoff must be
+/// current before the body product can be reused or published.
+pub fn query_checked_static_body(
+    db: &mut SemanticDb,
+    product: Arc<crate::static_definition::CheckedStaticBody>,
+    inputs: &FormalQueryInputs<'_>,
+    store: &mut TypeStore,
+) -> QueryOutcome<Arc<crate::static_definition::CheckedStaticBody>> {
+    let key = QueryKey::CheckedStaticBody(product.owner.clone());
+    let input_fingerprint = crate::db::fingerprint::checked_static_body_input_fingerprint(&product);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_checked_static_body()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+
+    let mut semantic_dependencies = product.dependencies.iter().cloned().collect::<BTreeSet<_>>();
+    semantic_dependencies.insert(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(
+        product.owner.0.module.clone(),
+    ));
+    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+    for semantic_dependency in semantic_dependencies {
+        match ensure_formal_semantic_dependency_current(db, &semantic_dependency, inputs, store) {
+            QueryOutcome::Ready(()) => {}
+            QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+            QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+        }
+        let dependency_key = semantic_dependency_query_key(&semantic_dependency);
+        if dependency_key == key {
+            return query_failure(db, key, "checked static body captured a self-dependency");
+        }
+        if let crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) = &semantic_dependency {
+            let Some(fingerprint) = inputs.conformance_semantics.and_then(|view| view.fingerprint_for(impl_id)) else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            recorder.record(dependency_key, fingerprint);
+        } else if let Err(error) = db.record_dependency(&mut recorder, dependency_key) {
+            return query_failure(db, key, error);
+        }
+    }
+    let dependencies = recorder.finish();
+    let product_fingerprint = crate::db::fingerprint::checked_static_body_product_fingerprint(&product);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::CheckedStaticBody(product.clone()),
+        dependencies,
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
+/// Returns a current checked-body product when its exact source and dependency
+/// fingerprints remain valid. Session builders call this before constructing a
+/// checker context so valid bodies avoid being analyzed again.
+pub fn cached_checked_static_body(
+    db: &mut SemanticDb,
+    owner: &crate::static_definition::StaticBodyId,
+    input_fingerprint: InputFingerprint,
+) -> Option<Arc<crate::static_definition::CheckedStaticBody>> {
+    let key = QueryKey::CheckedStaticBody(owner.clone());
+    if !db.validate_reuse(&key, input_fingerprint) {
+        return None;
+    }
+    let product = db.product(&key).and_then(|value| value.as_checked_static_body()).cloned();
+    if product.is_some() {
+        db.metrics().record_hit();
+    }
+    product
+}
+
+/// Returns a current static constant product when its exact source and dependency
+/// fingerprints remain valid.
+pub fn cached_static_constant(
+    db: &mut SemanticDb,
+    id: &crate::static_constant::StaticConstantId,
+    input_fingerprint: InputFingerprint,
+) -> Option<Arc<crate::static_constant::StaticConstantProduct>> {
+    let key = QueryKey::StaticConstant(id.clone());
+    if !db.validate_reuse(&key, input_fingerprint) {
+        return None;
+    }
+    let product = db.product(&key).and_then(|value| value.as_static_constant()).cloned();
+    if product.is_some() {
+        db.metrics().record_hit();
+    }
+    product
+}
+
+/// Publishes one checked static constant product under its stable identity.
+/// Every recorded semantic dependency must be current before the constant product
+/// can be reused or published.
+pub fn query_static_constant(
+    db: &mut SemanticDb,
+    product: Arc<crate::static_constant::StaticConstantProduct>,
+    value_store: &crate::static_value::StaticValueStore,
+    inputs: &FormalQueryInputs<'_>,
+    type_store: &mut TypeStore,
+) -> QueryOutcome<Arc<crate::static_constant::StaticConstantProduct>> {
+    match &product.outcome {
+        crate::static_eval::StaticEvalOutcome::Cancelled => return QueryOutcome::Cancelled,
+        crate::static_eval::StaticEvalOutcome::BudgetExceeded(report) => {
+            return QueryOutcome::BudgetExceeded(report.clone());
+        }
+        _ => {}
+    }
+    let key = QueryKey::StaticConstant(product.id.clone());
+    let input_fingerprint = product.checked.input_fingerprint;
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_static_constant()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+
+    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+    if !matches!(product.outcome, crate::static_eval::StaticEvalOutcome::Recursive) {
+        for semantic_dependency in product.checked.dependencies.iter() {
+            match ensure_formal_semantic_dependency_current(db, semantic_dependency, inputs, type_store) {
+                QueryOutcome::Ready(()) => {}
+                QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+                QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+                QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+                QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+            }
+            let dependency_key = semantic_dependency_query_key(semantic_dependency);
+            if dependency_key == key {
+                return query_failure(db, key, "static constant captured a self-dependency");
+            }
+            if let crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) = semantic_dependency {
+                let Some(fingerprint) = inputs.conformance_semantics.and_then(|view| view.fingerprint_for(impl_id)) else {
+                    return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+                };
+                recorder.record(dependency_key, fingerprint);
+            } else if let Err(error) = db.record_dependency(&mut recorder, dependency_key) {
+                return query_failure(db, key, error);
+            }
+        }
+    } else {
+        for semantic_dependency in product.checked.dependencies.iter() {
+            let dependency_key = semantic_dependency_query_key(semantic_dependency);
+            if dependency_key == key {
+                continue;
+            }
+            if db.query_state(&dependency_key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+                let _ = db.record_dependency(&mut recorder, dependency_key);
+            }
+        }
+    }
+    let dependencies = recorder.finish();
+    let product_fingerprint = crate::db::fingerprint::static_constant_product_fingerprint(&product, value_store);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::StaticConstant(product.clone()),
+        dependencies,
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
+/// Publishes one checked static definition product under its declaration identity.
+pub fn query_static_definition(
+    db: &mut SemanticDb,
+    product: Arc<crate::static_definition::StaticDefinitionProduct>,
+) -> QueryOutcome<Arc<crate::static_definition::StaticDefinitionProduct>> {
+    let key = QueryKey::StaticDefinition(product.definition.id.clone());
+    let input_fingerprint = crate::db::fingerprint::static_definition_input_fingerprint(&product);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_static_definition()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    let product_fingerprint = crate::db::fingerprint::static_definition_product_fingerprint(&product);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::StaticDefinition(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
 /// Publishes source-structural case membership before payload signature checks.
 pub fn query_static_domain_case_catalog(
     db: &mut SemanticDb,
@@ -1313,6 +1564,7 @@ fn ensure_semantic_dependency_current(
                 QueryOutcome::Failed(failure) => QueryOutcome::Failed(failure),
             }
         }
+        crate::checker::analysis::SemanticDependency::ConstructorInitialization(_) => QueryOutcome::Blocked(BlockReason::SuppressedDependency),
         _ => QueryOutcome::Ready(()),
     }
 }
@@ -1403,6 +1655,21 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                     type_aliases: Some(inputs.type_aliases),
                     import_products: Some(inputs.import_products),
                 },
+            ))
+        }
+        crate::checker::analysis::SemanticDependency::ConstructorInitialization(owner) => {
+            let Some(table) = inputs.constructor_initializations else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            let paths = table
+                .iter()
+                .filter(|(factory, _)| factory.owner == *owner)
+                .map(|(_, product)| product.clone())
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            unit_outcome(query_constructor_initialization_owner(
+                db,
+                Arc::new(crate::db::product::ConstructorInitializationOwnerProduct { owner: owner.clone(), paths }),
             ))
         }
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => {
@@ -1580,6 +1847,28 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
             unit_outcome(query_static_case_signature(db, unit, product))
+        }
+        crate::checker::analysis::SemanticDependency::StaticDefinition(declaration) => {
+            let Some(product) = inputs.base_resolver.resolve_static_definition(declaration) else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            unit_outcome(query_static_definition(db, product))
+        }
+        crate::checker::analysis::SemanticDependency::ModuleStaticBindings(module) => {
+            let key = QueryKey::ModuleStaticBindings(module.clone());
+            if db.product(&key).and_then(|product| product.as_module_static_bindings()).is_some() && db.validate_ready(&key) {
+                QueryOutcome::Ready(())
+            } else {
+                QueryOutcome::Blocked(BlockReason::SuppressedDependency)
+            }
+        }
+        crate::checker::analysis::SemanticDependency::StaticConstant(id) => {
+            let key = QueryKey::StaticConstant(id.clone());
+            if db.product(&key).and_then(|product| product.as_static_constant()).is_some() && db.validate_ready(&key) {
+                QueryOutcome::Ready(())
+            } else {
+                QueryOutcome::Blocked(BlockReason::SuppressedDependency)
+            }
         }
     };
 
@@ -2059,6 +2348,40 @@ pub fn query_field_signature(
             import_products: None,
         },
     )
+}
+
+/// Publishes the constructor paths contributed by one class owner.
+///
+/// Empty path sets are meaningful: they revoke a previously published
+/// lifecycle and invalidate dependent explicit-super resolutions.
+pub fn query_constructor_initialization_owner(
+    db: &mut SemanticDb,
+    product: Arc<crate::db::product::ConstructorInitializationOwnerProduct>,
+) -> QueryOutcome<Arc<crate::db::product::ConstructorInitializationOwnerProduct>> {
+    let key = QueryKey::ConstructorInitialization(product.owner.clone());
+    let input_fingerprint = crate::db::fingerprint::constructor_initialization_owner_input_fingerprint(&product);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|product| product.as_constructor_initialization()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    let product_fingerprint = crate::db::fingerprint::constructor_initialization_owner_product_fingerprint(&product);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::ConstructorInitialization(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
 }
 
 pub fn query_field_signature_with_inputs(
@@ -2748,6 +3071,8 @@ fn query_callable_body_with_requirement(
             cancel,
             field_signatures: formal_inputs.and_then(|inputs| inputs.field_signatures),
             field_lifecycle: formal_inputs.and_then(|inputs| inputs.field_lifecycle),
+            constructor_initializations: formal_inputs.and_then(|inputs| inputs.constructor_initializations),
+            callable_signatures: formal_inputs.and_then(|inputs| inputs.callable_signatures),
             enum_semantics: formal_inputs.and_then(|inputs| inputs.enum_semantics),
             data_semantics: formal_inputs.and_then(|inputs| inputs.data_semantics),
             associated_families: formal_inputs.and_then(|inputs| inputs.associated_families),

@@ -174,6 +174,7 @@ impl<'vm> Compiler<'vm> {
     pub(crate) fn begin_scope(&mut self) {
         self.functions.last_mut().unwrap().scope_depth += 1;
         self.const_fact_scopes.push(std::collections::HashMap::new());
+        self.static_const_scopes.push(std::collections::HashSet::new());
     }
 
     /// Closes the innermost scope, promoting captured locals to heap cells.
@@ -188,6 +189,7 @@ impl<'vm> Compiler<'vm> {
     /// `Return` closes them again idempotently for the explicit-return path.
     pub(crate) fn end_scope(&mut self, range: SourceRange) {
         self.const_fact_scopes.pop();
+        self.static_const_scopes.pop();
         let func = self.functions.last_mut().unwrap();
         func.scope_depth -= 1;
         let scope_depth = func.scope_depth;
@@ -241,12 +243,13 @@ impl<'vm> Compiler<'vm> {
         let depth = func.scope_depth;
         let is_throwaway = source_name == "_";
         if !is_throwaway
-            && func
+            && (func
                 .locals
                 .iter()
                 .rev()
                 .take_while(|local| local.depth == depth)
                 .any(|local| local.name == name)
+                || self.static_const_scopes.last().is_some_and(|s| s.contains(&name)))
         {
             return Err(CompilerError::BindingRedeclared(self.vm.resolve_symbol(name).to_string()));
         }
@@ -305,7 +308,8 @@ impl<'vm> Compiler<'vm> {
         }
         let is_throwaway = source_name == "_";
         if !is_throwaway {
-            let redeclared_this_unit = self.global_bindings.contains_key(&name) || self.import_bindings.contains_key(&name);
+            let redeclared_this_unit =
+                self.global_bindings.contains_key(&name) || self.import_bindings.contains_key(&name) || self.global_static_constants.contains(&name);
             let redeclared_prior_unit = self.unit_kind != UnitKind::Repl && self.vm.heap.module(self.module).global_bindings.contains_key(&name);
             if redeclared_this_unit || redeclared_prior_unit {
                 return Err(CompilerError::BindingRedeclared(self.vm.resolve_symbol(name).to_string()));

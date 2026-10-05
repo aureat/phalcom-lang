@@ -11,6 +11,6 @@ class B is A {
 }
 class C is B {
 }
-const c = C.new()
+let c = C.new()
 System.print(c.is(A))
 System.print(c.is(String))

@@ -50,6 +50,7 @@ fn mock_callable(expressions: BTreeMap<ExpressionId, ExpressionAnalysis>) -> Cal
         return_explanation: None,
         dependencies: Arc::new([]),
         semantic_dependencies: Arc::new([]),
+        constructor_super_initializer: None,
         dependency_fingerprint: phalcom_semantic::db::ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
     }
@@ -122,6 +123,9 @@ fn test_dynamic_dispatch_produces_opaque_effects() {
         causal_invalidity: phalcom_semantic::checker::CausalInvalidity::Clean,
         explanation: None,
         call: None,
+        binding_read_safety: None,
+        binding_read: None,
+        binding_write: None,
     };
     expressions.insert(eid, expr);
 
@@ -150,6 +154,9 @@ fn test_reflective_perform_produces_opaque_effects() {
         causal_invalidity: phalcom_semantic::checker::CausalInvalidity::Clean,
         explanation: None,
         call: None,
+        binding_read_safety: None,
+        binding_read: None,
+        binding_write: None,
     };
     expressions.insert(eid, expr);
 

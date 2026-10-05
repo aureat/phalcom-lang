@@ -13,6 +13,7 @@
 // silently bare-allocated an instance with unset fields.
 
 class Counter {
+  mut _n
   @constructor
   new(_ start) {
     _n = start
@@ -24,9 +25,9 @@ class Counter {
 System.print(Counter.new(1).n)
 
 // Variable receiver.
-let C = Counter
+let mut C = Counter
 System.print(C.new(2).n)
 
 // Collection-element receiver.
-let classes = [Counter]
+let mut classes = [Counter]
 System.print(classes[0].new(3).n)

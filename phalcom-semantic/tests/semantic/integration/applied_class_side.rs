@@ -10,7 +10,7 @@ fn applied_class_side_members_and_constructors_retain_receiver_arguments() {
         r#"
 class Box<T> {
   @class
-  const _instances: List<Box<T>> = []
+  _instances: List<Box<T>> = []
 
   @class
   instances -> List<Box<T>> { _instances }
@@ -22,9 +22,9 @@ class Box<T> {
 class Probe {
   @class
   run() {
-    let int_instances = Box<Int>.instances
-    let string_instances = Box<String>.instances
-    let inferred = Box.new(10)
+    let mut int_instances = Box<Int>.instances
+    let mut string_instances = Box<String>.instances
+    let mut inferred = Box.new(10)
     let explicit = Box<Int>.new(10)
   }
 }

@@ -20,8 +20,8 @@ class Empty {
   noop { return 0 }
 }
 
-let i = 0
-let acc = 0
+let mut i = 0
+let mut acc = 0
 while (i < 200000) {
   acc = Empty.noop
   i = i + 1

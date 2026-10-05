@@ -1,8 +1,8 @@
 class Empty {
-  _value
+  mut _value
   value { _value }
 }
-let C = Empty
-let xs = [Empty]
+let mut C = Empty
+let mut xs = [Empty]
 System.print(C.new().value)
 System.print(xs[0].new().value)

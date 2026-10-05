@@ -78,8 +78,10 @@ pub struct SourceScopeId(pub u32);
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SourceBindingKind {
     TopLevelLet,
+    TopLevelLetMut,
     TopLevelConst,
     LocalLet,
+    LocalLetMut,
     LocalConst,
     MethodParameter,
     SetterParameter,

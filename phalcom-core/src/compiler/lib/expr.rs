@@ -1,5 +1,6 @@
 use crate::bytecode::{Bytecode, FamilySpecKind, PackAccess, PackSendKind};
 use crate::compiler::inliner;
+use crate::interner::Symbol;
 use crate::method::{SignatureKind, encode_selector, make_signature};
 use crate::modules::semantic_lowering::{AssociatedLoweringSpec, LoweringSiteKind};
 use crate::value::Value;
@@ -301,6 +302,23 @@ impl<'vm> Compiler<'vm> {
             PackItem::Expand { range, .. } => Err(CompilerError::PackExpansionNotYetSupported(range)),
         }
     }
+    /// Analyzed units consume semantic constructor identity. The standalone
+    /// compiler can only specialize an immutable linked canonical class binding.
+    fn is_pack_construction(&mut self, name: &str, range: SourceRange) -> bool {
+        if let Some(lowering) = self.lowering() {
+            return lowering.pack_constructions.contains(&range);
+        }
+        let symbol = self.vm.interner.intern(name);
+        let BareNameResolution::Linked(index) = self.resolve_bare_name(symbol) else {
+            return false;
+        };
+        let Some(crate::modules::RuntimeLinkedRead::Binding(binding)) = self.vm.heap.module(self.module).linked_reads.get(index.0 as usize) else {
+            return false;
+        };
+        let owner = self.vm.heap.module(binding.module);
+        owner.builtin && owner.get_by_slot(binding.slot as usize) == Some(Value::obj(self.vm.universe.classes.pack_class))
+    }
+
     /// Compiles `expr`, always leaving exactly one value on the stack.
     /// Equivalent to `compile_expr_want(expr, true)` — see that method for
     /// `want_value`.
@@ -321,6 +339,62 @@ impl<'vm> Compiler<'vm> {
         match expr {
             Expr::UnqualifiedCall(call) => {
                 let call = *call;
+                if self.is_pack_construction(&call.name, call.range) {
+                    if let Some(spec) = self.lowering().and_then(|lowering| lowering.anonymous_products.get(&call.range)).cloned() {
+                        let spec_idx = self
+                            .functions
+                            .last_mut()
+                            .unwrap()
+                            .chunk
+                            .executable_semantics
+                            .add_anonymous_product_spec(spec, call.range)?;
+                        for arg in &call.args {
+                            match arg {
+                                phalcom_ast::ast::PackItem::Positional { expr, .. } | phalcom_ast::ast::PackItem::Labeled { value: expr, .. } => {
+                                    self.compile_expr(expr.clone())?;
+                                }
+                                phalcom_ast::ast::PackItem::Expand { .. } => unreachable!("static pack spec cannot contain expansion"),
+                            }
+                        }
+                        self.emit(Bytecode::BuildStaticPack { spec: spec_idx }, call.range);
+                        return Ok(());
+                    }
+                    if Self::needs_dynamic_pack(&call.args) {
+                        let builder_slot = self.reserve_pack_scratch("$pack_builder", call.range)?;
+                        self.emit(Bytecode::NewArgumentPack, call.range);
+                        self.emit(Bytecode::SetLocal(builder_slot), call.range);
+                        self.emit(Bytecode::Pop, call.range);
+                        self.compile_dynamic_pack_items(builder_slot, call.args)?;
+                        self.emit(Bytecode::GetLocal(builder_slot), call.range);
+                        self.emit(Bytecode::FinishPack, call.range);
+                        self.release_pack_scratch_from(builder_slot, 1, call.range);
+                        return Ok(());
+                    }
+                    let mut positional = 0u16;
+                    let mut labeled = 0u16;
+                    for arg in call.args {
+                        match arg {
+                            PackItem::Positional { expr, .. } => {
+                                positional = checked_product_count("Pack positional", usize::from(positional) + 1, call.range)?;
+                                self.compile_expr(expr)?;
+                            }
+                            PackItem::Labeled {
+                                label: PackLabel::Static { text, range },
+                                value,
+                                ..
+                            } => {
+                                labeled = checked_product_count("Pack labeled", usize::from(labeled) + 1, call.range)?;
+                                let symbol = self.vm.interner.intern(&text);
+                                let index = self.add_constant(Value::symbol(symbol), range)?;
+                                self.emit(Bytecode::Constant(index), range);
+                                self.compile_expr(value)?;
+                            }
+                            _ => unreachable!("dynamic Pack items use the builder path"),
+                        }
+                    }
+                    self.emit(Bytecode::BuildPack { positional, labeled }, call.range);
+                    return Ok(());
+                }
                 if let Some(spec) = self.lowering().and_then(|l| {
                     l.associated
                         .iter()
@@ -420,8 +494,8 @@ impl<'vm> Compiler<'vm> {
                         // would instead capture that earlier operand.
                         let receiver_slot = self.reserve_pack_scratch("$pack_receiver", call.range)?;
                         match resolution {
-                            BareNameResolution::Local(slot) => self.emit(Bytecode::GetLocal(slot as u16), call.range),
-                            BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), call.range),
+                            BareNameResolution::Local(slot) => self.emit_bare_local_read(slot, name_sym, call.range)?,
+                            BareNameResolution::Upvalue(upvalue) => self.emit_bare_upvalue_read(upvalue, name_sym, call.range)?,
                             BareNameResolution::Linked(binding) => self.emit(Bytecode::GetLinked(binding.0 as u16), call.range),
                             BareNameResolution::Global => {
                                 let name_idx = self.add_constant(Value::symbol(name_sym), call.range)?;
@@ -455,8 +529,8 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
                 match resolution {
-                    BareNameResolution::Local(slot) => self.emit(Bytecode::GetLocal(slot as u16), call.range),
-                    BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), call.range),
+                    BareNameResolution::Local(slot) => self.emit_bare_local_read(slot, name_sym, call.range)?,
+                    BareNameResolution::Upvalue(upvalue) => self.emit_bare_upvalue_read(upvalue, name_sym, call.range)?,
                     BareNameResolution::Linked(binding) => self.emit(Bytecode::GetLinked(binding.0 as u16), call.range),
                     BareNameResolution::Global => {
                         let name_idx = self.add_constant(Value::symbol(name_sym), call.range)?;
@@ -636,12 +710,19 @@ impl<'vm> Compiler<'vm> {
                 // keyed on the receiver's static type (U-INH §3.4).
                 if matches!(&method_call.object, Expr::SuperVar { .. }) {
                     let mc = *method_call;
+                    let selected_constructor_initializer = self
+                        .lowering()
+                        .and_then(|lowering| lowering.constructor_super_initializers.get(&mc.range))
+                        .cloned();
                     if Self::needs_dynamic_pack(&mc.args) {
                         self.current_class.ok_or(CompilerError::SuperOutsideMethod)?;
-                        let base = match self.functions.last().unwrap().constructor_name.as_deref() {
-                            Some(constructor) if mc.method == constructor => format!("init {constructor}"),
-                            _ => mc.method.clone(),
-                        };
+                        let base = selected_constructor_initializer
+                            .as_ref()
+                            .map(|initializer| match &initializer.selector.base {
+                                phalcom_common::selector::SelectorBase::Named(name) => name.clone(),
+                                phalcom_common::selector::SelectorBase::Subscript => mc.method.clone(),
+                            })
+                            .unwrap_or_else(|| mc.method.clone());
                         let receiver_slot = self.reserve_pack_scratch("$pack_receiver", mc.range)?;
                         self.emit_self(mc.range);
                         self.emit(Bytecode::SetLocal(receiver_slot), mc.range);
@@ -661,19 +742,15 @@ impl<'vm> Compiler<'vm> {
                     }
                     let argc = mc.args.len();
                     let labels = self.pack_labels(&mc.args)?;
-                    // ADR-0063 splits a source constructor into a class-side
-                    // factory and an instance-side `init <name>` method.
-                    // Rewrite only the matching super-constructor send:
-                    // ordinary `super` sends inside an initializer retain
-                    // their source selector.
-                    let method = match self.functions.last().unwrap().constructor_name.as_deref() {
-                        Some(constructor_name) if mc.method == constructor_name => {
-                            format!("init {constructor_name}")
-                        }
-                        _ => mc.method.clone(),
-                    };
+                    // Constructor chaining uses the initializer selected and
+                    // published by semantic analysis. Ordinary `super` sends
+                    // keep their source selector.
                     let argc = checked_send_arity("super send", argc, mc.range)?;
-                    let selector = encode_selector(&method, &labels, SignatureKind::Method(argc));
+                    let selector = if let Some(initializer) = selected_constructor_initializer {
+                        initializer.selector.encode()
+                    } else {
+                        encode_selector(&mc.method, &labels, SignatureKind::Method(argc))
+                    };
                     let selector_sym = self.vm.interner.intern(&selector);
                     return self.compile_super_send(selector_sym, mc.args, argc, mc.range);
                 }
@@ -1350,6 +1427,70 @@ impl<'vm> Compiler<'vm> {
                     return Err(CompilerError::UndefinedVariable(value.clone()));
                 }
                 let name_sym = self.vm.interner.intern(&value);
+                if self.is_static_constant(name_sym) {
+                    let has_lowering = self.lowering().is_some();
+                    let spec = self.lowering().and_then(|l| l.static_constants.get(&value)).cloned();
+                    if let Some(spec) = spec {
+                        match spec.descriptor {
+                            phalcom_semantic::materialization::MaterializationDescriptor::Unit => {
+                                let idx = self.add_constant(Value::unit(), range)?;
+                                self.emit(Bytecode::Constant(idx), range);
+                                return Ok(());
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::Bool(b) => {
+                                if b {
+                                    self.emit(Bytecode::True, range);
+                                } else {
+                                    self.emit(Bytecode::False, range);
+                                }
+                                return Ok(());
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::Int(static_int) => {
+                                match static_int {
+                                    phalcom_semantic::static_value::StaticInt::Small(i) => {
+                                        let idx = self.add_constant(Value::int(i), range)?;
+                                        self.emit(Bytecode::Constant(idx), range);
+                                    }
+                                    phalcom_semantic::static_value::StaticInt::Large(big) => {
+                                        let obj = self.vm.heap.alloc(crate::heap::Object::LargeInt(big.as_ref().clone()));
+                                        let idx = self.add_constant(Value::obj(obj), range)?;
+                                        self.emit(Bytecode::Constant(idx), range);
+                                    }
+                                }
+                                return Ok(());
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::Float(static_float) => {
+                                let idx = self.add_constant(Value::float(static_float.to_f64()), range)?;
+                                self.emit(Bytecode::Constant(idx), range);
+                                return Ok(());
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::String(s) => {
+                                let string_obj = self.vm.alloc_string_value(s.to_string());
+                                let idx = self.add_constant(string_obj, range)?;
+                                self.emit(Bytecode::Constant(idx), range);
+                                return Ok(());
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::Symbol(s) => {
+                                let sym = self.vm.interner.intern(s.as_ref());
+                                let idx = self.add_constant(Value::symbol(sym), range)?;
+                                self.emit(Bytecode::Constant(idx), range);
+                                return Ok(());
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::DeferredStructural(_) => {
+                                return Err(CompilerError::StaticConstStructuralDeferred(value.clone()));
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::Unsupported(msg) => {
+                                return Err(CompilerError::Message(format!("unsupported static constant `{value}`: {msg}")));
+                            }
+                        }
+                    } else if has_lowering {
+                        return Err(CompilerError::Message(format!(
+                            "internal consistency error: static constant `{value}` is declared but missing successful lowering projection"
+                        )));
+                    } else {
+                        return Err(CompilerError::StaticConstUnmaterialized(value.clone()));
+                    }
+                }
                 if let Some(variant) = self.vm.canonical_variant_alias(name_sym).cloned()
                     && variant.selector.slots.is_empty()
                 {
@@ -1372,10 +1513,10 @@ impl<'vm> Compiler<'vm> {
                                 return Err(CompilerError::Message("Cannot read whole unmaterialized variant".into()));
                             }
                         } else {
-                            self.emit(Bytecode::GetLocal(slot as u16), range);
+                            self.emit_bare_local_read(slot, name_sym, range)?;
                         }
                     }
-                    BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), range),
+                    BareNameResolution::Upvalue(upvalue) => self.emit_bare_upvalue_read(upvalue, name_sym, range)?,
                     BareNameResolution::Linked(binding) => self.emit(Bytecode::GetLinked(binding.0 as u16), range),
                     BareNameResolution::Global => {
                         let name_idx = self.add_constant(Value::symbol(name_sym), range)?;
@@ -1410,10 +1551,20 @@ impl<'vm> Compiler<'vm> {
                         let class_idx = self.add_constant(Value::symbol(class_sym), range)?;
                         self.emit(Bytecode::Invoke(0, class_idx), range);
                     }
-                    self.emit(Bytecode::GetField(slot), range);
+                    if layout.immutable_static_slots.contains(&slot) {
+                        let name_idx = self.add_constant(Value::symbol(name_sym), range)?;
+                        self.emit(Bytecode::GetFieldChecked(slot, name_idx), range);
+                    } else {
+                        self.emit(Bytecode::GetField(slot), range);
+                    }
                 } else if let Some(&slot) = layout.field_slots.get(&name_sym) {
                     self.emit_self(range);
-                    self.emit(Bytecode::GetField(slot), range);
+                    if layout.immutable_instance_slots.contains(&slot) {
+                        let name_idx = self.add_constant(Value::symbol(name_sym), range)?;
+                        self.emit(Bytecode::GetFieldChecked(slot, name_idx), range);
+                    } else {
+                        self.emit(Bytecode::GetField(slot), range);
+                    }
                 } else {
                     return Err(CompilerError::ReadBeforeWrite(value.clone()));
                 }
@@ -1426,6 +1577,9 @@ impl<'vm> Compiler<'vm> {
                         // evaluating the RHS. Resolution order mirrors the
                         // emit order below: current-function local, then an
                         // enclosing captured local (upvalue), then a global.
+                        if self.is_static_constant(name_sym) {
+                            return Err(CompilerError::AssignToImmutable(value));
+                        }
                         if let Some(slot) = self.resolve_local(name_sym) {
                             if !self.functions.last().unwrap().locals[slot].is_mutable {
                                 return Err(CompilerError::AssignToImmutable(value));
@@ -1479,7 +1633,7 @@ impl<'vm> Compiler<'vm> {
                             .ok_or_else(|| CompilerError::Message(format!("No layout registered for class: {}", self.vm.resolve_symbol(class_key.name))))?;
 
                         if let Some(&slot) = layout.static_field_slots.get(&name_sym) {
-                            if !self.in_constructor && layout.const_fields.contains(&name_sym) {
+                            if !self.in_constructor && layout.immutable_static_fields.contains(&name_sym) {
                                 return Err(CompilerError::ConstFieldWrite(value));
                             }
                             if self.is_static_context {
@@ -1493,7 +1647,7 @@ impl<'vm> Compiler<'vm> {
                             self.compile_expr(assign_expr.value)?;
                             self.emit(Bytecode::SetField(slot), range);
                         } else if let Some(&slot) = layout.field_slots.get(&name_sym) {
-                            if !self.in_constructor && layout.const_fields.contains(&name_sym) {
+                            if !self.in_constructor && layout.immutable_instance_fields.contains(&name_sym) {
                                 return Err(CompilerError::ConstFieldWrite(value));
                             }
                             self.emit_self(range);
@@ -2213,6 +2367,36 @@ impl<'vm> Compiler<'vm> {
             SymbolLiteralKind::Pattern(_) => return Err(CompilerError::Message("selector patterns are not product labels".into())),
         };
         Ok(self.vm.interner.intern(&canonical))
+    }
+
+    fn emit_bare_local_read(&mut self, slot: usize, name_sym: Symbol, range: SourceRange) -> Result<(), CompilerError> {
+        let safety = self.lowering().and_then(|l| l.binding_read_safeties.get(&range)).copied();
+        match safety {
+            Some(phalcom_semantic::checker::flow::BindingReadSafety::ProvenInitialized) => {
+                self.emit(Bytecode::GetLocal(slot as u16), range);
+            }
+            Some(phalcom_semantic::checker::flow::BindingReadSafety::RuntimeCheckRequired)
+            | Some(phalcom_semantic::checker::flow::BindingReadSafety::DefinitelyUninitialized) => {
+                let name_idx = self.add_constant(Value::symbol(name_sym), range)?;
+                self.emit(Bytecode::GetLocalChecked(slot as u16, name_idx), range);
+            }
+            None => {
+                let is_mutable = self.functions.last().and_then(|f| f.locals.get(slot)).map_or(true, |l| l.is_mutable);
+                if is_mutable {
+                    let name_idx = self.add_constant(Value::symbol(name_sym), range)?;
+                    self.emit(Bytecode::GetLocalChecked(slot as u16, name_idx), range);
+                } else {
+                    self.emit(Bytecode::GetLocal(slot as u16), range);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_bare_upvalue_read(&mut self, upvalue: usize, name_sym: Symbol, range: SourceRange) -> Result<(), CompilerError> {
+        let name_idx = self.add_constant(Value::symbol(name_sym), range)?;
+        self.emit(Bytecode::GetUpvalueChecked(upvalue as u16, name_idx), range);
+        Ok(())
     }
 }
 

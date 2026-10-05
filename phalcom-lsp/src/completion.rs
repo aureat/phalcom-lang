@@ -264,7 +264,7 @@ pub(crate) fn is_generic_kind_position(program: &Program, offset: usize) -> bool
                     .iter()
                     .any(|member| member.behavior().is_some_and(|behavior| behavior_matches(behavior, offset)))
         }
-        Statement::TypeAlias(alias) => parameters_match(&alias.generic_parameters, offset),
+        Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) => parameters_match(&alias.generic_parameters(), offset),
         Statement::Impl(impl_def) => {
             parameters_match(&impl_def.generic_parameters, offset)
                 || impl_def.members.iter().any(|member| match member {

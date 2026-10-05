@@ -28,15 +28,15 @@ class Apply {
 class Factory {
   @class
   make(_ seed: Int) -> (Int) -> Int {
-    let total = seed
+    let mut total = seed
 
-    let add: (Int) -> Int = |delta| {
+    let mut add: (Int) -> Int = |delta| {
       total = total + delta
       total
     }
 
-    let twice: (Int) -> Int = |value| {
-      let once = add(value)
+    let mut twice: (Int) -> Int = |value| {
+      let mut once = add(value)
       add(once)
     }
 
@@ -47,17 +47,17 @@ class Factory {
 class Service {
   @class
   run(_ seed: Int, _ chooseAlias: Bool) {
-    let original = Factory.make(seed)
-    let alias = original
+    let mut original = Factory.make(seed)
+    let mut alias = original
 
-    let selected = if chooseAlias {
+    let mut selected = if chooseAlias {
       alias
     } else {
       original
     }
 
-    let first = Apply.apply(1, with: selected)
-    let second = original(2)
+    let mut first = Apply.apply(1, with: selected)
+    let mut second = original(2)
     (first, second)
   }
 }
@@ -65,9 +65,9 @@ class Service {
 class Probe {
   @class
   run(_ seed: Int, _ chooseAlias: Bool) {
-    let result = Service.run(seed, chooseAlias)
-    let (first, second) = result
-    let independent = 42
+    let mut result = Service.run(seed, chooseAlias)
+    let mut (first, second) = result
+    let mut independent = 42
     (first, second, independent)
   }
 }

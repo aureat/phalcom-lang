@@ -6,14 +6,14 @@
 
 class Summer {
   sum(*numbers) {
-    let total = 0
+    let mut total = 0
     numbers.each(|n| { total = total + n })
     return total
   }
 }
-const s = Summer.new()
-let i = 0
-let last = 0
+let s = Summer.new()
+let mut i = 0
+let mut last = 0
 while (i < 200) {
   last = s.sum(1, 2, 3, 4, 5)
   i = i + 1

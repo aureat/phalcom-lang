@@ -163,7 +163,7 @@ pub fn hash_unlinked_interface(interface: &UnlinkedModuleInterface, include_rang
     for (name, declaration) in &interface.declarations {
         name.hash(hasher);
         declaration.name.hash(hasher);
-        declaration.is_const.hash(hasher);
+        declaration.semantics.hash(hasher);
         if include_ranges {
             hash_range(declaration.range, hasher);
         }

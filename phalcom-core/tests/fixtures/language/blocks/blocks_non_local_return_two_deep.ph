@@ -15,7 +15,7 @@ class Finder {
     return None
   }
 }
-const numbers = []
+let numbers = []
 numbers.append(-4)
 numbers.append(3)
 numbers.append(7)

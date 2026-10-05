@@ -8,7 +8,7 @@
 // the debug form.
 
 class Point {}
-const p = Point.new()
+let p = Point.new()
 System.print(p)
 System.print(p.toString)
 System.print(Point)

@@ -1,22 +1,22 @@
 // area: concurrency
 // spec: concurrency.md §2
 // Registration does not execute user code, even for a settled receiver.
-const first = Future.new()
-const second = Future.new()
-let calls = 0
-const a = Future.value(1).then |v| {
+let first = Future.new()
+let second = Future.new()
+let mut calls = 0
+let a = Future.value(1).then |v| {
   calls = calls + 1
   first.await
   second.await
   Future.value(None)
 }
-const b = Future.value(2).map |v| {
+let b = Future.value(2).map |v| {
   calls = calls + 1
   first.await
   second.await
   Error.new("data")
 }
-const c = Future.error(Error.new("source")).catch |e| {
+let c = Future.error(Error.new("source")).catch |e| {
   calls = calls + 1
   first.await
   second.await
@@ -34,7 +34,7 @@ System.runScheduled()
 System.print(a.await)
 System.print(b.await.message)
 try { c.await } catch e { System.print(e.message) }
-const immediate = Future.value(1).map |v| { throw Error.new("immediate") }
+let immediate = Future.value(1).map |v| { throw Error.new("immediate") }
 System.print("registered")
 System.runScheduled()
 try { immediate.await } catch e { System.print(e.message) }

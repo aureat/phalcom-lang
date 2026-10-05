@@ -9,13 +9,13 @@
 // "still the same rejection" from "some other rejection") but by recovering
 // the captured error through `catch(_)` and checking its *identity* against
 // `firstErr`.
-const firstErr = Error.new()
-const secondErr = Error.new()
-const f = Future.error(firstErr)
+let firstErr = Error.new()
+let secondErr = Error.new()
+let f = Future.error(firstErr)
 f.settleError(secondErr)
 f.settleValue(1)
 System.print(f.isReady)
 System.print(f.value)
-const caught = f.catch |e| { (e == firstErr) }
+let caught = f.catch |e| { (e == firstErr) }
 System.runScheduled()
 System.print(caught.value)

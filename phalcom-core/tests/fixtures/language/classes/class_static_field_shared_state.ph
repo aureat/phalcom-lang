@@ -7,9 +7,10 @@
 // construction mutates the one shared slot, not a per-instance field.
 class Counter {
   @class
-  _count = 0
+  mut _count = 0
+  @class bump() { _count = _count + 1 }
   @constructor
-  new() { _count = _count + 1 }
+  new() { class.bump() }
   @class
   count { _count }
 }

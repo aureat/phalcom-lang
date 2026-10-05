@@ -11,6 +11,6 @@ class Greeter {
     return "Hello, " + name;
   }
 }
-const g = Greeter.new()
-const bound = g.methodFor(#greet(_)).bind(g)
+let g = Greeter.new()
+let bound = g.methodFor(#greet(_)).bind(g)
 System.print(bound("World"))

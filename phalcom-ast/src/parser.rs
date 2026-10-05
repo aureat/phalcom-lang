@@ -343,6 +343,14 @@ impl Default for ParsedModifiers {
     }
 }
 
+#[derive(Clone, Copy)]
+struct ParserCheckpoint {
+    pos: usize,
+    prev_end: usize,
+    errors_len: usize,
+    parenthesized_ranges_len: usize,
+}
+
 impl<'source> Parser<'source> {
     /// Scans `source` and builds a parser positioned at the first token.
     ///
@@ -382,6 +390,22 @@ impl<'source> Parser<'source> {
             newline_terminates_expr: false,
             errors,
         }
+    }
+
+    fn save_parser_checkpoint(&self) -> ParserCheckpoint {
+        ParserCheckpoint {
+            pos: self.pos,
+            prev_end: self.prev_end,
+            errors_len: self.errors.len(),
+            parenthesized_ranges_len: self.parenthesized_ranges.len(),
+        }
+    }
+
+    fn restore_parser_checkpoint(&mut self, cp: ParserCheckpoint) {
+        self.pos = cp.pos;
+        self.prev_end = cp.prev_end;
+        self.errors.truncate(cp.errors_len);
+        self.parenthesized_ranges.truncate(cp.parenthesized_ranges_len);
     }
 
     // ── Token cursor ────────────────────────────────────────────────────────
@@ -1356,11 +1380,11 @@ impl<'source> Parser<'source> {
                     if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
                         let k = modifiers.implementation.as_str();
                         return Err(SyntaxError {
-                            kind: SyntaxErrorKind::Message(format!("{k}.illegal_target: 'type' alias declarations cannot be marked '{k}'")),
+                            kind: SyntaxErrorKind::Message(format!("{k}.illegal_target: 'type' declarations cannot be marked '{k}'")),
                             range: modifiers.implementation_range.map(|r| r.start..r.end).unwrap_or(0..0),
                         });
                     }
-                    self.parse_type_alias_with_modifiers(modifiers)?
+                    self.parse_type_definition_with_modifiers(modifiers)?
                 }
             } else if matches!(self.peek(), Token::Impl) {
                 if let Some(range) = modifiers.implementation_range {
@@ -1444,7 +1468,7 @@ impl<'source> Parser<'source> {
                 if matches!(self.peek_next(), Token::Data) {
                     self.parse_type_data(Vec::new(), ParsedModifiers::default())
                 } else {
-                    self.parse_type_alias()
+                    self.parse_type_definition()
                 }
             }
             Token::Data => self.parse_data(Vec::new(), ParsedModifiers::default(), AlgebraicPhase::Runtime),
@@ -1503,40 +1527,118 @@ impl<'source> Parser<'source> {
         }
     }
 
-    /// Parses a transparent type alias declaration `type Name<T> where ... = Body` (Spec 04 §7.5, §13).
-    fn parse_type_alias(&mut self) -> ParserResult<Statement> {
-        self.parse_type_alias_with_modifiers(ParsedModifiers::default())
+    /// Parses a static definition declaration (Spec 04 §7.5, §13, C4):
+    /// `type Name<T>: Result where ... = Body` or
+    /// `type Name<T>: Result where ... { statements }`
+    fn parse_type_definition(&mut self) -> ParserResult<Statement> {
+        self.parse_type_definition_with_modifiers(ParsedModifiers::default())
     }
 
-    fn parse_type_alias_with_modifiers(&mut self, modifiers: ParsedModifiers) -> ParserResult<Statement> {
+    #[deprecated(note = "use parse_type_definition")]
+    #[allow(dead_code)]
+    fn parse_type_alias(&mut self) -> ParserResult<Statement> {
+        self.parse_type_definition()
+    }
+
+    fn parse_type_definition_with_modifiers(&mut self, modifiers: ParsedModifiers) -> ParserResult<Statement> {
         let start = modifiers.implementation_range.map(|r| r.start).unwrap_or_else(|| self.cur_start());
         self.expect(&Token::TypeKw, &["\"type\""])?;
         let name_start = self.cur_start();
-        let name = self.expect_identifier(&["type alias name"])?;
+        let name = self.expect_identifier(&["type definition name"])?;
         let name_range = (name_start..self.prev_end).into();
-        let result_kind = if self.eat(&Token::Colon) { Some(self.parse_kind_expression()?) } else { None };
-        let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::Alias)?;
+
+        let parameters = self.parse_optional_static_parameters()?;
+        let result_domain = if self.eat(&Token::Colon) { Some(self.parse_static_domain()?) } else { None };
+
         self.skip_newlines_if_followed_by(&Token::Where);
         let where_clause = if matches!(self.peek(), Token::Where) {
             Some(self.parse_where_clause()?)
         } else {
             None
         };
-        self.skip_newlines_if_followed_by(&Token::Equal);
-        self.expect(&Token::Equal, &["\"=\""])?;
-        let body = self.parse_type_form()?;
+
+        let body = if matches!(self.peek(), Token::LBrace) {
+            StaticDefinitionBody::Block(self.parse_lexical_block()?)
+        } else {
+            self.skip_newlines_if_followed_by(&Token::Equal);
+            self.expect(&Token::Equal, &["\"=\"", "\"{\""])?;
+            let expr = self.parse_static_definition_expression_body(result_domain.is_some())?;
+            StaticDefinitionBody::Expression(Box::new(expr))
+        };
+
         let range = (start..self.prev_end).into();
-        Ok(Statement::TypeAlias(TypeAliasDef {
+        Ok(Statement::TypeDefinition(TypeDefinitionDef {
             name,
             name_range,
-            result_kind,
-            generic_parameters,
+            parameters,
+            result_domain,
             where_clause,
             body,
             implementation: modifiers.implementation,
             implementation_range: modifiers.implementation_range,
             range,
         }))
+    }
+
+    #[deprecated(note = "use parse_type_definition_with_modifiers")]
+    #[allow(dead_code)]
+    fn parse_type_alias_with_modifiers(&mut self, modifiers: ParsedModifiers) -> ParserResult<Statement> {
+        self.parse_type_definition_with_modifiers(modifiers)
+    }
+
+    fn parse_static_definition_expression_body(&mut self, has_result_domain: bool) -> ParserResult<Expr> {
+        if matches!(self.peek(), Token::LBrace) {
+            let next_tok = self.tokens.get(self.pos + 1).map(|l| &l.token);
+            if matches!(next_tok, Some(Token::Let | Token::Const | Token::Return | Token::While | Token::For)) {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("stale '= {' syntax: static definition block bodies do not use '='".to_string()),
+                    range: (self.cur_start()..self.tokens.get(self.pos + 1).map_or(self.prev_end, |l| l.end)).into(),
+                });
+            }
+        }
+
+        if matches!(
+            self.peek(),
+            Token::True
+                | Token::False
+                | Token::Int { .. }
+                | Token::Float(_)
+                | Token::String(_)
+                | Token::StringInterp(_)
+                | Token::Hash
+                | Token::If
+                | Token::While
+                | Token::For
+                | Token::Not
+                | Token::Minus
+        ) {
+            return self.parse_expr();
+        }
+
+        let checkpoint = self.save_parser_checkpoint();
+        match self.parse_type_form() {
+            Ok(form) if self.errors.len() == checkpoint.errors_len && !matches!(form.expr, TypeAnnotationExpr::Invalid { .. }) => {
+                if matches!(self.peek(), Token::Newline | Token::Semicolon | Token::Eof | Token::RBrace) {
+                    Ok(Expr::TypeForm(Box::new(form)))
+                } else if !has_result_domain {
+                    self.restore_parser_checkpoint(checkpoint);
+                    let form = self.parse_type_form()?;
+                    Ok(Expr::TypeForm(Box::new(form)))
+                } else {
+                    self.restore_parser_checkpoint(checkpoint);
+                    self.parse_expr()
+                }
+            }
+            Ok(_) | Err(_) => {
+                if !has_result_domain {
+                    self.restore_parser_checkpoint(checkpoint);
+                    let form = self.parse_type_form()?;
+                    return Ok(Expr::TypeForm(Box::new(form)));
+                }
+                self.restore_parser_checkpoint(checkpoint);
+                self.parse_expr()
+            }
+        }
     }
 
     /// Parses `for pattern [at index] in iter, ... { body }` into a
@@ -2200,6 +2302,87 @@ impl<'source> Parser<'source> {
         }
     }
 
+    fn is_value_generic_argument_ahead(&self) -> bool {
+        match self.peek() {
+            Token::True | Token::False => true,
+            Token::Int { .. } | Token::Float(..) | Token::String(..) | Token::Hash | Token::QuotedSymbol(..) => true,
+            Token::Minus => {
+                if let Some(next) = self.tokens.get(self.pos + 1) {
+                    matches!(next.token, Token::Int { .. } | Token::Float(..))
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn parse_generic_value_argument(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        if self.eat(&Token::Minus) {
+            let op_range = (start..self.prev_end).into();
+            let inner = self.parse_primary()?;
+            let range = (start..self.prev_end).into();
+            Ok(Expr::Unary(Box::new(UnaryExpr {
+                op: UnaryOp::Minus,
+                op_range: Some(op_range),
+                expr: inner,
+                range,
+            })))
+        } else {
+            self.parse_primary()
+        }
+    }
+
+    pub fn parse_generic_argument(&mut self) -> ParserResult<GenericArgumentSyntax> {
+        let is_asterisk_token = matches!(self.peek(), Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk);
+        if is_asterisk_token && matches!(self.peek_next(), Token::Colon) {
+            let start = self.cur_start();
+            let mode = match self.peek() {
+                Token::Asterisk => ExpansionMode::Positional,
+                Token::DoubleAsterisk => ExpansionMode::Labeled,
+                Token::TripleAsterisk => ExpansionMode::Complete,
+                _ => unreachable!(),
+            };
+            self.advance(); // '*' / '**' / '***'
+            self.advance(); // ':'
+            self.skip_newlines();
+            let rem_start = self.cur_start();
+            let remainder = if self.eat(&Token::DotDotDot) {
+                AnonymousRemainderSyntax::Unconstrained((rem_start..self.prev_end).into())
+            } else {
+                let constraint = self.parse_type_form()?;
+                AnonymousRemainderSyntax::Typed {
+                    constraint: Box::new(constraint),
+                    range: (rem_start..self.prev_end).into(),
+                }
+            };
+            let range = (start..self.prev_end).into();
+            Ok(GenericArgumentSyntax::Remainder(TypePackRemainderSyntax {
+                mode,
+                remainder,
+                range,
+            }))
+        } else if let Some(mode) = self.expansion_mode_at_cursor() {
+            let operator_start = self.cur_start();
+            let operator_range = (operator_start..self.tokens[self.pos].end).into();
+            self.advance();
+            let operand = self.parse_type_form()?;
+            let range = (operator_start..self.prev_end).into();
+            Ok(GenericArgumentSyntax::Expansion(TypePackExpansionSyntax {
+                mode,
+                operator_range,
+                operand,
+                range,
+            }))
+        } else if self.is_value_generic_argument_ahead() {
+            let expr = self.parse_generic_value_argument()?;
+            Ok(GenericArgumentSyntax::Value(Box::new(expr)))
+        } else {
+            Ok(GenericArgumentSyntax::Single(self.parse_type_form()?))
+        }
+    }
+
     /// Parses a postfix type with angle-bracket application `<...>`, subscript `[...]`, or `::` member/case lookup (Spec 04 §5.4).
     pub fn parse_postfix_type(&mut self) -> ParserResult<TypeAnnotation> {
         let mut atom = self.parse_type_atom()?;
@@ -2210,21 +2393,7 @@ impl<'source> Parser<'source> {
                 self.skip_newlines();
                 let mut arguments = Vec::new();
                 while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
-                    if let Some(mode) = self.expansion_mode_at_cursor() {
-                        let operator_start = self.cur_start();
-                        let operator_range = (operator_start..self.tokens[self.pos].end).into();
-                        self.advance();
-                        let operand = self.parse_type_form()?;
-                        let range = (operator_start..self.prev_end).into();
-                        arguments.push(GenericArgumentSyntax::Expansion(TypePackExpansionSyntax {
-                            mode,
-                            operator_range,
-                            operand,
-                            range,
-                        }));
-                    } else {
-                        arguments.push(GenericArgumentSyntax::Single(self.parse_type_form()?));
-                    }
+                    arguments.push(self.parse_generic_argument()?);
                     if self.eat(&Token::Comma) {
                         self.skip_newlines();
                     } else {
@@ -2860,6 +3029,124 @@ impl<'source> Parser<'source> {
         Ok(params)
     }
 
+    /// Parses a static domain annotation carrier: `: StaticDomainSyntax`.
+    pub fn parse_static_domain(&mut self) -> ParserResult<StaticDomainSyntax> {
+        let start = self.cur_start();
+        let form = self.parse_type_form()?;
+        let range = (start..self.prev_end).into();
+        Ok(StaticDomainSyntax { form, range })
+    }
+
+    /// Parses optional static parameters for a static definition: `<N: Int, T: Type>`.
+    fn parse_optional_static_parameters(&mut self) -> ParserResult<Vec<StaticParameterSyntax>> {
+        self.skip_newlines_if_followed_by(&Token::Less);
+        if matches!(self.peek(), Token::Less) {
+            self.parse_static_parameters()
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Parses static parameters with expansion mode, variance, and optional domain.
+    pub fn parse_static_parameters(&mut self) -> ParserResult<Vec<StaticParameterSyntax>> {
+        self.expect(&Token::Less, &["\"<\""])?;
+        self.skip_newlines();
+        let mut params = Vec::new();
+        while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
+            let param_start = self.cur_start();
+            let variance = if self.eat(&Token::Plus) {
+                self.errors.push(SyntaxError {
+                    kind: SyntaxErrorKind::Message("variance marker '+' only permitted on nominal declaration parameters".to_string()),
+                    range: param_start..self.prev_end,
+                });
+                VarianceSyntax::Covariant
+            } else if self.eat(&Token::Minus) {
+                self.errors.push(SyntaxError {
+                    kind: SyntaxErrorKind::Message("variance marker '-' only permitted on nominal declaration parameters".to_string()),
+                    range: param_start..self.prev_end,
+                });
+                VarianceSyntax::Contravariant
+            } else {
+                VarianceSyntax::Invariant
+            };
+
+            let mode_start = self.cur_start();
+            let mode = self.expansion_mode_at_cursor();
+            let mode_range = mode.map(|_| {
+                let range = (mode_start..self.tokens[self.pos].end).into();
+                self.advance();
+                range
+            });
+
+            if matches!(self.peek(), Token::Underscore) {
+                let u_start = self.cur_start();
+                self.advance();
+                self.errors.push(SyntaxError {
+                    kind: SyntaxErrorKind::Message("placeholder generic syntax 'F<_>' is rejected; declare explicit domain like 'F: Type -> Type'".to_string()),
+                    range: u_start..self.prev_end,
+                });
+            }
+
+            let name_start = self.cur_start();
+            let name = self.expect_identifier(&["static parameter name"])?;
+            let name_range = (name_start..self.prev_end).into();
+
+            let domain = if self.eat(&Token::ColonColon) {
+                self.errors.push(SyntaxError {
+                    kind: SyntaxErrorKind::Message("legacy domain ascription '::' is deprecated; use ':' for domain annotations".to_string()),
+                    range: param_start..self.prev_end,
+                });
+                Some(self.parse_static_domain()?)
+            } else if self.eat(&Token::Colon) {
+                Some(self.parse_static_domain()?)
+            } else if self.eat(&Token::Subtype) {
+                let inline_bound_start = self.cur_start();
+                let _upper = self.parse_type_form()?;
+                self.errors.push(SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!(
+                        "inline generic constraint '<{} <: ...>' is rejected; move constraint to a 'where' clause",
+                        name
+                    )),
+                    range: inline_bound_start..self.prev_end,
+                });
+                None
+            } else if self.eat(&Token::Conforms) {
+                let inline_bound_start = self.cur_start();
+                let _bound = self.parse_type_form()?;
+                self.errors.push(SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!(
+                        "inline generic constraint '<{} |= ...>' is rejected; move constraint to a 'where' clause",
+                        name
+                    )),
+                    range: inline_bound_start..self.prev_end,
+                });
+                None
+            } else {
+                None
+            };
+
+            let range = (param_start..self.prev_end).into();
+            params.push(StaticParameterSyntax {
+                mode,
+                mode_range,
+                variance,
+                name,
+                name_range,
+                domain,
+                range,
+            });
+
+            if self.eat(&Token::Comma) {
+                self.skip_newlines();
+            } else {
+                break;
+            }
+        }
+        self.skip_newlines();
+        self.expect_greater()?;
+        Ok(params)
+    }
+
     /// Parses an atomic type form (Spec 04 §5.1).
     pub fn parse_type_atom(&mut self) -> ParserResult<TypeAnnotation> {
         let start = self.cur_start();
@@ -3033,7 +3320,7 @@ impl<'source> Parser<'source> {
                         });
                         arguments.push(GenericArgumentSyntax::Single(val));
                     } else {
-                        arguments.push(GenericArgumentSyntax::Single(self.parse_type_form()?));
+                        arguments.push(self.parse_generic_argument()?);
                     }
                 }
 
@@ -3204,6 +3491,17 @@ impl<'source> Parser<'source> {
     fn parse_binding(&mut self, kind: BindingKind) -> ParserResult<Statement> {
         let start = self.cur_start();
         self.advance(); // 'let' or 'var'
+        let kind = if kind == BindingKind::Let
+            && self.at_contextual_word("mut")
+            && !matches!(
+                self.peek_at(1),
+                Token::Equal | Token::Colon | Token::Newline | Token::Semicolon | Token::Eof | Token::RBrace
+            ) {
+            self.advance();
+            BindingKind::LetMut
+        } else {
+            kind
+        };
         let pattern = self.parse_pattern()?;
         let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
         let value = if self.eat(&Token::Equal) { Some(self.parse_expr()?) } else { None };
@@ -5489,11 +5787,9 @@ impl<'source> Parser<'source> {
         }
     }
 
-    /// Parses a field declaration: `const`-prefixed (immutable) or bare
-    /// (mutable) — ADR-0064 §3, L-2. `is_const` records whether the caller
-    /// already consumed a leading `Token::Const`; a bare field has no keyword
-    /// to consume at all, so [`Self::parse_class_member`] dispatches here
-    /// without advancing past anything first.
+    /// Parses a field declaration: bare fields are immutable and `mut`
+    /// fields are mutable. `mutable` records whether the caller consumed the
+    /// contextual `mut` prefix before entering this parser.
     ///
     /// Field eligibility is structural: lexer emits `FieldIdentifier`.
     /// Prefixes do not carry semantics.
@@ -5503,7 +5799,7 @@ impl<'source> Parser<'source> {
     /// Returns an error if the field name is missing, the initializer
     /// expression is malformed, or the
     /// declaration is not followed by a newline, `}`, or end-of-file.
-    fn parse_field_decl(&mut self, start: usize, is_const: bool, modifiers: ParsedModifiers) -> ParserResult<ClassMember> {
+    fn parse_field_decl(&mut self, start: usize, mutable: bool, modifiers: ParsedModifiers) -> ParserResult<ClassMember> {
         if modifiers.implementation == ImplementationKind::Native || modifiers.implementation == ImplementationKind::Foreign {
             let k = modifiers.implementation.as_str();
             return Err(SyntaxError {
@@ -5533,7 +5829,7 @@ impl<'source> Parser<'source> {
         Ok(ClassMember::Field(FieldDef {
             name,
             name_range,
-            mutable: !is_const,
+            mutable,
             is_static: false,
             visibility: modifiers.visibility,
             visibility_range: modifiers.visibility_range,
@@ -5567,27 +5863,39 @@ impl<'source> Parser<'source> {
             .or(modifiers.implementation_range)
             .map(|r| r.start)
             .unwrap_or_else(|| self.cur_start());
-        // Field grammar (ADR-0064 §4, U-BINDINGS §4.1), in dispatch order:
-        // `const` unambiguously starts a field; `let` at field position is a
-        // hard error (L-2 — there is no mutable-with-keyword field form);
-        // a field token followed by a terminator or initializer is the bare
-        // mutable field form. Field tokens in method-shaped positions fall
-        // through and are rejected as non-selector names below.
+        // Field grammar: bare declarations are immutable, while the
+        // contextual `mut` prefix explicitly requests mutable storage. Field
+        // tokens in method-shaped positions fall through and are rejected as
+        // non-selector names below.
         if matches!(self.peek(), Token::Const) {
+            let const_start = self.cur_start();
             self.advance();
-            return self.parse_field_decl(start, true, modifiers);
+            self.errors.push(SyntaxError {
+                kind: SyntaxErrorKind::Message(
+                    "`const` is not field syntax; use `_field` for an immutable field or `mut _field` for a mutable field".to_string(),
+                ),
+                range: const_start..self.prev_end,
+            });
+            // Keep parsing this recognizable legacy declaration as an
+            // immutable field so the class remains a recovery boundary. The
+            // recorded migration diagnostic makes parse_source reject it,
+            // while parse() avoids cascading at the remaining field tokens
+            // and the class's closing brace.
+            return self.parse_field_decl(start, false, modifiers);
         }
         if matches!(self.peek(), Token::Let) {
             self.advance();
             let range = start..self.prev_end;
             return Err(SyntaxError {
-                kind: SyntaxErrorKind::Message("mutable fields take no keyword; write `_name` instead of `let _name`".to_string()),
+                kind: SyntaxErrorKind::Message(
+                    "`let` is not field syntax; use `_field` for an immutable field or `mut _field` for a mutable field".to_string(),
+                ),
                 range,
             });
         }
         if self.starts_mut_member() && matches!(self.peek_at(1), Token::FieldIdentifier(_)) {
             self.advance();
-            return self.parse_field_decl(start, false, modifiers);
+            return self.parse_field_decl(start, true, modifiers);
         }
         if matches!(self.peek(), Token::Class) && matches!(self.peek_next(), Token::Identifier(_)) {
             let range = start..self.cur_start() + 5;
@@ -7159,7 +7467,7 @@ impl<'source> Parser<'source> {
                     self.skip_newlines();
                     let mut arguments = Vec::new();
                     while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
-                        arguments.push(GenericArgumentSyntax::Single(self.parse_type_form()?));
+                        arguments.push(self.parse_generic_argument()?);
                         if self.eat(&Token::Comma) {
                             self.skip_newlines();
                         } else {
@@ -7325,7 +7633,7 @@ impl<'source> Parser<'source> {
                             .iter()
                             .map(|argument| match argument {
                                 GenericArgumentSyntax::Single(argument) => Some(argument.clone()),
-                                GenericArgumentSyntax::Expansion(_) => None,
+                                GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) | GenericArgumentSyntax::Value(_) => None,
                             })
                             .collect::<Option<Vec<_>>>()?;
                         Some((sym.clone(), arguments))
@@ -7461,7 +7769,7 @@ impl<'source> Parser<'source> {
                     self.skip_newlines();
                     let mut arguments = Vec::new();
                     while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
-                        arguments.push(GenericArgumentSyntax::Single(self.parse_type_form()?));
+                        arguments.push(self.parse_generic_argument()?);
                         if self.eat(&Token::Comma) {
                             self.skip_newlines();
                         } else {
@@ -10083,7 +10391,7 @@ mod tests {
     }
 
     #[test]
-    fn let_binding_records_mutable_kind() {
+    fn let_binding_records_immutable_kind() {
         let Statement::Let(binding) = only_statement("let x = 1") else {
             panic!("expected a let binding");
         };
@@ -10100,6 +10408,114 @@ mod tests {
         assert_eq!(binding.kind, BindingKind::Const);
         assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "x"));
         assert!(binding.value.is_some());
+    }
+
+    #[test]
+    fn parse_let_is_runtime_immutable_kind() {
+        let Statement::Let(binding) = only_statement("let x = 1") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding.kind, BindingKind::Let);
+        assert_eq!(binding.kind.phase(), crate::ast::BindingPhase::Runtime);
+        assert_eq!(binding.kind.runtime_mutability(), Some(crate::ast::RuntimeMutability::Immutable));
+        assert!(!binding.kind.is_mutable());
+        assert!(!binding.kind.is_static());
+        assert!(binding.kind.requires_initializer());
+        assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "x"));
+        assert!(binding.value.is_some());
+    }
+
+    #[test]
+    fn parse_let_mut_is_distinct_binding_kind() {
+        let Statement::Let(binding) = only_statement("let mut x = 1") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding.kind, BindingKind::LetMut);
+        assert_eq!(binding.kind.phase(), crate::ast::BindingPhase::Runtime);
+        assert_eq!(binding.kind.runtime_mutability(), Some(crate::ast::RuntimeMutability::Mutable));
+        assert!(binding.kind.is_mutable());
+        assert!(!binding.kind.is_static());
+        assert!(!binding.kind.requires_initializer());
+        assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "x"));
+        assert!(binding.value.is_some());
+    }
+
+    #[test]
+    fn parse_initializerless_let_mut_name() {
+        let Statement::Let(binding) = only_statement("let mut x") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding.kind, BindingKind::LetMut);
+        assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "x"));
+        assert!(binding.value.is_none());
+
+        let Statement::Let(binding_typed) = only_statement("let mut y: Int") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding_typed.kind, BindingKind::LetMut);
+        assert!(matches!(&binding_typed.pattern, Pattern::Name { name, .. } if name == "y"));
+        assert!(binding_typed.annotation.is_some());
+        assert!(binding_typed.value.is_none());
+    }
+
+    #[test]
+    fn parse_contextual_mut_binding_named_mut() {
+        // `let mut = 1` binds variable named `mut` as runtime immutable `let`
+        let Statement::Let(binding) = only_statement("let mut = 1") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding.kind, BindingKind::Let);
+        assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "mut"));
+        assert!(binding.value.is_some());
+
+        // `let mut mut = 1` binds variable named `mut` as runtime mutable `let mut`
+        let Statement::Let(binding2) = only_statement("let mut mut = 1") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding2.kind, BindingKind::LetMut);
+        assert!(matches!(&binding2.pattern, Pattern::Name { name, .. } if name == "mut"));
+        assert!(binding2.value.is_some());
+    }
+
+    #[test]
+    fn contextual_mut_does_not_become_global_keyword() {
+        let Statement::Let(binding) = only_statement("let mut_var = 1") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding.kind, BindingKind::Let);
+        assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "mut_var"));
+    }
+
+    #[test]
+    fn parse_contextual_mut_field() {
+        let Statement::Class(class_def) = only_statement("class C {\n  mut _x: Int\n}\n") else {
+            panic!("expected class def");
+        };
+        let ClassMember::Field(field) = &class_def.members[0] else {
+            panic!("expected field def");
+        };
+        assert_eq!(field.name, "_x");
+        assert!(field.mutable);
+    }
+
+    #[test]
+    fn parse_bare_field_as_immutable_target_form() {
+        let Statement::Class(class_def) = only_statement("class C {\n  _x: Int\n}\n") else {
+            panic!("expected class def");
+        };
+        let ClassMember::Field(field) = &class_def.members[0] else {
+            panic!("expected field def");
+        };
+        assert_eq!(field.name, "_x");
+        assert!(!field.mutable);
+    }
+
+    #[test]
+    fn legacy_const_field_spelling_is_rejected_with_migration_guidance() {
+        let parsed = parse("class C {\n  const _x: Int\n}\n", 0);
+        assert_eq!(parsed.errors.len(), 1);
+        assert!(parsed.errors[0].to_string().contains("`const` is not field syntax"));
+        assert!(parsed.errors[0].to_string().contains("`mut _field`"));
     }
 
     #[test]
@@ -10800,7 +11216,7 @@ native class NativeClass is Object {
     internal native fred() -> Int
     foreign plugh() -> Int
     private _field: Int = 42
-    internal const _const_field: Int = 100
+    internal _immutable_field: Int = 100
 }
 native data NativeEnum {
     A

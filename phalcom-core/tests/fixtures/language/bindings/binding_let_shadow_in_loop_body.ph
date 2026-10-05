@@ -6,10 +6,10 @@
 // name for the duration of the loop without ever writing through to it,
 // and the outer binding is untouched once the loop finishes.
 
-const x = 100
-let seen = []
+let x = 100
+let mut seen = []
 for i in [1, 2] {
-  const x = i
+  let x = i
   seen.append(x)
 }
 System.print(seen)

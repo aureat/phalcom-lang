@@ -3,7 +3,7 @@
 // status: PASS
 // `find(where:)` returns the first matching element or `None`.
 
-const list = []
+let list = []
 list.append(0)
 list.append(1)
 list.append(2)

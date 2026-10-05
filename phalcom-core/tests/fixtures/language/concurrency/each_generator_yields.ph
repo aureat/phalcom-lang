@@ -8,7 +8,7 @@
 // so `each` is now yield-transparent and the generator pattern works — the
 // Lua/Python "cannot yield across native boundary" wall, gone for this path.
 
-const f = Fiber.new || {
+let f = Fiber.new || {
   [1, 2, 3].each |x| { Fiber.yield(x) }
   "end"
 }

@@ -6,11 +6,13 @@
 // the parent's slot; the subclass writes its own — both survive independently.
 
 class A {
+  mut _slot
   @constructor
   new() { _slot = "A-slot" }
   aValue { _slot }
 }
 class B is A {
+  mut _slot
   @constructor
   new() {
     super.new()
@@ -18,6 +20,6 @@ class B is A {
   }
   bValue { _slot }
 }
-const b = B.new()
+let b = B.new()
 System.print(b.aValue)
 System.print(b.bValue)

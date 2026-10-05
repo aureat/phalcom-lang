@@ -4,10 +4,10 @@
 
 @construct
 class Point {
-  _x
-  _y
-  @get _label
+  mut _x
+  mut _y
+  @get mut _label
 }
 
-const p = Point.new(x: 3, y: 4, label: "origin")
+let p = Point.new(x: 3, y: 4, label: "origin")
 System.print(p.label)

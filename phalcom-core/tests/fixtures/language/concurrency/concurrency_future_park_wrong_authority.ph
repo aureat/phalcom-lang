@@ -4,8 +4,8 @@
 // A Future park is not a public coroutine suspension: call, try, and schedule
 // cannot steal it, and the authorized Future wake still resumes the waiter.
 
-const future = Future.new()
-const waiter = Fiber.new || {
+let future = Future.new()
+let waiter = Fiber.new || {
   System.print("waiter-start")
   future.await
   System.print("waiter-resumed")
@@ -13,14 +13,14 @@ const waiter = Fiber.new || {
 System.schedule(waiter)
 System.runScheduled()
 
-const callProbe = Fiber.new || { waiter.call() }
+let callProbe = Fiber.new || { waiter.call() }
 System.schedule(callProbe)
 System.runScheduled()
-const tryProbe = Fiber.new || { waiter.try() }
+let tryProbe = Fiber.new || { waiter.try() }
 System.schedule(tryProbe)
 System.runScheduled()
 
-let scheduleError = None
+let mut scheduleError = None
 try {
   System.schedule(waiter)
 } catch e {

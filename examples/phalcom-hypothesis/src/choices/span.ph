@@ -3,12 +3,12 @@
 @data
 @immutable
 class Span {
-  const _id: Int
-  const _label: Symbol
-  const _start: Int
-  const _end: Int
-  const _parent: Option<Int>
-  const _discardable: Bool
+  _id: Int
+  _label: Symbol
+  _start: Int
+  _end: Int
+  _parent: Option<Int>
+  _discardable: Bool
 
   @class
   @requires(id >= 0)

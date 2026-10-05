@@ -6,7 +6,7 @@
 // realizes that instruction, so this now runs to completion: a
 // `Tuple` distinct from `List` (the typing surface requires the distinction).
 
-const t = (3, 4)
+let t = (3, 4)
 System.print(t.size)
 System.print(t.at(0))
 System.print(t.class)

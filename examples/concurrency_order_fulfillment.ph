@@ -52,10 +52,10 @@ class Assert {
 // -----------------------------------------------------------------------------
 
 class Order {
-  const _id = None
-  const _sku = None
-  const _units = 0
-  const _subtotalCents = 0
+  _id = None
+  _sku = None
+  _units = 0
+  _subtotalCents = 0
 
   @constructor
   new(_ id, _ sku, _ units, _ subtotalCents) {
@@ -72,9 +72,9 @@ class Order {
 }
 
 class Reservation {
-  const _orderId = None
-  const _sku = None
-  const _units = 0
+  _orderId = None
+  _sku = None
+  _units = 0
 
   @constructor
   new(_ orderId, _ sku, _ units) {
@@ -89,8 +89,8 @@ class Reservation {
 }
 
 class ShippingQuote {
-  const _carrier = None
-  const _cents = 0
+  _carrier = None
+  _cents = 0
 
   @constructor
   new(_ carrier, _ cents) {
@@ -103,9 +103,9 @@ class ShippingQuote {
 }
 
 class Authorization {
-  const _orderId = None
-  const _code = None
-  const _amountCents = 0
+  _orderId = None
+  _code = None
+  _amountCents = 0
 
   @constructor
   new(_ orderId, _ code, _ amountCents) {
@@ -130,7 +130,7 @@ class Authorization {
 class InventoryService {
   @class
   reserve(_ order) {
-    const future = Future.new()
+    let future = Future.new()
 
     System.schedule {
       System.print("[inventory] reserving \(order.units) x \(order.sku)")
@@ -146,7 +146,7 @@ class InventoryService {
 class ShippingService {
   @class
   quote(_ order) {
-    const future = Future.new()
+    let future = Future.new()
 
     System.schedule {
       System.print("[shipping] quoting order \(order.id)")
@@ -162,7 +162,7 @@ class ShippingService {
 class PaymentGateway {
   @class
   authorize(_ order, _ amountCents) {
-    const future = Future.new()
+    let future = Future.new()
 
     System.schedule {
       System.print(
@@ -183,8 +183,8 @@ class PaymentGateway {
 
 System.print("== scheduler / root-await ==")
 
-let scheduledRan = false
-const scheduledProbe = Future.new()
+let mut scheduledRan = false
+let scheduledProbe = Future.new()
 
 System.schedule {
   scheduledRan = true
@@ -196,7 +196,7 @@ Assert.falsehood(
   "System.schedule must enqueue work rather than execute it synchronously"
 )
 
-const scheduledValue = scheduledProbe.await
+let scheduledValue = scheduledProbe.await
 
 Assert.equal(
   scheduledValue,
@@ -215,7 +215,7 @@ Assert.truth(
 
 System.print("== fulfillment workflow ==")
 
-const order = Order.new(
+let order = Order.new(
   "ORD-1042",
   "PHALCOM-BOOK",
   2,
@@ -223,18 +223,18 @@ const order = Order.new(
 )
 
 // Start independent operations before waiting for either.
-const reservationFuture: Future<Reservation> = InventoryService.reserve(order)
-const shippingFuture: Future<ShippingQuote> = ShippingService.quote(order)
+let reservationFuture: Future<Reservation> = InventoryService.reserve(order)
+let shippingFuture: Future<ShippingQuote> = ShippingService.quote(order)
 
 // Register a continuation while shippingFuture is still pending.
 // This exercises the pending Future.map path and its waiter/continuation drain.
-const payableFuture = shippingFuture.map |quote| {
+let payableFuture = shippingFuture.map |quote| {
   order.subtotalCents + quote.cents
 }
 
 // The first await should run only as much scheduled work as necessary to make
 // reservationFuture ready. The shipping job remains available for later work.
-const reservation = reservationFuture.await
+let reservation = reservationFuture.await
 
 Assert.equal(
   reservation.orderId,
@@ -252,7 +252,7 @@ Assert.equal(
 //   1. the shipping job to settle shippingFuture;
 //   2. shippingFuture.drain to schedule the map continuation;
 //   3. the continuation to settle payableFuture.
-const payableCents = payableFuture.await
+let payableCents = payableFuture.await
 
 Assert.equal(
   payableCents,
@@ -260,12 +260,12 @@ Assert.equal(
   "payable total must include the asynchronous shipping quote"
 )
 
-const authorizationFuture = PaymentGateway.authorize(
+let authorizationFuture = PaymentGateway.authorize(
   order,
   payableCents
 )
 
-const authorization = authorizationFuture.await
+let authorization = authorizationFuture.await
 
 Assert.equal(
   authorization.orderId,
@@ -297,8 +297,8 @@ Assert.equal(
 
 System.print("== warehouse fiber handshake ==")
 
-const station = Fiber.new {
-  const pickAck = Fiber.yield(
+let station = Fiber.new {
+  let pickAck = Fiber.yield(
     "PICK \(order.units) x \(order.sku)"
   )
 
@@ -308,7 +308,7 @@ const station = Fiber.new {
     "resume value must be delivered back into the suspended yield expression"
   )
 
-  const packAck = Fiber.yield(
+  let packAck = Fiber.yield(
     "PACK order \(order.id)"
   )
 
@@ -364,13 +364,13 @@ Assert.truth(
 
 System.print("== fiber failure containment ==")
 
-const labelWorker = Fiber.new {
+let labelWorker = Fiber.new {
   Error.new(
     "carrier API refused label for \(order.id)"
   ).raise()
 }
 
-const labelError = labelWorker.try()
+let labelError = labelWorker.try()
 
 Assert.truth(
   labelWorker.isDone,
@@ -399,11 +399,11 @@ Assert.equal(
 
 System.print("== nested call/try failure boundary ==")
 
-const carrierSession = Fiber.new {
+let carrierSession = Fiber.new {
   Error.new("carrier connection dropped").raise()
 }
 
-const dispatchWorker = Fiber.new {
+let dispatchWorker = Fiber.new {
   carrierSession.call()
 
   // Current semantics should never execute this after the child fails through
@@ -413,7 +413,7 @@ const dispatchWorker = Fiber.new {
   ).raise()
 }
 
-const dispatchError = dispatchWorker.try()
+let dispatchError = dispatchWorker.try()
 
 Assert.equal(
   dispatchError.message,
@@ -452,10 +452,10 @@ Assert.truth(
 
 System.print("== Future.async suspension probe ==")
 
-const databaseReply = Future.new()
+let databaseReply = Future.new()
 
-const receiptFuture = Future.async {
-  const receiptNumber = databaseReply.await
+let receiptFuture = Future.async {
+  let receiptNumber = databaseReply.await
   "RECEIPT-\(receiptNumber)"
 }
 

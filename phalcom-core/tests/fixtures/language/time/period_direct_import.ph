@@ -4,5 +4,5 @@
 
 from universe.time.calendar.period import Period
 
-const p = Period.months(1)
+let p = Period.months(1)
 System.print(p.months)

@@ -359,6 +359,12 @@ pub enum RuntimeError {
     #[error("undefined variable '{name}'")]
     UndefinedVariable { name: String },
 
+    #[error("binding '{name}' is read before it is initialized")]
+    UninitializedBinding { name: String },
+
+    #[error("immutable field `{name}` is read before it is initialized")]
+    UninitializedField { name: String },
+
     #[error("Can't convert {found} to {expected}")]
     TypeConversion { expected: &'static str, found: &'static str },
 

@@ -1,4 +1,5 @@
 class Box {
+  mut _value
   @constructor
   new(_ value) {
     _value = value

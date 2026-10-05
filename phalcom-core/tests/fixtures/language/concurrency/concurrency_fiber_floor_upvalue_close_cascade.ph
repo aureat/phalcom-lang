@@ -6,12 +6,12 @@
 // VM::open_upvalues — exercising the fiber-scoped close_fiber_upvalues_from
 // path (as opposed to concurrency_fiber_floor_upvalue_close.ph, which
 // exercises the originating, still-live fiber's close_upvalues_from(0) path).
-let leak = || { 0 }
-let inner = Fiber.new || {
+let mut leak = || { 0 }
+let mut inner = Fiber.new || {
   Fiber.abort(Error.new())
 }
-let outer = Fiber.new || {
-  let z = 7
+let mut outer = Fiber.new || {
+  let mut z = 7
   leak = || { z }
   inner.call()
 }

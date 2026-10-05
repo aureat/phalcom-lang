@@ -4,6 +4,7 @@
 // contract: @ensures's old() captures the pre-state snapshot before the method body mutates it
 
 class Box {
+  mut _val
   @constructor
   new(_ init) {
     _val = init
@@ -17,6 +18,6 @@ class Box {
   }
 }
 
-const b = Box.new(7)
+let b = Box.new(7)
 b.double()
 System.print(b.val)

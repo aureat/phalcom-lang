@@ -12,7 +12,7 @@ fn same_type_branch_writes_publish_flow_provenance() {
 class Probe {
   @class
   run(_ flag: Bool) {
-    let value = 1
+    let mut value = 1
     if flag {
       value = 2
     } else {
@@ -63,7 +63,7 @@ fn refuted_branch_write_preserves_recovery_union_and_diagnostic_owner() {
 class Probe {
   @class
   run(_ flag: Bool) {
-    let value: Number = 1
+    let mut value: Number = 1
     if flag {
       value = "bad"
     } else {
@@ -104,7 +104,7 @@ fn loop_join_publishes_flow_provenance_without_widening_to_contract() {
 class Probe {
   @class
   run(_ flag: Bool) {
-    let value: Number = 1
+    let mut value: Number = 1
     while flag {
       value = 2.5
     }
@@ -134,7 +134,7 @@ fn closure_construction_preserves_outer_flow_provenance() {
 class Probe {
   @class
   run() {
-    let value = 1
+    let mut value = 1
     let action = || {
       value = 2
     }
@@ -162,7 +162,7 @@ fn opaque_call_drops_mutable_current_to_its_persistent_contract() {
 class Probe {
   @class
   run() {
-    let value: Int | String = 1
+    let mut value: Int | String = 1
     let action = || { value = "changed" }
     action()
     let observed = value
@@ -191,7 +191,7 @@ fn closure_alias_invocation_drops_captured_mutable_current_knowledge() {
 class Probe {
   @class
   run() {
-    let value: Int | String = 1
+    let mut value: Int | String = 1
     let action = || { value = "changed" }
     let alias = action
     alias()
@@ -221,7 +221,7 @@ fn nested_closure_invocation_drops_captured_mutable_current_knowledge() {
 class Probe {
   @class
   run() {
-    let value: Int | String = 1
+    let mut value: Int | String = 1
     let action = || { value = "changed" }
     let helper = || { action() }
     helper()
@@ -250,7 +250,7 @@ fn same_type_captured_write_still_drops_stale_current_knowledge() {
 class Probe {
   @class
   run() {
-    let value: Int | String = 1
+    let mut value: Int | String = 1
     let action = || { value = 2 }
     action()
     let observed = value
@@ -303,7 +303,7 @@ fn opaque_call_drops_uncaptured_mutable_current_knowledge() {
 class Probe {
   @class
   run() {
-    let value = 1
+    let mut value = 1
     let action = || { 0 }
     action()
     let observed = value

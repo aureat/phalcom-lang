@@ -79,17 +79,17 @@ class Falcons {
 
 class Main {
   @class main {
-    let peregrine = Falcons.Peregrine
-    let saker = Falcons.Saker
-    let gyrfalcon = Falcons.Gyrfalcon
+    let mut peregrine = Falcons.Peregrine
+    let mut saker = Falcons.Saker
+    let mut gyrfalcon = Falcons.Gyrfalcon
 
-    let wren = Wren.new()
-    let sparrow = Sparrow.new()
-    let robin = Robin.new()
-    let canary = Canary.new()
+    let mut wren = Wren.new()
+    let mut sparrow = Sparrow.new()
+    let mut robin = Robin.new()
+    let mut canary = Canary.new()
 
-    let r1 = Falcons.doesBelong(peregrine)
-    let r2 = Falcons.doesBelong(wren)
+    let mut r1 = Falcons.doesBelong(peregrine)
+    let mut r2 = Falcons.doesBelong(wren)
     System.print(r1)
     System.print(r2)
   }

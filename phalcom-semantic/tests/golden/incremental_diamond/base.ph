@@ -2,7 +2,7 @@
 // Shared generic packet identity for both provider branches.
 
 class Packet<T> {
-  _value: T
+  mut _value: T
 
   @constructor
   new(_ value: T) {

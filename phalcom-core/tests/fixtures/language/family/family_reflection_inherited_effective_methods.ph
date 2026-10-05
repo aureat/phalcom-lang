@@ -12,8 +12,8 @@ class Child is Base {
   route(_ value) { "child-positional" }
 }
 
-const family = Child >> #route(...)
+let family = Child >> #route(...)
 System.print(family.size)
-const bound = family.bind(Child.new())
+let bound = family.bind(Child.new())
 System.print(bound(1))
 System.print(bound(to: 2))

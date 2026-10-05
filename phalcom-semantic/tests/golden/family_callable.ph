@@ -19,12 +19,12 @@ class Router {
 class Service {
   @class
   run(_ formatter: Formatter) {
-    let exact = &formatter.render(_)
-    let pattern = &formatter.render
+    let mut exact = &formatter.render(_)
+    let mut pattern = &formatter.render
 
-    let a = Router.use(exact, 42)
-    let b = pattern(value: "x")
-    let c = pattern()
+    let mut a = Router.use(exact, 42)
+    let mut b = pattern(value: "x")
+    let mut c = pattern()
 
     (a, b, c)
   }

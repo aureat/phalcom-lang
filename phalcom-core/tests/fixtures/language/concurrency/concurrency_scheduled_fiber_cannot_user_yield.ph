@@ -3,7 +3,7 @@
 // status: PASS
 // A scheduled Fiber with no active coroutine consumer cannot user-yield.
 
-const worker = Fiber.new || {
+let worker = Fiber.new || {
   Fiber.yield(42)
 }
 

@@ -2,17 +2,17 @@
 // spec: CONC002.C4.P1
 // status: PASS
 
-const bNone = Backoff.none
+let bNone = Backoff.none
 System.print(bNone.kind)
 System.print(bNone.delayFor(0))
 System.print(bNone.delayFor(5))
 
-const bFixed = Backoff.fixed(150)
+let bFixed = Backoff.fixed(150)
 System.print(bFixed.kind)
 System.print(bFixed.delayFor(0))
 System.print(bFixed.delayFor(5))
 
-const bExp = Backoff.exponential(10, 80)
+let bExp = Backoff.exponential(10, 80)
 System.print(bExp.kind)
 System.print(bExp.delayFor(0))
 System.print(bExp.delayFor(1))

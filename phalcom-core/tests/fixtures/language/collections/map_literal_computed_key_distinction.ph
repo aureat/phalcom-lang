@@ -4,7 +4,7 @@
 // A bare map key is a Symbol, while a computed String key stays a String.
 // They compare as distinct keys even when their text matches.
 
-const m = Map { name: 1, ["name"]: 2 }
+let m = Map { name: 1, ["name"]: 2 }
 System.print(m.size)
 System.print(m[#name])
 System.print(m["name"])

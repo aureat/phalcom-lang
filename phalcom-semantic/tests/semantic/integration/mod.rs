@@ -24,5 +24,6 @@ mod record_row_polymorphism;
 mod resolver;
 mod self_formation;
 mod source_index;
+mod static_definition_bodies;
 mod type_member_closure;
 mod workspace;

@@ -6,8 +6,8 @@ class Box {
   value { 11 }
   value() { 12 }
 }
-const b = Box.new()
-const getter = (Box >> #value).bind(b)
-const nullary = (Box >> #value()).bind(b)
+let b = Box.new()
+let getter = (Box >> #value).bind(b)
+let nullary = (Box >> #value()).bind(b)
 System.print(getter())
 System.print(nullary())

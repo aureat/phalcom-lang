@@ -111,11 +111,11 @@ class MonadAlgorithms {
         _ monad: Monad<F>,
         _ values: List<F<A>>
     ) -> F<List<A>> {
-        let empty: List<A> = []
-        let state = monad.pure(empty)
-        let index = 0
+        let mut empty: List<A> = []
+        let mut state = monad.pure(empty)
+        let mut index = 0
         while (index < values.size) {
-            let current = values[index]
+            let mut current = values[index]
             state = monad.flatMap(state, |items| {
                 monad.map(current, |value| {
                     items.append(value)
@@ -151,11 +151,11 @@ class MonadAlgorithms {
         _ values: List<A>,
         _ transform: (A) -> F<B>
     ) -> F<List<B>> {
-        let empty: List<B> = []
-        let state = monad.pure(empty)
-        let index = 0
+        let mut empty: List<B> = []
+        let mut state = monad.pure(empty)
+        let mut index = 0
         while (index < values.size) {
-            let value = values[index]
+            let mut value = values[index]
             state = monad.flatMap(state, |items| {
                 monad.map(transform.call(value), |mapped| {
                     items.append(mapped)

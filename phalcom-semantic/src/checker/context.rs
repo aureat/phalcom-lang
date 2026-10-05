@@ -33,6 +33,7 @@ use phalcom_native_surface::NATIVE_SURFACES;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// Storage abstraction for dispatch resolver avoiding per-callable cloning.
 ///
@@ -209,6 +210,39 @@ impl<'a> TrackingTypeResolver<'a> {
     pub(crate) fn inner(&self) -> &'a dyn TypeResolver {
         self.inner
     }
+
+    /// Resolves an application target through the ordinary linked-name
+    /// resolver while recording the static-definition product as its
+    /// declaration dependency. Value-domain static definitions do not publish
+    /// a nominal declaration shell or C3 alias product.
+    pub(crate) fn resolve_static_definition_name(
+        &self,
+        current_module: &ModuleId,
+        root: &str,
+        members: &[String],
+    ) -> Option<(DeclarationId, Arc<crate::static_definition::StaticDefinitionProduct>)> {
+        if is_query_owned_module(current_module) {
+            record_query_dependency(&self.dependencies, SemanticDependency::LinkedName(current_module.clone(), root.to_string()));
+        }
+
+        let qualified_target = if members.len() == 1 {
+            self.inner.resolve_module_alias(current_module, root)
+        } else {
+            None
+        };
+        if let Some(target) = &qualified_target {
+            if is_query_owned_module(target) {
+                record_query_dependency(&self.dependencies, SemanticDependency::PublicExport(target.clone(), members[0].clone()));
+            }
+        }
+
+        let declaration = self.inner.resolve_type_name(current_module, root, members)?;
+        let product = self.inner.resolve_static_definition(&declaration)?;
+        if is_query_owned_module(&declaration.module) && !is_bootstrap_declaration(&declaration) {
+            record_query_dependency(&self.dependencies, SemanticDependency::StaticDefinition(declaration.clone()));
+        }
+        Some((declaration, product))
+    }
 }
 
 /// Resolves one type name while exposing the exact semantic facts consumed by
@@ -283,6 +317,14 @@ impl TypeResolver for TrackingTypeResolver<'_> {
 
     fn resolve_alias_form(&self, declaration: &DeclarationId) -> Option<TypeId> {
         self.inner.resolve_alias_form(declaration)
+    }
+
+    fn resolve_static_definition(&self, declaration: &DeclarationId) -> Option<Arc<crate::static_definition::StaticDefinitionProduct>> {
+        let product = self.inner.resolve_static_definition(declaration);
+        if product.is_some() {
+            record_query_dependency(&self.dependencies, SemanticDependency::StaticDefinition(declaration.clone()));
+        }
+        product
     }
 
     fn resolve_module_alias(&self, current_module: &ModuleId, alias: &str) -> Option<ModuleId> {
@@ -447,6 +489,9 @@ pub struct CheckingContext<'a> {
     pub current_class: Option<DeclarationId>,
     pub current_side: DispatchSide,
     pub current_callable: Option<CallableId>,
+    /// Owner whose canonical instance constructor body is currently checked.
+    /// Set only from a declaration signature carrying constructor semantics.
+    pub(crate) current_constructor_owner: Option<DeclarationId>,
     pub internal_failure_policy: InternalFailurePolicy,
     pub control: CheckerControl,
     pub expected_return: Option<CallableReturnContract>,
@@ -464,6 +509,8 @@ pub struct CheckingContext<'a> {
     pub next_analysis_incident: u32,
     pub next_binding_id: u32,
     pub expressions: ExpressionAnalysisIndex,
+    pub(crate) checked_static_applications: Vec<crate::static_definition::CheckedStaticApplication>,
+    pub(crate) checked_static_constructions: BTreeMap<ExpressionId, crate::static_definition::CheckedStaticConstruction>,
     pub for_iteration_lanes: crate::checker::analysis::ForIterationLaneResolutionIndex,
     pub positional_expansions: crate::checker::analysis::PositionalExpansionIterationResolutionIndex,
     pub known_invalid_positional_expansions: crate::checker::analysis::KnownInvalidPositionalExpansionIndex,
@@ -485,6 +532,13 @@ pub struct CheckingContext<'a> {
     semantic_dependencies: SharedSemanticDependencies,
     field_signatures: Option<&'a FieldSignatureTable>,
     field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
+    pub(crate) constructor_initializations: Option<&'a crate::signature::ConstructorInitializationTable>,
+    pub(crate) callable_signatures: Option<&'a crate::signature::CallableSignatureTable>,
+    pub(crate) constructor_parent_owner: Option<DeclarationId>,
+    pub(crate) constructor_super_required: bool,
+    pub(crate) constructor_super_prologue_allowed: bool,
+    pub(crate) constructor_super_call_seen: bool,
+    pub(crate) constructor_super_initializer: Option<crate::checker::analysis::ConstructorSuperCallResolution>,
     pub data_table: Option<&'a crate::data_semantics::DataSemanticTable>,
     pub enum_table: Option<&'a crate::enum_semantics::EnumSemanticTable>,
     pub associated_table: Option<&'a crate::associated::AssociatedFamilyTable>,
@@ -563,6 +617,7 @@ impl<'a> CheckingContext<'a> {
             current_class: None,
             current_side: DispatchSide::Instance,
             current_callable: None,
+            current_constructor_owner: None,
             internal_failure_policy: InternalFailurePolicy::Contain,
             control: CheckerControl::default(),
             expected_return: None,
@@ -579,6 +634,8 @@ impl<'a> CheckingContext<'a> {
             next_analysis_incident: 0,
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
+            checked_static_applications: Vec::new(),
+            checked_static_constructions: BTreeMap::new(),
             for_iteration_lanes: BTreeMap::new(),
             positional_expansions: BTreeMap::new(),
             known_invalid_positional_expansions: BTreeMap::new(),
@@ -600,6 +657,13 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies,
             field_signatures: None,
             field_lifecycle: None,
+            constructor_initializations: None,
+            callable_signatures: None,
+            constructor_parent_owner: None,
+            constructor_super_required: false,
+            constructor_super_prologue_allowed: false,
+            constructor_super_call_seen: false,
+            constructor_super_initializer: None,
             data_table: None,
             enum_table: None,
             associated_table: None,
@@ -658,6 +722,7 @@ impl<'a> CheckingContext<'a> {
             current_class: None,
             current_side: DispatchSide::Instance,
             current_callable: None,
+            current_constructor_owner: None,
             internal_failure_policy: InternalFailurePolicy::Contain,
             control,
             expected_return: None,
@@ -674,6 +739,8 @@ impl<'a> CheckingContext<'a> {
             next_analysis_incident: 0,
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
+            checked_static_applications: Vec::new(),
+            checked_static_constructions: BTreeMap::new(),
             for_iteration_lanes: BTreeMap::new(),
             positional_expansions: BTreeMap::new(),
             known_invalid_positional_expansions: BTreeMap::new(),
@@ -695,6 +762,13 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies,
             field_signatures: None,
             field_lifecycle: None,
+            constructor_initializations: None,
+            callable_signatures: None,
+            constructor_parent_owner: None,
+            constructor_super_required: false,
+            constructor_super_prologue_allowed: false,
+            constructor_super_call_seen: false,
+            constructor_super_initializer: None,
             data_table: None,
             enum_table: None,
             associated_table: None,
@@ -732,6 +806,7 @@ impl<'a> CheckingContext<'a> {
             current_class: self.current_class.clone(),
             current_side: self.current_side,
             current_callable: self.current_callable.clone(),
+            current_constructor_owner: self.current_constructor_owner.clone(),
             internal_failure_policy: self.internal_failure_policy,
             control: self.control.clone(),
             expected_return: self.expected_return.clone(),
@@ -748,6 +823,8 @@ impl<'a> CheckingContext<'a> {
             next_analysis_incident: self.next_analysis_incident,
             next_binding_id: self.next_binding_id,
             expressions: self.expressions.clone(),
+            checked_static_applications: self.checked_static_applications.clone(),
+            checked_static_constructions: self.checked_static_constructions.clone(),
             for_iteration_lanes: self.for_iteration_lanes.clone(),
             positional_expansions: self.positional_expansions.clone(),
             known_invalid_positional_expansions: self.known_invalid_positional_expansions.clone(),
@@ -769,6 +846,13 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies: self.semantic_dependencies.clone(),
             field_signatures: self.field_signatures,
             field_lifecycle: self.field_lifecycle,
+            constructor_initializations: self.constructor_initializations,
+            callable_signatures: self.callable_signatures,
+            constructor_parent_owner: self.constructor_parent_owner.clone(),
+            constructor_super_required: self.constructor_super_required,
+            constructor_super_prologue_allowed: self.constructor_super_prologue_allowed,
+            constructor_super_call_seen: self.constructor_super_call_seen,
+            constructor_super_initializer: self.constructor_super_initializer.clone(),
             data_table: self.data_table,
             enum_table: self.enum_table,
             associated_table: self.associated_table,
@@ -920,6 +1004,7 @@ impl<'a> CheckingContext<'a> {
                         contract: state.contract.clone(),
                         consistency: state.consistency.clone(),
                         mutable: state.mutable,
+                        initialization: state.initialization,
                     },
                 )
             })
@@ -1134,6 +1219,41 @@ impl<'a> CheckingContext<'a> {
         self.expression_owners.last().copied()
     }
 
+    pub(crate) fn record_checked_static_application(
+        &mut self,
+        owner: DeclarationId,
+        source_range: SourceRange,
+        target: DeclarationId,
+        signature: crate::static_definition::StaticDefinitionSignature,
+        arguments: Box<[crate::static_definition::CheckedStaticApplicationArgument]>,
+    ) -> Option<crate::static_definition::StaticApplicationId> {
+        let expression = self.current_expression_id()?;
+        let ordinal = u32::try_from(self.checked_static_applications.len()).ok()?;
+        let id = crate::static_definition::StaticApplicationId {
+            body: crate::static_definition::StaticBodyId(owner),
+            ordinal,
+        };
+        self.checked_static_applications.push(crate::static_definition::CheckedStaticApplication {
+            id: id.clone(),
+            expression,
+            source_range,
+            target,
+            signature,
+            arguments,
+        });
+        Some(id)
+    }
+
+    pub(crate) fn record_checked_static_construction(&mut self, construction: crate::static_definition::CheckedStaticConstruction) {
+        self.checked_static_constructions.insert(construction.expression, construction);
+    }
+
+    pub(crate) fn expression_id_for_static_range(&self, range: phalcom_common::range::SourceRange) -> Option<ExpressionId> {
+        let mut matches = self.expressions.iter().filter_map(|(id, analysis)| (analysis.range == range).then_some(*id));
+        let expression = matches.next()?;
+        matches.next().is_none().then_some(expression)
+    }
+
     pub(crate) fn trait_dispatch_candidates_for_current_expression(&self) -> Option<&[crate::trait_dispatch::TraitEvidencedMemberCandidate]> {
         self.current_expression_id()
             .and_then(|id| self.resolved_trait_dispatch_candidates.get(&id))
@@ -1142,6 +1262,13 @@ impl<'a> CheckingContext<'a> {
 
     pub fn resolved_callable_for_current_expression(&self) -> Option<CallableId> {
         self.current_expression_id().and_then(|id| self.resolved_callables.get(&id).cloned())
+    }
+
+    pub(crate) fn record_explicit_callable_selection(&mut self, callable: &CallableId) {
+        self.dependencies.insert(callable.clone());
+        if let Some(expression) = self.current_expression_id() {
+            self.resolved_callables.insert(expression, callable.clone());
+        }
     }
 
     pub(crate) fn seed_stable_record_row_lacks(&mut self, facts: impl IntoIterator<Item = crate::checker::row_inference::StableRecordRowLack>) {
@@ -1611,6 +1738,9 @@ impl<'a> CheckingContext<'a> {
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
         analysis.explanation = explanation;
+        analysis.binding_read_safety = typed.binding_read_safety;
+        analysis.binding_read = typed.binding_read;
+        analysis.binding_write = typed.binding_write;
 
         self.expressions.insert(id, analysis.clone());
         analysis
@@ -1638,6 +1768,9 @@ impl<'a> CheckingContext<'a> {
         analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
+        analysis.binding_read_safety = typed.binding_read_safety;
+        analysis.binding_read = typed.binding_read;
+        analysis.binding_write = typed.binding_write;
     }
 
     pub(crate) fn take_call_specialization(&mut self, id: ExpressionId) -> Option<crate::checker::analysis::CallSpecialization> {
@@ -1735,6 +1868,52 @@ impl<'a> CheckingContext<'a> {
         BindingDeclarationResult::Inserted(binding_id)
     }
 
+    /// Imports an already checked binding fact into the current lexical scope
+    /// with a fresh body-local identity, without rerunning contract inference.
+    pub(crate) fn declare_checked_binding(&mut self, name: String, source: &crate::checker::analysis::BindingState) -> BindingDeclarationResult {
+        let Some(scope) = self.scopes.last() else {
+            return BindingDeclarationResult::Redeclared(BindingId(u32::MAX));
+        };
+        if let Some(existing) = scope.get(&name).cloned() {
+            let mut diagnostic = SemanticDiagnostic::error_in(
+                self.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::BindingRedeclared,
+                format!("binding `{name}` is already declared in this scope"),
+                source.range,
+            );
+            if let Some(previous) = self.flow.get_binding(existing.id) {
+                diagnostic = diagnostic.with_label(previous.range, "first declaration");
+            }
+            self.emit_diagnostic(diagnostic);
+            return BindingDeclarationResult::Redeclared(existing.id);
+        }
+
+        let binding_id = self.alloc_binding();
+        let seed = BindingSeed {
+            name: name.clone(),
+            parameter: None,
+            range: source.range,
+            contract: source.contract.clone(),
+            current: source.current.clone(),
+            denotation: source.denotation.clone(),
+            causal_invalidity: source.causal_invalidity,
+            mutable: source.mutable,
+            initialization: source.initialization,
+        };
+        self.flow.declare_seed(binding_id, seed, source.current.clone(), source.consistency.clone());
+        if let Some(state) = self.flow.get_binding(binding_id).cloned() {
+            self.binding_history.insert(binding_id, state);
+        }
+        self.scopes.last_mut().expect("scope checked above").insert(
+            name,
+            LocalBindingInfo {
+                id: binding_id,
+                denotation: source.denotation.clone(),
+            },
+        );
+        BindingDeclarationResult::Inserted(binding_id)
+    }
+
     pub fn bind_callable_parameter(&mut self, name: impl Into<String>, current: TypeKnowledge, range: SourceRange) -> BindingDeclarationResult {
         self.bind_callable_parameter_with_identity(name, current, range, crate::checker::causal::CausalInvalidity::Clean, None)
     }
@@ -1790,6 +1969,7 @@ impl<'a> CheckingContext<'a> {
             denotation: None,
             causal_invalidity,
             mutable: false,
+            initialization: crate::checker::flow::InitializationState::DefinitelyInitialized,
         })
     }
 
@@ -1807,6 +1987,7 @@ impl<'a> CheckingContext<'a> {
             denotation: None,
             causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
             mutable: false,
+            initialization: crate::checker::flow::InitializationState::DefinitelyInitialized,
         })
     }
 
@@ -1820,6 +2001,7 @@ impl<'a> CheckingContext<'a> {
             denotation: None,
             causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
             mutable: false,
+            initialization: crate::checker::flow::InitializationState::DefinitelyInitialized,
         })
     }
 
@@ -1843,7 +2025,8 @@ impl<'a> CheckingContext<'a> {
             current: fact.knowledge,
             denotation: fact.denotation,
             causal_invalidity,
-            mutable: true,
+            mutable: false,
+            initialization: crate::checker::flow::InitializationState::DefinitelyInitialized,
         })
     }
 
@@ -1862,6 +2045,13 @@ impl<'a> CheckingContext<'a> {
 
     pub(crate) fn binding_is_in_current_scope(&self, binding: BindingId) -> bool {
         self.scopes.last().is_some_and(|scope| scope.values().any(|info| info.id == binding))
+    }
+
+    pub(crate) fn is_enclosing_closure_binding(&self, binding: BindingId) -> bool {
+        let Some(boundary) = self.closure_capture_frames.last().map(|(boundary, _)| *boundary) else {
+            return false;
+        };
+        self.scopes.iter().take(boundary).any(|scope| scope.values().any(|info| info.id == binding))
     }
 
     pub(crate) fn local_binding_type(&self, binding: BindingId) -> Option<&LocalType> {
@@ -2008,6 +2198,16 @@ impl<'a> CheckingContext<'a> {
     /// every query-owned callable's type contract is represented by its
     /// canonical `CallableSignature` product, including partial declarations.
     pub(crate) fn record_consumed_callable_signature(&self, callable: &CallableId, _signature: &crate::dispatch::CallableSignature) {
+        // Generated constructor signatures are canonical snapshot members but
+        // have no source CallableSignature query of their own. Their owner
+        // ConstructorInitialization product is the dependency authority.
+        if self
+            .constructor_initializations
+            .and_then(|products| products.get(callable))
+            .is_some_and(|product| product.origin != crate::signature::ConstructorOrigin::Source)
+        {
+            return;
+        }
         let Some(owner) = callable.try_declaration_owner() else {
             self.record_semantic_dependency(SemanticDependency::CallableSignature(callable.clone()));
             return;
@@ -2027,6 +2227,14 @@ impl<'a> CheckingContext<'a> {
     /// Attaches compiler-owned instance field lifecycle table.
     pub fn attach_field_lifecycle(&mut self, field_lifecycle: &'a crate::checker::field_lifecycle::FieldLifecycleTable) {
         self.field_lifecycle = Some(field_lifecycle);
+    }
+
+    pub fn attach_constructor_initializations(&mut self, products: &'a crate::signature::ConstructorInitializationTable) {
+        self.constructor_initializations = Some(products);
+    }
+
+    pub fn attach_callable_signatures(&mut self, signatures: &'a crate::signature::CallableSignatureTable) {
+        self.callable_signatures = Some(signatures);
     }
 
     /// Attaches compiler-owned data semantics table.
@@ -3051,14 +3259,51 @@ impl<'a> CheckingContext<'a> {
         Some(signature)
     }
 
+    /// Resolves the nearest declaration-owned field signature in the class
+    /// hierarchy, preserving the declaring field's canonical `FieldId`.
+    pub(crate) fn resolve_field_signature_in_hierarchy(
+        &self,
+        owner: &DeclarationId,
+        side: DispatchSide,
+        name: &str,
+    ) -> Option<&crate::signature::FieldSemanticSignature> {
+        let mut current = owner.clone();
+        let mut visited = BTreeSet::new();
+        while visited.insert(current.clone()) {
+            if let Some(signature) = self.resolve_field_signature(&current, side, name) {
+                return Some(signature);
+            }
+            let Some(parent) = self.hierarchy.superclass(&current) else {
+                break;
+            };
+            current = parent.clone();
+        }
+        None
+    }
+
+    pub(crate) fn resolve_field_contract_in_hierarchy(
+        &self,
+        owner: &DeclarationId,
+        side: DispatchSide,
+        name: &str,
+    ) -> Option<(crate::identity::FieldId, TypeKnowledge)> {
+        let signature = self.resolve_field_signature_in_hierarchy(owner, side, name)?;
+        Some((signature.field.clone(), signature.declared_type.to_knowledge()))
+    }
+
     pub(crate) fn resolve_field_read(
         &self,
         owner: &DeclarationId,
         side: DispatchSide,
         name: &str,
     ) -> Option<(crate::identity::FieldId, TypeKnowledge, crate::checker::causal::CausalInvalidity)> {
-        let (field, contract) = self.resolve_field_contract(owner, side, name)?;
-        if self.current_class.as_ref() == Some(owner) && self.current_side == side {
+        let (field, contract) = self.resolve_field_contract_in_hierarchy(owner, side, name)?;
+        let checking_same_receiver_hierarchy = self.current_side == side
+            && self
+                .current_class
+                .as_ref()
+                .is_some_and(|current_class| self.hierarchy.is_subclass(current_class, &field.owner));
+        if checking_same_receiver_hierarchy {
             if let Some(state) = self.flow.get_field(&field) {
                 return Some((field, state.current.clone(), state.causal_invalidity));
             }
@@ -3236,6 +3481,7 @@ impl<'a> CheckingContext<'a> {
             return_explanation,
             dependencies: std::sync::Arc::from(self.dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
             semantic_dependencies: std::sync::Arc::from(semantic_dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
+            constructor_super_initializer: self.constructor_super_initializer,
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status,
         }

@@ -5,15 +5,15 @@
 // order-sensitive, holds for two empty lists, and is `false` across kinds
 // (a `List` is never `==` to a non-`List`, without raising).
 
-const nestedA = []
-const innerA = []
+let nestedA = []
+let innerA = []
 innerA.append(1)
 innerA.append(2)
 nestedA.append(innerA)
 nestedA.append(3)
 
-const nestedB = []
-const innerB = []
+let nestedB = []
+let innerB = []
 innerB.append(1)
 innerB.append(2)
 nestedB.append(innerB)
@@ -21,16 +21,16 @@ nestedB.append(3)
 
 System.print(nestedA == nestedB)
 
-const reordered = []
-const innerC = []
+let reordered = []
+let innerC = []
 innerC.append(2)
 innerC.append(1)
 reordered.append(innerC)
 reordered.append(3)
 System.print(nestedA == reordered)
 
-const emptyA = []
-const emptyB = []
+let emptyA = []
+let emptyB = []
 System.print(emptyA == emptyB)
 
 System.print(nestedA == 3)

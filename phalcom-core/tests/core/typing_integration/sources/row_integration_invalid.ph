@@ -3,7 +3,7 @@ class RowEitherInvalidProbe {
     collision(
         _ source: Either<String, { name: String, tag: String }>
     ) {
-        let result = source.map(|record| {
+        let mut result = source.map(|record| {
             RowCalculus.tagged(record)
         })
     }

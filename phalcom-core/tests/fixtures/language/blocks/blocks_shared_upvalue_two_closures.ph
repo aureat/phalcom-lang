@@ -4,9 +4,9 @@
 // Two DIFFERENT closures created in the same scope over the same `let` share
 // ONE open upvalue cell — mutating through `inc` must be visible when reading
 // through `show`, proving the cell is aliased, not copied per-closure.
-let count = 0
-const inc = || { count = count + 1 }
-const show = || { count }
+let mut count = 0
+let inc = || { count = count + 1 }
+let show = || { count }
 
 inc.call()
 inc.call()

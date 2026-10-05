@@ -14,9 +14,9 @@ class Probe {
   }
 }
 
-const f = Fiber.new || {
-  let s = Set.new()
+let f = Fiber.new || {
+  let mut s = Set.new()
   s.add(Probe.new())
 }
-const result = f.try()
+let result = f.try()
 System.print(result.class.name)

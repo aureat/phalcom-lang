@@ -1,5 +1,5 @@
 use phalcom_modules::fingerprint::interface_fingerprint;
-use phalcom_modules::interface::{DeclarationSurface, UnlinkedModuleInterface};
+use phalcom_modules::interface::{DeclarationSurface, ModuleBindingSemantics, UnlinkedModuleInterface};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::resolver::{ImportPathIdentity, ImportResolutionProduct, ResolutionTopologyDependencies};
 use phalcom_modules::source::ModuleKind;
@@ -43,7 +43,7 @@ fn topology_fingerprint_ignores_symbol_only_export_and_declaration_changes() {
                 "hello".to_string(),
                 DeclarationSurface {
                     name: "hello".to_string(),
-                    is_const: true,
+                    semantics: ModuleBindingSemantics::Declaration,
                     range: phalcom_common::range::SourceRange { start: 0, end: 10 },
                 },
             )]),
@@ -79,7 +79,7 @@ fn topology_fingerprint_ignores_symbol_only_export_and_declaration_changes() {
         "goodbye".to_string(),
         DeclarationSurface {
             name: "goodbye".to_string(),
-            is_const: false,
+            semantics: ModuleBindingSemantics::Runtime { mutable: true },
             range: phalcom_common::range::SourceRange { start: 15, end: 30 },
         },
     );

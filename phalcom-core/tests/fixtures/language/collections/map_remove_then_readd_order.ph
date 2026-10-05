@@ -5,11 +5,11 @@
 // the backing store actually produces afterward (swap-remove reshuffles the
 // probe sequence; this is a corner the thin corpus never exercised).
 
-const m = Map.new()
+let m = Map.new()
 m.at(1, put: "a")
 m.at(2, put: "b")
 m.at(3, put: "c")
-const removedValue = m.remove(2)
+let removedValue = m.remove(2)
 System.print(removedValue)
 System.print(m.size)
 System.print(m.keys.toList)

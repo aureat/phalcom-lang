@@ -49,6 +49,15 @@ pub struct ScopedOpenTupleTypeRef {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct ScopedPackTypeRef {
+    pub elements: Box<[ScopedTupleElementRef]>,
+    #[serde(default)]
+    pub positional_remainder: ScopedAnonymousTupleRemainderRef,
+    #[serde(default)]
+    pub labeled_remainder: ScopedAnonymousTupleRemainderRef,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct ScopedAnonymousRecordTypeRef {
     pub fields: Box<[ScopedRecordFieldRef]>,
     pub remainder: ScopedAnonymousRecordRemainderRef,
@@ -169,6 +178,11 @@ pub enum ScopedTypeNode {
     },
     OpenTuple(ScopedOpenTupleTypeRef),
     AnonymousRecord(ScopedAnonymousRecordTypeRef),
+    Pack(ScopedPackTypeRef),
+    PackFromPacks {
+        positionals: ScopedTypeNodeId,
+        labeled: ScopedTypeNodeId,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]

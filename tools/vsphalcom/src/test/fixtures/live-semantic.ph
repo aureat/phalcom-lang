@@ -6,5 +6,5 @@ class Dog is Animal {
   bark() {}
 }
 
-const dog = Dog.new()
+let dog = Dog.new()
 dog.bark()

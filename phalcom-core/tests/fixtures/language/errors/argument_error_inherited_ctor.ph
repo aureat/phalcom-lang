@@ -4,7 +4,7 @@
 // ArgumentError — the boundary-guard exception class (U-STRING).
 // Inherits Error's @constructor new(msg) via U-INH inherited-ctor resolution.
 
-let err = ArgumentError.new("age must be >= 0")
+let mut err = ArgumentError.new("age must be >= 0")
 System.print(err.message)
 System.print(err.is(Error))
 System.print(err.is(ArgumentError))

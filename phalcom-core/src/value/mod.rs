@@ -57,6 +57,8 @@ impl Value {
             "unit"
         } else if self.is_empty_record() {
             "record"
+        } else if self.is_empty_pack() {
+            "pack"
         } else if self.is_bool() {
             "bool"
         } else if self.is_int() {
@@ -119,6 +121,9 @@ impl Value {
         if self.is_empty_record() {
             return vm.universe.classes.record_class;
         }
+        if self.is_empty_pack() {
+            return vm.universe.classes.pack_class;
+        }
         if let Some(b) = self.as_bool() {
             return if b { vm.universe.classes.true_class } else { vm.universe.classes.false_class };
         }
@@ -153,6 +158,7 @@ impl Value {
                 Object::Set(_) => vm.universe.classes.set_class,
                 Object::Tuple(_) => vm.universe.classes.tuple_class,
                 Object::Record(_) => vm.universe.classes.record_class,
+                Object::Pack(_) => vm.universe.classes.pack_class,
                 Object::Range(_) => vm.universe.classes.range_class,
                 // `&` callable reference (selectors.md §3) — reached
                 // through `Value::obj` exactly as `Object::List` is; no
@@ -241,6 +247,7 @@ impl Value {
                 | Object::Set(_)
                 | Object::Tuple(_)
                 | Object::Record(_)
+                | Object::Pack(_)
                 | Object::Range(_)
                 | Object::Family(_)
                 | Object::Selector(_)
@@ -298,6 +305,14 @@ impl Value {
     pub fn value_eq(&self, other: &Value, heap: &crate::heap::Heap) -> bool {
         use crate::heap::Object;
 
+        debug_assert!(
+            !self.is_uninitialized_binding() && !other.is_uninitialized_binding(),
+            "uninitialized binding reached value_eq"
+        );
+        if self.is_uninitialized_binding() || other.is_uninitialized_binding() {
+            return false;
+        }
+
         if self.is_option() || other.is_option() {
             if self.option_depth() != other.option_depth() {
                 return false;
@@ -344,6 +359,9 @@ impl Value {
             return true;
         }
         if self.is_empty_record() && other.is_empty_record() {
+            return true;
+        }
+        if self.is_empty_pack() && other.is_empty_pack() {
             return true;
         }
         if let (Some(a), Some(b)) = (self.as_bool(), other.as_bool()) {

@@ -14,7 +14,7 @@ class Scanner {
     return None
   }
 }
-const numbers = []
+let numbers = []
 numbers.append(1)
 numbers.append(5)
 numbers.append(9)

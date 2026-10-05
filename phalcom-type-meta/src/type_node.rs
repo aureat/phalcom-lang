@@ -165,6 +165,15 @@ pub struct StaticDataRef {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct PackTypeRef {
+    pub elements: Box<[TupleElementRef]>,
+    #[serde(default)]
+    pub positional_remainder: AnonymousTupleRemainderRef,
+    #[serde(default)]
+    pub labeled_remainder: AnonymousTupleRemainderRef,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub enum TypeNode {
     Never,
     Unit,
@@ -210,6 +219,11 @@ pub enum TypeNode {
     TypeMemberProjection(TypeMemberProjectionRef),
     OpenTuple(OpenTupleTypeRef),
     AnonymousRecord(AnonymousRecordTypeRef),
+    Pack(PackTypeRef),
+    PackFromPacks {
+        positionals: TypeNodeId,
+        labeled: TypeNodeId,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]

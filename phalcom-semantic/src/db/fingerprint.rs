@@ -35,15 +35,15 @@ use std::collections::{BTreeMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-fn finish_input(hasher: DefaultHasher) -> InputFingerprint {
+pub(crate) fn finish_input(hasher: DefaultHasher) -> InputFingerprint {
     InputFingerprint::new(hasher.finish())
 }
 
-fn finish_product(hasher: DefaultHasher) -> ProductFingerprint {
+pub(crate) fn finish_product(hasher: DefaultHasher) -> ProductFingerprint {
     ProductFingerprint::new(hasher.finish())
 }
 
-fn hash_range(range: SourceRange, hasher: &mut impl Hasher) {
+pub(crate) fn hash_range(range: SourceRange, hasher: &mut impl Hasher) {
     range.start.hash(hasher);
     range.end.hash(hasher);
 }
@@ -271,7 +271,7 @@ fn hash_linked_interface(interface: &LinkedModuleInterface, include_ranges: bool
     phalcom_modules::fingerprint::hash_linked_interface(interface, include_ranges, hasher);
 }
 
-fn hash_type_knowledge(knowledge: &TypeKnowledge, include_provenance: bool, hasher: &mut impl Hasher) {
+pub(crate) fn hash_type_knowledge(knowledge: &TypeKnowledge, include_provenance: bool, hasher: &mut impl Hasher) {
     match knowledge {
         TypeKnowledge::Known(evidence) => {
             0u8.hash(hasher);
@@ -610,6 +610,7 @@ fn hash_contract_summary(summary: &BindingContractSummary, hasher: &mut impl Has
         Some(crate::checker::binding::BindingContractOrigin::CallableParameter) => 3u8.hash(hasher),
         Some(crate::checker::binding::BindingContractOrigin::ContextualBlockParameter) => 4u8.hash(hasher),
         Some(crate::checker::binding::BindingContractOrigin::PatternBinding) => 5u8.hash(hasher),
+        Some(crate::checker::binding::BindingContractOrigin::StaticParameter) => 6u8.hash(hasher),
     }
 }
 
@@ -676,7 +677,7 @@ fn hash_analysis_status(status: &AnalysisStatus, incidents: &[InternalSemanticIn
     }
 }
 
-fn hash_causal_invalidity(causal: crate::checker::causal::CausalInvalidity, hasher: &mut impl Hasher) {
+pub(crate) fn hash_causal_invalidity(causal: crate::checker::causal::CausalInvalidity, hasher: &mut impl Hasher) {
     match causal {
         crate::checker::causal::CausalInvalidity::Clean => 0u8.hash(hasher),
         crate::checker::causal::CausalInvalidity::One(_) => 1u8.hash(hasher),
@@ -684,7 +685,7 @@ fn hash_causal_invalidity(causal: crate::checker::causal::CausalInvalidity, hash
     }
 }
 
-fn hash_denotation(denotation: &Option<SemanticDenotation>, hasher: &mut impl Hasher) {
+pub(crate) fn hash_denotation(denotation: &Option<SemanticDenotation>, hasher: &mut impl Hasher) {
     match denotation {
         None => 0u8.hash(hasher),
         Some(SemanticDenotation::TypeForm(ty)) => {
@@ -743,10 +744,14 @@ fn hash_denotation(denotation: &Option<SemanticDenotation>, hasher: &mut impl Ha
             6u8.hash(hasher);
             term.hash(hasher);
         }
+        Some(SemanticDenotation::StaticApplication(application)) => {
+            7u8.hash(hasher);
+            application.hash(hasher);
+        }
     }
 }
 
-fn hash_binding_contract(contract: &Option<crate::checker::binding::BindingContract>, hasher: &mut impl Hasher) {
+pub(crate) fn hash_binding_contract(contract: &Option<crate::checker::binding::BindingContract>, hasher: &mut impl Hasher) {
     let Some(contract) = contract else {
         0u8.hash(hasher);
         return;
@@ -759,10 +764,11 @@ fn hash_binding_contract(contract: &Option<crate::checker::binding::BindingContr
         crate::checker::binding::BindingContractOrigin::CallableParameter => 2u8.hash(hasher),
         crate::checker::binding::BindingContractOrigin::ContextualBlockParameter => 3u8.hash(hasher),
         crate::checker::binding::BindingContractOrigin::PatternBinding => 4u8.hash(hasher),
+        crate::checker::binding::BindingContractOrigin::StaticParameter => 5u8.hash(hasher),
     }
 }
 
-fn hash_binding_consistency(consistency: &crate::checker::binding::BindingConsistency, hasher: &mut impl Hasher) {
+pub(crate) fn hash_binding_consistency(consistency: &crate::checker::binding::BindingConsistency, hasher: &mut impl Hasher) {
     match consistency {
         crate::checker::binding::BindingConsistency::Unconstrained => 0u8.hash(hasher),
         crate::checker::binding::BindingConsistency::Validated => 1u8.hash(hasher),
@@ -889,6 +895,7 @@ fn hash_flow_summary(summary: &FlowStateSummary, hasher: &mut impl Hasher) {
         hash_binding_contract(&state.contract, hasher);
         hash_binding_consistency(&state.consistency, hasher);
         state.mutable.hash(hasher);
+        state.initialization.hash(hasher);
     }
     summary.fields.len().hash(hasher);
     for (field, state) in &summary.fields {
@@ -1427,6 +1434,22 @@ pub fn field_signature_product_fingerprint(signature: &FieldSemanticSignature) -
     finish_product(hasher)
 }
 
+/// Computes the input identity of one owner's published constructor paths.
+pub fn constructor_initialization_owner_input_fingerprint(product: &crate::db::product::ConstructorInitializationOwnerProduct) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.owner.hash(&mut hasher);
+    product.paths.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+/// Computes the semantic identity of one owner's published constructor paths.
+pub fn constructor_initialization_owner_product_fingerprint(product: &crate::db::product::ConstructorInitializationOwnerProduct) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.owner.hash(&mut hasher);
+    product.paths.hash(&mut hasher);
+    finish_product(hasher)
+}
+
 /// Computes direct input identity for a hierarchy-edge query.
 ///
 /// The source spelling is hashed together with the currently resolved target.
@@ -1732,6 +1755,8 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         hash_denotation(&expression.denotation, &mut hasher);
         hash_analysis_status(&expression.status, &analysis.internal_incidents, &mut hasher);
         hash_causal_invalidity(expression.causal_invalidity, &mut hasher);
+        expression.binding_read_safety.hash(&mut hasher);
+        expression.binding_read.hash(&mut hasher);
     }
 
     let expansion_field_count = analysis
@@ -1764,6 +1789,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         hash_binding_consistency(&binding.consistency, &mut hasher);
         hash_causal_invalidity(binding.causal_invalidity, &mut hasher);
         binding.mutable.hash(&mut hasher);
+        binding.initialization.hash(&mut hasher);
         binding.version.hash(&mut hasher);
     }
 
@@ -1797,6 +1823,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     }
 
     analysis.dependencies.hash(&mut hasher);
+    analysis.constructor_super_initializer.hash(&mut hasher);
     hash_callable_analysis_status(analysis.status, &analysis.internal_incidents, &mut hasher);
     hash_return_contract_validation(analysis.return_validation, &mut hasher);
     // `dependency_fingerprint` is assigned from this fingerprint after
@@ -2628,6 +2655,178 @@ pub fn public_export_product_fingerprint(product: &crate::db::product::PublicExp
             export.public_name.hash(&mut hasher);
             export.target.hash(&mut hasher);
         }
+    }
+    finish_product(hasher)
+}
+
+pub fn static_definition_input_fingerprint(product: &crate::static_definition::StaticDefinitionProduct) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.definition.id.hash(&mut hasher);
+    format!("{:?}{:?}", product.definition.signature, product.definition.body).hash(&mut hasher);
+    finish_input(hasher)
+}
+
+pub fn static_definition_product_fingerprint(product: &crate::static_definition::StaticDefinitionProduct) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    let def = &product.definition;
+    def.id.hash(&mut hasher);
+    def.signature.result_domain.hash(&mut hasher);
+    def.signature.parameters.len().hash(&mut hasher);
+    for p in def.signature.parameters.iter() {
+        p.name.hash(&mut hasher);
+        p.domain.hash(&mut hasher);
+        p.mode.hash(&mut hasher);
+        p.index.hash(&mut hasher);
+        p.type_parameter_id.is_some().hash(&mut hasher);
+    }
+    match &def.signature.generic_signature {
+        Some(sig) => {
+            1u8.hash(&mut hasher);
+            hash_generic_signature(sig, &mut hasher);
+        }
+        None => 0u8.hash(&mut hasher),
+    }
+    match &def.body {
+        crate::static_definition::StaticDefinitionBodyRepr::TypeForm(ann) => {
+            0u8.hash(&mut hasher);
+            hash_debug_without_source_ranges(ann, &mut hasher);
+        }
+        crate::static_definition::StaticDefinitionBodyRepr::Expression(expr) => {
+            1u8.hash(&mut hasher);
+            hash_debug_without_source_ranges(expr, &mut hasher);
+        }
+        crate::static_definition::StaticDefinitionBodyRepr::Block(block) => {
+            2u8.hash(&mut hasher);
+            hash_debug_without_source_ranges(block, &mut hasher);
+        }
+    }
+    match product.checked_body.as_ref() {
+        Some(body) => {
+            1u8.hash(&mut hasher);
+            checked_static_body_product_fingerprint(body).hash(&mut hasher);
+        }
+        None => 0u8.hash(&mut hasher),
+    }
+    finish_product(hasher)
+}
+
+fn hash_module_static_binding_index(index: &crate::module_bindings::ModuleStaticBindingIndex, hasher: &mut impl Hasher) {
+    index.module().hash(hasher);
+    for (visible_name, fact) in index.visible_bindings() {
+        visible_name.hash(hasher);
+        fact.symbol.hash(hasher);
+        fact.source_body.hash(hasher);
+        fact.source_binding.hash(hasher);
+        fact.phase.hash(hasher);
+        let state = &fact.state;
+        state.name.hash(hasher);
+        hash_range(state.range, hasher);
+        state.parameter.hash(hasher);
+        hash_binding_contract(&state.contract, hasher);
+        hash_type_knowledge(&state.current, false, hasher);
+        hash_denotation(&state.denotation, hasher);
+        hash_binding_consistency(&state.consistency, hasher);
+        hash_causal_invalidity(state.causal_invalidity, hasher);
+        state.mutable.hash(hasher);
+        state.initialization.hash(hasher);
+        state.version.hash(hasher);
+    }
+}
+
+/// Fingerprints the source-facing name mapping and checked facts used to seed
+/// ordinary module bindings in static-body analysis.
+pub fn module_static_binding_input_fingerprint(index: &crate::module_bindings::ModuleStaticBindingIndex) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    hash_module_static_binding_index(index, &mut hasher);
+    finish_input(hasher)
+}
+
+/// Fingerprints stable identities, phase categories, and checked binding
+/// states published to semantic consumers.
+pub fn module_static_binding_product_fingerprint(index: &crate::module_bindings::ModuleStaticBindingIndex) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    hash_module_static_binding_index(index, &mut hasher);
+    finish_product(hasher)
+}
+
+/// Fingerprints a static definition's source/signature and the module binding
+/// product consumed by its checked body.
+pub fn checked_static_body_source_input_fingerprint(
+    definition: &crate::static_definition::StaticDefinition,
+    module_binding_fingerprint: Option<ProductFingerprint>,
+) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    definition.id.hash(&mut hasher);
+    format!("{:?}{:?}", definition.signature, definition.body).hash(&mut hasher);
+    module_binding_fingerprint.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+pub fn checked_static_body_input_fingerprint(body: &crate::static_definition::CheckedStaticBody) -> InputFingerprint {
+    body.input_fingerprint
+}
+
+/// Fingerprints the complete checked-body product, including ordinary checker
+/// resolutions, evaluator layout, dependencies, and diagnostics.
+pub fn checked_static_body_product_fingerprint(body: &crate::static_definition::CheckedStaticBody) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    format!("{body:?}").hash(&mut hasher);
+    finish_product(hasher)
+}
+
+/// Fingerprints a static constant's targeted initializer source and declared type.
+pub fn static_constant_input_fingerprint(
+    id: &crate::static_constant::StaticConstantId,
+    initializer: &phalcom_ast::ast::Expr,
+    expected_type: Option<crate::types::id::TypeId>,
+) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    id.hash(&mut hasher);
+    format!("{initializer:?}").hash(&mut hasher);
+    expected_type.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+/// Fingerprints the reduced static constant product, including evaluated content,
+/// outcome, and diagnostics.
+pub fn static_constant_product_fingerprint(
+    product: &crate::static_constant::StaticConstantProduct,
+    store: &crate::static_value::StaticValueStore,
+) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.id.hash(&mut hasher);
+    match &product.outcome {
+        crate::static_eval::StaticEvalOutcome::Reduced(val_ref) => {
+            0u8.hash(&mut hasher);
+            if let Ok(content_hash) = store.content_fingerprint(*val_ref) {
+                content_hash.hash(&mut hasher);
+            } else {
+                val_ref.hash(&mut hasher);
+            }
+        }
+        crate::static_eval::StaticEvalOutcome::ReducedKinded(type_id) => {
+            1u8.hash(&mut hasher);
+            type_id.hash(&mut hasher);
+        }
+        crate::static_eval::StaticEvalOutcome::Symbolic => {
+            2u8.hash(&mut hasher);
+        }
+        crate::static_eval::StaticEvalOutcome::Invalid(err) => {
+            3u8.hash(&mut hasher);
+            format!("{err:?}").hash(&mut hasher);
+        }
+        crate::static_eval::StaticEvalOutcome::Recursive => {
+            4u8.hash(&mut hasher);
+        }
+        crate::static_eval::StaticEvalOutcome::BudgetExceeded(_) => {
+            5u8.hash(&mut hasher);
+        }
+        crate::static_eval::StaticEvalOutcome::Cancelled => {
+            6u8.hash(&mut hasher);
+        }
+    }
+    for diag in product.diagnostics.iter() {
+        format!("{diag:?}").hash(&mut hasher);
     }
     finish_product(hasher)
 }

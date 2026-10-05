@@ -3,6 +3,7 @@
 // status: PASS
 
 class CustomString {
+  mut _text
   @constructor
   new(_ text) {
     _text = text
@@ -13,5 +14,5 @@ class CustomString {
   }
 }
 
-let c = CustomString.new("hello")
+let mut c = CustomString.new("hello")
 System.print("\(c)")

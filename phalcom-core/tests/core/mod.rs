@@ -52,14 +52,20 @@ mod compiler_contract_metadata;
 mod compiler_declaration_dispatch;
 #[path = "compiler/product_optimization.rs"]
 mod compiler_product_optimization;
+#[path = "compiler/static_const.rs"]
+mod compiler_static_const;
 #[path = "collections/contract.rs"]
 mod core_collections;
+#[path = "collections/pack.rs"]
+mod core_pack;
 #[path = "collections/outgoing_packs.rs"]
 mod core_outgoing_packs;
 #[path = "collections/outgoing_packs_completion.rs"]
 mod core_outgoing_packs_completion;
 #[path = "collections/symbol_selector.rs"]
 mod core_symbol_selector;
+#[path = "execution/binding_init.rs"]
+mod execution_binding_init;
 #[path = "execution/compiler_authority.rs"]
 mod execution_compiler_authority;
 #[path = "execution/depth_limits.rs"]
@@ -70,6 +76,8 @@ mod execution_family_runtime;
 mod execution_repair_regressions;
 #[path = "execution/send_arity.rs"]
 mod execution_send_arity;
+#[path = "execution/static_const.rs"]
+mod execution_static_const;
 #[path = "memory/gc.rs"]
 mod memory_gc;
 #[path = "memory/pack_gc.rs"]
@@ -95,3 +103,10 @@ mod repl_source_maps;
 
 #[path = "audit_probes/mod.rs"]
 mod audit_probes;
+
+#[test]
+#[cfg(feature = "test-timings")]
+#[ignore = "enable in T7 after runtime image lands"]
+fn image_instances_do_not_recompile_universe() {
+    // Filled in with structural assertions once the runtime image is implemented.
+}

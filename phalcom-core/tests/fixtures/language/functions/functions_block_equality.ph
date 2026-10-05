@@ -21,13 +21,13 @@ System.print(|| { 123 } != false)
 System.print(|| { 123 } != "fn 123")
 
 // Equal by identity.
-const f = || { 123 }
+let f = || { 123 }
 System.print(f == f)
 System.print(f != f)
 
 // Closures for the same literal are not equal.
-const fns = []
-let i = 0
+let fns = []
+let mut i = 0
 while (i < 2) {
   fns.append(|| { 123 })
   i = i + 1

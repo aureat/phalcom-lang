@@ -1,2 +1,2 @@
-const product = Product.new()
+let product = Product.new()
 product./*@product_only*/productOnly()

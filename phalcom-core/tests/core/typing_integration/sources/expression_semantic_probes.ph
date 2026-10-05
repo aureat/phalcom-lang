@@ -1,68 +1,68 @@
 class ExpressionSemanticProbe {
     @class
     intEvaluation(_ monad: StringEitherMonad) {
-        let expression: Expression<<X> =>> Either<String, X>, Int> = Expression::IntLiteral(41)
-        let result = ExpressionEvaluation.eval(monad, expression)
+        let mut expression: Expression<<X> =>> Either<String, X>, Int> = Expression::IntLiteral(41)
+        let mut result = ExpressionEvaluation.eval(monad, expression)
     }
 
     @class
     boolEvaluation(_ monad: StringEitherMonad) {
-        let expression: Expression<<X> =>> Either<String, X>, Bool> = Expression::BoolLiteral(true)
-        let result = ExpressionEvaluation.eval(monad, expression)
+        let mut expression: Expression<<X> =>> Either<String, X>, Bool> = Expression::BoolLiteral(true)
+        let mut result = ExpressionEvaluation.eval(monad, expression)
     }
 
     @class
     addEvaluation(_ monad: StringEitherMonad) {
-        let expression: Expression<<X> =>> Either<String, X>, Int> = Expression::Add(
+        let mut expression: Expression<<X> =>> Either<String, X>, Int> = Expression::Add(
             Expression::IntLiteral(20),
             Expression::IntLiteral(22)
         )
-        let result = ExpressionEvaluation.eval(monad, expression)
+        let mut result = ExpressionEvaluation.eval(monad, expression)
     }
 
     @class
     ifEvaluation(_ monad: StringEitherMonad) {
-        let expression: Expression<<X> =>> Either<String, X>, Int> = Expression::If(
+        let mut expression: Expression<<X> =>> Either<String, X>, Int> = Expression::If(
             Expression::BoolLiteral(true),
             Expression::IntLiteral(10),
             Expression::IntLiteral(20)
         )
-        let result = ExpressionEvaluation.eval(monad, expression)
+        let mut result = ExpressionEvaluation.eval(monad, expression)
     }
 
     @class
     mapEvaluation(_ monad: StringEitherMonad) {
-        let expression: Expression<<X> =>> Either<String, X>, Bool> = Expression::Map(
+        let mut expression: Expression<<X> =>> Either<String, X>, Bool> = Expression::Map(
             Expression::IntLiteral(41),
             |value| { value > 0 }
         )
-        let result = ExpressionEvaluation.eval(monad, expression)
+        let mut result = ExpressionEvaluation.eval(monad, expression)
     }
 
     @class
     flatMapEvaluation(_ monad: StringEitherMonad) {
-        let expression: Expression<<X> =>> Either<String, X>, Bool> = Expression::FlatMap(
+        let mut expression: Expression<<X> =>> Either<String, X>, Bool> = Expression::FlatMap(
             Expression::IntLiteral(41),
             |value| { Expression::BoolLiteral(value > 0) }
         )
-        let result = ExpressionEvaluation.eval(monad, expression)
+        let mut result = ExpressionEvaluation.eval(monad, expression)
     }
 
     @class
     applyEvaluation(_ monad: StringEitherMonad) {
-        let function: Expression<<X> =>> Either<String, X>, (Int) -> Bool> = Expression::Pure(|value| {
+        let mut function: Expression<<X> =>> Either<String, X>, (Int) -> Bool> = Expression::Pure(|value| {
             value > 0
         })
-        let argument: Expression<<X> =>> Either<String, X>, Int> = Expression::IntLiteral(41)
-        let expression: Expression<<X> =>> Either<String, X>, Bool> = Expression::Apply(function, argument)
-        let result = ExpressionEvaluation.eval(monad, expression)
+        let mut argument: Expression<<X> =>> Either<String, X>, Int> = Expression::IntLiteral(41)
+        let mut expression: Expression<<X> =>> Either<String, X>, Bool> = Expression::Apply(function, argument)
+        let mut result = ExpressionEvaluation.eval(monad, expression)
     }
 
     @class
     liftEvaluation(_ monad: StringEitherMonad) {
-        let effect: Either<String, Bool> = Either::Right(true)
-        let expression: Expression<<X> =>> Either<String, X>, Bool> = Expression::Lift(effect)
-        let result = ExpressionEvaluation.eval(monad, expression)
+        let mut effect: Either<String, Bool> = Either::Right(true)
+        let mut expression: Expression<<X> =>> Either<String, X>, Bool> = Expression::Lift(effect)
+        let mut result = ExpressionEvaluation.eval(monad, expression)
     }
 }
 
@@ -72,9 +72,9 @@ class ExpressionMonadSemanticProbe {
         _ expressionMonad: StringEitherExpressionMonad,
         _ source: Expression<<X> =>> Either<String, X>, Int>
     ) {
-        let pure = expressionMonad.pure(41)
-        let mapped = expressionMonad.map(source, |value| { value > 0 })
-        let bound = MonadAlgorithms.bind(
+        let mut pure = expressionMonad.pure(41)
+        let mut mapped = expressionMonad.map(source, |value| { value > 0 })
+        let mut bound = MonadAlgorithms.bind(
             expressionMonad,
             source,
             |value| { Expression::Pure(value > 0) }
@@ -86,7 +86,7 @@ class ExpressionMonadSemanticProbe {
         _ expressionMonad: StringEitherExpressionMonad,
         _ values: List<Int>
     ) {
-        let expression: Expression<<X> =>> Either<String, X>, List<Int>> = MonadAlgorithms.traverse(
+        let mut expression: Expression<<X> =>> Either<String, X>, List<Int>> = MonadAlgorithms.traverse(
             expressionMonad,
             values,
             |value| {
@@ -106,7 +106,7 @@ class ExpressionIntegrationProbe {
         _ evaluationMonad: StringEitherMonad,
         _ values: List<Int>
     ) {
-        let expression: Expression<<X> =>> Either<String, X>, List<Int>> = MonadAlgorithms.traverse(
+        let mut expression: Expression<<X> =>> Either<String, X>, List<Int>> = MonadAlgorithms.traverse(
             expressionMonad,
             values,
             |value| {
@@ -116,6 +116,6 @@ class ExpressionIntegrationProbe {
                 )
             }
         )
-        let result = ExpressionEvaluation.eval(evaluationMonad, expression)
+        let mut result = ExpressionEvaluation.eval(evaluationMonad, expression)
     }
 }

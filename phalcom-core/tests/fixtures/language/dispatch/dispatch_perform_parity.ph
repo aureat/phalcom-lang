@@ -5,7 +5,7 @@
 // static send (reflective parity). `#"+(_)"` symbol-literal syntax is U-LEX;
 // the selector is built with `Symbol.new("...")`. `3.perform(+, [4]) == 3 + 4`.
 
-const a = (4,)
+let a = (4,)
 System.print(3.perform(Symbol.new("+(_)"), ***a))
 System.print(3.perform(Symbol.new("-"), ***()))
 System.print(3.perform(Symbol.new("+(_)"), ***a) == 7)

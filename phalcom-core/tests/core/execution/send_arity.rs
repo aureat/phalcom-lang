@@ -125,7 +125,7 @@ fn super_send_with_256_arguments_is_compile_error() {
 
 #[test]
 fn subscript_reads_accept_255_and_reject_256_arguments() {
-    let mut vm = VM::new();
+    let mut vm = VM::new_kernel();
     let module = vm.create_module("main", "subscript_read_255");
     vm.compile_closure(module, &format!("target[{}]", positional_arguments(255)))
         .expect("255-argument subscript read must compile");
@@ -135,7 +135,7 @@ fn subscript_reads_accept_255_and_reject_256_arguments() {
 
 #[test]
 fn subscript_writes_accept_254_explicit_and_reject_255_explicit_arguments() {
-    let mut vm = VM::new();
+    let mut vm = VM::new_kernel();
     let module = vm.create_module("main", "subscript_write_255");
     vm.compile_closure(module, &format!("target[{}] = 0", positional_arguments(254)))
         .expect("254 explicit subscript arguments plus put: must compile");

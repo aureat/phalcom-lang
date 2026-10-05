@@ -127,12 +127,14 @@ pub struct ClassLayout {
     pub field_count: u16,
     pub static_field_slots: IndexMap<Symbol, u16>,
     pub static_field_count: u16,
-    /// Names of this class's own fields (instance or static) declared with
-    /// `const` (ADR-0064 §3, U-BINDINGS §5). A write to one of these outside
-    /// a constructor body is `field.const_write`. Fields are non-inherited
-    /// (ADR-0011), so this set holds only this class's own declarations —
-    /// no superclass merge.
-    pub const_fields: std::collections::HashSet<Symbol>,
+    /// Names of this class's own immutable fields, split by dispatch side for
+    /// compiler write validation.
+    pub immutable_instance_fields: std::collections::HashSet<Symbol>,
+    pub immutable_static_fields: std::collections::HashSet<Symbol>,
+    /// Physical immutable slots, flattened through the superclass layout.
+    /// Runtime allocation uses these to seed private uninitialized sentinels.
+    pub immutable_instance_slots: std::collections::HashSet<u16>,
+    pub immutable_static_slots: std::collections::HashSet<u16>,
     /// Dispatch identities still requiring an implementation in this class.
     /// The boolean is `true` for class-side members and `false` for instance
     /// members.
@@ -295,6 +297,9 @@ pub struct VM {
     pub runtime_roots: Option<RuntimeRoots>,
     /// Source/bootstrap census captured during VM construction.
     pub(crate) universe_bootstrap_measurement: UniverseBootstrapMeasurement,
+    /// Opt-in timing of construction phases used by corpus-test instrumentation.
+    #[cfg(any(test, feature = "test-timings"))]
+    pub(crate) bootstrap_timing: crate::instrumentation::VmBootstrapTiming,
     /// Set of modules with privileged Universe status.
     pub privileged_modules: std::collections::HashSet<ObjRef>,
     /// Canonical source-derived semantic values, absent below full Universe
@@ -527,6 +532,36 @@ impl VM {
                         .get(*label)
                         .is_some_and(|right| lhs_view.get(*label).is_some_and(|left| self.semantic_same(left, right)))
                 });
+            }
+            (Some(_), None) | (None, Some(_)) => return false,
+            (None, None) => {}
+        }
+
+        let lhs_pack = lhs.as_obj().filter(|id| self.heap.as_pack(*id).is_some());
+        let rhs_pack = rhs.as_obj().filter(|id| self.heap.as_pack(*id).is_some());
+        match (lhs_pack, rhs_pack) {
+            (Some(lhs_id), Some(rhs_id)) => {
+                let Some(lhs_view) = self.pack_view(lhs_id) else { return false };
+                let Some(rhs_view) = self.pack_view(rhs_id) else { return false };
+                if lhs_view.positional_len() != rhs_view.positional_len() || lhs_view.labeled_len() != rhs_view.labeled_len() {
+                    return false;
+                }
+                if lhs_view.labels() != rhs_view.labels() {
+                    return false;
+                }
+                let pos_equal = lhs_view
+                    .positionals()
+                    .into_iter()
+                    .zip(rhs_view.positionals())
+                    .all(|(left, right)| self.semantic_same(left, right));
+                if !pos_equal {
+                    return false;
+                }
+                return lhs_view
+                    .labeled_values()
+                    .into_iter()
+                    .zip(rhs_view.labeled_values())
+                    .all(|(left, right)| self.semantic_same(left, right));
             }
             (Some(_), None) | (None, Some(_)) => return false,
             (None, None) => {}
@@ -874,6 +909,12 @@ impl VM {
     /// Returns source discovery and bootstrap execution counts from VM startup.
     pub fn universe_bootstrap_measurement(&self) -> UniverseBootstrapMeasurement {
         self.universe_bootstrap_measurement
+    }
+
+    /// Returns measured bootstrap phases when test timing instrumentation is enabled.
+    #[cfg(any(test, feature = "test-timings"))]
+    pub fn bootstrap_timing(&self) -> crate::instrumentation::VmBootstrapTiming {
+        self.bootstrap_timing
     }
 
     /// Returns source-derived semantic roots when full Universe bootstrap has

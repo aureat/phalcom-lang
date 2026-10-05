@@ -50,7 +50,7 @@ fn trait_members_share_behavior_syntax_and_body_representation() {
 #[test]
 fn trait_rejects_storage_and_constructor_members() {
     for source in [
-        "trait Invalid {\n  const _state: Int\n}\n",
+        "trait Invalid {\n  _state: Int\n}\n",
         "trait Invalid {\n  _state = 1\n}\n",
         "trait Invalid {\n  construct() {}\n}\n",
         "trait Invalid {\n  @class create() {}\n}\n",

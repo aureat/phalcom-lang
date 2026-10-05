@@ -28,6 +28,8 @@ pub(crate) enum ValueTag {
     AdtSingleton = 8,
     DataSingleton = 9,
     EmptyRecord = 10,
+    UninitializedBinding = 11,
+    EmptyPack = 12,
 }
 
 impl ValueTag {
@@ -45,6 +47,8 @@ impl ValueTag {
             8 => Self::AdtSingleton,
             9 => Self::DataSingleton,
             10 => Self::EmptyRecord,
+            11 => Self::UninitializedBinding,
+            12 => Self::EmptyPack,
             _ => panic!("invalid ValueTag"),
         }
     }
@@ -60,7 +64,7 @@ pub struct Value {
 
 impl Value {
     #[inline]
-    pub(crate) const fn nil() -> Self {
+    pub const fn nil() -> Self {
         Self {
             payload: 0,
             meta: ValueTag::Nil as u64,
@@ -80,6 +84,14 @@ impl Value {
         Self {
             payload: 0,
             meta: ValueTag::EmptyRecord as u64,
+        }
+    }
+
+    #[inline]
+    pub const fn empty_pack() -> Self {
+        Self {
+            payload: 0,
+            meta: ValueTag::EmptyPack as u64,
         }
     }
 
@@ -128,6 +140,14 @@ impl Value {
         Self {
             payload: 0,
             meta: ValueTag::None as u64,
+        }
+    }
+
+    #[inline]
+    pub const fn uninitialized_binding() -> Self {
+        Self {
+            payload: 0,
+            meta: ValueTag::UninitializedBinding as u64,
         }
     }
 
@@ -225,6 +245,11 @@ impl Value {
     }
 
     #[inline]
+    pub fn is_empty_pack(self) -> bool {
+        self.tag() == ValueTag::EmptyPack && self.some_depth_raw() == 0
+    }
+
+    #[inline]
     pub fn is_bool(self) -> bool {
         self.tag() == ValueTag::Bool && self.some_depth_raw() == 0
     }
@@ -247,6 +272,11 @@ impl Value {
     #[inline]
     pub fn is_obj(self) -> bool {
         self.tag() == ValueTag::Obj && self.some_depth_raw() == 0
+    }
+
+    #[inline]
+    pub fn is_uninitialized_binding(self) -> bool {
+        self.tag() == ValueTag::UninitializedBinding && self.some_depth_raw() == 0
     }
 
     #[inline]
@@ -304,7 +334,7 @@ impl PartialEq for Value {
         }
 
         match self.tag() {
-            ValueTag::Nil | ValueTag::Unit | ValueTag::EmptyRecord | ValueTag::None => true,
+            ValueTag::Nil | ValueTag::Unit | ValueTag::EmptyRecord | ValueTag::EmptyPack | ValueTag::None => true,
             ValueTag::Bool => (self.payload != 0) == (other.payload != 0),
             ValueTag::Int => (self.payload as i64) == (other.payload as i64),
             ValueTag::Float => {
@@ -315,6 +345,10 @@ impl PartialEq for Value {
             ValueTag::Symbol => (self.payload as u32) == (other.payload as u32),
             ValueTag::Obj => self.payload == other.payload,
             ValueTag::AdtSingleton | ValueTag::DataSingleton => (self.payload as u32) == (other.payload as u32),
+            ValueTag::UninitializedBinding => {
+                debug_assert!(false, "uninitialized binding reached Value::eq");
+                false
+            }
         }
     }
 }
@@ -327,7 +361,7 @@ impl Hash for Value {
         self.some_depth_raw().hash(state);
 
         match self.tag() {
-            ValueTag::Nil | ValueTag::Unit | ValueTag::EmptyRecord | ValueTag::None => {}
+            ValueTag::Nil | ValueTag::Unit | ValueTag::EmptyRecord | ValueTag::EmptyPack | ValueTag::None => {}
             ValueTag::Bool => (self.payload != 0).hash(state),
             ValueTag::Int => (self.payload as i64).hash(state),
             ValueTag::Float => {
@@ -343,6 +377,9 @@ impl Hash for Value {
             ValueTag::Symbol => (self.payload as u32).hash(state),
             ValueTag::Obj => self.payload.hash(state),
             ValueTag::AdtSingleton | ValueTag::DataSingleton => (self.payload as u32).hash(state),
+            ValueTag::UninitializedBinding => {
+                debug_assert!(false, "uninitialized binding reached Value::hash");
+            }
         }
     }
 }

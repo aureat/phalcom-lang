@@ -9,5 +9,5 @@
 // *before* the drop.
 
 class Widget {
-  @ignore _hidden
+  @ignore mut _hidden
 }

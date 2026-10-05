@@ -6,10 +6,10 @@
 // (string concatenation, not a numeric sum — the existing
 // `list_each_sums_elements` case already covers the numeric shape).
 
-const l = []
+let l = []
 l.append("One")
 l.append("Two")
 l.append("Three")
-let words = ""
+let mut words = ""
 l.each |word| { words = words + word }
 System.print(words)

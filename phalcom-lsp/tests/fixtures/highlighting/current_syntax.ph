@@ -5,6 +5,7 @@ class Base {
 }
 
 class Widget is Base {
+  mut _value
   @constructor
   new(_ value) {
     _value = value
@@ -22,11 +23,11 @@ class Widget is Base {
   }
 
   move(_ x, to dest) {
-    const tuple = (x, dest)
-    const list = [1, 2, 3]
-    const record = { name: "widget", value: _value }
-    const selector = #move(_,to)
-    const block = || { "done" }
+    let tuple = (x, dest)
+    let list = [1, 2, 3]
+    let record = { name: "widget", value: _value }
+    let selector = #move(_,to)
+    let block = || { "done" }
     list[0]
     tuple
     record
@@ -43,5 +44,5 @@ class Widget is Base {
   }
 }
 
-const instance = Widget.new(1)
+let instance = Widget.new(1)
 instance.move(2, to: 3)

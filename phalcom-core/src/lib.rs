@@ -13,6 +13,8 @@ pub mod error;
 pub mod frame;
 pub mod heap;
 pub(crate) mod iana_links;
+#[cfg(any(test, feature = "test-timings"))]
+pub mod instrumentation;
 pub mod interner;
 pub mod interpret;
 pub mod method;
@@ -30,6 +32,9 @@ pub mod typing;
 pub mod universe;
 pub mod value;
 pub mod vm;
+
+#[cfg(any(test, feature = "test-timings"))]
+pub use instrumentation::*;
 
 #[cfg(test)]
 mod tests {}

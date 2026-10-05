@@ -4,7 +4,7 @@
 // Each immediate wrapper depth remains distinct. `match` peels exactly one
 // layer, including when the payload is another Option.
 
-const v = Some(Some(Some(None)))
+let v = Some(Some(Some(None)))
 System.print(None)
 System.print(Some(None))
 System.print(v)

@@ -61,8 +61,8 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
 
   /// Renders elements in positional order using each element's string form.
   toString {
-    let s = "("
-    let i = 0
+    let mut s = "("
+    let mut i = 0
     while i < self.rawSize {
       if i > 0 {
         s = s + ", "
@@ -74,8 +74,8 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
   }
 
   at(_ i) -> Option<Tuple<***Es>::Element> {
-    let len = self.size
-    let index = i
+    let mut len = self.size
+    let mut index = i
     if index < 0 { index = len + index }
     if index >= 0 and index < len {
       return Some(self.rawAt(index))
@@ -84,8 +84,8 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
   }
 
   private findLabel(_ sym) {
-    let num_labeled = self.size - self.rawPositionalSize
-    let i = 0
+    let mut num_labeled = self.size - self.rawPositionalSize
+    let mut i = 0
     while i < num_labeled {
       if self.rawLabelAt(i) == sym {
         return Some(self.rawPositionalSize + i)
@@ -106,8 +106,8 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
         none: || { None }
       )
     }
-    let len = self.size
-    let i = key
+    let mut len = self.size
+    let mut i = key
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
       return Some(self.rawAt(i))
@@ -121,8 +121,8 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
     if key is Range {
       return key.rawSliceBounds(self.size).match(
         ok: |bounds| {
-          let start = bounds[0]
-          let end = bounds[1]
+          let mut start = bounds[0]
+          let mut end = bounds[1]
           if start > end {
             end = start
           }
@@ -137,8 +137,8 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
         none: || { throw KeyError.new("Tuple label not found") }
       )
     }
-    let len = self.size
-    let i = key
+    let mut len = self.size
+    let mut i = key
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
       return self.rawAtChecked(i)
@@ -153,8 +153,8 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
         none: || { default }
       )
     }
-    let len = self.size
-    let i = key
+    let mut len = self.size
+    let mut i = key
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
       return self.rawAtChecked(i)
@@ -169,8 +169,8 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
         none: || { orElse.call(key) }
       )
     }
-    let len = self.size
-    let i = key
+    let mut len = self.size
+    let mut i = key
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
       return self.rawAtChecked(i)
@@ -180,7 +180,7 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
 
   doesNotUnderstand(_ message) {
     if message.args == () {
-      let idx = self.findLabel(message.selector)
+      let mut idx = self.findLabel(message.selector)
       return idx.match(
         some: |i| { self.rawAtChecked(i) },
         none: || { throw MessageNotUnderstood.new("Tuple does not understand " + message.selector.toString) }
@@ -196,8 +196,8 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
   /// Compares tuples by labels and corresponding element equality.
   ==(_ other) {
     if other is Tuple {
-      let same = self.size == other.size and self.rawPositionalSize == other.rawPositionalSize
-      let i = 0
+      let mut same = self.size == other.size and self.rawPositionalSize == other.rawPositionalSize
+      let mut i = 0
       while same and i < self.size - self.rawPositionalSize {
         same = self.rawLabelAt(i) == other.rawLabelAt(i)
         i = i + 1
@@ -219,8 +219,8 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
 
   /// Computes an order-sensitive hash from labels and element hashes.
   hash {
-    let acc = 17 + self.rawPositionalSize
-    let i = 0
+    let mut acc = 17 + self.rawPositionalSize
+    let mut i = 0
     while i < self.size {
       acc = (acc * 31 + self.rawAtChecked(i).hash) % 999999937
       i = i + 1
@@ -235,9 +235,9 @@ impl<***Es: CompleteTypePack> Tuple<***Es> {
 }
 
 class TupleIterator<***Es: CompleteTypePack> {
-  _source: Tuple<***Es>
-  _index: Int
-  _done: Bool
+  mut _source: Tuple<***Es>
+  mut _index: Int
+  mut _done: Bool
 
   @constructor
   new(_ source: Tuple<***Es>) {
@@ -252,7 +252,7 @@ class TupleIterator<***Es: CompleteTypePack> {
       _done = true
       return None
     }
-    let value = _source[_index]
+    let mut value = _source[_index]
     _index = _index + 1
     Some(value)
   }
@@ -272,13 +272,13 @@ impl<***Es: CompleteTypePack> CanonicalIterable for Tuple<***Es> {
 
 /// Strict zip produces runtime-shaped tuples because the input lane count is known only at runtime.
 class TupleZipIterator {
-  _iterators: List<Dynamic>
-  _done: Bool
+  mut _iterators: List<Dynamic>
+  mut _done: Bool
 
   @constructor
   new(_ tuple: Dynamic) {
     _iterators = List<Dynamic>.new()
-    let i = 0
+    let mut i = 0
     while i < tuple.size {
       _iterators.rawPush(tuple[i].iterator)
       i = i + 1
@@ -291,9 +291,9 @@ class TupleZipIterator {
       _done = true
       return None
     }
-    let firstStep = _iterators.at(0).next
+    let mut firstStep = _iterators.at(0).next
     if firstStep.isNone {
-      let i = 1
+      let mut i = 1
       while i < _iterators.size {
         if _iterators.at(i).next.isSome {
           _done = true
@@ -304,11 +304,11 @@ class TupleZipIterator {
       _done = true
       return None
     }
-    let items = List<Dynamic>.new()
+    let mut items = List<Dynamic>.new()
     items.rawPush(firstStep.match(some: |v| { v }, none: || { None }))
-    let i = 1
+    let mut i = 1
     while i < _iterators.size {
-      let step = _iterators.at(i).next
+      let mut step = _iterators.at(i).next
       if step.isNone {
         _done = true
         throw ZipLengthMismatchError.new("strict zip lanes ended at different times")
@@ -324,7 +324,7 @@ class TupleZipIterator {
 
 /// A strict zip view whose element Tuple shape depends on the runtime source Tuple.
 class TupleZipView is Collection {
-  _tuple: Dynamic
+  mut _tuple: Dynamic
 
   @constructor
   new(_ tuple: Dynamic) { _tuple = tuple }

@@ -160,7 +160,7 @@ fn reassignment_replaces_or_clears_denotation() {
 
     let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module);
 
-    let p1 = parse_source("let t = Int", 0).unwrap();
+    let p1 = parse_source("let mut t = Int", 0).unwrap();
     check_statement(&mut ctx, &p1.statements[0]);
 
     let int_form = declarations.form(&int_decl).unwrap();

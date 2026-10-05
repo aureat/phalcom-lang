@@ -234,6 +234,36 @@ fn materialize_type_inner(
                 .labeled_type_pack(elements.into_boxed_slice())
                 .map_err(|_| TypeMaterializationError::TypeApplication)
         }
+        TypeData::Pack(pack) => {
+            let elements = pack
+                .elements
+                .iter()
+                .map(|element| {
+                    Ok(super::store::PackTypeElement {
+                        label: element.label.clone(),
+                        ty: materialize_type_inner(store, element.ty, instantiation, row_mode, visiting_rows)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, TypeMaterializationError>>()?;
+            let pos_rem = match pack.positional_remainder {
+                super::store::AnonymousTupleRemainder::Typed(t) => {
+                    super::store::AnonymousTupleRemainder::Typed(materialize_type_inner(store, t, instantiation, row_mode, visiting_rows)?)
+                }
+                rem => rem,
+            };
+            let lab_rem = match pack.labeled_remainder {
+                super::store::AnonymousTupleRemainder::Typed(t) => {
+                    super::store::AnonymousTupleRemainder::Typed(materialize_type_inner(store, t, instantiation, row_mode, visiting_rows)?)
+                }
+                rem => rem,
+            };
+            Ok(store.open_pack(elements.into_boxed_slice(), pos_rem, lab_rem)?)
+        }
+        TypeData::PackFromPacks { positionals, labeled } => {
+            let pos = materialize_type_inner(store, positionals, instantiation, row_mode, visiting_rows)?;
+            let lab = materialize_type_inner(store, labeled, instantiation, row_mode, visiting_rows)?;
+            Ok(store.pack_from_packs(pos, lab)?)
+        }
         TypeData::TupleFromPacks { positionals, labeled } => {
             let pos = materialize_type_inner(store, positionals, instantiation, row_mode, visiting_rows)?;
             let lab = materialize_type_inner(store, labeled, instantiation, row_mode, visiting_rows)?;

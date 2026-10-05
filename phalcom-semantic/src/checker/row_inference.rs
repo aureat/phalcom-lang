@@ -171,6 +171,11 @@ impl<'a> StableRowLackCollector<'a> {
                     self.visit_type(element.ty);
                 }
             }
+            TypeData::Pack(pack) => {
+                for element in pack.elements.iter() {
+                    self.visit_type(element.ty);
+                }
+            }
             TypeData::Callable(callable) => {
                 for parameter in callable.parameters.iter() {
                     self.visit_type(parameter.ty);
@@ -212,7 +217,9 @@ impl<'a> StableRowLackCollector<'a> {
                     self.visit_type(element.element);
                 }
             }
-            TypeData::TupleFromPacks { positionals, labeled } | TypeData::CompleteTypePack { positionals, labeled } => {
+            TypeData::TupleFromPacks { positionals, labeled }
+            | TypeData::PackFromPacks { positionals, labeled }
+            | TypeData::CompleteTypePack { positionals, labeled } => {
                 self.visit_type(positionals);
                 self.visit_type(labeled);
             }
@@ -291,7 +298,7 @@ impl<'a> StableRowLackCollector<'a> {
     }
 
     fn visit_scoped_type(&mut self, scoped: crate::types::id::ScopedTypeId) {
-        use crate::types::type_lambda::{ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
+        use crate::types::type_lambda::{ScopedPackRemainder, ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
         if !self.visited_scoped_types.insert(scoped) {
             return;
         }
@@ -360,12 +367,25 @@ impl<'a> StableRowLackCollector<'a> {
                 }
                 self.visit_scoped_type(callable.return_type);
             }
+            ScopedTypeData::Pack(pack) => {
+                for element in pack.elements.iter() {
+                    self.visit_scoped_type(element.ty);
+                }
+                if let ScopedPackRemainder::Typed(ty) = pack.positional_remainder {
+                    self.visit_scoped_type(ty);
+                }
+                if let ScopedPackRemainder::Typed(ty) = pack.labeled_remainder {
+                    self.visit_scoped_type(ty);
+                }
+            }
             ScopedTypeData::LabeledTypePack(elements) => {
                 for element in elements.iter() {
                     self.visit_scoped_type(element.element);
                 }
             }
-            ScopedTypeData::CompleteTypePack { positionals, labeled } | ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+            ScopedTypeData::CompleteTypePack { positionals, labeled }
+            | ScopedTypeData::TupleFromPacks { positionals, labeled }
+            | ScopedTypeData::PackFromPacks { positionals, labeled } => {
                 self.visit_scoped_type(positionals);
                 self.visit_scoped_type(labeled);
             }

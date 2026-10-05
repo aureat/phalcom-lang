@@ -1,5 +1,5 @@
-const pending = Future.new()
-const f = Fiber.new || { System.print(pending.await); System.print("body once"); 42 }
+let pending = Future.new()
+let f = Fiber.new || { System.print(pending.await); System.print("body once"); 42 }
 f.call()
 System.schedule(f)
 pending.settleValue("settled")

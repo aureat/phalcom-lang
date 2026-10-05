@@ -1,4 +1,5 @@
 class Pair {
+  mut _value
   @constructor
   new() { _value = 0 }
   @constructor

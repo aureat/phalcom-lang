@@ -81,6 +81,8 @@ impl VM {
             runtime_typing_context: crate::typing::TypingContextData::new(Box::new([])),
             runtime_roots: None,
             universe_bootstrap_measurement: crate::vm::UniverseBootstrapMeasurement::default(),
+            #[cfg(any(test, feature = "test-timings"))]
+            bootstrap_timing: crate::instrumentation::VmBootstrapTiming::default(),
             privileged_modules: std::collections::HashSet::new(),
             semantic_roots: None,
             classes: HashMap::new(),
@@ -161,10 +163,23 @@ impl VM {
         native_install_mode: NativeInstallMode,
         output: Box<dyn RuntimeOutput>,
     ) -> Result<Self, crate::error::VmBootstrapError> {
+        #[cfg(any(test, feature = "test-timings"))]
+        crate::instrumentation::record_full_vm_bootstrap();
+        #[cfg(any(test, feature = "test-timings"))]
+        let canonical_started = Instant::now();
         // Canonical source/native verification, linking, semantic analysis, and
         // lowering are process-shared. Runtime installation remains fresh.
         let canonical = crate::modules::canonical_universe_program().map_err(|error| crate::error::VmBootstrapError::CanonicalUniverse(error.to_string()))?;
+        #[cfg(any(test, feature = "test-timings"))]
+        let canonical_universe_product = canonical_started.elapsed();
+        #[cfg(any(test, feature = "test-timings"))]
+        let kernel_native_started = Instant::now();
         let mut vm = Self::try_new_native_with_native_install_mode_and_output(native_install_mode, output)?;
+        #[cfg(any(test, feature = "test-timings"))]
+        {
+            vm.bootstrap_timing.canonical_universe_product = canonical_universe_product;
+            vm.bootstrap_timing.kernel_native = kernel_native_started.elapsed();
+        }
 
         // Source-authored Universe classes are referenced by other canonical
         // modules while the source bootstrap is still being compiled. Reserve
@@ -382,6 +397,8 @@ impl VM {
         canonical: &crate::modules::CanonicalUniverseProgram,
         id: &phalcom_modules::ModuleId,
     ) -> PhResult<crate::heap::ObjRef> {
+        #[cfg(any(test, feature = "test-timings"))]
+        crate::instrumentation::record_universe_module_compilation();
         let parsed = canonical
             .source_index()
             .unit(id)
@@ -437,7 +454,13 @@ impl VM {
             executed_units: canonical.bootstrap_order().len(),
         };
         for id in canonical.bootstrap_order().iter() {
+            #[cfg(any(test, feature = "test-timings"))]
+            let compile_started = Instant::now();
             let closure = self.compile_universe_module(canonical, id)?;
+            #[cfg(any(test, feature = "test-timings"))]
+            {
+                self.bootstrap_timing.universe_module_compilation += compile_started.elapsed();
+            }
             let module = self
                 .module_registry
                 .get(id)
@@ -447,7 +470,15 @@ impl VM {
             if COUNT_UNIVERSE_BOOTSTRAP.with(Cell::get) {
                 UNIVERSE_INITIALIZER_EXECUTIONS.fetch_add(1, Ordering::Relaxed);
             }
+            #[cfg(any(test, feature = "test-timings"))]
+            crate::instrumentation::record_universe_initializer_execution();
+            #[cfg(any(test, feature = "test-timings"))]
+            let initializer_started = Instant::now();
             self.run_in_module(module, closure)?;
+            #[cfg(any(test, feature = "test-timings"))]
+            {
+                self.bootstrap_timing.universe_initializer_execution += initializer_started.elapsed();
+            }
             self.module_registry
                 .get_mut(id)
                 .ok_or_else(|| crate::error::RuntimeError::Internal(format!("bootstrapped Universe module {id} is not registered")))?
@@ -549,6 +580,7 @@ impl VM {
         // native heap arm mirroring `List`.
         add_class!(tuple_class);
         add_class!(record_class);
+        add_class!(pack_class);
         // `Range` (ADR-0039, U-COLLTYPES Phase 3): ordinary class global,
         // native heap arm mirroring `List`.
         add_class!(range_class);
@@ -986,6 +1018,7 @@ impl VM {
             c.set_class,
             c.tuple_class,
             c.record_class,
+            c.pack_class,
             c.range_class,
             c.message_class,
             c.error_class,
@@ -1153,6 +1186,9 @@ mod tests {
         let modules_per_vm = canonical.bootstrap_order().len();
         let compile_before = UNIVERSE_AST_COMPILATIONS.load(Ordering::Relaxed);
         let execute_before = UNIVERSE_INITIALIZER_EXECUTIONS.load(Ordering::Relaxed);
+        let full_bootstraps_before = crate::instrumentation::full_vm_bootstrap_count();
+        let module_compiles_before = crate::instrumentation::universe_module_compilation_count();
+        let initializer_runs_before = crate::instrumentation::universe_initializer_execution_count();
 
         let _a = VM::new();
         let _b = VM::new();
@@ -1165,5 +1201,8 @@ mod tests {
         assert_eq!(crate::modules::canonical_universe::CANONICAL_PROGRAM_PROJECTIONS.load(Ordering::Relaxed), 1);
         assert_eq!(UNIVERSE_AST_COMPILATIONS.load(Ordering::Relaxed) - compile_before, modules_per_vm * 3);
         assert_eq!(UNIVERSE_INITIALIZER_EXECUTIONS.load(Ordering::Relaxed) - execute_before, modules_per_vm * 3);
+        assert!(crate::instrumentation::full_vm_bootstrap_count() >= full_bootstraps_before + 3);
+        assert!(crate::instrumentation::universe_module_compilation_count() >= module_compiles_before + modules_per_vm * 3);
+        assert!(crate::instrumentation::universe_initializer_execution_count() >= initializer_runs_before + modules_per_vm * 3);
     }
 }

@@ -22,10 +22,10 @@ class Factory {
 class Service {
   @class
   choose(_ flag: Bool, _ abort: Bool) {
-    let pair = Factory.pair(flag)
-    let (animal, count) = pair
+    let mut pair = Factory.pair(flag)
+    let mut (animal, count) = pair
 
-    let result = if abort {
+    let mut result = if abort {
       return (animal, count)
     } else {
       (animal, count)
@@ -38,8 +38,8 @@ class Service {
 class Probe {
   @class
   run(_ flag: Bool, _ abort: Bool) {
-    let result = Service.choose(flag, abort)
-    let (animal, count) = result
+    let mut result = Service.choose(flag, abort)
+    let mut (animal, count) = result
     (animal, count)
   }
 }

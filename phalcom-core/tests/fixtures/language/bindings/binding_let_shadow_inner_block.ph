@@ -6,9 +6,9 @@
 // original value is unaffected — the shadow never wrote through to the
 // outer slot (a fresh local, not an upvalue alias).
 
-const x = 1
-const show = || {
-  const x = 2
+let x = 1
+let show = || {
+  let x = 2
   System.print(x)
 }
 show.call()

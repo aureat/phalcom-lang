@@ -1,4 +1,4 @@
-let s = Set.new()
+let mut s = Set.new()
 s.add(1)
 s.add(2)
 s.add(3)

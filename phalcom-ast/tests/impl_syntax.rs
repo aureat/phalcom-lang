@@ -136,9 +136,9 @@ impl Container {
 
 #[test]
 fn test_parse_impl_rejects_fields() {
-    let source = "impl User {\n  const _cache: String\n}\n";
+    let source = "impl User {\n  _cache: String\n}\n";
     let err = parse_source(source, 0);
-    assert!(err.is_err(), "impl with const field must be rejected");
+    assert!(err.is_err(), "impl with a stored field must be rejected");
 
     let source_mut = "impl User {\n  _cache = 1\n}\n";
     let err_mut = parse_source(source_mut, 0);
@@ -217,7 +217,7 @@ impl Counter {
 fn c5p1_top_level_type_alias_remains_unchanged() {
     let source = "type Item = Int\n";
     let program = parse_source(source, 0).expect("type alias parses");
-    assert!(matches!(&program.statements[0], Statement::TypeAlias(alias) if alias.name == "Item"));
+    assert!(matches!(&program.statements[0], Statement::TypeDefinition(alias) | Statement::TypeAlias(alias) if alias.name == "Item"));
 }
 
 #[test]

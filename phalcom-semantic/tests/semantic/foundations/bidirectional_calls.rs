@@ -228,11 +228,21 @@ fn test_flow_state_mutation_and_if_let_join() {
     let str_ty = ctx.nominal_type_of(&string_decl).expect("bootstrap String declaration form");
 
     // Bind mutable local `x` with initial Int
-    let x_binding = match ctx.bind_pattern_binding(
-        "x",
-        phalcom_semantic::types::denotation::ValueSemanticFact::new(TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax)),
-        phalcom_common::range::SourceRange::default(),
-    ) {
+    let x_binding = match ctx.declare_binding(phalcom_semantic::checker::BindingSeed {
+        parameter: None,
+        name: "x".into(),
+        range: phalcom_common::range::SourceRange::default(),
+        contract: Some(phalcom_semantic::checker::binding::BindingContract {
+            ty: int_ty,
+            origin: phalcom_semantic::checker::binding::BindingContractOrigin::PatternBinding,
+            source: Some(phalcom_common::range::SourceRange::default()),
+        }),
+        current: TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax),
+        denotation: None,
+        causal_invalidity: phalcom_semantic::checker::causal::CausalInvalidity::Clean,
+        mutable: true,
+        initialization: phalcom_semantic::checker::flow::InitializationState::DefinitelyInitialized,
+    }) {
         phalcom_semantic::checker::binding::BindingDeclarationResult::Inserted(binding) => binding,
         phalcom_semantic::checker::binding::BindingDeclarationResult::Redeclared(binding) => binding,
     };

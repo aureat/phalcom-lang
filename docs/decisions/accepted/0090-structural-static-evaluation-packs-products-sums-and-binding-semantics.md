@@ -1,6 +1,6 @@
 # TDR-0090 — Structural static evaluation, Pack/Product/Sum reflection, and binding semantics
 
-- Status: **Accepted**
+- Status: **Accepted** (amended by INC-P3-2)
 - Ratified: 2026-10-04
 - Checkpoint: `LANG007.C4`
 - Supersedes the current binding/field semantics of [TDR-0052](./0052-let-const-bindings-and-field-mutability.md).
@@ -11,6 +11,23 @@
   - [Structural Products](../../specs/structural-products.md)
   - [Structural Sums](../../specs/structural-sums.md)
   - [Arguments and Parameters](../../specs/callables/arguments.md)
+
+> **Amendment Note (`INC-P3-2` — 2026-10-05):** During the implementation of
+> `LANG007.C4.P3`, the original formulation in this decision suggesting a hard public
+> cutover removing `TypePack`, `LabeledTypePack`, and `CompleteTypePack` in favor of
+> `PositionalPack<Type>`, `LabeledPack<Type>`, and `CompletePack<Type>` was formally
+> refined under `INC-P3-2`.
+>
+> The adopted implementation and normative specification contract is:
+> - `TypePack`, `LabeledTypePack`, and `CompleteTypePack` remain compiler/static kinded
+>   domains established by C3.
+> - `Pack` is the first-class proper structural value/type introduced by `LANG007.C4.P3`.
+> - `PositionalPack<T>`, `LabeledPack<T>`, and `CompletePack<T>` are proper Pack
+>   specializations (`Pack<*: T>`, `Pack<**: T>`, `Pack<***: T>`).
+> - Internal `TypePack` machinery is not replaced merely because first-class `Pack` now exists.
+>   They are not competing spellings for the same thing.
+>
+> The historical text below is preserved with this amendment governing the kinded/pack model.
 
 ## Context
 
@@ -106,6 +123,9 @@ spreading:
 
 Internal TypePack representations may remain compiler optimizations, but the public
 model is `PositionalPack<Type>`, `LabeledPack<Type>`, and `CompletePack<Type>`.
+*(Amended by INC-P3-2: C3's kinded domains `TypePack`, `LabeledTypePack`, and
+`CompleteTypePack` remain compiler/static kinded domains; `PositionalPack<T>`,
+`LabeledPack<T>`, and `CompletePack<T>` are proper first-class Pack specializations.)*
 
 ### Products and unordered fields
 
@@ -170,8 +190,12 @@ Cross-module static definitions export checked semantic definition information a
 stable residual semantics only as required. Metadata never serializes arena IDs,
 VM object identities, or process-local Symbol IDs as semantic identity.
 
-C4 performs a hard public-ontology cutover: old TypePack/RecordFields-facing source
-concepts do not remain a parallel first-class model.
+C4 performs a public-ontology cutover: old RecordFields-facing source concepts
+move to the UnorderedShape/FieldKey model, and Pack becomes the proper first-class
+structural product.
+*(Amended by INC-P3-2: C3's kinded domains `TypePack`, `LabeledTypePack`, and
+`CompleteTypePack` are preserved as compiler/static kinded domains alongside proper
+`Pack` specializations `PositionalPack<T>`, `LabeledPack<T>`, and `CompletePack<T>`.)*
 
 ## Consequences
 

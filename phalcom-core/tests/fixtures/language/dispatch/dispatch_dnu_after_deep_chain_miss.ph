@@ -25,6 +25,6 @@ class C is B {
   new() { }
   greet { "hi" }
 }
-const c = C.new()
+let c = C.new()
 System.print(c.greet)
 c.mystery()

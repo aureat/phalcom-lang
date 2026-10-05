@@ -180,10 +180,29 @@ mod field_tests {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum FieldInitialization {
+pub enum InitializationState {
     Uninitialized,
     MaybeInitialized,
     DefinitelyInitialized,
+}
+
+impl InitializationState {
+    pub fn join(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::DefinitelyInitialized, Self::DefinitelyInitialized) => Self::DefinitelyInitialized,
+            (Self::Uninitialized, Self::Uninitialized) => Self::Uninitialized,
+            _ => Self::MaybeInitialized,
+        }
+    }
+}
+
+pub type FieldInitialization = InitializationState;
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum BindingReadSafety {
+    ProvenInitialized,
+    DefinitelyUninitialized,
+    RuntimeCheckRequired,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -329,6 +348,7 @@ pub(crate) struct BindingFixpointKey {
     pub consistency: BindingConsistency,
     pub causal_invalidity: CausalInvalidity,
     pub mutable: bool,
+    pub initialization: InitializationState,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -441,7 +461,20 @@ impl FlowState {
         initial: TypeKnowledge,
         mutable: bool,
     ) {
-        let state = BindingState::new_with_contract(binding, name, range, contract, initial, None, mutable);
+        self.declare_with_initialization(binding, name, range, contract, initial, mutable, InitializationState::DefinitelyInitialized);
+    }
+
+    pub fn declare_with_initialization(
+        &mut self,
+        binding: BindingId,
+        name: impl Into<String>,
+        range: SourceRange,
+        contract: Option<BindingContract>,
+        initial: TypeKnowledge,
+        mutable: bool,
+        initialization: InitializationState,
+    ) {
+        let state = BindingState::new_with_contract(binding, name, range, contract, initial, None, mutable, initialization);
         self.bindings.insert(binding, state);
     }
 
@@ -452,6 +485,10 @@ impl FlowState {
 
     pub fn get_binding(&self, binding: BindingId) -> Option<&BindingState> {
         self.bindings.get(&binding)
+    }
+
+    pub fn get_binding_mut(&mut self, binding: BindingId) -> Option<&mut BindingState> {
+        self.bindings.get_mut(&binding)
     }
 
     pub fn set_binding_explanation(&mut self, binding: BindingId, explanation: ExplanationId) {
@@ -502,6 +539,7 @@ impl FlowState {
     pub fn assign(&mut self, binding: BindingId, new_knowledge: TypeKnowledge) {
         if let Some(b) = self.bindings.get_mut(&binding) {
             b.current = new_knowledge;
+            b.initialization = InitializationState::DefinitelyInitialized;
             b.version += 1;
         }
         self.facts.invalidate_binding(binding);
@@ -527,6 +565,9 @@ impl FlowState {
         state.denotation = denotation;
         state.consistency = consistency;
         state.causal_invalidity = causal_invalidity;
+        if causal_invalidity == CausalInvalidity::Clean {
+            state.initialization = InitializationState::DefinitelyInitialized;
+        }
         state.version += 1;
         self.facts.invalidate_binding(binding);
         BindingWriteResult::Applied
@@ -675,6 +716,22 @@ impl FlowState {
                 {
                     b.consistency = BindingConsistency::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint);
                 }
+                let initialization = if reachable_states
+                    .iter()
+                    .filter_map(|state| state.bindings.get(&id))
+                    .all(|binding| binding.initialization == InitializationState::DefinitelyInitialized)
+                {
+                    InitializationState::DefinitelyInitialized
+                } else if reachable_states
+                    .iter()
+                    .filter_map(|state| state.bindings.get(&id))
+                    .all(|binding| binding.initialization == InitializationState::Uninitialized)
+                {
+                    InitializationState::Uninitialized
+                } else {
+                    InitializationState::MaybeInitialized
+                };
+                b.initialization = initialization;
                 b.version = max_version + 1;
                 joined_bindings.insert(id, b);
             }
@@ -781,10 +838,19 @@ impl FlowState {
         let mut widened_bindings = header.bindings.clone();
         for (id, next_b) in &next_header.bindings {
             if let Some(h_b) = header.bindings.get(id) {
-                if h_b.current != next_b.current {
+                if h_b.current != next_b.current || h_b.initialization != next_b.initialization {
                     let widened_knowledge = join_type_knowledge(store, [h_b.current.clone(), next_b.current.clone()]);
                     let mut wb = h_b.clone();
                     wb.current = widened_knowledge.clone();
+                    wb.initialization = if h_b.initialization == InitializationState::DefinitelyInitialized
+                        && next_b.initialization == InitializationState::DefinitelyInitialized
+                    {
+                        InitializationState::DefinitelyInitialized
+                    } else if h_b.initialization == InitializationState::Uninitialized && next_b.initialization == InitializationState::Uninitialized {
+                        InitializationState::Uninitialized
+                    } else {
+                        InitializationState::MaybeInitialized
+                    };
                     wb.denotation = if h_b.denotation == next_b.denotation { h_b.denotation.clone() } else { None };
                     wb.causal_invalidity = h_b.causal_invalidity.join(next_b.causal_invalidity);
                     if let Some(contract) = wb.contract.as_ref() {
@@ -870,6 +936,7 @@ impl FlowState {
                         consistency: b.consistency.clone(),
                         causal_invalidity: b.causal_invalidity,
                         mutable: b.mutable,
+                        initialization: b.initialization,
                     },
                 )
             })
@@ -915,6 +982,7 @@ impl FlowState {
                     consistency: prev_b.consistency.clone(),
                     causal_invalidity: prev_b.causal_invalidity,
                     mutable: prev_b.mutable,
+                    initialization: prev_b.initialization,
                 };
                 let next_key = BindingFixpointKey {
                     contract: next_b.contract.clone(),
@@ -923,6 +991,7 @@ impl FlowState {
                     consistency: next_b.consistency.clone(),
                     causal_invalidity: next_b.causal_invalidity,
                     mutable: next_b.mutable,
+                    initialization: next_b.initialization,
                 };
                 if prev_key != next_key {
                     let mut b = next_b.clone();
@@ -1007,6 +1076,7 @@ mod fixpoint_projection_tests {
             consistency: BindingConsistency::Unconstrained,
             causal_invalidity: CausalInvalidity::Clean,
             mutable: true,
+            initialization: InitializationState::DefinitelyInitialized,
             version: 0,
             explanation: Some(ExplanationId(10)),
         });
@@ -1023,6 +1093,7 @@ mod fixpoint_projection_tests {
             consistency: BindingConsistency::Unconstrained,
             causal_invalidity: CausalInvalidity::Clean,
             mutable: true,
+            initialization: InitializationState::DefinitelyInitialized,
             version: 5,
             explanation: Some(ExplanationId(999)),
         });
@@ -1051,6 +1122,7 @@ mod fixpoint_projection_tests {
             consistency: BindingConsistency::Unconstrained,
             causal_invalidity: CausalInvalidity::Clean,
             mutable: false,
+            initialization: InitializationState::DefinitelyInitialized,
             version: 0,
             explanation: None,
         });
@@ -1065,6 +1137,7 @@ mod fixpoint_projection_tests {
             consistency: BindingConsistency::Unconstrained,
             causal_invalidity: CausalInvalidity::Clean,
             mutable: true,
+            initialization: InitializationState::DefinitelyInitialized,
             version: 0,
             explanation: None,
         });

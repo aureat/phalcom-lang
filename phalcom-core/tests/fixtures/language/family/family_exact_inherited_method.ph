@@ -7,6 +7,6 @@ class Animal {
 }
 class Dog is Animal {
 }
-const d = Dog.new()
-const f = (Dog >> #speak()).bind(d)
+let d = Dog.new()
+let f = (Dog >> #speak()).bind(d)
 System.print(f())

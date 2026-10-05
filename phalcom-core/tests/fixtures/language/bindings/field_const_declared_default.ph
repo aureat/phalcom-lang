@@ -1,12 +1,10 @@
 // area: bindings
-// spec: ADR-0064 §4; U-BINDINGS §4
+// spec: LANG007.C4 P1 immutable-by-default field surface
 // status: PASS
-// `const _x = e` parses and is immutable; the default is set through the
-// constructor here since bare-allocator default-application is a separate,
-// unwired mechanism (not part of this unit's write-set).
+// Mutable storage is explicit even when it has a declaration default.
 
 class Origin {
-  const _x = 10
+  mut _x = 10
   @constructor
   new(_ v) { _x = v }
   get { return _x }

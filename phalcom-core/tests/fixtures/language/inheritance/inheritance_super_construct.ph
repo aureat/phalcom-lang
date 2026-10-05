@@ -5,11 +5,13 @@
 // instance, so inherited slots are filled before the subclass's own.
 
 class Animal {
+  mut _name
   @constructor
   new(_ name) { _name = name }
   name { _name }
 }
 class Dog is Animal {
+  mut _breed
   @constructor
   new(_ name, _ breed) {
     super.new(name)
@@ -17,6 +19,6 @@ class Dog is Animal {
   }
   breed { _breed }
 }
-const d = Dog.new("Rex", "Collie")
+let d = Dog.new("Rex", "Collie")
 System.print(d.name)
 System.print(d.breed)

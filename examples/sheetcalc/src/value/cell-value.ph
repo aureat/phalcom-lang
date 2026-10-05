@@ -31,6 +31,7 @@ class CellValue {
 
 /// A numeric cell value. Stores an f64.
 class CellNum is CellValue {
+  mut _n
   @constructor
   new(_ n) {
     _n = n
@@ -86,7 +87,7 @@ class CellNum is CellValue {
       return ErrorVal.typeError
     }
 
-    const on = other.value
+    let on = other.value
     if (on == 0) {
       return ErrorVal.divByZero
     }
@@ -103,7 +104,7 @@ class CellNum is CellValue {
       return ErrorVal.typeError
     }
 
-    const on = other.value
+    let on = other.value
     if (on == 0) {
       return ErrorVal.divByZero
     }
@@ -164,6 +165,7 @@ class CellNum is CellValue {
 
 /// A text cell value. Stores a string.
 class CellText is CellValue {
+  mut _s
   @constructor
   new(_ s) {
     _s = s
@@ -213,6 +215,7 @@ class CellText is CellValue {
 
 /// A boolean cell value.
 class CellBool is CellValue {
+  mut _b
   @constructor
   new(_ b) {
     _b = b
@@ -313,7 +316,7 @@ class CellEmpty is CellValue {
       return ErrorVal.divByZero
     }
 
-    const on = other.asNumber
+    let on = other.asNumber
     if (on == nil) {
       return ErrorVal.typeError
     }
@@ -354,14 +357,16 @@ class CellEmpty is CellValue {
   }
 }
 
-let x = CellNum.of(10)
-let y = CellNum.of(5)
-let z = CellEmpty.new()
-let result1 = x.minus(y)
-let result2 = z.minus(x)
+let mut x = CellNum.of(10)
+let mut y = CellNum.of(5)
+let mut z = CellEmpty.new()
+let mut result1 = x.minus(y)
+let mut result2 = z.minus(x)
 
 /// An error cell value. Stores a symbol like #DIV0 and display name.
 class ErrorVal is CellValue {
+  mut _sym
+  mut _display
   @constructor
   new(_ sym, _ display) {
     _sym = sym

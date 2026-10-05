@@ -4,7 +4,7 @@ use crate::checker::analysis::AnalysisStatus;
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::inference::{InferenceContextId, InferenceTerm};
 use crate::dispatch::DispatchLookup;
-use crate::identity::{CallableId, DiagnosticCauseId, ExplanationId, ExpressionId};
+use crate::identity::{BindingId, CallableId, DiagnosticCauseId, ExplanationId, ExpressionId};
 use crate::types::constraint::TypeConstraint;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::{EvidenceOrigin, EvidenceSet, TypeKnowledge, UnknownReason};
@@ -33,9 +33,14 @@ pub struct TypedExpression {
     pub constraints: Vec<TypeConstraint>,
     pub provenance: EvidenceSet,
     pub causal_invalidity: CausalInvalidity,
+    /// Exact lexical binding selected for a local variable read.
+    pub binding_read: Option<BindingId>,
+    /// Exact lexical binding selected as an assignment target.
+    pub binding_write: Option<BindingId>,
     /// Query-local type view. Never copied into durable expression metadata.
     pub(crate) local_type: Option<LocalType>,
     pub(crate) symbolic_result: Option<SymbolicInferenceResult>,
+    pub binding_read_safety: Option<crate::checker::flow::BindingReadSafety>,
 }
 
 impl TypedExpression {
@@ -81,8 +86,11 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance,
             causal_invalidity: CausalInvalidity::Clean,
+            binding_read: None,
+            binding_write: None,
             local_type: None,
             symbolic_result: None,
+            binding_read_safety: None,
         }
     }
 
@@ -101,8 +109,11 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance,
             causal_invalidity: CausalInvalidity::Clean,
+            binding_read: None,
+            binding_write: None,
             local_type: None,
             symbolic_result: None,
+            binding_read_safety: None,
         }
     }
 
@@ -121,8 +132,11 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance,
             causal_invalidity: CausalInvalidity::Clean,
+            binding_read: None,
+            binding_write: None,
             local_type: None,
             symbolic_result: None,
+            binding_read_safety: None,
         }
     }
 
@@ -138,8 +152,11 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance: EvidenceSet::default(),
             causal_invalidity: CausalInvalidity::Clean,
+            binding_read: None,
+            binding_write: None,
             local_type: None,
             symbolic_result: None,
+            binding_read_safety: None,
         }
     }
 
@@ -155,8 +172,11 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance: EvidenceSet::default(),
             causal_invalidity: CausalInvalidity::Clean,
+            binding_read: None,
+            binding_write: None,
             local_type: None,
             symbolic_result: None,
+            binding_read_safety: None,
         }
     }
 
@@ -197,6 +217,11 @@ impl TypedExpression {
         self
     }
 
+    pub fn with_binding_read_safety(mut self, safety: crate::checker::flow::BindingReadSafety) -> Self {
+        self.binding_read_safety = Some(safety);
+        self
+    }
+
     pub fn ty(&self) -> Option<TypeId> {
         self.knowledge.ty()
     }
@@ -227,10 +252,13 @@ impl From<crate::checker::analysis::ExpressionAnalysis> for TypedExpression {
         let mut expr = Self::new(analysis.knowledge);
         expr.expression_id = Some(analysis.id);
         expr.callable = analysis.callable;
+        expr.binding_read = analysis.binding_read;
+        expr.binding_write = analysis.binding_write;
         expr.explanation_parents = analysis.explanation.into_iter().collect();
         expr.denotation = analysis.denotation;
         expr.status = analysis.status;
         expr.causal_invalidity = analysis.causal_invalidity;
+        expr.binding_read_safety = analysis.binding_read_safety;
         expr
     }
 }

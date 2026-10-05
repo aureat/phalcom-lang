@@ -7,17 +7,17 @@ class Main {
   @class
   main {
     System.print("Simple Grid test")
-    const grid = Grid.Grid.new()
+    let grid = Grid.Grid.new()
     System.print("Grid created, type: " + grid.toString)
     System.print("Grid.isEmpty = " + grid.isEmpty.toString)
 
-    const r = Ref.Ref.at(1, 1)
+    let r = Ref.Ref.at(1, 1)
     System.print("Ref created: " + r.toString)
 
-    const v = Value.CellNum.of(42)
+    let v = Value.CellNum.of(42)
     System.print("CellValue created: " + v.toString)
 
-    const cell = Cell.LiteralCell.of(v)
+    let cell = Cell.LiteralCell.of(v)
     System.print("Cell created")
 
     System.print("About to call grid.set()")

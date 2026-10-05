@@ -3,9 +3,9 @@ from units.weight import Weight
 
 /*@definition.parcel*/
 class Parcel {
-  _id: String
-  _destination: Point
-  _weight: Weight
+  mut _id: String
+  mut _destination: Point
+  mut _weight: Weight
 
   @constructor
   new(_ id: String, destination: Point, weight: Weight) {

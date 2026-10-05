@@ -1249,6 +1249,7 @@ name = "phalcom-semantic"
 version = "0.1.0"
 dependencies = [
  "im",
+ "num-bigint",
  "phalcom-ast",
  "phalcom-common",
  "phalcom-diagnostics",

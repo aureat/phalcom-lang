@@ -8,7 +8,7 @@ use crate::diagnostic::SemanticDiagnostic;
 use crate::hierarchy_product::HierarchyEdgeProduct;
 use crate::identity::AssociatedStaticDomainDeclarationId;
 use crate::module_product::ResolvedImportsProduct;
-use crate::signature::{CallableSemanticSignature, FieldSemanticSignature};
+use crate::signature::{CallableSemanticSignature, ConstructorInitializationProduct, FieldSemanticSignature};
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{CallableSourceAttachment, ModuleSourceIndex};
 use crate::surface::DeclarationSurface;
@@ -131,6 +131,19 @@ pub struct EnumRequirementsProduct {
     pub diagnostics: Arc<[SemanticDiagnostic]>,
 }
 
+/// Dependency-visible constructor paths published for one declaring class.
+///
+/// The owner-scoped product has a stable query key even when its path list is
+/// empty, so removing the last constructor path invalidates subclasses that
+/// consumed the previous construction lifecycle.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConstructorInitializationOwnerProduct {
+    /// Class that owns the constructor paths.
+    pub owner: crate::identity::DeclarationId,
+    /// Canonical paths in factory identity order.
+    pub paths: Box<[ConstructorInitializationProduct]>,
+}
+
 /// Fact representing the resolution of a local name within a module.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LinkedNameFact {
@@ -178,6 +191,7 @@ pub enum SemanticProduct {
     HierarchyEdge(Arc<HierarchyEdgeProduct>),
     CallableSignature(Arc<CallableSemanticSignature>),
     FieldSignature(Arc<FieldSemanticSignature>),
+    ConstructorInitialization(Arc<ConstructorInitializationOwnerProduct>),
     CallableBody(Arc<CallableAnalysis>),
     SourceStructure(Arc<ModuleSourceIndex>),
     SourceFormalAttachment(Arc<CallableSourceAttachment>),
@@ -196,6 +210,10 @@ pub enum SemanticProduct {
     ResolvedImport(Arc<phalcom_modules::resolver::ImportResolutionProduct>),
     LinkedName(Arc<LinkedNameProduct>),
     PublicExport(Arc<PublicExportProduct>),
+    StaticDefinition(Arc<crate::static_definition::StaticDefinitionProduct>),
+    StaticConstant(Arc<crate::static_constant::StaticConstantProduct>),
+    ModuleStaticBindings(Arc<crate::module_bindings::ModuleStaticBindingIndex>),
+    CheckedStaticBody(Arc<crate::static_definition::CheckedStaticBody>),
 }
 
 impl SemanticProduct {
@@ -289,6 +307,13 @@ impl SemanticProduct {
     pub fn as_field_signature(&self) -> Option<&Arc<FieldSemanticSignature>> {
         match self {
             Self::FieldSignature(sig) => Some(sig),
+            _ => None,
+        }
+    }
+
+    pub fn as_constructor_initialization(&self) -> Option<&Arc<ConstructorInitializationOwnerProduct>> {
+        match self {
+            Self::ConstructorInitialization(product) => Some(product),
             _ => None,
         }
     }
@@ -419,6 +444,34 @@ impl SemanticProduct {
         }
     }
 
+    pub fn as_static_definition(&self) -> Option<&Arc<crate::static_definition::StaticDefinitionProduct>> {
+        match self {
+            Self::StaticDefinition(product) => Some(product),
+            _ => None,
+        }
+    }
+
+    pub fn as_static_constant(&self) -> Option<&Arc<crate::static_constant::StaticConstantProduct>> {
+        match self {
+            Self::StaticConstant(product) => Some(product),
+            _ => None,
+        }
+    }
+
+    pub fn as_module_static_bindings(&self) -> Option<&Arc<crate::module_bindings::ModuleStaticBindingIndex>> {
+        match self {
+            Self::ModuleStaticBindings(product) => Some(product),
+            _ => None,
+        }
+    }
+
+    pub fn as_checked_static_body(&self) -> Option<&Arc<crate::static_definition::CheckedStaticBody>> {
+        match self {
+            Self::CheckedStaticBody(product) => Some(product),
+            _ => None,
+        }
+    }
+
     /// Converts typed product into type-erased `QueryValue`.
     pub fn to_query_value(&self) -> QueryValue {
         let kind = match self {
@@ -434,6 +487,7 @@ impl SemanticProduct {
             Self::HierarchyEdge(_) => b"hierarchy-edge".as_slice(),
             Self::CallableSignature(_) => b"callable-signature".as_slice(),
             Self::FieldSignature(_) => b"field-signature".as_slice(),
+            Self::ConstructorInitialization(_) => b"constructor-initialization".as_slice(),
             Self::CallableBody(_) => b"callable-body".as_slice(),
             Self::SourceStructure(_) => b"source-structure".as_slice(),
             Self::SourceFormalAttachment(_) => b"source-formal-attachment".as_slice(),
@@ -452,6 +506,10 @@ impl SemanticProduct {
             Self::ResolvedImport(_) => b"resolved-import".as_slice(),
             Self::LinkedName(_) => b"linked-name".as_slice(),
             Self::PublicExport(_) => b"public-export".as_slice(),
+            Self::StaticDefinition(_) => b"static-definition".as_slice(),
+            Self::StaticConstant(_) => b"static-constant".as_slice(),
+            Self::ModuleStaticBindings(_) => b"module-static-bindings".as_slice(),
+            Self::CheckedStaticBody(_) => b"checked-static-body".as_slice(),
         };
         QueryValue::from_bytes(kind)
     }

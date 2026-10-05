@@ -9,6 +9,7 @@ mod derived_conformance;
 mod fingerprints;
 mod generic_contracts;
 mod match_analysis;
+mod pack_types;
 mod product_stability;
 mod query_ownership;
 mod recomputation_metrics;

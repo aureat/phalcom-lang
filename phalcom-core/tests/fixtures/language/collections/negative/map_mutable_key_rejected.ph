@@ -5,6 +5,6 @@
 // `hash` is inconsistent with structural `==`. `at(_, put:)` must raise a
 // catchable Error, never silently identity-key it.
 
-const m = Map.new()
-const key = []
+let m = Map.new()
+let key = []
 m.at(key, put: 1)

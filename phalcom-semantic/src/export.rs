@@ -184,6 +184,8 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
         | TypeData::LabeledTypePackConcat(_)
         | TypeData::TupleFromPacks { .. }
         | TypeData::CallableFromPacks { .. }
+        | TypeData::Pack(_)
+        | TypeData::PackFromPacks { .. }
         | TypeData::TypeMemberProjection(_)
         | TypeData::ConstInt(_)
         | TypeData::StaticData(_)

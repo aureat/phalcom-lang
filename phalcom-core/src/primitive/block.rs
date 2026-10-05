@@ -154,8 +154,10 @@ pub fn block_call_with_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -
         expected: 1,
         found: args.positional_count(),
     })?;
-    let (positionals, labeled): (Vec<Value>, Vec<(crate::interner::Symbol, Value)>) = if packed.is_unit() {
+    let (positionals, labeled): (Vec<Value>, Vec<(crate::interner::Symbol, Value)>) = if packed.is_unit() || packed.is_empty_pack() {
         (Vec::new(), Vec::new())
+    } else if let Some(view) = vm.pack_view_value(packed) {
+        (view.positionals(), view.labeled_entries())
     } else if let Some(id) = packed.as_obj() {
         if matches!(vm.heap.get(id), Object::Tuple(_)) {
             let tuple = vm
@@ -164,14 +166,14 @@ pub fn block_call_with_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -
             (tuple.positionals(), tuple.labeled_entries())
         } else {
             return Err(RuntimeError::Type {
-                expected: "Tuple",
+                expected: "Tuple or Pack",
                 found: packed.type_name(),
             }
             .into());
         }
     } else {
         return Err(RuntimeError::Type {
-            expected: "Tuple",
+            expected: "Tuple or Pack",
             found: packed.type_name(),
         }
         .into());
@@ -227,8 +229,7 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     let mut bound_args = Vec::with_capacity(shape.fixed_positionals + usize::from(shape.rest.is_some()));
     bound_args.extend_from_slice(&args[..shape.fixed_positionals]);
     if matches!(shape.rest, Some(RestKind::Positional)) {
-        let rest = crate::product::finish_tuple(vm, args[shape.fixed_positionals..].to_vec(), Vec::new())
-            .map_err(|error| crate::product::runtime_error(vm, "Tuple label", error))?;
+        let rest = vm.capture_positional_rest_pack(&args[shape.fixed_positionals..])?;
         bound_args.push(rest);
     }
 

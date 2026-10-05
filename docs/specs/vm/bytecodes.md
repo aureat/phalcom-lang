@@ -494,7 +494,21 @@ This instruction does not perform expansion by itself.
 
 Reads the active frame's local slot.
 
-A private unread sentinel, if present internally, MUST be surfaced according to the VM absence invariant.
+This is the unchecked load used when the compiler has established that the
+binding is initialized. A bytecode producer that cannot establish that fact
+MUST use `GetLocalChecked`.
+
+---
+
+### `GetLocalChecked(slot, name)`
+
+Reads the active frame's local slot and fails with an uninitialized-binding
+runtime error if it contains the private initialization marker. `name` is a
+symbol constant used for the diagnostic.
+
+```text
+[...] → [..., local[slot]]
+```
 
 ---
 
@@ -525,8 +539,19 @@ A duplicate or otherwise illegal definition MUST follow the language's binding-d
 Pushes the current value of the named global/module binding.
 
 A missing binding follows the language's undefined-name/runtime lookup semantics.
+A binding still carrying the private uninitialized marker fails with an
+uninitialized-binding runtime error.
 
 A VM MAY satisfy this operation from a valid global inline cache.
+
+---
+
+### `GetGlobalChecked(name)`
+
+Loads the named global/module binding and fails with an uninitialized-binding
+runtime error when its storage still carries the private initialization
+marker. `name` is a symbol constant used to resolve the binding and report the
+diagnostic.
 
 ---
 
@@ -555,6 +580,27 @@ Pushes the receiver instance field stored at the statically assigned field-slot 
 The slot operand is a field-layout offset, not a source field name.
 
 The receiver is the current frame receiver.
+
+An immutable field slot whose initialization has not completed MUST be loaded
+with `GetFieldChecked`.
+
+An ordinary `GetField` of an unset mutable field surfaces `None`, as defined
+by [Class Instance Fields and Construction](../objects/classes.md). It MUST
+NOT be used to bypass an immutable field's checked read.
+
+---
+
+### `GetFieldChecked(slot, name)`
+
+Reads the receiver field at the declared slot. If it contains the private
+uninitialized marker, execution fails with an uninitialized-field runtime
+error naming `name`; the marker MUST NOT be returned as a value or converted
+to `None`.
+
+The slot is the statically assigned field-layout offset. `name` is a symbol
+constant used only to report the failure.
+
+---
 
 ---
 
@@ -615,6 +661,12 @@ The closure's module/environment identity MUST be the identity defined by its le
 ```
 
 Pushes the current value of the indexed capture.
+
+### `GetUpvalueChecked(upvalue, name)`
+
+Reads the indexed capture and fails with an uninitialized-binding runtime
+error if it still contains the private initialization marker. `name` is a
+symbol constant used for the diagnostic.
 
 ---
 
@@ -986,9 +1038,22 @@ Conceptually:
 [..., class] → [..., instance]
 ```
 
-Instance storage is initialized according to the object-layout rules. Private unread field storage MUST not expose the raw VM nil sentinel.
+Instance storage is allocated according to the object-layout rules. This
+instruction does not evaluate field defaults or run a constructor. Private
+unread field storage MUST not expose `Nil` or the uninitialized marker.
 
-This opcode performs allocation; constructor method semantics remain governed by constructor lowering and invocation.
+This opcode performs allocation only; constructor method semantics and
+field-default evaluation remain governed by constructor lowering and
+invocation. See [Class Instance Fields and Construction](../objects/classes.md).
+
+---
+
+### `UninitializedBinding`
+
+Pushes the private initialization marker used to seed a source binding or
+immutable field slot that has not yet been initialized. The result is VM
+storage state, not a Phalcom value; it MUST NOT cross a guest-visible read or
+return boundary.
 
 ---
 
@@ -1232,6 +1297,24 @@ Failure to satisfy tuple-position expansion requirements follows the spread/argu
 ### `FinishTuplePack`
 
 Finalizes an argument-pack construction into the canonical tuple-shaped argument value used by call/reference machinery when the pack itself is the resulting value rather than immediately invoked.
+
+---
+
+### `FinishPack`
+
+Finalizes an argument-pack builder into an immutable first-class `Pack` value. If both positional and labeled lanes are empty, produces the immediate `EmptyPack` value without heap allocation; otherwise produces an immutable `Object::PackRoot`.
+
+---
+
+### `BuildStaticPack`
+
+Constructs an immutable first-class `Pack` value directly from evaluated stack values matching a compile-time static anonymous Pack layout product, bypassing intermediate dynamic pack builder allocation.
+
+---
+
+### `BuildPack`
+
+Direct standalone Pack construction opcode that pops positional values and `(Symbol, value)` pairs from the stack to produce an immutable `Pack` (or `EmptyPack` when empty).
 
 ---
 
@@ -2147,6 +2230,20 @@ It is **not** a serialized ABI.
 | 98 | `BuildStaticRecord` |
 | 99 | `InvokeConditional` |
 | 100 | `MakeConditionalFamily` |
+| 101 | `InvokeSpecialized` |
+| 102 | `InvokeTraitSelected` |
+| 103 | `InvokeTraitRequirement` |
+| 104 | `MakeTraitBoundMethod` |
+| 105 | `RaiseNonIterableStarOperand` |
+| 106 | `GetDataProductSlot` |
+| 107 | `UninitializedBinding` |
+| 108 | `GetLocalChecked` |
+| 109 | `GetUpvalueChecked` |
+| 110 | `GetGlobalChecked` |
+| 111 | `GetFieldChecked` |
+| 112 | `FinishPack` |
+| 113 | `BuildStaticPack` |
+| 114 | `BuildPack` |
 
 ---
 

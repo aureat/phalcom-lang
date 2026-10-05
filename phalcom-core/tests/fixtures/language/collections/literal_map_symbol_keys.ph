@@ -8,6 +8,6 @@
 // still fail to retrieve). Proves the intended surface: bare-identifier keys
 // are symbols (`Map {a: 1}` ≡ key `#a`), retrieved via `at(#a)`.
 
-const m = Map {a: 1, b: 2}
+let m = Map {a: 1, b: 2}
 System.print(m[#a])
 System.print(m[#b])

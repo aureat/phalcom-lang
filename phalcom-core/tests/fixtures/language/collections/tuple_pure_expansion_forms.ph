@@ -4,13 +4,13 @@
 // Pure expansion Tuples are already unambiguous, so their terminal comma is
 // optional. Compilation must preserve the same tuple value in either spelling.
 
-const positional = (1, 2)
-const labels = (name: "Phalcom")
-const complete = (3, version: 1)
+let positional = (1, 2)
+let labels = (name: "Phalcom")
+let complete = (3, version: 1)
 
-const a = (*positional)
-const b = (**labels)
-const c = (***complete)
+let a = (*positional)
+let b = (**labels)
+let c = (***complete)
 
 System.print(a == positional)
 System.print(b == labels)

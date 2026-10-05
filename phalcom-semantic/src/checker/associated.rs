@@ -662,7 +662,7 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
     }
 
     fn scoped_contains_any_type_parameter(store: &TypeStore, scoped: crate::types::id::ScopedTypeId) -> bool {
-        use crate::types::type_lambda::{ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
+use crate::types::type_lambda::{ScopedPackRemainder, ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
 
         match store.arena().get_scoped(scoped) {
             ScopedTypeData::Bound { .. } => false,
@@ -699,12 +699,25 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
                     .any(|parameter| scoped_contains_any_type_parameter(store, parameter.ty))
                     || scoped_contains_any_type_parameter(store, callable.return_type)
             }
+            ScopedTypeData::Pack(pack) => {
+                pack.elements.iter().any(|element| scoped_contains_any_type_parameter(store, element.ty))
+                    || match pack.positional_remainder {
+                        ScopedPackRemainder::Typed(ty) => scoped_contains_any_type_parameter(store, ty),
+                        ScopedPackRemainder::None | ScopedPackRemainder::Unconstrained => false,
+                    }
+                    || match pack.labeled_remainder {
+                        ScopedPackRemainder::Typed(ty) => scoped_contains_any_type_parameter(store, ty),
+                        ScopedPackRemainder::None | ScopedPackRemainder::Unconstrained => false,
+                    }
+            }
             ScopedTypeData::TypePack(elements) | ScopedTypeData::TypePackConcat(elements) => {
                 elements.iter().any(|&element| scoped_contains_any_type_parameter(store, element))
             }
             ScopedTypeData::LabeledTypePack(elements) => elements.iter().any(|element| scoped_contains_any_type_parameter(store, element.element)),
             ScopedTypeData::LabeledTypePackConcat(segments) => segments.iter().any(|&segment| scoped_contains_any_type_parameter(store, segment)),
-            ScopedTypeData::CompleteTypePack { positionals, labeled } | ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+            ScopedTypeData::CompleteTypePack { positionals, labeled }
+            | ScopedTypeData::TupleFromPacks { positionals, labeled }
+            | ScopedTypeData::PackFromPacks { positionals, labeled } => {
                 scoped_contains_any_type_parameter(store, *positionals) || scoped_contains_any_type_parameter(store, *labeled)
             }
             ScopedTypeData::CallableFromPacks {

@@ -5,7 +5,7 @@
 // A scheduler failure already owned by a durable Future completion observer
 // must become a rejected Future only; it must not also leak into the pump's
 // unhandled-failure channel.
-const owned = Future.async || {
+let owned = Future.async || {
   Error.new("owned failure").raise()
 }
 

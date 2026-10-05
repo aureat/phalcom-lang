@@ -7,7 +7,7 @@
 System.schedule || { Error.new("old detached failure").raise() }
 System.runScheduled()
 
-const pending = Future.new()
+let pending = Future.new()
 try {
   pending.await
 } catch e {

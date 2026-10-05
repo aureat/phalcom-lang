@@ -8,21 +8,21 @@ from universe.time.calendar.partial import MonthDay, YearMonth
 from universe.time.calendar.period import Period
 from universe.time.calendar.time import Time
 
-const epoch = Date.new(1970, Month::January, 1)
-const beforeEpoch = Date.new(1969, Month::December, 31)
-const leapDay = Date.new(2000, Month::February, 29)
-const constrained = Date.new(2024, Month::January, 31).advance(
+let epoch = Date.new(1970, Month::January, 1)
+let beforeEpoch = Date.new(1969, Month::December, 31)
+let leapDay = Date.new(2000, Month::February, 29)
+let constrained = Date.new(2024, Month::January, 31).advance(
   Period.months(1),
   onOverflow: DateOverflow::Constrain
 )
-const periodApplied = Date.new(2024, Month::January, 31).advance(
+let periodApplied = Date.new(2024, Month::January, 31).advance(
   Period.months(1) + Period.days(1),
   onOverflow: DateOverflow::Constrain
 )
-const shiftedYearMonth = YearMonth.new(2024, Month::January).plusMonths(-1)
-const leapMonthDay = MonthDay.new(Month::February, 29)
-const lower = Time.new(0, 0, 0, 0)
-const upper = Time.new(23, 59, 59, 999_999_999)
+let shiftedYearMonth = YearMonth.new(2024, Month::January).plusMonths(-1)
+let leapMonthDay = MonthDay.new(Month::February, 29)
+let lower = Time.new(0, 0, 0, 0)
+let upper = Time.new(23, 59, 59, 999_999_999)
 
 System.print(epoch.daysSince)
 System.print(beforeEpoch.daysSince)

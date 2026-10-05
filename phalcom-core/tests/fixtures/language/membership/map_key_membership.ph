@@ -1,4 +1,4 @@
-let m = Map.new()
+let mut m = Map.new()
 m["a"] = 1
 m["b"] = 2
 System.print("a" in m)

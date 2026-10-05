@@ -9,7 +9,7 @@ class Animal {}
 class Cat is Animal { @constructor new() {} }
 
 class Box<+T> {
-  _value: T
+  mut _value: T
   @constructor new(_ value: T) { _value = value }
   value() -> T { _value }
 }
@@ -48,11 +48,11 @@ class Service {
 class Probe {
   @class
   run(_ maker: AnimalMaker<Cat>) {
-    let animals: Box<Animal> = Service.makeCat(maker)
-    let animal = animals.value()
+    let mut animals: Box<Animal> = Service.makeCat(maker)
+    let mut animal = animals.value()
 
-    let nodeBox = Service.makeNode()
-    let node = nodeBox.value()
+    let mut nodeBox = Service.makeNode()
+    let mut node = nodeBox.value()
 
     (animal, node)
   }

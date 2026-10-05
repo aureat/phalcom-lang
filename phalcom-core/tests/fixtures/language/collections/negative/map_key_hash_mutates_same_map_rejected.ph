@@ -11,9 +11,10 @@
 // A reentrancy-guard flag (`_triggered`) keeps the malicious `==` from
 // recursing into itself when `remove` re-locates the same bucket.
 
-let m = Map.new()
+let mut m = Map.new()
 
 class BadKey {
+  mut _triggered
   @constructor
   new() {
     _triggered = false
@@ -28,8 +29,8 @@ class BadKey {
   }
 }
 
-const a = BadKey.new()
-const b = BadKey.new()
+let a = BadKey.new()
+let b = BadKey.new()
 m.at(a, put: 1)
 m.at(b, put: 2)
 System.print("unreachable")

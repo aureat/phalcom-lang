@@ -48,6 +48,8 @@ pub enum QueryKey {
     CallableDefinition(CallableId),
     HierarchyEdge(DeclarationId),
     FieldSignature(FieldId),
+    /// Canonical owner-scoped constructor/initializer path set.
+    ConstructorInitialization(DeclarationId),
     CallableSignature(CallableId),
     CallableBody(CallableId),
     CallableEffects(CallableId),
@@ -76,4 +78,12 @@ pub enum QueryKey {
     ResolvedImport(phalcom_modules::identity::ImportSiteId),
     LinkedName(ModuleId, String),
     PublicExport(ModuleId, String),
+    /// Canonical checked static definition product.
+    StaticDefinition(DeclarationId),
+    /// Canonical checked compile-time constant product.
+    StaticConstant(crate::static_constant::StaticConstantId),
+    /// Checked ordinary module binding facts used by static-body analysis.
+    ModuleStaticBindings(ModuleId),
+    /// Ordinary-checker facts and evaluator layout for one static body.
+    CheckedStaticBody(crate::static_definition::StaticBodyId),
 }

@@ -9,6 +9,6 @@ class Probe {
 
     @class
     run(_ source: Either<Int, String>) {
-        let bad = Probe.merge(source)
+        let mut bad = Probe.merge(source)
     }
 }

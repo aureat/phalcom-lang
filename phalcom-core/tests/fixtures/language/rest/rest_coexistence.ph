@@ -10,11 +10,11 @@ class Adder {
     return -1
   }
   sum(*numbers) {
-    let total = 0
+    let mut total = 0
     numbers.each(|n| { total = total + n })
     return total
   }
 }
-const a = Adder.new()
+let a = Adder.new()
 System.print(a.sum(1, 2))
 System.print(a.sum(1, 2, 3))

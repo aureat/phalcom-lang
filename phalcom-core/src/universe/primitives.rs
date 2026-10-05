@@ -40,6 +40,10 @@ use crate::primitive::object::{
     object_to_string, object_understands,
 };
 use crate::primitive::option::{option_match_shape, some_call, some_new};
+use crate::primitive::pack::{
+    pack_raw_label_at, pack_raw_labeled_rest_slice, pack_raw_labeled_size, pack_raw_labeled_value_at, pack_raw_positional_at,
+    pack_raw_positional_rest_slice, pack_raw_positional_size,
+};
 use crate::primitive::primitive;
 use crate::primitive::primitive_internal;
 use crate::primitive::primitive_rest;
@@ -677,6 +681,15 @@ impl Universe {
         primitive_internal!(vm, tuple_cls, "rawLabeled", SignatureKind::Getter, tuple_raw_labeled);
         primitive_internal!(vm, tuple_cls, "rawSlice", SignatureKind::Method(2), tuple_raw_slice);
 
+        let pack_cls = vm.universe.classes.pack_class;
+        primitive_internal!(vm, pack_cls, "rawPositionalSize", SignatureKind::Getter, pack_raw_positional_size);
+        primitive_internal!(vm, pack_cls, "rawLabeledSize", SignatureKind::Getter, pack_raw_labeled_size);
+        primitive_internal!(vm, pack_cls, "rawPositionalAt", SignatureKind::Method(1), pack_raw_positional_at);
+        primitive_internal!(vm, pack_cls, "rawLabelAt", SignatureKind::Method(1), pack_raw_label_at);
+        primitive_internal!(vm, pack_cls, "rawLabeledValueAt", SignatureKind::Method(1), pack_raw_labeled_value_at);
+        primitive_internal!(vm, pack_cls, "rawPositionalRestSlice", SignatureKind::Getter, pack_raw_positional_rest_slice);
+        primitive_internal!(vm, pack_cls, "rawLabeledRestSlice", SignatureKind::Getter, pack_raw_labeled_rest_slice);
+
         let record_cls = vm.universe.classes.record_class;
         primitive_internal!(vm, record_cls, "rawSize", SignatureKind::Getter, record_raw_size);
         primitive_internal!(vm, record_cls, "rawLabelAt", SignatureKind::Method(1), record_raw_label_at);
@@ -831,6 +844,7 @@ fn validate_native_surface(vm: &VM) {
         classes.map_class,
         classes.set_class,
         classes.tuple_class,
+        classes.pack_class,
         classes.record_class,
         classes.range_class,
         classes.bytes_class,

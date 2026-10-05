@@ -289,6 +289,30 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
                 .collect();
             store.labeled_type_pack(subst_elements.into_boxed_slice()).unwrap_or(ty)
         }
+        TypeData::Pack(pack) => {
+            let subst_elements: Vec<super::store::PackTypeElement> = pack
+                .elements
+                .iter()
+                .map(|elem| super::store::PackTypeElement {
+                    label: elem.label.clone(),
+                    ty: materialize_view(store, elem.ty, env),
+                })
+                .collect();
+            let pos_rem = match pack.positional_remainder {
+                super::store::AnonymousTupleRemainder::Typed(t) => super::store::AnonymousTupleRemainder::Typed(materialize_view(store, t, env)),
+                rem => rem,
+            };
+            let lab_rem = match pack.labeled_remainder {
+                super::store::AnonymousTupleRemainder::Typed(t) => super::store::AnonymousTupleRemainder::Typed(materialize_view(store, t, env)),
+                rem => rem,
+            };
+            store.open_pack(subst_elements.into_boxed_slice(), pos_rem, lab_rem).unwrap_or(ty)
+        }
+        TypeData::PackFromPacks { positionals, labeled } => {
+            let subst_pos = materialize_view(store, positionals, env);
+            let subst_lab = materialize_view(store, labeled, env);
+            store.pack_from_packs(subst_pos, subst_lab).unwrap_or(ty)
+        }
         TypeData::TupleFromPacks { positionals, labeled } => {
             let subst_pos = materialize_view(store, positionals, env);
             let subst_lab = materialize_view(store, labeled, env);

@@ -12,8 +12,8 @@ native class Set<T> is Collection {
 
   /// Renders members in insertion order using each member's string form.
   toString {
-    let s = "Set("
-    let i = 0
+    let mut s = "Set("
+    let mut i = 0
     while i < self.rawSize {
       if i > 0 {
         s = s + ", "
@@ -45,8 +45,8 @@ native class Set<T> is Collection {
   /// Compares sets by size and membership, independent of insertion order.
   ==(_ other) {
     if other is Set {
-      let same = self.size == other.size
-      let i = 0
+      let mut same = self.size == other.size
+      let mut i = 0
       while same and i < self.size {
         same = other.includes(self.rawAt(i))
         i = i + 1
@@ -63,9 +63,9 @@ native class Set<T> is Collection {
 }
 
 class SetIterator<T> {
-  _source: Set<T>
-  _index: Int
-  _done: Bool
+  mut _source: Set<T>
+  mut _index: Int
+  mut _done: Bool
 
   @constructor
   new(_ source: Set<T>) {
@@ -80,7 +80,7 @@ class SetIterator<T> {
       _done = true
       return None
     }
-    let value = _source.at(_index)
+    let mut value = _source.at(_index)
     _index = _index + 1
     Some(value)
   }

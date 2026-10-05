@@ -4,6 +4,8 @@ from universe.time.duration import Duration, Measurement
 // validated data and is imported by the package surface.
 
 class Instant {
+  mut _clock
+  mut _ticks
   @constructor
   private create(_ clock: Clock, _ ticks: Int) {
     _clock = clock
@@ -46,7 +48,7 @@ class Instant {
   }
 
   <=(_ other: Instant) -> Bool {
-    const order = self.compare(other)
+    let order = self.compare(other)
     if order === Ordering::Less { true } else { order === Ordering::Equal }
   }
 
@@ -55,7 +57,7 @@ class Instant {
   }
 
   >=(_ other: Instant) -> Bool {
-    const order = self.compare(other)
+    let order = self.compare(other)
     if order === Ordering::Greater { true } else { order === Ordering::Equal }
   }
 
@@ -86,9 +88,9 @@ class Clock {
   }
 
   measure<T>(_ action: () -> T) -> Measurement<T> {
-    const started = self.now
-    const value = action.call()
-    const elapsed = self.now.since(started)
+    let started = self.now
+    let value = action.call()
+    let elapsed = self.now.since(started)
     Measurement(value, elapsed)
   }
 
@@ -98,7 +100,7 @@ class Clock {
 }
 
 class SystemClock is Clock {
-  @class _instance
+  @class mut _instance
 
   @class
   instance -> SystemClock {

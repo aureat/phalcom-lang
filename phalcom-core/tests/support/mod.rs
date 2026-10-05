@@ -4,12 +4,17 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+#[cfg(feature = "test-timings")]
+use std::time::Instant;
 
 use phalcom_ast::error::SyntaxError;
 use phalcom_core::compiler::attributes::CompileMode;
 use phalcom_core::compiler::lib::CompilerError;
 use phalcom_core::error::{IoError, PhError, RuntimeError, VmBootstrapError};
-use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler, ProgramSemanticDiagnostics};
+#[cfg(feature = "test-timings")]
+use phalcom_core::instrumentation::FixtureTiming;
+use phalcom_core::modules::compile::{ProgramCompileError, ProgramSemanticDiagnostics};
+use phalcom_core::modules::compile_session::ProgramCompilationSession;
 use phalcom_core::vm::{BufferedOutput, VM};
 
 fn phalcom_bin() -> PathBuf {
@@ -164,41 +169,96 @@ impl fmt::Display for ExpectedFailurePhase {
 struct CorpusRun {
     stdout: Vec<u8>,
     outcome: CorpusOutcome,
+    #[cfg(feature = "test-timings")]
+    timing: FixtureTiming,
 }
 
-fn run_corpus_case(path: &Path) -> CorpusRun {
+fn run_corpus_case(path: &Path, compilation_session: &mut ProgramCompilationSession) -> CorpusRun {
     let options = match case_options(path) {
         Ok(options) => options,
         Err(error) => {
             return CorpusRun {
                 stdout: Vec::new(),
                 outcome: CorpusOutcome::ConfigurationFailure(error),
+                #[cfg(feature = "test-timings")]
+                timing: FixtureTiming::default(),
             };
         }
     };
-    let program = match ProgramCompiler::compile_entry_selection(EntrySelection::Module(path.to_path_buf())) {
-        Ok(program) => program,
+    #[cfg(feature = "test-timings")]
+    let mut timing = FixtureTiming::default();
+    #[cfg(feature = "test-timings")]
+    let io_started = Instant::now();
+    let source = match fs::read_to_string(path) {
+        Ok(source) => source,
         Err(error) => {
             return CorpusRun {
                 stdout: Vec::new(),
-                outcome: CorpusOutcome::ProgramCompileFailure(error),
+                outcome: CorpusOutcome::ProgramCompileFailure(ProgramCompileError::Io(format!("{}: {error}", path.display()))),
+                #[cfg(feature = "test-timings")]
+                timing: FixtureTiming::default(),
             };
         }
     };
+    #[cfg(feature = "test-timings")]
+    {
+        timing.compile_io = io_started.elapsed();
+    }
+    let program = match compilation_session.compile_fixture(path, &source) {
+        Ok(program) => program,
+        Err(error) => {
+            #[cfg(feature = "test-timings")]
+            {
+                let io = timing.compile_io;
+                timing = compilation_session.last_fixture_timing().clone();
+                timing.compile_io = io;
+            }
+            return CorpusRun {
+                stdout: Vec::new(),
+                outcome: CorpusOutcome::ProgramCompileFailure(error),
+                #[cfg(feature = "test-timings")]
+                timing,
+            };
+        }
+    };
+    #[cfg(feature = "test-timings")]
+    {
+        let io = timing.compile_io;
+        timing = compilation_session.last_fixture_timing().clone();
+        timing.compile_io = io;
+    }
 
     let sink = BufferedOutput::new();
     let handle = sink.handle();
+    #[cfg(feature = "test-timings")]
+    let bootstrap_started = Instant::now();
     let mut vm = match VM::try_new_with_output(Box::new(sink)) {
         Ok(vm) => vm,
         Err(error) => {
+            #[cfg(feature = "test-timings")]
+            {
+                timing.vm_kernel_native = bootstrap_started.elapsed();
+            }
             return CorpusRun {
                 stdout: handle.bytes(),
                 outcome: CorpusOutcome::BootstrapFailure(error),
+                #[cfg(feature = "test-timings")]
+                timing,
             };
         }
     };
+    #[cfg(feature = "test-timings")]
+    {
+        let bootstrap = vm.bootstrap_timing();
+        timing.canonical_universe_product = bootstrap.canonical_universe_product;
+        timing.vm_kernel_native = bootstrap.kernel_native;
+        timing.vm_universe_compile = bootstrap.universe_module_compilation;
+        timing.vm_universe_execute = bootstrap.universe_initializer_execution;
+    }
     vm.compile_mode = options.compile_mode;
     vm.strip_contract_metadata = options.strip_contract_metadata;
+    #[cfg(feature = "test-timings")]
+    let execution_started = Instant::now();
     let outcome = match vm.run_compiled(&program) {
         Ok(()) => CorpusOutcome::Success,
         Err(PhError::Compile(error)) => CorpusOutcome::BytecodeCompileFailure(error),
@@ -207,10 +267,16 @@ fn run_corpus_case(path: &Path) -> CorpusRun {
         Err(PhError::Io(error)) => CorpusOutcome::IoFailure(error),
         Err(error) => CorpusOutcome::RuntimeFailure(error),
     };
+    #[cfg(feature = "test-timings")]
+    {
+        timing.user_execution = execution_started.elapsed();
+    }
 
     CorpusRun {
         stdout: handle.bytes(),
         outcome,
+        #[cfg(feature = "test-timings")]
+        timing,
     }
 }
 
@@ -406,12 +472,16 @@ fn check_cases(label: &str, pending: bool, negative: bool, expected_phase: Expec
         assert!(!cases.is_empty(), "no pending cases in {}", dir.display());
     }
 
+    let mut compilation_session = ProgramCompilationSession::standalone().expect("standalone corpus compilation session");
     for case_path in cases {
         let case_label = case_name(&case_path);
         let expected = expected_path(&case_path);
         assert!(expected.exists(), "missing expected sidecar for {}", case_label);
 
-        let output = run_corpus_case(&case_path);
+        let output = run_corpus_case(&case_path, &mut compilation_session);
+
+        #[cfg(feature = "test-timings")]
+        output.timing.print_if_enabled(&case_label);
 
         if negative {
             let note = fs::read_to_string(&expected).unwrap_or_else(|err| panic!("failed to read {}: {err}", expected.display()));

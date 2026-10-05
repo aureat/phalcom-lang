@@ -2,7 +2,7 @@
 // spec: stdlib/reactor.md; concurrency.md
 // status: PASS
 
-const fiber = Fiber.new || {
+let fiber = Fiber.new || {
   System.print("child: sleeping")
   System.sleep(Duration.milliseconds(10)).await
   System.print("child: awake")

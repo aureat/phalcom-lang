@@ -5,5 +5,5 @@ class Cat {
   catOnly() { }
 }
 
-const result = Provider.Service.new().consume(Cat.new())
+let result = Provider.Service.new().consume(Cat.new())
 result./*@result*/toString()

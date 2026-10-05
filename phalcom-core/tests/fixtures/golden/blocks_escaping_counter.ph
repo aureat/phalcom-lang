@@ -1,9 +1,9 @@
-const makeCounter = || {
-  let count = 0
+let makeCounter = || {
+  let mut count = 0
   || { count = count + 1 }
 }
 
-const counter = makeCounter.call()
+let counter = makeCounter.call()
 System.print(counter.call())
 System.print(counter.call())
 System.print(counter.call())

@@ -2,11 +2,14 @@
 // spec: method-lookup.md; messages-and-selectors.md
 // status: PASS
 
-class Vec { x { _x }
+class Vec {
+  mut _x
+  mut _y
+ x { _x }
   y { _y }
   @class
   new(_ x, _ y) {
-    const v = self.new();
+    let v = self.new();
     v.init(x, y);
     return v;
   }
@@ -18,8 +21,8 @@ class Vec { x { _x }
     return Vec.new(_x + other.x, _y + other.y);
   }
 }
-const a = Vec.new(1, 2)
-const b = Vec.new(3, 4)
-const c = a + b
+let a = Vec.new(1, 2)
+let b = Vec.new(3, 4)
+let c = a + b
 System.print(c.x)
 System.print(c.y)

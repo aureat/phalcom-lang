@@ -5,5 +5,5 @@ class Person {
   rename(_ value) { value }
 }
 
-const person = Person.new()
+let person = Person.new()
 person./*@completion*/greet()

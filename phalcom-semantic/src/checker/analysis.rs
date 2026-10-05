@@ -65,6 +65,11 @@ pub struct ExpressionAnalysis {
     pub causal_invalidity: CausalInvalidity,
     pub explanation: Option<ExplanationId>,
     pub call: Option<CallResolutionId>,
+    pub binding_read_safety: Option<crate::checker::flow::BindingReadSafety>,
+    /// Exact lexical binding selected for a local variable read.
+    pub binding_read: Option<BindingId>,
+    /// Exact lexical binding selected as an assignment target.
+    pub binding_write: Option<BindingId>,
 }
 
 impl ExpressionAnalysis {
@@ -84,6 +89,9 @@ impl ExpressionAnalysis {
             causal_invalidity: CausalInvalidity::Clean,
             explanation: None,
             call: None,
+            binding_read_safety: None,
+            binding_read: None,
+            binding_write: None,
         }
     }
 
@@ -103,6 +111,9 @@ impl ExpressionAnalysis {
             causal_invalidity: CausalInvalidity::One(cause),
             explanation: None,
             call: None,
+            binding_read_safety: None,
+            binding_read: None,
+            binding_write: None,
         }
     }
 
@@ -237,6 +248,7 @@ pub struct BindingState {
     pub consistency: super::binding::BindingConsistency,
     pub causal_invalidity: super::causal::CausalInvalidity,
     pub mutable: bool,
+    pub initialization: crate::checker::flow::InitializationState,
     pub version: u32,
     pub explanation: Option<ExplanationId>,
 }
@@ -258,6 +270,7 @@ impl BindingState {
             consistency,
             causal_invalidity: seed.causal_invalidity,
             mutable: seed.mutable,
+            initialization: seed.initialization,
             version: 0,
             explanation: None,
         }
@@ -276,7 +289,16 @@ impl BindingState {
             origin: super::binding::BindingContractOrigin::SourceAnnotation,
             source: Some(range),
         });
-        Self::new_with_contract(binding, name, range, contract, current, None, mutable)
+        Self::new_with_contract(
+            binding,
+            name,
+            range,
+            contract,
+            current,
+            None,
+            mutable,
+            crate::checker::flow::InitializationState::DefinitelyInitialized,
+        )
     }
 
     pub fn new_with_contract(
@@ -287,6 +309,7 @@ impl BindingState {
         current: TypeKnowledge,
         denotation: Option<SemanticDenotation>,
         mutable: bool,
+        initialization: crate::checker::flow::InitializationState,
     ) -> Self {
         Self {
             binding,
@@ -299,6 +322,7 @@ impl BindingState {
             consistency: super::binding::BindingConsistency::Unconstrained,
             causal_invalidity: super::causal::CausalInvalidity::Clean,
             mutable,
+            initialization,
             version: 0,
             explanation: None,
         }
@@ -312,6 +336,7 @@ pub struct FlowBindingSummary {
     pub contract: Option<super::binding::BindingContract>,
     pub consistency: super::binding::BindingConsistency,
     pub mutable: bool,
+    pub initialization: crate::checker::flow::InitializationState,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -421,9 +446,13 @@ pub enum SemanticDependency {
     TypeMemberDeclaration(crate::types::type_member::TypeMemberDeclarationId),
     StaticDomainCaseCatalog(crate::identity::StaticDomainDeclarationId),
     StaticCaseSignature(crate::identity::StaticCaseId),
+    StaticDefinition(DeclarationId),
+    StaticConstant(crate::static_constant::StaticConstantId),
+    ConstructorInitialization(DeclarationId),
     ResolvedImport(phalcom_modules::identity::ImportSiteId),
     LinkedName(ModuleId, String),
     PublicExport(ModuleId, String),
+    ModuleStaticBindings(ModuleId),
 }
 
 /// Status of callable-body analysis.
@@ -435,6 +464,15 @@ pub enum CallableAnalysisStatus {
     Cancelled,
     BudgetExceeded,
     InternalFailure(AnalysisIncidentId),
+}
+
+/// Exact semantic link from an explicit constructor-chain call to its target.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ConstructorSuperCallResolution {
+    /// Exact source expression resolved by semantic analysis.
+    pub call_range: SourceRange,
+    /// Canonical direct-parent instance initializer selected for that call.
+    pub initializer: CallableId,
 }
 
 /// Published semantic analysis product for a single callable body.
@@ -465,6 +503,9 @@ pub struct CallableAnalysis {
     pub return_explanation: Option<ExplanationId>,
     pub dependencies: Arc<[CallableId]>,
     pub semantic_dependencies: Arc<[SemanticDependency]>,
+    /// Canonical direct-parent initializer selected by the explicit chain call
+    /// at the recorded source site, when this constructor has a valid prologue.
+    pub constructor_super_initializer: Option<ConstructorSuperCallResolution>,
     /// Semantic result fingerprint used to decide whether downstream queries
     /// must propagate a body refresh. Despite its legacy field name, this is
     /// not a hash of dependency-edge metadata.

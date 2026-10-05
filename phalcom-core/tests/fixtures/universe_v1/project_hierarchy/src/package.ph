@@ -2,5 +2,5 @@
 
 expose .package_a
 
-let toolkit_name = "geometry_toolkit"
+let mut toolkit_name = "geometry_toolkit"
 export toolkit_name

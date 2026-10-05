@@ -3,19 +3,19 @@
 // status: PASS
 // Proves parent call-site exception injection when child fiber fails under Call mode.
 
-let child = Fiber.new || {
+let mut child = Fiber.new || {
   Fiber.abort(Error.new("child exploded"))
 }
 
-let parent = Fiber.new || {
-  let cleaned = false
-  let action = || {
-    let sub = || { child.call() }
+let mut parent = Fiber.new || {
+  let mut cleaned = false
+  let mut action = || {
+    let mut sub = || { child.call() }
     sub.ensure || {
       cleaned = true
     }
   }
-  let result = action.on(Error) |e| {
+  let mut result = action.on(Error) |e| {
     "parent caught: " + e.message + " (cleaned=" + cleaned.toString + ")"
   }
   result

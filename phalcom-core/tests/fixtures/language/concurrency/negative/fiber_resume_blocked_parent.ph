@@ -4,8 +4,8 @@
 
 // A parent that is waiting for a child is not manually resumable. The child
 // must not be able to steal the parent's active control-transfer boundary.
-let parent = None
-let child = None
+let mut parent = None
+let mut child = None
 
 parent = Fiber.new || {
   child = Fiber.new || {

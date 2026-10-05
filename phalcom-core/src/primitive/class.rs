@@ -211,7 +211,5 @@ pub fn class_new_(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
         }
         .into());
     }
-    let field_count = target_class.field_count;
-    let instance = InstanceObject::new(class_id, field_count);
-    Ok(Value::obj(vm.heap.alloc(Object::Instance(instance))))
+    Ok(Value::obj(vm.allocate_class_instance(class_id)))
 }

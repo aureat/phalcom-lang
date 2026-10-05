@@ -49,6 +49,9 @@ impl Value {
         if self.is_nil() {
             return Err(RuntimeError::Internal("private Nil cannot be wrapped in Some".into()));
         }
+        if self.is_uninitialized_binding() {
+            return Err(RuntimeError::Internal("uninitialized binding cannot be wrapped in Some".into()));
+        }
         let current = self.some_depth_raw();
         let new_depth = current.checked_add(1).ok_or(RuntimeError::OptionNestingLimit { limit: MAX_OPTION_NESTING })?;
         Ok(self.with_some_depth(new_depth))

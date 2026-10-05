@@ -1,2 +1,2 @@
-let answer = 42
+let mut answer = 42
 export answer

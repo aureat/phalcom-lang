@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 autotests = false
 
+[features]
+default = []
+test-timings = []
+
 [dependencies]
 phalcom-ast = { path = "../phalcom-ast" }
 phalcom-common = { path = "../phalcom-common" }
@@ -14,6 +18,7 @@ phalcom-native-surface = { path = "../phalcom-native-surface" }
 phalcom-type-meta = { path = "../phalcom-type-meta" }
 thiserror = { workspace = true }
 im = { workspace = true }
+num-bigint = { workspace = true }
 #serde = { workspace = true }
 #indexmap = { workspace = true }
 

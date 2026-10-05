@@ -128,6 +128,27 @@ async fn declaration_modifiers_are_keyword_tokens() {
 }
 
 #[tokio::test]
+async fn contextual_mut_tokens_preserve_identifier_named_mut() {
+    let src =
+        "let mut value = 1\nlet mut = 2\nclass Widget { mut _field }\ntrait Mutable { mut property: Number }\nclass Delegated { mut property via _field }\n";
+    let uri = "file:///test_contextual_mut.ph";
+
+    let mut lsp = TestLsp::start().await;
+    let init = lsp.initialize(None).await;
+    lsp.open(uri, src).await;
+
+    let response = lsp.semantic_tokens_full(uri).await;
+    let decoded = decode(src, &init, &response);
+    let contextual = decoded.iter().filter(|(text, kind)| text == "mut" && kind == "keyword").count();
+    let identifier = decoded.iter().filter(|(text, kind)| text == "mut" && kind == "variable").count();
+
+    assert_eq!(contextual, 4, "let, mutable field, mutable property, and read/write delegation: {decoded:#?}");
+    assert_eq!(identifier, 1, "the binding named `mut` remains an identifier: {decoded:#?}");
+
+    lsp.finish().await;
+}
+
+#[tokio::test]
 async fn operator_symbols_and_named_family_references_follow_parser_syntax() {
     let src = "class Value { move(_ item) { item } }\nlet value = Value.new()\nconst bare = #+\nconst exact = #+(_)\nconst family = &value.move\nconst pattern = &value.move(_, ...)\n";
     let uri = "file:///test_operator_symbols_and_families.ph";

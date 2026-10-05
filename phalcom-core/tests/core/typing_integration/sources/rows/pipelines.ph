@@ -1,9 +1,9 @@
 class RowPipelineProbe {
     @class
     redecompose() {
-        let input = { name: "Phalcom", age: 8, enabled: true }
-        let tagged = RowCalculus.tagged(input)
-        let result = RowCalculus.consumeTagged(tagged)
+        let mut input = { name: "Phalcom", age: 8, enabled: true }
+        let mut tagged = RowCalculus.tagged(input)
+        let mut result = RowCalculus.consumeTagged(tagged)
         result
     }
 }

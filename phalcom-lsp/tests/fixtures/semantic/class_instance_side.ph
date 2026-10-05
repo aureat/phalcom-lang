@@ -8,5 +8,5 @@ class Widget {
 
 Widget./*@class*/make()
 
-const widget = Widget.new()
+let widget = Widget.new()
 widget./*@instance*/render()

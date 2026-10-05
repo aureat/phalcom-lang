@@ -1,6 +1,6 @@
 class Person {
-    const _name: String
-    const _age: Int
+    _name: String
+    _age: Int
 
     @constructor
     new(_ name: String, _ age: Int) {

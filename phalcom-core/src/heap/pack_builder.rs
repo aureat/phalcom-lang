@@ -10,12 +10,15 @@ pub enum PackBuilderError {
     PendingLabelExists,
 }
 
+const LABEL_INDEX_THRESHOLD: usize = 8;
+
 /// Compiler-owned, deliberately unobservable outgoing-argument accumulator.
 #[derive(Default)]
 pub struct ArgumentPackBuilderObject {
     positionals: Vec<Value>,
     labels: Vec<Symbol>,
     labeled_values: Vec<Value>,
+    label_index: Option<std::collections::HashSet<Symbol>>,
     pending_label: Option<usize>,
 }
 
@@ -23,18 +26,39 @@ impl ArgumentPackBuilderObject {
     pub fn new() -> Self {
         Self::default()
     }
+
     pub fn push_positional(&mut self, value: Value) {
         self.positionals.push(value);
+    }
+
+    #[inline]
+    pub fn contains_label(&self, label: Symbol) -> bool {
+        if let Some(ref index) = self.label_index {
+            index.contains(&label)
+        } else {
+            self.labels.contains(&label)
+        }
+    }
+
+    fn record_label(&mut self, label: Symbol) {
+        self.labels.push(label);
+        if let Some(ref mut index) = self.label_index {
+            index.insert(label);
+        } else if self.labels.len() >= LABEL_INDEX_THRESHOLD {
+            let mut index = std::collections::HashSet::with_capacity(self.labels.len());
+            index.extend(self.labels.iter().copied());
+            self.label_index = Some(index);
+        }
     }
 
     pub fn reserve_label(&mut self, label: Symbol) -> Result<(), PackBuilderError> {
         if self.pending_label.is_some() {
             return Err(PackBuilderError::PendingLabelExists);
         }
-        if self.labels.contains(&label) {
+        if self.contains_label(label) {
             return Err(PackBuilderError::DuplicateLabel(label));
         }
-        self.labels.push(label);
+        self.record_label(label);
         self.labeled_values.push(Value::nil());
         self.pending_label = Some(self.labels.len() - 1);
         Ok(())
@@ -50,10 +74,10 @@ impl ArgumentPackBuilderObject {
         if self.pending_label.is_some() {
             return Err(PackBuilderError::PendingLabelExists);
         }
-        if self.labels.contains(&label) {
+        if self.contains_label(label) {
             return Err(PackBuilderError::DuplicateLabel(label));
         }
-        self.labels.push(label);
+        self.record_label(label);
         self.labeled_values.push(value);
         Ok(())
     }
@@ -72,6 +96,7 @@ impl ArgumentPackBuilderObject {
     }
 
     pub fn take_parts(&mut self) -> (Vec<Value>, Vec<Symbol>, Vec<Value>) {
+        self.label_index = None;
         (
             std::mem::take(&mut self.positionals),
             std::mem::take(&mut self.labels),
@@ -94,5 +119,21 @@ mod tests {
         pack.fill_reserved(Value::int(2)).unwrap();
         assert_eq!(pack.labeled_values(), &[Value::int(1), Value::int(2)]);
         assert_eq!(pack.append_labeled(a, Value::int(3)), Err(PackBuilderError::DuplicateLabel(a)));
+    }
+
+    #[test]
+    fn test_label_indexing_threshold_crossover() {
+        let mut pack = ArgumentPackBuilderObject::new();
+        for i in 1..=12 {
+            pack.append_labeled(Symbol(i), Value::int(i as i64)).unwrap();
+        }
+        assert!(pack.label_index.is_some());
+        assert_eq!(pack.append_labeled(Symbol(5), Value::int(99)), Err(PackBuilderError::DuplicateLabel(Symbol(5))));
+        assert_eq!(pack.reserve_label(Symbol(12)), Err(PackBuilderError::DuplicateLabel(Symbol(12))));
+        let (pos, labels, vals) = pack.take_parts();
+        assert!(pos.is_empty());
+        assert_eq!(labels.len(), 12);
+        assert_eq!(vals.len(), 12);
+        assert!(pack.label_index.is_none());
     }
 }

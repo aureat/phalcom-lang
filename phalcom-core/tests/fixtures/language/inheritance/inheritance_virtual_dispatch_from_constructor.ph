@@ -8,6 +8,7 @@
 // inside `A`'s own constructor body.
 
 class A {
+  mut _tag
   @constructor
   new() { _tag = self.label }
   label { "A" }
@@ -18,5 +19,5 @@ class B is A {
   new() { super.new() }
   label { "B" }
 }
-const b = B.new()
+let b = B.new()
 System.print(b.report)

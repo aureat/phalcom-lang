@@ -42,6 +42,7 @@ mod list;
 mod map;
 mod module;
 mod object;
+pub mod pack;
 mod pack_builder;
 mod range;
 mod record;
@@ -68,6 +69,7 @@ pub use list::ListObject;
 pub use map::MapObject;
 pub use module::{MAIN_MODULE_NAME, MAX_GLOBALS, ModuleId, ModuleKind, ModuleObject, RuntimeExportRef};
 pub use object::{BoundMethodFamilyObject, BoundMethodObject, ConditionalFamilyDispatchEntry, FamilyObject, FamilySpec, MethodFamilyObject, Object};
+pub use pack::{PackObject, PackStorage};
 pub use pack_builder::{ArgumentPackBuilderObject, PackBuilderError};
 pub use range::RangeObject;
 pub use record::RecordObject;
@@ -305,6 +307,40 @@ impl Heap {
         self.insert(Object::Record(Box::new(RecordObject::new(descriptor, storage))))
     }
 
+    /// Allocates a non-empty root [`Object::Pack`].
+    pub(crate) fn alloc_pack_root(
+        &mut self,
+        descriptor: crate::product::RuntimeAnonymousProductDescriptorId,
+        storage: crate::product::ProductStorage,
+        positional_len: u32,
+        labeled_len: u32,
+    ) -> ObjRef {
+        self.insert(Object::Pack(Box::new(PackObject::new_root(
+            descriptor,
+            storage,
+            positional_len,
+            labeled_len,
+        ))))
+    }
+
+    /// Allocates a slice [`Object::Pack`] referencing an existing root Pack.
+    pub(crate) fn alloc_pack_slice(
+        &mut self,
+        root: ObjRef,
+        positional_start: u32,
+        positional_len: u32,
+        labeled_start: u32,
+        labeled_len: u32,
+    ) -> ObjRef {
+        self.insert(Object::Pack(Box::new(PackObject::new_slice(
+            root,
+            positional_start,
+            positional_len,
+            labeled_start,
+            labeled_len,
+        ))))
+    }
+
     /// Allocates an [`Object::Range`] from optional endpoint values.
     pub fn alloc_range(&mut self, lower: Option<crate::value::Value>, upper: Option<crate::value::Value>, upper_inclusive: bool) -> ObjRef {
         self.insert(Object::Range(RangeObject::new(lower, upper, upper_inclusive)))
@@ -380,6 +416,7 @@ impl Heap {
             Some(Object::Bytes(_)) => "Bytes",
             Some(Object::Tuple(_)) => "Tuple",
             Some(Object::Record(_)) => "Record",
+            Some(Object::Pack(_)) => "Pack",
             Some(Object::Range(_)) => "Range",
             Some(Object::Family(_)) => "Family",
             Some(Object::Selector(_)) => "Selector",

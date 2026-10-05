@@ -8,6 +8,8 @@
 // behaves identically.
 
 class Pt {
+  mut _x
+  mut _y
   x { _x }
   y { _y }
 
@@ -24,10 +26,10 @@ class Pt {
   }
 }
 
-const m = Map.new()
-const p1 = Pt.new(1, 2)
-const p2 = Pt.new(1, 2)
-const p3 = Pt.new(3, 4)
+let m = Map.new()
+let p1 = Pt.new(1, 2)
+let p2 = Pt.new(1, 2)
+let p3 = Pt.new(3, 4)
 m.at(p1, put: "a")
 System.print(m.size)
 System.print(m[p2])
@@ -36,13 +38,13 @@ System.print(m.size)
 System.print(m[p1])
 m.at(p3, put: "c")
 System.print(m.size)
-const removedValue = m.remove(p2)
+let removedValue = m.remove(p2)
 System.print(removedValue)
 System.print(m.size)
 System.print(m.includes(p1))
 System.print(m.includes(p3))
 
-const s = Set.new()
+let s = Set.new()
 s.add(Pt.new(5, 6))
 s.add(Pt.new(5, 6))
 System.print(s.size)

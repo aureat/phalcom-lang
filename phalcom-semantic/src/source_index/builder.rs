@@ -297,10 +297,12 @@ impl TypeReferenceTargetCollector<'_> {
                     }
                 }
             }
-            Statement::TypeAlias(alias) => {
-                let alias_bound = self.generic_parameters(bound, &alias.generic_parameters);
+            Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) => {
+                let alias_bound = self.generic_parameters(bound, &alias.generic_parameters());
                 self.where_clause(alias.where_clause.as_ref(), &alias_bound);
-                self.annotation(&alias.body, &alias_bound);
+                if let Some(body) = alias.type_form_body() {
+                    self.annotation(body, &alias_bound);
+                }
             }
             Statement::Let(binding) => {
                 if let Some(annotation) = &binding.annotation {
@@ -525,6 +527,12 @@ impl TypeReferenceTargetCollector<'_> {
                     match argument {
                         phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => self.annotation(annotation, bound),
                         phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => self.annotation(&expansion.operand, bound),
+                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                                self.annotation(constraint, bound);
+                            }
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
                     }
                 }
             }
@@ -635,6 +643,12 @@ impl TypeReferenceTargetCollector<'_> {
                     match argument {
                         phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => self.annotation(annotation, bound),
                         phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => self.annotation(&expansion.operand, bound),
+                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                                self.annotation(constraint, bound);
+                            }
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
                     }
                 }
             }
@@ -692,7 +706,7 @@ pub fn build_source_scope_index(module: ModuleId, program: &Program, context: &S
         if let Statement::Class(class) = statement {
             let declaration = builder.declaration_id(class);
             builder.index.register_class(class.name.clone(), declaration);
-        } else if let Statement::TypeAlias(alias) = statement {
+        } else if let Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) = statement {
             let declaration = DeclarationId::new(module.clone(), alias.name.clone().into());
             builder.index.register_class(alias.name.clone(), declaration);
         } else if let Statement::Data(data_def) = statement {
@@ -791,6 +805,12 @@ impl SourceScopeBuilder<'_> {
                     match argument {
                         phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => self.visit_annotation_projection_targets(annotation),
                         phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => self.visit_annotation_projection_targets(&expansion.operand),
+                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                                self.visit_annotation_projection_targets(constraint);
+                            }
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
                     }
                 }
             }
@@ -995,7 +1015,7 @@ impl SourceScopeBuilder<'_> {
         for (statement_index, statement) in statements.iter().enumerate() {
             match statement {
                 Statement::Class(class) => self.visit_class(scope, class),
-                Statement::TypeAlias(alias) => self.visit_type_alias(scope, alias),
+                Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) => self.visit_type_alias(scope, alias),
                 Statement::Data(data_def) => {
                     if data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly {
                         self.type_data_definition(data_def);
@@ -1707,7 +1727,7 @@ impl SourceScopeBuilder<'_> {
                 parameter.name.clone(),
                 parameter_kind,
                 parameter.name_range,
-                true,
+                false,
                 parameter.annotation.is_some(),
             );
             parameter_sites.insert(CallableParameterId::new(callable.clone(), index as u32), site);
@@ -1727,11 +1747,13 @@ impl SourceScopeBuilder<'_> {
         }
         let kind = match (top_level, binding.kind) {
             (true, BindingKind::Let) => SourceBindingKind::TopLevelLet,
+            (true, BindingKind::LetMut) => SourceBindingKind::TopLevelLetMut,
             (true, BindingKind::Const) => SourceBindingKind::TopLevelConst,
             (false, BindingKind::Let) => SourceBindingKind::LocalLet,
+            (false, BindingKind::LetMut) => SourceBindingKind::LocalLetMut,
             (false, BindingKind::Const) => SourceBindingKind::LocalConst,
         };
-        self.declare_pattern_with_annotation(scope, &binding.pattern, kind, binding.kind == BindingKind::Let, binding.annotation.is_some());
+        self.declare_pattern_with_annotation(scope, &binding.pattern, kind, binding.kind.is_mutable(), binding.annotation.is_some());
     }
 
     fn declare_pattern(&mut self, scope: SourceScopeId, pattern: &Pattern, kind: SourceBindingKind, mutable: bool) {
@@ -1804,9 +1826,9 @@ impl SourceScopeBuilder<'_> {
         }
         let scope = self.new_scope(parent, statements_range(&statement.body));
         for lane in &statement.lanes {
-            self.declare_pattern(scope, &lane.pattern, SourceBindingKind::ForBinding, true);
+            self.declare_pattern(scope, &lane.pattern, SourceBindingKind::ForBinding, false);
             if let Some(index) = &lane.index {
-                self.declare(scope, index.name.clone(), SourceBindingKind::ForBinding, index.range, true);
+                self.declare(scope, index.name.clone(), SourceBindingKind::ForBinding, index.range, false);
             }
         }
         self.visit_statements(scope, &statement.body, false);
@@ -1847,7 +1869,7 @@ impl SourceScopeBuilder<'_> {
             Expr::IfLet(if_let) => {
                 self.visit_expr(scope, &if_let.value);
                 let then_scope = self.new_scope(scope, if_let.then_body.range);
-                self.declare_pattern(then_scope, &if_let.pattern, SourceBindingKind::Destructure, true);
+                self.declare_pattern(then_scope, &if_let.pattern, SourceBindingKind::Destructure, false);
                 self.visit_statements(then_scope, &if_let.then_body.body, false);
                 if let Some(else_body) = &if_let.else_body {
                     let else_scope = self.new_scope(scope, else_body.range);
@@ -1871,7 +1893,7 @@ impl SourceScopeBuilder<'_> {
             Expr::WhileLet(while_let) => {
                 let loop_scope = self.new_scope(scope, while_let.range);
                 self.visit_expr(loop_scope, &while_let.value);
-                self.declare_pattern(loop_scope, &while_let.pattern, SourceBindingKind::Destructure, true);
+                self.declare_pattern(loop_scope, &while_let.pattern, SourceBindingKind::Destructure, false);
                 self.visit_statements(loop_scope, &while_let.body, false);
             }
             Expr::Membership(membership) => {
@@ -2005,10 +2027,10 @@ impl SourceScopeBuilder<'_> {
 
     fn visit_block_contents(&mut self, scope: SourceScopeId, block: &BlockExpr) {
         for parameter in &block.params.fixed {
-            self.declare(scope, parameter.name.clone(), SourceBindingKind::ClosureParameter, parameter.range, true);
+            self.declare(scope, parameter.name.clone(), SourceBindingKind::ClosureParameter, parameter.range, false);
         }
         if let Some(parameter) = &block.params.positional_rest {
-            self.declare(scope, parameter.name.clone(), SourceBindingKind::ClosureParameter, parameter.range, true);
+            self.declare(scope, parameter.name.clone(), SourceBindingKind::ClosureParameter, parameter.range, false);
         }
         self.visit_statements(scope, &block.body, false);
     }
@@ -2087,7 +2109,7 @@ fn statement_range(statement: &Statement) -> SourceRange {
         Statement::Break { range } | Statement::Continue { range } => *range,
         Statement::Throw { range, .. } => *range,
         Statement::Export(export_decl) => export_decl.range,
-        Statement::TypeAlias(type_alias) => type_alias.range,
+        Statement::TypeAlias(type_alias) | Statement::TypeDefinition(type_alias) => type_alias.range,
         Statement::Impl(impl_def) => impl_def.range,
     }
 }

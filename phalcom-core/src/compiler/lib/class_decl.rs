@@ -9,8 +9,8 @@ use crate::value::Value;
 use crate::vm::ClassKey;
 use indexmap::IndexMap;
 use phalcom_ast::ast::{
-    AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, ClosureParameters, DelegatedAccessorKind, Expr, ImplementationKind, IndexAccessor,
-    ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, RestMode, SetLiteralEntry, Statement, Visibility,
+    AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, ClosureParameters, DelegatedAccessorKind, Expr, ImplementationKind, IndexAccessor, MethodCallExpr,
+    PackItem, RestMode, Statement, Visibility,
 };
 use phalcom_common::range::SourceRange;
 
@@ -263,6 +263,16 @@ impl<'vm> Compiler<'vm> {
         // list — `class_parents` is read-only here, `interner` mutable).
         let is_attribute_class = class_def.superclass_ref().is_some_and(|sc| sc.leaf_name() == "Attribute");
         let universe_module = self.vm.universe_module();
+        let (constructor_initializations, callable_signatures, constructor_super_initializers, constructor_module) =
+            self.lowering().map_or((None, None, None, None), |lowering| {
+                (
+                    Some(lowering.constructor_initializations.clone()),
+                    Some(lowering.callable_signatures.clone()),
+                    Some(lowering.constructor_super_initializers.clone()),
+                    Some(lowering.module.clone()),
+                )
+            });
+        let constructor_owner = constructor_module.map(|module| phalcom_semantic::identity::DeclarationId::new(module, class_def.name.clone().into()));
         let mut ctx = ExpandCtx {
             interner: &mut self.vm.interner,
             compile_mode: self.vm.compile_mode,
@@ -272,6 +282,11 @@ impl<'vm> Compiler<'vm> {
             module: self.module,
             universe_module,
             privileged_universe: is_privileged,
+            constructor_initializations: constructor_initializations.as_deref(),
+            callable_signatures: callable_signatures.as_deref(),
+            constructor_owner,
+            constructor_super_initializers: constructor_super_initializers.as_ref(),
+            constructor_products_by_range: Default::default(),
         };
         let registry = AttributeRegistry::new();
         // DEC-ANNOT-G (U-ANNOT-LAYOUT §3.4): `expand_class_attributes`
@@ -284,7 +299,8 @@ impl<'vm> Compiler<'vm> {
         // sibling `extends` this class by name, so its own `Bytecode::Class`
         // resolves that name via `GetGlobal`, which requires this class's
         // `DefineGlobal` to have already run).
-        let (mut class_def, sibling_classes) = expand_class_attributes(class_def, &mut ctx, &registry, is_attribute_class)?;
+        let (mut class_def, sibling_classes, mut constructor_projections) = expand_class_attributes(class_def, &mut ctx, &registry, is_attribute_class)?;
+        drop(ctx);
         // Native source members are declaration anchors for the descriptor
         // installer, not bytecode bodies. Their implementation kind is the
         // canonical authority; do not require a legacy native attribute
@@ -297,6 +313,33 @@ impl<'vm> Compiler<'vm> {
             ClassMember::TypeMember(_) => false,
             ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) => true,
         });
+        for projection in &mut constructor_projections {
+            projection.factory_member = class_def
+                .members
+                .iter()
+                .position(|member| matches!(member, ClassMember::Method(method) if method.range == projection.range && method.is_static && method.attributes.iter().any(|attribute| attribute.name == "constructor")))
+                .ok_or_else(|| CompilerError::Message(format!("constructor.semantic_projection_missing: factory `{}`", projection.factory.selector.encode())))?;
+            projection.initializer_member = class_def
+                .members
+                .iter()
+                .position(
+                    |member| matches!(member, ClassMember::Method(method) if method.range == projection.range && method.is_constructor && !method.is_static),
+                )
+                .ok_or_else(|| {
+                    CompilerError::Message(format!(
+                        "constructor.semantic_projection_missing: initializer `{}`",
+                        projection.initializer.selector.encode()
+                    ))
+                })?;
+        }
+        let factory_by_member = constructor_projections
+            .iter()
+            .map(|projection| (projection.factory_member, projection))
+            .collect::<std::collections::HashMap<_, _>>();
+        let initializer_by_member = constructor_projections
+            .iter()
+            .map(|projection| (projection.initializer_member, projection))
+            .collect::<std::collections::HashMap<_, _>>();
         // Rest-scope validation must precede duplicate-selector
         // canonicalization: otherwise constructor/index rest could be erased
         // into an ordinary key.
@@ -338,17 +381,38 @@ impl<'vm> Compiler<'vm> {
             }
             let mut seen: std::collections::HashMap<MemberKey, (String, SourceRange)> = std::collections::HashMap::new();
             let mut rest_families: std::collections::HashMap<(bool, String), SourceRange> = std::collections::HashMap::new();
-            for member in &class_def.members {
+            for (member_index, member) in class_def.members.iter().enumerate() {
                 let (key, display, member_name_range) = match member {
                     ClassMember::Field(f) => (MemberKey::Field(f.name.clone()), f.name.clone(), f.range),
                     ClassMember::Method(m) => {
                         let is_constructor = m.is_constructor || m.attributes.iter().any(|a| a.name == "constructor");
-                        let is_class_side = m.is_static || is_constructor;
-                        let subject = if is_constructor { "constructor declaration" } else { "method declaration" };
-                        let kind = SignatureKind::Method(checked_send_arity(subject, m.params.len(), m.range)?);
-                        let sel = if m.params.iter().any(phalcom_ast::ast::ParameterDef::is_rest) {
+                        let is_class_side = if m.is_constructor { false } else { m.is_static || is_constructor };
+                        let projection = if m.is_constructor {
+                            Some(
+                                initializer_by_member
+                                    .get(&member_index)
+                                    .ok_or_else(|| CompilerError::Message(format!("constructor.semantic_projection_missing: initializer `{}`", m.name)))?,
+                            )
+                        } else if m.attributes.iter().any(|attribute| attribute.name == "constructor") {
+                            Some(
+                                factory_by_member
+                                    .get(&member_index)
+                                    .ok_or_else(|| CompilerError::Message(format!("constructor.semantic_projection_missing: factory `{}`", m.name)))?,
+                            )
+                        } else {
+                            None
+                        };
+                        let sel = if let Some(projection) = projection {
+                            if m.is_constructor {
+                                projection.initializer.selector.encode()
+                            } else {
+                                projection.factory.selector.encode()
+                            }
+                        } else if m.params.iter().any(phalcom_ast::ast::ParameterDef::is_rest) {
                             rest_selector(&m.name, &m.params)
                         } else {
+                            let subject = if is_constructor { "constructor declaration" } else { "method declaration" };
+                            let kind = SignatureKind::Method(checked_send_arity(subject, m.params.len(), m.range)?);
                             let labels: Vec<Option<String>> = m.params.iter().map(|p| p.label.clone()).collect();
                             encode_selector(&m.name, &labels, kind)
                         };
@@ -413,145 +477,48 @@ impl<'vm> Compiler<'vm> {
             }
         }
 
-        // 1. Whole-class field collection pass
-        let mut own_instance_fields = Vec::new();
-        let mut own_static_fields = Vec::new();
-
-        // Pass 1: Collect static fields
-        for member in &class_def.members {
-            match member {
-                ClassMember::Method(m) if m.is_static => {
-                    let mut fields = Vec::new();
-                    if let Some(stmts) = m.body.statements() {
-                        for stmt in stmts {
-                            collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
-                        }
-                    }
-                    for f in fields {
-                        if !own_static_fields.contains(&f) {
-                            own_static_fields.push(f);
-                        }
-                    }
-                }
-                ClassMember::Getter(g) if g.is_static => {
-                    let mut fields = Vec::new();
-                    if let Some(stmts) = g.body.statements() {
-                        for stmt in stmts {
-                            collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
-                        }
-                    }
-                    for f in fields {
-                        if !own_static_fields.contains(&f) {
-                            own_static_fields.push(f);
-                        }
-                    }
-                }
-                ClassMember::Setter(s) if s.is_static => {
-                    let mut fields = Vec::new();
-                    if let Some(stmts) = s.body.statements() {
-                        for stmt in stmts {
-                            collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
-                        }
-                    }
-                    for f in fields {
-                        if !own_static_fields.contains(&f) {
-                            own_static_fields.push(f);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // Pass 2: Collect instance fields (only if not static).
-        let declared_fields: Vec<Symbol> = class_def
+        // Stored fields come only from declarations, in declaration order.
+        // Assignments consume these slots and never create layout authority.
+        let own_instance_fields: Vec<Symbol> = class_def
             .members
             .iter()
             .filter_map(|m| match m {
-                ClassMember::Field(f) if !f.is_static => Some(self.vm.interner.intern(&f.name)),
+                ClassMember::Field(f) if !(m.is_static() || m.attributes().iter().any(|attribute| attribute.name == "class")) => {
+                    Some(self.vm.interner.intern(&f.name))
+                }
                 _ => None,
             })
             .collect();
-        for member in &class_def.members {
-            if let ClassMember::Field(f) = member
-                && f.is_static
-            {
-                own_static_fields.push(self.vm.interner.intern(&f.name));
-            }
-        }
-        // Own `const`-declared field names (ADR-0064 §3, U-BINDINGS §5) —
-        // only an explicit `FieldDef` can be `const`; an implicitly-inferred
-        // field (bare assignment, no declaration) is always mutable.
-        let const_field_names: std::collections::HashSet<Symbol> = class_def
+        let own_static_fields: Vec<Symbol> = class_def
             .members
             .iter()
             .filter_map(|m| match m {
-                ClassMember::Field(f) if !f.mutable => Some(self.vm.interner.intern(&f.name)),
+                ClassMember::Field(f) if m.is_static() || m.attributes().iter().any(|attribute| attribute.name == "class") => {
+                    Some(self.vm.interner.intern(&f.name))
+                }
                 _ => None,
             })
             .collect();
-        let has_declared_fields = !declared_fields.is_empty();
-        if has_declared_fields {
-            own_instance_fields = declared_fields;
-        } else {
-            for member in &class_def.members {
-                match member {
-                    ClassMember::Method(m) if !m.is_static => {
-                        let mut fields = Vec::new();
-                        if let Some(stmts) = m.body.statements() {
-                            for stmt in stmts {
-                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
-                            }
-                        }
-                        for f in fields {
-                            if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
-                                own_instance_fields.push(f);
-                            }
-                        }
-                    }
-                    ClassMember::Getter(g) if !g.is_static => {
-                        let mut fields = Vec::new();
-                        if let Some(stmts) = g.body.statements() {
-                            for stmt in stmts {
-                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
-                            }
-                        }
-                        for f in fields {
-                            if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
-                                own_instance_fields.push(f);
-                            }
-                        }
-                    }
-                    ClassMember::Setter(s) if !s.is_static => {
-                        let mut fields = Vec::new();
-                        if let Some(stmts) = s.body.statements() {
-                            for stmt in stmts {
-                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
-                            }
-                        }
-                        for f in fields {
-                            if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
-                                own_instance_fields.push(f);
-                            }
-                        }
-                    }
-                    ClassMember::Method(c) if c.is_constructor => {
-                        let mut fields = Vec::new();
-                        if let Some(stmts) = c.body.statements() {
-                            for stmt in stmts {
-                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
-                            }
-                        }
-                        for f in fields {
-                            if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
-                                own_instance_fields.push(f);
-                            }
-                        }
-                    }
-                    _ => {}
+        let immutable_instance_field_names: std::collections::HashSet<Symbol> = class_def
+            .members
+            .iter()
+            .filter_map(|m| match m {
+                ClassMember::Field(f) if !f.mutable && !(m.is_static() || m.attributes().iter().any(|attribute| attribute.name == "class")) => {
+                    Some(self.vm.interner.intern(&f.name))
                 }
-            }
-        }
+                _ => None,
+            })
+            .collect();
+        let immutable_static_field_names: std::collections::HashSet<Symbol> = class_def
+            .members
+            .iter()
+            .filter_map(|m| match m {
+                ClassMember::Field(f) if !f.mutable && (m.is_static() || m.attributes().iter().any(|attribute| attribute.name == "class")) => {
+                    Some(self.vm.interner.intern(&f.name))
+                }
+                _ => None,
+            })
+            .collect();
 
         // 1b. Classes are closed (PDR-0001, U-CLASSCLOSE §2.1/§4). A
         // class is defined exactly once, by exactly one module; there is no
@@ -660,6 +627,35 @@ impl<'vm> Compiler<'vm> {
         // `field_layouts`/`classes` metadata, since a *user* superclass has
         // not been created at runtime yet), or the implicit `Object` root.
         let layout = {
+            let (mut immutable_instance_slots, mut immutable_static_slots) = if self.unit_kind != UnitKind::Repl && classes_hit {
+                let existing_class = self.vm.classes[&name_key];
+                match self.vm.heap.class(existing_class).superclass {
+                    Some(superclass) => {
+                        let parent = self.vm.heap.class(superclass);
+                        (parent.immutable_instance_slots.clone(), parent.immutable_static_slots.clone())
+                    }
+                    None => (std::collections::HashSet::new(), std::collections::HashSet::new()),
+                }
+            } else if let Some(superclass_ref) = class_def.superclass_ref() {
+                self.resolve_superclass_ref(superclass_ref)
+                    .and_then(|key| {
+                        self.vm
+                            .field_layouts
+                            .get(&key)
+                            .map(|layout| (layout.immutable_instance_slots.clone(), layout.immutable_static_slots.clone()))
+                            .or_else(|| {
+                                self.vm.classes.get(&key).map(|class_id| {
+                                    let parent = self.vm.heap.class(*class_id);
+                                    (parent.immutable_instance_slots.clone(), parent.immutable_static_slots.clone())
+                                })
+                            })
+                    })
+                    .unwrap_or_default()
+            } else {
+                let object_class = self.vm.universe.classes.object_class;
+                let object = self.vm.heap.class(object_class);
+                (object.immutable_instance_slots.clone(), object.immutable_static_slots.clone())
+            };
             let (sc_field_count, sc_meta_field_count) = if self.unit_kind != UnitKind::Repl && classes_hit {
                 let existing_class = self.vm.classes[&name_key];
                 // Stub completion: keep the Rust stub's established superclass.
@@ -807,12 +803,22 @@ impl<'vm> Compiler<'vm> {
                 field_slots.insert(*f, (sc_field_count as usize + i) as u16);
             }
             let field_count = sc_field_count + own_instance_fields.len() as u16;
+            for name in &immutable_instance_field_names {
+                if let Some(slot) = field_slots.get(name) {
+                    immutable_instance_slots.insert(*slot);
+                }
+            }
 
             let mut static_field_slots = IndexMap::new();
             for (i, f) in own_static_fields.iter().enumerate() {
                 static_field_slots.insert(*f, (sc_meta_field_count as usize + i) as u16);
             }
             let static_field_count = sc_meta_field_count + own_static_fields.len() as u16;
+            for name in &immutable_static_field_names {
+                if let Some(slot) = static_field_slots.get(name) {
+                    immutable_static_slots.insert(*slot);
+                }
+            }
             let mut abstract_members = class_def
                 .superclass_ref()
                 .and_then(|superclass| self.resolve_superclass_ref(superclass))
@@ -852,7 +858,10 @@ impl<'vm> Compiler<'vm> {
                 field_count,
                 static_field_slots,
                 static_field_count,
-                const_fields: const_field_names,
+                immutable_instance_fields: immutable_instance_field_names,
+                immutable_static_fields: immutable_static_field_names,
+                immutable_instance_slots,
+                immutable_static_slots,
                 abstract_members,
                 is_abstract,
                 declared_at: class_def.range,
@@ -891,7 +900,7 @@ impl<'vm> Compiler<'vm> {
         }
 
         // The class object is now on top of the stack. Iterate through members.
-        for member in class_def.members {
+        for (member_index, member) in class_def.members.into_iter().enumerate() {
             match member {
                 ClassMember::Method(method_def) if !method_def.is_constructor => {
                     let range = method_def.range;
@@ -900,7 +909,14 @@ impl<'vm> Compiler<'vm> {
                     let structural_arity = method_def.params.iter().filter(|param| !param.is_rest()).count();
                     let encoded_arity = checked_send_arity("method declaration", structural_arity, method_def.range)?;
                     let sig_kind = SignatureKind::Method(encoded_arity);
-                    let selector = if rest.is_some() {
+                    let selector = if method_def.attributes.iter().any(|attribute| attribute.name == "constructor") {
+                        factory_by_member
+                            .get(&member_index)
+                            .ok_or_else(|| CompilerError::Message(format!("constructor.semantic_projection_missing: factory `{}`", method_def.name)))?
+                            .factory
+                            .selector
+                            .encode()
+                    } else if rest.is_some() {
                         rest_selector(&method_def.name, &method_def.params)
                     } else {
                         let labels: Vec<Option<String>> = method_def.params.iter().map(|p| p.label.clone()).collect();
@@ -1058,10 +1074,12 @@ impl<'vm> Compiler<'vm> {
                 }
                 ClassMember::Method(construct_def) => {
                     let range = construct_def.range;
-
+                    let projection = initializer_by_member
+                        .get(&member_index)
+                        .copied()
+                        .ok_or_else(|| CompilerError::Message(format!("constructor.semantic_projection_missing: initializer `{}`", construct_def.name)))?;
                     let arity = checked_send_arity("constructor declaration", construct_def.params.len(), construct_def.range)?;
-                    let labels: Vec<Option<String>> = construct_def.params.iter().map(|p| p.label.clone()).collect();
-                    let selector = encode_selector(&construct_def.name, &labels, SignatureKind::Method(arity));
+                    let selector = projection.initializer.selector.encode();
                     let selector_sym = self.vm.interner.intern(&selector);
 
                     let param_names: Vec<String> = construct_def.params.iter().map(|p| p.name.clone()).collect();
@@ -1410,135 +1428,5 @@ impl<'vm> Compiler<'vm> {
             }
         }
         Ok(contracts)
-    }
-}
-
-fn collect_assigned_fields(expr: &Expr, fields: &mut Vec<Symbol>, interner: &mut crate::interner::Interner) {
-    match expr {
-        Expr::Assignment(assign) => {
-            if let Expr::Field { value, .. } = &*assign.name {
-                let sym = interner.intern(value);
-                if !fields.contains(&sym) {
-                    fields.push(sym);
-                }
-            }
-            collect_assigned_fields(&assign.value, fields, interner);
-        }
-        Expr::Unary(unary) => {
-            collect_assigned_fields(&unary.expr, fields, interner);
-        }
-        Expr::Binary(binary) => {
-            collect_assigned_fields(&binary.left, fields, interner);
-            collect_assigned_fields(&binary.right, fields, interner);
-        }
-        Expr::MethodCall(call) => {
-            collect_assigned_fields(&call.object, fields, interner);
-            for arg in &call.args {
-                collect_assigned_fields_pack(arg, fields, interner);
-            }
-        }
-        Expr::UnqualifiedCall(call) => {
-            for arg in &call.args {
-                collect_assigned_fields_pack(arg, fields, interner);
-            }
-        }
-        Expr::GetProperty(get_prop) => {
-            collect_assigned_fields(&get_prop.object, fields, interner);
-        }
-        Expr::SetProperty(set_prop) => {
-            collect_assigned_fields(&set_prop.object, fields, interner);
-            collect_assigned_fields(&set_prop.value, fields, interner);
-        }
-        Expr::Index(ix) => {
-            collect_assigned_fields(&ix.object, fields, interner);
-            for arg in &ix.args {
-                collect_assigned_fields_pack(arg, fields, interner);
-            }
-        }
-        Expr::SetIndex(six) => {
-            collect_assigned_fields(&six.object, fields, interner);
-            for arg in &six.args {
-                collect_assigned_fields_pack(arg, fields, interner);
-            }
-            collect_assigned_fields(&six.value, fields, interner);
-        }
-        Expr::Block(block) => {
-            for stmt in &block.body {
-                collect_assigned_fields_stmt(stmt, fields, interner);
-            }
-        }
-        Expr::MapLiteral(map) => {
-            for entry in &map.entries {
-                match entry {
-                    MapLiteralEntry::Association { key, value, .. } => {
-                        if let MapLiteralKey::Computed { expr, .. } = key {
-                            collect_assigned_fields(expr, fields, interner);
-                        }
-                        collect_assigned_fields(value, fields, interner);
-                    }
-                    MapLiteralEntry::Expansion { expr, .. } => collect_assigned_fields(expr, fields, interner),
-                }
-            }
-        }
-        Expr::SetLiteral(set) => {
-            for entry in &set.entries {
-                match entry {
-                    SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => collect_assigned_fields(expr, fields, interner),
-                }
-            }
-        }
-        Expr::ListLiteral(list) => {
-            for element in &list.elements {
-                match element {
-                    ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => collect_assigned_fields(expr, fields, interner),
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn collect_assigned_fields_pack(item: &PackItem, fields: &mut Vec<Symbol>, interner: &mut crate::interner::Interner) {
-    match item {
-        PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => collect_assigned_fields(expr, fields, interner),
-        PackItem::Labeled { label, value, .. } => {
-            if let PackLabel::Computed { expr, .. } = label {
-                collect_assigned_fields(expr, fields, interner);
-            }
-            collect_assigned_fields(value, fields, interner);
-        }
-    }
-}
-
-fn collect_assigned_fields_stmt(stmt: &Statement, fields: &mut Vec<Symbol>, interner: &mut crate::interner::Interner) {
-    match stmt {
-        Statement::Expr { expr, .. } => {
-            collect_assigned_fields(expr, fields, interner);
-        }
-        Statement::Let(binding) => {
-            if let Some(ref val) = binding.value {
-                collect_assigned_fields(val, fields, interner);
-            }
-        }
-        Statement::Return(ret) => {
-            if let Some(ref val) = ret.value {
-                collect_assigned_fields(val, fields, interner);
-            }
-        }
-        Statement::For(for_stmt) => {
-            // A field assigned only inside a `for` body must still be
-            // collected into the class layout (ADR-0035; U-ITER), or its
-            // first read would trip `ReadBeforeWrite`.
-            for lane in &for_stmt.lanes {
-                collect_assigned_fields(&lane.iter, fields, interner);
-            }
-            for body_stmt in &for_stmt.body {
-                collect_assigned_fields_stmt(body_stmt, fields, interner);
-            }
-        }
-        Statement::Throw { expr, .. } => {
-            collect_assigned_fields(expr, fields, interner);
-        }
-        _ => {}
     }
 }

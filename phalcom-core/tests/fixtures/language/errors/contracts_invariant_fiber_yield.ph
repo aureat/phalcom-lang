@@ -5,6 +5,7 @@
 // executes cleanly without native re-entry frame restriction under C2.P1-R1.
 
 class Guard {
+  mut _n
   @invariant(self.n >= 0)
 
   @constructor
@@ -22,9 +23,9 @@ class Guard {
   }
 }
 
-const x = Guard.new(1)
+let x = Guard.new(1)
 
-const fiberA = Fiber.new || {
+let fiberA = Fiber.new || {
   x.bump(true)
 }
 

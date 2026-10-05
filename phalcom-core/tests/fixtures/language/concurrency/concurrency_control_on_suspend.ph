@@ -3,8 +3,8 @@
 // status: PASS
 // Proves that Block.on handler is suspension-transparent: it can yield and resume.
 
-let f = Fiber.new || {
-  let h = || { throw Error.new("boom") }
+let mut f = Fiber.new || {
+  let mut h = || { throw Error.new("boom") }
   h.on(Error) |e| {
     Fiber.yield("caught " + e.message)
     "handler final"

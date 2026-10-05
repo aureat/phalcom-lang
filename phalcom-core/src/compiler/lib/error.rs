@@ -71,6 +71,14 @@ pub enum CompilerError {
     #[error("`const` binding '{0}' requires an initializer; use `let {0}` for an uninitialized binding.")]
     ConstWithoutInitializer(String),
 
+    /// A static compile-time constant used at runtime before static evaluation (P2).
+    #[error("static constant materialization not yet available in C4.P1: '{0}'")]
+    StaticConstUnmaterialized(String),
+
+    /// A structural static compile-time constant whose runtime materialization is deferred to C4.P8.
+    #[error("runtime materialization of structural static constant '{0}' is deferred to C4.P8")]
+    StaticConstStructuralDeferred(String),
+
     /// A destructuring `let`/`const` pattern written without an initializer.
     ///
     /// A tuple or list [`Pattern`](phalcom_ast::ast::Pattern) has nothing to unpack from an absent

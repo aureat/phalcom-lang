@@ -6,7 +6,7 @@
 
 @On(Method, Install)
 class Memoize is Attribute {
-  _cache
+  mut _cache
   @constructor
   new() { _cache = None }
 }

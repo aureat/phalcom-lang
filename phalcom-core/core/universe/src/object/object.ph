@@ -51,7 +51,7 @@ native class Object {
   /// @param cls The class to test against.
   /// @returns `true` if `cls` is found in the ancestor chain; otherwise `false`.
   is(_ cls) {
-    let c = self.class
+    let mut c = self.class
     while c != None {
       if c == cls {
         return true
@@ -72,7 +72,7 @@ native class Object {
 
   /// Less-than-or-equal comparison derived from `<=>`.
   <=(_ other) {
-    let order = (self <=> other)
+    let mut order = (self <=> other)
     (order === Ordering::Less) or (order === Ordering::Equal)
   }
 
@@ -81,7 +81,7 @@ native class Object {
 
   /// Greater-than-or-equal comparison derived from `<=>`.
   >=(_ other) {
-    let order = (self <=> other)
+    let mut order = (self <=> other)
     (order === Ordering::Greater) or (order === Ordering::Equal)
   }
 }

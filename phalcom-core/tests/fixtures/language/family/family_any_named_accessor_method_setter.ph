@@ -5,6 +5,7 @@
 // ordinary method selector kinds sharing the same base name.
 
 class Box {
+  mut _value
   @constructor
   new() { _value = 1 }
   value { _value }
@@ -13,5 +14,5 @@ class Box {
   value=(_ next) { _value = next }
 }
 
-const family = &Box.value...;
+let family = &Box.value...;
 System.print(family.is(Family))

@@ -5,16 +5,16 @@
 // duplicate second key aborts construction before either expression in the
 // third association can run.
 
-let trace = []
-const key1 = || { trace.append("key1"); #same }
-const value1 = || { trace.append("value1"); 1 }
-const key2 = || { trace.append("key2"); #same }
-const value2 = || { trace.append("value2"); 2 }
-const laterKey = || { trace.append("later-key"); #later }
-const laterValue = || { trace.append("later-value"); 3 }
+let mut trace = []
+let key1 = || { trace.append("key1"); #same }
+let value1 = || { trace.append("value1"); 1 }
+let key2 = || { trace.append("key2"); #same }
+let value2 = || { trace.append("value2"); 2 }
+let laterKey = || { trace.append("later-key"); #later }
+let laterValue = || { trace.append("later-value"); 3 }
 
-const caught = || {
-  const ignored = Map {
+let caught = || {
+  let ignored = Map {
     [key1.call()]: value1.call(),
     [key2.call()]: value2.call(),
     [laterKey.call()]: laterValue.call(),

@@ -1491,7 +1491,7 @@ import .provider as P
 class Consumer {
     @class
     element_type() {
-        let b: P.Box<P.User>
+        let mut b: P.Box<P.User>
     }
 }
 "#,

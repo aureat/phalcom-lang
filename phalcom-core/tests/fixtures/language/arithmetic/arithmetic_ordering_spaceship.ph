@@ -2,7 +2,7 @@
 // spec: Ordering and <=>
 
 class NumWrapper {
-  @get _n
+  @get mut _n
   @constructor new(_ n) { _n = n }
 
   compare(_ other) {
@@ -18,9 +18,9 @@ class NumWrapper {
   toString { "NumWrapper(\(_n))" }
 }
 
-let w1 = NumWrapper.new(10)
-let w2 = NumWrapper.new(20)
-let w3 = NumWrapper.new(10)
+let mut w1 = NumWrapper.new(10)
+let mut w2 = NumWrapper.new(20)
+let mut w3 = NumWrapper.new(10)
 
 System.print(w1 <=> w2)
 System.print(w2 <=> w1)

@@ -5,6 +5,7 @@ expose .list
 expose .map
 expose .set
 expose .tuple
+expose .pack
 expose .record
 expose .range
 expose .bytes

@@ -5,6 +5,8 @@
 // Two `new` constructors are distinguished by SELECTOR, not arity hacks:
 // `new(name:city:)` and `new(name:)` are two distinct Initializer selectors.
 class Person {
+  mut _name
+  mut _city
   @constructor
   new(name, city) { _name = name; _city = city }
   @constructor

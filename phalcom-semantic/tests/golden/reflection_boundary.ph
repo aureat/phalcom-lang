@@ -19,7 +19,7 @@
 // 12 Probe publishes the composed reflection result without treating `.class` as a type.
 
 class User {
-  _name: String
+  mut _name: String
 
   @constructor
   new(_ name: String) {
@@ -45,12 +45,12 @@ class Registry {
 class Inspector {
   @class
   inspect(_ candidate) {
-    let runtimeClass = candidate.class
-    let canConstruct = candidate.respondsTo(#new)
-    let isUser = candidate.isA(User)
-    let hasName = candidate.respondsTo(#name)
+    let mut runtimeClass = candidate.class
+    let mut canConstruct = candidate.respondsTo(#new)
+    let mut isUser = candidate.isA(User)
+    let mut hasName = candidate.respondsTo(#name)
 
-    let category = if isUser {
+    let mut category = if isUser {
       "user"
     } else {
       "opaque"
@@ -63,9 +63,9 @@ class Inspector {
 class Service {
   @class
   run(_ name: String) {
-    let candidate = Registry.lookup(name)
-    let reflection = Inspector.inspect(candidate)
-    let knownName = User.new("known").name()
+    let mut candidate = Registry.lookup(name)
+    let mut reflection = Inspector.inspect(candidate)
+    let mut knownName = User.new("known").name()
     (reflection, knownName)
   }
 }

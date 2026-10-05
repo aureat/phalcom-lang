@@ -11,5 +11,5 @@ class BadToString {
   }
 }
 
-let bad = BadToString.new()
+let mut bad = BadToString.new()
 System.print("\(bad)")

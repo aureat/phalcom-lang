@@ -1,4 +1,5 @@
 class RetryWriter {
+  mut _reject
   @constructor
   new() { _reject = true }
 
@@ -13,11 +14,11 @@ class RetryWriter {
   close { Result::Ok(None) }
 }
 
-let writer = RetryWriter.new()
-let bw = BufferedWriter.new(writer)
+let mut writer = RetryWriter.new()
+let mut bw = BufferedWriter.new(writer)
 bw.write(Bytes.fromString("hello"))
 
-const failure = || { bw.flush }.on(Error) |e| { e.message }
+let failure = || { bw.flush }.on(Error) |e| { e.message }
 System.print(failure)
 System.print(bw.pending.toString)
 System.print(bw.finish.await.toString)

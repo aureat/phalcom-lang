@@ -3,7 +3,7 @@
 // status: PASS
 // `clear()` empties a Map in place.
 
-const a = Map.new()
+let a = Map.new()
 a.at(1, put: 1)
 a.at(2, put: 2)
 a.at(3, put: 3)

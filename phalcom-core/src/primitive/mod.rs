@@ -17,6 +17,7 @@ pub mod module;
 pub mod number;
 pub mod object;
 pub mod option;
+pub mod pack;
 pub mod range;
 pub mod record;
 pub mod reflection;
@@ -389,6 +390,18 @@ pub(crate) fn expect_record<'a>(vm: &'a VM, value: &Value) -> PhResult<crate::pr
     vm.record_view_value(*value).ok_or_else(|| {
         RuntimeError::Type {
             expected: "Record",
+            found: value.type_name(),
+        }
+        .into()
+    })
+}
+
+/// Extracts the canonical Pack view from a value, including immediate EmptyPack
+/// as the zero-lane Pack without allocating a heap object.
+pub(crate) fn expect_pack_view<'a>(vm: &'a VM, value: &Value) -> PhResult<crate::product::PackView<'a>> {
+    vm.pack_view_value(*value).ok_or_else(|| {
+        RuntimeError::Type {
+            expected: "Pack",
             found: value.type_name(),
         }
         .into()

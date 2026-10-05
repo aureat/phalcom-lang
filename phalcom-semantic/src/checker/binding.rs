@@ -21,6 +21,7 @@ pub struct BindingSeed {
     pub denotation: Option<SemanticDenotation>,
     pub causal_invalidity: crate::checker::causal::CausalInvalidity,
     pub mutable: bool,
+    pub initialization: crate::checker::flow::InitializationState,
 }
 
 /// Result of inserting a declaration into its current lexical scope.
@@ -46,6 +47,7 @@ pub enum BindingContractOrigin {
     CallableParameter,
     ContextualBlockParameter,
     PatternBinding,
+    StaticParameter,
 }
 
 /// Persistent type constraint independent of current flow knowledge.

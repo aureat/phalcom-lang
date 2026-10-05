@@ -3,9 +3,9 @@
 // status: PASS
 // Views over Map correctly yield keys (Map's for yields keys, not values)
 
-let map = Map {a: 1, b: 2, c: 3}
-let view = map.iter.map |x| { x }
-let result = []
+let mut map = Map {a: 1, b: 2, c: 3}
+let mut view = map.iter.map |x| { x }
+let mut result = []
 for x in view {
   result.append(x)
 }

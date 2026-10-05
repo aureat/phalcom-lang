@@ -24,16 +24,16 @@ class Factory {
 class Service {
   @class
   run(_ chooseKnown: Bool) {
-    let certain: CellNum = Factory.known()
-    let uncertain: CellNum = Factory.opaque()
+    let mut certain: CellNum = Factory.known()
+    let mut uncertain: CellNum = Factory.opaque()
 
-    let selected = if chooseKnown {
+    let mut selected = if chooseKnown {
       certain
     } else {
       uncertain
     }
 
-    let independent = certain.value()
+    let mut independent = certain.value()
     (selected, independent)
   }
 }

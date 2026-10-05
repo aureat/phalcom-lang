@@ -11,8 +11,8 @@ use super::parameter::{
 use super::row::RecordRowTail;
 use super::store::{CallableParameterType, CallableType, StaticArgument, TypeData, TypeStore};
 use super::type_lambda::{
-    ScopedCallableParameter, ScopedCallableType, ScopedLabeledTypePackElement, ScopedOpenRecord, ScopedPackProjectionLane, ScopedRecordField, ScopedRecordRow,
-    ScopedRecordRowTail, ScopedRecordTail, ScopedTupleElement, ScopedTypeData, TypeLambdaProvenance,
+    ScopedCallableParameter, ScopedCallableType, ScopedLabeledTypePackElement, ScopedOpenRecord, ScopedPackProjectionLane, ScopedPackRemainder,
+    ScopedPackType, ScopedRecordField, ScopedRecordRow, ScopedRecordRowTail, ScopedRecordTail, ScopedTupleElement, ScopedTypeData, TypeLambdaProvenance,
 };
 use super::type_member::{
     IntrinsicTypeOperation, IntrinsicTypeOwner, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
@@ -140,6 +140,13 @@ pub trait TypeResolver {
         None
     }
 
+    /// Retrieves the canonical static-definition signature for an already
+    /// resolved declaration. Static-application checking uses this exact
+    /// product instead of looking up parameter names or reconstructing domains.
+    fn resolve_static_definition(&self, _declaration: &DeclarationId) -> Option<std::sync::Arc<crate::static_definition::StaticDefinitionProduct>> {
+        None
+    }
+
     /// Compatibility lookup for expression/type-form consumers that accept only ordinary type forms.
     fn resolve_type_parameter(&self, name: &str) -> Option<TypeId> {
         match self.resolve_type_level_binding(name) {
@@ -212,6 +219,10 @@ impl<'a> TypeResolver for ScopedTypeResolver<'a> {
 
     fn resolve_alias_form(&self, declaration: &DeclarationId) -> Option<TypeId> {
         self.parent.resolve_alias_form(declaration)
+    }
+
+    fn resolve_static_definition(&self, declaration: &DeclarationId) -> Option<std::sync::Arc<crate::static_definition::StaticDefinitionProduct>> {
+        self.parent.resolve_static_definition(declaration)
     }
 
     fn resolve_module_alias(&self, current_module: &ModuleId, alias: &str) -> Option<ModuleId> {
@@ -776,7 +787,9 @@ fn scoped_kind(store: &mut TypeStore, scoped: crate::types::id::ScopedTypeId, bi
         | ScopedTypeData::Record(_)
         | ScopedTypeData::OpenRecord(_)
         | ScopedTypeData::Callable(_)
+        | ScopedTypeData::Pack(_)
         | ScopedTypeData::TupleFromPacks { .. }
+        | ScopedTypeData::PackFromPacks { .. }
         | ScopedTypeData::CallableFromPacks { .. } => KindResolution::Ready(KindId::TYPE),
         ScopedTypeData::RecordRow(_) => KindResolution::Ready(KindId::RECORD_ROW),
         ScopedTypeData::TypePack(_) | ScopedTypeData::TypePackConcat(_) => KindResolution::Ready(KindId::TYPE_PACK),
@@ -1109,6 +1122,60 @@ fn lower_scoped_type_form(
                 }
                 return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
             }
+            if intrinsic_application_has_domain(
+                store,
+                declarations,
+                scoped_origin,
+                IntrinsicTypeApplication::Pack,
+                VariadicApplicationDomain::Complete,
+            ) && arguments.iter().any(|argument| matches!(argument, phalcom_ast::ast::GenericArgumentSyntax::Remainder(_)))
+            {
+                if arguments.len() != 1 {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::AnnotationUnsupported,
+                        "a structural Pack type accepts one anonymous remainder argument",
+                        annotation.range,
+                    ));
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                }
+                let phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) = &arguments[0] else {
+                    unreachable!("the Pack remainder branch requires one remainder argument")
+                };
+                let value = match &remainder.remainder {
+                    phalcom_ast::ast::AnonymousRemainderSyntax::Unconstrained(_) => ScopedPackRemainder::Unconstrained,
+                    phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, range } => {
+                        let constraint = scoped_ready_or_propagate!(lower_scoped_type_form(
+                            store,
+                            declarations,
+                            resolver,
+                            site,
+                            binders,
+                            constraint,
+                            diagnostics,
+                        ));
+                        scoped_ready_or_propagate!(require_scoped_proper(
+                            store,
+                            constraint,
+                            binders,
+                            current_module,
+                            *range,
+                            diagnostics,
+                        ));
+                        ScopedPackRemainder::Typed(constraint)
+                    }
+                };
+                let (positional_remainder, labeled_remainder) = match remainder.mode {
+                    ExpansionMode::Positional => (value, ScopedPackRemainder::None),
+                    ExpansionMode::Labeled => (ScopedPackRemainder::None, value),
+                    ExpansionMode::Complete => (value, value),
+                };
+                return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Pack(ScopedPackType {
+                    elements: Box::new([]),
+                    positional_remainder,
+                    labeled_remainder,
+                })));
+            }
             if let Some(contract) = scoped_generic_application_contract(store, declarations, scoped_origin)
                 && contract.has_variadic_binder()
                 && contract.variadic_domains().as_deref() == Some(&[VariadicApplicationDomain::RecordFields])
@@ -1290,6 +1357,15 @@ fn lower_scoped_type_form(
                             ));
                             return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
                         }
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(expr) => {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "generic pack contributions require an explicit `*`, `**`, or `***` expansion",
+                                expr.range(),
+                            ));
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                        }
                         phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
                             let operand = scoped_ready_or_propagate!(lower_scoped_type_form(
                                 store,
@@ -1329,6 +1405,15 @@ fn lower_scoped_type_form(
                                 }
                             }
                         }
+                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "typed remainder syntax `*:` / `**:` / `***:` is only supported in structural Pack type annotations",
+                                remainder.range,
+                            ));
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                        }
                     }
                 }
                 let positionals = store
@@ -1357,6 +1442,19 @@ fn lower_scoped_type_form(
                 {
                     if let ScopedTypeData::CompleteTypePack { positionals, labeled } = store.arena().get_scoped(lowered[0]).clone() {
                         return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::TupleFromPacks { positionals, labeled }));
+                    }
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+                }
+                if intrinsic_application_has_domain(
+                    store,
+                    declarations,
+                    scoped_origin,
+                    IntrinsicTypeApplication::Pack,
+                    VariadicApplicationDomain::Complete,
+                ) && lowered.len() == 1
+                {
+                    if let ScopedTypeData::CompleteTypePack { positionals, labeled } = store.arena().get_scoped(lowered[0]).clone() {
+                        return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::PackFromPacks { positionals, labeled }));
                     }
                     return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
                 }
@@ -2579,6 +2677,55 @@ pub fn resolve_type_form(
                 }
             }
 
+            if intrinsic_application_has_type_domain(
+                store,
+                declarations,
+                origin_ty,
+                IntrinsicTypeApplication::Pack,
+                VariadicApplicationDomain::Complete,
+            ) && arguments.iter().any(|argument| matches!(argument, phalcom_ast::ast::GenericArgumentSyntax::Remainder(_)))
+            {
+                if arguments.len() != 1 {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::AnnotationUnsupported,
+                        "a structural Pack type accepts one anonymous remainder argument",
+                        annotation.range,
+                    ));
+                    return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                }
+                let phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) = &arguments[0] else {
+                    unreachable!("the Pack remainder branch requires one remainder argument")
+                };
+                let value = match &remainder.remainder {
+                    phalcom_ast::ast::AnonymousRemainderSyntax::Unconstrained(_) => super::store::AnonymousTupleRemainder::Unconstrained,
+                    phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, range } => {
+                        let constraint = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, constraint, diagnostics));
+                        if store.kind_of(constraint) != KindId::TYPE {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::KindExpectedType,
+                                "Pack remainder type constraint must be a proper type",
+                                *range,
+                            ));
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType {
+                                actual: store.kind_of(constraint),
+                            });
+                        }
+                        super::store::AnonymousTupleRemainder::Typed(constraint)
+                    }
+                };
+                let (positional_remainder, labeled_remainder) = match remainder.mode {
+                    ExpansionMode::Positional => (value, super::store::AnonymousTupleRemainder::None),
+                    ExpansionMode::Labeled => (super::store::AnonymousTupleRemainder::None, value),
+                    ExpansionMode::Complete => (value, value),
+                };
+                return match store.open_pack(Box::new([]), positional_remainder, labeled_remainder) {
+                    Ok(pack) => TypeFormResolution::Ready(pack),
+                    Err(error) => TypeFormResolution::InternalFailure(error.to_string().into()),
+                };
+            }
+
             // Canonical origins retain application mode independently from
             // their arrow kind. This also covers residual alias lambdas.
             if let Some(contract) = generic_application_contract(store, declarations, origin_ty)
@@ -2626,6 +2773,24 @@ pub fn resolve_type_form(
                             continue;
                         }
                         phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => (expansion.mode, &expansion.operand, expansion.range),
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(expr) => {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "value generic arguments cannot be resolved as types in this context",
+                                expr.range(),
+                            ));
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "typed remainder syntax `*:` / `**:` / `***:` is only supported in structural Pack type annotations",
+                                remainder.range,
+                            ));
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                        }
                     };
                     let operand = ready_or_return!(resolve_type_form(store, declarations, resolver, site, operand, diagnostics));
                     let projected = match mode {
@@ -2755,6 +2920,28 @@ pub fn resolve_type_form(
                         };
                         return match store.tuple_from_packs(positionals, labeled) {
                             Ok(tuple) => TypeFormResolution::Ready(tuple),
+                            Err(error) => TypeFormResolution::InternalFailure(error.to_string().into()),
+                        };
+                    }
+                    if intrinsic_application_has_type_domain(
+                        store,
+                        declarations,
+                        origin_ty,
+                        IntrinsicTypeApplication::Pack,
+                        VariadicApplicationDomain::Complete,
+                    ) && canonical_arguments.len() == 1
+                    {
+                        let complete = canonical_arguments[0];
+                        let positionals = match store.project_positionals(complete) {
+                            Ok(pack) => pack,
+                            Err(_error) => return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch),
+                        };
+                        let labeled = match store.project_labeled(complete) {
+                            Ok(pack) => pack,
+                            Err(_error) => return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch),
+                        };
+                        return match store.pack_from_packs(positionals, labeled) {
+                            Ok(pack) => TypeFormResolution::Ready(pack),
                             Err(error) => TypeFormResolution::InternalFailure(error.to_string().into()),
                         };
                     }

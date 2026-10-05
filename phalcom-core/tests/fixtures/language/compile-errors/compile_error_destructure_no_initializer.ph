@@ -5,5 +5,5 @@
 // `const (a, b)` with no `= expr` is a compile error — regardless of `const`/
 // `let` (unlike a bare-name `let x`, which is legal and reads `None`).
 
-const (a, b)
+let (a, b)
 System.print(a)

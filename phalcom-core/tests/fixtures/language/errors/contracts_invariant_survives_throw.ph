@@ -4,6 +4,7 @@
 // contract: a thrown error inside an @invariant-checked call must not leave the guard permanently inflated
 
 class Vault {
+  mut _balance
   @invariant(self.balance >= 0)
 
   @constructor
@@ -21,7 +22,7 @@ class Vault {
   }
 }
 
-const v = Vault.new(10)
+let v = Vault.new(10)
 
 try {
   v.withdraw(999)

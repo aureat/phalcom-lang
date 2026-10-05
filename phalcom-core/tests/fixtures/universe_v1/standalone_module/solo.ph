@@ -1,2 +1,2 @@
-let value = "standalone solo module"
+let mut value = "standalone solo module"
 export value

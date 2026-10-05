@@ -13,7 +13,7 @@ class Divider {
   }
 }
 
-const d = Divider.new()
-const result = d.divide(10, 2)
+let d = Divider.new()
+let result = d.divide(10, 2)
 System.print(result)
 System.print("ran without exception")

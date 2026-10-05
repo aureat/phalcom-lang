@@ -1,17 +1,18 @@
 # Type-Level and Static Domains
 
 **Status:** Normative  
-**Semantic ownership:** proper Types, static value domains, generic/static parameter
-domains, parameter-pack domain interpretation, static data domains, and canonical
-type/static terms.
+**Semantic ownership:** proper Types, static value domains, kinded pack domains,
+generic/static parameter domains, parameter-pack domain interpretation, static data
+domains, and canonical type/static terms.
 
-Structural Pack/Product details are owned by
+Structural Pack/Product formation and remainder details are owned by
 [Structural Products](structural-products.md). Executable static computation is owned by
 [Static Evaluation](static-evaluation.md).
 
 ## 1. Domain judgments
 
-Telos distinguishes proper runtime Types from compile-time/static value domains.
+Telos distinguishes proper runtime Types, compile-time/static value domains, and
+compiler kinded domains.
 
 Conceptually:
 
@@ -19,6 +20,7 @@ Conceptually:
 Type
 StaticDomain(D)
 ordinary static value Type/domain
+Kinded pack domains: TypePack, LabeledTypePack, CompleteTypePack
 ```
 
 Examples:
@@ -30,6 +32,9 @@ Pack<Int, String>           : PositionalPack<Type>
 Shape::Scalar               : StaticDomain(Shape)
 #name                       : Symbol
 42                          : Int
+*Ts                         : TypePack
+**Ls                        : LabeledTypePack
+***Es                       : CompleteTypePack
 ```
 
 A static value's domain is not automatically a kind. Compile-time values remain typed
@@ -40,7 +45,7 @@ semantic values.
 A **proper Type** is a runtime/value type accepted wherever the language requires a
 `Type`.
 
-Nominal classes/data types, structural Tuple/Record types, callable types, unions and
+Nominal classes/data types, structural Tuple/Record types, callable types, unions, and
 other ordinary type forms remain governed by their owning specifications.
 
 A reflected or static Type value is represented canonically by the semantic type
@@ -65,35 +70,60 @@ owning declaration.
 Distinct static-data declarations have distinct semantic domains even when their source
 payload shapes coincide.
 
-## 4. Pack-based type collections
+## 4. Kinded domains and first-class Pack types
 
-C4's public type-pack model is ordinary Pack specialization:
+Under `INC-P3-2`, Telos maintains a strict distinction between C3 kinded domains and
+C4 first-class Pack types. They are not competing spellings or aliases for the same
+thing.
 
-```telos
-type PositionalTypePack =
-    PositionalPack<Type>
+### 4.1 Kinded pack domains
 
-type LabeledTypePack =
-    LabeledPack<Type>
+The kinded/static pack domains established by C3 remain canonical:
 
-type CompleteTypePack =
-    CompletePack<Type>
+```text
+TypePack          ordered sequence of proper type forms
+LabeledTypePack   ordered sequence of (Symbol, proper type) pairs
+CompleteTypePack  ordered complete two-lane sequence of proper type forms
 ```
 
-These are not independent public kind identities.
+Universe publishes intrinsic `type data` anchors for `TypePack`, `LabeledTypePack`, and
+`CompleteTypePack`. These expose the existing compiler-owned domains for kind
+classification; they do not create runtime classes or forgeable user types.
 
-The compiler may retain specialized internal terms historically named
-`TypePack`, `LabeledTypePack`, `CompleteTypePack`, concatenation nodes, or similar
-representations. Such nodes are canonical implementation forms of the Pack-based public
-model.
+Internal `TypePack` machinery, canonical compositions (`TypePackConcat`), and kinded
+binders remain intact and are not replaced merely because first-class `Pack` exists.
 
-Likewise, unordered field structure is publicly represented through
-`UnorderedShape`, `FieldKey`, `FieldInfo`, and `UnorderedTail`; an internal
-`RecordRow` representation does not create a source-visible `RecordFields` domain.
+### 4.2 Proper first-class Pack types
+
+`Pack` is the first-class proper structural value and type introduced by `LANG007.C4.P3`.
+Its specialized proper aliases are:
+
+```telos
+type PositionalPack<T: Type> =
+    Pack<*: T>
+
+type LabeledPack<T: Type> =
+    Pack<**: T>
+
+type CompletePack<T: Type> =
+    Pack<***: T>
+```
+
+These are proper `Type` specializations parameterized by element type `T`. They are not
+aliases for `TypePack`, `LabeledTypePack`, or `CompleteTypePack`.
+
+Pack formation, remainder syntax (`Pack<*: T>`, `Pack<*: ...>`), O(1) rest slicing,
+and one-step view decomposition are owned by [Structural Products](structural-products.md).
+
+### 4.3 Unordered product domain
+
+For unordered reflection, the public ontology uses `UnorderedShape`, `FieldKey`,
+`FieldInfo`, and `UnorderedTail`. Internal `RecordRow` representations remain compiler
+mechanisms and do not define a separate competing source-visible ontology.
 
 ## 5. Generic/static parameter domains
 
-Generic parameters may bind proper Types or static values.
+Generic parameters may bind proper Types, static values, or kinded pack domains.
 
 Examples:
 
@@ -101,31 +131,28 @@ Examples:
 <T: Type>
 <N: Int>
 <K: FieldKey>
-<P: PositionalTypePack>
-<LP: LabeledTypePack>
-<CP: CompleteTypePack>
+<*Ts: TypePack>
+<**Ls: LabeledTypePack>
+<***Es: CompleteTypePack>
 ```
+
+Expansion prefixes and semantic kinds are separate concepts:
+- `*Ts` defaults to `TypePack`;
+- `**Fs` defaults to `RecordFields` in Record contexts or `LabeledTypePack` in Tuple/Pack contexts;
+- `***Es` defaults to `CompleteTypePack`.
 
 In ordered-Pack/static-computation parameter positions, the expansion binders preserve
 Pack lane semantics:
 
 ```telos
-<*Ts>      // positional Pack capture
-<**Ls>     // labeled Pack capture
+<*Ts>      // positional lane capture
+<**Ls>     // labeled lane capture
 <***Es>    // complete Pack capture
 ```
 
-The same punctuation also appears inside structural forms whose owner determines the
-structural domain. In particular, `Record<**Fs>` and Record field/tail syntax denote
-unordered field structure, not an ordered labeled Pack. This contextual structural
-meaning is owned by [Structural Products](structural-products.md).
-
-There is therefore no global rule that every source occurrence of `**` denotes one
-compiler kind. The semantic owner/form determines whether the contribution is an
-ordered labeled Pack lane or unordered field structure.
-
-Where explicit syntax constrains each entry value, the constraint applies to entry
-values, not automatically to the entire captured shape.
+In Record contexts, `Record<**Fs>` denotes unordered field structure, not an ordered
+labeled Pack. Contextual structural meaning is owned by
+[Structural Products](structural-products.md).
 
 ## 6. Generic/static arguments
 
@@ -154,7 +181,7 @@ Stable identity never relies on:
 - arena allocation order in exported metadata;
 - pretty-printed source text.
 
-Metadata uses stable semantic references/content encodings appropriate to each domain.
+Metadata uses stable semantic references and content encodings appropriate to each domain.
 
 ## 8. Symbolic terms
 
@@ -182,7 +209,7 @@ type ShapeOf<T: Product>: ProductShape = ...
 
 An omitted result annotation on an ordinary type definition defaults to `Type`.
 
-Associated/static member specifications must therefore preserve their general result
+Associated and static member specifications must preserve their general result
 domain rather than collapsing every result to a kind-only form.
 
 ## 10. Invariants
@@ -191,7 +218,7 @@ domain rather than collapsing every result to a kind-only form.
 | --- | --- |
 | **TL-PROPER-TYPE** | Proper runtime Types remain distinct from ordinary static values. |
 | **TL-STATIC-TYPED** | Compile-time values have semantic Types/domains; they are not “kinds because they are compile time”. |
-| **TL-PACK-PUBLIC** | Public type packs are Pack specializations, not an independent TypePack ontology. |
+| **TL-DOMAIN-SEPARATION** | Kinded domains (`TypePack`, `LabeledTypePack`, `CompleteTypePack`) and proper Pack types (`Pack`, `PositionalPack<T>`, `LabeledPack<T>`, `CompletePack<T>`) are distinct; neither is an alias for the other. |
 | **TL-ROW-PUBLIC** | Public unordered reflection uses the Product/UnorderedShape model, not RecordRow/RecordFields implementation names. |
 | **TL-CANONICAL** | Canonical static/type identity is independent of source spelling and runtime object identity. |
 | **TL-RESULT-DOMAIN** | Static/type definitions and members preserve explicit non-Type result domains. |
@@ -202,5 +229,5 @@ domain rather than collapsing every result to a kind-only form.
 This specification does not prescribe TypeStore node layout, interning tables, solver
 algorithms, metadata pool layout, or VM representation.
 
-Those implementation choices may retain optimized historical TypePack/RecordRow nodes
-provided all source-visible semantics conform to the Pack/Product model.
+Those implementation choices may retain optimized historical TypePack and RecordRow
+nodes provided all source-visible semantics conform to the ratified model.

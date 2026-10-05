@@ -2,5 +2,5 @@ class Person {
   greet() {}
 }
 
-const count = 42
-const person = Person.new()
+let count = 42
+let person = Person.new()

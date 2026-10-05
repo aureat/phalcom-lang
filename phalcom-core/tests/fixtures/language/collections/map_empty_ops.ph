@@ -6,12 +6,12 @@
 // absent key is a no-op that still returns the receiver. `keys` and `values`
 // are live views, so their iterable contents are observed through `toList`.
 
-const m = Map.new()
+let m = Map.new()
 System.print(m.size)
 System.print(m.get(1))
 System.print(m.get(1) == None)
 System.print(m.includes(1))
-const removedValue = m.remove(1)
+let removedValue = m.remove(1)
 System.print(removedValue)
 System.print(m.size)
 System.print(m.keys.toList)

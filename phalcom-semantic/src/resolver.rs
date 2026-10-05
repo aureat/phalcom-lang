@@ -27,6 +27,7 @@ pub struct LinkedTypeResolver {
     associated_type_members: Arc<RwLock<AssociatedTypeMemberProducts>>,
     static_case_catalogs: Arc<RwLock<BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>>,
     static_case_signatures: Arc<RwLock<BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>>,
+    static_definitions: Arc<RwLock<BTreeMap<DeclarationId, Arc<crate::static_definition::StaticDefinitionProduct>>>>,
 }
 
 impl LinkedTypeResolver {
@@ -53,6 +54,7 @@ impl LinkedTypeResolver {
             associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
             static_case_catalogs: Arc::new(RwLock::new(BTreeMap::new())),
             static_case_signatures: Arc::new(RwLock::new(BTreeMap::new())),
+            static_definitions: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
 
@@ -76,6 +78,7 @@ impl LinkedTypeResolver {
             associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
             static_case_catalogs: Arc::new(RwLock::new(BTreeMap::new())),
             static_case_signatures: Arc::new(RwLock::new(BTreeMap::new())),
+            static_definitions: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
 
@@ -126,9 +129,25 @@ impl LinkedTypeResolver {
             *current = signatures.clone();
         }
     }
+
+    /// Publishes the snapshot's exact static-definition signature products to
+    /// type-form resolution. Checked body products may be composed later; the
+    /// stable declaration and signature are already final at this stage.
+    pub fn update_static_definitions(&self, definitions: &crate::static_definition::StaticDefinitionTable) {
+        if let Ok(mut current) = self.static_definitions.write() {
+            *current = definitions
+                .iter()
+                .map(|(declaration, product)| (declaration.clone(), product.clone()))
+                .collect();
+        }
+    }
 }
 
 impl TypeResolver for LinkedTypeResolver {
+    fn resolve_static_definition(&self, declaration: &DeclarationId) -> Option<Arc<crate::static_definition::StaticDefinitionProduct>> {
+        self.static_definitions.read().ok()?.get(declaration).cloned()
+    }
+
     fn resolve_associated_static_domain(&self, owner: &DeclarationId, name: &str) -> Option<crate::identity::AssociatedStaticDomainDeclarationId> {
         let products = self.associated_type_members.read().ok()?;
         let family = products

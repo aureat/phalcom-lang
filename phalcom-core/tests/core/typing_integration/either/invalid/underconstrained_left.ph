@@ -1,6 +1,6 @@
 class Probe {
     @class
     run() {
-        let value = Either::Left("failure")
+        let mut value = Either::Left("failure")
     }
 }

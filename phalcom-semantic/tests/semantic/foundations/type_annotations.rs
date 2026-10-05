@@ -50,6 +50,17 @@ fn application(origin: TypeAnnotation, arguments: Vec<TypeAnnotation>) -> TypeAn
     }
 }
 
+fn pack_remainder(
+    mode: phalcom_ast::ast::ExpansionMode,
+    remainder: phalcom_ast::ast::AnonymousRemainderSyntax,
+) -> phalcom_ast::ast::GenericArgumentSyntax {
+    phalcom_ast::ast::GenericArgumentSyntax::Remainder(phalcom_ast::ast::TypePackRemainderSyntax {
+        mode,
+        remainder,
+        range: RANGE,
+    })
+}
+
 fn type_lambda(names: &[&str], body: TypeAnnotation) -> TypeAnnotation {
     TypeAnnotation {
         expr: TypeAnnotationExpr::TypeLambda {
@@ -101,7 +112,7 @@ fn setup() -> TestEnv {
     let module = ModuleId::universe_root();
     let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
     let mut resolver = SimpleTypeResolver::new();
-    for name in ["Int", "String", "Bool", "List", "Map", "Object", "Tuple"] {
+    for name in ["Int", "String", "Bool", "List", "Map", "Object", "Tuple", "Pack"] {
         resolver.insert(name, DeclarationId::new(module.clone(), name.into()));
     }
     TestEnv {
@@ -2633,4 +2644,149 @@ fn cv12_to_cv14_knowledge_bearing_use_site_materialization() {
         panic!("expected Known(Int), got {fixed_knowledge:?}");
     };
     assert_eq!(fixed_ev.ty(), int_form);
+}
+
+#[test]
+fn pack_type_remainders_form_canonical_pack_types() {
+    use phalcom_ast::ast::{AnonymousRemainderSyntax, ExpansionMode};
+    use phalcom_semantic::types::store::AnonymousTupleRemainder as Remainder;
+
+    let mut env = setup();
+    let int = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let string = env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap();
+    let bool_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Bool".into())).unwrap();
+
+    let cases = [
+        (ExpansionMode::Positional, Remainder::Typed(int), Remainder::None),
+        (ExpansionMode::Labeled, Remainder::None, Remainder::Typed(string)),
+        (ExpansionMode::Complete, Remainder::Typed(bool_ty), Remainder::Typed(bool_ty)),
+    ];
+    for (mode, positional, labeled) in cases {
+        let annotation = TypeAnnotation {
+            expr: TypeAnnotationExpr::Application {
+                origin: Box::new(reference("Pack")),
+                arguments: vec![pack_remainder(
+                    mode,
+                    AnonymousRemainderSyntax::Typed {
+                        constraint: Box::new(reference(match mode {
+                            ExpansionMode::Positional => "Int",
+                            ExpansionMode::Labeled => "String",
+                            ExpansionMode::Complete => "Bool",
+                        })),
+                        range: RANGE,
+                    },
+                )],
+                range: RANGE,
+            },
+            range: RANGE,
+        };
+        let (knowledge, diagnostics) = resolve(&mut env, &annotation);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let actual = knowledge.ty().expect("proper Pack type");
+        let expected = env.store.open_pack(Box::new([]), positional, labeled).unwrap();
+        assert_eq!(actual, expected, "unexpected Pack remainder for {mode:?}");
+    }
+}
+
+#[test]
+fn pack_type_remainder_constraints_substitute_through_type_lambdas() {
+    use phalcom_ast::ast::{AnonymousRemainderSyntax, ExpansionMode};
+    use phalcom_semantic::types::store::AnonymousTupleRemainder as Remainder;
+
+    let mut env = setup();
+    let body = TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("Pack")),
+            arguments: vec![pack_remainder(
+                ExpansionMode::Positional,
+                AnonymousRemainderSyntax::Typed {
+                    constraint: Box::new(reference("T")),
+                    range: RANGE,
+                },
+            )],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let lambda = typed_type_lambda(vec![("T", KindSyntax::Type(RANGE))], body);
+    let mut diagnostics = Vec::new();
+    let TypeFormResolution::Ready(lambda_ty) = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &lambda,
+        &mut diagnostics,
+    ) else {
+        panic!("expected a Pack type lambda: {diagnostics:?}");
+    };
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let TypeData::Lambda(lambda_id) = env.store.get(lambda_ty) else {
+        panic!("expected Pack type lambda form");
+    };
+    let ScopedTypeData::Pack(scoped_pack) = env.store.arena().get_scoped(env.store.arena().get_lambda(*lambda_id).body) else {
+        panic!("Pack remainder must remain in the scoped Pack node until substitution");
+    };
+    assert!(matches!(
+        scoped_pack.positional_remainder,
+        phalcom_semantic::types::type_lambda::ScopedPackRemainder::Typed(constraint)
+            if matches!(env.store.arena().get_scoped(constraint), ScopedTypeData::Bound { depth: 0, index: 0 })
+    ));
+
+    let int = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let applied = env.store.apply_type_form(lambda_ty, &[int]).expect("substitute Pack remainder type");
+    let expected = env.store.open_pack(Box::new([]), Remainder::Typed(int), Remainder::None).unwrap();
+    assert_eq!(applied, expected);
+}
+
+#[test]
+fn pack_type_unconstrained_remainders_are_retained_and_other_constructors_reject_them() {
+    use phalcom_ast::ast::{AnonymousRemainderSyntax, ExpansionMode};
+    use phalcom_semantic::types::store::AnonymousTupleRemainder as Remainder;
+
+    let mut env = setup();
+    for (mode, positional, labeled) in [
+        (ExpansionMode::Positional, Remainder::Unconstrained, Remainder::None),
+        (ExpansionMode::Labeled, Remainder::None, Remainder::Unconstrained),
+        (ExpansionMode::Complete, Remainder::Unconstrained, Remainder::Unconstrained),
+    ] {
+        let annotation = TypeAnnotation {
+            expr: TypeAnnotationExpr::Application {
+                origin: Box::new(reference("Pack")),
+                arguments: vec![pack_remainder(mode, AnonymousRemainderSyntax::Unconstrained(RANGE))],
+                range: RANGE,
+            },
+            range: RANGE,
+        };
+        let (knowledge, diagnostics) = resolve(&mut env, &annotation);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let expected = env.store.open_pack(Box::new([]), positional, labeled).unwrap();
+        assert_eq!(knowledge.ty(), Some(expected));
+    }
+
+    let unsupported = TypeAnnotation {
+        expr: TypeAnnotationExpr::Application {
+            origin: Box::new(reference("List")),
+            arguments: vec![pack_remainder(
+                ExpansionMode::Positional,
+                AnonymousRemainderSyntax::Typed {
+                    constraint: Box::new(reference("Int")),
+                    range: RANGE,
+                },
+            )],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let mut diagnostics = Vec::new();
+    let result = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &unsupported,
+        &mut diagnostics,
+    );
+    assert!(matches!(result, TypeFormResolution::Invalid(_)));
+    assert!(diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsupported), "{diagnostics:?}");
 }

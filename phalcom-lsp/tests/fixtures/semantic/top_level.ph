@@ -2,6 +2,6 @@ class Person {
   greet() {}
 }
 
-const person = Person.new()
+let person = Person.new()
 
 /*@top*/person.greet()

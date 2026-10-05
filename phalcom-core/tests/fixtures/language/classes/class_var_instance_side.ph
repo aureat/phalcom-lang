@@ -4,7 +4,7 @@ class Foo {
 
 class Bar is Foo {}
 
-let f = Foo.new()
-let b = Bar.new()
+let mut f = Foo.new()
+let mut b = Bar.new()
 System.print(f.test().name)
 System.print(b.test().name)

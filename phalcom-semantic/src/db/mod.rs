@@ -479,7 +479,8 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::SourceStructure(module)
         | QueryKey::AdvisoryModule(module)
         | QueryKey::ModuleDiagnostics(module)
-        | QueryKey::ModuleMetadata(module) => Some(module),
+        | QueryKey::ModuleMetadata(module)
+        | QueryKey::ModuleStaticBindings(module) => Some(module),
         QueryKey::DeclarationShell(declaration)
         | QueryKey::HierarchyEdge(declaration)
         | QueryKey::DeclarationSurface(declaration)
@@ -488,7 +489,11 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::DataDeclaration(declaration)
         | QueryKey::EnumDeclaration(declaration)
         | QueryKey::EnumRequirements(declaration)
-        | QueryKey::AssociatedSurface(declaration) => Some(&declaration.module),
+        | QueryKey::ConstructorInitialization(declaration)
+        | QueryKey::AssociatedSurface(declaration)
+        | QueryKey::StaticDefinition(declaration) => Some(&declaration.module),
+        QueryKey::StaticConstant(constant) => Some(&constant.0.module),
+        QueryKey::CheckedStaticBody(body) => Some(&body.0.module),
         QueryKey::AssociatedStaticDomainDeclaration(domain) => Some(&domain.owner.module),
         QueryKey::StaticDomainCaseCatalog(domain) => Some(match domain {
             crate::identity::StaticDomainDeclarationId::Nominal(declaration) => &declaration.module,

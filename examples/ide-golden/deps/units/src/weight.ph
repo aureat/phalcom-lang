@@ -1,5 +1,5 @@
 class Weight {
-  _units: Int = 0
+  mut _units: Int = 0
 
   @constructor
   new(_ units: Int) {
@@ -9,6 +9,6 @@ class Weight {
   units -> Int { _units }
 }
 
-const weight: Int = Weight.new(5).units
+let weight: Int = Weight.new(5).units
 
 export Weight

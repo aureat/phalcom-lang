@@ -37,6 +37,7 @@ path = "tests/cli_smoke/mod.rs"
 
 [features]
 default = []
+test-timings = ["phalcom-semantic/test-timings"]
 # Per-opcode `tracing` instrumentation in the VM dispatch loop (`vm/dispatch.rs`):
 # a `vm_opcode` span plus stack-state `debug!`s around every instruction.
 #

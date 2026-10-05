@@ -11,15 +11,15 @@ from universe.time import (
   LocalTimeDisambiguation
 )
 
-const newYork = TimeZone.named("America/New_York")
+let newYork = TimeZone.named("America/New_York")
 
-const unique = DateTime.new(
+let unique = DateTime.new(
   Date.new(2024, Month::January, 15),
   Time.new(12, 0, 0, 0)
 )
 System.print(unique.inZone(newYork).offset.seconds)
 
-const overlap = DateTime.new(
+let overlap = DateTime.new(
   Date.new(2024, Month::November, 3),
   Time.new(1, 30, 0, 0)
 )
@@ -27,12 +27,12 @@ System.print(overlap.inZone(newYork, LocalTimeDisambiguation::Earlier).offset.se
 System.print(overlap.inZone(newYork, LocalTimeDisambiguation::Later).offset.seconds)
 System.print(overlap.inZone(newYork, LocalTimeDisambiguation::Compatible).offset.seconds)
 
-const gap = DateTime.new(
+let gap = DateTime.new(
   Date.new(2024, Month::March, 10),
   Time.new(2, 30, 0, 0)
 )
 System.print(gap.inZone(newYork, LocalTimeDisambiguation::Earlier).offset.seconds)
 System.print(gap.inZone(newYork, LocalTimeDisambiguation::Later).offset.seconds)
 System.print(gap.inZone(newYork, LocalTimeDisambiguation::Compatible).offset.seconds)
-const transition = newYork.transitionAfter(Timestamp.seconds(0))
+let transition = newYork.transitionAfter(Timestamp.seconds(0))
 System.print(transition.is(Some))

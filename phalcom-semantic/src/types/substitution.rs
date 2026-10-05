@@ -412,6 +412,30 @@ impl TypeSubstitution {
                     .collect();
                 store.labeled_type_pack(subst_elements.into_boxed_slice()).unwrap_or(ty)
             }
+            TypeData::Pack(pack) => {
+                let subst_elements: Vec<super::store::PackTypeElement> = pack
+                    .elements
+                    .iter()
+                    .map(|elem| super::store::PackTypeElement {
+                        label: elem.label.clone(),
+                        ty: self.apply_with_arena(store, arena, elem.ty),
+                    })
+                    .collect();
+                let pos_rem = match pack.positional_remainder {
+                    AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainder::Typed(self.apply_with_arena(store, arena, t)),
+                    rem => rem,
+                };
+                let lab_rem = match pack.labeled_remainder {
+                    AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainder::Typed(self.apply_with_arena(store, arena, t)),
+                    rem => rem,
+                };
+                store.open_pack(subst_elements.into_boxed_slice(), pos_rem, lab_rem).unwrap_or(ty)
+            }
+            TypeData::PackFromPacks { positionals, labeled } => {
+                let subst_pos = self.apply_with_arena(store, arena, positionals);
+                let subst_lab = self.apply_with_arena(store, arena, labeled);
+                store.pack_from_packs(subst_pos, subst_lab).unwrap_or(ty)
+            }
             TypeData::TupleFromPacks { positionals, labeled } => {
                 let subst_pos = self.apply_with_arena(store, arena, positionals);
                 let subst_lab = self.apply_with_arena(store, arena, labeled);
@@ -664,6 +688,30 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                 })
                 .collect();
             store.labeled_type_pack(subst_elements.into_boxed_slice()).unwrap_or(ty)
+        }
+        TypeData::Pack(pack) => {
+            let subst_elements: Vec<super::store::PackTypeElement> = pack
+                .elements
+                .iter()
+                .map(|elem| super::store::PackTypeElement {
+                    label: elem.label.clone(),
+                    ty: specialize_self_type(store, declarations, receiver, elem.ty),
+                })
+                .collect();
+            let pos_rem = match pack.positional_remainder {
+                AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainder::Typed(specialize_self_type(store, declarations, receiver, t)),
+                rem => rem,
+            };
+            let lab_rem = match pack.labeled_remainder {
+                AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainder::Typed(specialize_self_type(store, declarations, receiver, t)),
+                rem => rem,
+            };
+            store.open_pack(subst_elements.into_boxed_slice(), pos_rem, lab_rem).unwrap_or(ty)
+        }
+        TypeData::PackFromPacks { positionals, labeled } => {
+            let subst_pos = specialize_self_type(store, declarations, receiver, positionals);
+            let subst_lab = specialize_self_type(store, declarations, receiver, labeled);
+            store.pack_from_packs(subst_pos, subst_lab).unwrap_or(ty)
         }
         TypeData::TupleFromPacks { positionals, labeled } => {
             let subst_pos = specialize_self_type(store, declarations, receiver, positionals);

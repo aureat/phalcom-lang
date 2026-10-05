@@ -5,12 +5,12 @@
 // distinguishes the "immutable" bar from "not a List": round-trips a Tuple
 // key through put/at/includes/remove.
 
-const m = Map.new()
-const k1 = (1, 2)
+let m = Map.new()
+let k1 = (1, 2)
 m.at(k1, put: "pair")
 System.print(m.size)
 System.print(m.includes(k1))
-const k2 = (1, 2)
+let k2 = (1, 2)
 System.print(m.includes(k2))
 System.print(m[k2])
 m.remove(k2)

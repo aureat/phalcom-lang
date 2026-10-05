@@ -7,7 +7,7 @@ class WallClock {
 }
 
 class SystemWallClock is WallClock {
-  @class _instance
+  @class mut _instance
 
   @class
   instance -> SystemWallClock {
@@ -29,7 +29,7 @@ class SystemWallClock is WallClock {
   }
 }
 
-let wallClock = SystemWallClock.instance
+let mut wallClock = SystemWallClock.instance
 
 data Timestamp private(_ unixNanoseconds: Int)
 
@@ -95,7 +95,7 @@ impl Timestamp {
   }
 
   <=(_ other: Timestamp) -> Bool {
-    const order = self.compare(other)
+    let order = self.compare(other)
     if order === Ordering::Less { true } else { order === Ordering::Equal }
   }
 
@@ -104,7 +104,7 @@ impl Timestamp {
   }
 
   >=(_ other: Timestamp) -> Bool {
-    const order = self.compare(other)
+    let order = self.compare(other)
     if order === Ordering::Greater { true } else { order === Ordering::Equal }
   }
 
@@ -118,51 +118,51 @@ impl Timestamp {
   hash -> Int { self.unixNanoseconds.hash }
 
   toString -> String {
-    const billion = 1_000_000_000
-    let seconds = self.unixNanoseconds ~/ billion
-    let nanos = self.unixNanoseconds % billion
+    let billion = 1_000_000_000
+    let mut seconds = self.unixNanoseconds ~/ billion
+    let mut nanos = self.unixNanoseconds % billion
     if nanos < 0 {
       seconds = seconds - 1
       nanos = nanos + billion
     }
-    const days = Timestamp.floorDiv(seconds, 86_400)
-    const daySeconds = seconds - (days * 86_400)
-    const civil = Timestamp.civilFromDays(days)
-    const hour = daySeconds ~/ 3_600
-    const minute = (daySeconds % 3_600) ~/ 60
-    const second = daySeconds % 60
-    const yearText = "\(civil.get(#year).unwrapOr(0))"
-    const monthNumber = civil.get(#month).unwrapOr(0)
-    const dayNumber = civil.get(#day).unwrapOr(0)
-    const monthText = if monthNumber < 10 { "0\(monthNumber)" } else { "\(monthNumber)" }
-    const dayText = if dayNumber < 10 { "0\(dayNumber)" } else { "\(dayNumber)" }
-    const hourText = if hour < 10 { "0\(hour)" } else { "\(hour)" }
-    const minuteText = if minute < 10 { "0\(minute)" } else { "\(minute)" }
-    const secondText = if second < 10 { "0\(second)" } else { "\(second)" }
-    const fraction = if nanos == 0 { "" } else { ".\(nanos)" }
+    let days = Timestamp.floorDiv(seconds, 86_400)
+    let daySeconds = seconds - (days * 86_400)
+    let civil = Timestamp.civilFromDays(days)
+    let hour = daySeconds ~/ 3_600
+    let minute = (daySeconds % 3_600) ~/ 60
+    let second = daySeconds % 60
+    let yearText = "\(civil.get(#year).unwrapOr(0))"
+    let monthNumber = civil.get(#month).unwrapOr(0)
+    let dayNumber = civil.get(#day).unwrapOr(0)
+    let monthText = if monthNumber < 10 { "0\(monthNumber)" } else { "\(monthNumber)" }
+    let dayText = if dayNumber < 10 { "0\(dayNumber)" } else { "\(dayNumber)" }
+    let hourText = if hour < 10 { "0\(hour)" } else { "\(hour)" }
+    let minuteText = if minute < 10 { "0\(minute)" } else { "\(minute)" }
+    let secondText = if second < 10 { "0\(second)" } else { "\(second)" }
+    let fraction = if nanos == 0 { "" } else { ".\(nanos)" }
     "\(yearText)-\(monthText)-\(dayText)T\(hourText):\(minuteText):\(secondText)\(fraction)Z"
   }
 
   @class
   internal floorDiv(_ value: Int, _ divisor: Int) -> Int {
-    const quotient = value ~/ divisor
-    const remainder = value % divisor
+    let quotient = value ~/ divisor
+    let remainder = value % divisor
     if remainder < 0 { quotient - 1 } else { quotient }
   }
 
   @class
   internal civilFromDays(_ days: Int) -> Record<**{ year: Int, month: Int, day: Int }> {
-    const adjustedDays = days + 719468
-    const era = Timestamp.floorDiv(adjustedDays, 146097)
-    const dayOfEra = adjustedDays - (era * 146097)
-    const yearOfEra = (dayOfEra - (dayOfEra ~/ 1460) + (dayOfEra ~/ 36524) - (dayOfEra ~/ 146096)) ~/ 365
-    const yearBase = yearOfEra + (era * 400)
-    const dayOfYear = dayOfEra - ((365 * yearOfEra) + (yearOfEra ~/ 4) - (yearOfEra ~/ 100))
-    const monthPrime = (5 * dayOfYear + 2) ~/ 153
-    const day = dayOfYear - ((153 * monthPrime + 2) ~/ 5) + 1
-    let month = monthPrime
+    let adjustedDays = days + 719468
+    let era = Timestamp.floorDiv(adjustedDays, 146097)
+    let dayOfEra = adjustedDays - (era * 146097)
+    let yearOfEra = (dayOfEra - (dayOfEra ~/ 1460) + (dayOfEra ~/ 36524) - (dayOfEra ~/ 146096)) ~/ 365
+    let yearBase = yearOfEra + (era * 400)
+    let dayOfYear = dayOfEra - ((365 * yearOfEra) + (yearOfEra ~/ 4) - (yearOfEra ~/ 100))
+    let monthPrime = (5 * dayOfYear + 2) ~/ 153
+    let day = dayOfYear - ((153 * monthPrime + 2) ~/ 5) + 1
+    let mut month = monthPrime
     if monthPrime < 10 { month = month + 3 } else { month = month - 9 }
-    let year = yearBase
+    let mut year = yearBase
     if month <= 2 { year = year + 1 }
     return { year: year, month: month, day: day }
   }

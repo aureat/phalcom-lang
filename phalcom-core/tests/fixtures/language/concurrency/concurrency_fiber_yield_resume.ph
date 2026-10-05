@@ -3,8 +3,8 @@
 // status: PASS
 // C-FIB-1: a Fiber yields successive counter values across resumes.
 
-const counter = Fiber.new || {
-  let n = 0
+let counter = Fiber.new || {
+  let mut n = 0
   while (true) {
     Fiber.yield(n)
     n = n + 1

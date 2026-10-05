@@ -22,8 +22,8 @@
 // throw path keeps effect/exit analysis observable without collapsing it into type facts.
 
 class User {
-  _name: String
-  _score: Int
+  mut _name: String
+  mut _score: Int
 
   @constructor
   new(_ name: String, _ score: Int) {
@@ -55,13 +55,13 @@ class Normalizer {
 class Pipeline {
   @class
   fetch(_ repo: UserRepository, _ fallback: Bool) {
-    let user = if fallback {
+    let mut user = if fallback {
       User.new("fallback", 0)
     } else {
       repo.load()
     }
 
-    let record = Normalizer.normalize(user)
+    let mut record = Normalizer.normalize(user)
     record
   }
 }
@@ -76,13 +76,13 @@ class Presenter {
 class Probe {
   @class
   run(_ repo: UserRepository, _ fallback: Bool) {
-    let record = Pipeline.fetch(repo, fallback)
+    let mut record = Pipeline.fetch(repo, fallback)
 
-    let bad: String = record
-    let presented = Presenter.present(record)
-    let (label, count) = presented
+    let mut bad: String = record
+    let mut presented = Presenter.present(record)
+    let mut (label, count) = presented
 
-    let independent = User.new("ok", 5).score()
+    let mut independent = User.new("ok", 5).score()
     (label, count, independent)
   }
 }

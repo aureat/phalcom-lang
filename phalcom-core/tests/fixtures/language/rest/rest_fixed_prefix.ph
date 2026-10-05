@@ -9,6 +9,6 @@ class Formatter {
     return args.size
   }
 }
-const f = Formatter.new()
+let f = Formatter.new()
 System.print(f.format("x", "a"))
 System.print(f.format("x", "a", "b", "c"))

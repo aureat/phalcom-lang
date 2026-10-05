@@ -6,9 +6,9 @@
 // fiber's running total, then re-published on the *following* yield — a
 // two-way channel, not a one-shot echo. Each `call(n)` both delivers `n` and
 // receives the running total computed *before* `n` was applied.
-const doubler = Fiber.new || {
-  let total = 0
-  let input = Fiber.yield(total)
+let doubler = Fiber.new || {
+  let mut total = 0
+  let mut input = Fiber.yield(total)
   while (true) {
     total = total + input
     input = Fiber.yield(total)

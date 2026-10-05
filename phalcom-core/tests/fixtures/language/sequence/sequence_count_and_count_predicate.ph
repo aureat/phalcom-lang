@@ -6,7 +6,7 @@
 System.print([].count)
 System.print([1].count)
 
-const a = []
+let a = []
 a.append(1)
 a.append(2)
 a.append(3)

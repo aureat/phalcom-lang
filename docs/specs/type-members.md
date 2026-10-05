@@ -218,7 +218,7 @@ Stuck     the operation is valid but an abstract subject/argument prevents reduc
 Invalid   a concrete domain, arity, lookup, or operation obligation fails
 ```
 
-For example, `P::View` is a valid symbolic projection when `P: PositionalTypePack`, even when `P` is abstract. Conversely, a concrete
+For example, `P::View` is a valid symbolic projection when `P: PositionalPack<Type>`, even when `P` is abstract. Conversely, a concrete
 out-of-range `At` index or an argument of the wrong kind is invalid. A stuck
 projection must not be silently changed to `Dynamic`, `Never`, or an unrelated
 proper type.

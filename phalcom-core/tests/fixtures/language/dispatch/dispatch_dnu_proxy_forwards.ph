@@ -12,6 +12,7 @@ class Target { greet { "hello" }
   }
 }
 class Proxy {
+  mut _target
   @constructor
   new(_ t) {
     _target = t
@@ -20,6 +21,6 @@ class Proxy {
     return _target.perform(msg.selector, ***msg.args)
   }
 }
-const p = Proxy.new(Target.new())
+let p = Proxy.new(Target.new())
 System.print(p.greet)
 System.print(p.add(2, 3))

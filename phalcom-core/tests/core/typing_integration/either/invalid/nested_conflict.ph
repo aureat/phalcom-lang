@@ -6,6 +6,6 @@ class Probe {
 
     @class
     run(_ outer: Either<String, Either<Bool, Int>>) {
-        let bad = Probe.flatten(outer)
+        let mut bad = Probe.flatten(outer)
     }
 }

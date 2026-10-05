@@ -22,14 +22,14 @@ They include:
 
 - [`bindings-and-fields.md`](bindings-and-fields.md) — runtime binding phase/mutability, uninitialized mutable storage, local initialization proof, and field initialization/mutability;
 - [`static-evaluation.md`](static-evaluation.md) — compile-time constants, executable static `type` definitions, static control, residualization, proof predicates, budgets, and materialization;
-- [`type-level-domains.md`](type-level-domains.md) — proper Types, static value domains, Pack-based Type collections, generic/static parameter domains, and canonical static terms;
+- [`type-level-domains.md`](type-level-domains.md) — proper Types, static value domains, kinded pack domains, Pack-based Type collections, generic/static parameter domains, and canonical static terms;
 - [`type-members.md`](type-members.md) — type-member declarations, ownership, identity, lookup, application, result domains, and projection normalization;
-- [`structural-products.md`](structural-products.md) — Pack/Product/OrderedProduct/UnorderedProduct semantics, ordered/unordered shapes, FieldKey, tails, lookup, and structural iteration;
+- [`structural-products.md`](structural-products.md) — Pack/Product/OrderedProduct/UnorderedProduct semantics, ordered/unordered shapes, FieldKey, tails, lookup, and structural iteration (companion: [`tuple-and-record-typing.md`](tuple-and-record-typing.md));
 - [`structural-sums.md`](structural-sums.md) — Sum/Variant/Variants reflection, variant families, specialization, and GADT reflection boundary;
 - [`tuple-and-record-typing.md`](tuple-and-record-typing.md) — Tuple/Record typing details that compose with the general structural-product model;
 - [`generic-constraints.md`](generic-constraints.md) — generic `where` constraints, conformance bounds, associated specialization, generic projection, equivalence, and subtyping constraints;
 - [`associated-types.md`](associated-types.md) — trait-owned associated declarations, conformance bindings, and the trait specialization of general type members;
-- [`objects/`](objects/) — values, runtime algebraic data, traits, and implementation declarations;
+- [`objects/`](objects/) — values, classes and instance fields, runtime algebraic data, traits, and implementation declarations;
 - [`callables/`](callables/) — selectors, arguments, methods, callable values, closures, references, families, dispatch, execution context, binding, and callable reflection.
 
 A conforming implementation may choose different internal representations or algorithms provided that the language semantics remain unchanged.
@@ -92,13 +92,14 @@ An accepted decision or implementation checkpoint that changes current language 
 | Static evaluation, constants, static `type` computation, residualization, proof predicates | [`static-evaluation.md`](static-evaluation.md) |
 | Proper Types, static value domains, Pack-based Type collections, compile-time parameter domains | [`type-level-domains.md`](type-level-domains.md) |
 | Type-member declarations, ownership, identity, lookup, application, and projection normalization | [`type-members.md`](type-members.md) |
-| Pack/Product structural typing, ordered/unordered shapes, FieldKey, tails, lookup, iteration | [`structural-products.md`](structural-products.md) |
+| Pack/Product structural typing, ordered/unordered shapes, FieldKey, tails, lookup, iteration | [`structural-products.md`](structural-products.md) (companion: [`tuple-and-record-typing.md`](tuple-and-record-typing.md)) |
 | Sum/Variant/Variants structural reflection | [`structural-sums.md`](structural-sums.md) |
 | Tuple/Record family typing details | [`tuple-and-record-typing.md`](tuple-and-record-typing.md) |
 | Generic `where` constraints and generic evidence | [`generic-constraints.md`](generic-constraints.md) |
 | Trait-owned associated declarations, bindings, and conformance evidence | [`associated-types.md`](associated-types.md) |
 | Source declaration modifiers, access domains, implementation origin, and legacy namespace retirement | [`source-declarations.md`](source-declarations.md) |
 | Foundational value/object semantics and exactness | [`objects/values.md`](objects/values.md) |
+| Class instance fields, defaults, and constructor initialization | [`objects/classes.md`](objects/classes.md) |
 | Nominal transparent data objects | [`objects/data-objects.md`](objects/data-objects.md) |
 | Runtime closed sums, cases, exact-case semantics, and case construction | [`objects/enums.md`](objects/enums.md) |
 | Traits, requirements, witnesses, defaults, conformance, coherence | [`objects/traits.md`](objects/traits.md) |

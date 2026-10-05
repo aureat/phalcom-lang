@@ -4,5 +4,5 @@
 // `const` requires an initializer at declaration — there is no uninitialized
 // immutable binding.
 
-const x
+let x
 System.print(x)

@@ -1,5 +1,5 @@
 class Counter {
-  @class _count = 1
+  @class mut _count = 1
   @class bump() { _count = _count + 1 }
   @class count { _count }
   @class count=(_ value) { _count = value }

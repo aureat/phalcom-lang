@@ -3,8 +3,8 @@
 // status: PASS
 // all(where:) short-circuits when predicate fails, proven by counter
 
-let counter = 0
-let pred = |x| {
+let mut counter = 0
+let mut pred = |x| {
   counter = counter + 1
   x < 3
 }

@@ -10,6 +10,7 @@ pub mod access;
 pub mod advisory;
 pub mod algebraic_semantics;
 pub mod associated;
+pub mod canonical_baseline;
 pub mod checker;
 pub mod contracts;
 pub mod control_summary;
@@ -27,14 +28,19 @@ pub mod effects;
 pub mod enum_requirements;
 pub mod enum_semantics;
 pub mod explain;
+pub mod field_key;
 pub mod export;
 pub mod generic_evidence;
 pub mod hierarchy_product;
 pub mod identity;
 pub mod impls;
+#[cfg(any(test, feature = "test-timings"))]
+pub mod instrumentation;
 pub mod invalidation;
 pub mod match_semantics;
+pub mod materialization;
 pub mod metadata;
+pub mod module_bindings;
 pub mod module_product;
 pub mod prelude;
 pub mod presentation;
@@ -43,6 +49,7 @@ pub mod reflection;
 pub mod resolver;
 pub mod scope;
 pub mod semantic_shard;
+pub mod scalar;
 pub mod session;
 pub mod signature;
 pub mod snapshot;
@@ -50,6 +57,12 @@ pub mod source;
 pub mod source_index;
 pub mod stable_identity;
 pub mod static_case;
+pub mod static_constant;
+pub mod static_definition;
+pub mod static_domain;
+pub mod static_eval;
+pub mod static_intrinsic;
+pub mod static_value;
 pub mod surface;
 pub mod termination;
 pub mod tooling;
@@ -68,6 +81,7 @@ pub use advisory::{
     MAX_SHAPE_UNION, ValueShape, analyze_expr, analyze_statements,
 };
 pub use associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedFamilyTable, AssociatedMemberId, AssociatedSurface};
+pub use canonical_baseline::*;
 pub use checker::{
     AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CallableReferenceResolution, CallableReferenceResolutionIndex,
     CallableReferenceResolutionKind, CheckingContext, FamilyApplicationCandidate, FamilyApplicationResolution, FamilyApplicationResolutionIndex,
@@ -115,8 +129,11 @@ pub use identity::{
     InvocationTargetId, ModuleId, ProperTypeId, SemanticRevision, SemanticTargetId, SnapshotId, SnapshotTypeRef, SourceOwner, SourceSiteId, SourceSiteLocalId,
     SourceSiteRef, TypeStoreId, VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId, WorkspaceId,
 };
+#[cfg(any(test, feature = "test-timings"))]
+pub use instrumentation::*;
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
 pub use match_semantics::*;
+pub use module_bindings::{ModuleBindingFact, ModuleBindingPhase, ModuleStaticBindingIndex};
 pub use phalcom_modules::WorkspaceSourceBatchMutation;
 pub use prelude::PreludeTypeMap;
 pub use presentation::{
@@ -132,12 +149,22 @@ pub use scope::ScopeTable;
 pub use semantic_shard::ModuleSemanticStructureShard;
 pub use session::{SemanticPublicationEffects, SemanticUpdateStats, SemanticWorkspacePublication, SemanticWorkspaceSession, SemanticWorkspaceUpdate};
 pub use signature::{
-    CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, FieldSemanticSignature, FieldSignatureTable, ReturnContractValidation,
+    CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, ConstructorInitializationProduct, ConstructorInitializationTable,
+    ConstructorOrigin, ConstructorParameterField, FieldSemanticSignature, FieldSignatureTable, ReturnContractValidation,
 };
 pub use snapshot::{ModuleQueryProducts, SemanticSnapshot};
 pub use source_index::{
     EditorSymbolKind, ModuleReferenceContribution, ReferenceIndex, SourceIndexUpdateStats, TargetReferenceSet, WorkspaceSymbolEntry, WorkspaceSymbolId,
     WorkspaceSymbolIndex,
+};
+pub use static_constant::{CheckedStaticConstantInitializer, StaticConstantId, StaticConstantProduct, StaticConstantTable};
+pub use static_definition::{
+    CheckedStaticBody, StaticBodyId, StaticDefinition, StaticDefinitionBodyRepr, StaticDefinitionProduct, StaticDefinitionSignature, StaticDefinitionTable,
+    StaticParameter, resolve_static_definition,
+};
+pub use static_domain::{StaticDomainResolution, StaticValueDomain, is_proper_type, resolve_static_domain, validate_proper_type};
+pub use static_intrinsic::{
+    StaticIntrinsicOperation, StaticIntrinsicRegistry, StaticIntrinsicRegistryError, StaticOperationResolution, StaticOperationResolutionIndex,
 };
 pub use termination::{
     RankingMeasure, TerminationBlockedReason, TerminationCounterevidence, TerminationEvidence, TerminationKnowledge, TerminationRequirement,

@@ -6,7 +6,7 @@
 // mutable `let` binding (ADR-0014); a `const` here would be an AssignToImmutable
 // compile error.
 
-let i = 0
+let mut i = 0
 while (i < 3) {
   System.print(i)
   i = i + 1

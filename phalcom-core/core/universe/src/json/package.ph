@@ -1,11 +1,11 @@
 @!documentation("JSON serialization and deserialization.")
 
-let parse = |text| {
+let mut parse = |text| {
     // Standard JSON parser entry point
     text
 }
 
-let stringify = |val| {
+let mut stringify = |val| {
     // Standard JSON stringifier entry point
     val
 }

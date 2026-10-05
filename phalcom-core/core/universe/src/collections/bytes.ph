@@ -30,9 +30,9 @@ native class Bytes is Collection {
   at(_ i) { self.rawAt(i) }
 
   get(_ index) {
-    let raw = self.rawAt(index)
-    let len = self.size
-    let i = index
+    let mut raw = self.rawAt(index)
+    let mut len = self.size
+    let mut i = index
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
       return Some(raw)
@@ -44,8 +44,8 @@ native class Bytes is Collection {
     if index is Range {
       return index.rawSliceBounds(self.size).match(
         ok: |bounds| {
-          let start = bounds[0]
-          let end = bounds[1]
+          let mut start = bounds[0]
+          let mut end = bounds[1]
           if start > end {
             end = start
           }
@@ -54,9 +54,9 @@ native class Bytes is Collection {
         err: |error| { error.raise() }
       )
     }
-    let raw = self.rawAt(index)
-    let len = self.size
-    let i = index
+    let mut raw = self.rawAt(index)
+    let mut len = self.size
+    let mut i = index
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
       return raw
@@ -65,9 +65,9 @@ native class Bytes is Collection {
   }
 
   [_ index, default] {
-    let raw = self.rawAt(index)
-    let len = self.size
-    let i = index
+    let mut raw = self.rawAt(index)
+    let mut len = self.size
+    let mut i = index
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
       return raw
@@ -76,9 +76,9 @@ native class Bytes is Collection {
   }
 
   get(_ index, orElse) {
-    let raw = self.rawAt(index)
-    let len = self.size
-    let i = index
+    let mut raw = self.rawAt(index)
+    let mut len = self.size
+    let mut i = index
     if i < 0 { i = len + i }
     if i >= 0 and i < len {
       return raw
@@ -94,8 +94,8 @@ native class Bytes is Collection {
     if v is not Number or v < 0 or v > 255 or v % 1 != 0 {
       throw ArgumentError.new("Bytes#set: value must be an integer in 0..255")
     }
-    let len = self.size
-    let norm = i
+    let mut len = self.size
+    let mut norm = i
     if norm < 0 { norm = len + norm }
     if norm < 0 or norm >= len {
       throw IndexError.new("Bytes index out of range")
@@ -156,7 +156,7 @@ native class Bytes is Collection {
     if other is not Bytes {
       throw ArgumentError.new("Bytes#concat: argument must be a Bytes")
     }
-    const out = Bytes.new(self.size + other.size)
+    let out = Bytes.new(self.size + other.size)
     self.rawCopyInto(out, 0)
     other.rawCopyInto(out, self.size)
     return out
@@ -168,8 +168,8 @@ native class Bytes is Collection {
   /// Compares byte buffers by length and corresponding octets.
   ==(_ other) {
     if other is Bytes {
-      let same = self.size == other.size
-      let i = 0
+      let mut same = self.size == other.size
+      let mut i = 0
       while same and i < self.size {
         same = self.at(i) == other.at(i)
         i = i + 1
@@ -189,7 +189,7 @@ native class Bytes is Collection {
 
   /// Copies the bytes into a list of integers.
   toList {
-    const out = []
+    let out = []
     for b in self {
       out.append(b)
     }
@@ -213,8 +213,8 @@ native class Bytes is Collection {
     if list is not List {
       throw ArgumentError.new("Bytes.fromList: argument must be a List")
     }
-    const out = Bytes.new(list.size)
-    let i = 0
+    let out = Bytes.new(list.size)
+    let mut i = 0
     while i < list.size {
       out.set(i, list.at(i))
       i = i + 1
@@ -224,9 +224,9 @@ native class Bytes is Collection {
 }
 
 class BytesIterator {
-  _source: Bytes
-  _index: Int
-  _done: Bool
+  mut _source: Bytes
+  mut _index: Int
+  mut _done: Bool
 
   @constructor
   new(_ source: Bytes) {
@@ -241,7 +241,7 @@ class BytesIterator {
       _done = true
       return None
     }
-    let value = _source.at(_index)
+    let mut value = _source.at(_index)
     _index = _index + 1
     Some(value)
   }
@@ -260,6 +260,7 @@ impl CanonicalIterable for Bytes {
 }
 
 class OpenMode {
+  mut _name
   @constructor
   private named(_ n) { _name = n }
   @class
@@ -287,6 +288,8 @@ class OpenMode {
 }
 
 class Path {
+  mut _bytes
+  mut _hash
   @constructor
   of(_ s) {
     if s is not String {
@@ -307,8 +310,8 @@ class Path {
 
   @class
   contentHash(_ bytes) {
-    let acc = 1
-    let i = 0
+    let mut acc = 1
+    let mut i = 0
     while i < bytes.size {
       acc = (acc * 31 + bytes.at(i)) % 999999937
       i = i + 1
@@ -343,23 +346,23 @@ class Path {
     if other.isAbsolute {
       return other
     }
-    let recv = _bytes
-    let recvLen = recv.size
+    let mut recv = _bytes
+    let mut recvLen = recv.size
     while recvLen > 0 and recv.at(recvLen - 1) == 47 {
       recvLen = recvLen - 1
     }
-    const trimmedRecv = recv.slice(0, recvLen)
-    const sep = Bytes.fromString("/")
-    const combined = trimmedRecv.concat(sep).concat(other.bytes)
+    let trimmedRecv = recv.slice(0, recvLen)
+    let sep = Bytes.fromString("/")
+    let combined = trimmedRecv.concat(sep).concat(other.bytes)
     return Path.ofBytes(combined)
   }
 
   parent {
-    let len = _bytes.size
+    let mut len = _bytes.size
     while len > 0 and _bytes.at(len - 1) == 47 {
       len = len - 1
     }
-    let idx = len - 1
+    let mut idx = len - 1
     while idx >= 0 and _bytes.at(idx) != 47 {
       idx = idx - 1
     }
@@ -369,7 +372,7 @@ class Path {
     if idx == 0 {
       return Path.of("/")
     }
-    let pLen = idx
+    let mut pLen = idx
     while pLen > 0 and _bytes.at(pLen - 1) == 47 {
       pLen = pLen - 1
     }
@@ -380,18 +383,18 @@ class Path {
   }
 
   fileName {
-    let len = _bytes.size
+    let mut len = _bytes.size
     if len > 0 and _bytes.at(len - 1) == 47 {
       return None
     }
-    let idx = len - 1
+    let mut idx = len - 1
     while idx >= 0 and _bytes.at(idx) != 47 {
       idx = idx - 1
     }
     if idx < 0 and len == 0 {
       return None
     }
-    const nameBytes = _bytes.slice(idx + 1, len)
+    let nameBytes = _bytes.slice(idx + 1, len)
     if nameBytes.size == 0 {
       return None
     }
@@ -399,32 +402,32 @@ class Path {
   }
 
   extension {
-    const namePath = self.fileName
+    let namePath = self.fileName
     if namePath == None {
       return None
     }
-    const nb = namePath.bytes
-    let idx = nb.size - 1
+    let nb = namePath.bytes
+    let mut idx = nb.size - 1
     while idx >= 0 and nb.at(idx) != 46 {
       idx = idx - 1
     }
     if idx <= 0 or idx == nb.size - 1 {
       return None
     }
-    const extBytes = nb.slice(idx + 1, nb.size)
+    let extBytes = nb.slice(idx + 1, nb.size)
     return extBytes.utf8
   }
 
   components {
-    let res = List<Dynamic>.new()
-    let i = 0
-    let len = _bytes.size
+    let mut res = List<Dynamic>.new()
+    let mut i = 0
+    let mut len = _bytes.size
     while i < len {
       while i < len and _bytes.at(i) == 47 {
         i = i + 1
       }
       if i < len {
-        let start = i
+        let mut start = i
         while i < len and _bytes.at(i) != 47 {
           i = i + 1
         }
@@ -458,6 +461,8 @@ class StreamProtocolError is Error {}
 class WriteZeroError is Error {}
 
 class BytesReader is Resource {
+  mut _data
+  mut _pos
   @constructor
   new(_ source) {
     if source is not Bytes {
@@ -477,8 +482,8 @@ class BytesReader is Resource {
     if self.isClosed {
       throw UseAfterCloseError.new("cannot read from closed BytesReader")
     }
-    let remaining = _data.size - _pos
-    let n = dst.size
+    let mut remaining = _data.size - _pos
+    let mut n = dst.size
     if remaining < n {
       n = remaining
     }
@@ -491,6 +496,7 @@ class BytesReader is Resource {
 }
 
 class BytesWriter is Resource {
+  mut _chunks
   @constructor
   new() {
     self.attach("BytesWriter")
@@ -515,20 +521,20 @@ class BytesWriter is Resource {
   }
 
   toBytes {
-    let total = 0
-    let it = _chunks.iterator
-    let step = it.next
+    let mut total = 0
+    let mut it = _chunks.iterator
+    let mut step = it.next
     while step.isSome {
-      let c = step.match(some: |value| { value }, none: || { None })
+      let mut c = step.match(some: |value| { value }, none: || { None })
       total = total + c.size
       step = it.next
     }
-    let res = Bytes.new(total)
-    let offset = 0
-    let copyIt = _chunks.iterator
-    let copyStep = copyIt.next
+    let mut res = Bytes.new(total)
+    let mut offset = 0
+    let mut copyIt = _chunks.iterator
+    let mut copyStep = copyIt.next
     while copyStep.isSome {
-      let c = copyStep.match(some: |value| { value }, none: || { None })
+      let mut c = copyStep.match(some: |value| { value }, none: || { None })
       c.copyInto(res, offset)
       offset = offset + c.size
       copyStep = copyIt.next
@@ -538,6 +544,10 @@ class BytesWriter is Resource {
 }
 
 class BufferedWriter is Resource {
+  mut _inner
+  mut _buf
+  mut _len
+  mut _busy
   @constructor
   new(_ inner) {
     self.attach("BufferedWriter")
@@ -550,7 +560,7 @@ class BufferedWriter is Resource {
   pending { _len }
 
   restorePending(_ chunk, _ offset) {
-    const remaining = chunk.size - offset
+    let remaining = chunk.size - offset
     if remaining == 0 {
       _len = 0
       return ()
@@ -561,13 +571,13 @@ class BufferedWriter is Resource {
   }
 
   drainFrom(_ chunk, _ offset) {
-    const remaining = chunk.size - offset
+    let remaining = chunk.size - offset
     if remaining == 0 {
       _len = 0
       return Future.value(None)
     }
 
-    let submitted
+    let mut submitted
     try {
       submitted = _inner.write(chunk.slice(offset, chunk.size))
     } catch e {
@@ -595,12 +605,12 @@ class BufferedWriter is Resource {
     if _len == 0 {
       return Future.value(None)
     }
-    const chunk = _buf.slice(0, _len)
+    let chunk = _buf.slice(0, _len)
     self.drainFrom(chunk, 0)
   }
 
   closeClean {
-    const result = _inner.close
+    let result = _inner.close
     super.close()
     result
   }
@@ -621,11 +631,11 @@ class BufferedWriter is Resource {
       return Future.value(0)
     }
 
-    const owned = src.slice(0, src.size)
+    let owned = src.slice(0, src.size)
 
     if owned.size >= _buf.size {
       _busy = true
-      let operation
+      let mut operation
       try {
         operation = self.drainBuffer.then |_| {
           _inner.write(owned)
@@ -650,7 +660,7 @@ class BufferedWriter is Resource {
 
     if _len + owned.size > _buf.size {
       _busy = true
-      let operation
+      let mut operation
       try {
         operation = self.drainBuffer.then |_| {
           owned.copyInto(_buf, 0)
@@ -685,7 +695,7 @@ class BufferedWriter is Resource {
       throw ConcurrentOperationError.new("BufferedWriter operation is already in progress")
     }
     _busy = true
-    let operation
+    let mut operation
     try {
       operation = self.drainBuffer.then |_| {
         _inner.flush
@@ -725,7 +735,7 @@ class BufferedWriter is Resource {
       throw ConcurrentOperationError.new("BufferedWriter operation is already in progress")
     }
     _busy = true
-    let operation
+    let mut operation
     try {
       operation = self.drainBuffer.then |_| {
         _inner.flush
@@ -747,6 +757,10 @@ class BufferedWriter is Resource {
 }
 
 class BufferedReader is Resource {
+  mut _inner
+  mut _buf
+  mut _pos
+  mut _len
   @constructor
   new(_ inner) {
     self.attach("BufferedReader")
@@ -767,8 +781,8 @@ class BufferedReader is Resource {
     }
 
     if _pos < _len {
-      let avail = _len - _pos
-      let n = dst.size
+      let mut avail = _len - _pos
+      let mut n = dst.size
       if avail < n {
         n = avail
       }
@@ -783,8 +797,8 @@ class BufferedReader is Resource {
       }
       _pos = 0
       _len = count
-      let avail = _len
-      let n = dst.size
+      let mut avail = _len
+      let mut n = dst.size
       if avail < n {
         n = avail
       }
@@ -798,7 +812,7 @@ class BufferedReader is Resource {
     if self.isClosed {
       return Result::Ok(None)
     }
-    let result = _inner.close
+    let mut result = _inner.close
     super.close()
     return result
   }

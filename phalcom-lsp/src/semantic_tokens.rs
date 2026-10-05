@@ -526,6 +526,7 @@ fn encode(text: &str, line_index: &LineIndex, raw: &[RawToken]) -> Vec<SemanticT
 pub fn tokens_for_request(request: &RequestContext) -> Vec<SemanticToken> {
     let mut raw = Vec::new();
     collect_tokens(&request.document.text, 0, &mut raw);
+    apply_contextual_mut_overrides(&request.document.text, &mut raw);
     apply_symbol_operator_overrides(&request.document.text, &mut raw);
     if matches!(request.source_match, SourceMatch::Exact)
         && let (Some(compiler), Some(module)) = (request.compiler.as_deref(), request.compiler_module())
@@ -540,6 +541,15 @@ pub fn tokens_for_request(request: &RequestContext) -> Vec<SemanticToken> {
         apply_decl_name_overrides_program(&request.document.parse.program, &mut raw);
     }
     encode(&request.document.text, &request.document.line_index, &raw)
+}
+
+fn apply_contextual_mut_overrides(text: &str, raw: &mut [RawToken]) {
+    let ranges = crate::contextual::contextual_mut_ranges(text);
+    for token in raw {
+        if ranges.contains(&(token.start, token.end)) {
+            token.kind = SemanticTokenKind::Keyword;
+        }
+    }
 }
 
 fn apply_compiler_occurrence_overrides(source: &phalcom_semantic::source_index::ModuleSourceIndex, raw: &mut [RawToken]) {
@@ -635,7 +645,7 @@ fn collect_decl_names(statements: &[Statement], out: &mut Vec<DeclNameOverride>)
                     collect_member_decl_name(member, out);
                 }
             }
-            Statement::TypeAlias(alias) => {
+            Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) => {
                 out.push(DeclNameOverride {
                     range: alias.name_range,
                     kind: SemanticTokenKind::Class,

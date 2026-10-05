@@ -5,5 +5,5 @@
 // to the end), a fractional Number is not an index shape. `at(_)` raises a
 // Type error rather than rounding or truncating it.
 
-const t = (1, 2)
+let t = (1, 2)
 t.at(1.5)

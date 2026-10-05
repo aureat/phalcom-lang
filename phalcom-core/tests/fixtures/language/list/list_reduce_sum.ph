@@ -3,7 +3,7 @@
 // status: PASS
 // `fold(initial:using:)` folds left-to-right from its explicit initial value.
 
-const l = []
+let l = []
 l.append(1)
 l.append(2)
 l.append(3)

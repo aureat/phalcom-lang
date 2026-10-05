@@ -6,7 +6,7 @@
 
 @data
 class Money {
-  _cents
+  mut _cents
 
   ==(_ other) {
     return _cents == other.cents

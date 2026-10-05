@@ -3,6 +3,8 @@
 // status: PASS
 
 class Person {
+  mut _name
+  mut _age
   @constructor
   new(_ name) {
     _name = name
@@ -15,8 +17,8 @@ class Person {
   name { _name }
   age { _age }
 }
-const p1 = Person.new("Ada")
-const p2 = Person.new("Grace", 36)
+let p1 = Person.new("Ada")
+let p2 = Person.new("Grace", 36)
 System.print(p1.name)
 System.print(p1.age)
 System.print(p2.name)

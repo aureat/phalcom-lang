@@ -2,8 +2,8 @@ from .point import Point
 from units.distance import Distance
 
 class Route {
-  _origin: Point
-  _destination: Point
+  mut _origin: Point
+  mut _destination: Point
 
   @constructor
   new(_ origin: Point, destination: Point) {
@@ -15,8 +15,8 @@ class Route {
   destination -> Point { _destination }
 
   distance -> Distance {
-    const dx = _destination.x - _origin.x
-    const dy = _destination.y - _origin.y
+    let dx = _destination.x - _origin.x
+    let dy = _destination.y - _origin.y
     Distance.new(dx + dy)
   }
 }

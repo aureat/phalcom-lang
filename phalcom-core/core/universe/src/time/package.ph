@@ -44,7 +44,7 @@ from universe.time.calendar.partial import (
   MonthDay
 )
 
-let clock = SystemClock.instance
+let mut clock = SystemClock.instance
 
 export (
   Clock,

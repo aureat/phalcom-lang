@@ -9,7 +9,9 @@ use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::relation::TypeHierarchy;
 use crate::types::rigid::{LocalConstraint, LocalType};
 use crate::types::row::RecordRowTail;
-use crate::types::store::{CallableParameterType, CallableType, StaticArgument, TupleTypeElement, TypeData, TypeStore};
+use crate::types::store::{
+    AnonymousTupleRemainder, CallableParameterType, CallableType, PackTypeElement, StaticArgument, TupleTypeElement, TypeData, TypeStore,
+};
 use crate::types::substitution::TypeSubstitution;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -615,6 +617,30 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                     .collect::<Vec<_>>();
                 store.labeled_type_pack(elements.into_boxed_slice()).unwrap_or(ty)
             }
+            TypeData::Pack(pack) => {
+                let elements = pack
+                    .elements
+                    .iter()
+                    .map(|element| PackTypeElement {
+                        label: element.label.clone(),
+                        ty: normalize(store, substitution, element.ty, states),
+                    })
+                    .collect::<Vec<_>>();
+                let pos_rem = match pack.positional_remainder {
+                    AnonymousTupleRemainder::Typed(rem_ty) => AnonymousTupleRemainder::Typed(normalize(store, substitution, rem_ty, states)),
+                    other => other,
+                };
+                let lab_rem = match pack.labeled_remainder {
+                    AnonymousTupleRemainder::Typed(rem_ty) => AnonymousTupleRemainder::Typed(normalize(store, substitution, rem_ty, states)),
+                    other => other,
+                };
+                store.open_pack(elements.into_boxed_slice(), pos_rem, lab_rem).unwrap_or(ty)
+            }
+            TypeData::PackFromPacks { positionals, labeled } => {
+                let positionals = normalize(store, substitution, positionals, states);
+                let labeled = normalize(store, substitution, labeled, states);
+                store.pack_from_packs(positionals, labeled).unwrap_or(ty)
+            }
             TypeData::TupleFromPacks { positionals, labeled } => {
                 let positionals = normalize(store, substitution, positionals, states);
                 let labeled = normalize(store, substitution, labeled, states);
@@ -723,6 +749,15 @@ fn collect_type_parameters(store: &TypeStore, ty: TypeId, output: &mut Vec<TypeP
             for element in tuple.elements.iter() {
                 collect_type_parameters(store, element.ty, output);
             }
+        }
+        TypeData::Pack(pack) => {
+            for element in pack.elements.iter() {
+                collect_type_parameters(store, element.ty, output);
+            }
+        }
+        TypeData::PackFromPacks { positionals, labeled } => {
+            collect_type_parameters(store, *positionals, output);
+            collect_type_parameters(store, *labeled, output);
         }
         TypeData::Callable(callable) => {
             for parameter in callable.parameters.iter() {

@@ -3,9 +3,9 @@ from .status import ShipmentStatus
 from geo.route import Route
 
 class Shipment {
-  _parcel: Parcel
-  _route: Route
-  _status
+  mut _parcel: Parcel
+  mut _route: Route
+  mut _status
 
   @constructor
   new(_ parcel: Parcel, route: Route, status: ShipmentStatus) {

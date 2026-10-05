@@ -239,6 +239,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 typed.denotation = fact.denotation;
                 if let Some(info) = ctx.lookup_binding_info(value) {
                     let binding_id = info.id;
+                    typed.binding_read = Some(binding_id);
                     typed.local_type = ctx.local_binding_type(binding_id).cloned();
                     if let Some(local_type) = typed.local_type.clone() {
                         ctx.record_local_capture(binding_id, local_type);
@@ -248,6 +249,32 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                         if let Some(explanation) = state.explanation {
                             typed.explanation_parents.push(explanation);
                         }
+                        let is_cross_boundary = ctx.is_enclosing_closure_binding(binding_id);
+                        let safety = if is_cross_boundary {
+                            if state.mutable {
+                                crate::checker::flow::BindingReadSafety::RuntimeCheckRequired
+                            } else {
+                                crate::checker::flow::BindingReadSafety::ProvenInitialized
+                            }
+                        } else {
+                            match state.initialization {
+                                crate::checker::flow::InitializationState::DefinitelyInitialized => crate::checker::flow::BindingReadSafety::ProvenInitialized,
+                                crate::checker::flow::InitializationState::Uninitialized => {
+                                    let diag = crate::diagnostic::SemanticDiagnostic::error_in(
+                                        ctx.current_module.clone(),
+                                        DiagnosticCode::UninitializedBindingRead,
+                                        format!("binding `{value}` is read before it is initialized"),
+                                        *range,
+                                    );
+                                    if let Some(cause) = ctx.emit_diagnostic(diag) {
+                                        typed.invalidate(cause);
+                                    }
+                                    crate::checker::flow::BindingReadSafety::DefinitelyUninitialized
+                                }
+                                crate::checker::flow::InitializationState::MaybeInitialized => crate::checker::flow::BindingReadSafety::RuntimeCheckRequired,
+                            }
+                        };
+                        typed.binding_read_safety = Some(safety);
                     }
                 }
                 typed
@@ -345,7 +372,10 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 Expr::Field { value: field_name, .. } => ctx
                     .current_class
                     .clone()
-                    .and_then(|class_decl| ctx.get_field(&class_decl, ctx.current_side, field_name))
+                    .and_then(|class_decl| {
+                        ctx.resolve_field_contract_in_hierarchy(&class_decl, ctx.current_side, field_name)
+                            .map(|(_, field)| field)
+                    })
                     .and_then(|field| field.ty().map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::AssignmentContract)))
                     .unwrap_or_default(),
                 _ => ExpectedType::None,
@@ -363,10 +393,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                                 .emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
                                     ctx.current_module.clone(),
                                     DiagnosticCode::AssignmentToImmutable,
-                                    format!(
-                                        "Cannot reassign immutable `const` binding `{}`; declare it with `let` to allow mutation.",
-                                        var_name
-                                    ),
+                                    format!("cannot reassign immutable binding `{}`; declare it with `let mut` to allow mutation", var_name),
                                     assign.range,
                                 ))
                                 .expect("error diagnostic has cause");
@@ -409,6 +436,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                         }
                     }
                 }
+                let target_binding = ctx.lookup_binding_info(var_name).map(|binding| binding.id);
                 let write = ctx.write_existing(var_name, val_typed.fact(), consistency, causal_invalidity);
                 if matches!(write, BindingWriteResult::Immutable) {
                     // Diagnostic and state preservation are handled above; keep
@@ -417,11 +445,50 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 }
                 let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);
                 result.causal_invalidity = causal_invalidity;
+                result.binding_write = target_binding;
                 return result;
             }
             if let Expr::Field { value: field_name, .. } = &*assign.name {
                 if let Some(class_decl) = ctx.current_class.clone() {
-                    if let Some((field_id, field_k)) = ctx.resolve_field_contract(&class_decl, ctx.current_side, field_name) {
+                    if let Some((field_id, field_k)) = ctx.resolve_field_contract_in_hierarchy(&class_decl, ctx.current_side, field_name) {
+                        let mutable = ctx
+                            .resolve_field_signature(&field_id.owner, field_id.side, &field_id.name)
+                            .is_some_and(|signature| signature.mutable);
+                        if !mutable {
+                            let canonical_constructor =
+                                ctx.current_constructor_owner.as_ref() == Some(&field_id.owner) && field_id.side == crate::identity::DispatchSide::Instance;
+                            if !canonical_constructor {
+                                let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);
+                                if let Some(cause) = ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                                    ctx.current_module.clone(),
+                                    DiagnosticCode::ImmutableFieldWriteOutsideConstruction,
+                                    format!("immutable field `{field_name}` may only be initialized in its canonical constructor"),
+                                    assign.range,
+                                )) {
+                                    result.invalidate(cause);
+                                }
+                                result.causal_invalidity = val_typed.causal_invalidity;
+                                return result;
+                            }
+                            let initialization = ctx
+                                .flow
+                                .get_field(&field_id)
+                                .map(|state| state.initialization)
+                                .unwrap_or(crate::checker::flow::FieldInitialization::Uninitialized);
+                            if initialization != crate::checker::flow::FieldInitialization::Uninitialized {
+                                let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);
+                                if let Some(cause) = ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                                    ctx.current_module.clone(),
+                                    DiagnosticCode::ImmutableFieldAlreadyInitialized,
+                                    format!("immutable field `{field_name}` is already initialized"),
+                                    assign.range,
+                                )) {
+                                    result.invalidate(cause);
+                                }
+                                result.causal_invalidity = val_typed.causal_invalidity;
+                                return result;
+                            }
+                        }
                         if !ctx.check_local_type_escape(val_typed.local_type.as_ref(), field_k.ty(), &[], assign.range) {
                             val_typed.knowledge = TypeKnowledge::Unknown(UnknownReason::ExistentialEscape);
                             val_typed.local_type = None;
@@ -441,6 +508,18 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                         ctx.write_current_field(field_id, field_k, reconciliation.current, reconciliation.validity, write_causal);
                         return result;
                     }
+
+                    let mut result = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range);
+                    if let Some(cause) = ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::FieldNotDeclared,
+                        format!("field '{field_name}' is not declared on '{}'", class_decl.name),
+                        assign.range,
+                    )) {
+                        result.invalidate(cause);
+                    }
+                    result.causal_invalidity = val_typed.causal_invalidity;
+                    return result;
                 }
             }
             TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, assign.range)
@@ -570,8 +649,15 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             ctx.throw_exit_flows = outer_throw_exits;
 
             // Constructing a closure does not execute its body. Keep facts
-            // produced while checking the captured body inside that body.
-            ctx.flow = outer_flow;
+            // produced while checking the captured body inside that body,
+            // but join initialization states of outer bindings written inside
+            // the closure (cross-boundary initialization: P1-INV §23.7).
+            let block_flow = std::mem::replace(&mut ctx.flow, outer_flow);
+            for (id, block_binding) in &block_flow.bindings {
+                if let Some(outer_binding) = ctx.flow.get_binding_mut(*id) {
+                    outer_binding.initialization = outer_binding.initialization.join(block_binding.initialization);
+                }
+            }
 
             // An inference-local callable is still inside its consuming
             // generic application. Preserve captured branch rigids until a
@@ -838,6 +924,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         // value in the semantic universe surface.
         Expr::Ellipsis { .. } => TypedExpression::unknown(UnknownReason::UncheckedExpression),
         Expr::TypeForm(annotation) => {
+            if let Some(static_application) = analyze_checked_static_application(ctx, annotation) {
+                return static_application;
+            }
             let resolver = ctx.resolver.inner();
             let site = if let Some(owner) = ctx.current_class.clone() {
                 crate::types::annotation::TypeFormationSite::member(ctx.current_module.clone(), owner, ctx.current_side)
@@ -1068,6 +1157,65 @@ fn compute_shape_aware_data_argument_mapping(
     adapter.argument_to_components(arguments, &target.signature.parameters, store, &shape)
 }
 
+fn checked_variant_construction_arguments(
+    ctx: &CheckingContext<'_>,
+    variant: &crate::enum_semantics::VariantInfo,
+    arguments: &[super::call::ApplicationArgument<'_>],
+) -> Option<Vec<crate::static_definition::CheckedStaticConstructionArgument>> {
+    use super::call::ApplicationArgument;
+
+    let constructor = variant.constructor.as_ref()?;
+    let mut used = std::collections::BTreeSet::new();
+    let mut next_positional = 0usize;
+    let mut checked = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        let (parameter_index, expression_id) = match *argument {
+            ApplicationArgument::Positional { expression, .. } => {
+                while used.contains(&next_positional) {
+                    next_positional = next_positional.checked_add(1)?;
+                }
+                let index = next_positional;
+                next_positional = next_positional.checked_add(1)?;
+                (index, ctx.expression_id_for_static_range(expression.range())?)
+            }
+            ApplicationArgument::Labeled { label, expression, .. } => {
+                let index = constructor
+                    .parameters
+                    .iter()
+                    .position(|parameter| parameter.external_label.as_deref() == Some(label) || parameter.local_name.as_ref() == label)?;
+                (index, ctx.expression_id_for_static_range(expression.range())?)
+            }
+            ApplicationArgument::PreAnalyzed { label, typed, .. } => {
+                let index = match label {
+                    Some(label) => constructor
+                        .parameters
+                        .iter()
+                        .position(|parameter| parameter.external_label.as_deref() == Some(label) || parameter.local_name.as_ref() == label)?,
+                    None => {
+                        while used.contains(&next_positional) {
+                            next_positional = next_positional.checked_add(1)?;
+                        }
+                        let index = next_positional;
+                        next_positional = next_positional.checked_add(1)?;
+                        index
+                    }
+                };
+                (index, typed.expression_id?)
+            }
+            ApplicationArgument::DynamicLabel { .. } | ApplicationArgument::Expansion { .. } => return None,
+        };
+        if !used.insert(parameter_index) {
+            return None;
+        }
+        let parameter = constructor.parameters.get(parameter_index)?;
+        checked.push(crate::static_definition::CheckedStaticConstructionArgument {
+            expression: expression_id,
+            payload: crate::static_definition::CheckedStaticPayloadId::VariantField(parameter.field.clone()),
+        });
+    }
+    Some(checked)
+}
+
 fn specialize_data_constructor_target(
     ctx: &mut CheckingContext<'_>,
     data_info: &DataInfo,
@@ -1199,12 +1347,193 @@ fn synthesize_record_construction(
                     member: AssociatedMemberId::DataConstructor(data_info.constructor.constructor.clone()),
                     target: InvocationTargetId::DataConstructor(data_info.constructor.constructor.clone()),
                     result_type,
-                    argument_mapping,
+                    argument_mapping: argument_mapping.clone(),
                 },
             },
         );
+        if let Some(mapping) = argument_mapping.as_deref() {
+            let arguments = record
+                .entries
+                .iter()
+                .zip(mapping)
+                .map(|(entry, component_index)| {
+                    let component = data_info.components.get(*component_index as usize)?;
+                    Some(crate::static_definition::CheckedStaticConstructionArgument {
+                        expression: ctx.expression_id_for_static_range(entry.value.range())?,
+                        payload: crate::static_definition::CheckedStaticPayloadId::DataComponent(component.id.clone()),
+                    })
+                })
+                .collect::<Option<Vec<_>>>();
+            if let Some(arguments) = arguments {
+                ctx.record_checked_static_construction(crate::static_definition::CheckedStaticConstruction {
+                    expression,
+                    target: InvocationTargetId::DataConstructor(data_info.constructor.constructor.clone()),
+                    result_type,
+                    arguments: arguments.into_boxed_slice(),
+                });
+            }
+        }
     }
     result.into()
+}
+
+/// Checks a value-parameter static-definition application at the ordinary
+/// TypeForm boundary. The linked resolver supplies the exact target product;
+/// the checked evaluator product retains parameter order and argument identity.
+fn analyze_checked_static_application(ctx: &mut CheckingContext<'_>, annotation: &phalcom_ast::ast::TypeAnnotation) -> Option<TypedExpression> {
+    use crate::static_definition::CheckedStaticApplicationArgument as CheckedArgument;
+    use phalcom_ast::ast::{GenericArgumentSyntax, TypeAnnotationExpr};
+
+    let TypeAnnotationExpr::Application { origin, arguments, range } = &annotation.expr else {
+        return None;
+    };
+    let TypeAnnotationExpr::Reference(reference) = &origin.expr else {
+        return None;
+    };
+    let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+    let (target, target_product) = ctx.resolver.resolve_static_definition_name(&ctx.current_module, &reference.root, &members)?;
+
+    // Preserve the C3 alias projection for compatible Type-valued aliases.
+    if target_product.alias_info.is_some() {
+        return None;
+    }
+
+    let signature = target_product.definition.signature.clone();
+    if arguments.len() != signature.parameters.len() {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ApplicationTooManyArguments,
+            format!(
+                "static definition `{}` expects {} arguments but received {}",
+                target.name,
+                signature.parameters.len(),
+                arguments.len()
+            ),
+            *range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+    }
+
+    let mut checked_arguments = Vec::with_capacity(arguments.len());
+    for (parameter, argument) in signature.parameters.iter().zip(arguments) {
+        match parameter.domain {
+            crate::static_domain::StaticValueDomain::Kind(expected_kind) => {
+                let Some(type_form) = static_application_argument_type_form(argument) else {
+                    ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::ApplicationArgumentKindMismatch,
+                        format!(
+                            "argument {} of `{}` requires kind {}",
+                            parameter.index + 1,
+                            target.name,
+                            ctx.store.format_kind(expected_kind)
+                        ),
+                        argument.range(),
+                    ));
+                    return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                };
+                let typed = analyze_expression(ctx, &Expr::TypeForm(Box::new(type_form)), &ExpectedType::None);
+                if !matches!(typed.status, AnalysisStatus::Ready) {
+                    return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                }
+                let Some(expression) = typed.expression_id else {
+                    return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                };
+                let actual_kind = match typed.denotation.as_ref() {
+                    Some(SemanticDenotation::TypeForm(form) | SemanticDenotation::StaticTerm(form)) => Some(ctx.store.kind_of(*form)),
+                    Some(SemanticDenotation::StaticApplication(application)) => ctx
+                        .checked_static_applications
+                        .iter()
+                        .find(|candidate| candidate.id == *application)
+                        .and_then(|candidate| candidate.signature.result_domain.as_kind()),
+                    _ => None,
+                };
+                if actual_kind != Some(expected_kind) {
+                    ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::ApplicationArgumentKindMismatch,
+                        format!("argument {} of `{}` has the wrong kind", parameter.index + 1, target.name),
+                        argument.range(),
+                    ));
+                    return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                }
+                if let Some(SemanticDenotation::TypeForm(form) | SemanticDenotation::StaticTerm(form)) = typed.denotation {
+                    checked_arguments.push(CheckedArgument::Kinded {
+                        parameter_index: parameter.index,
+                        term: form,
+                    });
+                } else {
+                    checked_arguments.push(CheckedArgument::KindedExpression {
+                        parameter_index: parameter.index,
+                        expression,
+                    });
+                }
+            }
+            crate::static_domain::StaticValueDomain::ValueType(expected_type) => {
+                let value_expression = match argument {
+                    GenericArgumentSyntax::Value(expression) => (**expression).clone(),
+                    GenericArgumentSyntax::Single(type_form) => match &type_form.expr {
+                        TypeAnnotationExpr::Reference(reference) if reference.members.is_empty() => Expr::Var {
+                            value: reference.root.clone(),
+                            range: type_form.range,
+                        },
+                        _ => {
+                            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                                ctx.current_module.clone(),
+                                DiagnosticCode::ApplicationArgumentKindMismatch,
+                                format!("argument {} of `{}` requires a static value", parameter.index + 1, target.name),
+                                type_form.range,
+                            ));
+                            return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                        }
+                    },
+                    GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) => {
+                        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::ApplicationArgumentKindMismatch,
+                            format!("argument {} of `{}` does not accept an expansion", parameter.index + 1, target.name),
+                            argument.range(),
+                        ));
+                        return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                    }
+                };
+                let typed = analyze_expression(
+                    ctx,
+                    &value_expression,
+                    &ExpectedType::proper_from(expected_type, ExpectationOrigin::DeclarationContract),
+                );
+                if !matches!(typed.status, AnalysisStatus::Ready) {
+                    return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                }
+                let Some(expression) = typed.expression_id else {
+                    return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                };
+                checked_arguments.push(CheckedArgument::Value {
+                    parameter_index: parameter.index,
+                    expression,
+                });
+            }
+        }
+    }
+
+    let application = ctx.record_checked_static_application(target.clone(), *range, target, signature.clone(), checked_arguments.into_boxed_slice())?;
+    let mut typed = match signature.result_domain {
+        crate::static_domain::StaticValueDomain::Kind(_) => TypedExpression::unknown(UnknownReason::UncheckedExpression),
+        crate::static_domain::StaticValueDomain::ValueType(result_type) => TypedExpression::assumed(result_type, EvidenceOrigin::CallableSignature, *range),
+    };
+    typed.denotation = Some(SemanticDenotation::StaticApplication(application));
+    Some(typed)
+}
+
+fn static_application_argument_type_form(argument: &phalcom_ast::ast::GenericArgumentSyntax) -> Option<phalcom_ast::ast::TypeAnnotation> {
+    match argument {
+        phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => Some(annotation.clone()),
+        phalcom_ast::ast::GenericArgumentSyntax::Value(expression) => match &**expression {
+            Expr::TypeForm(annotation) => Some((**annotation).clone()),
+            _ => None,
+        },
+        phalcom_ast::ast::GenericArgumentSyntax::Expansion(_) | phalcom_ast::ast::GenericArgumentSyntax::Remainder(_) => None,
+    }
 }
 
 /// Returns ordinary runtime value type for a type-form value, without
@@ -1846,6 +2175,26 @@ fn specialize_class_side_member_knowledge(
     }
 }
 
+fn constructor_parameter_knowledge(
+    store: &mut crate::types::store::TypeStore,
+    declared_type: &crate::declaration_type::DeclaredTypeFact,
+    env: &crate::types::environment::TypeEnvironment,
+) -> Option<TypeKnowledge> {
+    match &declared_type.state {
+        crate::declaration_type::DeclaredTypeState::Known(crate::types::parameter::TypeTerm::Canonical(p_ty)) => {
+            let ty = TypeView::new(*p_ty, env.clone()).materialize(store);
+            Some(TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics))
+        }
+        crate::declaration_type::DeclaredTypeState::Dynamic(reason) => {
+            Some(TypeKnowledge::Dynamic(reason.clone()))
+        }
+        crate::declaration_type::DeclaredTypeState::Unknown(reason) => {
+            Some(TypeKnowledge::Unknown(reason.clone()))
+        }
+        _ => None,
+    }
+}
+
 /// Resolves a concrete variant constructor or behavioral method selected by an exact static call shape.
 fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &AssociatedInvokeExpr, expected: &ExpectedType) -> TypedExpression {
     let receiver = analyze_expression(ctx, &invoke.receiver, &ExpectedType::None);
@@ -1947,13 +2296,10 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 .parameters
                 .iter()
                 .map(|parameter| {
-                    let Some(p_ty) = parameter.declared_type.canonical_type() else {
-                        return Err(());
-                    };
-                    let ty = TypeView::new(p_ty, env.clone()).materialize(ctx.store);
+                    let knowledge = constructor_parameter_knowledge(ctx.store, &parameter.declared_type, &env).ok_or(())?;
                     let mut callable_parameter = crate::dispatch::CallableParameter::new(
                         parameter.local_name.to_string(),
-                        TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
+                        knowledge,
                     );
                     if let Some(label) = &parameter.external_label {
                         callable_parameter = callable_parameter.with_label(label.to_string());
@@ -2013,13 +2359,10 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 .parameters
                 .iter()
                 .map(|parameter| {
-                    let Some(p_ty) = parameter.declared_type.canonical_type() else {
-                        return Err(());
-                    };
-                    let ty = TypeView::new(p_ty, env.clone()).materialize(ctx.store);
+                    let knowledge = constructor_parameter_knowledge(ctx.store, &parameter.declared_type, &env).ok_or(())?;
                     let mut callable_parameter = crate::dispatch::CallableParameter::new(
                         parameter.local_name.to_string(),
-                        TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
+                        knowledge,
                     );
                     if let Some(label) = &parameter.external_label {
                         callable_parameter = callable_parameter.with_label(label.to_string());
@@ -2069,13 +2412,24 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 lookup_owner: owner.lookup_owner,
                 family: Some(family.id),
                 kind: AssociatedResolutionKind::StaticInvoke {
-                    member: member_id,
+                    member: member_id.clone(),
                     target: invocation_target,
                     result_type,
                     argument_mapping: None,
                 },
             },
         );
+        if let AssociatedMemberId::Variant(variant) = &member_id
+            && let Some(variant_info) = ctx.variant_info(variant).cloned()
+            && let Some(arguments) = checked_variant_construction_arguments(ctx, &variant_info, &arguments)
+        {
+            ctx.record_checked_static_construction(crate::static_definition::CheckedStaticConstruction {
+                expression,
+                target: InvocationTargetId::VariantConstructor(crate::identity::VariantConstructorId::new(variant.clone())),
+                result_type,
+                arguments: arguments.into_boxed_slice(),
+            });
+        }
     }
     result.into()
 }
@@ -2937,10 +3291,10 @@ fn associated_constructor_application_target(
                 .parameters
                 .iter()
                 .map(|parameter| {
-                    let ty = TypeView::new(parameter.declared_type.canonical_type()?, environment.clone()).materialize(ctx.store);
+                    let knowledge = constructor_parameter_knowledge(ctx.store, &parameter.declared_type, &environment)?;
                     let mut callable_parameter = crate::dispatch::CallableParameter::new(
                         parameter.local_name.to_string(),
-                        TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
+                        knowledge,
                     );
                     if let Some(label) = &parameter.external_label {
                         callable_parameter = callable_parameter.with_label(label.to_string());
@@ -2994,11 +3348,10 @@ fn associated_constructor_application_target(
                 .parameters
                 .iter()
                 .map(|parameter| {
-                    let p_ty = parameter.declared_type.canonical_type()?;
-                    let ty = TypeView::new(p_ty, environment.clone()).materialize(ctx.store);
+                    let knowledge = constructor_parameter_knowledge(ctx.store, &parameter.declared_type, &environment)?;
                     let mut callable_parameter = crate::dispatch::CallableParameter::new(
                         parameter.local_name.to_string(),
-                        TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
+                        knowledge,
                     );
                     if let Some(label) = &parameter.external_label {
                         callable_parameter = callable_parameter.with_label(label.to_string());
@@ -3122,9 +3475,113 @@ fn synthesize_family_value_call(
     }
 }
 
+/// Resolves a constructor-chain call from the canonical parent construction
+/// products. Source constructor bodies run instance-side, while their public
+/// factories and signatures are class-side; ordinary `super` dispatch cannot
+/// reconstruct this paired identity safely.
+fn synthesize_constructor_super_call(
+    ctx: &mut CheckingContext<'_>,
+    call: &MethodCallExpr,
+    premise: &CallPremise,
+    expected: &ExpectedType,
+) -> Option<TypedExpression> {
+    if call.method != "new" || !matches!(&call.object, Expr::SuperVar { .. }) || ctx.current_constructor_owner.is_none() || !ctx.constructor_super_required {
+        return None;
+    }
+
+    if ctx.constructor_super_call_seen {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ConstructorSuperInvalid,
+            "a subclass constructor may call its parent initializer only once",
+            call.range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    }
+    ctx.constructor_super_call_seen = true;
+    if !ctx.constructor_super_prologue_allowed {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ConstructorSuperInvalid,
+            "the parent initializer call must be the first statement in a subclass constructor",
+            call.range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    }
+
+    let Some(parent) = ctx.constructor_parent_owner.clone() else {
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    };
+    let arguments = application_arguments(&call.args);
+    let slots = match static_call_shape(&arguments) {
+        StaticCallShape::Exact(slots) => slots,
+        StaticCallShape::Dynamic(_) => {
+            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::ConstructorSuperInvalid,
+                "parent constructor selection requires a statically known argument shape",
+                call.range,
+            ));
+            return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+        }
+    };
+    let Ok(selector) = phalcom_common::selector::Selector::method("new", slots) else {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ConstructorSuperInvalid,
+            "invalid parent constructor argument shape",
+            call.range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    };
+    let factory = crate::identity::CallableId::new(parent.clone(), selector, crate::identity::DispatchSide::Class);
+    let Some(product) = ctx.constructor_initializations.and_then(|products| products.get(&factory)).cloned() else {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ConstructorSuperInvalid,
+            "no direct-parent constructor matches this `super.new(...)` call",
+            call.range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    };
+    let Some(semantic_signature) = ctx.callable_signatures.and_then(|signatures| signatures.get(&factory)).cloned() else {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ConstructorSuperInvalid,
+            "the selected parent constructor has no canonical factory signature",
+            call.range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    };
+    if semantic_signature.callable != product.factory || semantic_signature.owner != parent || !semantic_signature.is_constructor() {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ConstructorSuperInvalid,
+            "the selected parent factory and initializer product are inconsistent",
+            call.range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    }
+
+    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConstructorInitialization(parent));
+    ctx.record_explicit_callable_selection(&factory);
+    let projected_signature = crate::checker::declaration_signature::project_semantic_signature(&semantic_signature);
+    ctx.record_consumed_callable_signature(&factory, &projected_signature);
+    ctx.constructor_super_initializer = Some(crate::checker::analysis::ConstructorSuperCallResolution {
+        call_range: call.range,
+        initializer: product.initializer,
+    });
+    let target = CallableApplicationTarget::exact(factory, projected_signature);
+    Some(apply_resolved_callable(ctx, &target, premise, &arguments, expected, call.range).into())
+}
+
 fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, expected: &ExpectedType) -> TypedExpression {
     let recv_typed = analyze_expression(ctx, &call.object, &ExpectedType::None);
     let premise = CallPremise::from_typed(ctx, &recv_typed);
+
+    if let Some(typed) = synthesize_constructor_super_call(ctx, call, &premise, expected) {
+        return typed;
+    }
 
     if let Some(mut typed) = synthesize_control_method_call(ctx, call, expected, &recv_typed) {
         typed.causal_invalidity = typed.causal_invalidity.join(recv_typed.causal_invalidity);

@@ -8,6 +8,11 @@ import .cell as CellModule
 /// >= 1 (REQ-GRID-2, REQ-GRID-3). Unset cells in bounds return
 /// LiteralCell(CellEmpty), never None (REQ-GRID-6).
 class Grid {
+  mut _cells
+  mut _minCol
+  mut _maxCol
+  mut _minRow
+  mut _maxRow
   /// Internal storage of cells, keyed by Ref.
   @constructor
   new() {
@@ -66,7 +71,7 @@ class Grid {
     if (not Grid.isInBounds(ref)) {
       return Value.ErrorVal.nameError
     }
-    const cell = _cells.at(ref)
+    let cell = _cells.at(ref)
     if (cell == nil) {
       return CellModule.LiteralCell.of(Value.CellEmpty.of())
     }
@@ -79,7 +84,7 @@ class Grid {
     if (not Grid.isInBounds(ref)) {
       return Value.ErrorVal.nameError
     }
-    const cell = _cells.at(ref)
+    let cell = _cells.at(ref)
     if (cell == nil) {
       return Value.CellEmpty.of()
     }

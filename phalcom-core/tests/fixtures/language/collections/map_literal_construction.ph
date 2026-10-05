@@ -15,7 +15,7 @@
 // back directly (no re-comparison needed) and are exercised instead. Pair
 // traversal uses `entries.each`; `Map#each` is the ordinary one-value protocol.
 
-const m = Map {a: 1, b: 2}
+let m = Map {a: 1, b: 2}
 System.print(m)
 System.print(m.size)
 System.print(m.keys.toList)

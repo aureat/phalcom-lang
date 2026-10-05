@@ -1303,6 +1303,70 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     }
                 }
             }
+            TypeNode::Pack(pack) => {
+                if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::Type) {
+                    return Err(MetadataValidationError::Malformed("Pack node must have kind Type".to_string()));
+                }
+                for el in pack.elements.iter() {
+                    if el.ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: el.ty.0,
+                        });
+                    }
+                    if el.presence == StructuralMemberPresenceRef::Optional {
+                        return Err(MetadataValidationError::Malformed("pack elements cannot be optional".to_string()));
+                    }
+                    if !matches!(bundle.kinds[bundle.types[el.ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("pack elements must have kind Type".to_string()));
+                    }
+                }
+                if let AnonymousTupleRemainderRef::Typed(ty) = pack.positional_remainder {
+                    if ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
+                    }
+                    if !matches!(bundle.kinds[bundle.types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("pack positional remainder must have kind Type".to_string()));
+                    }
+                }
+                if let AnonymousTupleRemainderRef::Typed(ty) = pack.labeled_remainder {
+                    if ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
+                    }
+                    if !matches!(bundle.kinds[bundle.types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("pack labeled remainder must have kind Type".to_string()));
+                    }
+                }
+            }
+            TypeNode::PackFromPacks { positionals, labeled } => {
+                if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::Type) {
+                    return Err(MetadataValidationError::Malformed("PackFromPacks node must have kind Type".to_string()));
+                }
+                if positionals.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: positionals.0,
+                    });
+                }
+                if labeled.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: labeled.0,
+                    });
+                }
+                let pos_kind = &bundle.kinds[bundle.types[positionals.0 as usize].kind.0 as usize].node;
+                if !matches!(pos_kind, KindNode::TypePack) {
+                    return Err(MetadataValidationError::Malformed(
+                        "PackFromPacks positionals must have kind TypePack".to_string(),
+                    ));
+                }
+                let lab_kind = &bundle.kinds[bundle.types[labeled.0 as usize].kind.0 as usize].node;
+                if !matches!(lab_kind, KindNode::LabeledTypePack) {
+                    return Err(MetadataValidationError::Malformed(
+                        "PackFromPacks labeled must have kind LabeledTypePack".to_string(),
+                    ));
+                }
+            }
         }
     }
 
@@ -1870,6 +1934,74 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
                         return Err(MetadataValidationError::Malformed("scoped record remainder must have kind Type".to_string()));
                     }
+                }
+            }
+            ScopedTypeNode::Pack(pack) => {
+                if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::Type) {
+                    return Err(MetadataValidationError::Malformed("scoped Pack node must have kind Type".to_string()));
+                }
+                for el in pack.elements.iter() {
+                    if el.ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: el.ty.0,
+                        });
+                    }
+                    if el.presence == StructuralMemberPresenceRef::Optional {
+                        return Err(MetadataValidationError::Malformed("scoped pack elements cannot be optional".to_string()));
+                    }
+                    if !matches!(bundle.kinds[bundle.scoped_types[el.ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed("scoped pack elements must have kind Type".to_string()));
+                    }
+                }
+                if let ScopedAnonymousTupleRemainderRef::Typed(ty) = pack.positional_remainder {
+                    if ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
+                    }
+                    if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed(
+                            "scoped pack positional remainder must have kind Type".to_string(),
+                        ));
+                    }
+                }
+                if let ScopedAnonymousTupleRemainderRef::Typed(ty) = pack.labeled_remainder {
+                    if ty.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
+                    }
+                    if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
+                        return Err(MetadataValidationError::Malformed(
+                            "scoped pack labeled remainder must have kind Type".to_string(),
+                        ));
+                    }
+                }
+            }
+            ScopedTypeNode::PackFromPacks { positionals, labeled } => {
+                if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::Type) {
+                    return Err(MetadataValidationError::Malformed("scoped PackFromPacks node must have kind Type".to_string()));
+                }
+                if positionals.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: positionals.0,
+                    });
+                }
+                if labeled.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: labeled.0,
+                    });
+                }
+                let pos_kind = &bundle.kinds[bundle.scoped_types[positionals.0 as usize].kind.0 as usize].node;
+                if !matches!(pos_kind, KindNode::TypePack) {
+                    return Err(MetadataValidationError::Malformed(
+                        "Scoped PackFromPacks positionals must have kind TypePack".to_string(),
+                    ));
+                }
+                let lab_kind = &bundle.kinds[bundle.scoped_types[labeled.0 as usize].kind.0 as usize].node;
+                if !matches!(lab_kind, KindNode::LabeledTypePack) {
+                    return Err(MetadataValidationError::Malformed(
+                        "Scoped PackFromPacks labeled must have kind LabeledTypePack".to_string(),
+                    ));
                 }
             }
         }

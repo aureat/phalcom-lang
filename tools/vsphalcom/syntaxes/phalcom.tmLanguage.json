@@ -746,9 +746,21 @@
 		"phalcom.keyword": {
 			"patterns": [
 				{
+					"comment": "`mut` is contextual: this pattern only marks a declaration modifier when a binding name follows.",
+					"match": "\\b(let)(\\s+)(mut)(?=\\s+[^=:])",
+					"captures": {
+						"1": { "name": "keyword.declaration.phalcom" },
+						"3": { "name": "storage.modifier.mutable.phalcom" }
+					}
+				},
+				{
+					"name": "storage.modifier.mutable.phalcom",
+					"match": "\\bmut(?=\\s+_[a-zA-Z][a-zA-Z0-9_]*)|\\bmut(?=\\s+[a-zA-Z_][a-zA-Z0-9_]*(?:\\s*:|\\s+via\\b))"
+				},
+				{
 					"comment": "Declaration keywords. The Phalcom theme should color these the same as keyword.declaration.annotation.phalcom.",
 					"name": "keyword.declaration.phalcom",
-				"match": "\\b(let|const|type|class|data|trait|impl|native|foreign|private|protected|module|package|internal)\\b"
+					"match": "\\b(let|const|type|class|data|trait|impl|native|foreign|private|protected|module|package|internal)\\b"
 				},
 				{
 					"name": "keyword.control.phalcom",

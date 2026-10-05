@@ -15,10 +15,10 @@
 // `acc` holds the value the last fiber yielded back through `call()` and `i`
 // the loop count; the bench reads both back after the run, so a build that
 // spawns fibers without running them cannot post a number.
-let i = 0
-let acc = 0
+let mut i = 0
+let mut acc = 0
 while (i < 20000) {
-  let f = Fiber.new || { Fiber.yield(0) }
+  let mut f = Fiber.new || { Fiber.yield(0) }
   acc = f.call()
   i = i + 1
 }

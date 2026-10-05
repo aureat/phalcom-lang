@@ -37,6 +37,18 @@ fn validator_matches_probe_classification() {
 }
 
 #[test]
+fn let_mut_uninitialized_is_complete_input() {
+    assert_eq!(classify("let mut value"), Verdict::Complete);
+}
+
+#[test]
+fn let_mut_uninitialized_has_contextual_completion() {
+    let session = ReplSession::start(PathBuf::from("."));
+    assert!(complete_for(&session, "let ").iter().any(|candidate| candidate == "mut"));
+    assert!(complete_for(&session, "let m").iter().any(|candidate| candidate == "mut"));
+}
+
+#[test]
 fn unterminated_lexer_mode_continues() {
     // PDR-0006. A bare `/* …` used to classify Invalid and submit mid-comment: an
     // empty statement list is a grammatically *complete* parse, so the parser never
@@ -257,6 +269,34 @@ fn l1_never_keywords_inside_strings() {
         styles_in_literal.iter().all(|s| s == first),
         "keywords inside a string literal must not be styled as keywords"
     );
+}
+
+#[test]
+fn contextual_mut_highlighting_respects_declarations_and_identifiers() {
+    let session = ReplSession::start(PathBuf::from("."));
+    let highlighter = PhalcomHighlighter::new(oracle_for(&session));
+    let styled = highlighter.highlight("let mut value", 13);
+    let style_at = |offset: usize| {
+        let mut position = 0;
+        styled.buffer.iter().find_map(|(style, text)| {
+            let start = position;
+            position += text.len();
+            (start <= offset && offset < position).then_some(*style)
+        })
+    };
+    assert_eq!(style_at(1), style_at(4), "`let mut` shares the keyword styling");
+
+    let named_mut = highlighter.highlight("let mut = 1", 11);
+    let keyword_style = style_at(1).expect("keyword style");
+    let mut_style = {
+        let mut position = 0;
+        named_mut.buffer.iter().find_map(|(style, text)| {
+            let start = position;
+            position += text.len();
+            (start <= 4 && 4 < position).then_some(*style)
+        })
+    };
+    assert_ne!(mut_style, Some(keyword_style), "an identifier named `mut` remains an identifier");
 }
 
 #[test]

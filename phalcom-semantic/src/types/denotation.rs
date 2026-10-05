@@ -78,6 +78,8 @@ pub enum SemanticDenotation {
     StaticDomain(StaticDomainId),
     /// A canonical compile-time term; never a runtime value or invocation target.
     StaticTerm(TypeId),
+    /// A checked static-definition application retained for bounded evaluation.
+    StaticApplication(crate::static_definition::StaticApplicationId),
     AssociatedValue(Box<AssociatedValueDenotation>),
     /// A behavioral family captured from an ordinary receiver.
     BehavioralFamily(Box<BehavioralFamilyDenotation>),

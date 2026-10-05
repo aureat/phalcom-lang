@@ -8,12 +8,13 @@
 // (R-INV-1.3): equal receivers (same object) hash equal.
 
 class Point {
+  mut _x
   @constructor
   new(_ x) { _x = x }
 }
-const a = Point.new(1)
-const b = Point.new(1)
-const c = a
+let a = Point.new(1)
+let b = Point.new(1)
+let c = a
 System.print(a == b)
 System.print(a == c)
 System.print(a == a)

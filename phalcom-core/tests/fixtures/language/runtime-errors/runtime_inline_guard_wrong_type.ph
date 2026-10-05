@@ -6,7 +6,7 @@
 // real message send — which Number does not implement — so the program
 // fails with a clean "not found" rather than mis-executing the inline path.
 
-const x = 5.ifTrue { "a" }
+let x = 5.ifTrue { "a" }
   ifFalse: || { "b" }
 
 System.print("Never reached to print: \(x)")

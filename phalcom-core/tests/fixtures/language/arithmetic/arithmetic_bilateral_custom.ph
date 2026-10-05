@@ -2,7 +2,7 @@
 // spec: bilateral operators
 
 class CustomVal {
-  @get _val
+  @get mut _val
   @constructor new(_ val) { _val = val }
 
   +(_ other) {
@@ -45,8 +45,8 @@ class SubVal is CustomVal {
 }
 
 // 1. Direct candidate
-let a = CustomVal.new(10)
-let b = CustomVal.new(20)
+let mut a = CustomVal.new(10)
+let mut b = CustomVal.new(20)
 System.print(a + b)
 
 // 2. Reflected candidate
@@ -59,5 +59,5 @@ System.print(100 - a)
 System.print(100 / a)
 
 // 5. Subtype priority override
-let sub = SubVal.new(5)
+let mut sub = SubVal.new(5)
 System.print(1 + sub)

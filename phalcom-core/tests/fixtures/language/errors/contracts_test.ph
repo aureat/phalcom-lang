@@ -4,6 +4,7 @@
 // contract: contracts validation under @requires, @ensures, and @invariant
 
 class Counter {
+  mut _val
   @invariant(self.val >= 0)
   
   @constructor
@@ -26,7 +27,7 @@ class Counter {
   }
 }
 
-const c = Counter.new(10)
+let c = Counter.new(10)
 System.print(c.val)
 
 c.increment(5)

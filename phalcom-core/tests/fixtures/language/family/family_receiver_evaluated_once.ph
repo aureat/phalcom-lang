@@ -12,6 +12,6 @@ class Factory {
     return Box.new()
   }
 }
-const family = (Box >> #value()).bind(Factory.make())
+let family = (Box >> #value()).bind(Factory.make())
 System.print(family())
 System.print(family())

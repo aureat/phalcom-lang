@@ -7,12 +7,26 @@ use phalcom_ast::ast::{BindingKind, DependencyDecl, ImportDecl, ImportPath, Modu
 use phalcom_common::range::SourceRange;
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Canonical semantics of a top-level module binding.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ModuleBindingSemantics {
+    Runtime { mutable: bool },
+    StaticConstant,
+    Declaration,
+}
+
 /// Surface declaration for a top-level binding defined in a module.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DeclarationSurface {
     pub name: String,
-    pub is_const: bool,
+    pub semantics: ModuleBindingSemantics,
     pub range: SourceRange,
+}
+
+impl DeclarationSurface {
+    pub fn is_const(&self) -> bool {
+        matches!(self.semantics, ModuleBindingSemantics::StaticConstant)
+    }
 }
 
 /// Surface representation of an exported binding.
@@ -154,8 +168,17 @@ pub struct PackagePathSurface {
 /// Unified namespace binding record used during source-local interface validation.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ModuleNamespaceBinding {
-    Declaration { is_const: bool, range: SourceRange },
+    Declaration { semantics: ModuleBindingSemantics, range: SourceRange },
     Import { range: SourceRange },
+}
+
+impl ModuleNamespaceBinding {
+    pub fn is_const(&self) -> bool {
+        match self {
+            Self::Declaration { semantics, .. } => matches!(semantics, ModuleBindingSemantics::StaticConstant),
+            Self::Import { .. } => false,
+        }
+    }
 }
 
 /// Module interface builder that performs source-local interface extraction and validation.
@@ -179,26 +202,30 @@ impl InterfaceBuilder {
                 Statement::Class(class_def) => {
                     let range = (class_def.range.start..class_def.name_range.end).into();
                     Self::validate_dunder(&class_def.name, DunderRole::Binding, range)?;
-                    Self::collect_declaration(&class_def.name, true, range, &mut namespace, &mut declarations)?;
+                    Self::collect_declaration(&class_def.name, ModuleBindingSemantics::Declaration, range, &mut namespace, &mut declarations)?;
                 }
                 Statement::Data(data_def) => {
                     let range = (data_def.range.start..data_def.name_range.end).into();
                     Self::validate_dunder(&data_def.name, DunderRole::Binding, range)?;
-                    Self::collect_declaration(&data_def.name, true, range, &mut namespace, &mut declarations)?;
+                    Self::collect_declaration(&data_def.name, ModuleBindingSemantics::Declaration, range, &mut namespace, &mut declarations)?;
                 }
                 Statement::Trait(trait_def) => {
                     let range = (trait_def.range.start..trait_def.name_range.end).into();
                     Self::validate_dunder(&trait_def.name, DunderRole::Binding, range)?;
-                    Self::collect_declaration(&trait_def.name, true, range, &mut namespace, &mut declarations)?;
+                    Self::collect_declaration(&trait_def.name, ModuleBindingSemantics::Declaration, range, &mut namespace, &mut declarations)?;
                 }
-                Statement::TypeAlias(alias) => {
+                Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) => {
                     let range = (alias.range.start..alias.name_range.end).into();
                     Self::validate_dunder(&alias.name, DunderRole::Binding, range)?;
-                    Self::collect_declaration(&alias.name, true, range, &mut namespace, &mut declarations)?;
+                    Self::collect_declaration(&alias.name, ModuleBindingSemantics::Declaration, range, &mut namespace, &mut declarations)?;
                 }
                 Statement::Let(let_binding) => {
-                    let is_const = let_binding.kind == BindingKind::Const;
-                    Self::collect_pattern_declarations(&let_binding.pattern, is_const, &mut namespace, &mut declarations)?;
+                    let semantics = match let_binding.kind {
+                        BindingKind::Let => ModuleBindingSemantics::Runtime { mutable: false },
+                        BindingKind::LetMut => ModuleBindingSemantics::Runtime { mutable: true },
+                        BindingKind::Const => ModuleBindingSemantics::StaticConstant,
+                    };
+                    Self::collect_pattern_declarations(&let_binding.pattern, semantics, &mut namespace, &mut declarations)?;
                 }
                 // Inherent impls contribute behavior to their canonical
                 // target; they do not declare a module namespace binding.
@@ -377,7 +404,7 @@ impl InterfaceBuilder {
 
     fn collect_declaration(
         name: &str,
-        is_const: bool,
+        semantics: ModuleBindingSemantics,
         range: SourceRange,
         namespace: &mut BTreeMap<String, ModuleNamespaceBinding>,
         declarations: &mut BTreeMap<String, DeclarationSurface>,
@@ -390,12 +417,12 @@ impl InterfaceBuilder {
             });
         }
 
-        namespace.insert(name.to_string(), ModuleNamespaceBinding::Declaration { is_const, range });
+        namespace.insert(name.to_string(), ModuleNamespaceBinding::Declaration { semantics, range });
         declarations.insert(
             name.to_string(),
             DeclarationSurface {
                 name: name.to_string(),
-                is_const,
+                semantics,
                 range,
             },
         );
@@ -422,34 +449,34 @@ impl InterfaceBuilder {
 
     fn collect_pattern_declarations(
         pattern: &Pattern,
-        is_const: bool,
+        semantics: ModuleBindingSemantics,
         namespace: &mut BTreeMap<String, ModuleNamespaceBinding>,
         declarations: &mut BTreeMap<String, DeclarationSurface>,
     ) -> Result<(), InterfaceError> {
         match pattern {
             Pattern::Name { name, range } => {
                 Self::validate_dunder(name, DunderRole::Binding, *range)?;
-                Self::collect_declaration(name, is_const, *range, namespace, declarations)
+                Self::collect_declaration(name, semantics, *range, namespace, declarations)
             }
             Pattern::Tuple { elements, .. } => {
                 for elem in elements {
-                    Self::collect_pattern_declarations(elem, is_const, namespace, declarations)?;
+                    Self::collect_pattern_declarations(elem, semantics, namespace, declarations)?;
                 }
                 Ok(())
             }
             Pattern::List { elements, rest, .. } => {
                 for elem in elements {
-                    Self::collect_pattern_declarations(elem, is_const, namespace, declarations)?;
+                    Self::collect_pattern_declarations(elem, semantics, namespace, declarations)?;
                 }
                 if let Some(rest) = rest {
-                    Self::collect_pattern_declarations(rest, is_const, namespace, declarations)?;
+                    Self::collect_pattern_declarations(rest, semantics, namespace, declarations)?;
                 }
                 Ok(())
             }
             Pattern::Wildcard { .. } => Ok(()),
             Pattern::Or { alternatives, .. } => {
                 for alt in alternatives {
-                    Self::collect_pattern_declarations(alt, is_const, namespace, declarations)?;
+                    Self::collect_pattern_declarations(alt, semantics, namespace, declarations)?;
                 }
                 Ok(())
             }
@@ -457,12 +484,12 @@ impl InterfaceBuilder {
                 match &variant.mode {
                     phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
                         for argument in arguments {
-                            Self::collect_pattern_declarations(&argument.pattern, is_const, namespace, declarations)?;
+                            Self::collect_pattern_declarations(&argument.pattern, semantics, namespace, declarations)?;
                         }
                     }
                     phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
                         for argument in prefix.iter().chain(suffix.iter()) {
-                            Self::collect_pattern_declarations(&argument.pattern, is_const, namespace, declarations)?;
+                            Self::collect_pattern_declarations(&argument.pattern, semantics, namespace, declarations)?;
                         }
                     }
                     phalcom_ast::ast::VariantPatternMode::Singleton | phalcom_ast::ast::VariantPatternMode::WholeFamily { .. } => {}
@@ -471,16 +498,74 @@ impl InterfaceBuilder {
             }
             Pattern::Record { entries, .. } => {
                 for entry in entries {
-                    Self::collect_pattern_declarations(&entry.pattern, is_const, namespace, declarations)?;
+                    Self::collect_pattern_declarations(&entry.pattern, semantics, namespace, declarations)?;
                 }
                 Ok(())
             }
             Pattern::Map { entries, .. } => {
                 for entry in entries {
-                    Self::collect_pattern_declarations(&entry.pattern, is_const, namespace, declarations)?;
+                    Self::collect_pattern_declarations(&entry.pattern, semantics, namespace, declarations)?;
                 }
                 Ok(())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::ModulePath;
+    use phalcom_ast::parser::parse;
+
+    #[test]
+    fn module_surface_distinguishes_runtime_immutable_mutable_static() {
+        let source = r#"
+let immutable_val = 1
+let mut mutable_val = 2
+const static_const = 3
+class Foo {}
+"#;
+        let parsed = parse(source, 0);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let id = ModuleId::universe(ModulePath::root());
+        let interface = InterfaceBuilder::build(id, ModuleKind::Module, &parsed.program).expect("built interface");
+
+        assert_eq!(
+            interface.declarations["immutable_val"].semantics,
+            ModuleBindingSemantics::Runtime { mutable: false }
+        );
+        assert_eq!(
+            interface.declarations["mutable_val"].semantics,
+            ModuleBindingSemantics::Runtime { mutable: true }
+        );
+        assert_eq!(interface.declarations["static_const"].semantics, ModuleBindingSemantics::StaticConstant);
+        assert_eq!(interface.declarations["Foo"].semantics, ModuleBindingSemantics::Declaration);
+    }
+
+    #[test]
+    fn field_declaration_not_mislabeled_const() {
+        let source = r#"
+class Entity {
+  _id: Int
+  mut _count: Int
+}
+data Point(x: Int, y: Int)
+trait Describable {}
+type IntAlias = Int
+"#;
+        let parsed = parse(source, 0);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let id = ModuleId::universe(ModulePath::root());
+        let interface = InterfaceBuilder::build(id, ModuleKind::Module, &parsed.program).expect("built interface");
+
+        // Top level declarations must have Declaration semantics, NOT StaticConstant (or is_const = true)
+        assert_eq!(interface.declarations["Entity"].semantics, ModuleBindingSemantics::Declaration);
+        assert_eq!(interface.declarations["Point"].semantics, ModuleBindingSemantics::Declaration);
+        assert_eq!(interface.declarations["Describable"].semantics, ModuleBindingSemantics::Declaration);
+        assert_eq!(interface.declarations["IntAlias"].semantics, ModuleBindingSemantics::Declaration);
+
+        assert!(!interface.declarations["Entity"].is_const());
+        assert!(!interface.declarations["Point"].is_const());
     }
 }

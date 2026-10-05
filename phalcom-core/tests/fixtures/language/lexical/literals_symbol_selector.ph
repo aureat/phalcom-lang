@@ -7,8 +7,8 @@
 // the zero-arity selector symbol it shares a spelling prefix with (`#size()`)
 // — a name symbol identifies a family, not a method.
 
-const a = #move(_,to,duration)
-const b = #move(
+let a = #move(_,to,duration)
+let b = #move(
   _,
   to,
   duration

@@ -76,7 +76,7 @@ fn executable_branch_mutation_survives_region_scope() {
 class Probe {
   @class
   run(_ flag: Bool) {
-    let x = 1
+    let mut x = 1
     if flag {
       x = "changed"
     } else {
@@ -130,7 +130,7 @@ fn if_let_success_region_preserves_outer_mutation() {
 class Probe {
   @class
   run(_ input: Int) {
-    let observed = 0
+    let mut observed = 0
     if let value = input {
       observed = "matched"
     } else {
@@ -234,7 +234,7 @@ fn nested_control_and_shadowing_composition() {
 class Probe {
   @class
   run(_ outer: Bool, _ inner: Bool) -> Int {
-    let x = 0
+    let mut x = 0
     if outer {
       let x = "shadow"
       if inner {

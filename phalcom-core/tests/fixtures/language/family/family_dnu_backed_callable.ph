@@ -9,5 +9,5 @@ class Proxy {
     return "caught " + msg.name
   }
 }
-const p = Proxy.new()
+let p = Proxy.new()
 System.print(p.typo)

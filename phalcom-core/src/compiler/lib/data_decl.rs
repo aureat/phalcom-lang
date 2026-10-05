@@ -24,6 +24,7 @@ impl<'vm> Compiler<'vm> {
         let class = match facade.owner {
             phalcom_semantic::declarations::IntrinsicRuntimeOwner::Tuple => self.vm.universe.classes.tuple_class,
             phalcom_semantic::declarations::IntrinsicRuntimeOwner::Record => self.vm.universe.classes.record_class,
+            phalcom_semantic::declarations::IntrinsicRuntimeOwner::Pack => self.vm.universe.classes.pack_class,
         };
 
         self.known_globals.insert(name_sym);

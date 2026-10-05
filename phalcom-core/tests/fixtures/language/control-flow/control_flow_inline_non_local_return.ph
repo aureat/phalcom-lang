@@ -9,7 +9,7 @@
 class Runner {
   @class
   firstMatch {
-    let i = 0
+    let mut i = 0
     while (i < 10) {
       if (i == 3) { return i }
       i = i + 1

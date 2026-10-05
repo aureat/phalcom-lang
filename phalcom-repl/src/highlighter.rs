@@ -16,6 +16,7 @@ use phalcom_ast::lexer::Lexer;
 use phalcom_ast::token::Token;
 use reedline::{Highlighter, StyledText};
 use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[allow(dead_code)]
@@ -60,6 +61,7 @@ impl Highlighter for PhalcomHighlighter {
         let bool_style = Style::new().fg(Color::Fixed(216));
         let bracket_style = Style::new().fg(Color::Fixed(223)).bold();
         let unbound_style = Style::new().fg(Color::DarkGray).dimmed();
+        let contextual_mut = contextual_mut_ranges(line);
 
         // --- Layer 1: Lexical (phalcom_ast::lexer) ---
         let lexer = Lexer::new(line);
@@ -70,6 +72,11 @@ impl Highlighter for PhalcomHighlighter {
             };
 
             if start >= end || end > line.len() {
+                continue;
+            }
+
+            if contextual_mut.contains(&(start, end)) {
+                color(start, end, kw_style);
                 continue;
             }
 
@@ -140,6 +147,9 @@ impl Highlighter for PhalcomHighlighter {
             };
 
             if let Token::Identifier(ref name) = tok {
+                if contextual_mut.contains(&(start, end)) {
+                    continue;
+                }
                 let is_bound = snap.is_global_name_bound(name) || is_builtin_symbol(name);
                 if !is_bound {
                     color(start, end, unbound_style);
@@ -149,6 +159,31 @@ impl Highlighter for PhalcomHighlighter {
 
         styled
     }
+}
+
+fn contextual_mut_ranges(line: &str) -> BTreeSet<(usize, usize)> {
+    let tokens = Lexer::new(line).filter_map(Result::ok).collect::<Vec<_>>();
+    let mut ranges = BTreeSet::new();
+    for (index, (start, token, end)) in tokens.iter().enumerate() {
+        if !matches!(token, Token::Identifier(name) if name == "mut") {
+            continue;
+        }
+        let previous = index.checked_sub(1).map(|previous| &tokens[previous].1);
+        let next = tokens.get(index + 1).map(|next| &next.1);
+        let after_next = tokens.get(index + 2).map(|next| &next.1);
+        let let_binding = matches!(previous, Some(Token::Let)) && !matches!(next, Some(Token::Equal | Token::Colon));
+        let mutable_field = matches!(next, Some(Token::FieldIdentifier(_)))
+            && matches!(
+                after_next,
+                None | Some(Token::Newline | Token::RBrace | Token::Eof | Token::Equal | Token::Colon)
+            );
+        let mutable_trait_property = matches!(next, Some(Token::Identifier(_))) && matches!(after_next, Some(Token::Colon));
+        let read_write_delegation = matches!(next, Some(Token::Identifier(_))) && matches!(after_next, Some(Token::Identifier(word)) if word == "via");
+        if let_binding || mutable_field || mutable_trait_property || read_write_delegation {
+            ranges.insert((*start, *end));
+        }
+    }
+    ranges
 }
 
 fn is_builtin_symbol(name: &str) -> bool {

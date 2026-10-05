@@ -10,6 +10,6 @@ class Summer {
   }
   empty(*numbers) { return numbers }
 }
-const s = Summer.new()
+let s = Summer.new()
 System.print(s.count(1, 2, 3))
 System.print(s.empty())

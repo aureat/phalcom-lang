@@ -7,5 +7,5 @@ class Dog is Animal {
   @constructor new() { }
 }
 
-const dog = Dog.new()
+let dog = Dog.new()
 dog./*@speak*/speak()

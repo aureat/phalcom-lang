@@ -383,7 +383,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["collections"],
         kind: ModuleKind::Package,
-        children: &["collection", "iterator_laws", "list", "map", "set", "tuple", "record", "range", "bytes"],
+        children: &["collection", "iterator_laws", "list", "map", "set", "tuple", "record", "pack", "range", "bytes"],
     },
     UniverseNodeSpec {
         path: &["collections", "collection"],
@@ -417,6 +417,11 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["collections", "record"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["collections", "pack"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -650,6 +655,10 @@ impl UniverseSourceProvider {
         Ok(provider)
     }
 
+    pub fn is_canonical(&self) -> bool {
+        !self.has_test_source_overrides()
+    }
+
     pub(crate) fn has_test_source_overrides(&self) -> bool {
         #[cfg(feature = "test-support")]
         {
@@ -839,6 +848,9 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "collections" && m.as_str() == "record" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/record.ph")
+            }
+            [c, m] if c.as_str() == "collections" && m.as_str() == "pack" => {
+                include_str!("../../phalcom-core/core/universe/src/collections/pack.ph")
             }
             [c, m] if c.as_str() == "collections" && m.as_str() == "range" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/range.ph")

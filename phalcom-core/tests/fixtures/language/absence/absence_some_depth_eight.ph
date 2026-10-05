@@ -3,5 +3,5 @@
 // status: PASS
 // Option nesting supports depths beyond seven layers.
 
-const v8 = Some(Some(Some(Some(Some(Some(Some(Some(None))))))))
+let v8 = Some(Some(Some(Some(Some(Some(Some(Some(None))))))))
 System.print(v8)

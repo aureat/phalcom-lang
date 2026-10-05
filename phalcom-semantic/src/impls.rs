@@ -432,6 +432,7 @@ pub struct ResolvedInherentImplTarget {
 enum StructuralBehaviorFamily {
     Tuple,
     Record,
+    Pack,
 }
 
 impl StructuralBehaviorFamily {
@@ -439,6 +440,7 @@ impl StructuralBehaviorFamily {
         universe_declaration(match self {
             Self::Tuple => UniverseKey::Tuple,
             Self::Record => UniverseKey::Record,
+            Self::Pack => UniverseKey::Pack,
         })
     }
 }
@@ -447,6 +449,7 @@ fn structural_behavior_family(store: &TypeStore, target: TypeId) -> Option<Struc
     match store.get(target) {
         TypeData::Unit | TypeData::Tuple(_) | TypeData::TupleFromPacks { .. } => Some(StructuralBehaviorFamily::Tuple),
         TypeData::Record(_) => Some(StructuralBehaviorFamily::Record),
+        TypeData::Pack(_) | TypeData::PackFromPacks { .. } => Some(StructuralBehaviorFamily::Pack),
         _ => None,
     }
 }
@@ -2876,9 +2879,14 @@ fn occurs_in_conformance_binding(store: &TypeStore, parameter: TypeParameterId, 
         TypeData::LabeledTypePack(elements) => elements
             .iter()
             .any(|elem| occurs_in_conformance_binding(store, parameter, elem.element, bindings)),
-        TypeData::TupleFromPacks { positionals, labeled } => {
+        TypeData::TupleFromPacks { positionals, labeled }
+        | TypeData::PackFromPacks { positionals, labeled } => {
             occurs_in_conformance_binding(store, parameter, *positionals, bindings) || occurs_in_conformance_binding(store, parameter, *labeled, bindings)
         }
+        TypeData::Pack(pack) => pack
+            .elements
+            .iter()
+            .any(|element| occurs_in_conformance_binding(store, parameter, element.ty, bindings)),
         TypeData::CallableFromPacks {
             positionals,
             labeled,
@@ -4146,9 +4154,16 @@ pub fn collect_impl_params_in_type(store: &TypeStore, ty: TypeId, impl_id: &Impl
                 collect_impl_params_in_type(store, element.element, impl_id, out);
             }
         }
-        TypeData::CompleteTypePack { positionals, labeled } | TypeData::TupleFromPacks { positionals, labeled } => {
+        TypeData::CompleteTypePack { positionals, labeled }
+        | TypeData::TupleFromPacks { positionals, labeled }
+        | TypeData::PackFromPacks { positionals, labeled } => {
             collect_impl_params_in_type(store, *positionals, impl_id, out);
             collect_impl_params_in_type(store, *labeled, impl_id, out);
+        }
+        TypeData::Pack(pack) => {
+            for e in pack.elements.iter() {
+                collect_impl_params_in_type(store, e.ty, impl_id, out);
+            }
         }
         TypeData::TypePackConcat(segments) | TypeData::LabeledTypePackConcat(segments) => {
             for &segment in segments.iter() {
@@ -5074,6 +5089,15 @@ pub fn resolve_inherent_impl_target(
             if parameter_contract_matches {
                 let is_covering = match (family, ctx.store.get(target_type).clone()) {
                     (StructuralBehaviorFamily::Tuple, TypeData::TupleFromPacks { positionals, labeled })
+                        if declaration_parameter_data.kind == KindId::COMPLETE_TYPE_PACK
+                            && declaration_parameter_data.mode == GenericParameterMode::CompletePack =>
+                    {
+                        let parameter_form = ctx.store.parameter_form(impl_parameter);
+                        let expected_positionals = ctx.store.project_positionals(parameter_form).ok();
+                        let expected_labeled = ctx.store.project_labeled(parameter_form).ok();
+                        expected_positionals == Some(positionals) && expected_labeled == Some(labeled)
+                    }
+                    (StructuralBehaviorFamily::Pack, TypeData::PackFromPacks { positionals, labeled })
                         if declaration_parameter_data.kind == KindId::COMPLETE_TYPE_PACK
                             && declaration_parameter_data.mode == GenericParameterMode::CompletePack =>
                     {

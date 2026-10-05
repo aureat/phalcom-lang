@@ -4,6 +4,6 @@
 // `Map` implements the shared `Iterable#isEmpty` predicate.
 
 System.print(Map.new().isEmpty)
-const m = Map.new()
+let m = Map.new()
 m.at(1, put: 1)
 System.print(m.isEmpty)

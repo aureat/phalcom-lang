@@ -1,10 +1,12 @@
 class Base {
+  mut _value
   @constructor
   new() { _value = 1 }
 }
 class Derived is Base {
+  mut _value
   @constructor
-  new(_ value) { _value = value }
+  new(_ value) { super.new(); _value = value }
   value { _value }
 }
 System.print(Derived.new().value) // None

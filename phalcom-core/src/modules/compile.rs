@@ -275,13 +275,13 @@ pub struct AnalyzedProgram {
 /// Analyzer that coordinates discovery, linking, and whole-workspace semantic analysis.
 pub struct ProgramAnalyzer;
 
-struct DiscoveredProgramClosure {
-    interfaces: BTreeMap<ModuleId, phalcom_modules::UnlinkedModuleInterface>,
-    sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
-    resolved: BTreeMap<(ModuleId, String), ModuleId>,
+pub(crate) struct DiscoveredProgramClosure {
+    pub(crate) interfaces: BTreeMap<ModuleId, phalcom_modules::UnlinkedModuleInterface>,
+    pub(crate) sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
+    pub(crate) resolved: BTreeMap<(ModuleId, String), ModuleId>,
 }
 
-fn discover_reachable_dependencies<P: SourceProvider>(
+pub(crate) fn discover_reachable_dependencies<P: SourceProvider>(
     resolver: &mut ModuleResolver<'_, P>,
     universe: &ProjectUniverse,
     mut interfaces: BTreeMap<ModuleId, phalcom_modules::UnlinkedModuleInterface>,
@@ -1821,7 +1821,7 @@ mod tests {
             .map(|module| module.text.clone())
             .expect("canonical Range source text");
         let source = source.as_ref();
-        let lower_offset = source.find("let lowerOpt = _range.rawLower").expect("RangeIterator lower binding");
+        let lower_offset = source.find("lowerOpt = _range.rawLower").expect("RangeIterator lower binding");
         let is_none_offset = source[lower_offset..]
             .find("lowerOpt.isNone")
             .map(|offset| lower_offset + offset)

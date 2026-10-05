@@ -22,9 +22,9 @@ Usage: scripts/test.sh <lane> [args...]
 Focused lanes:
   ast               AST lexer/parser integration target
   core              all phalcom-core tests
-  core-integration  phalcom-core Rust integration target
-  lang [label]      language acceptance corpus, optionally one label
-  invariants        object-model invariant target
+  core-integration  phalcom-core integration target (--test core)
+  lang [label]      language acceptance corpus (--test language-corpus), optionally one label
+  invariants        object-model invariant target (--test core invariants)
   lsp               all LSP integration stages
   repl              REPL integration target
 
@@ -53,13 +53,18 @@ case "$lane" in
     cargo test -p phalcom-core "$@"
     ;;
   core-integration)
-    cargo test -p phalcom-core --test integration "$@"
+    cargo test -p phalcom-core --test core "$@"
     ;;
   lang)
-    cargo test -p phalcom-core --test lang "$@"
+    label="${1:-}"; [[ -n "$label" ]] && shift
+    if [[ -n "$label" ]]; then
+      cargo test -p phalcom-core --test language-corpus "corpus::$label" "$@"
+    else
+      cargo test -p phalcom-core --test language-corpus "$@"
+    fi
     ;;
   invariants)
-    cargo test -p phalcom-core --test invariants "$@"
+    cargo test -p phalcom-core --test core invariants "$@"
     ;;
   lsp)
     cargo test -p phalcom-lsp "$@"

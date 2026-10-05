@@ -81,7 +81,7 @@ native class System is Object {
 
   @class
   private writeObject(_ obj: Object) -> Object {
-    const s = obj.toString
+    let s = obj.toString
     if s is String {
       rawWrite(s)
     } else {
@@ -96,9 +96,9 @@ native class System is Object {
   /// any unhandled failures.
   @class
   runScheduled() -> Unit {
-    let next = nextScheduled
+    let mut next = nextScheduled
     while next.isSome {
-      let f = next.unwrapOr(None)
+      let mut f = next.unwrapOr(None)
       f.resumeScheduled()
       next = nextScheduled
     }
@@ -168,6 +168,13 @@ native class Fiber is Object {
 
 /// Registration handle representing a listener subscribed to future readiness.
 class FutureSubscription {
+  mut _id
+  mut _kind
+  mut _fiber
+  mut _generation
+  mut _callback
+  mut _onDetach
+  mut _state
   @constructor
   fiber(_ id: Int, _ fiber: Fiber, _ generation: Int, _ onDetach: () -> Unit) {
     _id = id
@@ -208,7 +215,7 @@ class FutureSubscription {
       _fiber = None
       _callback = None
       if _onDetach != None {
-        const hook = _onDetach
+        let hook = _onDetach
         _onDetach = None
         hook.call()
       }
@@ -222,13 +229,13 @@ class FutureSubscription {
     if _state == "active" {
       _state = "delivered"
       if _kind == "fiber" {
-        const f = _fiber
-        const gen = _generation
+        let f = _fiber
+        let gen = _generation
         _fiber = None
         _onDetach = None
         System.wake(f, gen)
       } else {
-        const cb = _callback
+        let cb = _callback
         _callback = None
         _onDetach = None
         if cb != None {
@@ -246,6 +253,10 @@ class FutureSubscription {
 /// rejected (with `Error`). It provides combinators for chaining, transformation,
 /// recovery, and concurrency orchestration.
 class Future<T> {
+  mut _outcome
+  mut _registrations
+  mut _nextRegId
+  mut _detachCount
 
   /// Creates a pending future.
   @constructor
@@ -289,12 +300,12 @@ class Future<T> {
       return false
     }
     _outcome = Option::Some(outcome)
-    const regs = _registrations
+    let regs = _registrations
     _registrations = List.new()
-    let i = 0
-    const n = regs.size
+    let mut i = 0
+    let n = regs.size
     while i < n {
-      const r = regs.at(i)
+      let r = regs.at(i)
       r.deliver()
       i = i + 1
     }
@@ -306,7 +317,7 @@ class Future<T> {
   /// @param v Success value.
   /// @returns `self` for chaining.
   settleValue(_ v: T) -> Future<T> {
-    const res: Result<T, Error> = Result::Ok(v)
+    let res: Result<T, Error> = Result::Ok(v)
     trySettle(res)
     self
   }
@@ -316,7 +327,7 @@ class Future<T> {
   /// @param e Error instance.
   /// @returns `self` for chaining.
   settleError(_ e: Error) -> Future<T> {
-    const res: Result<T, Error> = Result::Error(e)
+    let res: Result<T, Error> = Result::Error(e)
     trySettle(res)
     self
   }
@@ -343,11 +354,11 @@ class Future<T> {
 
   // Amortized compaction to discard detached registration tombstones.
   private compactRegistrations() -> Unit {
-    const compacted = List.new()
-    let i = 0
-    const n = _registrations.size
+    let compacted = List.new()
+    let mut i = 0
+    let n = _registrations.size
     while i < n {
-      const r = _registrations.at(i)
+      let r = _registrations.at(i)
       if r.isActive {
         compacted.rawPush(r)
       }
@@ -359,10 +370,10 @@ class Future<T> {
 
   /// Internal subscription seam for callbacks.
   internal subscribeReady(_ callback: () -> Unit) -> FutureSubscription {
-    const regId = _nextRegId
+    let regId = _nextRegId
     _nextRegId = _nextRegId + 1
 
-    const reg = FutureSubscription.callback(
+    let reg = FutureSubscription.callback(
       regId,
       callback
     ) {
@@ -391,17 +402,17 @@ class Future<T> {
   /// @returns Fulfilled value of type `T`.
   await -> T {
     while not isReady {
-      const current = Fiber.current
+      let current = Fiber.current
       if current.isRoot {
         System.runScheduled()
       } else {
-        const generation = current.preparePark()
+        let generation = current.preparePark()
         if isReady {
           break
         }
-        const regId = _nextRegId
+        let regId = _nextRegId
         _nextRegId = _nextRegId + 1
-        const reg = FutureSubscription.fiber(
+        let reg = FutureSubscription.fiber(
           regId,
           current,
           generation
@@ -440,7 +451,7 @@ class Future<T> {
   // Runs `action` to terminal completion and invokes the matching callback.
   @class
   private runToTerminal<U>(_ action: () -> U, _ onSuccess: (U) -> Unit, _ onError: (Error) -> Unit) -> Fiber {
-    const fiber = Fiber.new(action)
+    let fiber = Fiber.new(action)
     fiber.onComplete(|| {
       if fiber.error.isSome {
         onError.call(fiber.error.unwrapOr(None))
@@ -459,7 +470,7 @@ class Future<T> {
   /// @returns Future tracking execution of the action.
   @class
   async<U>(_ action: () -> U) -> Future<U> {
-    const result: Future<U> = Future.new()
+    let result: Future<U> = Future.new()
     Future.runToTerminal(
       action,
       |value| { result.settleValue(value); () },
@@ -474,7 +485,7 @@ class Future<T> {
   /// @param callback Function mapping `T` to `U`.
   /// @returns A new future resolving to the transformed value.
   map<U>(_ callback: (T) -> U) -> Future<U> {
-    const result: Future<U> = Future.new()
+    let result: Future<U> = Future.new()
     subscribeReady(|| {
       match _outcome {
         Option::Some(out) => {
@@ -507,7 +518,7 @@ class Future<T> {
   /// @param callback Function returning a new future from the fulfilled value.
   /// @returns A future tracking the chained computation.
   then<U>(_ callback: (T) -> Future<U>) -> Future<U> {
-    const result: Future<U> = Future.new()
+    let result: Future<U> = Future.new()
     subscribeReady(|| {
       match _outcome {
         Option::Some(out) => {
@@ -515,7 +526,7 @@ class Future<T> {
             Result::Ok(v) => {
               Future.runToTerminal(
                 || {
-                  const next = callback.call(v)
+                  let next = callback.call(v)
                   if next == result { throw Error.new("Future callback cannot adopt its own result") }
                   next.await
                 },
@@ -543,7 +554,7 @@ class Future<T> {
   /// @param callback Error recovery function returning `T`.
   /// @returns A future recovering to a valid value on error.
   catch(_ callback: (Error) -> T) -> Future<T> {
-    const result: Future<T> = Future.new()
+    let result: Future<T> = Future.new()
     subscribeReady(|| {
       match _outcome {
         Option::Some(out) => {
@@ -575,7 +586,7 @@ class Future<T> {
   /// @param callback Error recovery function returning `Future<T>`.
   /// @returns A future tracking the recovery operation.
   recoverWith(_ callback: (Error) -> Future<T>) -> Future<T> {
-    const result: Future<T> = Future.new()
+    let result: Future<T> = Future.new()
     subscribeReady(|| {
       match _outcome {
         Option::Some(out) => {
@@ -587,7 +598,7 @@ class Future<T> {
             Result::Error(e) => {
               Future.runToTerminal(
                 || {
-                  const next = callback.call(e)
+                  let next = callback.call(e)
                   if next == result { throw Error.new("Future callback cannot adopt its own result") }
                   next.await
                 },
@@ -623,29 +634,29 @@ class Future<T> {
   /// @returns Future resolving to a list of fulfilled values.
   @class
   all<U>(_ inputs: List<Future<U>>) -> Future<List<U>> {
-    const n = inputs.size
+    let n = inputs.size
     if n == 0 {
       return Future.value(List.new())
     }
-    const result: Future<List<U>> = Future.new()
-    let remaining = n
-    const values = List.new()
-    let idx = 0
+    let result: Future<List<U>> = Future.new()
+    let mut remaining = n
+    let values = List.new()
+    let mut idx = 0
     while idx < n {
       values.rawPush(None)
       idx = idx + 1
     }
-    let settled = false
-    const subs = List.new()
+    let mut settled = false
+    let subs = List.new()
 
-    let i = 0
+    let mut i = 0
     while i < n {
       if settled {
         break
       }
-      const index = i
-      const input = inputs.at(i)
-      const sub = input.subscribeReady(|| {
+      let index = i
+      let input = inputs.at(i)
+      let sub = input.subscribeReady(|| {
         if settled {
           return ()
         }
@@ -666,9 +677,9 @@ class Future<T> {
               Result::Error(e) => {
                 if not settled {
                   settled = true
-                  let j = 0
+                  let mut j = 0
                   while j < subs.size {
-                    const s = subs.at(j)
+                    let s = subs.at(j)
                     s.detach()
                     j = j + 1
                   }
@@ -700,25 +711,25 @@ class Future<T> {
   /// @returns Future resolving to a list of settlement results.
   @class
   allSettled<U>(_ inputs: List<Future<U>>) -> Future<List<Result<U, Error>>> {
-    const n = inputs.size
+    let n = inputs.size
     if n == 0 {
       return Future.value(List.new())
     }
-    const result: Future<List<Result<U, Error>>> = Future.new()
-    let remaining = n
-    const outcomes = List.new()
-    let idx = 0
+    let result: Future<List<Result<U, Error>>> = Future.new()
+    let mut remaining = n
+    let outcomes = List.new()
+    let mut idx = 0
     while idx < n {
       outcomes.rawPush(None)
       idx = idx + 1
     }
-    const subs = List.new()
+    let subs = List.new()
 
-    let i = 0
+    let mut i = 0
     while i < n {
-      const index = i
-      const input = inputs.at(i)
-      const sub = input.subscribeReady(|| {
+      let index = i
+      let input = inputs.at(i)
+      let sub = input.subscribeReady(|| {
         match input.outcome {
           Option::Some(out) => {
             outcomes.at(index, put: out)
@@ -746,31 +757,31 @@ class Future<T> {
   /// @returns Future reflecting the winning outcome.
   @class
   race<U>(_ inputs: List<Future<U>>) -> Future<U> {
-    const n = inputs.size
+    let n = inputs.size
     if n == 0 {
       return Future.error(ArgumentError.new("Future.race: cannot race on an empty list"))
     }
-    const result: Future<U> = Future.new()
-    let settled = false
-    const subs = List.new()
+    let result: Future<U> = Future.new()
+    let mut settled = false
+    let subs = List.new()
 
-    let i = 0
+    let mut i = 0
     while i < n {
       if settled {
         break
       }
-      const index = i
-      const input = inputs.at(i)
-      const sub = input.subscribeReady(|| {
+      let index = i
+      let input = inputs.at(i)
+      let sub = input.subscribeReady(|| {
         if settled {
           return ()
         }
         match input.outcome {
           Option::Some(out) => {
             settled = true
-            let j = 0
+            let mut j = 0
             while j < subs.size {
-              const s = subs.at(j)
+              let s = subs.at(j)
               s.detach()
               j = j + 1
             }
@@ -811,12 +822,12 @@ class Future<T> {
     if isReady {
       return self
     }
-    const result: Future<T> = Future.new()
-    let settled = false
-    let sourceSub = None
-    let timerSub = None
+    let result: Future<T> = Future.new()
+    let mut settled = false
+    let mut sourceSub = None
+    let mut timerSub = None
 
-    const timer = System.sleep(duration)
+    let timer = System.sleep(duration)
 
     sourceSub = subscribeReady(|| {
       if not settled {
@@ -868,11 +879,12 @@ class Future<T> {
 
 /// Producer capability wrapper providing isolated settlement authority over a `Future<T>`.
 class CompletionSource<T> {
+  mut _future
 
   /// Creates a new completion source and its underlying pending future.
   @constructor
   new() {
-    const f: Future<T> = Future.new()
+    let f: Future<T> = Future.new()
     _future = f
   }
 
@@ -886,7 +898,7 @@ class CompletionSource<T> {
   /// @param value Fulfillment value.
   /// @returns `true` if this call settled the future; `false` if already settled.
   tryResolve(_ value: T) -> Bool {
-    const res: Result<T, Error> = Result::Ok(value)
+    let res: Result<T, Error> = Result::Ok(value)
     _future.trySettle(res)
   }
 
@@ -895,7 +907,7 @@ class CompletionSource<T> {
   /// @param error Rejection error.
   /// @returns `true` if this call settled the future; `false` if already settled.
   tryReject(_ error: Error) -> Bool {
-    const res: Result<T, Error> = Result::Error(error)
+    let res: Result<T, Error> = Result::Error(error)
     _future.trySettle(res)
   }
 }
@@ -925,6 +937,8 @@ class Tracer {
 
 /// Configurable behavior for disabled feature flags.
 class OffBehavior {
+  mut _kind
+  mut _payload
 
   /// Raises an error when the feature flag is disabled.
   @class
@@ -953,6 +967,9 @@ class OffBehavior {
 
 /// Delay calculation and suspension strategy for retries and backoff.
 class Backoff {
+  mut _kind
+  mut _a
+  mut _b
 
   /// Immediate retry without delay.
   @class
@@ -1019,13 +1036,13 @@ class Backoff {
       return _a
     }
     if _kind == "exponential" {
-      const base = _a
-      const max = _b
+      let base = _a
+      let max = _b
       if base == 0 {
         return 0
       }
-      let delay = base
-      let i = 0
+      let mut delay = base
+      let mut i = 0
       while i < attempt and delay < max {
         delay = delay * 2
         if delay > max {
@@ -1042,7 +1059,7 @@ class Backoff {
   ///
   /// @param attempt Zero-indexed attempt number.
   waitBefore(_ attempt: Int) -> Unit {
-    const delay = delayFor(attempt)
+    let delay = delayFor(attempt)
     if delay == 0 {
       return ()
     }

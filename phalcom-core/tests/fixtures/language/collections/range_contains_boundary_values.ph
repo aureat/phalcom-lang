@@ -8,13 +8,13 @@
 // at-end (inclusive vs exclusive), and past-end all pinned for both bound
 // kinds.
 
-const inc = Range.new(2, 5, true)
+let inc = Range.new(2, 5, true)
 System.print(inc.includes(1))
 System.print(inc.includes(2))
 System.print(inc.includes(5))
 System.print(inc.includes(6))
 
-const exc = Range.new(2, 5, false)
+let exc = Range.new(2, 5, false)
 System.print(exc.includes(1))
 System.print(exc.includes(2))
 System.print(exc.includes(5))

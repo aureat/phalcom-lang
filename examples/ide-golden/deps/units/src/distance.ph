@@ -1,6 +1,6 @@
 /*@navigation.distance.definition*/
 class Distance {
-  _units: Int = 0
+  mut _units: Int = 0
 
   @constructor
   new(_ units: Int) {

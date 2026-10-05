@@ -170,7 +170,7 @@ fn expression_result_absence_surfaces_to_none() {
     use phalcom_core::primitive::class::class_superclass;
     use phalcom_core::primitive::system::system_class_print;
 
-    let mut vm = VM::new();
+    let mut vm = VM::new_native();
     let is_none = |value: Value, label: &str| {
         assert!(!value.is_nil(), "{label} leaked the raw sentinel");
         assert!(value.is_none(), "{label} should yield immediate None");
@@ -202,7 +202,7 @@ fn expression_result_absence_surfaces_to_none() {
 fn tail_let_and_const_blocks_return_unit_not_initializer_value() {
     use phalcom_core::primitive::block::block_call;
 
-    let mut vm = VM::new();
+    let mut vm = VM::new_kernel();
     let module = vm.create_module("tail_bindings", "tail_let_and_const_blocks_return_unit_not_initializer_value");
     vm.interpret_source(module, "let let_block = || { let x = 42 }\nlet const_block = || { const x = 42 }\n")
         .expect("tail let/const blocks should compile");
@@ -232,7 +232,7 @@ fn inlined_tail_let_produces_unit_for_consumers() {
 
 #[test]
 fn some_construction_never_wraps_the_sentinel() {
-    let mut vm = VM::new();
+    let mut vm = VM::new_native();
     let some_class = Value::obj(vm.universe.classes.some_class);
     let error = some_call(&mut vm, &some_class, &[phalcom_core::value::NIL]).expect_err("Some must reject the private Nil sentinel");
     assert!(error.to_string().contains("private Nil"), "unexpected error: {error}");
@@ -240,7 +240,7 @@ fn some_construction_never_wraps_the_sentinel() {
 
 #[test]
 fn some_can_wrap_none() {
-    let mut vm = VM::new();
+    let mut vm = VM::new_native();
     let none = Value::none();
     let some_class = Value::obj(vm.universe.classes.some_class);
     let result = some_call(&mut vm, &some_class, &[none]);
@@ -262,7 +262,7 @@ fn native_rest_primitives_share_the_method_dictionary_and_rest_index() {
     // selector used by reflection / `::`; `rest_methods` is only the
     // base-family fallback accelerator. Native rest gateways must obey the
     // same invariant as bytecode rest methods.
-    let mut vm = VM::new();
+    let mut vm = VM::new_native();
     let c = vm.universe.classes;
     let rows = [
         (c.object_class, "perform(_,***)", "perform"),
@@ -1240,7 +1240,7 @@ fn isa_is_reflexive_and_superclass_closed() {
 
 #[test]
 fn hash_is_consistent_with_equality() {
-    let mut vm = VM::new();
+    let mut vm = VM::new_kernel();
 
     // Number: 3 == 3.
     let n3a = as_number(number_hash(&mut vm, &Value::int(3), &[]).unwrap());
@@ -1280,7 +1280,7 @@ fn hash_is_consistent_with_equality() {
 
 #[test]
 fn hash_is_stable_across_repeated_calls() {
-    let mut vm = VM::new();
+    let mut vm = VM::new_native();
     let obj = Value::obj(vm.universe.classes.none_class);
     let cases: [Value; 4] = [Value::int(42), Value::bool(true), Value::symbol(vm.get_or_intern("stable")), obj];
     for value in cases {
@@ -1847,7 +1847,7 @@ let r = || { throw SubErr.new("leaf") }.on(BaseErr) |e| { "caught:" + e.message 
 
 #[test]
 fn obj_ref_opaque_round_trip() {
-    let mut vm = VM::new();
+    let mut vm = VM::new_kernel();
     let id1 = vm.heap.alloc_string("hello".to_string());
     let v1 = Value::obj(id1);
     assert!(v1.is_obj());

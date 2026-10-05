@@ -264,6 +264,10 @@ pub enum AnonymousProductConstructionKind {
         logical_labels: Box<[Box<str>]>,
         source_to_logical: Box<[u32]>,
     },
+    Pack {
+        positional_len: u32,
+        labels: Box<[Box<str>]>,
+    },
 }
 
 /// Compiler-executable specification for a statically closed anonymous product.
@@ -500,16 +504,37 @@ pub struct DetachedMethodSpec {
     pub source: DetachedMethodSource,
 }
 
+/// Materialization specification for one evaluated compile-time static constant.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StaticConstantLoweringSpec {
+    pub id: phalcom_semantic::static_constant::StaticConstantId,
+    pub descriptor: phalcom_semantic::materialization::MaterializationDescriptor,
+}
+
 /// Complete compiled lowering semantics for a single module.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModuleLoweringSemantics {
     pub module: ModuleId,
+    /// Evaluated compile-time static constants projected for runtime materialization.
+    pub static_constants: BTreeMap<String, StaticConstantLoweringSpec>,
+    /// Canonical callable signatures used to materialize compiler-only
+    /// constructor projections without rebuilding signature authority.
+    pub callable_signatures: Arc<phalcom_semantic::signature::CallableSignatureTable>,
+    /// Canonical constructor/initializer identities shared by semantic checking and code generation.
+    pub constructor_initializations: Arc<phalcom_semantic::signature::ConstructorInitializationTable>,
+    /// Semantic direct-parent initializer selections keyed by their exact
+    /// explicit `super` call sites.
+    pub constructor_super_initializers: BTreeMap<SourceRange, CallableId>,
     /// Canonical local-binding attachments keyed by their current source
     /// ranges. The compiler may use these facts to classify AST uses, but it
     /// never resolves names or scopes independently.
     pub bindings: BTreeMap<SourceRange, BindingId>,
+    /// Read safety classifications for binding reads published by static flow analysis.
+    pub binding_read_safeties: BTreeMap<SourceRange, phalcom_semantic::checker::flow::BindingReadSafety>,
     pub type_form_values: BTreeMap<SourceRange, RuntimeTypeFormValueSpec>,
     pub anonymous_products: BTreeMap<SourceRange, Arc<AnonymousProductConstructionLoweringSpec>>,
+    /// Checked calls whose constructor belongs to the canonical intrinsic Pack.
+    pub pack_constructions: BTreeSet<SourceRange>,
     pub call_environment_recipes: BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>,
     /// Conditional selected-call recipes keyed by source edge and exact
     /// callable identity; one bound family source may capture several entries.
@@ -566,9 +591,15 @@ impl ModuleLoweringSemantics {
     pub fn new(module: ModuleId) -> Self {
         Self {
             module,
+            static_constants: BTreeMap::new(),
+            callable_signatures: Arc::new(phalcom_semantic::signature::CallableSignatureTable::default()),
+            constructor_initializations: Arc::new(phalcom_semantic::signature::ConstructorInitializationTable::default()),
+            constructor_super_initializers: BTreeMap::new(),
             bindings: BTreeMap::new(),
+            binding_read_safeties: BTreeMap::new(),
             type_form_values: BTreeMap::new(),
             anonymous_products: BTreeMap::new(),
+            pack_constructions: BTreeSet::new(),
             call_environment_recipes: BTreeMap::new(),
             conditional_call_environment_recipes: BTreeMap::new(),
             enums: Box::new([]),
@@ -601,6 +632,8 @@ pub enum ProjectionError {
     DataTypeMetadata(String),
     #[error("ambiguous lowering site attachment at {0:?}")]
     AmbiguousLoweringSiteAttachment(LoweringSite),
+    #[error("ambiguous constructor super-initializer attachment at {0:?}")]
+    AmbiguousConstructorSuperInitializerAttachment(SourceRange),
     #[error("missing source range for expression {0:?}")]
     MissingSourceRange(ExpressionId),
     #[error("missing variant metadata for {0:?}")]
@@ -873,6 +906,22 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         SourceId(module.to_string().into_boxed_str())
     };
 
+    let mut constructor_super_initializers = BTreeMap::new();
+    for (callable, analysis) in snapshot.callable_analyses.iter() {
+        if *callable.owner.module() != *module {
+            continue;
+        }
+        let Some(resolution) = analysis.constructor_super_initializer.as_ref() else {
+            continue;
+        };
+        if constructor_super_initializers
+            .insert(resolution.call_range, resolution.initializer.clone())
+            .is_some()
+        {
+            return Err(ProjectionError::AmbiguousConstructorSuperInitializerAttachment(resolution.call_range));
+        }
+    }
+
     // Project canonical binding identity once at the semantic/codegen
     // boundary. Declaration sites come from the formal callable attachment;
     // variable occurrences come from the source-index target attachments.
@@ -903,6 +952,18 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                 if let Some(binding) = binding_by_site.get(site) {
                     bindings.insert(occurrence.range, *binding);
                 }
+            }
+        }
+    }
+
+    let mut binding_read_safeties = BTreeMap::new();
+    for (callable_id, analysis) in snapshot.callable_analyses.iter() {
+        if *callable_id.owner.module() != *module {
+            continue;
+        }
+        for expr in analysis.expressions.values() {
+            if let Some(safety) = expr.binding_read_safety {
+                binding_read_safeties.insert(expr.range, safety);
             }
         }
     }
@@ -1076,6 +1137,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
 
     // 3. Project Associated Expressions & Family Applications
     let mut associated = BTreeMap::new();
+    let mut pack_constructions = BTreeSet::new();
     let mut callable_references = BTreeMap::new();
     let mut family_values = BTreeSet::new();
     let mut family_application_sites = BTreeSet::new();
@@ -1169,6 +1231,15 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                 None => return Err(ProjectionError::MissingSourceRange(*expr_id)),
             };
 
+            if let AssociatedResolutionKind::StaticInvoke {
+                target: InvocationTargetId::DataConstructor(constructor),
+                ..
+            } = &resolution.kind
+                && snapshot.declarations.intrinsic_runtime_owner(&constructor.owner) == Some(phalcom_semantic::declarations::IntrinsicRuntimeOwner::Pack)
+            {
+                pack_constructions.insert(range);
+                continue;
+            }
             let (kind, spec) = project_associated_resolution(resolution, snapshot, projects)?;
             let site = LoweringSite::new(source_id.clone(), range, kind);
 
@@ -1471,12 +1542,19 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         .map(|source| project_anonymous_products(module, snapshot, &source.program, runtime_type_roots))
         .unwrap_or_default();
     let type_form_values = project_type_form_values(module, snapshot);
+    let static_constants = project_static_constants(module, snapshot);
 
     Ok(ModuleLoweringSemantics {
         module: module.clone(),
+        static_constants,
+        callable_signatures: snapshot.callable_signatures.clone(),
+        constructor_initializations: snapshot.constructor_initializations.clone(),
+        constructor_super_initializers,
         bindings,
+        binding_read_safeties,
         type_form_values,
         anonymous_products,
+        pack_constructions,
         call_environment_recipes: runtime_call_environment_recipes.clone(),
         conditional_call_environment_recipes: conditional_call_environment_recipes.clone(),
         enums: enums.into_boxed_slice(),
@@ -1497,6 +1575,26 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         known_invalid_positional_expansions,
         detached_methods,
     })
+}
+
+fn project_static_constants(module: &ModuleId, snapshot: &SemanticSnapshot) -> BTreeMap<String, StaticConstantLoweringSpec> {
+    let mut projected = BTreeMap::new();
+    let static_constants_table = snapshot.static_constants();
+    let store = snapshot.static_values();
+    for product in static_constants_table.module_constants(module) {
+        if product.is_successful() {
+            if let Some(descriptor) = product.materialization_descriptor(store) {
+                projected.insert(
+                    product.id.name().to_string(),
+                    StaticConstantLoweringSpec {
+                        id: product.id.clone(),
+                        descriptor,
+                    },
+                );
+            }
+        }
+    }
+    projected
 }
 
 fn project_type_form_values(module: &ModuleId, snapshot: &SemanticSnapshot) -> BTreeMap<SourceRange, RuntimeTypeFormValueSpec> {
@@ -1697,6 +1795,12 @@ enum AnonymousProductSource {
         labels: Vec<Box<str>>,
         component_ranges: Vec<SourceRange>,
     },
+    Pack {
+        range: SourceRange,
+        positional_len: u32,
+        labels: Vec<Box<str>>,
+        component_ranges: Vec<SourceRange>,
+    },
 }
 
 fn static_product_label(label: &phalcom_ast::ast::ProductLabel) -> Option<Box<str>> {
@@ -1818,7 +1922,45 @@ fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<A
             collect_anonymous_product_expr(&e.value, out);
             collect_anonymous_product_statements(&e.body, out);
         }
-        Expr::UnqualifiedCall(e) => collect_anonymous_product_pack(&e.args, out),
+        Expr::UnqualifiedCall(e) => {
+            let mut positional_len = 0u32;
+            let mut labels = Vec::new();
+            let mut component_ranges = Vec::new();
+            let mut eligible = true;
+            for arg in &e.args {
+                match arg {
+                    phalcom_ast::ast::PackItem::Positional { expr, .. } => {
+                        positional_len = positional_len.saturating_add(1);
+                        component_ranges.push(expr.range());
+                    }
+                    phalcom_ast::ast::PackItem::Labeled { label, value, .. } => {
+                        let label_str = match label {
+                            phalcom_ast::ast::PackLabel::Static { text, .. } => Some(text.clone().into_boxed_str()),
+                            phalcom_ast::ast::PackLabel::Computed { .. } => None,
+                        };
+                        let Some(label_str) = label_str else {
+                            eligible = false;
+                            continue;
+                        };
+                        labels.push(label_str);
+                        component_ranges.push(value.range());
+                    }
+                    phalcom_ast::ast::PackItem::Expand { .. } => {
+                        eligible = false;
+                        break;
+                    }
+                }
+            }
+            if eligible {
+                out.push(AnonymousProductSource::Pack {
+                    range: e.range,
+                    positional_len,
+                    labels,
+                    component_ranges,
+                });
+            }
+            collect_anonymous_product_pack(&e.args, out);
+        }
         Expr::MethodCall(e) => {
             collect_anonymous_product_expr(&e.object, out);
             collect_anonymous_product_pack(&e.args, out);
@@ -1992,6 +2134,7 @@ fn collect_anonymous_product_statements(statements: &[phalcom_ast::ast::Statemen
                 }
             }
             Statement::TypeAlias(_)
+            | Statement::TypeDefinition(_)
             | Statement::Data(_)
             | Statement::Trait(_)
             | Statement::Break { .. }
@@ -2060,6 +2203,28 @@ fn collect_anonymous_product_module_roots(program: &phalcom_ast::ast::Program) -
     out
 }
 
+fn canonical_pack_construction_ranges(module: &ModuleId, snapshot: &SemanticSnapshot) -> BTreeSet<SourceRange> {
+    snapshot
+        .callable_analyses
+        .iter()
+        .filter(|(callable, _)| callable.owner.module() == module)
+        .flat_map(|(_, analysis)| {
+            analysis.associated_resolutions.iter().filter_map(|(expression, resolution)| {
+                let AssociatedResolutionKind::StaticInvoke {
+                    target: InvocationTargetId::DataConstructor(constructor),
+                    ..
+                } = &resolution.kind
+                else {
+                    return None;
+                };
+                (snapshot.declarations.intrinsic_runtime_owner(&constructor.owner) == Some(phalcom_semantic::declarations::IntrinsicRuntimeOwner::Pack))
+                    .then(|| analysis.expressions.get(expression).map(|expression| expression.range))
+                    .flatten()
+            })
+        })
+        .collect()
+}
+
 fn project_anonymous_products(
     module: &ModuleId,
     snapshot: &SemanticSnapshot,
@@ -2080,6 +2245,7 @@ fn project_anonymous_products(
                 .or_insert_with(|| expression.knowledge.ty());
         }
     }
+    let pack_sites = canonical_pack_construction_ranges(module, snapshot);
     let mut projected = BTreeMap::new();
 
     for source in sources {
@@ -2095,6 +2261,15 @@ fn project_anonymous_products(
                     continue;
                 };
                 (*range, component_ranges.clone(), 1u8, type_id)
+            }
+            AnonymousProductSource::Pack { range, component_ranges, .. } => {
+                if !pack_sites.contains(range) {
+                    continue;
+                }
+                let Some(type_id) = expression_facts.get(range).copied().flatten() else {
+                    continue;
+                };
+                (*range, component_ranges.clone(), 2u8, type_id)
             }
         };
         let Some(runtime_type) = runtime_type_roots.get(&range).copied() else {
@@ -2133,7 +2308,7 @@ fn project_anonymous_products(
                 ),
                 type_recipe,
             }
-        } else {
+        } else if kind == 1 {
             let AnonymousProductSource::Record { labels, .. } = source else {
                 unreachable!()
             };
@@ -2176,6 +2351,33 @@ fn project_anonymous_products(
                 ),
                 type_recipe,
             }
+        } else {
+            let AnonymousProductSource::Pack { positional_len, labels, .. } = source else {
+                unreachable!()
+            };
+            let phalcom_semantic::types::store::TypeData::Pack(pack) = snapshot.store.get(type_id) else {
+                continue;
+            };
+            if pack.elements.len() != component_ranges.len() || pack.elements.len() != (positional_len as usize + labels.len()) {
+                continue;
+            }
+            AnonymousProductConstructionLoweringSpec {
+                kind: AnonymousProductConstructionKind::Pack {
+                    positional_len,
+                    labels: labels.into_boxed_slice(),
+                },
+                layout: crate::product::ProductLayoutSpec::new(
+                    pack.elements
+                        .iter()
+                        .enumerate()
+                        .map(|(index, element)| crate::product::ProductComponentSpec {
+                            logical_index: index as u32,
+                            repr: project_slot_repr_type(element.ty, &snapshot.store),
+                        })
+                        .collect(),
+                ),
+                type_recipe,
+            }
         };
         projected.insert(range, Arc::new(spec));
     }
@@ -2198,13 +2400,19 @@ pub fn anonymous_product_type_roots(module: &ModuleId, snapshot: &SemanticSnapsh
                 .or_insert_with(|| expression.knowledge.ty());
         }
     }
+    let pack_sites = canonical_pack_construction_ranges(module, snapshot);
     sources
         .into_iter()
         .filter_map(|source| {
-            let (range, component_count) = match &source {
-                AnonymousProductSource::Tuple { range, component_ranges, .. } | AnonymousProductSource::Record { range, component_ranges, .. } => {
-                    (*range, component_ranges.len())
+            if let AnonymousProductSource::Pack { range, .. } = &source {
+                if !pack_sites.contains(range) {
+                    return None;
                 }
+            }
+            let (range, component_count) = match &source {
+                AnonymousProductSource::Tuple { range, component_ranges, .. }
+                | AnonymousProductSource::Record { range, component_ranges, .. }
+                | AnonymousProductSource::Pack { range, component_ranges, .. } => (*range, component_ranges.len()),
             };
             let ty = expression_facts.get(&range).copied().flatten()?;
             match snapshot.store.get(ty) {
@@ -2217,6 +2425,7 @@ pub fn anonymous_product_type_roots(module: &ModuleId, snapshot: &SemanticSnapsh
                         None
                     }
                 }
+                TypeData::Pack(pack) if pack.elements.len() == component_count => Some((range, ty)),
                 _ => None,
             }
         })

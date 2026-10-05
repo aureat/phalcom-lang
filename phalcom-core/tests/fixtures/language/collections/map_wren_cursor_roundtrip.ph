@@ -11,10 +11,10 @@
 // both Map and Set yield keys via the cursor; there is no `MapEntry`
 // wrapper — Wren's `MapEntry` has no Phalcom analog).
 
-const m = Map.new()
+let m = Map.new()
 m.at("one", put: 1)
 
-let c = m.iterate(None)
+let mut c = m.iterate(None)
 System.print(c)
 System.print(m.iteratorValue(c))
 
@@ -25,11 +25,11 @@ m.at("one", put: "updated")
 System.print(m["one"])
 
 // Full traversal to the end.
-const m2 = Map.new()
+let m2 = Map.new()
 m2.at(1, put: "a")
 m2.at(2, put: "b")
-let cursor = m2.iterate(None)
-let seen = 0
+let mut cursor = m2.iterate(None)
+let mut seen = 0
 while (cursor != None) {
   seen = seen + 1
   cursor = m2.iterate(cursor)

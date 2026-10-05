@@ -51,19 +51,19 @@ native class Range is Collection {
 
   /// Normalizes bounds for a finite sequence of `size` elements.
   internal rawSliceBounds(_ size) {
-    let start = 0
-    let end = size
-    let lower = self.rawLower
+    let mut start = 0
+    let mut end = size
+    let mut lower = self.rawLower
     if lower.isSome {
-      let coordinate = lower.unwrapOr(0)
+      let mut coordinate = lower.unwrapOr(0)
       if not self.isSliceCoordinate(coordinate) {
         return Result::Error(SliceError.new("Range lower bound must be an integer coordinate"))
       }
       start = self.sliceBoundary(coordinate, size)
     }
-    let upper = self.rawUpper
+    let mut upper = self.rawUpper
     if upper.isSome {
-      let coordinate = upper.unwrapOr(0)
+      let mut coordinate = upper.unwrapOr(0)
       if not self.isSliceCoordinate(coordinate) {
         return Result::Error(SliceError.new("Range upper bound must be an integer coordinate"))
       }
@@ -81,7 +81,7 @@ native class Range is Collection {
 
   /// Returns the lower bound, or raises for an unbounded lower side.
   first {
-    let lower = self.rawLower
+    let mut lower = self.rawLower
     if lower.isNone {
       throw Error.new("Range has no first element because lower bound is absent")
     }
@@ -90,11 +90,11 @@ native class Range is Collection {
 
   /// Returns the last included value, or raises for an unbounded upper side.
   last {
-    let upper = self.rawUpper
+    let mut upper = self.rawUpper
     if upper.isNone {
       throw Error.new("Range has no last element because upper bound is absent")
     }
-    let value = upper.unwrapOr(None)
+    let mut value = upper.unwrapOr(None)
     if self.rawUpperInclusive {
       return value
     }
@@ -103,17 +103,17 @@ native class Range is Collection {
 
   /// Returns the number of values in a bounded range.
   size {
-    let lower = self.rawLower
-    let upper = self.rawUpper
+    let mut lower = self.rawLower
+    let mut upper = self.rawUpper
     if lower.isNone or upper.isNone {
       throw Error.new("Unbounded Range has no size")
     }
-    let first = lower.unwrapOr(None)
-    let last = upper.unwrapOr(None)
+    let mut first = lower.unwrapOr(None)
+    let mut last = upper.unwrapOr(None)
     if first > last {
       return 0
     }
-    let difference = last - first
+    let mut difference = last - first
     if self.rawUpperInclusive {
       return difference + 1
     }
@@ -122,16 +122,16 @@ native class Range is Collection {
 
   /// Reports whether `x` falls within the range bounds.
   contains(_ x) {
-    let lower = self.rawLower
-    let upper = self.rawUpper
-    let lowerOk = true
-    let upperOk = true
+    let mut lower = self.rawLower
+    let mut upper = self.rawUpper
+    let mut lowerOk = true
+    let mut upperOk = true
 
     if lower.isSome {
       lowerOk = x >= lower.unwrapOr(None)
     }
     if upper.isSome {
-      let bound = upper.unwrapOr(None)
+      let mut bound = upper.unwrapOr(None)
       if self.rawUpperInclusive {
         upperOk = x <= bound
       } else {
@@ -146,15 +146,15 @@ native class Range is Collection {
 
   /// Returns the value at zero-based index `i`, supporting negative indexes.
   at(_ i) {
-    let lower = self.rawLower
+    let mut lower = self.rawLower
     if lower.isNone {
       throw Error.new("Range index out of range (lower bound is absent)")
     }
-    let index = i
+    let mut index = i
     if index < 0 {
       index = self.size + index
     }
-    let count = self.size
+    let mut count = self.size
     if index < 0 or index >= count {
       throw Error.new("Range index out of range")
     }
@@ -173,15 +173,15 @@ native class Range is Collection {
 
   /// Renders the range using its bound syntax.
   toString {
-    let lower = ""
-    let upper = ""
+    let mut lower = ""
+    let mut upper = ""
     if self.rawLower.isSome {
       lower = self.rawLower.unwrapOr(0).toString
     }
     if self.rawUpper.isSome {
       upper = self.rawUpper.unwrapOr(0).toString
     }
-    let operator = ".."
+    let mut operator = ".."
     if self.rawUpperInclusive {
       operator = "..="
     }
@@ -190,9 +190,9 @@ native class Range is Collection {
 
   /// Computes a hash from the range bounds.
   hash {
-    let lower = 17
-    let upper = 31
-    let inclusive = 0
+    let mut lower = 17
+    let mut upper = 31
+    let mut inclusive = 0
     if self.rawLower.isSome {
       lower = self.rawLower.unwrapOr(0).hash
     }
@@ -208,10 +208,10 @@ native class Range is Collection {
 }
 
 class RangeIterator {
-  _range: Range
-  _started: Bool
-  _done: Bool
-  _nextValue: Number
+  mut _range: Range
+  mut _started: Bool
+  mut _done: Bool
+  mut _nextValue: Number
 
   @constructor
   new(_ range: Range) {
@@ -225,18 +225,18 @@ class RangeIterator {
     if _done { return None }
 
     if not _started {
-      let lowerOpt = _range.rawLower
+      let mut lowerOpt = _range.rawLower
       if lowerOpt.isNone {
         throw ArgumentError.new("Range iteration unsupported when lower bound is absent")
       }
-      let lower = lowerOpt.unwrapOr(0)
+      let mut lower = lowerOpt.unwrapOr(0)
       if lower is not Number or lower % 1 != 0 {
         throw ArgumentError.new("Range iteration unsupported: lower bound must be an integer")
       }
 
-      let upperOpt = _range.rawUpper
+      let mut upperOpt = _range.rawUpper
       if upperOpt.isSome {
-        let upper = upperOpt.unwrapOr(0)
+        let mut upper = upperOpt.unwrapOr(0)
         if upper is not Number or upper % 1 != 0 {
           throw ArgumentError.new("Range iteration unsupported: upper bound must be an integer")
         }
@@ -251,10 +251,10 @@ class RangeIterator {
       _nextValue = _nextValue + 1
     }
 
-    let upperOpt = _range.rawUpper
+    let mut upperOpt = _range.rawUpper
     if upperOpt.isSome {
-      let upper = upperOpt.unwrapOr(0)
-      let live = _nextValue < upper
+      let mut upper = upperOpt.unwrapOr(0)
+      let mut live = _nextValue < upper
       if _range.rawUpperInclusive {
         live = _nextValue <= upper
       }
@@ -270,10 +270,10 @@ class RangeIterator {
 
   /// Returns all remaining values as a list.
   toList {
-    let result = List<Dynamic>.new()
-    let step = self.next
+    let mut result = List<Dynamic>.new()
+    let mut step = self.next
     while step.isSome {
-      let value = step.match(some: |v| { v }, none: || { None })
+      let mut value = step.match(some: |v| { v }, none: || { None })
       result.append(value)
       step = self.next
     }

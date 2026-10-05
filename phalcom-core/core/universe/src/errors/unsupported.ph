@@ -1,6 +1,6 @@
 @sealed
 class Unsupported is Error {
-  @class _instance
+  @class mut _instance
 
   @class
   instance {
@@ -34,6 +34,6 @@ class Unsupported is Error {
   }
 }
 
-const unsupported = Unsupported.instance
+let unsupported = Unsupported.instance
 
 export unsupported

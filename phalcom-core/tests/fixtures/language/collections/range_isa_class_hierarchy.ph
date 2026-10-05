@@ -7,7 +7,7 @@
 // (U-ITERABLE, unlanded) — `isA(_)` is the current membership test, and
 // `.class` the current type-identity read (Wren's `.type`).
 
-const r = Range.new(2, 5, true)
+let r = Range.new(2, 5, true)
 System.print(r.is(Range))
 System.print(r.is(Object))
 System.print(r.is(String))

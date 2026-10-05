@@ -1,4 +1,5 @@
 class Base {
+  mut _value
   @constructor
   make(_ value) { _value = value }
   value { _value }

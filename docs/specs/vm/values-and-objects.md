@@ -235,6 +235,8 @@ The current tag set is:
 | 8 | `AdtSingleton` | `RuntimeVariantId` |
 | 9 | `DataSingleton` | `RuntimeDataDescriptorId` |
 | 10 | `EmptyRecord` | no payload |
+| 11 | `UninitializedBinding` | no payload (sentinel for unassigned local/binding) |
+| 12 | `EmptyPack` | no payload |
 
 Adding a new `ValueTag` requires review of:
 
@@ -326,6 +328,19 @@ It represents the distinct zero-field Record alias `Record<>`; it is not the
 Unit value. `Value::class` maps Unit to Tuple and EmptyRecord to Record. The VM
 MUST NOT allocate a positive `RecordObject` merely to represent the empty
 Record.
+
+`EmptyPack` is also a separate immediate representation:
+
+```text
+tag        = EmptyPack
+payload    = 0
+some_depth = 0
+```
+
+It represents the distinct zero-element Pack value `Pack()`; it is not the
+Unit value and not the EmptyRecord value. `Value::class` maps EmptyPack to Pack.
+The VM MUST NOT allocate an `Object::PackRoot` or `Object::PackSlice` merely to
+represent the empty Pack.
 
 ---
 
@@ -640,10 +655,14 @@ It is used where the runtime needs an efficient "not initialized / not present i
 
 Examples include:
 
-- newly allocated ordinary instance fields;
-- uninitialized VM/local storage;
+- unread mutable instance storage whose field-read contract surfaces `None`;
 - selected compact internal payload fields;
 - default internal return state before surfacing.
+
+The reference runtime also has a private `UninitializedBinding` marker for
+source binding storage and immutable field slots whose reads must fail until
+initialization. It is distinct from `Nil` and from guest-visible `None`. The
+marker is never a Phalcom value and is never converted to `None`.
 
 ---
 
@@ -665,13 +684,17 @@ They MUST NOT be conflated.
 
 ## 27. Read-boundary surfacing
 
-A VM read boundary that can expose an unwritten internal slot MUST transform:
+A VM read boundary MAY transform an internal `Nil` value:
 
 ```text
 Nil → None
 ```
 
-before returning the value to guest code.
+to `None` only when that operation's contract defines absent storage as
+language-level absence. This is not a universal read rule. In particular, a
+checked immutable-field read MUST fail while its slot contains the private
+uninitialized marker; it MUST NOT return `None` or expose either private
+sentinel.
 
 The central helper is:
 
@@ -679,7 +702,9 @@ The central helper is:
 sentinel_to_option(value)
 ```
 
-which returns immediate `None` only when `value` is the private sentinel.
+which returns immediate `None` only when `value` is the private `Nil`
+sentinel. It does not authorize a caller to surface `Nil` where the owning
+operation requires an initialization error.
 
 All other values pass through unchanged.
 
@@ -689,13 +714,16 @@ All other values pass through unchanged.
 
 The implementation MUST preserve:
 
-> A guest-visible execution result, field/local read, ordinary return value, or other surface value MUST NOT be the private `Nil` representation.
+> A guest-visible execution result, field/local read, ordinary return value,
+> or other surface value MUST NOT be the private `Nil` or
+> `UninitializedBinding` representation. Operations whose contract rejects an
+> uninitialized read MUST report that failure instead of substituting `None`.
 
 The execution model depends on this rule for:
 
 - bare return;
 - falling off the end of a method;
-- reads of uninitialized fields/locals;
+- reads whose operation contract surfaces absent `Nil` storage as `None`;
 - frame-floor completion.
 
 ---
@@ -1016,6 +1044,7 @@ Class mapping is allowed to inspect:
 | private `Nil` | internal nil class; MUST NOT surface |
 | `Unit` | Tuple class |
 | `EmptyRecord` | Record class |
+| `EmptyPack` | Pack class |
 | `Bool(true)` | True class |
 | `Bool(false)` | False class |
 | `Int` | Int class |
@@ -1119,15 +1148,23 @@ This avoids per-instance hash-table field lookup.
 
 A fresh ordinary instance allocates exactly `field_count` slots.
 
-Every slot begins as:
+Unread slots that use the ordinary absence path contain:
 
 ```text
 Value::Nil
 ```
 
-The private sentinel represents "not assigned yet" in storage.
+The runtime marks immutable field slots with its private uninitialized marker
+so checked reads can distinguish them from guest-visible `None`. Allocation
+does not evaluate field defaults. The declaring class's canonical initializer
+performs those writes during normal construction, following the language rule
+in [Class Instance Fields and Construction](../objects/classes.md). Unread
+mutable fields retain the ordinary field-read behavior defined by that
+specification.
 
-A guest-visible field read MUST surface it as `None`.
+An immutable-field read before initialization MUST fail; it MUST NOT surface
+as `None` or as a private sentinel. Other `Nil` read boundaries follow their
+own operation contracts.
 
 ---
 

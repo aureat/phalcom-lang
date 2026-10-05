@@ -4,8 +4,8 @@
 // A late post-await failure rejects the outer Future rather than being
 // mistaken for a nonterminal park.
 
-const dependency = Future.new()
-const result = Future.async || {
+let dependency = Future.new()
+let result = Future.async || {
   dependency.await
   throw Error.new("late failure")
 }

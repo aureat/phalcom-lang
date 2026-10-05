@@ -1,4 +1,4 @@
-let reader = BytesReader.new(Bytes.fromString("abc"))
+let mut reader = BytesReader.new(Bytes.fromString("abc"))
 System.print(reader.close.toString)
 System.print(reader.close.toString)
 try {
@@ -7,7 +7,7 @@ try {
   System.print(e.class.name)
 }
 
-let writer = BytesWriter.new()
+let mut writer = BytesWriter.new()
 writer.close
 System.print(writer.close.toString)
 try {
@@ -17,6 +17,7 @@ try {
 }
 
 class CloseCountingReader {
+  mut _closeCount
   @constructor
   new() {
     _closeCount = 0
@@ -30,13 +31,13 @@ class CloseCountingReader {
   closeCount { _closeCount }
 }
 
-let innerReader = CloseCountingReader.new()
-let bufferedReader = BufferedReader.new(innerReader)
+let mut innerReader = CloseCountingReader.new()
+let mut bufferedReader = BufferedReader.new(innerReader)
 System.print(bufferedReader.close.toString)
 System.print(innerReader.closeCount.toString)
 
-let resourceReader = BytesReader.new(Bytes.fromString("abc"))
-let bufferedResourceReader = BufferedReader.new(resourceReader)
+let mut resourceReader = BytesReader.new(Bytes.fromString("abc"))
+let mut bufferedResourceReader = BufferedReader.new(resourceReader)
 bufferedResourceReader.close
 System.print(resourceReader.isClosed.toString)
 System.print(bufferedResourceReader.isClosed.toString)

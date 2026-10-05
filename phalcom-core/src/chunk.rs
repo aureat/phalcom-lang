@@ -625,7 +625,7 @@ mod tests {
         let a_sym = vm.get_or_intern("a");
         vm.define_global(module, a_sym, Value::obj(instance)).expect("test instance global");
         let closure = vm
-            .compile_closure(module, "const first = a.val\nconst second = a.val\nconst third = a.val\n")
+            .compile_closure(module, "let first = a.val\nlet second = a.val\nlet third = a.val\n")
             .expect("accesses compile");
         vm.run_in_module(module, closure).expect("accesses run");
 
@@ -681,7 +681,7 @@ mod tests {
 
         let mut source = String::new();
         for index in 0..10 {
-            source.push_str(&format!("const cached{index} = a.get\n"));
+            source.push_str(&format!("let cached{index} = a.get\n"));
         }
         let closure = vm.compile_closure(module, &source).expect("compiles");
         vm.run_in_module(module, closure).expect("runs");

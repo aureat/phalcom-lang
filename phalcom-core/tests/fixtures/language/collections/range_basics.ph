@@ -4,7 +4,7 @@
 // Range surface protocol: inclusive/exclusive bound parity, size/first/last/
 // includes, each/toList, structural == over independently-built ranges.
 
-const r = Range.new(1, 5, true)
+let r = Range.new(1, 5, true)
 System.print(r.size)
 System.print(r.first)
 System.print(r.last)
@@ -12,11 +12,11 @@ System.print(r.includes(5))
 System.print(r.includes(6))
 System.print(r.toList)
 
-const e = Range.new(1, 5, false)
+let e = Range.new(1, 5, false)
 System.print(e.size)
 System.print(e.last)
 System.print(e.includes(5))
 
-const r2 = Range.new(1, 5, true)
+let r2 = Range.new(1, 5, true)
 System.print(r == r2)
 System.print(r.hash == r2.hash)

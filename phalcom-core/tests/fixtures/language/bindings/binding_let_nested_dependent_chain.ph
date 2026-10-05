@@ -6,12 +6,12 @@
 // reading an outer name it does NOT shadow (`c`) — the shadow is scoped to
 // the inner block only, and outer `a` survives unchanged after the block.
 
-const a = 2
-const b = a * a
-const c = b + a
-const d = || {
-  const a = 10
-  const b = a + c
+let a = 2
+let b = a * a
+let c = b + a
+let d = || {
+  let a = 10
+  let b = a + c
   b
 }.call()
 System.print(c)

@@ -2,7 +2,9 @@
 // spec: classes.md; messages-and-selectors.md
 // status: PASS
 
-class Pt { x { _x }
+class Pt {
+  mut _x
+ x { _x }
   @constructor
   new(_ x) {
     _x = x
@@ -11,6 +13,6 @@ class Pt { x { _x }
     return true
   }
 }
-const a = Pt.new(1)
+let a = Pt.new(1)
 System.print(a == a)
 System.print(a == Pt.new(1))

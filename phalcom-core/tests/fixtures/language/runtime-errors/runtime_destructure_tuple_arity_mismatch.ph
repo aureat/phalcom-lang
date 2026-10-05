@@ -4,5 +4,5 @@
 // U14: a tuple pattern requires an EXACT-arity scrutinee — `(a, b)` against a
 // 3-tuple is a clean runtime error, not a panic or a silent truncation.
 
-const (a, b) = (1, 2, 3)
+let (a, b) = (1, 2, 3)
 System.print(a)

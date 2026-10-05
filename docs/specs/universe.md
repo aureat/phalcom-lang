@@ -670,9 +670,10 @@ type PositionalPack<T: Type> = Pack<*: T>
 type LabeledPack<T: Type> = Pack<**: T>
 type CompletePack<T: Type> = Pack<***: T>
 
-type PositionalTypePack = PositionalPack<Type>
-type LabeledTypePack = LabeledPack<Type>
-type CompleteTypePack = CompletePack<Type>
+intrinsic type data TypePack
+intrinsic type data LabeledTypePack
+intrinsic type data CompleteTypePack
+intrinsic type data RecordFields
 
 intrinsic data ProductShape { ... }
 intrinsic data OrderedShape(...)
@@ -681,8 +682,12 @@ intrinsic data Variant(...)
 type Variants = PositionalPack<Variant>
 ```
 
-The compiler may retain specialized TypePack and RecordRow nodes internally, but
-Universe does not expose them as a competing public ontology.
+Under `INC-P3-2`, C3 kinded domains `TypePack`, `LabeledTypePack`, and
+`CompleteTypePack` remain canonical compiler/static kinded domains exposed as
+intrinsic anchors. `Pack` is the first-class proper structural type, with
+proper specializations `PositionalPack<T>`, `LabeledPack<T>`, and
+`CompletePack<T>`. For unordered products, the public ontology uses
+`UnorderedShape`, `FieldKey`, and `UnorderedTail`.
 
 Product/OrderedProduct/UnorderedProduct and Sum are compiler-derived sealed
 capabilities attached to canonical declarations. Ordinary user implementations cannot

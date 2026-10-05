@@ -7,7 +7,7 @@
 // shares the same "index must be in range" law as Wren's `insert` — writing
 // past the end is a hard type error, never a silent grow or panic.
 
-const l = []
+let l = []
 l.append(1)
 l.append(2)
 l.append(3)

@@ -6,6 +6,7 @@
 // (catches the private-field typo instead of silently reading `None`).
 
 class Typo {
+  mut _naem
   @constructor
   new(_ name) { _naem = name }
   name { _name }

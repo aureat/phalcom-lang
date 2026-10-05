@@ -9,8 +9,8 @@ from universe.time import (
   TimeZone
 )
 
-const zone = TimeZone.named("America/New_York")
-const overlap = DateTime.new(
+let zone = TimeZone.named("America/New_York")
+let overlap = DateTime.new(
   Date.new(2024, Month::November, 3),
   Time.new(1, 30, 0, 0)
 )
