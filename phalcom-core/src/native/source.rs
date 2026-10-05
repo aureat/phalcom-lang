@@ -409,9 +409,9 @@ impl NativeSourceIndex {
         data_def: &phalcom_ast::ast::DataDef,
         source_identity: SourceUniverseIdentity,
     ) -> Result<(), String> {
-        let Some(key @ (UniverseKey::Tuple | UniverseKey::Record)) = source_identity.canonical_key() else {
+        let Some(key @ (UniverseKey::Tuple | UniverseKey::Record | UniverseKey::Pack)) = source_identity.canonical_key() else {
             return Err(format!(
-                "intrinsic runtime data {} is not a canonical Tuple/Record source declaration",
+                "intrinsic runtime data {} is not a canonical Tuple/Record/Pack source declaration",
                 data_def.name
             ));
         };
