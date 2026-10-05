@@ -298,7 +298,7 @@ impl<'a> StableRowLackCollector<'a> {
     }
 
     fn visit_scoped_type(&mut self, scoped: crate::types::id::ScopedTypeId) {
-        use crate::types::type_lambda::{ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
+        use crate::types::type_lambda::{ScopedPackRemainder, ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
         if !self.visited_scoped_types.insert(scoped) {
             return;
         }
@@ -366,6 +366,17 @@ impl<'a> StableRowLackCollector<'a> {
                     self.visit_scoped_type(parameter.ty);
                 }
                 self.visit_scoped_type(callable.return_type);
+            }
+            ScopedTypeData::Pack(pack) => {
+                for element in pack.elements.iter() {
+                    self.visit_scoped_type(element.ty);
+                }
+                if let ScopedPackRemainder::Typed(ty) = pack.positional_remainder {
+                    self.visit_scoped_type(ty);
+                }
+                if let ScopedPackRemainder::Typed(ty) = pack.labeled_remainder {
+                    self.visit_scoped_type(ty);
+                }
             }
             ScopedTypeData::LabeledTypePack(elements) => {
                 for element in elements.iter() {

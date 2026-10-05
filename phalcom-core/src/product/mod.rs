@@ -357,6 +357,44 @@ pub(crate) fn finish_record_from_spec(
     Ok(Value::obj(vm.heap.alloc_record_nonempty(descriptor, storage)))
 }
 
+/// Finalizes a statically-shaped Pack from source-order component values.
+pub(crate) fn finish_pack_from_spec(
+    vm: &mut VM,
+    spec: &AnonymousProductConstructionLoweringSpec,
+    source_values: Vec<Value>,
+) -> Result<Value, ProductBuildError> {
+    let AnonymousProductConstructionKind::Pack { positional_len, labels } = &spec.kind else {
+        return Err(ProductBuildError::InvalidSpec);
+    };
+    let total = usize::try_from(*positional_len)
+        .ok()
+        .and_then(|n| n.checked_add(labels.len()))
+        .ok_or(ProductBuildError::InvalidSpec)?;
+    if total == 0 || source_values.len() != total || spec.layout.components.len() != total {
+        return if total == 0 && source_values.is_empty() {
+            Ok(Value::empty_pack())
+        } else {
+            Err(ProductBuildError::InvalidSpec)
+        };
+    }
+    let labels = labels.iter().map(|label| vm.interner.intern(label)).collect::<Vec<_>>().into_boxed_slice();
+    let shape_id = vm.product_shapes.register(ProductShape::Pack(PackProductShape::new(*positional_len, labels)));
+    let layout = spec.layout.build_layout().map_err(ProductBuildError::Storage)?;
+    let layout_id = vm.heap.product_layouts.register(layout);
+    let layout = vm
+        .heap
+        .product_layouts
+        .get(layout_id)
+        .ok_or(ProductBuildError::Storage("missing registered layout"))?;
+    let storage = ProductStorage::from_values(layout_id, layout, &source_values).map_err(ProductBuildError::Storage)?;
+    let exact_type = Some(materialize_exact_type(vm, spec.type_recipe)?);
+    let descriptor = vm
+        .anonymous_product_descriptors
+        .register(AnonymousProductKind::Pack, shape_id, layout_id, exact_type);
+    let lab_len = (total - *positional_len as usize) as u32;
+    Ok(Value::obj(vm.heap.alloc_pack_root(descriptor, storage, *positional_len, lab_len)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::layout::{ProductComponentLayout, ProductLayout, ProductSlotRepr};

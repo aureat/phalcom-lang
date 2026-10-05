@@ -30,6 +30,9 @@ pub enum ScopedTypeData {
     RecordRow(ScopedRecordRow),
     /// Scoped callable type.
     Callable(ScopedCallableType),
+    /// Proper Pack type whose element and remainder constraints may mention
+    /// lambda-bound variables.
+    Pack(ScopedPackType),
     /// Ordered positional pack whose elements may mention bound lambda variables.
     TypePack(Box<[ScopedTypeId]>),
     /// Ordered labeled pack whose elements may mention bound lambda variables.
@@ -60,6 +63,20 @@ pub enum ScopedTypeData {
 pub struct ScopedTupleElement {
     pub label: Option<Box<str>>,
     pub ty: ScopedTypeId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ScopedPackRemainder {
+    None,
+    Unconstrained,
+    Typed(ScopedTypeId),
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ScopedPackType {
+    pub elements: Box<[ScopedTupleElement]>,
+    pub positional_remainder: ScopedPackRemainder,
+    pub labeled_remainder: ScopedPackRemainder,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -250,6 +267,17 @@ impl TypeLambdaArena {
             ScopedTypeData::Callable(call) => {
                 call.parameters.iter().any(|p| self.has_free_bound(p.ty, current_depth)) || self.has_free_bound(call.return_type, current_depth)
             }
+            ScopedTypeData::Pack(pack) => {
+                pack.elements.iter().any(|element| self.has_free_bound(element.ty, current_depth))
+                    || match pack.positional_remainder {
+                        ScopedPackRemainder::Typed(ty) => self.has_free_bound(ty, current_depth),
+                        ScopedPackRemainder::None | ScopedPackRemainder::Unconstrained => false,
+                    }
+                    || match pack.labeled_remainder {
+                        ScopedPackRemainder::Typed(ty) => self.has_free_bound(ty, current_depth),
+                        ScopedPackRemainder::None | ScopedPackRemainder::Unconstrained => false,
+                    }
+            }
             ScopedTypeData::TypePack(elements) | ScopedTypeData::TypePackConcat(elements) => {
                 elements.iter().any(|&element| self.has_free_bound(element, current_depth))
             }
@@ -327,6 +355,17 @@ impl TypeLambdaArena {
                     self.collect_free_types(p.ty, out);
                 }
                 self.collect_free_types(call.return_type, out);
+            }
+            ScopedTypeData::Pack(pack) => {
+                for element in pack.elements.iter() {
+                    self.collect_free_types(element.ty, out);
+                }
+                if let ScopedPackRemainder::Typed(ty) = pack.positional_remainder {
+                    self.collect_free_types(ty, out);
+                }
+                if let ScopedPackRemainder::Typed(ty) = pack.labeled_remainder {
+                    self.collect_free_types(ty, out);
+                }
             }
             ScopedTypeData::TypePack(elements) | ScopedTypeData::TypePackConcat(elements) => {
                 for &element in elements.iter() {
@@ -503,6 +542,30 @@ impl TypeLambdaArena {
                 let return_type = self.substitute_free_scoped(callable.return_type, substitution, store);
                 self.intern_scoped(ScopedTypeData::Callable(ScopedCallableType { parameters, return_type }))
             }
+            ScopedTypeData::Pack(pack) => {
+                let elements = pack
+                    .elements
+                    .iter()
+                    .map(|element| ScopedTupleElement {
+                        label: element.label.clone(),
+                        ty: self.substitute_free_scoped(element.ty, substitution, store),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                let mut substitute_remainder = |arena: &mut Self, remainder| match remainder {
+                    ScopedPackRemainder::Typed(ty) => {
+                        ScopedPackRemainder::Typed(arena.substitute_free_scoped(ty, substitution, store))
+                    }
+                    remainder => remainder,
+                };
+                let positional_remainder = substitute_remainder(self, pack.positional_remainder);
+                let labeled_remainder = substitute_remainder(self, pack.labeled_remainder);
+                self.intern_scoped(ScopedTypeData::Pack(ScopedPackType {
+                    elements,
+                    positional_remainder,
+                    labeled_remainder,
+                }))
+            }
             ScopedTypeData::TypePack(elements) => {
                 let elements = elements
                     .iter()
@@ -675,6 +738,36 @@ impl TypeLambdaArena {
                     parameters: can_params.into_boxed_slice(),
                     return_type: can_ret,
                 }))
+            }
+            ScopedTypeData::Pack(pack) => {
+                let elements = pack
+                    .elements
+                    .iter()
+                    .map(|element| {
+                        Ok(super::store::PackTypeElement {
+                            label: element.label.clone(),
+                            ty: self.subst_scoped_to_canonical(element.ty, depth, args, store)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, BetaReductionError>>()?
+                    .into_boxed_slice();
+                let positional_remainder = match pack.positional_remainder {
+                    ScopedPackRemainder::None => super::store::AnonymousTupleRemainder::None,
+                    ScopedPackRemainder::Unconstrained => super::store::AnonymousTupleRemainder::Unconstrained,
+                    ScopedPackRemainder::Typed(ty) => {
+                        super::store::AnonymousTupleRemainder::Typed(self.subst_scoped_to_canonical(ty, depth, args, store)?)
+                    }
+                };
+                let labeled_remainder = match pack.labeled_remainder {
+                    ScopedPackRemainder::None => super::store::AnonymousTupleRemainder::None,
+                    ScopedPackRemainder::Unconstrained => super::store::AnonymousTupleRemainder::Unconstrained,
+                    ScopedPackRemainder::Typed(ty) => {
+                        super::store::AnonymousTupleRemainder::Typed(self.subst_scoped_to_canonical(ty, depth, args, store)?)
+                    }
+                };
+                store
+                    .open_pack(elements, positional_remainder, labeled_remainder)
+                    .map_err(BetaReductionError::PackFormation)
             }
             ScopedTypeData::TypePack(elements) => {
                 let elements = elements
@@ -903,6 +996,30 @@ impl TypeLambdaArena {
                 self.intern_scoped(ScopedTypeData::Callable(ScopedCallableType {
                     parameters: s_params.into_boxed_slice(),
                     return_type: s_ret,
+                }))
+            }
+            ScopedTypeData::Pack(pack) => {
+                let elements = pack
+                    .elements
+                    .iter()
+                    .map(|element| ScopedTupleElement {
+                        label: element.label.clone(),
+                        ty: self.subst_scoped_partial(element.ty, depth, args, store),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                let positional_remainder = match pack.positional_remainder {
+                    ScopedPackRemainder::Typed(ty) => ScopedPackRemainder::Typed(self.subst_scoped_partial(ty, depth, args, store)),
+                    remainder => remainder,
+                };
+                let labeled_remainder = match pack.labeled_remainder {
+                    ScopedPackRemainder::Typed(ty) => ScopedPackRemainder::Typed(self.subst_scoped_partial(ty, depth, args, store)),
+                    remainder => remainder,
+                };
+                self.intern_scoped(ScopedTypeData::Pack(ScopedPackType {
+                    elements,
+                    positional_remainder,
+                    labeled_remainder,
                 }))
             }
             ScopedTypeData::TypePack(elements) => {

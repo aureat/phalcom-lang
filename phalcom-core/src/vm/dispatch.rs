@@ -31,12 +31,78 @@ impl VM {
         }
     }
 
-    /// Returns Unit/Tuple positional-lane values without invoking ordinary
-    /// Tuple iteration. The copied lane can safely cross the target append
+    /// Captures a rest Pack from already-evaluated positional arguments and labeled argument entries.
+    ///
+    /// Empty lanes normalize directly to `Value::empty_pack()`.
+    /// Otherwise, allocates an immutable root Pack object.
+    pub fn capture_rest_pack(
+        &mut self,
+        positionals: &[Value],
+        labeled: &[(Symbol, Value)],
+    ) -> PhResult<Value> {
+        self.capture_rest_pack_owned(positionals.to_vec(), labeled.to_vec())
+    }
+
+    /// Captures owned staging buffers without copying them again at the VM
+    /// rest-binding boundary.
+    pub fn capture_rest_pack_owned(
+        &mut self,
+        positionals: Vec<Value>,
+        labeled: Vec<(Symbol, Value)>,
+    ) -> PhResult<Value> {
+        if positionals.is_empty() && labeled.is_empty() {
+            return Ok(Value::empty_pack());
+        }
+        crate::product::finish_pack(self, positionals, labeled)
+            .map_err(|error| crate::product::runtime_error(self, "Pack label", error).into())
+    }
+
+    /// Captures a positional rest Pack from already-evaluated positional arguments.
+    pub fn capture_positional_rest_pack(&mut self, positionals: &[Value]) -> PhResult<Value> {
+        if positionals.is_empty() {
+            return Ok(Value::empty_pack());
+        }
+        self.capture_positional_rest_pack_owned(positionals.to_vec())
+    }
+
+    /// Captures an owned positional staging buffer without copying it again.
+    pub fn capture_positional_rest_pack_owned(&mut self, positionals: Vec<Value>) -> PhResult<Value> {
+        if positionals.is_empty() {
+            return Ok(Value::empty_pack());
+        }
+        crate::product::finish_pack(self, positionals, Vec::new())
+            .map_err(|error| crate::product::runtime_error(self, "Pack label", error).into())
+    }
+
+    /// Captures a labeled rest Pack from already-evaluated labeled argument entries.
+    pub fn capture_labeled_rest_pack(&mut self, labeled: &[(Symbol, Value)]) -> PhResult<Value> {
+        if labeled.is_empty() {
+            return Ok(Value::empty_pack());
+        }
+        self.capture_labeled_rest_pack_owned(labeled.to_vec())
+    }
+
+    /// Captures an owned labeled staging buffer without copying it again.
+    pub fn capture_labeled_rest_pack_owned(&mut self, labeled: Vec<(Symbol, Value)>) -> PhResult<Value> {
+        if labeled.is_empty() {
+            return Ok(Value::empty_pack());
+        }
+        crate::product::finish_pack(self, Vec::new(), labeled)
+            .map_err(|error| crate::product::runtime_error(self, "Pack label", error).into())
+    }
+
+    /// Returns Unit/EmptyPack/Tuple/Pack positional-lane values without invoking ordinary
+    /// iteration. The copied lane can safely cross the target append
     /// operation, including any future GC safepoint.
     fn positional_lane(&self, value: Value) -> Option<Vec<Value>> {
-        if value.is_unit() {
+        if value.is_unit() || value.is_empty_pack() {
             Some(Vec::new())
+        } else if let Some(view) = self.pack_view_value(value) {
+            let mut pos = Vec::with_capacity(view.positional_len());
+            for i in 0..view.positional_len() {
+                pos.push(view.get_positional(i)?);
+            }
+            Some(pos)
         } else if let Some(id) = value.as_obj() {
             if matches!(self.heap.get(id), Object::Tuple(_)) {
                 Some(self.tuple_view(id)?.positionals())
@@ -171,8 +237,16 @@ impl VM {
     /// associations own no heap borrows, so destinations may re-enter the VM
     /// while consuming them.
     fn snapshot_labeled_lane(&self, source: Value) -> Result<Vec<(Symbol, Value)>, RuntimeError> {
-        if source.is_unit() || source.is_empty_record() {
+        if source.is_unit() || source.is_empty_record() || source.is_empty_pack() {
             Ok(Vec::new())
+        } else if let Some(view) = self.pack_view_value(source) {
+            let mut entries = Vec::with_capacity(view.labeled_len());
+            for i in 0..view.labeled_len() {
+                let label = view.get_label(i).ok_or_else(|| RuntimeError::Internal("missing pack label".into()))?;
+                let val = view.get_labeled_value(i).ok_or_else(|| RuntimeError::Internal("missing pack value".into()))?;
+                entries.push((label, val));
+            }
+            Ok(entries)
         } else if let Some(id) = source.as_obj() {
             match self.heap.get(id) {
                 Object::Tuple(_) => self
@@ -299,54 +373,40 @@ impl VM {
         self.stack.extend_from_slice(&arguments[..fixed_pos]);
         match layout.mode() {
             crate::method::RestMode::Positional { .. } => {
-                let capture = crate::product::finish_tuple(self, arguments[fixed_pos..positional_count].to_vec(), Vec::new())
-                    .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
+                let capture = self.capture_positional_rest_pack(&arguments[fixed_pos..positional_count])?;
                 self.stack.push(capture);
                 self.stack.extend_from_slice(&arguments[positional_count..positional_count + fixed_labels]);
             }
             crate::method::RestMode::Labeled { .. } => {
                 self.stack.extend_from_slice(&arguments[positional_count..positional_count + fixed_labels]);
-                let capture = crate::product::finish_tuple(
-                    self,
-                    Vec::new(),
-                    labels[fixed_labels..]
-                        .iter()
-                        .copied()
-                        .zip(arguments[positional_count + fixed_labels..].iter().copied())
-                        .collect(),
-                )
-                .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
+                let labeled: Vec<(Symbol, Value)> = labels[fixed_labels..]
+                    .iter()
+                    .copied()
+                    .zip(arguments[positional_count + fixed_labels..].iter().copied())
+                    .collect();
+                let capture = self.capture_labeled_rest_pack_owned(labeled)?;
                 self.stack.push(capture);
             }
             crate::method::RestMode::Split { .. } => {
-                let positional_capture = crate::product::finish_tuple(self, arguments[fixed_pos..positional_count].to_vec(), Vec::new())
-                    .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
+                let positional_capture = self.capture_positional_rest_pack(&arguments[fixed_pos..positional_count])?;
                 self.stack.push(positional_capture);
                 self.stack.extend_from_slice(&arguments[positional_count..positional_count + fixed_labels]);
-                let labeled_capture = crate::product::finish_tuple(
-                    self,
-                    Vec::new(),
-                    labels[fixed_labels..]
-                        .iter()
-                        .copied()
-                        .zip(arguments[positional_count + fixed_labels..].iter().copied())
-                        .collect(),
-                )
-                .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
+                let labeled: Vec<(Symbol, Value)> = labels[fixed_labels..]
+                    .iter()
+                    .copied()
+                    .zip(arguments[positional_count + fixed_labels..].iter().copied())
+                    .collect();
+                let labeled_capture = self.capture_labeled_rest_pack_owned(labeled)?;
                 self.stack.push(labeled_capture);
             }
             crate::method::RestMode::Complete { .. } => {
                 self.stack.extend_from_slice(&arguments[positional_count..positional_count + fixed_labels]);
-                let capture = crate::product::finish_tuple(
-                    self,
-                    arguments[fixed_pos..positional_count].to_vec(),
-                    labels[fixed_labels..]
-                        .iter()
-                        .copied()
-                        .zip(arguments[positional_count + fixed_labels..].iter().copied())
-                        .collect(),
-                )
-                .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
+                let labeled: Vec<(Symbol, Value)> = labels[fixed_labels..]
+                    .iter()
+                    .copied()
+                    .zip(arguments[positional_count + fixed_labels..].iter().copied())
+                    .collect();
+                let capture = self.capture_rest_pack_owned(arguments[fixed_pos..positional_count].to_vec(), labeled)?;
                 self.stack.push(capture);
             }
         }
@@ -3418,8 +3478,10 @@ impl VM {
                         return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
                     };
                     let entries = if complete {
-                        if operand.is_unit() {
+                        if operand.is_unit() || operand.is_empty_pack() {
                             Vec::new()
+                        } else if let Some(view) = self.pack_view_value(operand) {
+                            view.labeled_entries()
                         } else if let Some(id) = operand.as_obj() {
                             if matches!(self.heap.get(id), Object::Tuple(_)) {
                                 self.snapshot_labeled_lane(operand)?
@@ -3438,16 +3500,21 @@ impl VM {
                             .append_labeled(label, value)
                             .map_err(|error| self.pack_builder_error(error))?;
                     }
-                    if complete
-                        && let Some(id) = operand.as_obj()
-                        && matches!(self.heap.get(id), Object::Tuple(_))
-                    {
-                        let values = self
-                            .tuple_view(id)
-                            .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".into()))?
-                            .positionals();
-                        for value in values {
-                            self.heap.pack_builder_mut(builder).push_positional(value);
+                    if complete {
+                        if let Some(view) = self.pack_view_value(operand) {
+                            for value in view.positionals() {
+                                self.heap.pack_builder_mut(builder).push_positional(value);
+                            }
+                        } else if let Some(id) = operand.as_obj()
+                            && matches!(self.heap.get(id), Object::Tuple(_))
+                        {
+                            let values = self
+                                .tuple_view(id)
+                                .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".into()))?
+                                .positionals();
+                            for value in values {
+                                self.heap.pack_builder_mut(builder).push_positional(value);
+                            }
                         }
                     }
                 }
@@ -3473,6 +3540,20 @@ impl VM {
                     let tuple =
                         crate::product::finish_tuple(self, positionals, labeled).map_err(|error| crate::product::runtime_error(self, "Tuple label", error))?;
                     self.stack.push(tuple);
+                }
+                Bytecode::FinishPack => {
+                    let builder = self.pop()?;
+                    let Some(id) = builder.as_obj() else {
+                        return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
+                    };
+                    if self.heap.pack_builder(id).has_pending() {
+                        return Err(RuntimeError::Internal("unfinished pack label at pack finish".into()).into());
+                    }
+                    let (positionals, labels, values) = self.heap.pack_builder_mut(id).take_parts();
+                    let labeled = labels.into_iter().zip(values).collect();
+                    let pack =
+                        crate::product::finish_pack(self, positionals, labeled).map_err(|error| crate::product::runtime_error(self, "Pack label", error))?;
+                    self.stack.push(pack);
                 }
                 Bytecode::InvokePack { base_name, kind, access } => {
                     let builder = self.pop()?;
@@ -3638,6 +3719,30 @@ impl VM {
                         crate::product::finish_tuple(self, positionals, entries).map_err(|error| crate::product::runtime_error(self, "Tuple label", error))?;
                     self.stack.push(product);
                 }
+                Bytecode::BuildPack { positional, labeled } => {
+                    let mut entries = Vec::with_capacity(labeled as usize);
+                    for _ in 0..labeled {
+                        let value = self.pop()?;
+                        let label = self.pop()?;
+                        let Some(label) = label.symbol_value() else {
+                            return Err(RuntimeError::Type {
+                                expected: "Symbol pack label",
+                                found: label.type_name(),
+                            }
+                            .into());
+                        };
+                        entries.push((label, value));
+                    }
+                    entries.reverse();
+                    let mut positionals = Vec::with_capacity(positional as usize);
+                    for _ in 0..positional {
+                        positionals.push(self.pop()?);
+                    }
+                    positionals.reverse();
+                    let product =
+                        crate::product::finish_pack(self, positionals, entries).map_err(|error| crate::product::runtime_error(self, "Pack label", error))?;
+                    self.stack.push(product);
+                }
                 Bytecode::BuildRecord { fields } => {
                     let mut entries = Vec::with_capacity(fields as usize);
                     for _ in 0..fields {
@@ -3686,6 +3791,23 @@ impl VM {
                     values.reverse();
                     let product =
                         crate::product::finish_record_from_spec(self, spec, values).map_err(|error| crate::product::runtime_error(self, "Record", error))?;
+                    self.stack.push(product);
+                }
+                Bytecode::BuildStaticPack { spec } => {
+                    let spec = callable.chunk.executable_semantics.anonymous_product_spec(spec);
+                    let count = match &spec.kind {
+                        crate::modules::semantic_lowering::AnonymousProductConstructionKind::Pack { positional_len, labels } => {
+                            usize::try_from(*positional_len).unwrap_or(usize::MAX).saturating_add(labels.len())
+                        }
+                        _ => return Err(RuntimeError::Internal("Pack bytecode carried a non-Pack construction spec".into()).into()),
+                    };
+                    let mut values = Vec::with_capacity(count);
+                    for _ in 0..count {
+                        values.push(self.pop()?);
+                    }
+                    values.reverse();
+                    let product =
+                        crate::product::finish_pack_from_spec(self, spec, values).map_err(|error| crate::product::runtime_error(self, "Pack", error))?;
                     self.stack.push(product);
                 }
                 Bytecode::NewRecordLiteralBuilder => {

@@ -580,7 +580,7 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberConsum
         let mut bound_args = Vec::with_capacity(shape.fixed_positionals + usize::from(shape.rest.is_some()));
         bound_args.extend_from_slice(&args[..shape.fixed_positionals]);
         if matches!(shape.rest, Some(RestKind::Positional)) {
-            bound_args.push(Value::obj(vm.heap.alloc_list(args[shape.fixed_positionals..].to_vec())));
+            bound_args.push(vm.capture_positional_rest_pack(&args[shape.fixed_positionals..])?);
         }
         Some((entry, closure_id, home_frame_token, bound_args))
     } else {

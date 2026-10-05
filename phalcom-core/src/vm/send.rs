@@ -804,8 +804,7 @@ impl VM {
             let residual = (shape.fixed_positionals..positional_count)
                 .filter_map(|index| view.positional(self, index))
                 .collect::<Vec<_>>();
-            let capture = crate::product::finish_tuple(self, residual, Vec::new())
-                .map_err(|error| RuntimeError::Internal(format!("closure rest capture failed: {error:?}")))?;
+            let capture = self.capture_positional_rest_pack_owned(residual)?;
             self.stack.truncate(receiver_idx + 1 + shape.fixed_positionals);
             self.stack.push(capture);
         } else {

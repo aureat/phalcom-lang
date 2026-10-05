@@ -116,6 +116,9 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "GetUpvalueChecked",
     "GetGlobalChecked",
     "GetFieldChecked",
+    "FinishPack",
+    "BuildStaticPack",
+    "BuildPack",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -524,6 +527,19 @@ pub enum Bytecode {
         base_name: u16,
     },
     FinishTuplePack,
+    /// Finalizes an ArgumentPackBuilderObject into an immutable Pack.
+    FinishPack,
+    /// Finalizes source-order component values using a statically projected
+    /// anonymous Pack construction specification.
+    BuildStaticPack {
+        spec: u16,
+    },
+
+    /// Direct standalone Pack build: positionals followed by (Symbol, value) pairs.
+    BuildPack {
+        positional: u16,
+        labeled: u16,
+    },
     /// Inserts one compiler-only local slot into the current frame's local window.
     ///
     /// `slot` is frame-relative. The VM inserts `Value::Nil` at
@@ -748,7 +764,7 @@ pub enum Bytecode {
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 112;
+    pub const VARIANTS: usize = 115;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -871,6 +887,9 @@ impl Bytecode {
             Bytecode::GetUpvalueChecked(..) => 109,
             Bytecode::GetGlobalChecked(..) => 110,
             Bytecode::GetFieldChecked(..) => 111,
+            Bytecode::FinishPack => 112,
+            Bytecode::BuildStaticPack { .. } => 113,
+            Bytecode::BuildPack { .. } => 114,
         }
     }
 

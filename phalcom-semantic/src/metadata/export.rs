@@ -38,8 +38,8 @@ use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableP
 use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId, StaticDomainRef};
 use phalcom_type_meta::scoped_type::{
     ScopedAnonymousRecordRemainderRef, ScopedAnonymousTupleRemainderRef, ScopedCallableParamRef, ScopedCallableTypeRef, ScopedOpenRecordTypeRef,
-    ScopedRecordFieldRef, ScopedRecordRowTailRef, ScopedRecordRowTypeRef, ScopedRecordTailRef, ScopedTupleElementRef, ScopedTypeNode, ScopedTypeNodeEntry,
-    ScopedTypeNodeId, TypeLambdaRef,
+    ScopedPackTypeRef, ScopedRecordFieldRef, ScopedRecordRowTailRef, ScopedRecordRowTypeRef, ScopedRecordTailRef, ScopedTupleElementRef, ScopedTypeNode,
+    ScopedTypeNodeEntry, ScopedTypeNodeId, TypeLambdaRef,
 };
 use phalcom_type_meta::type_node::{
     AnonymousRecordRemainderRef, AnonymousRecordTypeRef, AnonymousTupleRemainderRef, CallableParamRef, CallableTypeRef, OpenRecordTypeRef, OpenTupleTypeRef,
@@ -988,6 +988,28 @@ impl<'a> MetadataExporter<'a> {
                 ScopedTypeNode::Callable(ScopedCallableTypeRef {
                     parameters: params.into_boxed_slice(),
                     return_type,
+                })
+            }
+            ScopedTypeData::Pack(ref pack) => {
+                let mut elements = Vec::with_capacity(pack.elements.len());
+                for element in pack.elements.iter() {
+                    elements.push(ScopedTupleElementRef {
+                        label: element.label.clone(),
+                        ty: self.export_scoped_type_with_binders(element.ty, binder_kinds)?,
+                        presence: StructuralMemberPresenceRef::Required,
+                    });
+                }
+                let export_remainder = |this: &mut Self, remainder| match remainder {
+                    crate::types::type_lambda::ScopedPackRemainder::None => Ok(ScopedAnonymousTupleRemainderRef::None),
+                    crate::types::type_lambda::ScopedPackRemainder::Unconstrained => Ok(ScopedAnonymousTupleRemainderRef::Unconstrained),
+                    crate::types::type_lambda::ScopedPackRemainder::Typed(ty) => {
+                        Ok(ScopedAnonymousTupleRemainderRef::Typed(this.export_scoped_type_with_binders(ty, binder_kinds)?))
+                    }
+                };
+                ScopedTypeNode::Pack(ScopedPackTypeRef {
+                    elements: elements.into_boxed_slice(),
+                    positional_remainder: export_remainder(self, pack.positional_remainder)?,
+                    labeled_remainder: export_remainder(self, pack.labeled_remainder)?,
                 })
             }
             ScopedTypeData::TypePack(ref elements) => {

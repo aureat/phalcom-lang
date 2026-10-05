@@ -2806,7 +2806,7 @@ impl<'a> ParameterUseWalker<'a> {
     }
 
     fn visit_scoped_type(&mut self, scoped: ScopedTypeId) -> bool {
-        use crate::types::type_lambda::{ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
+        use crate::types::type_lambda::{ScopedPackRemainder, ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
 
         if !self.seen_scoped_types.insert(scoped) {
             return false;
@@ -2843,6 +2843,17 @@ impl<'a> ParameterUseWalker<'a> {
             }
             ScopedTypeData::Callable(callable) => {
                 callable.parameters.iter().any(|parameter| self.visit_scoped_type(parameter.ty)) || self.visit_scoped_type(callable.return_type)
+            }
+            ScopedTypeData::Pack(pack) => {
+                pack.elements.iter().any(|element| self.visit_scoped_type(element.ty))
+                    || match pack.positional_remainder {
+                        ScopedPackRemainder::Typed(ty) => self.visit_scoped_type(ty),
+                        ScopedPackRemainder::None | ScopedPackRemainder::Unconstrained => false,
+                    }
+                    || match pack.labeled_remainder {
+                        ScopedPackRemainder::Typed(ty) => self.visit_scoped_type(ty),
+                        ScopedPackRemainder::None | ScopedPackRemainder::Unconstrained => false,
+                    }
             }
             ScopedTypeData::LabeledTypePack(elements) => elements.iter().any(|element| self.visit_scoped_type(element.element)),
             ScopedTypeData::CompleteTypePack { positionals, labeled }
@@ -3382,6 +3393,28 @@ pub(crate) fn apply_resolved_callable(
     } else {
         let result = apply_non_generic_callable(ctx, target, premise, arguments, call_range);
         (result, None)
+    };
+    // Intrinsic construction preserves structural type identity. Keep inference's
+    // nominal binder template private and publish the canonical proper Pack.
+    let knowledge = if let Some(crate::identity::InvocationTargetId::DataConstructor(constructor)) = &target.target
+        && ctx.declarations.intrinsic_runtime_owner(&constructor.owner) == Some(crate::declarations::IntrinsicRuntimeOwner::Pack)
+    {
+        knowledge.map_type(|ty| {
+            let Some((_, arguments)) = ctx.store.applied_nominal_static_parts(ty) else {
+                return ty;
+            };
+            let [crate::types::store::StaticArgument::Term(complete)] = arguments.as_slice() else {
+                return ty;
+            };
+            let complete = *complete;
+            let Ok(positionals) = ctx.store.project_positionals(complete) else {
+                return ty;
+            };
+            let Ok(labeled) = ctx.store.project_labeled(complete) else { return ty };
+            ctx.store.pack_from_packs(positionals, labeled).unwrap_or(ty)
+        })
+    } else {
+        knowledge
     };
     if premise.status.is_ready() {
         finalize_owner_call_specialization(ctx, target, call_range);

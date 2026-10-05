@@ -315,7 +315,9 @@ fn data_specialization_instantiation(
     // types. Recover their already-canonical pack/row argument without
     // nominalizing the semantic result.
     match store.get(specialized_type).clone() {
-        TypeData::TupleFromPacks { .. } if info.shape == DataShape::Tuple && signature.parameters.len() == 1 => {
+        TypeData::TupleFromPacks { .. } | TypeData::PackFromPacks { .. } | TypeData::Pack(_)
+            if info.shape == DataShape::Tuple && signature.parameters.len() == 1 =>
+        {
             let complete = store
                 .project_complete(specialized_type)
                 .map_err(|_| DataProductShapeMaterializationError::GenericArgumentDomain)?;

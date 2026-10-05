@@ -302,6 +302,23 @@ impl<'vm> Compiler<'vm> {
             PackItem::Expand { range, .. } => Err(CompilerError::PackExpansionNotYetSupported(range)),
         }
     }
+    /// Analyzed units consume semantic constructor identity. The standalone
+    /// compiler can only specialize an immutable linked canonical class binding.
+    fn is_pack_construction(&mut self, name: &str, range: SourceRange) -> bool {
+        if let Some(lowering) = self.lowering() {
+            return lowering.pack_constructions.contains(&range);
+        }
+        let symbol = self.vm.interner.intern(name);
+        let BareNameResolution::Linked(index) = self.resolve_bare_name(symbol) else {
+            return false;
+        };
+        let Some(crate::modules::RuntimeLinkedRead::Binding(binding)) = self.vm.heap.module(self.module).linked_reads.get(index.0 as usize) else {
+            return false;
+        };
+        let owner = self.vm.heap.module(binding.module);
+        owner.builtin && owner.get_by_slot(binding.slot as usize) == Some(Value::obj(self.vm.universe.classes.pack_class))
+    }
+
     /// Compiles `expr`, always leaving exactly one value on the stack.
     /// Equivalent to `compile_expr_want(expr, true)` — see that method for
     /// `want_value`.
@@ -322,6 +339,62 @@ impl<'vm> Compiler<'vm> {
         match expr {
             Expr::UnqualifiedCall(call) => {
                 let call = *call;
+                if self.is_pack_construction(&call.name, call.range) {
+                    if let Some(spec) = self.lowering().and_then(|lowering| lowering.anonymous_products.get(&call.range)).cloned() {
+                        let spec_idx = self
+                            .functions
+                            .last_mut()
+                            .unwrap()
+                            .chunk
+                            .executable_semantics
+                            .add_anonymous_product_spec(spec, call.range)?;
+                        for arg in &call.args {
+                            match arg {
+                                phalcom_ast::ast::PackItem::Positional { expr, .. } | phalcom_ast::ast::PackItem::Labeled { value: expr, .. } => {
+                                    self.compile_expr(expr.clone())?;
+                                }
+                                phalcom_ast::ast::PackItem::Expand { .. } => unreachable!("static pack spec cannot contain expansion"),
+                            }
+                        }
+                        self.emit(Bytecode::BuildStaticPack { spec: spec_idx }, call.range);
+                        return Ok(());
+                    }
+                    if Self::needs_dynamic_pack(&call.args) {
+                        let builder_slot = self.reserve_pack_scratch("$pack_builder", call.range)?;
+                        self.emit(Bytecode::NewArgumentPack, call.range);
+                        self.emit(Bytecode::SetLocal(builder_slot), call.range);
+                        self.emit(Bytecode::Pop, call.range);
+                        self.compile_dynamic_pack_items(builder_slot, call.args)?;
+                        self.emit(Bytecode::GetLocal(builder_slot), call.range);
+                        self.emit(Bytecode::FinishPack, call.range);
+                        self.release_pack_scratch_from(builder_slot, 1, call.range);
+                        return Ok(());
+                    }
+                    let mut positional = 0u16;
+                    let mut labeled = 0u16;
+                    for arg in call.args {
+                        match arg {
+                            PackItem::Positional { expr, .. } => {
+                                positional = checked_product_count("Pack positional", usize::from(positional) + 1, call.range)?;
+                                self.compile_expr(expr)?;
+                            }
+                            PackItem::Labeled {
+                                label: PackLabel::Static { text, range },
+                                value,
+                                ..
+                            } => {
+                                labeled = checked_product_count("Pack labeled", usize::from(labeled) + 1, call.range)?;
+                                let symbol = self.vm.interner.intern(&text);
+                                let index = self.add_constant(Value::symbol(symbol), range)?;
+                                self.emit(Bytecode::Constant(index), range);
+                                self.compile_expr(value)?;
+                            }
+                            _ => unreachable!("dynamic Pack items use the builder path"),
+                        }
+                    }
+                    self.emit(Bytecode::BuildPack { positional, labeled }, call.range);
+                    return Ok(());
+                }
                 if let Some(spec) = self.lowering().and_then(|l| {
                     l.associated
                         .iter()

@@ -2175,6 +2175,26 @@ fn specialize_class_side_member_knowledge(
     }
 }
 
+fn constructor_parameter_knowledge(
+    store: &mut crate::types::store::TypeStore,
+    declared_type: &crate::declaration_type::DeclaredTypeFact,
+    env: &crate::types::environment::TypeEnvironment,
+) -> Option<TypeKnowledge> {
+    match &declared_type.state {
+        crate::declaration_type::DeclaredTypeState::Known(crate::types::parameter::TypeTerm::Canonical(p_ty)) => {
+            let ty = TypeView::new(*p_ty, env.clone()).materialize(store);
+            Some(TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics))
+        }
+        crate::declaration_type::DeclaredTypeState::Dynamic(reason) => {
+            Some(TypeKnowledge::Dynamic(reason.clone()))
+        }
+        crate::declaration_type::DeclaredTypeState::Unknown(reason) => {
+            Some(TypeKnowledge::Unknown(reason.clone()))
+        }
+        _ => None,
+    }
+}
+
 /// Resolves a concrete variant constructor or behavioral method selected by an exact static call shape.
 fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &AssociatedInvokeExpr, expected: &ExpectedType) -> TypedExpression {
     let receiver = analyze_expression(ctx, &invoke.receiver, &ExpectedType::None);
@@ -2276,13 +2296,10 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 .parameters
                 .iter()
                 .map(|parameter| {
-                    let Some(p_ty) = parameter.declared_type.canonical_type() else {
-                        return Err(());
-                    };
-                    let ty = TypeView::new(p_ty, env.clone()).materialize(ctx.store);
+                    let knowledge = constructor_parameter_knowledge(ctx.store, &parameter.declared_type, &env).ok_or(())?;
                     let mut callable_parameter = crate::dispatch::CallableParameter::new(
                         parameter.local_name.to_string(),
-                        TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
+                        knowledge,
                     );
                     if let Some(label) = &parameter.external_label {
                         callable_parameter = callable_parameter.with_label(label.to_string());
@@ -2342,13 +2359,10 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 .parameters
                 .iter()
                 .map(|parameter| {
-                    let Some(p_ty) = parameter.declared_type.canonical_type() else {
-                        return Err(());
-                    };
-                    let ty = TypeView::new(p_ty, env.clone()).materialize(ctx.store);
+                    let knowledge = constructor_parameter_knowledge(ctx.store, &parameter.declared_type, &env).ok_or(())?;
                     let mut callable_parameter = crate::dispatch::CallableParameter::new(
                         parameter.local_name.to_string(),
-                        TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
+                        knowledge,
                     );
                     if let Some(label) = &parameter.external_label {
                         callable_parameter = callable_parameter.with_label(label.to_string());
@@ -3277,10 +3291,10 @@ fn associated_constructor_application_target(
                 .parameters
                 .iter()
                 .map(|parameter| {
-                    let ty = TypeView::new(parameter.declared_type.canonical_type()?, environment.clone()).materialize(ctx.store);
+                    let knowledge = constructor_parameter_knowledge(ctx.store, &parameter.declared_type, &environment)?;
                     let mut callable_parameter = crate::dispatch::CallableParameter::new(
                         parameter.local_name.to_string(),
-                        TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
+                        knowledge,
                     );
                     if let Some(label) = &parameter.external_label {
                         callable_parameter = callable_parameter.with_label(label.to_string());
@@ -3334,11 +3348,10 @@ fn associated_constructor_application_target(
                 .parameters
                 .iter()
                 .map(|parameter| {
-                    let p_ty = parameter.declared_type.canonical_type()?;
-                    let ty = TypeView::new(p_ty, environment.clone()).materialize(ctx.store);
+                    let knowledge = constructor_parameter_knowledge(ctx.store, &parameter.declared_type, &environment)?;
                     let mut callable_parameter = crate::dispatch::CallableParameter::new(
                         parameter.local_name.to_string(),
-                        TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
+                        knowledge,
                     );
                     if let Some(label) = &parameter.external_label {
                         callable_parameter = callable_parameter.with_label(label.to_string());

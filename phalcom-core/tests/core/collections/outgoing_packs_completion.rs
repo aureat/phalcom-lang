@@ -605,3 +605,209 @@ fn dynamic_list_uses_rooted_incremental_builder_and_shared_spread_lane() {
     }
     assert!(!text.contains("BuildList("), "dynamic List unexpectedly emitted BuildList:\n{text}");
 }
+
+#[test]
+fn p3_fixed_pack_construction_executes() {
+    on_large_stack(|| {
+        let (mut interp, main, result) = run_source_keep("let result = Pack(1, 2, label: 3)\n");
+        result.expect("canonical fixed Pack construction must execute");
+        let symbol = interp.vm.interner.intern("result");
+        let value = interp.vm.heap.module(main).get(symbol).expect("result value");
+        assert_eq!(value.to_string(&interp.vm), "Pack(1, 2, label: 3)");
+    });
+}
+
+#[test]
+fn p3_pack_construction_bytecode_boundaries() {
+    let fixed = disasm_source("let result = Pack(1, 2, label: 3)\n");
+    assert!(fixed.contains("BuildPack"), "{fixed}");
+    assert!(!fixed.contains("NewArgumentPack"), "{fixed}");
+    let expanded = disasm_source("let result = Pack(*(1, 2), **(label: 3,))\n");
+    assert_eq!(expanded.matches("NewArgumentPack").count(), 1, "{expanded}");
+    assert_eq!(expanded.matches("FinishPack").count(), 1, "{expanded}");
+    assert!(!expanded.contains("FinishTuplePack"), "{expanded}");
+    let tuple = disasm_source("let result = (0, *(1, 2))\n");
+    assert!(tuple.contains("FinishTuplePack"), "{tuple}");
+    assert!(!tuple.contains("FinishPack"), "{tuple}");
+    let call = disasm_source("class Receiver { take(_ value) { value } }\nReceiver.new().take(1)\n");
+    for forbidden in ["NewArgumentPack", "FinishPack", "BuildPack", "BuildStaticPack"] {
+        assert!(!call.contains(forbidden), "{call}");
+    }
+}
+
+#[test]
+fn p3_expanded_pack_and_empty_pack_execute() {
+    on_large_stack(|| {
+        let (mut interp, main, result) = run_source_keep("let result = Pack(*(1, 2), **(label: 3,))\nlet empty = Pack()\n");
+        result.expect("expanded and empty Pack construction must execute");
+        let value = global_value(&mut interp, main, "result");
+        assert_eq!(value.to_string(&interp.vm), "Pack(1, 2, label: 3)");
+        assert_eq!(global_value(&mut interp, main, "empty"), Value::empty_pack());
+    });
+}
+
+#[test]
+fn p3_analyzed_pack_construction_uses_canonical_static_product() {
+    on_large_stack(|| {
+        use phalcom_core::bytecode::Bytecode;
+        use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
+        let source = "let result = Pack(1, 2, label: 3)\nlet empty = Pack()\n";
+        let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source.into())).expect("analyze Pack construction");
+        let lowering = &program.modules.get(&program.entry).expect("entry").lowering;
+        assert_eq!(lowering.pack_constructions.len(), 2);
+        assert_eq!(lowering.anonymous_products.len(), 2);
+        let mut vm = phalcom_core::vm::VM::new();
+        vm.materialize_program(&program).expect("materialize");
+        let closure = vm.compile_program_module_closure(&program.entry, source, &program).expect("compile Pack");
+        let code = &vm.heap.closure(closure).callable.chunk.code;
+        assert_eq!(code.iter().filter(|op| matches!(op, Bytecode::BuildStaticPack { .. })).count(), 2);
+        assert!(!code.iter().any(|op| matches!(op, Bytecode::NewArgumentPack | Bytecode::ConstructData { .. })));
+        vm.run_compiled(&program).expect("run analyzed Pack");
+        let main = vm.module_registry.get(&program.entry).expect("entry module").object;
+        let result_symbol = vm.interner.intern("result");
+        let value = vm.heap.module(main).get(result_symbol).expect("result");
+        assert_eq!(value.to_string(&vm), "Pack(1, 2, label: 3)");
+    });
+}
+
+#[test]
+fn p3_shadowed_pack_name_remains_an_ordinary_call() {
+    let text = disasm_source("let Pack = [1, 2]\nlet result = Pack(7)\n");
+    for forbidden in ["BuildPack", "BuildStaticPack", "FinishPack", "NewArgumentPack"] {
+        assert!(!text.contains(forbidden), "{text}");
+    }
+}
+
+#[test]
+fn p3_analyzed_expanded_pack_uses_one_builder() {
+    on_large_stack(|| {
+        use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
+        use phalcom_core::bytecode::Bytecode;
+        let source = "let result = Pack(*(1, 2), **(label: 3,))\n";
+        let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source.into())).expect("analyze expanded Pack");
+        let lowering = &program.modules.get(&program.entry).expect("entry").lowering;
+        assert_eq!(lowering.pack_constructions.len(), 1);
+        let mut vm = phalcom_core::vm::VM::new();
+        vm.materialize_program(&program).expect("materialize");
+        let closure = vm.compile_program_module_closure(&program.entry, source, &program).expect("compile expanded Pack");
+        let code = &vm.heap.closure(closure).callable.chunk.code;
+        assert_eq!(code.iter().filter(|op| matches!(op, Bytecode::NewArgumentPack)).count(), 1);
+        assert_eq!(code.iter().filter(|op| matches!(op, Bytecode::FinishPack)).count(), 1);
+        vm.run_compiled(&program).expect("run analyzed expanded Pack");
+        let main = vm.module_registry.get(&program.entry).expect("entry module").object;
+        let symbol = vm.interner.intern("result");
+        let value = vm.heap.module(main).get(symbol).expect("result");
+        assert_eq!(value.to_string(&vm), "Pack(1, 2, label: 3)");
+    });
+}
+
+#[test]
+fn p3_language_rest_capture_converges_on_pack() {
+    on_large_stack(|| {
+        let source = r#"
+class Receiver {
+  positional(*values) { return values }
+  labeled(**values) { return values }
+  split(*positions, **labels) { return (positions, labels) }
+  complete(***values) { return values }
+  relay(***values) { return self.complete(***values) }
+}
+let receiver = Receiver.new()
+let positional_empty = receiver.positional()
+let positional = receiver.positional(1, 2)
+let labeled_empty = receiver.labeled()
+let labeled = receiver.labeled(right: 3, left: 4)
+let split = receiver.split(1, 2, right: 3, left: 4)
+let complete_empty = receiver.complete()
+let complete = receiver.complete(1, 2, right: 3, left: 4)
+let forwarded = receiver.relay(1, 2, right: 3, left: 4)
+let forwarded_from_pack = receiver.relay(***Pack(1, 2, right: 3, left: 4))
+let block = |*values| { values }
+let block_empty = block.call()
+let block_rest = block.call(5, 6)
+let fiber_empty = Fiber.new(|*values| { Fiber.yield(values) })
+let fiber_empty_rest = fiber_empty.call()
+let fiber_rest = Fiber.new(|*values| { Fiber.yield(values) }).call(7)
+"#;
+        let (mut interp, main, result) = run_source_keep(source);
+        result.expect("all language rest activation paths must accept Pack captures");
+
+        assert_eq!(global_value(&mut interp, main, "positional_empty"), Value::empty_pack());
+        assert_eq!(global_value(&mut interp, main, "labeled_empty"), Value::empty_pack());
+        assert_eq!(global_value(&mut interp, main, "complete_empty"), Value::empty_pack());
+        assert_eq!(global_value(&mut interp, main, "block_empty"), Value::empty_pack());
+        assert_eq!(global_value(&mut interp, main, "fiber_empty_rest"), Value::empty_pack());
+
+        let rendered = |name: &str, interp: &mut Interpreter| global_value(interp, main, name).to_string(&interp.vm);
+        assert_eq!(rendered("positional", &mut interp), "Pack(1, 2)");
+        assert_eq!(rendered("labeled", &mut interp), "Pack(right: 3, left: 4)");
+        assert_eq!(rendered("split", &mut interp), "(Pack(1, 2), Pack(right: 3, left: 4))");
+        assert_eq!(rendered("complete", &mut interp), "Pack(1, 2, right: 3, left: 4)");
+        assert_eq!(rendered("forwarded", &mut interp), "Pack(1, 2, right: 3, left: 4)");
+        assert_eq!(rendered("forwarded_from_pack", &mut interp), "Pack(1, 2, right: 3, left: 4)");
+        assert_eq!(rendered("block_rest", &mut interp), "Pack(5, 6)");
+        assert_eq!(rendered("fiber_rest", &mut interp), "Pack(7)");
+    });
+}
+
+#[test]
+fn p3_pack_spreading_preserves_lanes_and_fuses_builders() {
+    on_large_stack(|| {
+        let source = r#"
+class Receiver {
+  positional(*values) { return values }
+  labeled(**values) { return values }
+  complete(***values) { return values }
+}
+let receiver = Receiver.new()
+let source = Pack(1, 2, right: 3, left: 4)
+let positionals = receiver.positional(*source)
+let labels = receiver.labeled(**source)
+let complete = receiver.complete(***source)
+let tuple = (***source,)
+let roundtrip = Pack(***tuple)
+let multi = Pack(*Pack(1, 2), *Pack(3, 4))
+let call_multi = receiver.positional(*Pack(5, 6), *Pack(7, 8))
+let identities = tuple is not Pack and roundtrip is Pack
+"#;
+        let (mut interp, main, result) = run_source_keep(source);
+        result.expect("Pack spreads must preserve their visible lanes");
+        let rendered = |name: &str, interp: &mut Interpreter| global_value(interp, main, name).to_string(&interp.vm);
+        assert_eq!(rendered("positionals", &mut interp), "Pack(1, 2)");
+        assert_eq!(rendered("labels", &mut interp), "Pack(right: 3, left: 4)");
+        assert_eq!(rendered("complete", &mut interp), "Pack(1, 2, right: 3, left: 4)");
+        let tuple_id = global_value(&mut interp, main, "tuple").as_obj().expect("nonempty Tuple object");
+        let expected_labels = [interp.vm.interner.intern("right"), interp.vm.interner.intern("left")];
+        let tuple_view = interp.vm.tuple_view(tuple_id).expect("complete spread constructs Tuple");
+        assert_eq!(tuple_view.positionals(), [Value::int(1), Value::int(2)]);
+        assert_eq!(tuple_view.labels(), expected_labels);
+        assert_eq!(tuple_view.labeled_values(), [Value::int(3), Value::int(4)]);
+        assert_eq!(rendered("roundtrip", &mut interp), "Pack(1, 2, right: 3, left: 4)");
+        assert_eq!(rendered("multi", &mut interp), "Pack(1, 2, 3, 4)");
+        assert_eq!(rendered("call_multi", &mut interp), "Pack(5, 6, 7, 8)");
+        assert_eq!(global_value(&mut interp, main, "identities"), Value::bool(true));
+
+        let construction = disasm_source("let result = Pack(*Pack(1, 2), *Pack(3, 4))\n");
+        assert_eq!(construction.matches("NewArgumentPack").count(), 1, "{construction}");
+        assert_eq!(construction.matches("FinishPack").count(), 1, "{construction}");
+        let call = disasm_source(
+            "class Receiver { collect(*values) { return values } }\nlet receiver = Receiver.new()\nlet result = receiver.collect(*Pack(1), *Pack(2))\n",
+        );
+        assert_eq!(call.matches("NewArgumentPack").count(), 1, "{call}");
+        assert_eq!(call.matches("InvokePack").count(), 1, "{call}");
+    });
+}
+
+#[test]
+fn p3_duplicate_from_earlier_pack_spread_prevents_later_value() {
+    let (mut interp, main, result) = run_source_keep(
+        r#"
+let mut state = 0
+let probe = || { state = 1; return 99 }
+let result = Pack(**Pack(left: 1), left: probe())
+"#,
+    );
+    let error = result.expect_err("a duplicate from Pack expansion must fail");
+    assert!(error.contains("duplicate argument label `left`"), "unexpected error: {error}");
+    assert_eq!(global_value(&mut interp, main, "state"), Value::int(0), "the later explicit value must not run");
+}

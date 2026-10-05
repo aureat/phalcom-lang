@@ -33,17 +33,12 @@ fn run_source(src: &str) -> Result<(), String> {
 }
 
 #[test]
-fn positional_spread_uses_tuple_unit_and_iterable_lanes() {
+fn positional_spread_captures_pack_for_tuple_unit_and_iterable_lanes() {
     let value = on_large_stack(|| {
         eval_source(
             r#"
 class Receiver {
-  // F.3 normalizes an empty rest capture to Unit. Unit deliberately has no
-  // speculative `size` protocol, so recognize the zero-product directly.
-  collect(*values) {
-    if (values == ()) { return 0 }
-    return values.size
-  }
+  collect(*values) { return values }
 }
 
 let receiver = Receiver.new()
@@ -51,12 +46,12 @@ let labeledTuple = (1, 2, label: 3)
 let fromTuple = receiver.collect(*labeledTuple)
 let fromUnit = receiver.collect(*())
 let fromList = receiver.collect(*[4, 5, 6])
-let result = fromTuple * 100 + fromUnit * 10 + fromList
+let result = fromTuple is Pack and fromUnit is Pack and fromList is Pack and fromUnit == Pack() and fromUnit != ()
 "#,
             "result",
         )
     });
-    assert_eq!(value.expect("spread source must execute"), Value::int(203));
+    assert_eq!(value.expect("spread source must execute"), Value::bool(true));
 }
 
 #[test]

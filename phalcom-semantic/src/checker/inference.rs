@@ -1927,6 +1927,10 @@ impl InferenceSession {
                 positionals: Box::new(self.scoped_to_inference(positionals, depth, arguments, store)?),
                 labeled: Box::new(self.scoped_to_inference(labeled, depth, arguments, store)?),
             }),
+            // Inference has no symbolic proper-Pack term yet. Keep this
+            // scoped form unavailable until the bound constraints can be
+            // represented without collapsing Pack identity to a Tuple.
+            ScopedTypeData::Pack(_) => None,
             ScopedTypeData::PackFromPacks { .. } => None,
             ScopedTypeData::CallableFromPacks {
                 positionals,
