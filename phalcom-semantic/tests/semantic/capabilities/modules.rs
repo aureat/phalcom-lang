@@ -77,18 +77,18 @@ fn export_type_form_nominal_applied_union_tuple_record_callable_parameter() {
 
     // 6. Record
     let record_ty = store.record(Box::new([
-        RecordTypeField::required("x".into(), int_ty),
-        RecordTypeField::required("y".into(), int_ty),
+        RecordTypeField::symbol_required("x", int_ty),
+        RecordTypeField::symbol_required("y", int_ty),
     ]));
     assert_eq!(
         export_type_form(&store, record_ty).unwrap(),
         CompiledTypeRef::Record(Box::new([
             CompiledRecordField {
-                name: "x".into(),
+                key: phalcom_semantic::field_key::FieldKey::symbol("x"),
                 ty: CompiledTypeRef::Nominal(decl.clone()),
             },
             CompiledRecordField {
-                name: "y".into(),
+                key: phalcom_semantic::field_key::FieldKey::symbol("y"),
                 ty: CompiledTypeRef::Nominal(decl.clone()),
             },
         ]))

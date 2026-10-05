@@ -803,9 +803,9 @@ fn record_value_unions_closed_fields_and_preserves_open_row_projection() {
     let string_ty = env.store.nominal(decl("String"));
 
     let closed_record = env.store.record(Box::new([
-        RecordRowField::required("count".into(), int_ty),
-        RecordRowField::required("enabled".into(), bool_ty),
-        RecordRowField::required("label".into(), string_ty),
+        RecordRowField::symbol_required("count", int_ty),
+        RecordRowField::symbol_required("enabled", bool_ty),
+        RecordRowField::symbol_required("label", string_ty),
     ]));
     let closed_value = env.store.type_member_projection(
         TypeLevelProjection {
@@ -864,7 +864,7 @@ fn record_value_unions_closed_fields_and_preserves_open_row_projection() {
     ));
     let open_record = env
         .store
-        .record_row_type_checked(vec![RecordRowField::required("known".into(), int_ty)], RecordRowTail::Parameter(row_parameter))
+        .record_row_type_checked(vec![RecordRowField::symbol_required("known", int_ty)], RecordRowTail::Parameter(row_parameter))
         .expect("open Record row with a canonical row-variable tail");
     let open_value = env.store.type_member_projection(
         TypeLevelProjection {

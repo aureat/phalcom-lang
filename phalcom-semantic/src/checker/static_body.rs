@@ -301,6 +301,18 @@ fn analyze_static_body_inner(
         StaticValueDomain::Kind(_) => ExpectedType::None,
         StaticValueDomain::ValueType(ty) => ExpectedType::proper_from(ty, ExpectationOrigin::DeclarationContract),
     };
+    context.expected_return = match definition.signature.result_domain {
+        StaticValueDomain::Kind(_) => None,
+        StaticValueDomain::ValueType(ty) => Some(crate::checker::context::CallableReturnContract {
+            ty,
+            basis: crate::declaration_type::DeclaredTypeBasis::DeclarationSemantics,
+            origin: crate::types::evidence::EvidenceOrigin::DeclarationSemantics,
+            is_dynamic: false,
+            source: None,
+        }),
+    };
+    context.expected_kinded_return = definition.signature.result_domain.as_kind();
+    let return_exit_start = context.normal_return_exits.len();
     let typed_result = match &definition.body {
         StaticDefinitionBodyRepr::TypeForm(annotation) => {
             // The parser keeps a neutral type-form bridge for an ambiguous
@@ -375,7 +387,9 @@ fn analyze_static_body_inner(
             StaticValueDomain::ValueType(_) => {}
         }
         context.sync_expression_outcome(typed);
-    } else if let StaticValueDomain::Kind(expected_kind) = definition.signature.result_domain {
+    } else if let StaticValueDomain::Kind(expected_kind) = definition.signature.result_domain
+        && context.normal_return_exits.len() == return_exit_start
+    {
         let diagnostic = SemanticDiagnostic::error_in(
             context.current_module.clone(),
             DiagnosticCode::TypeMismatch,

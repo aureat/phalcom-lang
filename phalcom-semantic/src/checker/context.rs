@@ -495,6 +495,9 @@ pub struct CheckingContext<'a> {
     pub internal_failure_policy: InternalFailurePolicy,
     pub control: CheckerControl,
     pub expected_return: Option<CallableReturnContract>,
+    /// Expected kind for a return from a kinded static definition. Ordinary
+    /// callable and value-domain returns use `expected_return` above.
+    pub expected_kinded_return: Option<crate::types::id::KindId>,
     stable_record_row_lacks: HashSet<(crate::types::id::TypeParameterId, crate::field_key::FieldKey)>,
     pub scopes: Vec<HashMap<String, LocalBindingInfo>>,
     pub flow: FlowState,
@@ -621,6 +624,7 @@ impl<'a> CheckingContext<'a> {
             internal_failure_policy: InternalFailurePolicy::Contain,
             control: CheckerControl::default(),
             expected_return: None,
+            expected_kinded_return: None,
             stable_record_row_lacks: HashSet::new(),
             scopes: vec![HashMap::new()],
             flow: FlowState::new(),
@@ -726,6 +730,7 @@ impl<'a> CheckingContext<'a> {
             internal_failure_policy: InternalFailurePolicy::Contain,
             control,
             expected_return: None,
+            expected_kinded_return: None,
             stable_record_row_lacks: HashSet::new(),
             scopes: vec![HashMap::new()],
             flow: FlowState::new(),
@@ -810,6 +815,7 @@ impl<'a> CheckingContext<'a> {
             internal_failure_policy: self.internal_failure_policy,
             control: self.control.clone(),
             expected_return: self.expected_return.clone(),
+            expected_kinded_return: self.expected_kinded_return,
             stable_record_row_lacks: self.stable_record_row_lacks.clone(),
             scopes: self.scopes.clone(),
             flow: self.flow.clone(),

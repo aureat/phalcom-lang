@@ -50,12 +50,12 @@ fn test_matrix_1_record_row_subtyping_and_unification() {
 
     // sub: { a: Int, b: String }
     let sub = store.record(Box::new([
-        RecordRowField::required("a".into(), int_ty),
-        RecordRowField::required("b".into(), str_ty),
+        RecordRowField::symbol_required("a", int_ty),
+        RecordRowField::symbol_required("b", str_ty),
     ]));
 
     // sup: { a: Int }
-    let sup = store.record(Box::new([RecordRowField::required("a".into(), int_ty)]));
+    let sup = store.record(Box::new([RecordRowField::symbol_required("a", int_ty)]));
 
     // Structural width subtyping: { a: Int, b: String } <: { a: Int }
     assert!(
@@ -66,14 +66,14 @@ fn test_matrix_1_record_row_subtyping_and_unification() {
 
     // Row solver unification
     let single_row = store
-        .record_row_checked(vec![RecordRowField::required("a".into(), int_ty)], RecordRowTail::Closed)
+        .record_row_checked(vec![RecordRowField::symbol_required("a", int_ty)], RecordRowTail::Closed)
         .unwrap();
 
     let mut solver = RecordRowSolver::new();
     let r_var = solver.fresh_var();
     let left = RecordRowTerm::from_canonical(&store, single_row);
     let right = RecordRowTerm {
-        fields: Box::new([RecordRowField::required("a".into(), int_ty)]),
+        fields: Box::new([RecordRowField::symbol_required("a", int_ty)]),
         tail: RecordRowTermTail::Var(r_var),
     };
 

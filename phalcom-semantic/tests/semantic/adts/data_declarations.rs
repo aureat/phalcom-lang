@@ -101,7 +101,7 @@ data Envelope<**Fs: RecordFields> {
         materialize_data_product_shape(store, &info, specialized)
     };
 
-    let concrete = materialize_row(&mut store, vec![RecordRowField::required("extra".into(), field_type)]).expect("non-conflicting row materializes");
+    let concrete = materialize_row(&mut store, vec![RecordRowField::symbol_required("extra", field_type)]).expect("non-conflicting row materializes");
     assert_eq!(concrete.state, DataProductShapeState::Concrete);
     assert_eq!(concrete.components.len(), 2);
     assert_eq!(concrete.components[0].label.as_deref(), Some("id"));
@@ -110,8 +110,8 @@ data Envelope<**Fs: RecordFields> {
     let duplicate = materialize_row(
         &mut store,
         vec![
-            RecordRowField::required("id".into(), field_type),
-            RecordRowField::required("extra".into(), field_type),
+            RecordRowField::symbol_required("id", field_type),
+            RecordRowField::symbol_required("extra", field_type),
         ],
     );
     assert!(
@@ -157,7 +157,7 @@ data Envelope<**Fs: RecordFields> {
         KindId::RECORD_ROW,
     ));
     let open_row = store
-        .record_row_checked(vec![RecordRowField::required("name".into(), fixed_type)], RecordRowTail::Parameter(open_tail))
+        .record_row_checked(vec![RecordRowField::symbol_required("name", fixed_type)], RecordRowTail::Parameter(open_tail))
         .expect("open RecordFields row");
     let specialized = store
         .apply_static_form(info.root_form, &[StaticArgument::RecordRow(open_row)])
@@ -820,7 +820,7 @@ class Probe {
             .record_row(*row)
             .fields
             .iter()
-            .map(|field| (field.name.to_string(), snapshot.store.format_type(field.ty)))
+            .map(|field| (field.key.as_symbol().expect("symbol row field").to_string(), snapshot.store.format_type(field.ty)))
             .collect::<Vec<_>>();
         assert_eq!(fields.iter().map(|(label, _)| label.as_str()).collect::<Vec<_>>(), ["age", "name"]);
         assert_eq!(expression.knowledge.status(), Some(EvidenceStatus::Established));
@@ -932,7 +932,7 @@ class Probe {
         Some(phalcom_semantic::types::evidence::EvidenceStatus::Established)
     );
     assert_eq!(
-        row.fields.iter().map(|field| (field.name.as_ref(), field.ty)).collect::<Vec<_>>(),
+        row.fields.iter().map(|field| (field.key.as_symbol().expect("symbol row field"), field.ty)).collect::<Vec<_>>(),
         vec![("age", fixture.ty("Int")), ("name", fixture.ty("String"))]
     );
 
@@ -993,7 +993,7 @@ class Probe {
     let [StaticArgument::RecordRow(row)] = arguments.as_ref() else {
         panic!("constructor must retain one inferred RecordRow, got {arguments:#?}");
     };
-    assert_eq!(fixture.analysis.snapshot.store.record_row(*row).find_field("name"), Some(parameter_ty));
+    assert_eq!(fixture.analysis.snapshot.store.record_row(*row).find_field(&phalcom_semantic::field_key::FieldKey::symbol("name")), Some(parameter_ty));
     assert_eq!(constructor.knowledge.status(), Some(EvidenceStatus::Assumed));
     assert_ne!(constructor.knowledge.status(), Some(EvidenceStatus::Established));
 }
@@ -1165,7 +1165,7 @@ fn user_record_row_data_type_keeps_nominal_identity_distinct_from_record() {
     let mut store = analysis.snapshot.store.as_ref().clone();
     let int = store.nominal_type(DeclarationId::new(module.clone(), "Int".into()));
     let string = store.nominal_type(DeclarationId::new(module, "String".into()));
-    let fields = vec![RecordRowField::required("age".into(), int), RecordRowField::required("name".into(), string)];
+    let fields = vec![RecordRowField::symbol_required("age", int), RecordRowField::symbol_required("name", string)];
     let row = store
         .record_row_checked(fields.clone(), RecordRowTail::Closed)
         .expect("heterogeneous RecordRow");
@@ -1475,7 +1475,7 @@ class Factory {
     };
     let row = fixture.analysis.snapshot.store.record_row(*row);
     assert_eq!(row.tail, RecordRowTail::Closed);
-    assert_eq!(row.find_field("payload"), Some(value_type));
+    assert_eq!(row.find_field(&phalcom_semantic::field_key::FieldKey::symbol("payload")), Some(value_type));
     assert_eq!(construction.knowledge.status(), Some(EvidenceStatus::Assumed));
 }
 

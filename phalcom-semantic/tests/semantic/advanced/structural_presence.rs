@@ -96,8 +96,8 @@ fn record_required_source_satisfies_required_target() {
     let number = store.nominal(decl("Number"));
     hierarchy.insert(decl("Int"), decl("Number"));
 
-    let source = store.record(Box::new([RecordRowField::required("a".into(), int)]));
-    let target = store.record(Box::new([RecordRowField::required("a".into(), number)]));
+    let source = store.record(Box::new([RecordRowField::symbol_required("a", int)]));
+    let target = store.record(Box::new([RecordRowField::symbol_required("a", number)]));
 
     assert!(is_subtype(&mut store, &hierarchy, source, target));
 }
@@ -110,8 +110,8 @@ fn record_required_source_satisfies_optional_target() {
     let number = store.nominal(decl("Number"));
     hierarchy.insert(decl("Int"), decl("Number"));
 
-    let source = store.record(Box::new([RecordRowField::required("a".into(), int)]));
-    let target = store.record(Box::new([RecordRowField::optional("a".into(), number)]));
+    let source = store.record(Box::new([RecordRowField::symbol_required("a", int)]));
+    let target = store.record(Box::new([RecordRowField::symbol_optional("a", number)]));
 
     assert!(is_subtype(&mut store, &hierarchy, source, target));
 }
@@ -124,8 +124,8 @@ fn record_optional_source_satisfies_optional_target() {
     let number = store.nominal(decl("Number"));
     hierarchy.insert(decl("Int"), decl("Number"));
 
-    let source = store.record(Box::new([RecordRowField::optional("a".into(), int)]));
-    let target = store.record(Box::new([RecordRowField::optional("a".into(), number)]));
+    let source = store.record(Box::new([RecordRowField::symbol_optional("a", int)]));
+    let target = store.record(Box::new([RecordRowField::symbol_optional("a", number)]));
 
     assert!(is_subtype(&mut store, &hierarchy, source, target));
 }
@@ -139,8 +139,8 @@ fn record_optional_source_does_not_satisfy_required_target() {
     hierarchy.insert(decl("Int"), decl("Number"));
 
     // { a?: Int } </: { a: Number } even though Int <: Number
-    let source = store.record(Box::new([RecordRowField::optional("a".into(), int)]));
-    let target = store.record(Box::new([RecordRowField::required("a".into(), number)]));
+    let source = store.record(Box::new([RecordRowField::symbol_optional("a", int)]));
+    let target = store.record(Box::new([RecordRowField::symbol_required("a", number)]));
 
     assert!(!is_subtype(&mut store, &hierarchy, source, target));
 }
@@ -153,7 +153,7 @@ fn record_closed_absence_satisfies_optional_target() {
 
     // { } <: { a?: Number }
     let source = store.record(Box::new([]));
-    let target = store.record(Box::new([RecordRowField::optional("a".into(), number)]));
+    let target = store.record(Box::new([RecordRowField::symbol_optional("a", number)]));
 
     assert!(is_subtype(&mut store, &hierarchy, source, target));
 }
@@ -166,7 +166,7 @@ fn record_closed_absence_does_not_satisfy_required_target() {
 
     // { } </: { a: Number }
     let source = store.record(Box::new([]));
-    let target = store.record(Box::new([RecordRowField::required("a".into(), number)]));
+    let target = store.record(Box::new([RecordRowField::symbol_required("a", number)]));
 
     assert!(!is_subtype(&mut store, &hierarchy, source, target));
 }
@@ -177,18 +177,19 @@ fn record_typed_remainder_satisfies_compatible_optional_target() {
     let mut hierarchy = MapTypeHierarchy::new();
     let int = store.nominal(decl("Int"));
     let number = store.nominal(decl("Number"));
+    let field_key_ty = store.field_key_type_from_core();
     hierarchy.insert(decl("Int"), decl("Number"));
 
     // { **: Int } <: { a?: Number, ... }
     let source_row = store
-        .record_row_checked(vec![], RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(int)))
+        .record_row_checked(vec![], RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type: field_key_ty, value_type: int }))
         .unwrap();
     let source = store.intern_with_kind(TypeData::Record(source_row), phalcom_semantic::types::id::KindId::TYPE);
 
     let target_row = store
         .record_row_checked(
-            vec![RecordRowField::optional("a".into(), number)],
-            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained),
+            vec![RecordRowField::symbol_optional("a", number)],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: field_key_ty }),
         )
         .unwrap();
     let target = store.intern_with_kind(TypeData::Record(target_row), phalcom_semantic::types::id::KindId::TYPE);
@@ -202,18 +203,19 @@ fn record_typed_remainder_does_not_prove_required_presence() {
     let mut hierarchy = MapTypeHierarchy::new();
     let int = store.nominal(decl("Int"));
     let number = store.nominal(decl("Number"));
+    let field_key_ty = store.field_key_type_from_core();
     hierarchy.insert(decl("Int"), decl("Number"));
 
     // { **: Int } </: { a: Number, ... } because remainder does not prove field presence
     let source_row = store
-        .record_row_checked(vec![], RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(int)))
+        .record_row_checked(vec![], RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type: field_key_ty, value_type: int }))
         .unwrap();
     let source = store.intern_with_kind(TypeData::Record(source_row), phalcom_semantic::types::id::KindId::TYPE);
 
     let target_row = store
         .record_row_checked(
-            vec![RecordRowField::required("a".into(), number)],
-            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained),
+            vec![RecordRowField::symbol_required("a", number)],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: field_key_ty }),
         )
         .unwrap();
     let target = store.intern_with_kind(TypeData::Record(target_row), phalcom_semantic::types::id::KindId::TYPE);
@@ -226,17 +228,18 @@ fn record_unconstrained_remainder_does_not_satisfy_typed_optional_target() {
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
     let number = store.nominal(decl("Number"));
+    let field_key_ty = store.field_key_type_from_core();
 
     // { ... } </: { a?: Number, ... } because an unconstrained tail cannot prove value type compatibility
     let source_row = store
-        .record_row_checked(vec![], RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained))
+        .record_row_checked(vec![], RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: field_key_ty }))
         .unwrap();
     let source = store.intern_with_kind(TypeData::Record(source_row), phalcom_semantic::types::id::KindId::TYPE);
 
     let target_row = store
         .record_row_checked(
-            vec![RecordRowField::optional("a".into(), number)],
-            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained),
+            vec![RecordRowField::symbol_optional("a", number)],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: field_key_ty }),
         )
         .unwrap();
     let target = store.intern_with_kind(TypeData::Record(target_row), phalcom_semantic::types::id::KindId::TYPE);
@@ -252,12 +255,12 @@ fn record_presence_and_value_subtyping_are_checked_independently() {
     let string = store.nominal(decl("String"));
 
     // Case 1: presence matches (both optional), value types incompatible (Int </: String) => Refuted
-    let opt_int = store.record(Box::new([RecordRowField::optional("a".into(), int)]));
-    let opt_str = store.record(Box::new([RecordRowField::optional("a".into(), string)]));
+    let opt_int = store.record(Box::new([RecordRowField::symbol_optional("a", int)]));
+    let opt_str = store.record(Box::new([RecordRowField::symbol_optional("a", string)]));
     assert!(!is_subtype(&mut store, &hierarchy, opt_int, opt_str));
 
     // Case 2: value types match (Int <: Int), presence incompatible (Optional </: Required) => Refuted
-    let req_int = store.record(Box::new([RecordRowField::required("a".into(), int)]));
+    let req_int = store.record(Box::new([RecordRowField::symbol_required("a", int)]));
     assert!(!is_subtype(&mut store, &hierarchy, opt_int, req_int));
 
     // Case 3: value types match (Int <: Int), presence compatible (Required <: Optional) => Proven

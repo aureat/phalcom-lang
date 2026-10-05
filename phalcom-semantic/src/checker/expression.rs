@@ -540,6 +540,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             // rechecked against an inferred outer callable return merely
             // because the block expression appears in that callable.
             let outer_expected_return = ctx.expected_return.take();
+            let outer_expected_kinded_return = ctx.expected_kinded_return.take();
             let outer_flow = ctx.flow.clone();
             let outer_normal_returns = ctx.take_normal_return_exits();
             let outer_throw_exits = std::mem::take(&mut ctx.throw_exit_flows);
@@ -554,6 +555,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 ctx.normal_return_exits = outer_normal_returns;
                 ctx.throw_exit_flows = outer_throw_exits;
                 ctx.expected_return = outer_expected_return;
+                ctx.expected_kinded_return = outer_expected_kinded_return;
                 return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
             };
 
@@ -682,6 +684,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
 
             let Some(return_type) = closure_return_knowledge.ty() else {
                 ctx.expected_return = outer_expected_return;
+                ctx.expected_kinded_return = outer_expected_kinded_return;
                 if captured_escape {
                     return TypedExpression::unknown(UnknownReason::ExistentialEscape);
                 }
@@ -753,6 +756,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             };
             if incomplete_signature {
                 ctx.expected_return = outer_expected_return;
+                ctx.expected_kinded_return = outer_expected_kinded_return;
                 if captured_escape {
                     return TypedExpression::unknown(UnknownReason::ExistentialEscape);
                 }
@@ -763,6 +767,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 return_type,
             });
             ctx.expected_return = outer_expected_return;
+            ctx.expected_kinded_return = outer_expected_kinded_return;
             let mut result = TypedExpression::established(callable_ty, EvidenceOrigin::Syntax, block.range);
             if captured_escape {
                 result.knowledge = TypeKnowledge::Unknown(UnknownReason::ExistentialEscape);

@@ -552,6 +552,222 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
     );
 }
 
+#[test]
+fn static_return_control_propagates_to_root_and_stops_at_call_boundaries() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"
+type ReturnEarly: Int { return 7
+ 999 }
+type ReturnUnit: Unit { return
+ 7 }
+type ReturnNestedIf: Int { if true { if false { return 1 } else { return 2 } }
+ return 3 }
+type ReturnElse: Int { if false { return 1 } else { return 4 }
+ 999 }
+type ReturnUntaken: Bool { if true { return false } else { true and (true == true) }
+ true }
+type ReturnInner: Int { return 2
+ 999 }
+type ReturnMiddle: Int { let value = ReturnInner<>
+ return value + 3
+ 999 }
+type ReturnOuter: Int { let value = ReturnMiddle<>
+ value + 1 }
+type ReturnKinded: Type { return Int
+ String }
+type ReturnKindedCaller: Type = ReturnKinded<>
+type WrongKindedReturn: Type { return 1 }
+type EscapedBreak: Int { break
+ 1 }
+type EscapedContinue: Int { continue
+ 2 }
+type BreakCallee: Int { break
+ 1 }
+type BreakCaller: Int { BreakCallee<> }
+"#,
+        )
+        .analyze();
+
+    let evaluate = |name: &str, values: &mut StaticValueStore, budget: &mut QueryBudget, cancellation: &CancellationToken| {
+        let checked = fixture
+            .analysis
+            .snapshot
+            .static_definition(&fixture.decl("main", name))
+            .and_then(|product| product.checked_body.as_ref())
+            .unwrap_or_else(|| panic!("checked static definition {name}"));
+        StaticEvaluator::new(checked, values, budget, cancellation, &[])
+            .with_type_store(fixture.analysis.snapshot.store())
+            .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+            .evaluate()
+    };
+
+    for (name, expected) in [("ReturnEarly", 7), ("ReturnNestedIf", 2), ("ReturnElse", 4), ("ReturnOuter", 6)] {
+        let mut values = StaticValueStore::new();
+        let outcome = evaluate(name, &mut values, &mut QueryBudget::default(), &CancellationToken::new());
+        let StaticEvalOutcome::Reduced(value) = outcome else {
+            panic!("{name} should reduce through its return path, got {outcome:?}");
+        };
+        assert_eq!(
+            values.get(value).unwrap(),
+            &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(expected)),
+            "{name} should preserve the selected return value"
+        );
+    }
+
+    let mut unit_values = StaticValueStore::new();
+    let unit = evaluate("ReturnUnit", &mut unit_values, &mut QueryBudget::default(), &CancellationToken::new());
+    let StaticEvalOutcome::Reduced(unit) = unit else {
+        panic!("return without an expression should return Unit, got {unit:?}");
+    };
+    assert_eq!(unit_values.get(unit).unwrap(), &StaticValueData::Unit);
+
+    let mut untaken_values = StaticValueStore::new();
+    let untaken = evaluate("ReturnUntaken", &mut untaken_values, &mut QueryBudget::default(), &CancellationToken::new());
+    let StaticEvalOutcome::Reduced(untaken) = untaken else {
+        panic!("the untaken unsupported branch should stay unevaluated, got {untaken:?}");
+    };
+    assert_eq!(untaken_values.get(untaken).unwrap(), &StaticValueData::Bool(false));
+
+    let mut kinded_values = StaticValueStore::new();
+    let return_kinded_caller = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "ReturnKindedCaller"))
+        .and_then(|product| product.checked_body.as_ref())
+        .expect("checked kinded caller body");
+    let mut kinded_budget = QueryBudget::default();
+    let kinded_cancellation = CancellationToken::new();
+    let mut kinded_evaluator = StaticEvaluator::new(return_kinded_caller, &mut kinded_values, &mut kinded_budget, &kinded_cancellation, &[])
+        .with_type_store(fixture.analysis.snapshot.store())
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions());
+    let kinded = kinded_evaluator.evaluate();
+    let return_kinded_body = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "ReturnKinded"))
+        .and_then(|product| product.checked_body.as_ref())
+        .expect("checked kinded return body");
+    let int_type = return_kinded_body
+        .expressions
+        .values()
+        .find_map(|analysis| match analysis.denotation.as_ref() {
+            Some(
+                phalcom_semantic::types::denotation::SemanticDenotation::TypeForm(form)
+                | phalcom_semantic::types::denotation::SemanticDenotation::StaticTerm(form),
+            ) => Some(*form),
+            _ => None,
+        })
+        .expect("return expression has canonical type-form denotation");
+    assert_eq!(kinded, StaticEvalOutcome::ReducedKinded(int_type), "trace: {:?}", kinded_evaluator.trace());
+
+    let wrong_kinded = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "WrongKindedReturn"))
+        .and_then(|product| product.checked_body.as_ref())
+        .expect("checked wrong-kind return body");
+    assert!(
+        wrong_kinded
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeMismatch)
+    );
+
+    for name in ["EscapedBreak", "EscapedContinue", "BreakCaller"] {
+        let outcome = evaluate(name, &mut StaticValueStore::new(), &mut QueryBudget::default(), &CancellationToken::new());
+        assert_eq!(
+            outcome,
+            StaticEvalOutcome::Invalid(StaticEvalError::UnsupportedExpression),
+            "{name} must not escape its loop boundary"
+        );
+    }
+
+    let mut bounded_values = StaticValueStore::new();
+    let bounded = evaluate("ReturnEarly", &mut bounded_values, &mut QueryBudget::new(0), &CancellationToken::new());
+    assert!(matches!(bounded, StaticEvalOutcome::BudgetExceeded(_)));
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let cancelled = evaluate("ReturnEarly", &mut StaticValueStore::new(), &mut QueryBudget::default(), &cancellation);
+    assert_eq!(cancelled, StaticEvalOutcome::Cancelled);
+}
+
+#[test]
+fn static_evaluator_resource_work_scales_and_cancellation_is_cooperative() {
+    let long_body = (0..4_000).map(|index| format!("  let value_{index} = {index}\n")).collect::<String>() + "  value_3999\n";
+    let mut source = String::from(
+        "type SequenceShort: Int { let a = 1\n a }\n\
+         type SequenceLong: Int { let a = 1\n let b = 2\n let c = 3\n let d = 4\n let e = 5\n let f = 6\n let g = 7\n let h = 8\n h }\n\
+         type DeepConditional: Int { if true { if true { if true { if true { 1 } else { 2 } } else { 3 } } else { 4 } } else { 5 } }\n\
+         type CallLeaf: Int = 1\n\
+         type CallInner: Int { let value = CallLeaf<>\n value + 1 }\n\
+         type CallOuter: Int { let value = CallInner<>\n value + CallLeaf<> }\n\
+         type ReturnBeforeCall: Int { return 9\n CallOuter<> }\n\
+         type CancelLong: Int {\n",
+    );
+    source.push_str(&long_body);
+    source.push_str("}\n");
+
+    let fixture = WorkspaceFixture::new().module("main", source.as_str()).analyze();
+    let evaluate = |name: &str, budget: &mut QueryBudget, cancellation: &CancellationToken| {
+        let checked = fixture
+            .analysis
+            .snapshot
+            .static_definition(&fixture.decl("main", name))
+            .and_then(|definition| definition.checked_body.as_ref())
+            .unwrap_or_else(|| panic!("checked static definition {name}"));
+        let mut values = StaticValueStore::new();
+        let mut evaluator = StaticEvaluator::new(checked, &mut values, budget, cancellation, &[])
+            .with_type_store(fixture.analysis.snapshot.store())
+            .with_static_definitions(fixture.analysis.snapshot.static_definitions());
+        let outcome = evaluator.evaluate();
+        (outcome, budget.steps_taken)
+    };
+
+    let (short, short_steps) = evaluate("SequenceShort", &mut QueryBudget::default(), &CancellationToken::new());
+    assert!(matches!(short, StaticEvalOutcome::Reduced(_)));
+    let (long, long_steps) = evaluate("SequenceLong", &mut QueryBudget::default(), &CancellationToken::new());
+    assert!(matches!(long, StaticEvalOutcome::Reduced(_)));
+    assert!(
+        long_steps > short_steps,
+        "longer statement sequences must charge more work: {long_steps} <= {short_steps}"
+    );
+
+    let (deep, deep_steps) = evaluate("DeepConditional", &mut QueryBudget::default(), &CancellationToken::new());
+    assert!(matches!(deep, StaticEvalOutcome::Reduced(_)));
+    let (nested, nested_steps) = evaluate("CallOuter", &mut QueryBudget::default(), &CancellationToken::new());
+    assert!(matches!(nested, StaticEvalOutcome::Reduced(_)));
+    assert!(nested_steps > short_steps, "nested static applications must charge their work");
+    assert!(deep_steps > short_steps, "nested conditional work must charge its selected path");
+
+    let (early, early_steps) = evaluate("ReturnBeforeCall", &mut QueryBudget::default(), &CancellationToken::new());
+    assert!(matches!(early, StaticEvalOutcome::Reduced(_)));
+    assert!(early_steps < nested_steps, "early return must skip later static application work");
+
+    let checked = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "CancelLong"))
+        .and_then(|definition| definition.checked_body.as_ref())
+        .expect("checked cancellation workload");
+    let cancellation = CancellationToken::new();
+    let cancel_after_start = cancellation.clone();
+    let canceller = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        cancel_after_start.cancel();
+    });
+    let mut values = StaticValueStore::new();
+    let mut budget = QueryBudget::new(100_000);
+    let outcome = StaticEvaluator::new(checked, &mut values, &mut budget, &cancellation, &[])
+        .with_type_store(fixture.analysis.snapshot.store())
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .evaluate();
+    canceller.join().expect("cancellation worker");
+    assert_eq!(outcome, StaticEvalOutcome::Cancelled);
+    assert!(budget.steps_taken > 0, "cancellation must be observed during active evaluation");
+}
+
 fn imported_const_input(provider_source: &str, generation: u64) -> (SemanticWorkspaceInput, ModuleIdPair) {
     let project = ResolvedProjectId::from_raw(42);
     let module_id =

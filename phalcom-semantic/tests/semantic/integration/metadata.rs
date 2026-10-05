@@ -411,7 +411,7 @@ fn metadata_round_trip_preserves_heterogeneous_application_and_scoped_static_dom
 
     let int = store.nominal_type(dummy_decl("Int"));
     let row = store
-        .record_row_checked(vec![RecordRowField::required("value".into(), int)], RecordRowTail::Closed)
+        .record_row_checked(vec![RecordRowField::symbol_required("value", int)], RecordRowTail::Closed)
         .expect("closed row argument");
     let tensor_kind = store.arrow_kind(vec![KindId::TYPE, KindId::RECORD_ROW].into_boxed_slice(), KindId::TYPE);
     let tensor = store.nominal_form(dummy_decl("Tensor"), tensor_kind);
@@ -712,7 +712,7 @@ fn open_record_metadata_is_tail_sensitive_and_enables_row_feature() {
     let owner_two = CallableId::new(dummy_decl("Owner"), Selector::getter("row-two").unwrap(), DispatchSide::Instance);
     let row_one = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Callable(owner_one), 0, "R", KindId::RECORD_ROW));
     let row_two = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Callable(owner_two), 0, "R", KindId::RECORD_ROW));
-    let fields = vec![RecordRowField::required("value".into(), int)];
+    let fields = vec![RecordRowField::symbol_required("value", int)];
     let closed = store.record_row_type_checked(fields.clone(), RecordRowTail::Closed).unwrap();
     let open_one = store.record_row_type_checked(fields.clone(), RecordRowTail::Parameter(row_one)).unwrap();
     let open_two = store.record_row_type_checked(fields, RecordRowTail::Parameter(row_two)).unwrap();
@@ -1349,7 +1349,7 @@ fn p3_lambda_mode_only_changes_structural_and_interface_fingerprints() {
 
 #[test]
 fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainders() {
-    use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail, StructuralMemberPresence};
+    use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail};
     use phalcom_semantic::types::store::{AnonymousTupleRemainder, TupleTypeElement};
     use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
     use phalcom_type_meta::type_node::{AnonymousRecordRemainderRef, AnonymousTupleRemainderRef, StructuralMemberPresenceRef, TypeNode};
@@ -1371,22 +1371,16 @@ fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainde
         AnonymousTupleRemainder::None,
     );
 
+    let field_key_ty = store.field_key_type_from_core();
+
     // 2. Anonymous record with unconstrained remainder: { a: Int, b?: String, **... }
     let row_id = store
         .record_row_checked(
             vec![
-                RecordRowField {
-                    name: "a".into(),
-                    ty: int_ty,
-                    presence: StructuralMemberPresence::Required,
-                },
-                RecordRowField {
-                    name: "b".into(),
-                    ty: str_ty,
-                    presence: StructuralMemberPresence::Optional,
-                },
+                RecordRowField::symbol_required("a", int_ty),
+                RecordRowField::symbol_optional("b", str_ty),
             ],
-            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained),
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: field_key_ty }),
         )
         .unwrap();
     let anon_record_ty = store.intern_with_kind(
@@ -1428,29 +1422,22 @@ fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainde
 
 #[test]
 fn structural_member_presence_and_remainder_affect_fingerprints() {
-    use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail, StructuralMemberPresence};
+    use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail};
 
     let mut store = TypeStore::new();
     let int_ty = store.nominal(dummy_decl("Int"));
+    let field_key_ty = store.field_key_type_from_core();
 
     // Record Required vs Optional
     let row_req = store
         .record_row_checked(
-            vec![RecordRowField {
-                name: "x".into(),
-                ty: int_ty,
-                presence: StructuralMemberPresence::Required,
-            }],
+            vec![RecordRowField::symbol_required("x", int_ty)],
             RecordRowTail::Closed,
         )
         .unwrap();
     let row_opt = store
         .record_row_checked(
-            vec![RecordRowField {
-                name: "x".into(),
-                ty: int_ty,
-                presence: StructuralMemberPresence::Optional,
-            }],
+            vec![RecordRowField::symbol_optional("x", int_ty)],
             RecordRowTail::Closed,
         )
         .unwrap();
@@ -1477,22 +1464,14 @@ fn structural_member_presence_and_remainder_affect_fingerprints() {
     // Record Closed vs Anonymous Remainder
     let row_closed = store
         .record_row_checked(
-            vec![RecordRowField {
-                name: "x".into(),
-                ty: int_ty,
-                presence: StructuralMemberPresence::Required,
-            }],
+            vec![RecordRowField::symbol_required("x", int_ty)],
             RecordRowTail::Closed,
         )
         .unwrap();
     let row_anon = store
         .record_row_checked(
-            vec![RecordRowField {
-                name: "x".into(),
-                ty: int_ty,
-                presence: StructuralMemberPresence::Required,
-            }],
-            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained),
+            vec![RecordRowField::symbol_required("x", int_ty)],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: field_key_ty }),
         )
         .unwrap();
 

@@ -44,7 +44,7 @@ fn forked_stores_have_distinct_ids_and_identical_prefix() {
     );
     let row_id = baseline_store
         .record_row_checked(
-            vec![phalcom_semantic::types::row::RecordRowField::required("base".into(), num_id)],
+            vec![phalcom_semantic::types::row::RecordRowField::symbol_required("base", num_id)],
             phalcom_semantic::types::row::RecordRowTail::Closed,
         )
         .expect("baseline row should be valid");
@@ -85,7 +85,7 @@ fn forked_stores_have_distinct_ids_and_identical_prefix() {
     let type_a = fork_a.nominal_type(type_a_declaration.clone());
     let row_a = fork_a
         .record_row_checked(
-            vec![phalcom_semantic::types::row::RecordRowField::required("a".into(), type_a)],
+            vec![phalcom_semantic::types::row::RecordRowField::symbol_required("a", type_a)],
             phalcom_semantic::types::row::RecordRowTail::Closed,
         )
         .expect("fork A row should be valid");
@@ -108,7 +108,7 @@ fn forked_stores_have_distinct_ids_and_identical_prefix() {
     let type_b = fork_b.nominal_type(type_b_declaration.clone());
     let row_b = fork_b
         .record_row_checked(
-            vec![phalcom_semantic::types::row::RecordRowField::required("b".into(), type_b)],
+            vec![phalcom_semantic::types::row::RecordRowField::symbol_required("b", type_b)],
             phalcom_semantic::types::row::RecordRowTail::Closed,
         )
         .expect("fork B row should be valid");
@@ -144,8 +144,8 @@ fn forked_stores_have_distinct_ids_and_identical_prefix() {
 
     assert_eq!(row_a.index(), baseline_row_count);
     assert_eq!(row_b.index(), baseline_row_count);
-    assert_eq!(fork_a.record_row(row_a).fields[0].name.as_ref(), "a");
-    assert_eq!(fork_b.record_row(row_b).fields[0].name.as_ref(), "b");
+    assert_eq!(fork_a.record_row(row_a).fields[0].key.as_symbol().expect("symbol row field"), "a");
+    assert_eq!(fork_b.record_row(row_b).fields[0].key.as_symbol().expect("symbol row field"), "b");
     assert!(fork_a.find_record_row(fork_b.record_row(row_b)).is_none());
 
     assert_eq!(static_a.index(), baseline_static_domain_count);

@@ -185,8 +185,10 @@ enum Work<'a> {
     Evaluate(&'a Expr),
     EvaluateTypeForm(&'a phalcom_ast::ast::TypeAnnotation),
     EvaluateBlock(&'a LexicalBlock),
+    FinishRoot,
     BlockNext(&'a LexicalBlock, usize, Option<StaticValueRef>),
     BlockAfter(&'a LexicalBlock, usize),
+    FinishReturn,
     StoreLocal(BindingId, &'a LexicalBlock, usize),
     StoreAssignment(BindingId),
     AfterIf(&'a phalcom_ast::ast::IfExpr),
@@ -204,12 +206,47 @@ enum Work<'a> {
     StoreStaticKindedArgument(StaticApplicationId, u32),
     EnterStaticApplication(&'a CheckedStaticApplication),
     FinishStaticApplication(StaticApplicationId),
+    AbortStaticApplication(StaticApplicationId),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StaticEvalResult {
     Value(StaticValueRef),
     KindedTerm(TypeId),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EvalControl {
+    Return(StaticEvalResult),
+    Break,
+    Continue,
+}
+
+#[allow(dead_code)] // The Loop boundary is consumed by T6's explicit while work item.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ControlBoundary {
+    Root,
+    StaticApplication,
+    Loop,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ControlDisposition {
+    ConsumeReturn(StaticEvalResult),
+    ConsumeBreak,
+    ConsumeContinue,
+    Propagate(EvalControl),
+    Invalid,
+}
+
+fn control_disposition(boundary: ControlBoundary, control: EvalControl) -> ControlDisposition {
+    match (boundary, control) {
+        (ControlBoundary::Root | ControlBoundary::StaticApplication, EvalControl::Return(result)) => ControlDisposition::ConsumeReturn(result),
+        (ControlBoundary::Loop, EvalControl::Break) => ControlDisposition::ConsumeBreak,
+        (ControlBoundary::Loop, EvalControl::Continue) => ControlDisposition::ConsumeContinue,
+        (ControlBoundary::Loop, EvalControl::Return(result)) => ControlDisposition::Propagate(EvalControl::Return(result)),
+        _ => ControlDisposition::Invalid,
+    }
 }
 
 impl<'a> StaticEvaluator<'a> {
@@ -368,17 +405,28 @@ impl<'a> StaticEvaluator<'a> {
             return Err(Stop::invalid(error));
         }
         self.push_trace(self.body.trace_frame())?;
-        let mut work = match self.body.root_work() {
-            EvaluatorRootWork::Expression(expression) => vec![Work::Evaluate(expression)],
-            EvaluatorRootWork::Block(block) => vec![Work::EvaluateBlock(block)],
-            EvaluatorRootWork::TypeForm(annotation) => vec![Work::EvaluateTypeForm(annotation)],
-        };
+        let mut work = vec![Work::FinishRoot];
+        work.push(match self.body.root_work() {
+            EvaluatorRootWork::Expression(expression) => Work::Evaluate(expression),
+            EvaluatorRootWork::Block(block) => Work::EvaluateBlock(block),
+            EvaluatorRootWork::TypeForm(annotation) => Work::EvaluateTypeForm(annotation),
+        });
         let mut stack = Vec::new();
+        let mut pending_control = None;
+        let mut root_result = None;
         while let Some(item) = work.pop() {
             if self.cancellation.is_cancelled() {
                 return Err(Stop::Cancelled);
             }
             self.budget.charge_step().map_err(Stop::Budget)?;
+            if pending_control.is_some()
+                && !matches!(
+                    item,
+                    Work::PopTrace | Work::FinishRoot | Work::FinishStaticApplication(_) | Work::AbortStaticApplication(_)
+                )
+            {
+                continue;
+            }
             match item {
                 Work::Evaluate(expression) => {
                     self.push_trace(StaticEvalTraceFrame::Expression(expression.range()))?;
@@ -402,24 +450,23 @@ impl<'a> StaticEvaluator<'a> {
                         }
                         Expr::Var { .. } => {
                             let id = self.expression_id(expression.range())?;
-                            stack.push(self.read_binding_value(id)?);
+                            match self.body.expressions().get(&id).and_then(|analysis| analysis.denotation.as_ref()) {
+                                Some(
+                                    crate::types::denotation::SemanticDenotation::TypeForm(_) | crate::types::denotation::SemanticDenotation::StaticTerm(_),
+                                ) if self.body.result_as_kind().is_some() => self.complete_checked_type_form(id)?,
+                                _ => stack.push(self.read_binding_value(id)?),
+                            }
                         }
                         Expr::TypeForm(annotation) => {
-                            let application = self
-                                .body
-                                .static_applications()
-                                .iter()
-                                .find(|application| {
-                                    self.body
-                                        .expressions()
-                                        .get(&application.expression)
-                                        .is_some_and(|analysis| analysis.range == expression.range())
-                                })
-                                .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                            let TypeAnnotationExpr::Application { arguments, .. } = &annotation.expr else {
-                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
-                            };
-                            work.push(Work::StartStaticApplication(application, arguments));
+                            let id = self.expression_id(expression.range())?;
+                            if let Some(application) = self.body.static_applications().iter().find(|application| application.expression == id) {
+                                let TypeAnnotationExpr::Application { arguments, .. } = &annotation.expr else {
+                                    return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                };
+                                work.push(Work::StartStaticApplication(application, arguments));
+                            } else {
+                                self.complete_checked_type_form(id)?;
+                            }
                         }
                         Expr::Binary(binary) if matches!(&binary.op, BinaryOp::And | BinaryOp::Or) => {
                             work.push(Work::AfterLogicalLeft(binary));
@@ -564,6 +611,18 @@ impl<'a> StaticEvaluator<'a> {
                 Work::EvaluateBlock(block) => {
                     work.push(Work::BlockNext(block, 0, None));
                 }
+                Work::FinishRoot => {
+                    if let Some(control) = pending_control.take() {
+                        match control_disposition(ControlBoundary::Root, control) {
+                            ControlDisposition::ConsumeReturn(result) => {
+                                if root_result.replace(result).is_some() {
+                                    return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                }
+                            }
+                            _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
+                        }
+                    }
+                }
                 Work::BlockNext(block, index, last) => match block.body.get(index) {
                     Some(Statement::Expr { expr, .. }) => {
                         work.push(Work::BlockAfter(block, index + 1));
@@ -580,6 +639,16 @@ impl<'a> StaticEvaluator<'a> {
                             work.push(Work::BlockNext(block, index + 1, Some(self.values.intern_unit())));
                         }
                     }
+                    Some(Statement::Return(statement)) => {
+                        if let Some(expression) = &statement.value {
+                            work.push(Work::FinishReturn);
+                            work.push(Work::Evaluate(expression));
+                        } else {
+                            pending_control = Some(EvalControl::Return(StaticEvalResult::Value(self.values.intern_unit())));
+                        }
+                    }
+                    Some(Statement::Break { .. }) => pending_control = Some(EvalControl::Break),
+                    Some(Statement::Continue { .. }) => pending_control = Some(EvalControl::Continue),
                     Some(_) => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
                     None => stack.push(last.unwrap_or_else(|| self.values.intern_unit())),
                 },
@@ -592,6 +661,14 @@ impl<'a> StaticEvaluator<'a> {
                     let slot = self.local_slot(binding)?;
                     self.locals[slot] = Some(value);
                     work.push(Work::BlockNext(block, next, Some(self.values.intern_unit())));
+                }
+                Work::FinishReturn => {
+                    let result = if let Some(term) = self.completed_kinded_result.take() {
+                        StaticEvalResult::KindedTerm(term)
+                    } else {
+                        StaticEvalResult::Value(stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?)
+                    };
+                    pending_control = Some(EvalControl::Return(result));
                 }
                 Work::StoreAssignment(binding) => {
                     let value = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
@@ -752,6 +829,7 @@ impl<'a> StaticEvaluator<'a> {
                     }
                     self.pending_application_arguments
                         .insert(application.id.clone(), vec![None; application.arguments.len()]);
+                    work.push(Work::AbortStaticApplication(application.id.clone()));
                     work.push(Work::EnterStaticApplication(application));
                     for (checked, syntax) in application.arguments.iter().zip(syntax_arguments).rev() {
                         match checked {
@@ -876,35 +954,76 @@ impl<'a> StaticEvaluator<'a> {
                     }
                     self.trace.pop();
                     self.trace.pop();
+                    let control = pending_control.take();
+                    let disposition = control.map(|control| control_disposition(ControlBoundary::StaticApplication, control));
+                    let validated_result = match disposition {
+                        Some(ControlDisposition::ConsumeReturn(result)) => Some(self.validate_result_domain(result)),
+                        _ => None,
+                    };
                     self.restore_frame()?;
+                    if let Some(result) = validated_result {
+                        match result? {
+                            StaticEvalResult::Value(value) => stack.push(value),
+                            StaticEvalResult::KindedTerm(term) => {
+                                if self.completed_kinded_result.replace(term).is_some() {
+                                    return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                }
+                            }
+                        }
+                    }
+                    if matches!(disposition, Some(ControlDisposition::Invalid)) {
+                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                    }
+                }
+                Work::AbortStaticApplication(application) => {
+                    if pending_control.is_some() {
+                        self.pending_application_arguments.remove(&application);
+                        self.trace.pop();
+                    }
                 }
             }
         }
-        if let Some(term) = self.completed_kinded_result.take() {
+        if let Some(result) = root_result {
+            if !stack.is_empty() || self.completed_kinded_result.is_some() {
+                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+            }
+            let result = self.validate_result_domain(result)?;
+            if self.cancellation.is_cancelled() {
+                return Err(Stop::Cancelled);
+            }
+            return Ok(result);
+        }
+        let result = if let Some(term) = self.completed_kinded_result.take() {
             if !stack.is_empty() {
                 return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
             }
-            let Some(expected_kind) = self.body.result_as_kind() else {
-                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
-            };
-            let types = self.canonical_types.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-            if types.kind_of(term) != expected_kind {
-                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
-            }
-            if self.cancellation.is_cancelled() {
-                return Err(Stop::Cancelled);
-            }
-            Ok(StaticEvalResult::KindedTerm(term))
+            StaticEvalResult::KindedTerm(term)
         } else if stack.len() == 1 {
-            if !self.body.is_value_result() {
-                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
-            }
-            if self.cancellation.is_cancelled() {
-                return Err(Stop::Cancelled);
-            }
-            Ok(StaticEvalResult::Value(stack[0]))
+            StaticEvalResult::Value(stack[0])
         } else {
-            Err(Stop::invalid(StaticEvalError::UnsupportedExpression))
+            return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+        };
+        let result = self.validate_result_domain(result)?;
+        if self.cancellation.is_cancelled() {
+            return Err(Stop::Cancelled);
+        }
+        Ok(result)
+    }
+
+    fn validate_result_domain(&self, result: StaticEvalResult) -> Result<StaticEvalResult, Stop> {
+        match result {
+            StaticEvalResult::Value(_) if self.body.is_value_result() => Ok(result),
+            StaticEvalResult::KindedTerm(term) => {
+                let Some(expected_kind) = self.body.result_as_kind() else {
+                    return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                };
+                let types = self.canonical_types.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                if types.kind_of(term) != expected_kind {
+                    return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                }
+                Ok(result)
+            }
+            _ => Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
         }
     }
 

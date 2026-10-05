@@ -19,8 +19,8 @@ fn test_permutation_equivalence() {
     let int_ty = store.nominal(test_decl("Int"));
     let str_ty = store.nominal(test_decl("String"));
 
-    let f1 = vec![RecordRowField::required("a".into(), int_ty), RecordRowField::required("b".into(), str_ty)];
-    let f2 = vec![RecordRowField::required("b".into(), str_ty), RecordRowField::required("a".into(), int_ty)];
+    let f1 = vec![RecordRowField::symbol_required("a", int_ty), RecordRowField::symbol_required("b", str_ty)];
+    let f2 = vec![RecordRowField::symbol_required("b", str_ty), RecordRowField::symbol_required("a", int_ty)];
 
     let rec1 = store.record(f1.into_boxed_slice());
     let rec2 = store.record(f2.into_boxed_slice());
@@ -32,10 +32,10 @@ fn test_duplicate_fields_rejected() {
     let mut store = TypeStore::new();
     let int_ty = store.nominal(test_decl("Int"));
 
-    let fields = vec![RecordRowField::required("x".into(), int_ty), RecordRowField::required("x".into(), int_ty)];
+    let fields = vec![RecordRowField::symbol_required("x", int_ty), RecordRowField::symbol_required("x", int_ty)];
 
     let res = RecordRowData::new_closed(fields);
-    assert!(matches!(res, Err(DuplicateFieldError(name)) if name.as_ref() == "x"));
+    assert!(matches!(res, Err(DuplicateFieldError(name)) if name.as_symbol() == Some("x")));
 }
 
 #[test]
@@ -46,7 +46,7 @@ fn test_row_subtraction_solves() {
     let empty_row = store.record_row_checked(Vec::new(), RecordRowTail::Closed).unwrap();
 
     let single_row = store
-        .record_row_checked(vec![RecordRowField::required("name".into(), str_ty)], RecordRowTail::Closed)
+        .record_row_checked(vec![RecordRowField::symbol_required("name", str_ty)], RecordRowTail::Closed)
         .unwrap();
 
     let mut solver = RecordRowSolver::new();
@@ -55,7 +55,7 @@ fn test_row_subtraction_solves() {
     // { name: String } = { name: String, **R }
     let left = RecordRowTerm::from_canonical(&store, single_row);
     let right = RecordRowTerm {
-        fields: Box::new([RecordRowField::required("name".into(), str_ty)]),
+        fields: Box::new([RecordRowField::symbol_required("name", str_ty)]),
         tail: RecordRowTermTail::Var(r_var),
     };
 
@@ -74,12 +74,12 @@ fn test_lacks_constraint_blocks_duplicate_extension() {
     let str_ty = store.nominal(test_decl("String"));
 
     let row = store
-        .record_row_checked(vec![RecordRowField::required("name".into(), str_ty)], RecordRowTail::Closed)
+        .record_row_checked(vec![RecordRowField::symbol_required("name", str_ty)], RecordRowTail::Closed)
         .unwrap();
 
     let mut solver = RecordRowSolver::new();
     let r_var = solver.fresh_var();
-    solver.add_lacks(r_var, "name".into()).unwrap();
+    solver.add_lacks(r_var, phalcom_semantic::field_key::FieldKey::symbol("name")).unwrap();
 
     let left = RecordRowTerm {
         fields: Box::new([]),
@@ -109,7 +109,7 @@ fn test_occurs_check_rejects() {
         tail: RecordRowTermTail::Var(r_var),
     };
     let right = RecordRowTerm {
-        fields: Box::new([RecordRowField::required("next".into(), int_ty)]),
+        fields: Box::new([RecordRowField::symbol_required("next", int_ty)]),
         tail: RecordRowTermTail::Var(r_var),
     };
 
@@ -138,15 +138,16 @@ fn test_record_subtyping_exact_closed_and_explicit_open() {
     let hier = MapTypeHierarchy::new();
     let int_ty = store.nominal(test_decl("Int"));
     let str_ty = store.nominal(test_decl("String"));
+    let field_key_ty = store.field_key_type_from_core();
 
     // sub: { a: Int, b: String }
     let sub = store.record(Box::new([
-        RecordRowField::required("a".into(), int_ty),
-        RecordRowField::required("b".into(), str_ty),
+        RecordRowField::symbol_required("a", int_ty),
+        RecordRowField::symbol_required("b", str_ty),
     ]));
 
     // sup_closed: { a: Int }
-    let sup_closed = store.record(Box::new([RecordRowField::required("a".into(), int_ty)]));
+    let sup_closed = store.record(Box::new([RecordRowField::symbol_required("a", int_ty)]));
 
     // CV-01: Closed structural negative: {a: Int, b: String} </: {a: Int}
     assert!(!is_subtype(&mut store, &hier, sub, sup_closed), "Closed structural records are exact");
@@ -155,8 +156,8 @@ fn test_record_subtyping_exact_closed_and_explicit_open() {
     // sup_open: { a: Int, ... }
     let sup_open_row = store
         .record_row_checked(
-            vec![RecordRowField::required("a".into(), int_ty)],
-            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained),
+            vec![RecordRowField::symbol_required("a", int_ty)],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: field_key_ty }),
         )
         .unwrap();
     let sup_open = store.intern_with_kind(TypeData::Record(sup_open_row), KindId::TYPE);
@@ -166,8 +167,8 @@ fn test_record_subtyping_exact_closed_and_explicit_open() {
 
     // CV-03: Optional absence: { a: Int } <: { a: Int, b?: String }
     let sup_opt = store.record(Box::new([
-        RecordRowField::required("a".into(), int_ty),
-        RecordRowField::optional("b".into(), str_ty),
+        RecordRowField::symbol_required("a", int_ty),
+        RecordRowField::symbol_optional("b", str_ty),
     ]));
     assert!(
         is_subtype(&mut store, &hier, sup_closed, sup_opt),
@@ -180,8 +181,8 @@ fn test_record_subtyping_exact_closed_and_explicit_open() {
         "Present optional field with matching type is accepted"
     );
     let sub_bad_opt = store.record(Box::new([
-        RecordRowField::required("a".into(), int_ty),
-        RecordRowField::required("b".into(), int_ty),
+        RecordRowField::symbol_required("a", int_ty),
+        RecordRowField::symbol_required("b", int_ty),
     ]));
     assert!(
         !is_subtype(&mut store, &hier, sub_bad_opt, sup_opt),
@@ -191,8 +192,8 @@ fn test_record_subtyping_exact_closed_and_explicit_open() {
     // CV-06: Typed remainder: { a: Int, b: String } <: { a: Int, **: String }
     let sup_typed_rem_row = store
         .record_row_checked(
-            vec![RecordRowField::required("a".into(), int_ty)],
-            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed(str_ty)),
+            vec![RecordRowField::symbol_required("a", int_ty)],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type: field_key_ty, value_type: str_ty }),
         )
         .unwrap();
     let sup_typed_rem = store.intern_with_kind(TypeData::Record(sup_typed_rem_row), KindId::TYPE);
@@ -212,7 +213,7 @@ fn checked_row_rejects_non_row_tail_parameter() {
     let owner = TypeParameterOwner::Declaration(test_decl("Owner"));
     let parameter = store.intern_type_parameter(TypeParameterData::new(owner, 0, "T", KindId::TYPE));
     let int_ty = store.nominal(test_decl("Int"));
-    let result = store.record_row_type_checked(vec![RecordRowField::required("value".into(), int_ty)], RecordRowTail::Parameter(parameter));
+    let result = store.record_row_type_checked(vec![RecordRowField::symbol_required("value", int_ty)], RecordRowTail::Parameter(parameter));
     assert!(matches!(
         result,
         Err(RecordRowFormationError::TailParameterWrongKind { actual: KindId::TYPE, .. })
@@ -226,7 +227,7 @@ fn row_solution_is_history_independent() {
     let mut solver = RecordRowSolver::new();
     let variable = solver.fresh_var();
     let left = RecordRowTerm {
-        fields: Box::new([RecordRowField::required("name".into(), string_ty)]),
+        fields: Box::new([RecordRowField::symbol_required("name", string_ty)]),
         tail: RecordRowTermTail::Closed,
     };
     let right = RecordRowTerm {
@@ -239,11 +240,11 @@ fn row_solution_is_history_independent() {
 
     let mut second = TypeStore::new();
     let string_ty = second.nominal(test_decl("String"));
-    let _unrelated = second.record(Box::new([RecordRowField::required("unrelated".into(), string_ty)]));
+    let _unrelated = second.record(Box::new([RecordRowField::symbol_required("unrelated", string_ty)]));
     let mut solver = RecordRowSolver::new();
     let variable = solver.fresh_var();
     let left = RecordRowTerm {
-        fields: Box::new([RecordRowField::required("name".into(), string_ty)]),
+        fields: Box::new([RecordRowField::symbol_required("name", string_ty)]),
         tail: RecordRowTermTail::Closed,
     };
     let right = RecordRowTerm {
@@ -260,12 +261,12 @@ fn lacks_constraint_survives_variable_alias() {
     let mut store = TypeStore::new();
     let string_ty = store.nominal(test_decl("String"));
     let row = store
-        .record_row_checked(vec![RecordRowField::required("name".into(), string_ty)], RecordRowTail::Closed)
+        .record_row_checked(vec![RecordRowField::symbol_required("name", string_ty)], RecordRowTail::Closed)
         .unwrap();
     let mut solver = RecordRowSolver::new();
     let first = solver.fresh_var();
     let second = solver.fresh_var();
-    solver.add_lacks(first, "name".into()).unwrap();
+    solver.add_lacks(first, phalcom_semantic::field_key::FieldKey::symbol("name")).unwrap();
     let mut budget = QueryBudget::default();
     let alias = solver.solve(
         &RecordRowTerm {
@@ -322,7 +323,7 @@ fn indirect_row_occurs_check_is_rejected() {
                 tail: RecordRowTermTail::Var(second),
             },
             RecordRowTerm {
-                fields: Box::new([RecordRowField::required("next".into(), store.unit())]),
+                fields: Box::new([RecordRowField::symbol_required("next", store.unit())]),
                 tail: RecordRowTermTail::Var(first),
             },
         ),

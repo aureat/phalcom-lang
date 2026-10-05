@@ -462,6 +462,7 @@ fn check_callable_body(ctx: &mut CheckingContext<'_>, params: &[ParameterDef], s
     };
 
     let old_return = ctx.expected_return.take();
+    let old_kinded_return = ctx.expected_kinded_return.take();
     ctx.expected_return = expected_return.clone();
 
     for (i, stmt) in body.iter().enumerate() {
@@ -504,5 +505,6 @@ fn check_callable_body(ctx: &mut CheckingContext<'_>, params: &[ParameterDef], s
     }
 
     ctx.expected_return = old_return;
+    ctx.expected_kinded_return = old_kinded_return;
     ctx.pop_scope();
 }

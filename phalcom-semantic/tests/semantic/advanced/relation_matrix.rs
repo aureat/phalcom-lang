@@ -23,7 +23,7 @@ fn every_proper_matrix_form_has_explicit_relation_behavior() {
     hierarchy.insert(decl("Int"), decl("Object"));
     let class_object = store.class_object_type(decl("Int"));
     let tuple = store.tuple(vec![TupleTypeElement::unlabeled(int), TupleTypeElement::unlabeled(string)].into_boxed_slice());
-    let record = store.record(Box::new([RecordRowField::required("value".into(), int)]));
+    let record = store.record(Box::new([RecordRowField::symbol_required("value", int)]));
     let callable = store.callable(CallableType {
         parameters: Box::new([CallableParameterType::new(int)]),
         return_type: string,
@@ -94,17 +94,18 @@ fn exact_cases_and_open_records_follow_canonical_relation() {
     assert!(is_subtype(&mut store, &hierarchy, red_case, color_type));
 
     let int = store.nominal(decl("Int"));
+    let field_key_ty = store.field_key_type_from_core();
     let open_row = store
         .record_row_checked(
-            vec![RecordRowField::required("value".into(), int)],
-            RecordRowTail::Anonymous(phalcom_semantic::types::row::AnonymousRecordRemainder::Unconstrained),
+            vec![RecordRowField::symbol_required("value", int)],
+            RecordRowTail::Anonymous(phalcom_semantic::types::row::AnonymousRecordRemainder::Unconstrained { key_type: field_key_ty }),
         )
         .expect("valid open row");
     let open = store.intern_with_kind(phalcom_semantic::types::store::TypeData::Record(open_row), KindId::TYPE);
-    let required = store.record(Box::new([RecordRowField::required("value".into(), int)]));
+    let required = store.record(Box::new([RecordRowField::symbol_required("value", int)]));
     let wide = store.record(Box::new([
-        RecordRowField::required("value".into(), int),
-        RecordRowField::required("extra".into(), int),
+        RecordRowField::symbol_required("value", int),
+        RecordRowField::symbol_required("extra", int),
     ]));
 
     // Wide closed record subtypes open record: { value: Int, extra: Int } <: { value: Int, ... }
@@ -114,7 +115,7 @@ fn exact_cases_and_open_records_follow_canonical_relation() {
     // Open record does NOT subtype closed record: { value: Int, ... } </: { value: Int }
     assert!(!is_subtype(&mut store, &hierarchy, open, required));
     // Missing required field fails: { other: Int } </: { value: Int, ... }
-    let missing = store.record(Box::new([RecordRowField::required("other".into(), int)]));
+    let missing = store.record(Box::new([RecordRowField::symbol_required("other", int)]));
     assert!(!is_subtype(&mut store, &hierarchy, missing, open));
     assert!(!is_subtype(&mut store, &hierarchy, missing, required));
 }

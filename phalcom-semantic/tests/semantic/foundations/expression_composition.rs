@@ -358,7 +358,7 @@ class Probe {
     let TypeData::Record(row_id) = fixture.analysis.snapshot.store.get(result) else {
         panic!("expected Record result");
     };
-    let values = fixture.analysis.snapshot.store.record_row(*row_id).find_field("values").expect("values field");
+    let values = fixture.analysis.snapshot.store.record_row(*row_id).find_field(&phalcom_semantic::field_key::FieldKey::symbol("values")).expect("values field");
     assert_eq!(fixture.analysis.snapshot.store.format_type(values), "List<Int>");
 }
 
@@ -382,7 +382,7 @@ class Probe {
     };
     let row = fixture.analysis.snapshot.store.record_row(*row_id);
     assert!(matches!(row.tail, RecordRowTail::Parameter(_)));
-    assert_eq!(row.fields.iter().map(|field| field.name.as_ref()).collect::<Vec<_>>(), vec!["extra", "known"]);
+    assert_eq!(row.fields.iter().map(|field| field.key.as_symbol().expect("symbol row field")).collect::<Vec<_>>(), vec!["extra", "known"]);
 }
 
 #[test]

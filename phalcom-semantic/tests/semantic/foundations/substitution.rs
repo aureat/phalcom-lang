@@ -58,9 +58,9 @@ fn direct_and_nested_and_composite_substitution() {
     assert_eq!(subst_tuple, expected_tuple);
 
     // 5. Record { a: T, b: String } -> { a: Int, b: String }
-    let record = store.record(vec![RecordTypeField::required("a".into(), t_ty), RecordTypeField::required("b".into(), str_ty)].into_boxed_slice());
+    let record = store.record(vec![RecordTypeField::symbol_required("a", t_ty), RecordTypeField::symbol_required("b", str_ty)].into_boxed_slice());
     let subst_record = subst.apply(&mut store, record);
-    let expected_record = store.record(vec![RecordTypeField::required("a".into(), int_ty), RecordTypeField::required("b".into(), str_ty)].into_boxed_slice());
+    let expected_record = store.record(vec![RecordTypeField::symbol_required("a", int_ty), RecordTypeField::symbol_required("b", str_ty)].into_boxed_slice());
     assert_eq!(subst_record, expected_record);
 
     // 6. Union T | String -> Int | String

@@ -40,7 +40,7 @@ next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 03967716
 next_action: >
-  Continue P4 T2 canonical row/store/tail migration. The current P4 source slice is integrated on main at 59976d25; the semantic crate check passed with 25 warnings, but no T2 tests ran, so P4 remains UNVERIFIED. T1's focused evidence remains recorded. P10 pre-barrier work is committed through 46d00056 on codex/lang007-c4-p10. S1 is not complete: synchronize P10 with latest main, run its directly affected checks, and re-audit the post-P4 AST/parser before allowing T6. Unsupported const/general/symbolic type keys fail closed for T2 and are assigned to T7.0 after T4-T6; metadata schema staging remains T8. See the T2 incident report.
+  Continue P4 T2 canonical row/store/tail acceptance. The P4 frontend and P10 pre-barrier work are integrated on main; synchronization barrier S1 is complete. Focused AST/parser, row/key, classifier, reflection, and static-body checks passed, but P4 T2 remains partial and its full acceptance remains open. P10 T6 and while-dependent T9 cases are still unimplemented; S1 permits that next step. Unsupported const/general/symbolic type keys remain assigned to T7.0 after T4-T6, and lossless metadata schema staging remains T8. See the P4 T2 and P10 S1 incident reports.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -161,8 +161,8 @@ The intended C4 decomposition is:
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
 | `LANG007.C4.P3` | First-class Pack and call/rest convergence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T1–T9 implemented and verified; G1 semantic/static vertical, G2 runtime/rest/spread vertical, G3 fixed-call/resource invariants, G4 compatibility/stabilization gates pass; unblocks P4/P5 |
-| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | PARTIAL | UNVERIFIED | T1 complete and focused-tested; the T2 source slice is committed at `59976d25`, and `cargo check -p phalcom-semantic` passed, but T2 focused checks remain outstanding. Unsupported nonliteral/const/symbolic type keys fail closed for T2; checked type/pattern projection and dependency invalidation are deferred to T7.0. |
-| `LANG007.C4.P10` | Parallel structural classification, static-control, and convergence foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | active in isolated worktree `codex/lang007-c4-p10` at `/Users/altunhasanli/.codex/worktrees/lang007-c4-p10/phalcom`, based at `419ec6e66ce90cba6003b7627eb4c99fa2345a7a`; T1-T5 implemented/focused-tested, T7/T8 audits completed, and Pack plus non-loop evaluator T9 harnesses focused-tested; T6 and while-dependent T9 cases wait for S1. An inherited fixed-call Pack runtime test was interrupted before a result and remains unverified. |
+| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | PARTIAL | UNVERIFIED | T1 complete and focused-tested; the T2 source slice is committed at `59976d25`, the merged AST/semantic/core check passed, and focused FieldKey/materialization/inference/row/presence selectors now pass. Full T2 acceptance remains open. Unsupported nonliteral/const/symbolic type keys fail closed for T2; checked type/pattern projection and dependency invalidation are deferred to T7.0. |
+| `LANG007.C4.P10` | Parallel structural classification, static-control, and convergence foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | pre-barrier work through `46d00056` is integrated on main and S1 is complete; focused synchronization checks passed. T1-T5 remain implemented/focused-tested, T7/T8 audits completed, and Pack plus non-loop evaluator T9 harnesses focused-tested. T6 and while-dependent T9 cases are unstarted; an inherited fixed-call Pack runtime test remains unverified. |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
@@ -209,36 +209,61 @@ P4 remains the checkpoint's primary `active_plan`; P10 is concurrent and does
 not change `latest_completed_plan` or singleton `next_plan` metadata. P10's
 worktree was created clean from the shared `419ec6e66ce90cba6003b7627eb4c99fa2345a7a`
 anchor while P4 edits were active in the main checkout. P10's pre-barrier work
-is committed on `codex/lang007-c4-p10` through `46d00056`; the worktree remains
-isolated pending S1.
+was committed on `codex/lang007-c4-p10` through `46d00056`; it is now integrated
+into `main`. The P10 checkout is preserved detached at the consolidated
+revision so its ignored/local workspace state is not discarded.
 
 The coherent P4 frontend and current T2 source slice are now integrated into
-main at `59976d25`. This makes synchronization eligible, but does not complete
-S1. P10 must synchronize with the latest main, run only directly affected
-pre-barrier checks, and re-audit the actual Record AST/parser architecture.
-P10 T6 and its explicit `while` AST edits remain blocked until those S1 steps
-complete. Preserve both plans' checkpoint state during synchronization.
+main at `59976d25`. This made synchronization eligible; the S1 merge and its
+directly affected checks are now complete. P10 T6 and its explicit `while` AST
+edits are eligible to start in a later implementation turn, but remain
+unimplemented here. Both plans' checkpoint state was retained during merge.
 
-### S1 merge-conflict audit — 2026-10-05
+### S1 merge-conflict audit and completed synchronization — 2026-10-05
 
-A read-only three-way merge preview of main at `ac1c2019` and P10 at
-`46d00056` found two content conflicts:
+A three-way merge of main at `18750433` and P10 at `46d00056` found two content
+conflicts:
 
-- `phalcom-semantic/src/checker/context.rs`: retain P4's `FieldKey`-typed
-  stable Record-row lacks set and P10's `expected_kinded_return` field,
-  initialization, and clone propagation. These are independent context facts
-  and both are required.
-- this checkpoint: preserve P4's latest T2/T7.0 decisions and verification
-  state together with P10's ledger, pre-barrier evidence, and S1 status. Do not
-  choose one side wholesale.
+- `phalcom-semantic/src/checker/context.rs`: retained P4's `FieldKey`-typed
+  stable Record-row lacks set together with P10's `expected_kinded_return`
+  field, initialization, and clone propagation. These are independent context
+  facts and both are required.
+- this checkpoint: preserved P4's latest T2/T7.0 decisions and verification
+  state together with P10's ledger, pre-barrier evidence, and S1 status. The
+  checkpoint was semantically reconciled rather than taking one side wholesale.
 
-The preview auto-merged the overlapping edits in `checker/expression.rs`,
+Git auto-merged the overlapping edits in `checker/expression.rs`,
 `checker/statement.rs`, `lib.rs`, and `tests/semantic/foundations/mod.rs`. The
 P10 plan has identical content on both sides. P10's pre-barrier changes do not
-touch the P4 AST/parser files; explicit `while` AST work remains T6 and must
-wait for S1. This is a conflict analysis only: P10 has not yet been merged,
-and its directly affected checks plus the post-P4 AST/parser audit remain
-outstanding.
+touch the P4 AST/parser files. The post-P4 audit confirmed that P4 added
+Record-specific `RecordKeySyntax` and anonymous-remainder syntax without
+changing tuple `ProductLabel`; plain `while` still lowers to `whileTrue`, while
+`while let` remains `Expr::WhileLet`. No AST ownership conflict exists, so S1
+is complete and T6 may begin in a later turn. This merge did not implement T6.
+
+The merge exposed four stale `phalcom-core/src/modules/semantic_lowering.rs`
+consumers of the old string-only row representation. They were adapted to
+canonical `FieldKey` ordering, the new anonymous-tail key/value types, and the
+existing Symbol-only anonymous-product lowering contract (non-Symbol keys fail
+closed from that optimization path). The semantic integration harness then
+exposed stale fixtures across semantic tests and audit probes; these now use
+explicit Symbol keys and the canonical `FieldKey` domain for anonymous row
+remainders. No new compatibility conversion from strings to `FieldKey` was
+introduced.
+
+Focused synchronization evidence:
+
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-ast -p phalcom-semantic -p phalcom-core --message-format=short` — passed after the lowering adapter.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test --no-run -p phalcom-semantic --test semantic --message-format=short` — passed after fixture migration.
+- `cargo test -p phalcom-ast record_field_key -- --nocapture` — 6 passed.
+- Semantic focused selectors passed: `foundations::field_keys` (7), `foundations::record_row_materialization` (3), `foundations::record_row_inference` (6), `advanced::record_rows` (12), `advanced::structural_presence` (16), `foundations::structural_classification` (2), `adts::structural_reflection` (2), and `integration::static_definition_bodies` (5).
+
+No workspace-wide suite, clippy, or release certification was run. P4 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`; P10 remains `IN_PROGRESS / PARTIAL /
+UNVERIFIED` because T6 and while-dependent T9 work are not implemented and the
+inherited fixed-call Pack runtime test remains unverified. See
+[`LANG007.C4.P10-S1-merge-incident-2026-10-05.md`](LANG007.C4.P10/LANG007.C4.P10-S1-merge-incident-2026-10-05.md)
+for the merge incident packet.
 
 ---
 

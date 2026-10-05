@@ -704,8 +704,8 @@ fn test_tuple_and_record_map_projection() {
     let res_rec = resolve_type_annotation(&mut env.store, &env.declarations, &env.resolver, &env.site, &rec_ann, &mut diags);
 
     let expected_rec = env.store.record(Box::new([
-        RecordRowField::required("age".into(), list_int),
-        RecordRowField::required("name".into(), list_str),
+        RecordRowField::symbol_required("age", list_int),
+        RecordRowField::symbol_required("name", list_str),
     ]));
     assert_eq!(res_rec.ty(), Some(expected_rec));
     assert!(diags.is_empty());

@@ -716,10 +716,12 @@ fn contains_exact_case_in_row(store: &phalcom_semantic::types::TypeStore, row_id
         || match row.tail {
             phalcom_semantic::types::RecordRowTail::Projection(projection) => contains_exact_case(store, projection),
             phalcom_semantic::types::RecordRowTail::Closed
-            | phalcom_semantic::types::RecordRowTail::Parameter(_)
-            | phalcom_semantic::types::RecordRowTail::Anonymous(phalcom_semantic::types::row::AnonymousRecordRemainder::Unconstrained) => false,
-            phalcom_semantic::types::RecordRowTail::Anonymous(phalcom_semantic::types::row::AnonymousRecordRemainder::Typed(elem_ty)) => {
-                contains_exact_case(store, elem_ty)
+            | phalcom_semantic::types::RecordRowTail::Parameter(_) => false,
+            phalcom_semantic::types::RecordRowTail::Anonymous(phalcom_semantic::types::row::AnonymousRecordRemainder::Unconstrained { key_type }) => {
+                contains_exact_case(store, key_type)
+            }
+            phalcom_semantic::types::RecordRowTail::Anonymous(phalcom_semantic::types::row::AnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                contains_exact_case(store, key_type) || contains_exact_case(store, value_type)
             }
         }
 }
@@ -2321,7 +2323,8 @@ fn project_anonymous_products(
             }
             let mut source_to_logical = Vec::with_capacity(labels.len());
             for label in &labels {
-                let Ok(index) = row.fields.binary_search_by(|field| field.name.as_ref().cmp(label.as_ref())) else {
+                let key = phalcom_semantic::field_key::FieldKey::symbol(label.as_ref());
+                let Ok(index) = row.fields.binary_search_by(|field| field.key.canonical_cmp(&key)) else {
                     source_to_logical.clear();
                     break;
                 };
@@ -2333,10 +2336,18 @@ fn project_anonymous_products(
             } {
                 continue;
             }
+            let Some(logical_labels) = row
+                .fields
+                .iter()
+                .map(|field| field.key.as_symbol().map(Box::<str>::from))
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
             AnonymousProductConstructionLoweringSpec {
                 kind: AnonymousProductConstructionKind::Record {
                     presentation_labels: labels.into_boxed_slice(),
-                    logical_labels: row.fields.iter().map(|field| field.name.clone()).collect(),
+                    logical_labels: logical_labels.into_boxed_slice(),
                     source_to_logical: source_to_logical.into_boxed_slice(),
                 },
                 layout: crate::product::ProductLayoutSpec::new(

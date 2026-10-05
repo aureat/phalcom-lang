@@ -690,7 +690,7 @@ fn scoped_bound_row_tail_remains_domain_specific() {
     let field = arena.intern_scoped(ScopedTypeData::Free(TypeId::DUMMY));
     let open = arena.intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord {
         fields: Box::new([ScopedRecordField {
-            name: "value".into(),
+            key: phalcom_semantic::field_key::FieldKey::symbol("value"),
             ty: field,
             presence: phalcom_semantic::types::row::StructuralMemberPresence::Required,
         }]),
@@ -704,7 +704,7 @@ fn scoped_bound_row_tail_remains_domain_specific() {
     let row_field = arena.intern_scoped(ScopedTypeData::Bound { depth: 0, index: 0 });
     let row = arena.intern_scoped(ScopedTypeData::RecordRow(phalcom_semantic::types::type_lambda::ScopedRecordRow {
         fields: vec![ScopedRecordField {
-            name: "payload".into(),
+            key: phalcom_semantic::field_key::FieldKey::symbol("payload"),
             ty: row_field,
             presence: phalcom_semantic::types::row::StructuralMemberPresence::Required,
         }]
@@ -1894,7 +1894,7 @@ fn intrinsic_record_application_keeps_the_record_row_identity_outside_type_id() 
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
     assert!(matches!(env.store.get(explicit_shape), TypeData::Record(row) if {
         let row = env.store.record_row(*row);
-        row.fields.len() == 1 && row.fields[0].name.as_ref() == "name" && row.fields[0].ty == env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap()
+        row.fields.len() == 1 && row.fields[0].key.as_symbol().expect("symbol row field") == "name" && row.fields[0].ty == env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap()
     }));
 }
 
@@ -2116,7 +2116,7 @@ fn scoped_record_row_type_fields_substitute_and_alpha_normalize() {
     let row = env.store.record_row(row);
     assert_eq!(row.tail, RecordRowTail::Closed);
     assert_eq!(row.fields.len(), 1);
-    assert_eq!(row.fields[0].name.as_ref(), "payload");
+    assert_eq!(row.fields[0].key.as_symbol().expect("symbol row field"), "payload");
     assert_eq!(
         row.fields[0].ty, int,
         "the enclosing Type binder must substitute inside the row-valued argument"
