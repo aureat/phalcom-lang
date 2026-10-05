@@ -235,6 +235,8 @@ The current tag set is:
 | 8 | `AdtSingleton` | `RuntimeVariantId` |
 | 9 | `DataSingleton` | `RuntimeDataDescriptorId` |
 | 10 | `EmptyRecord` | no payload |
+| 11 | `UninitializedBinding` | no payload (sentinel for unassigned local/binding) |
+| 12 | `EmptyPack` | no payload |
 
 Adding a new `ValueTag` requires review of:
 
@@ -326,6 +328,19 @@ It represents the distinct zero-field Record alias `Record<>`; it is not the
 Unit value. `Value::class` maps Unit to Tuple and EmptyRecord to Record. The VM
 MUST NOT allocate a positive `RecordObject` merely to represent the empty
 Record.
+
+`EmptyPack` is also a separate immediate representation:
+
+```text
+tag        = EmptyPack
+payload    = 0
+some_depth = 0
+```
+
+It represents the distinct zero-element Pack value `Pack()`; it is not the
+Unit value and not the EmptyRecord value. `Value::class` maps EmptyPack to Pack.
+The VM MUST NOT allocate an `Object::PackRoot` or `Object::PackSlice` merely to
+represent the empty Pack.
 
 ---
 
@@ -1029,6 +1044,7 @@ Class mapping is allowed to inspect:
 | private `Nil` | internal nil class; MUST NOT surface |
 | `Unit` | Tuple class |
 | `EmptyRecord` | Record class |
+| `EmptyPack` | Pack class |
 | `Bool(true)` | True class |
 | `Bool(false)` | False class |
 | `Int` | Int class |

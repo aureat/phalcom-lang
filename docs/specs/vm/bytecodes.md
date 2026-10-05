@@ -1300,6 +1300,24 @@ Finalizes an argument-pack construction into the canonical tuple-shaped argument
 
 ---
 
+### `FinishPack`
+
+Finalizes an argument-pack builder into an immutable first-class `Pack` value. If both positional and labeled lanes are empty, produces the immediate `EmptyPack` value without heap allocation; otherwise produces an immutable `Object::PackRoot`.
+
+---
+
+### `BuildStaticPack`
+
+Constructs an immutable first-class `Pack` value directly from evaluated stack values matching a compile-time static anonymous Pack layout product, bypassing intermediate dynamic pack builder allocation.
+
+---
+
+### `BuildPack`
+
+Direct standalone Pack construction opcode that pops positional values and `(Symbol, value)` pairs from the stack to produce an immutable `Pack` (or `EmptyPack` when empty).
+
+---
+
 # 23. Packed invocation
 
 ### `InvokePack`
@@ -2223,6 +2241,9 @@ It is **not** a serialized ABI.
 | 109 | `GetUpvalueChecked` |
 | 110 | `GetGlobalChecked` |
 | 111 | `GetFieldChecked` |
+| 112 | `FinishPack` |
+| 113 | `BuildStaticPack` |
+| 114 | `BuildPack` |
 
 ---
 
