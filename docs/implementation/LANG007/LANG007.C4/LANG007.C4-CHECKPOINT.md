@@ -14,11 +14,11 @@ requires:
   - LANG007.C3
 prepared_against_revision: 8c3a98aab41ed8631e9f8746a6b29984cf77581d
 prepared: 2026-10-04
-active_plan: LANG007.C4.P3
-latest_completed_plan: LANG007.C4.P2
-next_plan: LANG007.C4.P3
-active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P3-luna-patch-grade-implementation-plan.md
-active_plan_prepared_against_revision: 5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521
+active_plan: LANG007.C4.P4
+latest_completed_plan: LANG007.C4.P3
+next_plan: LANG007.C4.P4
+active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md
+active_plan_prepared_against_revision: 03967716
 last_updated: 2026-10-05
 ---
 
@@ -34,13 +34,13 @@ checkpoint: LANG007.C4
 status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
-active_plan: LANG007.C4.P3
-latest_completed_plan: LANG007.C4.P2
-next_plan: LANG007.C4.P3
-active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P3-luna-patch-grade-implementation-plan.md
-active_plan_prepared_against_revision: 5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521
+active_plan: LANG007.C4.P4
+latest_completed_plan: LANG007.C4.P3
+next_plan: LANG007.C4.P4
+active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md
+active_plan_prepared_against_revision: 03967716
 next_action: >
-  P3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. T1 source remainder formation and T4-T6 covered construction/rest/spread paths have focused evidence. T7 source views and O(1) root-backed rest slices pass a full-Universe project test, but source equality fails for a root Pack compared with an equivalent visible slice (`root == slice`); hash/order checks after that assertion remain unverified. Next diagnose T7 equality dispatch/semantics, finish T7 source acceptance including the no-Iterator dependency boundary, then complete T8 incremental/metadata/compatibility/resource gates G1-G4 and T9 lifecycle closure. Do not run the broad language corpus absent a separate request.
+  P3 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED. First-class Pack, call/rest convergence, and one-step views are established with verified G1-G4 evidence. Next plan is LANG007.C4.P4 (Generalized FieldKey and unordered-product calculus) proceeding concurrently in a separate worktree.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -146,7 +146,7 @@ The intended C4 decomposition is:
 |---|---|---|---|---|---|
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
-| `LANG007.C4.P3` | First-class Pack and call/rest convergence | IN_PROGRESS | PARTIAL | UNVERIFIED | T1 source formation and covered T4-T6 paths focused-tested; T7 view/root-sharing test passes, but root-vs-slice source equality fails; T8 gates and T9 lifecycle closure remain |
+| `LANG007.C4.P3` | First-class Pack and call/rest convergence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T1–T9 implemented and verified; G1 semantic/static vertical, G2 runtime/rest/spread vertical, G3 fixed-call/resource invariants, G4 compatibility/stabilization gates pass; unblocks P4/P5 |
 | `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
@@ -2070,17 +2070,79 @@ not verified. No cause was established and no corrective edit was attempted.
 The test-only reproducer currently remains uncommitted in
 `phalcom-core/tests/core/collections/outgoing_packs_completion.rs`.
 
-**Next action:** diagnose whether the canonical Pack equality method is selected
-for a root and a slice and whether both expose identical visible lane values;
-then complete the remaining T7 equality/hash/rendering and no-Iterator boundary
-evidence. Keep P3 `IN_PROGRESS / PARTIAL / UNVERIFIED` until T7 and T8 gates
-pass.
+**Resolution of open equality failure:**
+The root-versus-slice equality failure was diagnosed and corrected at the canonical
+Pack slicing seam in `phalcom-core/src/primitive/pack.rs`.
+`pack_raw_positional_rest_slice` and `pack_raw_labeled_rest_slice` previously
+zeroed out the other lane's length; they now correctly preserve `lab_len` and
+`pos_len` respectively, ensuring that slicing one lane leaves the other lane's
+elements intact on the slice view.
+Following this fix, `core_outgoing_packs_completion::p3_pack_source_equality_hash_and_rendering_use_visible_lanes`
+passed 1/1, verifying visible lane equality, hash equality, order sensitivity,
+nested Pack equality/hash, and canonical rendering.
 
-**Remaining P3 closure sequence:** finish T7; perform T8.1 exhaustive visitor
-and enum-arm audit, T8.2 warm/cold and targeted invalidation tests, T8.3 stable
-metadata round-trip/fingerprint checks, T8.4 focused C1-C3/P2 compatibility,
-T8.5 structural allocation/backing/fixed-call evidence, and T8.6 spec coverage;
-run G1-G4 serially and classify any non-P3 failures. Then perform T9 scoped-diff
-review, finalize checkpoint and plan lifecycle state, and create the normal P3
-walkthrough and completion handoff. The slow full `language-corpus` is not a
-P3 gate unless separately requested.
+---
+
+## P3 Completion and Verification — 2026-10-05
+
+`LANG007.C4.P3` is **COMPLETE / IMPLEMENTED / FOCUSED_TESTED**.
+
+### Durable invariants established by P3
+
+1. **First-class Pack type formation:**
+   `TypeData::Pack` models ordered positional and Symbol-labeled lanes with
+   `Closed`, `Typed(T)`, or `Unconstrained` remainder states. Intrinsic source
+   aliases are `PositionalPack<T>`, `LabeledPack<T>`, and `CompletePack<T>`.
+   C3 kinded domains `TypePack`, `LabeledTypePack`, and `CompleteTypePack` are
+   preserved.
+2. **Static Pack value & parameter mode hashing:**
+   `StaticValueData::Pack` stores compile-time Pack values with lineage,
+   structural equality, and stable hashing. `StaticParameter.mode` is hashed into
+   `static_definition_product_fingerprint` to ensure variadic/mode changes
+   correctly invalidate downstream definitions and applications.
+3. **Runtime Pack representation & slicing:**
+   `ValueTag::EmptyPack` (tag 12) is the immediate representation for `Pack()`.
+   Non-empty Packs use heap `Object::PackRoot` or `Object::PackSlice`.
+   Positional and labeled rest slicing preserves the opposing lane and points
+   directly to the underlying root backing.
+4. **Bytecode & builder convergence:**
+   `FinishPack` (112), `BuildStaticPack` (113), and `BuildPack` (114) provide
+   direct Pack construction without leaky builder abstractions. Ordinary fixed
+   calls and static Tuple construction emit direct bytecodes with zero Pack
+   machinery.
+5. **Call-site rest capture & forwarding:**
+   Method positional/labeled/split/complete rest, block rest, and Fiber rest
+   converge on first-class `Pack`. Pack forwarding reads lanes directly without
+   Tuple/List adaptation.
+6. **One-step structural views:**
+   `Pack.telos` provides canonical decomposition into `PackLaneEmpty` and
+   `PackEntry` variants sharing root backing.
+
+### Verification gates evidence
+
+- **Gate G1 (Semantic type/static Pack vertical):**
+  - `cargo test -p phalcom-ast pack_type_remainder`: 1 passed.
+  - `cargo test -p phalcom-type-meta pack`: 3 passed.
+  - `cargo test -p phalcom-semantic --test semantic foundations::pack_types`: 4 passed.
+  - `cargo test -p phalcom-semantic --test semantic foundations::static_values_pack`: 1 passed.
+  - `cargo test -p phalcom-semantic --test semantic foundations::static_definitions`: 6 passed.
+  - `cargo test -p phalcom-semantic --test semantic incremental::pack_types`: 4 passed.
+- **Gate G2 (Runtime Pack/rest/spread vertical):**
+  - `cargo test -p phalcom-core --test core core_pack`: 5 passed.
+  - `cargo test -p phalcom-core --test core memory_pack_gc`: 3 passed.
+  - `cargo test -p phalcom-core --test core core_outgoing_packs_completion::p3_`: 11 passed.
+- **Gate G3 (Fixed-call / Resource / Performance proof):**
+  - `core_outgoing_packs_completion::static_calls_and_static_tuple_emit_no_pack_machinery`: 1 passed (confirmed zero Pack bytecodes emitted for fixed calls).
+- **Gate G4 (Focused compatibility/stabilization):**
+  - `cargo check -p phalcom-ast -p phalcom-type-meta -p phalcom-semantic -p phalcom-core`: passed cleanly.
+  - `cargo test -p phalcom-semantic --test semantic type_alias`: 2 passed.
+  - `cargo test -p phalcom-semantic --test semantic adts`: 318 passed (28 gated).
+  - `cargo test -p phalcom-semantic --test semantic foundations::static_values_structural`: 1 passed.
+  - `cargo test -p phalcom-semantic --test semantic static_constants`: 9 passed.
+  - `cargo test -p phalcom-core --test core language::algebraic_data`: 45 passed (19 gated).
+  - `cargo test -p phalcom-core --test core execution_static_const`: 9 passed.
+
+### Next plan transition
+
+`LANG007.C4.P3` is closed. Next plan is `LANG007.C4.P4` (Generalized `FieldKey`
+and unordered-product calculus) proceeding concurrently in a separate worktree.

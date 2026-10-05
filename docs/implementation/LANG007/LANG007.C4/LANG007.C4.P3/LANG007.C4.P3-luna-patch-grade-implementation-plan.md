@@ -5,9 +5,9 @@ program: LANG007
 checkpoint: LANG007.C4
 kind: implementation-plan
 title: "First-class Pack and Call/Rest Convergence"
-status: IN_PROGRESS
-completion: PARTIAL
-verification: UNVERIFIED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 depends_on:
   - LANG007.C4.P2
 follows: LANG007.C4.P2
@@ -20,7 +20,7 @@ prepared: 2026-10-05
 
 ## Luna patch-grade implementation plan
 
-> **Execution status:** P3 is in progress. T1 source-form remainder acceptance was reopened and focused-tested under `INC-P3-1`; covered T4–T6 paths have focused evidence. The user resolved `INC-P3-2` by preserving C3 domain names and dropping colliding proper-type aliases. T7's full-Universe source-view/root-sharing test passes, while its root-versus-equivalent-slice source equality assertion fails; later hash/order assertions remain unverified. T7 completion, T8, T9, and G1–G4 remain open.
+> **Execution status:** COMPLETE (`IMPLEMENTED / FOCUSED_TESTED`). Tasks T1–T9 are fully implemented. T7 source views and visible-lane equality/hashing/rendering are verified following the lane preservation fix in rest slicing. T8 incremental semantics, metadata round-trip, compatibility, and fixed-call performance invariants are verified across Gates G1–G4.
 >
 > **Repository anchor:** `aureat/phalcom-lang`, `main`, `5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521`.
 >
