@@ -40,7 +40,7 @@ next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 03967716
 next_action: >
-  P3 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED. P4 remains the primary active plan on local main at 419ec6e66ce90cba6003b7627eb4c99fa2345a7a; Record-specific AST/parser and FieldKey migration edits are in progress and unverified. P10's pre-S1 work is committed in codex/lang007-c4-p10 through f0a9a62b (four commits; clean and 4 ahead of origin/main) with focused evidence for T1-T5, T7-T8, and non-while T9 harnesses. Wait for a stable P4 frontend revision, then synchronize at S1. Preserve P3 Pack branches and do not start P10 T6 before S1.
+  P3 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED. P4 remains the primary active plan on local main at 419ec6e66ce90cba6003b7627eb4c99fa2345a7a; Record-specific AST/parser and FieldKey migration edits are in progress and unverified. P10's pre-S1 work is committed in codex/lang007-c4-p10 in four source/docs commits through f0a9a62b, with focused evidence for T1-T5, T7-T8, and non-while T9 harnesses. Wait for a stable P4 frontend revision, then synchronize at S1. Preserve P3 Pack branches and do not start P10 T6 before S1.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -215,7 +215,7 @@ was created clean from that committed anchor, and only the named P10 plan was
 copied into it. P10 has since implemented and focused-tested T1-T5, completed
 the T7/T8 audits, and added focused Pack and non-loop evaluator resource
 harnesses for T9. This pre-S1 work is committed on `codex/lang007-c4-p10`
-through `f0a9a62b`; the branch is clean and remains isolated until S1.
+through `f0a9a62b` and remains isolated until S1.
 
 Before P10 T6 edits `Expr` or the parser, S1 requires a coherent P4 frontend
 revision to be integrated or explicitly handed off, P10 pre-S1 work to be
