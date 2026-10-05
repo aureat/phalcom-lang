@@ -63,6 +63,7 @@ pub mod static_domain;
 pub mod static_eval;
 pub mod static_intrinsic;
 pub mod static_value;
+pub mod structural;
 pub mod surface;
 pub mod termination;
 pub mod tooling;
@@ -163,6 +164,10 @@ pub use static_definition::{
     StaticParameter, resolve_static_definition,
 };
 pub use static_domain::{StaticDomainResolution, StaticValueDomain, is_proper_type, resolve_static_domain, validate_proper_type};
+pub use structural::{
+    OrderedProductEntry, OrderedProductForm, OrderedProductOrigin, OrderedProductStructure, SpecializedVariantStructure, StructuralClassification,
+    StructuralClassifier, SumStructure, SumStructureError,
+};
 pub use static_intrinsic::{
     StaticIntrinsicOperation, StaticIntrinsicRegistry, StaticIntrinsicRegistryError, StaticOperationResolution, StaticOperationResolutionIndex,
 };
