@@ -33,9 +33,11 @@ class ExampleCopies {
   @class
   choices(values: List<Choices.Choice>) -> List<Choices.Choice> {
     let mut copied = List.new()
+    let mut index = 0
 
-    for value in values {
-      copied.add(value.copy)
+    while index < values.size {
+      copied.add(values[index].copy)
+      index += 1
     }
 
     copied

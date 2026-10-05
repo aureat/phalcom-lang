@@ -1,6 +1,33 @@
 import .choice as Choices
 import .request as Requests
 import .example as Examples
+from .choice import Choice
+
+/// A deterministic generator used when the host does not provide one.
+class SeededRandom {
+  mut _state: Int
+
+  @constructor
+  new(seed: Int) {
+    let normalizedSeed = seed % 2147483646
+    _state = if normalizedSeed < 0 {
+      normalizedSeed + 2147483646
+    } else {
+      normalizedSeed
+    } + 1
+  }
+
+  /// Returns a pseudo-random integer from the inclusive range.
+  nextIntIn(min: Int, max: Int) -> Int {
+    if min > max {
+      throw Error.new("invalid random integer range")
+    }
+
+    _state = (_state * 48271) % 2147483647
+
+    min + (_state % (max - min + 1))
+  }
+}
 
 /// Supplies one choice for each primitive request made by a strategy.
 trait ChoiceProvider {
@@ -19,20 +46,28 @@ trait ChoiceProviderFactory {
 
 /// Generates choices from a seeded Phalcom random source.
 class SystemRandomChoiceProvider {
-  _random: Random
+  _random: SeededRandom
   mut _consumedChoices: Int = 0
 
   @constructor
-  new(random: Random) {
+  new(random: SeededRandom) {
     _random = random
   }
 
-  consumedChoices -> Int { _consumedChoices }
+  consumedChoiceCount -> Int { _consumedChoices }
+
+  recordChoice -> () {
+    _consumedChoices += 1
+  }
+
+  randomIntIn(min: Int, max: Int) -> Int {
+    _random.nextIntIn(min, max)
+  }
 }
 
 impl ChoiceProvider for SystemRandomChoiceProvider {
   choose(request: Requests.ChoiceRequest) -> Choices.Choice {
-    _consumedChoices += 1
+    recordChoice
 
     match request {
       Requests.ChoiceRequest::Integer(min, max, target) => {
@@ -40,18 +75,18 @@ impl ChoiceProvider for SystemRandomChoiceProvider {
           throw Error.new("invalid integer choice request")
         }
 
-        Choices.Choice::Integer(_random.nextIntIn(min, max), min, max, target)
+        Choice::Integer(randomIntIn(min, max), min, max, target)
       }
 
       Requests.ChoiceRequest::Boolean(target) =>
-        Choices.Choice::Boolean(_random.nextIntIn(0, 1) == 1, target)
+        Choice::Boolean(randomIntIn(0, 1) == 1, target)
 
       Requests.ChoiceRequest::Index(size, target) => {
         if size <= 0 or target < 0 or target >= size {
           throw Error.new("invalid index choice request")
         }
 
-        Choices.Choice::Index(_random.nextIntIn(0, size - 1), size, target)
+        Choice::Index(randomIntIn(0, size - 1), size, target)
       }
 
       Requests.ChoiceRequest::Bytes(minSize, maxSize, target) => {
@@ -60,19 +95,21 @@ impl ChoiceProvider for SystemRandomChoiceProvider {
           throw Error.new("invalid byte choice request")
         }
 
-        let length = _random.nextIntIn(minSize, maxSize)
+        let length = randomIntIn(minSize, maxSize)
         let bytes = Bytes.zeroed(length)
         let mut index = 0
 
         while index < length {
-          bytes[index] = _random.nextIntIn(0, 255)
+          bytes[index] = randomIntIn(0, 255)
           index += 1
         }
 
-        Choices.Choice::Bytes(bytes, minSize, maxSize, target).copy
+        Choice::Bytes(bytes, minSize, maxSize, target).copy
       }
     }
   }
+
+  consumedChoices -> Int { consumedChoiceCount }
 }
 
 /// Supplies normalized choices from a fixed tape.
@@ -85,20 +122,29 @@ class ScriptedChoiceProvider {
     _script = ProviderCopies.choices(script)
   }
 
-  consumedChoices -> Int { _cursor }
+  consumedChoiceCount -> Int { _cursor }
+
+  scriptSize -> Int { _script.size }
+
+  nextChoice -> Choices.Choice {
+    let choice = _script[_cursor]
+    _cursor += 1
+    choice
+  }
 }
 
 impl ChoiceProvider for ScriptedChoiceProvider {
   choose(request: Requests.ChoiceRequest) -> Choices.Choice {
-    if _cursor >= _script.size {
+    if consumedChoiceCount >= scriptSize {
       throw Error.new("scripted provider ran out of choices")
     }
 
-    let source = _script[_cursor]
-    _cursor += 1
+    let source = nextChoice
 
     ChoiceNormalization.normalize(request, source)
   }
+
+  consumedChoices -> Int { consumedChoiceCount }
 }
 
 /// Replays choices from an immutable example tape.
@@ -111,20 +157,29 @@ class ReplayChoiceProvider {
     _example = example
   }
 
-  consumedChoices -> Int { _cursor }
+  consumedChoiceCount -> Int { _cursor }
+
+  hasNext -> Bool { _cursor < _example.size }
+
+  nextChoice -> Choices.Choice {
+    let choice = _example.at(_cursor)
+    _cursor += 1
+    choice
+  }
 }
 
 impl ChoiceProvider for ReplayChoiceProvider {
   choose(request: Requests.ChoiceRequest) -> Choices.Choice {
-    if _cursor >= _example.size {
+    if not hasNext {
       throw Error.new("replay tape ended before the draw sequence completed")
     }
 
-    let source = _example.at(_cursor)
-    _cursor += 1
+    let source = nextChoice
 
     ChoiceNormalization.normalize(request, source)
   }
+
+  consumedChoices -> Int { consumedChoiceCount }
 }
 
 /// Produces a deterministic random stream per example from one seed.
@@ -135,13 +190,17 @@ class SystemRandomChoiceProviderFactory {
   new(seed: Int) {
     _seed = seed
   }
+
+  seedFor(exampleIndex: Int) -> Int {
+    _seed + exampleIndex
+  }
 }
 
 impl ChoiceProviderFactory for SystemRandomChoiceProviderFactory {
   create(exampleIndex: Int) -> ChoiceProvider {
     // Each example gets a repeatable stream independent of earlier consumption.
     SystemRandomChoiceProvider.new(
-      random: Random.new(seed: _seed + exampleIndex)
+      random: SeededRandom.new(seed: seedFor(exampleIndex))
     )
   }
 }
@@ -154,12 +213,16 @@ class ScriptedChoiceProviderFactory {
   new(script: List<Choices.Choice>) {
     _script = ProviderCopies.choices(script)
   }
+
+  scriptCopy -> List<Choices.Choice> {
+    ProviderCopies.choices(_script)
+  }
 }
 
 impl ChoiceProviderFactory for ScriptedChoiceProviderFactory {
   /// Creates a provider with an independent cursor over the stored script.
   create(exampleIndex: Int) -> ChoiceProvider {
-    ScriptedChoiceProvider.new(script: _script)
+    ScriptedChoiceProvider.new(script: scriptCopy)
   }
 }
 
@@ -180,7 +243,7 @@ class ChoiceNormalization {
               throw Error.new("integer choice is outside the requested bounds")
             }
 
-            Choices.Choice::Integer(value, min, max, target)
+            Choice::Integer(value, min, max, target)
           }
 
           _ => {
@@ -191,7 +254,7 @@ class ChoiceNormalization {
       Requests.ChoiceRequest::Boolean(target) =>
         match source {
           Choices.Choice::Boolean(value, _) =>
-            Choices.Choice::Boolean(value, target)
+            Choice::Boolean(value, target)
 
           _ => {
             throw Error.new("choice kind does not match its request")
@@ -206,7 +269,7 @@ class ChoiceNormalization {
               throw Error.new("index choice is outside the requested domain")
             }
 
-            Choices.Choice::Index(value, size, target)
+            Choice::Index(value, size, target)
           }
 
           _ => {
@@ -223,7 +286,7 @@ class ChoiceNormalization {
               throw Error.new("byte choice is outside the requested size bounds")
             }
 
-            Choices.Choice::Bytes(value, minSize, maxSize, target).copy
+            Choice::Bytes(value, minSize, maxSize, target).copy
           }
 
           _ => {
@@ -238,9 +301,11 @@ class ProviderCopies {
   @class
   choices(values: List<Choices.Choice>) -> List<Choices.Choice> {
     let mut copied = List.new()
+    let mut index = 0
 
-    for value in values {
-      copied.add(value.copy)
+    while index < values.size {
+      copied.add(values[index].copy)
+      index += 1
     }
 
     copied

@@ -3,6 +3,8 @@ import .buffer as Buffers
 import .request as Requests
 import .choice as Choices
 import .example as Examples
+from .request import ChoiceRequest
+from .choice import Choice
 
 /// Strategy-facing choice access and the mutable buffer for one example.
 class DrawData {
@@ -27,8 +29,8 @@ class DrawData {
 
   /// Draws an integer without exposing the heterogeneous choice sum.
   drawInt(min: Int, max: Int, shrinkTowards: Int) -> Int {
-    match self.draw(Requests.ChoiceRequest::Integer(min, max, shrinkTowards)) {
-      Choices.Choice::Integer(value, _, _, _) => value
+    match self.draw(ChoiceRequest::Integer(min, max, shrinkTowards)) {
+      Choice::Integer(value, _, _, _) => value
       _ => {
         throw Error.new("integer request returned a non-integer choice")
       }
@@ -37,8 +39,8 @@ class DrawData {
 
   /// Draws a boolean without exposing the heterogeneous choice sum.
   drawBool(shrinkTowards: Bool) -> Bool {
-    match self.draw(Requests.ChoiceRequest::Boolean(shrinkTowards)) {
-      Choices.Choice::Boolean(value, _) => value
+    match self.draw(ChoiceRequest::Boolean(shrinkTowards)) {
+      Choice::Boolean(value, _) => value
       _ => {
         throw Error.new("boolean request returned a non-boolean choice")
       }
@@ -47,8 +49,8 @@ class DrawData {
 
   /// Draws an index in `[0, size)`.
   drawIndex(size: Int, shrinkTowards: Int) -> Int {
-    match self.draw(Requests.ChoiceRequest::Index(size, shrinkTowards)) {
-      Choices.Choice::Index(value, _, _) => value
+    match self.draw(ChoiceRequest::Index(size, shrinkTowards)) {
+      Choice::Index(value, _, _) => value
       _ => {
         throw Error.new("index request returned a non-index choice")
       }
@@ -58,9 +60,9 @@ class DrawData {
   /// Draws a byte sequence and records a defensive copy in the example.
   drawBytes(minSize: Int, maxSize: Int, shrinkTowards: Bytes) -> Bytes {
     match self.draw(
-      Requests.ChoiceRequest::Bytes(minSize, maxSize, shrinkTowards)
+      ChoiceRequest::Bytes(minSize, maxSize, shrinkTowards)
     ) {
-      Choices.Choice::Bytes(value, _, _, _) => value
+      Choice::Bytes(value, _, _, _) => value
       _ => {
         throw Error.new("byte request returned a non-byte choice")
       }

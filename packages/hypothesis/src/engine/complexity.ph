@@ -9,8 +9,12 @@ impl ExampleComplexity {
   @class
   of(example: Examples.Example) -> ExampleComplexity {
     let mut magnitude = 0
+    let choices = example.choices
+    let mut index = 0
 
-    for choice in example.choices {
+    while index < choices.size {
+      let choice = choices[index]
+
       match choice {
         Choices.Choice::Integer(value, _, _, target) => {
           let distance = value - target
@@ -43,6 +47,8 @@ impl ExampleComplexity {
           magnitude += value.size + target.size
         }
       }
+
+      index += 1
     }
 
     ExampleComplexity(choiceCount: example.size, magnitude: magnitude)
