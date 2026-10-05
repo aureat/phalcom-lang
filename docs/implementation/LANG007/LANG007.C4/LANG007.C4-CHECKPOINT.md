@@ -147,7 +147,7 @@ The intended C4 decomposition is:
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
 | `LANG007.C4.P3` | First-class Pack and call/rest convergence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T1–T9 implemented and verified; G1 semantic/static vertical, G2 runtime/rest/spread vertical, G3 fixed-call/resource invariants, G4 compatibility/stabilization gates pass; unblocks P4/P5 |
-| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
+| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | NOT_STARTED | UNVERIFIED | T0 complete on isolated `codex/lang007-c4-p4` worktree based at `03967716867684a513cffd6a044af36366859b18`; semantic static-Record discriminator and P3 Pack-spread discriminator passed; implementation not started |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |

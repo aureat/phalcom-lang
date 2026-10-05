@@ -6,9 +6,13 @@ checkpoint: LANG007.C4
 plan: LANG007.C4.P4
 kind: implementation-plan
 title: "Generalized FieldKey and Unordered-Product Calculus"
-status: PROPOSED
+status: IN_PROGRESS
 completion: NOT_STARTED
 verification: UNVERIFIED
+started_against_revision: 03967716867684a513cffd6a044af36366859b18
+worktree_branch: codex/lang007-c4-p4
+worktree_path: /Users/altunhasanli/.codex/worktrees/lang007-c4-p4/phalcom
+started: 2026-10-05
 depends_on:
   - LANG007.C4.P2
 parallel_with:
@@ -3475,4 +3479,3 @@ The critical architectural sentence for the implementer is:
 > A Record field key has one semantic identity (`FieldKey`), one canonical order, one row calculus, and multiple lossless projections. Ordered labels remain Symbol and are not generalized by P4.
 
 When in doubt, preserve that ownership direction and consult rather than adding a compatibility shortcut that creates another source of truth.
-
