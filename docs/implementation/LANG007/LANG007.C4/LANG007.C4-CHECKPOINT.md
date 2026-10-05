@@ -17,6 +17,9 @@ prepared: 2026-10-04
 active_plan: LANG007.C4.P3
 latest_completed_plan: LANG007.C4.P2
 next_plan: LANG007.C4.P3
+active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P3-luna-patch-grade-implementation-plan.md
+active_plan_prepared_against_revision: 5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521
+last_updated: 2026-10-05
 ---
 
 # LANG007.C4 — Checkpoint Record
@@ -34,8 +37,10 @@ verification: UNVERIFIED
 active_plan: LANG007.C4.P3
 latest_completed_plan: LANG007.C4.P2
 next_plan: LANG007.C4.P3
+active_plan_record: LANG007.C4.P3-luna-patch-grade-implementation-plan.md
+active_plan_prepared_against_revision: 5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521
 next_action: >
-  P2 is COMPLETE and FOCUSED_TESTED: compile-time static values, generalized type definitions, static definition table, static evaluator foundation, closed static constants pipeline (T8), materialization descriptors and M2 primitive lowering vertical (T9), incremental stabilization (T10), and all gates G1–G3 have passed. Proceed to LANG007.C4.P3 (First-class Pack and call/rest convergence).
+  P2 remains COMPLETE and FOCUSED_TESTED. P3's detailed requirements analysis and Luna patch-grade implementation plan are prepared against live main revision 5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521. P3 implementation has not started: keep P3 PROPOSED / NOT_STARTED / UNVERIFIED until T0 begins actual source work. Next action is LANG007.C4.P3.T0 takeover/baseline freeze, followed by the plan's semantic Pack type, StaticPack, runtime Pack, call/rest, spread/view, and stabilization sequence.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -141,7 +146,7 @@ The intended C4 decomposition is:
 |---|---|---|---|---|---|
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
-| `LANG007.C4.P3` | First-class Pack and call/rest convergence | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
+| `LANG007.C4.P3` | First-class Pack and call/rest convergence | PROPOSED | NOT_STARTED | UNVERIFIED | Luna patch-grade plan prepared against `5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521`; implementation has not started; T0 is next |
 | `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
@@ -726,15 +731,24 @@ Cancelled
 
 ## 5.3 P3 expected seams
 
+Planning is now patch-grade and repository-grounded. These remain intended interfaces until a P3 walkthrough records what actually shipped:
+
 ```text
-first-class Pack
-PositionalPack
-LabeledPack
-CompletePack
-one-step PackView
-flat/sliced runtime/static backing
-rest capture -> Pack
-spread lowering -> fused Pack segments
+proper first-class Pack Type distinct from C3 kinded TypePack terms
+PackFromPacks / equivalent canonical bridge to existing C1–C3 pack algebra
+PositionalPack / LabeledPack / CompletePack
+PositionalPackView / LabeledPackView with Empty / Entry
+StaticValue::Pack in the existing P2 StaticValueStore
+StaticPack immutable backing + O(1) slice descriptors
+StaticParameter canonical GenericParameterMode for value-domain variadics
+runtime EmptyPack + immutable Pack root/slice representation
+GC-safe root-referenced O(1) runtime slices
+private ArgumentPackBuilder -> FinishPack only when a surface Pack is required
+fixed calls remain direct and require no Pack/builder allocation
+rest capture -> Pack across method/block/Fiber language-rest entry paths
+Pack spread/forwarding -> direct lane append into one fused destination builder
+explicit Tuple <-> Pack interoperability; no Tuple/Pack identity collapse
+minimal stable ordinary Pack type metadata; StaticPack value persistence remains P8
 ```
 
 ## 5.4 P4 expected seams
@@ -838,6 +852,7 @@ checkpoint closure
 | `LANG007.C4.P2.T10 incremental stabilization` | Incremental cold/warm parity, same-module constant isolation, acyclic SCC ordering, budget termination | `cargo test -p phalcom-semantic --test semantic static_constants` passed 9/9 | FOCUSED PASS | 100% cache hit rate on unchanged constants; topological invalidation propagates; cyclic queries terminate safely |
 | `LANG007.C4.P2.G2 C1–C3 compatibility gate` | Regression verification for C1–C3 type alias, static definition, and algebraic data suites | `cargo test -p phalcom-semantic --test semantic type_alias` (2 pass); `cargo test -p phalcom-semantic --test semantic adts` (318 pass, 28 ignored, 0 fail); `cargo test -p phalcom-core --test core language::algebraic_data` (45 pass, 19 ignored, 0 fail) | COMPLETE / FOCUSED_PASS | zero regressions in C1–C3 static, type, and algebraic data behavior |
 | `LANG007.C4.P2.G3 affected crates check` | Affected crate compilation check | `cargo check -p phalcom-semantic -p phalcom-core` completed with 0 errors | COMPLETE | all affected crates build cleanly |
+| `LANG007.C4.P3` plan readiness | P3 repository grounding, architecture, implementation decomposition, coverage, stop conditions, and lifecycle contract | read-only live audit of `main` at `5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521` + `LANG007.C4.P3-requirements-analysis.md` + `LANG007.C4.P3-luna-patch-grade-implementation-plan.md` | COMPLETE (planning only) | P3 has a bounded executable patch-grade plan grounded in current source; proves no P3 implementation behavior and does not change P3 verification |
 
 ### 2026-10-04 — P2 T7.10 exact static-application authority stop
 
@@ -1607,6 +1622,59 @@ The early `StaticDefinition` query input fingerprint now includes the resolved
 signature and source body, preventing same-identity edits from reusing its
 prior definition product.
 
+## 2026-10-05 — P3 patch-grade architecture planning audit
+
+### Scope
+
+Prepared `LANG007.C4.P3-luna-patch-grade-implementation-plan.md` from the detailed P3 requirements analysis and a fresh read-only audit of live `main` at `5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521`. This is a plan-readiness event, not a P3 implementation event.
+
+### Live repository findings carried into the plan
+
+- AST already owns the canonical `ExpansionMode::Positional/Labeled/Complete`, `PackItem`, rest modes, and reusable anonymous remainder syntax. No second pack-lane syntax model is authorized.
+- C1–C3 `TypeData::TypePack`, `LabeledTypePack`, `CompleteTypePack`, concat forms, `TupleFromPacks`, and `GenericParameterMode` remain canonical optimized type-level authorities. A first-class Pack therefore requires a distinct proper-Type representation plus a bridge, not replacement.
+- semantic `StaticParameter` currently loses source pack mode for value-domain parameters even though `StaticParameterSyntax` retains it. P3 will retain mode directly while preserving the P2 rule that only kinded parameters receive `TypeParameterId`.
+- P2 `StaticValueStore` has the intentional first-class Pack hole and is ready for additive StaticPack backing/slice nodes; no second static-value store is planned.
+- runtime `ArgumentPackBuilderObject` is already the correct mutable staging primitive. It remains private; dynamic `InvokePack` continues consuming it directly. `FinishTuplePack` remains Tuple-specific.
+- builder duplicate-label membership is currently linear (`labels.contains`); P3 plans a small-fast/large-indexed strategy without changing label-error timing.
+- method rest capture currently materializes Tuple for all four rest modes, block rest materializes Tuple, and Fiber rest currently materializes List. P3 plans one VM Pack-capture authority for every language-rest entry path.
+- Tuple/Record product storage/layout/descriptor infrastructure is reusable, but Tuple identity is not. P3 plans a distinct runtime Pack kind/shape with immutable root ProductStorage and GC-safe root-referenced O(1) slices.
+- Value tag space permits a preferred immediate `EmptyPack` representation subject to implementation-time exhaustive ABI/tag audit.
+- ordinary type metadata already persists open Tuple and C3 symbolic pack forms. Because proper Pack types may cross module boundaries during P3, minimal stable Pack type metadata is included in P3; durable StaticPack value serialization remains P8.
+- existing outgoing-pack tests already prove fixed calls avoid builder machinery. P3 makes this a blocking performance gate and does not route fixed calls through first-class Pack.
+
+### Planned architecture
+
+```text
+source Pack/rest/spread syntax
+        ↓
+canonical semantic Pack declaration + proper Pack type
+        ├─ bridge to existing C3 kinded pack terms
+        └─ P2 StaticValue::Pack for compile-time values
+        ↓
+compiler lowering
+        ├─ fixed calls: existing direct invoke, no Pack/builder
+        ├─ dynamic calls: private builder -> InvokePack
+        └─ first-class Pack construction: direct static build or private builder -> FinishPack
+        ↓
+runtime immutable Pack
+        root ProductStorage + ordered labels
+        O(1) slices retaining the root through GC
+```
+
+### Plan state consequence
+
+P3 remains:
+
+```text
+status: PROPOSED
+completion: NOT_STARTED
+verification: UNVERIFIED
+```
+
+The next action is P3 T0. When actual implementation begins, T0 must move the checkpoint row to `IN_PROGRESS / PARTIAL / UNVERIFIED`, record the real starting revision, and run only the named baseline discriminator.
+
+---
+
 # 9. Performance and resource invariants
 
 C4 performance is part of correctness.
@@ -1771,20 +1839,37 @@ release-wide certification.
 
 # 13. Current next action
 
-`LANG007.C4.P2` is **COMPLETE** and **FOCUSED_TESTED**.
+`LANG007.C4.P2` remains **COMPLETE / IMPLEMENTED / FOCUSED_TESTED** and is the latest completed plan. Its completed static-value/evaluator/materialization/incremental gates are inherited prerequisites and must not be reopened by P3 without new causal evidence.
 
-All planned tasks (T0–T11) and gates (G1–G3) are closed:
-- T0–T7: Static value domain, generalized `type` definition AST/syntax, static definitions, primitive & structural static values, checked static body pipeline, exact intrinsic allowlist (`Number.+(_)`) and explicit-frame static evaluator foundation.
-- T8: Closed static constant pipeline with constant-owned identity `StaticConstantId(SymbolId)`, exact initializer syntax location via retained source span, shared ordinary checker analysis in static body context, Tarjan SCC cycle detection emitting `DiagnosticCode::StaticConstantCycle`, topological evaluation, and content-recursive fingerprinting. Verified same-module constant isolation (editing constant A does not invalidate unaffected constant B).
-- T9: Materialization descriptors (`MaterializationDescriptor`), `MaterializationCapability`, compiler M2 primitive runtime vertical (`Unit`, `Bool`, `SmallInt`, `LargeInt`, `Float` exact bits, `String`, `Symbol`). Runtime use emits direct constant pool loads without runtime initializer bytecode or slots. Structural constants fail closed at runtime with `CompilerError::StaticConstStructuralDeferred`. Heap `LargeInt` values rooted in chunk constants survive GC.
-- G1: End-to-end VM execution gate passed (16/16 tests pass: 9 execution tests + 7 compiler tests in `core static_const`).
-- T10: Incremental cold/warm parity, same-module cache hit isolation, acyclic topological evaluation, and budget termination verified (9/9 tests pass in `semantic static_constants`).
-- G2: C1–C3 compatibility gate passed: `semantic type_alias` (2/2 pass), `semantic adts` (318 pass, 28 ignored, 0 fail), `core language::algebraic_data` (45 pass, 19 ignored, 0 fail).
-- G3: Affected crates check passed: `cargo check -p phalcom-semantic -p phalcom-core` completes with 0 errors.
-- T11: Completion records authored (`LANG007.C4.P2-walkthrough.md`, `LANG007.C4.P2-handoff.md`), checkpoint state updated.
+`LANG007.C4.P3` is the active next plan but remains **PROPOSED / NOT_STARTED / UNVERIFIED**.
 
-### Next Action:
-Proceed to **`LANG007.C4.P3` — First-class Pack and call/rest convergence**:
-- Plan: [`docs/implementation/LANG007/LANG007.C4/LANG007.C4.P3-luna-patch-grade-implementation-plan.md`](file:///Users/altunhasanli/dev/phalcom/phalcom/docs/implementation/LANG007/LANG007.C4/LANG007.C4.P3-luna-patch-grade-implementation-plan.md) (or author plan if not yet created).
-- Scope: First-class Pack structural transport, runtime pack representation, rest/splat convergence, and tuple interoperability.
+### P3 planning readiness
 
+The following are now prepared against live `main` revision `5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521`:
+
+```text
+LANG007.C4.P3-requirements-analysis.md
+LANG007.C4.P3-luna-patch-grade-implementation-plan.md
+```
+
+The patch-grade plan freezes these architectural directions for execution:
+
+- a proper first-class Pack type distinct from C3 kinded pack terms, with one explicit C3 bridge;
+- StaticPack in P2's existing StaticValueStore with immutable backing and O(1) slice descriptors;
+- canonical static-parameter mode retention for value-domain variadic capture;
+- a distinct runtime Pack root/slice representation reusing product storage/layout but not Tuple identity;
+- preferred immediate `EmptyPack`, subject to implementation-time tag/ABI audit;
+- private mutable argument builder retained for dynamic calls and first-class Pack finalization only when needed;
+- one Pack rest-capture authority replacing current method Tuple, block Tuple, and verified Fiber List rest materializations;
+- direct Pack lane spreading/forwarding without Iterator or Tuple/List conversion;
+- explicit Tuple interoperability only; Record remains non-Pack/unordered;
+- minimal stable ordinary Pack type metadata in P3, while durable StaticPack value persistence remains P8;
+- fixed-call no-builder/no-Pack behavior as a blocking P3 performance invariant.
+
+### Next Action
+
+Execute **`LANG007.C4.P3.T0` — takeover, active-plan transition, and baseline discriminators** from:
+
+`docs/implementation/LANG007/LANG007.C4/LANG007.C4.P3-luna-patch-grade-implementation-plan.md`
+
+T0 must first inspect repository status/revision and confirm live source ownership. Only when actual P3 source work begins should the P3 ledger state change to `IN_PROGRESS / PARTIAL / UNVERIFIED`. No P3 implementation or behavioral test is claimed by this checkpoint update.
