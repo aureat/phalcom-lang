@@ -249,8 +249,8 @@ preserve this semantic distinction.
 Generic conformance propositions and evidence remain owned by
 [Generic Constraints](generic-constraints.md). Trait-owned associated
 declarations are specialized by [Associated Types](associated-types.md) and
-[Type Members](type-members.md). Tuple/Record formation and `Positionals`,
-`Labeled`, `At`, and `Map` are owned by
+[Type Members](type-members.md). Proper Pack and Tuple/Record formation, plus
+`Positionals`, `Labeled`, `At`, and `Map`, are owned by
 [Structural Products](structural-products.md).
 
 This specification does not introduce runtime `TypePack` or `RecordFields`

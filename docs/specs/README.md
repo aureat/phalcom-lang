@@ -22,7 +22,7 @@ They include:
 
 - [`type-level-domains.md`](type-level-domains.md) — type-level kinds and domains, type forms, packs, rows, and compile-time parameter domains;
 - [`type-members.md`](type-members.md) — type-member declarations, ownership, identity, lookup, application, and projection normalization;
-- [`structural-products.md`](structural-products.md) (and companion [`tuple-and-record-typing.md`](tuple-and-record-typing.md)) — static structural Tuple/Record typing, presence, remainders, and structural type operations;
+- [`structural-products.md`](structural-products.md) (and companion [`tuple-and-record-typing.md`](tuple-and-record-typing.md)) — static structural Tuple/Record/Pack typing, presence, remainders, and structural type operations;
 - [`generic-constraints.md`](generic-constraints.md) — generic `where` constraints, conformance bounds, associated specialization, generic projection, equivalence, and subtyping constraints;
 - [`associated-types.md`](associated-types.md) — trait-owned associated declarations, conformance bindings, and the trait specialization of general type members;
 - [`objects/`](objects/) — values, classes and instance fields, runtime algebraic data, traits, and implementation declarations;
@@ -86,7 +86,7 @@ An accepted decision or implementation checkpoint that changes current language 
 | --- | --- |
 | Type-level kinds, type forms, packs, rows, and compile-time parameter domains | [`type-level-domains.md`](type-level-domains.md) |
 | Type-member declarations, ownership, identity, lookup, application, and projection normalization | [`type-members.md`](type-members.md) |
-| Structural Tuple/Record typing, presence, remainders, and structural type operations | [`structural-products.md`](structural-products.md) (companion: [`tuple-and-record-typing.md`](tuple-and-record-typing.md)) |
+| Structural Tuple/Record/Pack typing, presence, remainders, and structural type operations | [`structural-products.md`](structural-products.md) (companion: [`tuple-and-record-typing.md`](tuple-and-record-typing.md)) |
 | Generic `where` constraints and generic evidence | [`generic-constraints.md`](generic-constraints.md) |
 | Trait-owned associated declarations, bindings, and conformance evidence | [`associated-types.md`](associated-types.md) |
 | Source declaration modifiers, access domains, implementation origin, and legacy namespace retirement | [`source-declarations.md`](source-declarations.md) |

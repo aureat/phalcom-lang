@@ -5,8 +5,8 @@ program: LANG007
 checkpoint: LANG007.C4
 kind: implementation-plan
 title: "First-class Pack and Call/Rest Convergence"
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 depends_on:
   - LANG007.C4.P2
@@ -20,7 +20,7 @@ prepared: 2026-10-05
 
 ## Luna patch-grade implementation plan
 
-> **Planning status:** execution-ready implementation plan. This document does **not** claim that P3 source implementation or P3 verification has begun.
+> **Execution status:** P3 is in progress. T1–T3 were inherited as implemented; T1 source-form remainder acceptance was reopened and is now implemented/focused-tested under amendment `INC-P3-1`. T4–T6 have focused implementation evidence. The user resolved `INC-P3-2` by preserving C3 domain names and dropping colliding proper-type aliases; the focused full-Universe rest-capture integration passes with `PositionalPack<T>`, `LabeledPack<T>`, and `CompletePack<T>`. T7 view/native/equality checks, T8–T9, and certification gates remain incomplete.
 >
 > **Repository anchor:** `aureat/phalcom-lang`, `main`, `5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521`.
 >
@@ -215,11 +215,12 @@ intrinsic data Pack<***Es>(***Es)
 type PositionalPack<T: Type> = Pack<*: T>
 type LabeledPack<T: Type> = Pack<**: T>
 type CompletePack<T: Type> = Pack<***: T>
-
-type PositionalTypePack = PositionalPack<Type>
-type LabeledTypePack = LabeledPack<Type>
-type CompleteTypePack = CompletePack<Type>
 ```
+
+C3 `TypePack`, `LabeledTypePack`, and `CompleteTypePack` remain the canonical
+kinded domains. P3 does not define proper Pack aliases under those names;
+`PositionalPack<T>`, `LabeledPack<T>`, and `CompletePack<T>` are the source
+aliases for the proper Pack remainders.
 
 Semantic rules:
 
@@ -1428,6 +1429,37 @@ specialization/substitution makes lanes concrete
 
 Concrete Pack type preserves positional order, labeled order, labels, and typed/open lane remainders. Empty Pack remains Pack.
 
+### T1.2 source-formation amendment — 2026-10-05
+
+The T7 ordinary-project integration probe showed that the inherited T1 work
+accepts the parser forms and stores open Pack types, but does not lower
+`GenericArgumentSyntax::Remainder` into that representation. Complete T1 source
+formation before T7:
+
+- In both resolved and scoped type-form lowering, consume typed or unconstrained
+  remainder syntax only when the origin is the canonical intrinsic Pack with
+  its CompleteTypePack variadic contract. `*:` opens only the positional lane,
+  `**:` only the labeled lane, and `***:` opens both with the same constraint.
+- Resolved formation produces the existing `TypeData::Pack`; scoped formation
+  preserves bound type variables in a capture-safe Pack node and materializes
+  to the same `TypeData::Pack` after substitution. Keep the C3 expansion bridge
+  as `PackFromPacks`.
+- Ordinary generic constructors continue to reject anonymous remainder
+  arguments. Detection is by canonical declaration identity, never spelling.
+- Add source-form tests for all three typed modes, generic type-lambda
+  substitution, unconstrained forms parsed by the existing AST, and rejection
+  on a non-Pack generic constructor. Add the source-visible alias/view probe to
+  T7 after semantic formation passes.
+
+This continuation reopened T1 source-form acceptance and now has focused
+semantic evidence. It does not create another Pack identity or change the C3
+TypePack domains. The user resolved checkpoint incident `INC-P3-2` by
+preserving C3 names and dropping the conflicting proper-type aliases. The
+full-Universe source integration selector
+`core_outgoing_packs_completion::p3_language_rest_capture_converges_on_pack`
+passes with the three `*Pack<T>` aliases above; T7's remaining view/native/
+equality work continues.
+
 ## T1.3 — relation/visitor integration
 
 Audit every exhaustive TypeData path. Minimum:
@@ -1875,6 +1907,22 @@ Add `BuildStaticPack { spec }` or equivalent direct product build. Values are ev
 ## T4.4 — canonical lowering identity
 
 Compiler receives checked semantic lowering fact proving canonical Pack constructor identity. No `Pack` spelling detection.
+
+### T4 clarification — construction repair (2026-10-05)
+
+Analyzed compilation carries canonical intrinsic Pack constructor sites separately
+from ordinary data construction. Known constructor results normalize to the proper
+Pack type in semantic analysis without changing evidence strength. Closed shapes
+use `BuildStaticPack`; spreads use one builder followed by `FinishPack`.
+
+The existing standalone compiler has no semantic lowering snapshot. Its direct
+`BuildPack` path is restricted to a linked builtin binding whose runtime value is
+the canonical Pack class, after lexical/global shadowing resolution. This path
+uses existing runtime product finalization and does not infer semantic types from
+syntax. Source spelling alone never authorizes Pack construction. Exact type
+materialization errors on the analyzed static path propagate rather than being
+silently discarded. This is a clarification of the standalone path, not a change
+to Pack semantics or ownership.
 
 ## T4.5 — preserve existing lanes
 

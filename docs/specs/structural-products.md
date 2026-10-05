@@ -1,13 +1,14 @@
 # Structural Products
 
 **Status:** Normative
-**Language area:** Static Tuple/Record typing and structural type operations
-**Specification role:** Authoritative specification for structural Tuple/Record formation and closed type-level operations
+**Language area:** Static Tuple/Record/Pack typing and structural type operations
+**Specification role:** Authoritative specification for structural Tuple/Record/Pack formation and closed type-level operations
 
-This specification defines static structural Tuple and Record types and the
-closed type-level operations provided for them and their shape domains. Runtime
-storage, product layouts, garbage collection, and VM descriptors remain owned
-by [VM Products](vm/products.md) and [VM Values and Objects](vm/values-and-objects.md).
+This specification defines static structural Tuple, Record, and proper Pack
+types and the closed type-level operations provided for them and their shape
+domains. Runtime storage, product layouts, garbage collection, and VM
+descriptors remain owned by [VM Products](vm/products.md) and [VM Values and
+Objects](vm/values-and-objects.md).
 
 ## 1. Structural domains
 
@@ -64,6 +65,40 @@ The positional and labeled lanes have independent closed/open states:
 
 Tuple complete remainder `(***: T)` is shorthand for `(*: T, **: T)`.
 Tuple unconstrained remainder `(...)` is shorthand for `(*: ..., **: ...)`.
+
+### 2.2 Proper Pack types
+
+`Pack` is a proper structural transport type with the same two ordered lanes
+and remainder states as Tuple:
+
+```text
+Pack(P, L, Rem_P, Rem_L) : Type
+```
+
+Pack elements are required, positional elements precede labeled elements,
+labeled entries have unique labels, and each lane preserves its own order. A
+typed or unconstrained remainder admits zero or more additional entries in its
+lane under the rules in §2.1. An empty Pack remains a Pack and is distinct from
+Unit and every Tuple type, including an empty Tuple.
+
+The type constructor's anonymous remainder forms are:
+
+```phalcom
+Pack<*: T>       // typed positional remainder
+Pack<**: T>      // typed labeled remainder
+Pack<***: T>     // same typed remainder in both lanes
+Pack<*: ...>     // unconstrained positional remainder
+Pack<**: ...>    // unconstrained labeled remainder
+Pack<***: ...>   // unconstrained remainder in both lanes
+```
+
+These are structural Pack type forms only when the origin resolves to the
+canonical intrinsic Pack declaration. `Pack<*P>`, `Pack<**L>`, and
+`Pack<***E>` remain explicit expansions of existing type-level pack terms;
+they form the corresponding Pack from those lanes and do not declare an open
+remainder. Anonymous remainder syntax is not accepted by ordinary generic
+constructors. The kinded `TypePack`, `LabeledTypePack`, and `CompleteTypePack`
+domains remain distinct from the proper `Pack` type.
 
 ## 3. Record formation and presence
 

@@ -40,7 +40,7 @@ next_plan: LANG007.C4.P3
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P3-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 5a5bf8b218c2fbcfd785bfa41bb4eb7fec21c521
 next_action: >
-  P3 is IN_PROGRESS. T1 complete (canonical Pack proper type, typed remainder syntax, Pack metadata and roundtrip, PackFromPacks normalization verified). T2 complete (StaticPack storage, slicing, equality, type projection, DeferredStructural materialization descriptor, and GenericParameterMode retention on value-domain static parameters verified). T3 complete (runtime Pack root/slice object, EmptyPack immediate, product shape, GC trace, and floor primitives in phalcom-core verified). T4 in progress (T4.1 complete: ArgumentPackBuilderObject scalable thresholded duplicate label index verified). Next action is continuing T4 (T4.2-T4.5: FinishPack & BuildStaticPack opcodes, semantic lowering identity, compiler bytecode generation, outgoing_packs_completion tests).
+  P3 remains IN_PROGRESS / PARTIAL / UNVERIFIED. T1 canonical typed/unconstrained Pack remainder formation is implemented and focused-tested; T4 construction, T5 rest convergence, and T6 spreading are also focused-tested. The user resolved T7 incident INC-P3-2 by preserving C3 TypePack/LabeledTypePack/CompleteTypePack names and omitting colliding proper-type aliases. The focused full-Universe Pack rest-capture integration now passes; continue T7 view/native/equality source checks. T8/T9 remain open.
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -146,7 +146,7 @@ The intended C4 decomposition is:
 |---|---|---|---|---|---|
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
-| `LANG007.C4.P3` | First-class Pack and call/rest convergence | IN_PROGRESS | PARTIAL | UNVERIFIED | T0 takeover verified; T1 complete (proper Pack type, syntax, metadata, normalization verified); T2 complete (StaticPack storage, slicing, equality, type projection, DeferredStructural materialization descriptor, variadic static parameter modes verified); T3 complete (runtime Pack root/slice, EmptyPack immediate, product shape, GC trace, and floor primitives verified); T4 next |
+| `LANG007.C4.P3` | First-class Pack and call/rest convergence | IN_PROGRESS | PARTIAL | UNVERIFIED | T0 takeover; T1 source formation reopened by integration evidence and user-directed semantic-layer continuation; T2-T3 inherited; T4 construction, T5 rest convergence, and T6 spreading implemented/focused-tested; T7 follows T1 source-form acceptance; T8-T9 remain |
 | `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
@@ -1841,7 +1841,7 @@ release-wide certification.
 
 `LANG007.C4.P2` remains **COMPLETE / IMPLEMENTED / FOCUSED_TESTED** and is the latest completed plan. Its completed static-value/evaluator/materialization/incremental gates are inherited prerequisites and must not be reopened by P3 without new causal evidence.
 
-`LANG007.C4.P3` is the active next plan but remains **PROPOSED / NOT_STARTED / UNVERIFIED**.
+`LANG007.C4.P3` is active and remains **IN_PROGRESS / PARTIAL / UNVERIFIED**.
 
 ### P3 planning readiness
 
@@ -1866,10 +1866,185 @@ The patch-grade plan freezes these architectural directions for execution:
 - minimal stable ordinary Pack type metadata in P3, while durable StaticPack value persistence remains P8;
 - fixed-call no-builder/no-Pack behavior as a blocking P3 performance invariant.
 
-### Next Action
+### Current P3 State and Next Action
 
-Execute **`LANG007.C4.P3.T0` — takeover, active-plan transition, and baseline discriminators** from:
+P3 takeover and baseline work are complete. T1's semantic source-form
+continuation and T4, T5, and T6 have focused implementation evidence recorded
+below. The user resolved T7's source-name conflict by preserving the existing
+C3 domain names and omitting colliding proper-type aliases. The focused
+full-Universe rest-capture integration now passes with the proper Pack aliases
+`PositionalPack<T>`, `LabeledPack<T>`, and `CompletePack<T>`. Continue T7's
+view/native/equality checks; T8 and T9 remain unstarted.
 
-`docs/implementation/LANG007/LANG007.C4/LANG007.C4.P3-luna-patch-grade-implementation-plan.md`
+The user resolved incident `INC-P3-1` by directing canonical typed Pack
+remainder formation in the semantic layer. That T1 continuation now passes its
+focused semantic regressions and is reflected in the normative structural
+products specification. Incident `INC-P3-2` is resolved: preserve C3's
+`TypePack`, `LabeledTypePack`, and `CompleteTypePack` kinded domains, and do
+not define proper-type aliases under those names. The corresponding source
+aliases remain `PositionalPack<T>`, `LabeledPack<T>`, and `CompletePack<T>`.
+The full-Universe integration selector
+`core_outgoing_packs_completion::p3_language_rest_capture_converges_on_pack`
+passed 1/1 after removing the aliases. T7 remains active for the remaining
+view/native/equality source checks; keep T8/T9 and broad gates open.
 
-T0 must first inspect repository status/revision and confirm live source ownership. Only when actual P3 source work begins should the P3 ledger state change to `IN_PROGRESS / PARTIAL / UNVERIFIED`. No P3 implementation or behavioral test is claimed by this checkpoint update.
+
+## P3 T4 construction repair — 2026-10-05
+
+**Scope/state:** the reported Pack construction failure is corrected locally;
+this repair is `IMPLEMENTED / FOCUSED_TESTED`. P3 remains `IN_PROGRESS / PARTIAL`;
+T5–T9 and broader gates have not been completed by this repair.
+
+**Inline advisory decision:** the handoff conflated ordinary data-constructor
+dispatch with exact product-type materialization. `VM::get_or_bind_data_descriptor`
+requires a registered data declaration, whereas intrinsic Pack intentionally
+binds an existing runtime class without allocating a data descriptor. Standalone
+fixed construction independently reproduced `<class Pack> does not understand
+'call(_,_,label)'`. Registering Pack as ordinary data or discarding exact-type
+errors would violate the structural construction contract.
+
+**Established correction:** semantic analysis normalizes known canonical Pack
+constructor results to proper Pack types while retaining their evidence strength.
+Lowering records checked canonical Pack constructor sites and excludes them from
+ordinary data construction. Static analyzed builds consume `BuildStaticPack`
+and propagate exact-type materialization errors. Standalone fixed builds use
+`BuildPack`, selected only through the linked builtin canonical runtime class
+after shadowing resolution. Expanded construction uses one private builder and
+one `FinishPack`. Ordinary fixed sends and `FinishTuplePack` keep their existing
+lanes. No Pack spelling check authorizes specialization.
+
+**Plan clarification:** recorded under P3 T4.4, covering the existing standalone
+compiler's lack of a semantic snapshot. No change to Pack semantics, ownership,
+GC policy, or canonical identity was adopted. Advisory/debugging work was
+completed inline at the user's instruction.
+
+**Executed verification:**
+
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_outgoing_packs_completion::p3_ -- --nocapture --test-threads=1`
+  selected six tests and passed. Covers fixed, expanded and empty construction,
+  analyzed static product projection/execution, analyzed spread execution,
+  one-builder/one-finalizer bytecode, ordinary fixed calls, Tuple finalization,
+  and lexical Pack-name shadowing. The initial shadowing fixture used invalid
+  closure syntax; correcting the fixture was mechanical and changed no oracle.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib pack_builder -- --nocapture`
+  selected two tests and passed, covering exact label reservation and the
+  duplicate-index threshold crossover.
+- Scoped diff whitespace validation passed.
+
+**Deferred:** full outgoing-pack legacy acceptance, product optimization,
+language corpus, workspace certification, and remaining P3 tasks. No new
+behavioral failure remained in the repair's focused tests. The pasted handoff's
+constructor-probe baseline classification is inherited and was not reverified.
+
+**Superseded next action:** T4 acceptance was resumed and T5/T6 focused work
+has since been completed; see the continuation record below. P3 remains open.
+
+## P3 T4-T6 continuation and T7 semantic formation incident — 2026-10-05
+
+**Durable state:** T1 semantic source formation, T4 construction, T5 rest
+capture, and T6 Pack spreading are `IMPLEMENTED / FOCUSED_TESTED` for the
+covered paths. P3 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. T7 is active
+after resolving the source-name contract in `INC-P3-2`; T8/T9 remain
+incomplete.
+
+**T5 implementation:** method positional/labeled/split/complete rest, block
+rest, and Fiber closure rest now converge on Pack capture in the live diff.
+Owned staging helpers avoid making a second copy of the call-frame buffers.
+The focused regression covers empty and populated lanes, labeled encounter
+order, ordinary and Pack forwarding, block rest, and Fiber rest. A source census
+found no additional language-rest binding path requiring conversion.
+
+**T6 implementation:** Pack positional, labeled, and complete spreads preserve
+their visible lanes; explicit Tuple conversion and Pack round-trip preserve
+Tuple lane structure; multi-spread construction and calls each use one builder.
+Duplicate-label validation from an earlier Pack spread occurs before evaluating
+the later explicit value. The existing fixed-call bytecode discriminator from
+the T4 record remains the evidence for the no-builder fast path.
+
+**Executed focused verification:**
+
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_outgoing_packs_completion::p3_language_rest_capture_converges_on_pack -- --nocapture` — 1 passed.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_outgoing_packs_completion::p3_pack_spreading_preserves_lanes_and_fuses_builders -- --nocapture` — 1 passed.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_outgoing_packs_completion::p3_duplicate_from_earlier_pack_spread_prevents_later_value -- --nocapture` — 1 passed.
+
+### INC-P3-1 — typed Pack remainder source-form ownership
+
+**Plan/task:** `LANG007.C4.P3.T7`, depending on T1's typed-remainder formation.
+
+**Trigger:** live semantic behavior conflicts with the T1/T7 source contract;
+resolving it may change canonical type formation in the semantic layer.
+
+**Observed:** T7 requires public aliases and one-step view remainders in the
+forms `Pack<*: T>` and `Pack<**: T>`. A temporary ordinary-project import probe
+reported `AnnotationUnsupported` on those source forms. The live generic
+application lowering paths in `phalcom-semantic/src/types/annotation.rs`
+explicitly reject `GenericArgumentSyntax::Remainder` outside their existing
+structural/RecordFields handling; no canonical Pack type-formation branch was
+found. The temporary failing probe and only the experimental T7 source edits
+were removed, preserving the pre-existing Pack source worktree contents.
+
+**Root-cause hypothesis:** inherited T1 work established Pack type storage,
+parser syntax, and metadata, but did not complete the source-level lowering
+needed for canonical Pack lane remainders in ordinary type-form contexts. The
+additional unresolved `Type` name in the probe is secondary; adding an import
+would not address the explicit remainder rejection.
+
+**Decision (user, 2026-10-05):** complete canonical typed Pack remainder
+formation in the semantic layer and reopen T1 source-form acceptance. Preserve
+`TypeData::Pack` as the proper Pack authority; add capture-safe scoped Pack
+formation for generic type bodies and materialize it to the same proper Pack
+type after substitution. Canonical declaration identity selects this path;
+ordinary generic applications continue to reject remainder syntax.
+
+**Plan amendment:** T1.2 now explicitly includes source-form lowering in both
+resolved and scoped type formation, plus tests for all three remainder modes,
+generic type-lambda substitution, and rejection on a non-Pack constructor. The
+owning structural-products specification now defines proper Pack remainders.
+**Verification:** the parser remainder test and four matching semantic tests
+passed. The core Pack rest integration command is being used to verify the
+source module. **Status:** T1 source formation is implemented and focused
+tested. See `INC-P3-2` for the remaining T7 source-module conflict.
+
+### INC-P3-2 — C3 `CompleteTypePack` name conflicts with the proper Pack alias
+
+**Identity:** `LANG007.C4.P3.T7`, Phalcom repository, shared `main` worktree.
+
+**Escalation trigger:** accepted plan material conflicts with the live C3
+source namespace and semantic identity (protocol triggers 1, 2, and 16).
+
+**Required invariant:** C3 `TypePack`, `LabeledTypePack`, and
+`CompleteTypePack` remain canonical kinded domains; proper Pack aliases must
+not silently replace or shadow those identities.
+
+**Expected architecture:** plan §5.1 proposes proper aliases named
+`PositionalTypePack`, `LabeledTypePack`, and `CompleteTypePack`, while §7.3 and
+T7 require `PositionalPack<T>`, `LabeledPack<T>`, and `CompletePack<T>` over
+canonical `Pack` remainders and preserve C3 kinded binders.
+
+**Observed:** the live `tuple.ph` defines and exports the intrinsic C3
+`CompleteTypePack`; `pack.ph` imports it for the `Pack<***Es>` implementation.
+Adding `type CompleteTypePack = CompletePack<Dynamic>` causes full Universe
+bootstrap to fail with `Duplicate binding 'CompleteTypePack'`. The three core
+aliases are otherwise present in the active source diff.
+
+**Minimal reproduction:**
+
+```sh
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_outgoing_packs_completion::p3_language_rest_capture_converges_on_pack -- --nocapture
+```
+
+The test fails during canonical Universe interface loading before executing
+its assertion, with the duplicate binding above and previous binding range
+`311..332`. The existing C3 import is at `collections/pack.ph:1`; the
+conflicting alias is in the same module. No attempt was made to rebind or
+rename the C3 anchor.
+
+**Decision:** the user directed preserving C3 names and dropping conflicting
+proper-type aliases. The three proper Pack source aliases are
+`PositionalPack<T>`, `LabeledPack<T>`, and `CompletePack<T>`; C3
+`TypePack`/`LabeledTypePack`/`CompleteTypePack` remain kinded domains.
+**Resolution:** removed the three attempted `*TypePack` aliases from
+`pack.ph`, updated plan §5.1, and resumed T7. The full-Universe focused source
+integration `core_outgoing_packs_completion::p3_language_rest_capture_converges_on_pack`
+passed 1/1. T7 remains active until its view, native-floor, equality/hash, and
+rendering checks are complete.
