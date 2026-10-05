@@ -63,6 +63,42 @@ fn static_pack_storage_slicing_and_equality() {
     assert_eq!(slice2_data.positional_len, 1);
     assert_eq!(slice2_data.labeled_len, 0);
 
+    // Repeated alternating lane slices stay descriptors over the original
+    // backing instead of building a chain or copying the visible elements.
+    let positionals = vec![int_one; 1024];
+    let labels = (0..1024).map(|index| (values.intern_symbol_id(&format!("field_{index}")), int_two)).collect();
+    let large_root = values.intern_pack(positionals, labels).expect("large root pack");
+    let StaticValueData::Pack(large_root_id) = values.get(large_root).unwrap() else {
+        panic!("expected large root Pack");
+    };
+    let (large_root_data, _) = values.get_pack(*large_root_id).unwrap();
+    let large_backing = large_root_data.backing;
+    let mut current = large_root;
+    let (mut positional_start, mut labeled_start) = (0u32, 0u32);
+    for step in 0..512 {
+        let StaticValueData::Pack(current_id) = values.get(current).unwrap() else {
+            panic!("expected Pack slice at step {step}");
+        };
+        let (current_data, _) = values.get_pack(*current_id).unwrap();
+        let (pos_offset, pos_len, lab_offset, lab_len) = if step % 2 == 0 {
+            (1, current_data.positional_len - 1, 0, current_data.labeled_len)
+        } else {
+            (0, current_data.positional_len, 1, current_data.labeled_len - 1)
+        };
+        current = values
+            .intern_pack_slice(current, pos_offset, pos_len, lab_offset, lab_len)
+            .expect("valid repeated lane slice");
+        positional_start += pos_offset;
+        labeled_start += lab_offset;
+        let StaticValueData::Pack(current_id) = values.get(current).unwrap() else {
+            panic!("expected Pack slice at step {step}");
+        };
+        let (current_data, _) = values.get_pack(*current_id).unwrap();
+        assert_eq!(current_data.backing, large_backing, "step {step} must retain root backing");
+        assert_eq!(current_data.positional_start, positional_start, "step {step} positional offset");
+        assert_eq!(current_data.labeled_start, labeled_start, "step {step} labeled offset");
+    }
+
     // 3. Invalid slice bounds rejected
     let invalid_slice = values.intern_pack_slice(pack1, 0, 4, 0, 2);
     assert_eq!(invalid_slice, Err(StaticValueStoreError::InvalidPackSliceRange));
