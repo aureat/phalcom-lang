@@ -527,6 +527,11 @@ impl TypeReferenceTargetCollector<'_> {
                     match argument {
                         phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => self.annotation(annotation, bound),
                         phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => self.annotation(&expansion.operand, bound),
+                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                                self.annotation(constraint, bound);
+                            }
+                        }
                         phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
                     }
                 }
@@ -638,6 +643,11 @@ impl TypeReferenceTargetCollector<'_> {
                     match argument {
                         phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => self.annotation(annotation, bound),
                         phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => self.annotation(&expansion.operand, bound),
+                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                                self.annotation(constraint, bound);
+                            }
+                        }
                         phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
                     }
                 }
@@ -795,6 +805,11 @@ impl SourceScopeBuilder<'_> {
                     match argument {
                         phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => self.visit_annotation_projection_targets(annotation),
                         phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => self.visit_annotation_projection_targets(&expansion.operand),
+                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                                self.visit_annotation_projection_targets(constraint);
+                            }
+                        }
                         phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
                     }
                 }

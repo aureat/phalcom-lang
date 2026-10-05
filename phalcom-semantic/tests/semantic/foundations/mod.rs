@@ -25,6 +25,7 @@ mod inference;
 mod intrinsic_application;
 mod kinds;
 mod knowledge;
+mod pack_types;
 mod predicate_transfer;
 mod receiver_specialization;
 mod record_row_inference;

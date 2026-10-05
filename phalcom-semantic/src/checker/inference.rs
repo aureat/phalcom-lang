@@ -1927,6 +1927,7 @@ impl InferenceSession {
                 positionals: Box::new(self.scoped_to_inference(positionals, depth, arguments, store)?),
                 labeled: Box::new(self.scoped_to_inference(labeled, depth, arguments, store)?),
             }),
+            ScopedTypeData::PackFromPacks { .. } => None,
             ScopedTypeData::CallableFromPacks {
                 positionals,
                 labeled,

@@ -43,7 +43,7 @@ use phalcom_type_meta::scoped_type::{
 };
 use phalcom_type_meta::type_node::{
     AnonymousRecordRemainderRef, AnonymousRecordTypeRef, AnonymousTupleRemainderRef, CallableParamRef, CallableTypeRef, OpenRecordTypeRef, OpenTupleTypeRef,
-    RecordFieldRef, RecordRowRef, SelfRoleRef, SelfTypeRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef, StructuralMemberPresenceRef,
+    PackTypeRef, RecordFieldRef, RecordRowRef, SelfRoleRef, SelfTypeRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef, StructuralMemberPresenceRef,
     TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
 };
 use std::collections::{BTreeMap, HashMap};
@@ -1030,6 +1030,10 @@ impl<'a> MetadataExporter<'a> {
                 positionals: self.export_scoped_type_with_binders(positionals, binder_kinds)?,
                 labeled: self.export_scoped_type_with_binders(labeled, binder_kinds)?,
             },
+            ScopedTypeData::PackFromPacks { positionals, labeled } => ScopedTypeNode::PackFromPacks {
+                positionals: self.export_scoped_type_with_binders(positionals, binder_kinds)?,
+                labeled: self.export_scoped_type_with_binders(labeled, binder_kinds)?,
+            },
             ScopedTypeData::CallableFromPacks {
                 positionals,
                 labeled,
@@ -1349,6 +1353,44 @@ impl<'a> MetadataExporter<'a> {
                     }
                 }
             }
+            ScopedTypeNode::Pack(pack) => {
+                fp_b.write_u8(26);
+                fp_b.write_u32(pack.elements.len() as u32);
+                for el in pack.elements.iter() {
+                    if let Some(label) = &el.label {
+                        fp_b.write_u8(1);
+                        fp_b.write_str(label);
+                    } else {
+                        fp_b.write_u8(0);
+                    }
+                    fp_b.write_u8(match el.presence {
+                        StructuralMemberPresenceRef::Required => 0,
+                        StructuralMemberPresenceRef::Optional => 1,
+                    });
+                    fp_b.write_fingerprint(self.scoped_types[el.ty.0 as usize].structural_fingerprint);
+                }
+                match &pack.positional_remainder {
+                    ScopedAnonymousTupleRemainderRef::None => fp_b.write_u8(0),
+                    ScopedAnonymousTupleRemainderRef::Unconstrained => fp_b.write_u8(1),
+                    ScopedAnonymousTupleRemainderRef::Typed(ty) => {
+                        fp_b.write_u8(2);
+                        fp_b.write_fingerprint(self.scoped_types[ty.0 as usize].structural_fingerprint);
+                    }
+                }
+                match &pack.labeled_remainder {
+                    ScopedAnonymousTupleRemainderRef::None => fp_b.write_u8(0),
+                    ScopedAnonymousTupleRemainderRef::Unconstrained => fp_b.write_u8(1),
+                    ScopedAnonymousTupleRemainderRef::Typed(ty) => {
+                        fp_b.write_u8(2);
+                        fp_b.write_fingerprint(self.scoped_types[ty.0 as usize].structural_fingerprint);
+                    }
+                }
+            }
+            ScopedTypeNode::PackFromPacks { positionals, labeled } => {
+                fp_b.write_u8(27);
+                fp_b.write_fingerprint(self.scoped_types[positionals.0 as usize].structural_fingerprint);
+                fp_b.write_fingerprint(self.scoped_types[labeled.0 as usize].structural_fingerprint);
+            }
         }
         let structural_fingerprint = fp_b.finish();
         let kind_id = if let Some(kind) = computed_kind {
@@ -1661,6 +1703,40 @@ impl<'a> MetadataExporter<'a> {
                     arguments: arguments.into_boxed_slice(),
                 })
             }
+            TypeData::Pack(pack) => {
+                let mut elem_refs = Vec::new();
+                for el in pack.elements.iter() {
+                    let ty_id = self.export_type_form(el.ty)?;
+                    elem_refs.push(TupleElementRef {
+                        label: el.label.clone(),
+                        ty: ty_id,
+                        presence: StructuralMemberPresenceRef::Required,
+                    });
+                }
+                let pos_rem = match pack.positional_remainder {
+                    AnonymousTupleRemainder::None => AnonymousTupleRemainderRef::None,
+                    AnonymousTupleRemainder::Unconstrained => AnonymousTupleRemainderRef::Unconstrained,
+                    AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainderRef::Typed(self.export_type_form(t)?),
+                };
+                let lab_rem = match pack.labeled_remainder {
+                    AnonymousTupleRemainder::None => AnonymousTupleRemainderRef::None,
+                    AnonymousTupleRemainder::Unconstrained => AnonymousTupleRemainderRef::Unconstrained,
+                    AnonymousTupleRemainder::Typed(t) => AnonymousTupleRemainderRef::Typed(self.export_type_form(t)?),
+                };
+                TypeNode::Pack(PackTypeRef {
+                    elements: elem_refs.into_boxed_slice(),
+                    positional_remainder: pos_rem,
+                    labeled_remainder: lab_rem,
+                })
+            }
+            TypeData::PackFromPacks { positionals, labeled } => {
+                let pos = self.export_type_form(positionals)?;
+                let lab = self.export_type_form(labeled)?;
+                TypeNode::PackFromPacks {
+                    positionals: pos,
+                    labeled: lab,
+                }
+            }
             TypeData::ClassObject { .. } | TypeData::Family(_) | TypeData::StaticDomainForm { .. } => return Err(MetadataExportError::NonExportableForm(ty)),
         };
 
@@ -1942,6 +2018,44 @@ impl<'a> MetadataExporter<'a> {
                         }
                     }
                 }
+            }
+            TypeNode::Pack(pack) => {
+                fp_b.write_u8(26);
+                fp_b.write_u32(pack.elements.len() as u32);
+                for el in pack.elements.iter() {
+                    if let Some(label) = &el.label {
+                        fp_b.write_u8(1);
+                        fp_b.write_str(label);
+                    } else {
+                        fp_b.write_u8(0);
+                    }
+                    fp_b.write_u8(match el.presence {
+                        StructuralMemberPresenceRef::Required => 0,
+                        StructuralMemberPresenceRef::Optional => 1,
+                    });
+                    fp_b.write_fingerprint(self.types[el.ty.0 as usize].structural_fingerprint);
+                }
+                match &pack.positional_remainder {
+                    AnonymousTupleRemainderRef::None => fp_b.write_u8(0),
+                    AnonymousTupleRemainderRef::Unconstrained => fp_b.write_u8(1),
+                    AnonymousTupleRemainderRef::Typed(ty) => {
+                        fp_b.write_u8(2);
+                        fp_b.write_fingerprint(self.types[ty.0 as usize].structural_fingerprint);
+                    }
+                }
+                match &pack.labeled_remainder {
+                    AnonymousTupleRemainderRef::None => fp_b.write_u8(0),
+                    AnonymousTupleRemainderRef::Unconstrained => fp_b.write_u8(1),
+                    AnonymousTupleRemainderRef::Typed(ty) => {
+                        fp_b.write_u8(2);
+                        fp_b.write_fingerprint(self.types[ty.0 as usize].structural_fingerprint);
+                    }
+                }
+            }
+            TypeNode::PackFromPacks { positionals, labeled } => {
+                fp_b.write_u8(27);
+                fp_b.write_fingerprint(self.types[positionals.0 as usize].structural_fingerprint);
+                fp_b.write_fingerprint(self.types[labeled.0 as usize].structural_fingerprint);
             }
         }
         let structural_fingerprint = fp_b.finish();

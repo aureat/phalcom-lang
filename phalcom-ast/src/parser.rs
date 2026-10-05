@@ -2335,7 +2335,35 @@ impl<'source> Parser<'source> {
     }
 
     pub fn parse_generic_argument(&mut self) -> ParserResult<GenericArgumentSyntax> {
-        if let Some(mode) = self.expansion_mode_at_cursor() {
+        let is_asterisk_token = matches!(self.peek(), Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk);
+        if is_asterisk_token && matches!(self.peek_next(), Token::Colon) {
+            let start = self.cur_start();
+            let mode = match self.peek() {
+                Token::Asterisk => ExpansionMode::Positional,
+                Token::DoubleAsterisk => ExpansionMode::Labeled,
+                Token::TripleAsterisk => ExpansionMode::Complete,
+                _ => unreachable!(),
+            };
+            self.advance(); // '*' / '**' / '***'
+            self.advance(); // ':'
+            self.skip_newlines();
+            let rem_start = self.cur_start();
+            let remainder = if self.eat(&Token::DotDotDot) {
+                AnonymousRemainderSyntax::Unconstrained((rem_start..self.prev_end).into())
+            } else {
+                let constraint = self.parse_type_form()?;
+                AnonymousRemainderSyntax::Typed {
+                    constraint: Box::new(constraint),
+                    range: (rem_start..self.prev_end).into(),
+                }
+            };
+            let range = (start..self.prev_end).into();
+            Ok(GenericArgumentSyntax::Remainder(TypePackRemainderSyntax {
+                mode,
+                remainder,
+                range,
+            }))
+        } else if let Some(mode) = self.expansion_mode_at_cursor() {
             let operator_start = self.cur_start();
             let operator_range = (operator_start..self.tokens[self.pos].end).into();
             self.advance();
@@ -7605,7 +7633,7 @@ impl<'source> Parser<'source> {
                             .iter()
                             .map(|argument| match argument {
                                 GenericArgumentSyntax::Single(argument) => Some(argument.clone()),
-                                GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Value(_) => None,
+                                GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) | GenericArgumentSyntax::Value(_) => None,
                             })
                             .collect::<Option<Vec<_>>>()?;
                         Some((sym.clone(), arguments))

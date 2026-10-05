@@ -171,6 +171,11 @@ impl<'a> StableRowLackCollector<'a> {
                     self.visit_type(element.ty);
                 }
             }
+            TypeData::Pack(pack) => {
+                for element in pack.elements.iter() {
+                    self.visit_type(element.ty);
+                }
+            }
             TypeData::Callable(callable) => {
                 for parameter in callable.parameters.iter() {
                     self.visit_type(parameter.ty);
@@ -212,7 +217,9 @@ impl<'a> StableRowLackCollector<'a> {
                     self.visit_type(element.element);
                 }
             }
-            TypeData::TupleFromPacks { positionals, labeled } | TypeData::CompleteTypePack { positionals, labeled } => {
+            TypeData::TupleFromPacks { positionals, labeled }
+            | TypeData::PackFromPacks { positionals, labeled }
+            | TypeData::CompleteTypePack { positionals, labeled } => {
                 self.visit_type(positionals);
                 self.visit_type(labeled);
             }
@@ -365,7 +372,9 @@ impl<'a> StableRowLackCollector<'a> {
                     self.visit_scoped_type(element.element);
                 }
             }
-            ScopedTypeData::CompleteTypePack { positionals, labeled } | ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+            ScopedTypeData::CompleteTypePack { positionals, labeled }
+            | ScopedTypeData::TupleFromPacks { positionals, labeled }
+            | ScopedTypeData::PackFromPacks { positionals, labeled } => {
                 self.visit_scoped_type(positionals);
                 self.visit_scoped_type(labeled);
             }

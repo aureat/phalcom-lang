@@ -1513,6 +1513,20 @@ fn parse_explicit_pack_application_forms() {
 }
 
 #[test]
+fn pack_type_remainder() {
+    let source = concat!(
+        "type P1 = Pack<*: Int>\n",
+        "type P2 = Pack<**: String>\n",
+        "type P3 = Pack<***: Bool>\n",
+        "type P4 = Pack<*: ...>\n",
+        "type P5 = Pack<**: ...>\n",
+        "type P6 = Pack<***: ...>\n",
+    );
+    let p = parse_source(source, 0).expect("all typed and unconstrained pack remainder forms should parse");
+    assert_eq!(p.statements.len(), 6);
+}
+
+#[test]
 fn parse_named_static_domain_binder_kind() {
     let p = parse_source("data Tensor<T: Type, S: Shape>()\n", 0).expect("named static-domain binder should parse");
     let Statement::Data(data) = &p.statements[0] else { panic!() };

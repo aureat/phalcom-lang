@@ -42,6 +42,8 @@ pub enum ScopedTypeData {
     LabeledTypePackConcat(Box<[ScopedTypeId]>),
     /// Tuple formation from scoped symbolic lanes.
     TupleFromPacks { positionals: ScopedTypeId, labeled: ScopedTypeId },
+    /// Pack formation from scoped symbolic lanes.
+    PackFromPacks { positionals: ScopedTypeId, labeled: ScopedTypeId },
     /// Callable formation from scoped symbolic lanes and return type.
     CallableFromPacks {
         positionals: ScopedTypeId,
@@ -253,7 +255,9 @@ impl TypeLambdaArena {
             }
             ScopedTypeData::LabeledTypePack(elements) => elements.iter().any(|element| self.has_free_bound(element.element, current_depth)),
             ScopedTypeData::LabeledTypePackConcat(segments) => segments.iter().any(|&segment| self.has_free_bound(segment, current_depth)),
-            ScopedTypeData::CompleteTypePack { positionals, labeled } | ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+            ScopedTypeData::CompleteTypePack { positionals, labeled }
+            | ScopedTypeData::TupleFromPacks { positionals, labeled }
+            | ScopedTypeData::PackFromPacks { positionals, labeled } => {
                 self.has_free_bound(*positionals, current_depth) || self.has_free_bound(*labeled, current_depth)
             }
             ScopedTypeData::CallableFromPacks {
@@ -339,7 +343,9 @@ impl TypeLambdaArena {
                     self.collect_free_types(segment, out);
                 }
             }
-            ScopedTypeData::CompleteTypePack { positionals, labeled } | ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+            ScopedTypeData::CompleteTypePack { positionals, labeled }
+            | ScopedTypeData::TupleFromPacks { positionals, labeled }
+            | ScopedTypeData::PackFromPacks { positionals, labeled } => {
                 self.collect_free_types(*positionals, out);
                 self.collect_free_types(*labeled, out);
             }
@@ -542,6 +548,11 @@ impl TypeLambdaArena {
                 let labeled = self.substitute_free_scoped(labeled, substitution, store);
                 self.intern_scoped(ScopedTypeData::TupleFromPacks { positionals, labeled })
             }
+            ScopedTypeData::PackFromPacks { positionals, labeled } => {
+                let positionals = self.substitute_free_scoped(positionals, substitution, store);
+                let labeled = self.substitute_free_scoped(labeled, substitution, store);
+                self.intern_scoped(ScopedTypeData::PackFromPacks { positionals, labeled })
+            }
             ScopedTypeData::CallableFromPacks {
                 positionals,
                 labeled,
@@ -707,6 +718,11 @@ impl TypeLambdaArena {
                 let positionals = self.subst_scoped_to_canonical(positionals, depth, args, store)?;
                 let labeled = self.subst_scoped_to_canonical(labeled, depth, args, store)?;
                 store.tuple_from_packs(positionals, labeled).map_err(BetaReductionError::PackFormation)
+            }
+            ScopedTypeData::PackFromPacks { positionals, labeled } => {
+                let positionals = self.subst_scoped_to_canonical(positionals, depth, args, store)?;
+                let labeled = self.subst_scoped_to_canonical(labeled, depth, args, store)?;
+                store.pack_from_packs(positionals, labeled).map_err(BetaReductionError::PackFormation)
             }
             ScopedTypeData::CallableFromPacks {
                 positionals,
@@ -933,6 +949,11 @@ impl TypeLambdaArena {
                 let positionals = self.subst_scoped_partial(positionals, depth, args, store);
                 let labeled = self.subst_scoped_partial(labeled, depth, args, store);
                 self.intern_scoped(ScopedTypeData::TupleFromPacks { positionals, labeled })
+            }
+            ScopedTypeData::PackFromPacks { positionals, labeled } => {
+                let positionals = self.subst_scoped_partial(positionals, depth, args, store);
+                let labeled = self.subst_scoped_partial(labeled, depth, args, store);
+                self.intern_scoped(ScopedTypeData::PackFromPacks { positionals, labeled })
             }
             ScopedTypeData::CallableFromPacks {
                 positionals,

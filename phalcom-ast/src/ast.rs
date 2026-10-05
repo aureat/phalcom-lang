@@ -1165,12 +1165,20 @@ pub struct TypeTupleElement {
     pub range: SourceRange,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypePackRemainderSyntax {
+    pub mode: ExpansionMode,
+    pub remainder: AnonymousRemainderSyntax,
+    pub range: SourceRange,
+}
+
 /// A generic application contribution. Expansion remains explicit because one
 /// source entry can assemble a pack argument rather than consume one binder.
 #[derive(Debug, Clone)]
 pub enum GenericArgumentSyntax {
     Single(TypeAnnotation),
     Expansion(TypePackExpansionSyntax),
+    Remainder(TypePackRemainderSyntax),
     /// Compile-time static value argument (e.g. `3`, `true`, `"foo"`, `#sym`).
     Value(Box<Expr>),
 }
@@ -1180,6 +1188,7 @@ impl PartialEq for GenericArgumentSyntax {
         match (self, other) {
             (Self::Single(a), Self::Single(b)) => a == b,
             (Self::Expansion(a), Self::Expansion(b)) => a == b,
+            (Self::Remainder(a), Self::Remainder(b)) => a == b,
             (Self::Value(a), Self::Value(b)) => match (&**a, &**b) {
                 (Expr::Int { digits: d1, radix: r1, .. }, Expr::Int { digits: d2, radix: r2, .. }) => d1 == d2 && r1 == r2,
                 (Expr::Float { value: v1, .. }, Expr::Float { value: v2, .. }) => v1.to_bits() == v2.to_bits(),
@@ -1198,7 +1207,7 @@ impl GenericArgumentSyntax {
     pub fn as_single(&self) -> Option<&TypeAnnotation> {
         match self {
             Self::Single(ty) => Some(ty),
-            Self::Expansion(_) | Self::Value(_) => None,
+            Self::Expansion(_) | Self::Remainder(_) | Self::Value(_) => None,
         }
     }
 
@@ -1213,6 +1222,7 @@ impl GenericArgumentSyntax {
         match self {
             Self::Single(ty) => ty.range,
             Self::Expansion(expansion) => expansion.range,
+            Self::Remainder(rem) => rem.range,
             Self::Value(expr) => expr.range(),
         }
     }

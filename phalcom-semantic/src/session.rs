@@ -7452,15 +7452,20 @@ fn collect_alias_dependencies(
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             collect_alias_dependencies(origin, module, resolver, aliases, dependencies);
             for argument in arguments {
-                match argument {
-                    phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
-                        collect_alias_dependencies(annotation, module, resolver, aliases, dependencies);
+                    match argument {
+                        phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
+                            collect_alias_dependencies(annotation, module, resolver, aliases, dependencies);
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
+                            collect_alias_dependencies(&expansion.operand, module, resolver, aliases, dependencies);
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                                collect_alias_dependencies(constraint.as_ref(), module, resolver, aliases, dependencies);
+                            }
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
-                        collect_alias_dependencies(&expansion.operand, module, resolver, aliases, dependencies);
-                    }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
-                }
             }
         }
         TypeAnnotationExpr::Union { members, .. } => {
@@ -7578,15 +7583,20 @@ fn collect_associated_projection_targets(
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             collect_associated_projection_targets(origin, module, surface, targets);
             for argument in arguments {
-                match argument {
-                    phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
-                        collect_associated_projection_targets(annotation, module, surface, targets);
+                    match argument {
+                        phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
+                            collect_associated_projection_targets(annotation, module, surface, targets);
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
+                            collect_associated_projection_targets(&expansion.operand, module, surface, targets);
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                                collect_associated_projection_targets(constraint.as_ref(), module, surface, targets);
+                            }
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
-                        collect_associated_projection_targets(&expansion.operand, module, surface, targets);
-                    }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
-                }
             }
         }
         TypeAnnotationExpr::Union { members, .. } => {
@@ -7725,15 +7735,20 @@ fn collect_type_annotation_declarations(
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             collect_type_annotation_declarations(origin, module, resolver, dependencies);
             for argument in arguments {
-                match argument {
-                    phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
-                        collect_type_annotation_declarations(annotation, module, resolver, dependencies);
+                    match argument {
+                        phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
+                            collect_type_annotation_declarations(annotation, module, resolver, dependencies);
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
+                            collect_type_annotation_declarations(&expansion.operand, module, resolver, dependencies);
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                                collect_type_annotation_declarations(constraint.as_ref(), module, resolver, dependencies);
+                            }
+                        }
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
-                        collect_type_annotation_declarations(&expansion.operand, module, resolver, dependencies);
-                    }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
-                }
             }
         }
         TypeAnnotationExpr::Union { members, .. } => {
@@ -8106,13 +8121,18 @@ fn collect_static_case_signature_dependencies(
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             collect_static_case_signature_dependencies(origin, module, resolver, catalogs, dependencies);
             for argument in arguments {
-                match argument {
-                    GenericArgumentSyntax::Single(argument) => collect_static_case_signature_dependencies(argument, module, resolver, catalogs, dependencies),
-                    GenericArgumentSyntax::Expansion(expansion) => {
-                        collect_static_case_signature_dependencies(&expansion.operand, module, resolver, catalogs, dependencies)
+                    match argument {
+                        GenericArgumentSyntax::Single(argument) => collect_static_case_signature_dependencies(argument, module, resolver, catalogs, dependencies),
+                        GenericArgumentSyntax::Expansion(expansion) => {
+                            collect_static_case_signature_dependencies(&expansion.operand, module, resolver, catalogs, dependencies)
+                        }
+                        GenericArgumentSyntax::Remainder(remainder) => {
+                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                                collect_static_case_signature_dependencies(constraint.as_ref(), module, resolver, catalogs, dependencies);
+                            }
+                        }
+                        GenericArgumentSyntax::Value(_) => {}
                     }
-                    GenericArgumentSyntax::Value(_) => {}
-                }
             }
         }
         TypeAnnotationExpr::Union { members, .. } => {
@@ -8497,15 +8517,20 @@ fn collect_source_member_projection_dependencies(
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             collect_source_member_projection_dependencies(origin, module, resolver, members, dependencies);
             for argument in arguments {
-                match argument {
-                    GenericArgumentSyntax::Single(argument) => {
-                        collect_source_member_projection_dependencies(argument, module, resolver, members, dependencies);
+                    match argument {
+                        GenericArgumentSyntax::Single(argument) => {
+                            collect_source_member_projection_dependencies(argument, module, resolver, members, dependencies);
+                        }
+                        GenericArgumentSyntax::Expansion(expansion) => {
+                            collect_source_member_projection_dependencies(&expansion.operand, module, resolver, members, dependencies);
+                        }
+                        GenericArgumentSyntax::Remainder(remainder) => {
+                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                                collect_source_member_projection_dependencies(constraint.as_ref(), module, resolver, members, dependencies);
+                            }
+                        }
+                        GenericArgumentSyntax::Value(_) => {}
                     }
-                    GenericArgumentSyntax::Expansion(expansion) => {
-                        collect_source_member_projection_dependencies(&expansion.operand, module, resolver, members, dependencies);
-                    }
-                    GenericArgumentSyntax::Value(_) => {}
-                }
             }
         }
         TypeAnnotationExpr::Union { members: items, .. } => {
@@ -8698,7 +8723,9 @@ pub(crate) fn implementation_owner(
         matches!(
             form,
             crate::declarations::DeclarationSemanticForm::Intrinsic(
-                crate::declarations::IntrinsicTypeApplication::Tuple | crate::declarations::IntrinsicTypeApplication::Record
+                crate::declarations::IntrinsicTypeApplication::Tuple
+                    | crate::declarations::IntrinsicTypeApplication::Record
+                    | crate::declarations::IntrinsicTypeApplication::Pack
             )
         )
     }) {

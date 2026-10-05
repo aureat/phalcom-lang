@@ -2723,12 +2723,15 @@ impl<'a> ParameterUseWalker<'a> {
             }
             TypeData::Union(members) => members.iter().copied().any(|member| self.visit_type(member)),
             TypeData::Tuple(elements) => elements.elements.iter().any(|element| self.visit_type(element.ty)),
+            TypeData::Pack(pack) => pack.elements.iter().any(|element| self.visit_type(element.ty)),
             TypeData::Record(row) => self.visit_row(row),
             TypeData::TypePack(elements) | TypeData::TypePackConcat(elements) | TypeData::LabeledTypePackConcat(elements) => {
                 elements.iter().copied().any(|element| self.visit_type(element))
             }
             TypeData::LabeledTypePack(elements) => elements.iter().any(|element| self.visit_type(element.element)),
-            TypeData::CompleteTypePack { positionals, labeled } | TypeData::TupleFromPacks { positionals, labeled } => {
+            TypeData::CompleteTypePack { positionals, labeled }
+            | TypeData::TupleFromPacks { positionals, labeled }
+            | TypeData::PackFromPacks { positionals, labeled } => {
                 self.visit_type(positionals) || self.visit_type(labeled)
             }
             TypeData::CallableFromPacks {
@@ -2842,7 +2845,9 @@ impl<'a> ParameterUseWalker<'a> {
                 callable.parameters.iter().any(|parameter| self.visit_scoped_type(parameter.ty)) || self.visit_scoped_type(callable.return_type)
             }
             ScopedTypeData::LabeledTypePack(elements) => elements.iter().any(|element| self.visit_scoped_type(element.element)),
-            ScopedTypeData::CompleteTypePack { positionals, labeled } | ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+            ScopedTypeData::CompleteTypePack { positionals, labeled }
+            | ScopedTypeData::TupleFromPacks { positionals, labeled }
+            | ScopedTypeData::PackFromPacks { positionals, labeled } => {
                 self.visit_scoped_type(positionals) || self.visit_scoped_type(labeled)
             }
             ScopedTypeData::TypePackConcat(segments) => segments.iter().copied().any(|segment| self.visit_scoped_type(segment)),

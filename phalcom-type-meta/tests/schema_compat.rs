@@ -1271,3 +1271,107 @@ fn schema_v10_structural_presence_and_remainders_roundtrip_and_validate() {
     v9_bundle.header.schema_version = 9;
     assert!(validate_metadata_bundle(&v9_bundle, &limits).is_err());
 }
+
+#[test]
+fn pack_metadata_roundtrip() {
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+    use phalcom_type_meta::validate::{validate_metadata_bundle, ValidationLimits};
+    use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId};
+    use phalcom_type_meta::fingerprint::Fingerprint128;
+    use phalcom_type_meta::type_node::{
+        AnonymousTupleRemainderRef, PackTypeRef, TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
+    };
+    use phalcom_type_meta::scoped_type::{
+        ScopedAnonymousTupleRemainderRef, ScopedPackTypeRef, ScopedTupleElementRef, ScopedTypeNode, ScopedTypeNodeEntry, ScopedTypeNodeId,
+    };
+
+    let limits = ValidationLimits::default();
+    let mut bundle = sample_bundle(10, true);
+    bundle.kinds = Box::new([
+        KindNodeEntry { node: KindNode::Type, structural_fingerprint: Fingerprint128::ZERO },
+        KindNodeEntry { node: KindNode::TypePack, structural_fingerprint: Fingerprint128::ZERO },
+        KindNodeEntry { node: KindNode::LabeledTypePack, structural_fingerprint: Fingerprint128::ZERO },
+    ]);
+    bundle.types = Box::new([
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::Unit,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(1),
+            form: TypeNode::TypePack(Box::new([TypeNodeId(0)])),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(2),
+            form: TypeNode::LabeledTypePack(Box::new([])),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::Pack(PackTypeRef {
+                elements: Box::new([TupleElementRef {
+                    label: None,
+                    ty: TypeNodeId(0),
+                    presence: Default::default(),
+                }]),
+                positional_remainder: AnonymousTupleRemainderRef::None,
+                labeled_remainder: AnonymousTupleRemainderRef::None,
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::PackFromPacks {
+                positionals: TypeNodeId(1),
+                labeled: TypeNodeId(2),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    bundle.scoped_types = Box::new([
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(0),
+            form: ScopedTypeNode::Free(TypeNodeId(0)),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(1),
+            form: ScopedTypeNode::Free(TypeNodeId(1)),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(2),
+            form: ScopedTypeNode::Free(TypeNodeId(2)),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(0),
+            form: ScopedTypeNode::Pack(ScopedPackTypeRef {
+                elements: Box::new([ScopedTupleElementRef {
+                    label: None,
+                    ty: ScopedTypeNodeId(0),
+                    presence: Default::default(),
+                }]),
+                positional_remainder: ScopedAnonymousTupleRemainderRef::None,
+                labeled_remainder: ScopedAnonymousTupleRemainderRef::None,
+            }),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        ScopedTypeNodeEntry {
+            kind: KindNodeId(0),
+            form: ScopedTypeNode::PackFromPacks {
+                positionals: ScopedTypeNodeId(1),
+                labeled: ScopedTypeNodeId(2),
+            },
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+
+    validate_metadata_bundle(&bundle, &limits).expect("Pack metadata should validate");
+    let encoded = encode_metadata_json(&bundle).expect("encode should succeed");
+    let decoded = decode_metadata_json(&encoded, &limits).expect("decode should succeed");
+    validate_metadata_bundle(&decoded, &limits).expect("decoded pack bundle should validate");
+    assert_eq!(bundle, decoded);
+}

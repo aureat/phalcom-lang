@@ -788,6 +788,7 @@ fn scoped_kind(store: &mut TypeStore, scoped: crate::types::id::ScopedTypeId, bi
         | ScopedTypeData::OpenRecord(_)
         | ScopedTypeData::Callable(_)
         | ScopedTypeData::TupleFromPacks { .. }
+        | ScopedTypeData::PackFromPacks { .. }
         | ScopedTypeData::CallableFromPacks { .. } => KindResolution::Ready(KindId::TYPE),
         ScopedTypeData::RecordRow(_) => KindResolution::Ready(KindId::RECORD_ROW),
         ScopedTypeData::TypePack(_) | ScopedTypeData::TypePackConcat(_) => KindResolution::Ready(KindId::TYPE_PACK),
@@ -1349,6 +1350,15 @@ fn lower_scoped_type_form(
                                 }
                             }
                         }
+                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "typed remainder syntax `*:` / `**:` / `***:` is only supported in structural Pack type annotations",
+                                remainder.range,
+                            ));
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                        }
                     }
                 }
                 let positionals = store
@@ -1377,6 +1387,19 @@ fn lower_scoped_type_form(
                 {
                     if let ScopedTypeData::CompleteTypePack { positionals, labeled } = store.arena().get_scoped(lowered[0]).clone() {
                         return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::TupleFromPacks { positionals, labeled }));
+                    }
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+                }
+                if intrinsic_application_has_domain(
+                    store,
+                    declarations,
+                    scoped_origin,
+                    IntrinsicTypeApplication::Pack,
+                    VariadicApplicationDomain::Complete,
+                ) && lowered.len() == 1
+                {
+                    if let ScopedTypeData::CompleteTypePack { positionals, labeled } = store.arena().get_scoped(lowered[0]).clone() {
+                        return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::PackFromPacks { positionals, labeled }));
                     }
                     return TypeFormationOutcome::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
                 }
@@ -2655,6 +2678,15 @@ pub fn resolve_type_form(
                             ));
                             return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
                         }
+                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "typed remainder syntax `*:` / `**:` / `***:` is only supported in structural Pack type annotations",
+                                remainder.range,
+                            ));
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                        }
                     };
                     let operand = ready_or_return!(resolve_type_form(store, declarations, resolver, site, operand, diagnostics));
                     let projected = match mode {
@@ -2784,6 +2816,28 @@ pub fn resolve_type_form(
                         };
                         return match store.tuple_from_packs(positionals, labeled) {
                             Ok(tuple) => TypeFormResolution::Ready(tuple),
+                            Err(error) => TypeFormResolution::InternalFailure(error.to_string().into()),
+                        };
+                    }
+                    if intrinsic_application_has_type_domain(
+                        store,
+                        declarations,
+                        origin_ty,
+                        IntrinsicTypeApplication::Pack,
+                        VariadicApplicationDomain::Complete,
+                    ) && canonical_arguments.len() == 1
+                    {
+                        let complete = canonical_arguments[0];
+                        let positionals = match store.project_positionals(complete) {
+                            Ok(pack) => pack,
+                            Err(_error) => return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch),
+                        };
+                        let labeled = match store.project_labeled(complete) {
+                            Ok(pack) => pack,
+                            Err(_error) => return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch),
+                        };
+                        return match store.pack_from_packs(positionals, labeled) {
+                            Ok(pack) => TypeFormResolution::Ready(pack),
                             Err(error) => TypeFormResolution::InternalFailure(error.to_string().into()),
                         };
                     }

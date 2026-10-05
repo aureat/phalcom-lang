@@ -563,6 +563,143 @@ fn check_subtype_impl(
                     RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
                 }
             }
+            (TypeData::Pack(sub_pack), TypeData::Pack(sup_pack)) => {
+                let sub_pack = sub_pack.clone();
+                let sup_pack = sup_pack.clone();
+
+                let sub_pos: Vec<_> = sub_pack.elements.iter().filter(|e| e.label.is_none()).collect();
+                let sup_pos: Vec<_> = sup_pack.elements.iter().filter(|e| e.label.is_none()).collect();
+                let sub_lab: Vec<_> = sub_pack.elements.iter().filter(|e| e.label.is_some()).collect();
+                let sup_lab: Vec<_> = sup_pack.elements.iter().filter(|e| e.label.is_some()).collect();
+
+                // 1. Positional lane
+                if sub_pos.len() < sup_pos.len() {
+                    return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                }
+                for (a, b) in sub_pos.iter().take(sup_pos.len()).zip(sup_pos.iter()) {
+                    let out = check_subtype_impl(store, hierarchy, a.ty, b.ty, budget, cancellation, visited, depth + 1);
+                    if !out.is_proven() {
+                        return out;
+                    }
+                }
+                if sub_pos.len() > sup_pos.len() {
+                    match sup_pack.positional_remainder {
+                        super::store::AnonymousTupleRemainder::None => {
+                            return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                        }
+                        super::store::AnonymousTupleRemainder::Unconstrained => {}
+                        super::store::AnonymousTupleRemainder::Typed(target_elem) => {
+                            for extra in &sub_pos[sup_pos.len()..] {
+                                let out = check_subtype_impl(store, hierarchy, extra.ty, target_elem, budget, cancellation, visited, depth + 1);
+                                if !out.is_proven() {
+                                    return out;
+                                }
+                            }
+                        }
+                    }
+                }
+                match sup_pack.positional_remainder {
+                    super::store::AnonymousTupleRemainder::None => {
+                        if sub_pack.positional_remainder != super::store::AnonymousTupleRemainder::None {
+                            return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                        }
+                    }
+                    super::store::AnonymousTupleRemainder::Unconstrained => {}
+                    super::store::AnonymousTupleRemainder::Typed(sup_elem) => match sub_pack.positional_remainder {
+                        super::store::AnonymousTupleRemainder::None => {}
+                        super::store::AnonymousTupleRemainder::Typed(sub_elem) => {
+                            let out = check_subtype_impl(store, hierarchy, sub_elem, sup_elem, budget, cancellation, visited, depth + 1);
+                            if !out.is_proven() {
+                                return out;
+                            }
+                        }
+                        super::store::AnonymousTupleRemainder::Unconstrained => {
+                            return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                        }
+                    },
+                }
+
+                // 2. Labeled lane
+                for target_field in sup_lab.iter() {
+                    let target_name = target_field.label.as_ref().unwrap();
+                    if let Some(source_field) = sub_lab.iter().find(|e| e.label.as_ref().unwrap() == target_name) {
+                        let out = check_subtype_impl(store, hierarchy, source_field.ty, target_field.ty, budget, cancellation, visited, depth + 1);
+                        if !out.is_proven() {
+                            return out;
+                        }
+                    } else {
+                        match sub_pack.labeled_remainder {
+                            super::store::AnonymousTupleRemainder::None => {
+                                return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                            }
+                            super::store::AnonymousTupleRemainder::Typed(elem_ty) => {
+                                let out = check_subtype_impl(store, hierarchy, elem_ty, target_field.ty, budget, cancellation, visited, depth + 1);
+                                if !out.is_proven() {
+                                    return out;
+                                }
+                            }
+                            super::store::AnonymousTupleRemainder::Unconstrained => {
+                                return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                            }
+                        }
+                    }
+                }
+                for source_field in sub_lab.iter() {
+                    let source_name = source_field.label.as_ref().unwrap();
+                    if !sup_lab.iter().any(|e| e.label.as_ref().unwrap() == source_name) {
+                        match sup_pack.labeled_remainder {
+                            super::store::AnonymousTupleRemainder::None => {
+                                return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                            }
+                            super::store::AnonymousTupleRemainder::Unconstrained => {}
+                            super::store::AnonymousTupleRemainder::Typed(target_elem) => {
+                                let out = check_subtype_impl(store, hierarchy, source_field.ty, target_elem, budget, cancellation, visited, depth + 1);
+                                if !out.is_proven() {
+                                    return out;
+                                }
+                            }
+                        }
+                    }
+                }
+                match sup_pack.labeled_remainder {
+                    super::store::AnonymousTupleRemainder::None => {
+                        if sub_pack.labeled_remainder != super::store::AnonymousTupleRemainder::None {
+                            return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                        }
+                    }
+                    super::store::AnonymousTupleRemainder::Unconstrained => {}
+                    super::store::AnonymousTupleRemainder::Typed(sup_elem) => match sub_pack.labeled_remainder {
+                        super::store::AnonymousTupleRemainder::None => {}
+                        super::store::AnonymousTupleRemainder::Typed(sub_elem) => {
+                            let out = check_subtype_impl(store, hierarchy, sub_elem, sup_elem, budget, cancellation, visited, depth + 1);
+                            if !out.is_proven() {
+                                return out;
+                            }
+                        }
+                        super::store::AnonymousTupleRemainder::Unconstrained => {
+                            return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+                        }
+                    },
+                }
+
+                RelationOutcome::proven(())
+            }
+            (
+                TypeData::PackFromPacks {
+                    positionals: sub_p,
+                    labeled: sub_l,
+                },
+                TypeData::PackFromPacks {
+                    positionals: sup_p,
+                    labeled: sup_l,
+                },
+            ) => {
+                if sub_p == sup_p && sub_l == sup_l {
+                    RelationOutcome::proven(())
+                } else {
+                    RelationOutcome::Blocked(BlockReason::RecursiveFixpoint)
+                }
+            }
             (
                 TypeData::TupleFromPacks {
                     positionals: sub_p,

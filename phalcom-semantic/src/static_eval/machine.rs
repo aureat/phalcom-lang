@@ -775,7 +775,9 @@ impl<'a> StaticEvaluator<'a> {
                                         }
                                         _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
                                     },
-                                    GenericArgumentSyntax::Expansion(_) => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
+                                    GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) => {
+                                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                    }
                                 }
                             }
                             crate::static_definition::CheckedStaticApplicationArgument::KindedExpression { parameter_index, expression } => {
@@ -791,7 +793,9 @@ impl<'a> StaticEvaluator<'a> {
                                         Expr::TypeForm(annotation) => annotation.as_ref(),
                                         _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
                                     },
-                                    GenericArgumentSyntax::Expansion(_) => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
+                                    GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) => {
+                                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                    }
                                 };
                                 let TypeAnnotationExpr::Application { arguments, .. } = &annotation.expr else {
                                     return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));

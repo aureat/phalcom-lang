@@ -1487,7 +1487,7 @@ fn analyze_checked_static_application(ctx: &mut CheckingContext<'_>, annotation:
                             return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
                         }
                     },
-                    GenericArgumentSyntax::Expansion(_) => {
+                    GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) => {
                         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                             ctx.current_module.clone(),
                             DiagnosticCode::ApplicationArgumentKindMismatch,
@@ -1532,7 +1532,7 @@ fn static_application_argument_type_form(argument: &phalcom_ast::ast::GenericArg
             Expr::TypeForm(annotation) => Some((**annotation).clone()),
             _ => None,
         },
-        phalcom_ast::ast::GenericArgumentSyntax::Expansion(_) => None,
+        phalcom_ast::ast::GenericArgumentSyntax::Expansion(_) | phalcom_ast::ast::GenericArgumentSyntax::Remainder(_) => None,
     }
 }
 

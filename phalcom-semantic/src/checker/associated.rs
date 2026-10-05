@@ -704,7 +704,9 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
             }
             ScopedTypeData::LabeledTypePack(elements) => elements.iter().any(|element| scoped_contains_any_type_parameter(store, element.element)),
             ScopedTypeData::LabeledTypePackConcat(segments) => segments.iter().any(|&segment| scoped_contains_any_type_parameter(store, segment)),
-            ScopedTypeData::CompleteTypePack { positionals, labeled } | ScopedTypeData::TupleFromPacks { positionals, labeled } => {
+            ScopedTypeData::CompleteTypePack { positionals, labeled }
+            | ScopedTypeData::TupleFromPacks { positionals, labeled }
+            | ScopedTypeData::PackFromPacks { positionals, labeled } => {
                 scoped_contains_any_type_parameter(store, *positionals) || scoped_contains_any_type_parameter(store, *labeled)
             }
             ScopedTypeData::CallableFromPacks {

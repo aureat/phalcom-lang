@@ -64,6 +64,8 @@ pub enum IntrinsicTypeApplication {
     Tuple,
     /// A RecordRow identity applied through the existing Record representation.
     Record,
+    /// A complete type pack applied to produce a proper Pack type.
+    Pack,
 }
 
 /// Existing runtime authority projected by an intrinsic structural data declaration.
@@ -73,6 +75,7 @@ pub enum IntrinsicTypeApplication {
 pub enum IntrinsicRuntimeOwner {
     Tuple,
     Record,
+    Pack,
 }
 
 /// The two projections retained by one declaration type record.
@@ -230,6 +233,7 @@ impl DeclarationTypeTable {
             let type_owner = match owner {
                 IntrinsicRuntimeOwner::Tuple => Some(IntrinsicTypeOwner::Tuple),
                 IntrinsicRuntimeOwner::Record => Some(IntrinsicTypeOwner::Record),
+                IntrinsicRuntimeOwner::Pack => None,
             };
             if let Some(type_owner) = type_owner {
                 self.intrinsic_type_owners.insert(info.declaration.clone(), type_owner);
@@ -280,6 +284,7 @@ impl DeclarationTypeTable {
         let type_owner = match owner {
             IntrinsicRuntimeOwner::Tuple => Some(IntrinsicTypeOwner::Tuple),
             IntrinsicRuntimeOwner::Record => Some(IntrinsicTypeOwner::Record),
+            IntrinsicRuntimeOwner::Pack => None,
         };
         if let Some(type_owner) = type_owner {
             self.intrinsic_type_owners.insert(declaration.clone(), type_owner);
@@ -554,6 +559,7 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
 pub(crate) fn intrinsic_binding_for_source(module: &ModuleId, name: &str) -> Option<DeclarationTypeBinding> {
     let tuple_module = source_module_id(&["collections", "tuple"]);
     let record_module = source_module_id(&["collections", "record"]);
+    let pack_module = source_module_id(&["collections", "pack"]);
     match (module, name) {
         (module, "Tuple") if module == &tuple_module => Some(DeclarationTypeBinding {
             semantic_form: DeclarationSemanticForm::Intrinsic(IntrinsicTypeApplication::Tuple),
@@ -562,6 +568,10 @@ pub(crate) fn intrinsic_binding_for_source(module: &ModuleId, name: &str) -> Opt
         (module, "Record") if module == &record_module => Some(DeclarationTypeBinding {
             semantic_form: DeclarationSemanticForm::Intrinsic(IntrinsicTypeApplication::Record),
             runtime_owner: Some(IntrinsicRuntimeOwner::Record),
+        }),
+        (module, "Pack") if module == &pack_module => Some(DeclarationTypeBinding {
+            semantic_form: DeclarationSemanticForm::Intrinsic(IntrinsicTypeApplication::Pack),
+            runtime_owner: Some(IntrinsicRuntimeOwner::Pack),
         }),
         _ => None,
     }
