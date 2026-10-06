@@ -2803,7 +2803,7 @@ A2; P4's remaining-scope corrective plan remains its implementation authority.
 
 A2 is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` on main, starting at
 `4a1cd6c7`. Its implementation, regressions, and checkpoint update are committed
-together. The user confirmed the preceding consolidation was pushed and its
+together as `1002ab70`. The user confirmed the preceding consolidation was pushed and its
 local branch deleted; implementation continued inline on main. The subsequent
 request authorizes commit/push delivery. Initial working tree was clean and
 upstream parity 0/0.

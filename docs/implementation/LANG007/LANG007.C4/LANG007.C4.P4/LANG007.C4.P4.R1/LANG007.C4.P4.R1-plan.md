@@ -40,8 +40,7 @@ next_action: Resolve or explicitly defer the open R1 findings through their pair
 
 The covering-inherent-impl correction and its recorded focused checks remain
 completed historical work. R1 stays active because its issue corpus includes
-the remaining A2 semantic blocker, unresolved
-incremental and source-coverage obligations, current-head certification work,
+unresolved incremental and source-coverage obligations, current-head certification work,
 expanded Telogue generic-Pack inference failures, and package-scoped Hypothesis runtime
 blockers whose incident record is co-located here.
 
@@ -50,7 +49,7 @@ blockers whose incident record is co-located here.
 | ID | Finding at recorded revision | Current record state | Detailed records |
 |---|---|---|---|
 | A1 | Match coverage has a private equality-normalization authority; confirmed architectural defect at `ee7e8ee7` | Complete / IMPLEMENTED / FOCUSED_TESTED; 6 shared-query unit tests and 153 matching tests passed ([handoff](LANG007.C4.P4.R1-A1-handoff.md)) | [Audit](issue-audits/LANG007.C4.P4.R1-AUD-A1-match-equality-authority.md), [plan](issue-plans/LANG007.C4.P4.R1-PLAN-A1-match-equality-authority.md) |
-| A2 | Constructor proof handling collapses refutation and blocked proof; confirmed architectural defect at `ee7e8ee7` | Open; current-head closure evidence is not recorded here | [Audit](issue-audits/LANG007.C4.P4.R1-AUD-A2-constructor-proof-outcome.md), [plan](issue-plans/LANG007.C4.P4.R1-PLAN-A2-constructor-proof-outcome.md) |
+| A2 | Constructor proof handling collapses refutation and blocked proof; confirmed architectural defect at `ee7e8ee7` | Complete / IMPLEMENTED / FOCUSED_TESTED on main at `1002ab70`; 155 matching, 4 proof-unit, 3 coverage-unit, and 1 lowering-guard tests passed ([handoff](LANG007.C4.P4.R1-A2-handoff.md)) | [Audit](issue-audits/LANG007.C4.P4.R1-AUD-A2-constructor-proof-outcome.md), [plan](issue-plans/LANG007.C4.P4.R1-PLAN-A2-constructor-proof-outcome.md) |
 | I1 | Callable-body invalidation lacks absence-transition certification | Open proof obligation; no production failure demonstrated by the audit | [Audit](issue-audits/LANG007.C4.P4.R1-AUD-I1-conformance-absence-invalidation.md), [plan](issue-plans/LANG007.C4.P4.R1-PLAN-I1-conformance-absence-invalidation.md) |
 | T2 | Public covering-signature coordinate purity needs recursive coverage | Open verification obligation; no implementation defect demonstrated by the audit | [Audit](issue-audits/LANG007.C4.P4.R1-AUD-T2-public-signature-coordinate-purity.md), [plan](issue-plans/LANG007.C4.P4.R1-PLAN-T2-public-signature-coordinate-purity.md) |
 | T3 | Nested covering forms need more source-level certification | Open verification obligation; no implementation defect demonstrated by the audit | [Audit](issue-audits/LANG007.C4.P4.R1-AUD-T3-nested-covering-source-certification.md), [plan](issue-plans/LANG007.C4.P4.R1-PLAN-T3-nested-covering-source-certification.md) |
@@ -83,7 +82,8 @@ passing project compile.
 The paired issue plans are the detailed implementation contracts. R1 tracks
 their shared state and ordering:
 
-1. Inherit completed A1 (`09ac903b`); resolve A2 through its proof-outcome plan.
+1. Inherit completed A1 (`09ac903b`) and A2 (`1002ab70`)
+   through their dedicated walkthroughs/handoffs; continue I1.
 2. Establish the I1 absence-invalidation behavior with the planned incremental
    transitions.
 3. Complete T2 and T3 coverage obligations without weakening the published

@@ -33,8 +33,13 @@ completion plan: rebaseline the live owner matrix before production edits.
 ## Inherited findings
 
 - A1 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED on main at `09ac903b`: inherit
-  its shared evidence query and dedicated walkthrough/handoff. A2 remains open;
-  preserve the distinction between refutation and blocked proof in its plan.
+  its shared evidence query and dedicated walkthrough/handoff.
+- A2 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED on main at `1002ab70`
+  (starting revision `4a1cd6c7`). Inherit [its handoff](LANG007.C4.P4.R1-A2-handoff.md):
+  typed proof/opening/merge uncertainty, declaration-backed blocked patterns,
+  shared controls, and fail-closed exact/enum/union domains. Focused matching,
+  proof/coverage units, lowering guard, and semantic check passed. The separate
+  resolver unit failure is deferred classification C, not a confirmed baseline.
 - I1 is an incremental proof obligation. Its audit did not demonstrate a
   production failure.
 - T2 and T3 are coverage obligations for published coordinate purity and
@@ -80,8 +85,8 @@ from source changes alone.
 ## Next actions
 
 1. Check the live status and scoped diff before continuing.
-2. Inherit completed A1 and begin A2 through its issue plan; record meaningful
-   focused evidence and architectural decisions in the C4 checkpoint.
+2. Inherit completed A1/A2 and begin I1 through its absence-invalidation plan;
+   record meaningful focused evidence in the C4 checkpoint.
 3. Complete I1, T2, and T3 obligations in the order allowed by their plans.
 4. Resolve or separately plan the Telogue package blockers with their owning
    semantic/syntax layers identified.
@@ -94,3 +99,10 @@ All current source/test progress is preserved on local main in `09ac903b` and
 `c2d72fed`; this handoff and companion lifecycle records are updated in the
 subsequent documentation commit. No remote push or new behavioral verification
 was requested by consolidation. No worktree was discarded.
+
+The user subsequently confirmed that consolidation was pushed and its local
+branch deleted. A2 continuation stayed inline on main; implementation/tests and
+checkpoint are committed as `1002ab70`. The subsequent user request authorizes
+commit/push delivery, with completion records synchronized afterward. No checkout
+progress was discarded. The A2 handoff supersedes the earlier next-action
+instruction to begin A2.

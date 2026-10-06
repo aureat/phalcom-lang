@@ -58,3 +58,19 @@ inference remains partial with an unignored positive failing regression.
 The updated issue register, shared C4 checkpoint, and dedicated A1/TEL-1
 walkthroughs/handoffs record current state. R1 overall remains partial/unverified.
 Consolidation performed no behavioral tests or push and discarded no progress.
+
+## Subsequent A2 correction — 2026-10-06
+
+The user confirmed the consolidation was pushed. A2 then ran inline on local
+main from `4a1cd6c7`; implementation is committed as `1002ab70`. Constructor proof,
+opening, and merging now preserve blocked uncertainty through semantic patterns
+and coverage; the compiler rejects the blocked match before lowering. A2 is
+COMPLETE / IMPLEMENTED / FOCUSED_TESTED: 155 matching tests, 4 proof units,
+3 coverage units, and 1 compiler guard passed, along with semantic check. The
+[detailed walkthrough](LANG007.C4.P4.R1-A2-walkthrough.md) records the red/green
+source discriminator, invalid source probe, deferred resolver failure, and
+unrun broad gates. R1/P4 remain partial/unverified; I1 is next.
+
+The subsequent user-directed delivery commits the A2 implementation/tests and
+checkpoint together, then synchronizes these lifecycle records. Delivery does
+not rerun behavioral tests or promote the focused verification classification.
