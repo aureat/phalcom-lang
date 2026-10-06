@@ -3927,3 +3927,22 @@ Plan `LANG007.C3.P5` was executed to establish open/exact structural subtyping, 
 5. **T12 Focused Regression Matrix (CV-01..CV-27):**
    - In progress across `phalcom-semantic` and `phalcom-core`.
 
+## 28. Hypothesis consumer generic-dispatch incident — 2026-10-06
+
+The Hypothesis consumer-project runtime corpus supplies a new reproducer for
+generic trait-method dispatch. `Strategy.draw<P>` compiles, but deterministic
+property search fails at runtime because the active VM frame has no conformance
+target for `strategies.strategy::Strategy.draw`. A focused integer-replay probe
+also panics when semantic identity lowering asks a conformance-owned callable
+for a declaration owner. The two symptoms are recorded separately; no common
+root cause or regression classification has been established.
+
+The detailed reproduction, exact outputs, required repair targets, and current
+scope decision are in
+[`packages/hypothesis/INCIDENT-REPORT.md`](../../../../packages/hypothesis/INCIDENT-REPORT.md).
+Package lifecycle is `BLOCKED / PARTIAL / FOCUSED_TESTED`; the active corpus
+result is 9 passed, 1 failed, 1 blocked. No compiler or VM change was made in
+the Hypothesis task. Do not equate this consumer failure with the earlier
+rest-dispatch observation in §26 without a causal comparison. This note records
+cross-project evidence and does not reclassify C3's prior plan outcomes or
+claim that C3 owns the same defect.

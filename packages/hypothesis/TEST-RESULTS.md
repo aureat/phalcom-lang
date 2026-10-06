@@ -1,7 +1,8 @@
 # Current verification status
 
-**Status: PARTIAL.** The focused utility fixtures pass, but the end-to-end
-property search is blocked by Phalcom generic trait dispatch.
+**Lifecycle: `BLOCKED` / `PARTIAL` / `FOCUSED_TESTED`.** The focused utility
+fixtures pass, but the end-to-end property search is blocked by Phalcom generic
+trait dispatch. See the detailed [incident report](INCIDENT-REPORT.md).
 
 ## Verified on 2026-10-06
 
@@ -17,7 +18,8 @@ Using the existing `target/debug/phalcom` executable:
   `Strategy.draw`.
 - Integer replay probe: the compiler panics while lowering the generic strategy
   conformance because the conformance callable has no declaration owner
-  (`phalcom-semantic/src/identity.rs:303`). The probe remains marked blocked.
+  (`phalcom-semantic/src/identity.rs:303`). A focused blocked-fixture probe
+  reproduced the same panic and remains marked blocked.
 - Full active runtime corpus: **9 passed, 1 failed, 1 blocked**. The sole active
   failure is the deterministic property search above; the blocked fixture is
   integer replay.

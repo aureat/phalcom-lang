@@ -43,7 +43,9 @@ The current API inventory and kernel behavior are documented in
 [`docs/public-api.md`](docs/public-api.md),
 [`docs/strategies.md`](docs/strategies.md), and
 [`docs/shrinking.md`](docs/shrinking.md). The archived 0.1.0 surface is not the
-active package API.
+active package API. Current verification status is in
+[`TEST-RESULTS.md`](TEST-RESULTS.md); the generic-conformance blocker is
+documented in [`INCIDENT-REPORT.md`](INCIDENT-REPORT.md).
 
 ## Runtime fixtures
 
