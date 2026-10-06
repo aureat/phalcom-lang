@@ -45,10 +45,19 @@
 			"include": "#phalcom.data-variant"
 		},
 		{
+			"include": "#phalcom.impl-declaration"
+		},
+		{
 			"include": "#phalcom.match-pattern"
 		},
 		{
 			"include": "#phalcom.where-clause"
+		},
+		{
+			"include": "#phalcom.contextual-keyword"
+		},
+		{
+			"include": "#phalcom.reserved-keyword"
 		},
 		{
 			"include": "#phalcom.type-lambda"
@@ -84,7 +93,7 @@
 			"include": "#phalcom.member-selector"
 		},
 		{
-			"include": "#phalcom.keyword"
+			"include": "#phalcom.operator-punctuation"
 		},
 		{
 			"include": "#phalcom.field"
@@ -165,6 +174,12 @@
 					"include": "#phalcom.number"
 				},
 				{
+					"include": "#phalcom.contextual-keyword"
+				},
+				{
+					"include": "#phalcom.reserved-keyword"
+				},
+				{
 					"include": "#phalcom.type-lambda"
 				},
 				{
@@ -192,7 +207,7 @@
 					"include": "#phalcom.member-selector"
 				},
 				{
-					"include": "#phalcom.keyword"
+					"include": "#phalcom.operator-punctuation"
 				},
 				{
 					"include": "#phalcom.field"
@@ -232,6 +247,12 @@
 					"include": "#phalcom.number"
 				},
 				{
+					"include": "#phalcom.contextual-keyword"
+				},
+				{
+					"include": "#phalcom.reserved-keyword"
+				},
+				{
 					"include": "#phalcom.type-lambda"
 				},
 				{
@@ -259,7 +280,7 @@
 					"include": "#phalcom.member-selector"
 				},
 				{
-					"include": "#phalcom.keyword"
+					"include": "#phalcom.operator-punctuation"
 				},
 				{
 					"include": "#phalcom.field"
@@ -314,6 +335,18 @@
 		"phalcom.type-declaration": {
 			"patterns": [
 				{
+					"comment": "An unassigned type member is the lexical fallback for an associated type declaration; TextMate cannot distinguish its later references from ordinary type names.",
+					"match": "\\b(type)\\s+([A-Z][a-zA-Z0-9_]*)(?=\\s*(?::|\\r?$|//))",
+					"captures": {
+						"1": {
+							"name": "keyword.declaration.phalcom"
+						},
+						"2": {
+							"name": "entity.name.type.associated.phalcom"
+						}
+					}
+				},
+				{
 					"comment": "Generic type alias declaration, e.g. type Evidence<T> = ...",
 					"begin": "\\b(type)\\s+([A-Z][a-zA-Z0-9_]*)\\s*(<)",
 					"beginCaptures": {
@@ -363,7 +396,7 @@
 							"name": "keyword.declaration.phalcom"
 						},
 						"2": {
-							"name": "entity.name.type.interface.phalcom"
+							"name": "entity.name.type.trait.phalcom"
 						},
 						"3": {
 							"name": "punctuation.definition.generic.begin.phalcom"
@@ -389,7 +422,7 @@
 							"name": "keyword.declaration.phalcom"
 						},
 						"2": {
-							"name": "entity.name.type.interface.phalcom"
+							"name": "entity.name.type.trait.phalcom"
 						}
 					}
 				}
@@ -440,6 +473,11 @@
 		"phalcom.generic-parameter-declaration": {
 			"patterns": [
 				{
+					"comment": "Pack markers precede a generic parameter name in declarations such as <*Elements>.",
+					"name": "keyword.operator.unpack.phalcom",
+					"match": "\\*{1,3}"
+				},
+				{
 					"name": "storage.modifier.variance.phalcom",
 					"match": "[+-](?=[A-Z][a-zA-Z0-9_]*\\b)"
 				},
@@ -450,6 +488,29 @@
 				{
 					"name": "punctuation.separator.generic.phalcom",
 					"match": ","
+				}
+			]
+		},
+		"phalcom.generic-parameter-list": {
+			"name": "meta.type.parameters.declaration.phalcom",
+			"begin": "<",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.definition.generic.begin.phalcom"
+				}
+			},
+			"end": ">",
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.definition.generic.end.phalcom"
+				}
+			},
+			"patterns": [
+				{
+					"include": "#phalcom.generic-parameter-declaration"
+				},
+				{
+					"include": "#phalcom.type-operator"
 				}
 			]
 		},
@@ -508,25 +569,93 @@
 			]
 		},
 		"phalcom.generic-callable-declaration": {
-			"comment": "Generic function/method declaration head such as map<B>(...) -> ... { . Require an argument list before the body so generic impl headers and generic type names are not treated as callable names.",
-			"begin": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(<)(?=[^\\r\\n{]*>[^\\r\\n{]*\\([^\\r\\n{]*\\)\\s*(?:->[^\\r\\n{]+)?\\s*\\{)",
+			"comment": "Generic function/method declaration signature. Reserved words are tokenized before this identifier heuristic, and an argument list is required so impl headers and generic type names do not become callable names.",
+			"name": "meta.function.declaration.phalcom",
+			"begin": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\b(?=\\s*<[^\\r\\n{]*>[^\\r\\n{]*\\([^\\r\\n{]*\\)\\s*(?:->[^\\r\\n{]+)?\\s*\\{)",
 			"beginCaptures": {
 				"1": {
 					"name": "entity.name.function.phalcom"
-				},
-				"2": {
-					"name": "punctuation.definition.generic.begin.phalcom"
 				}
 			},
-			"end": ">",
+			"end": "(?=\\s*\\{)",
+			"patterns": [
+				{
+					"include": "#phalcom.generic-parameter-list"
+				},
+				{
+					"include": "#phalcom.callable-parameter-list"
+				},
+				{
+					"include": "#phalcom.where-clause"
+				},
+				{
+					"include": "#phalcom.type-application"
+				},
+				{
+					"include": "#phalcom.type-builtin"
+				},
+				{
+					"include": "#phalcom.type-parameter-reference"
+				},
+				{
+					"include": "#phalcom.type-operator"
+				},
+				{
+					"include": "#variables"
+				}
+			]
+		},
+		"phalcom.callable-parameter-list": {
+			"name": "meta.function.parameters.phalcom",
+			"begin": "\\(",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.definition.parameters.begin.phalcom"
+				}
+			},
+			"end": "\\)",
 			"endCaptures": {
 				"0": {
-					"name": "punctuation.definition.generic.end.phalcom"
+					"name": "punctuation.definition.parameters.end.phalcom"
 				}
 			},
 			"patterns": [
 				{
-					"include": "#phalcom.generic-parameter-declaration"
+					"comment": "Rest parameter names stay parameters and get a distinct fallback scope.",
+					"match": "(?<![A-Za-z0-9_*])(\\*{1,3})([a-zA-Z_][a-zA-Z0-9_]*)(?=\\s*:)",
+					"captures": {
+						"1": { "name": "keyword.operator.unpack.phalcom" },
+						"2": { "name": "variable.parameter.rest.phalcom" }
+					}
+				},
+				{
+					"comment": "The identifier immediately before a parameter type is the local parameter name, after any external label.",
+					"match": "(?:\\b_\\s+|\\b[a-zA-Z_][a-zA-Z0-9_]*\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)(?=\\s*:)",
+					"captures": {
+						"1": { "name": "variable.parameter.function.phalcom" }
+					}
+				},
+				{
+					"include": "#phalcom.callable-parameter-list"
+				},
+				{
+					"include": "#phalcom.type-application"
+				},
+				{
+					"include": "#phalcom.type-builtin"
+				},
+				{
+					"include": "#phalcom.type-parameter-reference"
+				},
+				{
+					"include": "#phalcom.type-operator"
+				},
+				{
+					"include": "#variables"
+				},
+				{
+					"name": "punctuation.separator.parameter.phalcom",
+					"match": ","
 				}
 			]
 		},
@@ -534,13 +663,37 @@
 			"patterns": [
 				{
 					"comment": "Named function/method declaration with an ordinary parameter list and optional return type.",
-					"name": "entity.name.function.phalcom",
-					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\s*\\([^\\r\\n]*\\)\\s*(?:->[^\\r\\n{]+)?\\s*\\{)"
+					"name": "meta.function.declaration.phalcom",
+					"begin": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\b(?=\\s*\\([^\\r\\n]*\\)\\s*(?:->[^\\r\\n{]+)?\\s*\\{)",
+					"beginCaptures": {
+						"1": { "name": "entity.name.function.phalcom" }
+					},
+					"end": "(?=\\s*\\{)",
+					"patterns": [
+						{ "include": "#phalcom.callable-parameter-list" },
+						{ "include": "#phalcom.type-application" },
+						{ "include": "#phalcom.type-builtin" },
+						{ "include": "#phalcom.type-parameter-reference" },
+						{ "include": "#phalcom.type-operator" },
+						{ "include": "#variables" }
+					]
 				},
 				{
 					"comment": "Operator method declaration.",
-					"name": "entity.name.function.phalcom",
-					"match": "(?<![a-zA-Z0-9_])(?:\\+\\+|--|==|!=|<=|>=|<<|>>|\\*\\*\\*|\\*\\*|~/|\\?\\?|\\?\\.|\\+|-|\\*|/|%|<|>|&|\\||\\^|~)(?=\\s*\\([^\\r\\n]*\\)\\s*(?:->[^\\r\\n{]+)?\\s*\\{)"
+					"name": "meta.function.declaration.phalcom",
+					"begin": "(?<![a-zA-Z0-9_])((?:\\+\\+|--|==|!=|<=|>=|<<|>>|\\*\\*\\*|\\*\\*|~/|\\?\\?|\\?\\.|\\+|-|\\*|/|%|<|>|&|\\||\\^|~))(?=\\s*\\([^\\r\\n]*\\)\\s*(?:->[^\\r\\n{]+)?\\s*\\{)",
+					"beginCaptures": {
+						"1": { "name": "entity.name.function.phalcom" }
+					},
+					"end": "(?=\\s*\\{)",
+					"patterns": [
+						{ "include": "#phalcom.callable-parameter-list" },
+						{ "include": "#phalcom.type-application" },
+						{ "include": "#phalcom.type-builtin" },
+						{ "include": "#phalcom.type-parameter-reference" },
+						{ "include": "#phalcom.type-operator" },
+						{ "include": "#variables" }
+					]
 				},
 				{
 					"comment": "Indexer method declaration.",
@@ -771,6 +924,10 @@
 		"phalcom.type-operator": {
 			"patterns": [
 				{
+					"name": "keyword.operator.unpack.phalcom",
+					"match": "\\*{1,3}"
+				},
+				{
 					"name": "keyword.operator.type.lambda.phalcom",
 					"match": "=>>"
 				},
@@ -788,8 +945,51 @@
 				}
 			]
 		},
-		"phalcom.keyword": {
+		"phalcom.reserved-keyword": {
+			"comment": "Lexically reserved identifiers mirror phalcom-ast/src/lexer.rs::scan_identifier. Keep declaration-name structure rules before this repository and identifier heuristics after it.",
 			"patterns": [
+				{
+					"comment": "Declaration and visibility keywords.",
+					"name": "keyword.declaration.phalcom",
+					"match": "\\b(let|const|fn|class|data|trait|impl|static|construct|type|native|foreign|intrinsic|internal|private|protected|module|package)\\b"
+				},
+				{
+					"comment": "Control, module, and constraint keywords.",
+					"name": "keyword.control.phalcom",
+					"match": "\\b(return|if|else|while|for|break|continue|import|from|export|expose|throw|try|match)\\b"
+				},
+				{
+					"name": "keyword.control.constraint.phalcom",
+					"match": "\\bwhere\\b"
+				},
+				{
+					"name": "constant.language.boolean.phalcom",
+					"match": "\\b(true|false)\\b"
+				},
+				{
+					"name": "variable.language.receiver.phalcom",
+					"match": "\\b(self|super)\\b"
+				},
+				{
+					"include": "#phalcom.operator-keyword"
+				}
+			]
+		},
+		"phalcom.contextual-keyword": {
+			"patterns": [
+				{
+					"comment": "`let` is lexically reserved, while `mut` is contextual; keep this combined declaration form ahead of the general reserved-keyword rule.",
+					"match": "\\b(let)(\\s+)(mut)(?=\\s+[^=:])",
+					"captures": {
+						"1": { "name": "keyword.declaration.phalcom" },
+						"3": { "name": "storage.modifier.mutable.phalcom" }
+					}
+				},
+				{
+					"comment": "`mut` is contextual: highlight it only when a binding name follows.",
+					"name": "storage.modifier.mutable.phalcom",
+					"match": "\\bmut(?=\\s+_[a-zA-Z][a-zA-Z0-9_]*)|\\bmut(?=\\s+[a-zA-Z_][a-zA-Z0-9_]*(?:\\s*:|\\s+via\\b))"
+				},
 				{
 					"comment": "Contextual try-handler clause words are highlighted only with their clause-shaped syntax.",
 					"name": "keyword.control.phalcom",
@@ -804,43 +1004,24 @@
 					"match": "\\b(ensure)(?=\\s*\\{)"
 				},
 				{
-					"comment": "`mut` is contextual: this pattern only marks a declaration modifier when a binding name follows.",
-					"match": "\\b(let)(\\s+)(mut)(?=\\s+[^=:])",
+					"comment": "Relation words are contextual operators, not reserved lexer keywords.",
+					"match": "(?<=[A-Za-z0-9_])\\s+(matches|understands)\\b(?=\\s+[A-Za-z0-9_(])",
 					"captures": {
-						"1": { "name": "keyword.declaration.phalcom" },
-						"3": { "name": "storage.modifier.mutable.phalcom" }
+						"1": { "name": "keyword.operator.word.phalcom" }
 					}
-				},
-				{
-					"name": "storage.modifier.mutable.phalcom",
-					"match": "\\bmut(?=\\s+_[a-zA-Z][a-zA-Z0-9_]*)|\\bmut(?=\\s+[a-zA-Z_][a-zA-Z0-9_]*(?:\\s*:|\\s+via\\b))"
-				},
-				{
-					"comment": "Declaration keywords. The Phalcom theme should color these the same as keyword.declaration.annotation.phalcom.",
-					"name": "keyword.declaration.phalcom",
-					"match": "\\b(let|const|fn|type|class|data|trait|impl|native|foreign|intrinsic|private|protected|module|package|internal|static|construct)\\b"
-				},
-				{
-					"name": "keyword.control.phalcom",
-					"match": "\\b(try|throw|break|continue|match|return|while|for|if|else|import|from|export|expose)\\b"
-				},
-				{
-					"comment": "Contextual relation words are operators only between expression-shaped operands; elsewhere they remain identifiers.",
-					"name": "keyword.operator.word.phalcom",
-					"match": "(?<=[A-Za-z0-9_] )\\b(matches|understands)\\b(?=\\s+[A-Za-z0-9_(])"
-				},
+				}
+			]
+		},
+		"phalcom.operator-keyword": {
+			"patterns": [
 				{
 					"name": "keyword.operator.word.phalcom",
 					"match": "\\b(and|or|not|in|as|is)\\b"
-				},
-				{
-					"name": "constant.language.boolean.phalcom",
-					"match": "\\b(true|false)\\b"
-				},
-				{
-					"name": "variable.language.phalcom",
-					"match": "\\b(self|super)\\b"
-				},
+				}
+			]
+		},
+		"phalcom.operator-punctuation": {
+			"patterns": [
 				{
 					"name": "keyword.operator.type.lambda.phalcom",
 					"match": "=>>"
@@ -891,6 +1072,51 @@
 		"phalcom.data-declaration": {
 			"patterns": [
 				{
+					"comment": "Braced data declaration. Its body distinguishes uppercase sum constructors from lowercase record components; this is a lexical fallback for the language's data syntax.",
+					"name": "meta.data.declaration.phalcom",
+					"begin": "\\b(data)\\s+([A-Z][a-zA-Z0-9_]*)(?=\\s*(?:<[^{}]*>\\s*)?\\{)",
+					"beginCaptures": {
+						"1": { "name": "keyword.declaration.phalcom" },
+						"2": { "name": "entity.name.type.data.phalcom" }
+					},
+					"end": "(?<=\\})",
+					"patterns": [
+						{ "include": "#phalcom.generic-parameter-list" },
+						{ "include": "#phalcom.where-clause" },
+						{
+							"name": "meta.data.body.phalcom",
+							"begin": "\\{",
+							"beginCaptures": {
+								"0": { "name": "punctuation.section.block.begin.phalcom" }
+							},
+							"end": "\\}",
+							"endCaptures": {
+								"0": { "name": "punctuation.section.block.end.phalcom" }
+							},
+							"patterns": [
+								{ "include": "#phalcom.comment" },
+								{ "include": "#phalcom.data-variant" },
+								{ "include": "#phalcom.data-variant-declaration" },
+								{
+									"comment": "Record-shaped data components are lowercase labels followed by a type annotation.",
+									"name": "variable.other.field.phalcom",
+									"match": "\\b[a-z_][a-zA-Z0-9_]*(?=\\s*:)"
+								},
+								{ "include": "#phalcom.type-application" },
+								{ "include": "#phalcom.type-builtin" },
+								{ "include": "#phalcom.type-parameter-reference" },
+								{ "include": "#phalcom.type-operator" },
+								{ "include": "#variables" }
+							]
+						},
+						{ "include": "#phalcom.type-application" },
+						{ "include": "#phalcom.type-builtin" },
+						{ "include": "#phalcom.type-parameter-reference" },
+						{ "include": "#phalcom.type-operator" },
+						{ "include": "#variables" }
+					]
+				},
+				{
 					"comment": "Generic data/ADT/GADT declaration, e.g. data Option<T> { ... }.",
 					"begin": "\\b(data)\\s+([A-Z][a-zA-Z0-9_]*)\\s*(<)",
 					"beginCaptures": {
@@ -928,6 +1154,24 @@
 						}
 					}
 				}
+			]
+		},
+		"phalcom.data-variant-declaration": {
+			"comment": "Current braced data syntax uses bare uppercase names for sum constructors, for example Ok(_ value: T). This capitalization rule is only a TextMate heuristic.",
+			"name": "meta.data.variant.declaration.phalcom",
+			"begin": "^[ \\t]*([A-Z][a-zA-Z0-9_]*)\\b(?=\\s*(?:\\(|<|$))",
+			"beginCaptures": {
+				"1": { "name": "entity.name.type.variant.phalcom" }
+			},
+			"end": "(?=^[ \\t]*[A-Z][a-zA-Z0-9_]*\\b(?=\\s*(?:\\(|<|$))|\\})",
+			"patterns": [
+				{ "include": "#phalcom.generic-parameter-list" },
+				{ "include": "#phalcom.callable-parameter-list" },
+				{ "include": "#phalcom.type-application" },
+				{ "include": "#phalcom.type-builtin" },
+				{ "include": "#phalcom.type-parameter-reference" },
+				{ "include": "#phalcom.type-operator" },
+				{ "include": "#variables" }
 			]
 		},
 		"phalcom.data-variant": {
@@ -1024,6 +1268,104 @@
 						}
 					}
 				}
+			]
+		},
+		"phalcom.block": {
+			"name": "meta.block.phalcom",
+			"begin": "\\{",
+			"end": "\\}",
+			"patterns": [
+				{ "include": "#phalcom.block" },
+				{ "include": "$self" }
+			]
+		},
+		"phalcom.impl-method-declaration": {
+			"comment": "Within an impl body, a line-leading selector followed by generic parameters or an argument list is a method declaration. This context supports multiline parameter lists without treating ordinary calls as declarations.",
+			"name": "meta.function.declaration.phalcom",
+			"begin": "^[ \\t]*([a-zA-Z_][a-zA-Z0-9_]*)\\b(?=\\s*(?:<|\\())",
+			"beginCaptures": {
+				"1": { "name": "entity.name.function.phalcom" }
+			},
+			"end": "(?<=\\})",
+			"patterns": [
+				{ "include": "#phalcom.generic-parameter-list" },
+				{ "include": "#phalcom.callable-parameter-list" },
+				{ "include": "#phalcom.where-clause" },
+				{ "include": "#phalcom.type-application" },
+				{ "include": "#phalcom.type-builtin" },
+				{ "include": "#phalcom.type-parameter-reference" },
+				{ "include": "#phalcom.type-operator" },
+				{ "include": "#phalcom.block" },
+				{ "include": "#variables" }
+			]
+		},
+		"phalcom.impl-bare-method-declaration": {
+			"comment": "Property-style methods in impl bodies use a bare selector before their result arrow or body, for example size -> Int { ... }.",
+			"name": "meta.function.declaration.phalcom",
+			"begin": "^[ \\t]*([a-zA-Z_][a-zA-Z0-9_]*)\\b(?=\\s*(?:->|\\{))",
+			"beginCaptures": {
+				"1": { "name": "entity.name.function.phalcom" }
+			},
+			"end": "(?<=\\})",
+			"patterns": [
+				{ "include": "#phalcom.type-application" },
+				{ "include": "#phalcom.type-builtin" },
+				{ "include": "#phalcom.type-parameter-reference" },
+				{ "include": "#phalcom.type-operator" },
+				{ "include": "#phalcom.block" },
+				{ "include": "#variables" }
+			]
+		},
+		"phalcom.impl-declaration": {
+			"comment": "Impl headers and bodies: preserve the reserved keyword scope, recognize generic binders/types, and classify methods only in declaration context.",
+			"name": "meta.impl.declaration.phalcom",
+			"begin": "\\b(impl)\\b",
+			"beginCaptures": {
+				"1": { "name": "keyword.declaration.phalcom" }
+			},
+			"end": "(?<=\\})",
+			"patterns": [
+				{ "include": "#phalcom.generic-parameter-list" },
+				{ "include": "#phalcom.where-clause" },
+				{ "include": "#phalcom.type-parameter-application" },
+				{ "include": "#phalcom.type-application" },
+				{ "include": "#phalcom.type-builtin" },
+				{ "include": "#phalcom.type-parameter-reference" },
+				{ "include": "#phalcom.type-operator" },
+				{ "include": "#phalcom.reserved-keyword" },
+				{
+					"name": "meta.impl.body.phalcom",
+					"begin": "\\{",
+					"beginCaptures": {
+						"0": { "name": "punctuation.section.block.begin.phalcom" }
+					},
+					"end": "\\}",
+					"endCaptures": {
+						"0": { "name": "punctuation.section.block.end.phalcom" }
+					},
+					"patterns": [
+						{ "include": "#phalcom.comment" },
+						{ "include": "#phalcom.attribute" },
+						{
+							"comment": "An assigned type member inside an impl is an associated-type implementation.",
+							"match": "\\b(type)\\s+([A-Z][a-zA-Z0-9_]*)(?=\\s*=)",
+							"captures": {
+								"1": { "name": "keyword.declaration.phalcom" },
+								"2": { "name": "entity.name.type.associated.phalcom" }
+							}
+						},
+						{ "include": "#phalcom.impl-method-declaration" },
+						{ "include": "#phalcom.impl-bare-method-declaration" },
+						{ "include": "#phalcom.contextual-keyword" },
+						{ "include": "#phalcom.reserved-keyword" },
+						{ "include": "#phalcom.type-application" },
+						{ "include": "#phalcom.type-builtin" },
+						{ "include": "#phalcom.type-parameter-reference" },
+						{ "include": "#phalcom.type-operator" },
+						{ "include": "#variables" }
+					]
+				},
+				{ "include": "#variables" }
 			]
 		},
 		"phalcom.match-pattern": {
