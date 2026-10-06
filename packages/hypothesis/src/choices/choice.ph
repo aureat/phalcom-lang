@@ -6,20 +6,20 @@ data Choice {
     _ min: Int,
     _ max: Int,
     _ shrinkTowards: Int
-  ),
+  )
 
-  /// A boolean decision with a preferred shrink value.
+  // A boolean decision with a preferred shrink value.
   Boolean(
     _ value: Bool,
     _ shrinkTowards: Bool
-  ),
+  )
 
   /// An index drawn from the half-open range `[0, size)`.
   Index(
     _ value: Int,
     _ size: Int,
     _ shrinkTowards: Int
-  ),
+  )
 
   /// A byte sequence drawn from the configured size range.
   Bytes(
@@ -27,7 +27,7 @@ data Choice {
     _ minSize: Int,
     _ maxSize: Int,
     _ shrinkTowards: Bytes
-  ),
+  )
 }
 
 impl Choice {

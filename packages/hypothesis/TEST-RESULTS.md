@@ -10,6 +10,30 @@ Phalcom executable: not installed
 
 Observed evidence is limited to source/static verification. No `.ph` file was parsed, compiled, or executed by a real Phalcom toolchain in this environment.
 
+## Interim runtime harness (2026-10-06)
+
+The package now has a separate consumer project at `tests/runtime` and a thin
+host runner at `scripts/run_runtime_tests.py`. The runner executes each runnable
+`*-test.ph` fixture in a fresh Phalcom process and checks its exit status and
+expected `PASS` marker. Fixtures under `src/blocked/` are reported as `BLOCKED`
+and are rejected by `--strict`.
+
+Observed run on 2026-10-06:
+
+```text
+Phalcom build: PASS (deprecation warnings)
+Runtime tests: 0 passed, 8 failed, 2 blocked
+```
+
+All eight runnable processes panicked during canonical Universe startup, before
+the fixture body, with a lowering error for a non-proven match in
+`universe:errors.result`. The two blocked fixtures are `engine.integer_shrink_pass`,
+which currently fails to compile the qualified `Choice` cases in the Hypothesis
+shrink-pass implementation, and `strategies.integer_replay`, which is held at
+the known `DrawData` / `ChoiceProvider` boundary. The runtime run therefore
+does not establish behavior for the eight fixture bodies. The 2026-07-23
+release evidence below is a historical static-verification snapshot.
+
 ## Phase 12 red-green evidence
 
 Initial Phase 12 verifier against the unchanged Phase 11 checkpoint:
@@ -107,15 +131,17 @@ Export sets equal: yes
 Executable examples present: 7
 ```
 
-## Required runtime command
+## Runtime command in the 2026-07-23 release plan
 
-The final package documents and requires:
+The 2026-07-23 release plan documented and required:
 
 ```sh
 phalcom test --all
 ```
 
-The command was not run because no `phalcom` executable was installed. Consequently, the following remain expected but unobserved:
+That command was not run because no `phalcom` executable was installed at the time. It is not implemented by the interim runner. Runtime behavior therefore remained unobserved in that historical snapshot.
+
+The current interim runtime command is documented in `README.md`. It must be run before treating the new `.ph` fixtures as verified. The following release-level evidence also remains unobserved:
 
 - Phalcom parsing and compilation;
 - unit, property, stateful, database, golden, and integration runtime behavior;

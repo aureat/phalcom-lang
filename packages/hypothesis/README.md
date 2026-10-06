@@ -18,9 +18,25 @@ automatic derivation, reporting, persistence, and stateful testing remain later
 work.
 
 The package manifest is `project.toml`. The executable entry currently only
-identifies the package. The executable property corpus will be added after the
-core contracts stabilize.
+identifies the package. Executable runtime tests live in the separate
+`tests/runtime` project, which consumes Hypothesis through a path dependency.
 
-`legacy-src/`, `tests/`, `scripts/`, and the existing design documents are
-retained as historical material. The Python scripts check source shape and are
-not executable language or library verification.
+Build Phalcom once, then run the runtime corpus from the repository root:
+
+```sh
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo build -p phalcom-core --bin phalcom
+python3 packages/hypothesis/scripts/run_runtime_tests.py \
+  --phalcom target/debug/phalcom
+```
+
+Each `*-test.ph` file runs in its own Phalcom process. The kebab-case suffix
+matches Phalcom's module naming rules. The runner reports a
+test as passed only when the program exits successfully and prints its expected
+`PASS` marker. Known compiler blockers live under `tests/runtime/src/blocked/`
+and are reported as `BLOCKED`; `--strict` makes any blocked case fail the run.
+A runnable fixture can also be run directly with the Phalcom executable.
+
+`legacy-src/`, the top-level `tests/` corpus, and the existing design
+documents are retained as historical material. The `verify_phase*.py`,
+mutation, and release scripts perform source or artifact checks; only the
+runtime runner compiles and executes Telos programs.

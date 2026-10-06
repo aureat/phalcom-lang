@@ -1,0 +1,1 @@
+expose .integer_shrink_pass_test

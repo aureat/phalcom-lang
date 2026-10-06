@@ -1,0 +1,8 @@
+[project]
+name = "hypothesis-runtime-tests"
+namespace = "hypothesis_tests"
+version = "0.0.0"
+source = "src"
+
+[dependencies]
+hypothesis = { path = "../.." }
