@@ -65,10 +65,10 @@ pub struct CallableBodyRequest<'a> {
     pub owner_generic_signature: Option<&'a GenericSignature>,
     /// Explicit receiver type for non-nominal callable owners such as
     /// conformance-local witnesses.
-    pub self_type_override: Option<crate::types::id::TypeId>,
+    pub receiver_value_override: Option<crate::types::id::TypeId>,
     /// Source-relative type for type-level `Self`; it does not alter the
     /// runtime lowercase `self` value.
-    pub self_instance_type_override: Option<crate::types::id::TypeId>,
+    pub instance_self_override: Option<crate::types::id::TypeId>,
     pub declared_signature: Option<(&'a CallableId, &'a crate::signature::CallableSemanticSignature)>,
     pub budget: QueryBudget,
     pub cancel: &'a CancellationToken,
@@ -101,8 +101,8 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         body,
         body_range,
         owner_generic_signature,
-        self_type_override,
-        self_instance_type_override,
+        receiver_value_override,
+        instance_self_override,
         declared_signature,
         budget,
         cancel,
@@ -176,20 +176,20 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     ctx.trait_surface = trait_surface;
     if let Some(surface) = trait_surface {
         ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(surface.declaration.clone()));
-        ctx.self_override_type = Some(ctx.store.self_type(crate::types::parameter::SelfTypeTerm {
+        ctx.receiver_value_override = Some(ctx.store.self_type(crate::types::parameter::SelfTypeTerm {
             owner: surface.declaration.clone(),
             side: crate::identity::DispatchSide::Instance,
             role: crate::types::parameter::SelfRole::InstanceType,
         }));
     }
-    if let Some(self_type) = self_type_override {
-        ctx.self_override_type = Some(self_type);
+    if let Some(self_type) = receiver_value_override {
+        ctx.receiver_value_override = Some(self_type);
     }
-    ctx.self_instance_type_override = self_instance_type_override;
+    ctx.instance_self_override = instance_self_override;
     if callable.side == crate::identity::DispatchSide::Instance
         && let Some(domain) = &impl_domain
     {
-        ctx.self_override_type = Some(domain.head_type);
+        ctx.receiver_value_override = Some(domain.head_type);
     }
 
     let empty_surfaces = crate::traits::TraitSurfaceTable::new();

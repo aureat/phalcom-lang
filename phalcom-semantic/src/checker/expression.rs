@@ -297,7 +297,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             }
         }
         Expr::SelfVar { range } => {
-            if let Some(self_ty) = ctx.self_override_type {
+            if let Some(self_ty) = ctx.receiver_value_override {
                 TypedExpression::established(self_ty, EvidenceOrigin::Flow, *range)
             } else if let Some(class_decl) = ctx.current_class.clone() {
                 if ctx.current_side == crate::identity::DispatchSide::Class {
@@ -938,7 +938,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             } else {
                 crate::types::annotation::TypeFormationSite::module(ctx.current_module.clone())
             };
-            if let Some(self_type) = ctx.self_instance_type_override {
+            if let Some(self_type) = ctx.instance_self_override {
                 site = site.with_self_type_override(self_type);
             }
             let (resolution, causal_invalidity) = ctx.resolve_type_form(resolver, &site, annotation);

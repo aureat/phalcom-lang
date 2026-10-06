@@ -3134,10 +3134,10 @@ pub struct CallableBodyQuery<'a> {
     /// Optional explicit owner generic metadata for non-nominal callables.
     pub owner_generic_signature: Option<&'a crate::types::parameter::GenericSignature>,
     /// Optional concrete receiver used by conformance witness body checking.
-    pub self_type_override: Option<TypeId>,
+    pub receiver_value_override: Option<TypeId>,
     /// Optional type-level `Self` specialization that leaves the runtime
     /// receiver value unchanged.
-    pub self_instance_type_override: Option<TypeId>,
+    pub instance_self_override: Option<TypeId>,
     /// Optional abstract trait contract used for trait default body analysis.
     pub trait_surface: Option<&'a crate::traits::TraitSurface>,
     pub store: &'a mut TypeStore,
@@ -3183,8 +3183,8 @@ fn query_callable_body_with_requirement(
         body_range,
         declared_signature: explicit_declared_signature,
         owner_generic_signature,
-        self_type_override,
-        self_instance_type_override,
+        receiver_value_override,
+        instance_self_override,
         trait_surface,
         store,
         hierarchy,
@@ -3275,7 +3275,7 @@ fn query_callable_body_with_requirement(
                 lifecycle: inputs.field_lifecycle,
                 owner_generic_signature,
                 declared_signature: declared_signature_for_fingerprint,
-                self_instance_type_override,
+                instance_self_override,
                 trait_surface,
                 conformance_semantics: formal_inputs.and_then(|inputs| inputs.conformance_semantics),
             },
@@ -3320,8 +3320,8 @@ fn query_callable_body_with_requirement(
             body,
             body_range,
             owner_generic_signature,
-            self_type_override,
-            self_instance_type_override,
+            receiver_value_override,
+            instance_self_override,
             declared_signature: declared_signature.as_ref().map(|(signature_id, signature)| (signature_id, signature.as_ref())),
             budget,
             cancel,

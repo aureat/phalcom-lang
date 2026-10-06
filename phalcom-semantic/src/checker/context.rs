@@ -615,8 +615,8 @@ pub struct CheckingContext<'a> {
     pub dispatch: DispatchAccess<'a>,
     pub generic_evidence: crate::generic_evidence::GenericEvidenceEnvironment,
     pub ambient_constraints: Vec<crate::types::parameter::GenericConstraint>,
-    pub self_override_type: Option<TypeId>,
-    pub self_instance_type_override: Option<TypeId>,
+    pub receiver_value_override: Option<TypeId>,
+    pub instance_self_override: Option<TypeId>,
     pub core_ids: CoreDeclarationIds,
     pub(crate) rigids: RigidArena,
     /// Active branch-local constraints used only while checking one branch.
@@ -740,8 +740,8 @@ impl<'a> CheckingContext<'a> {
             dispatch: DispatchAccess::Owned(dispatch),
             generic_evidence: crate::generic_evidence::GenericEvidenceEnvironment::empty(),
             ambient_constraints: Vec::new(),
-            self_override_type: None,
-            self_instance_type_override: None,
+            receiver_value_override: None,
+            instance_self_override: None,
             core_ids: CoreDeclarationIds::default(),
             rigids: RigidArena::new(),
             active_local_constraints: Vec::new(),
@@ -847,8 +847,8 @@ impl<'a> CheckingContext<'a> {
             dispatch: DispatchAccess::Borrowed(dispatch),
             generic_evidence: crate::generic_evidence::GenericEvidenceEnvironment::empty(),
             ambient_constraints: Vec::new(),
-            self_override_type: None,
-            self_instance_type_override: None,
+            receiver_value_override: None,
+            instance_self_override: None,
             core_ids: CoreDeclarationIds::default(),
             rigids: RigidArena::new(),
             active_local_constraints: Vec::new(),
@@ -933,8 +933,8 @@ impl<'a> CheckingContext<'a> {
             dispatch: DispatchAccess::Borrowed(self.dispatch.get()),
             generic_evidence: self.generic_evidence.clone(),
             ambient_constraints: self.ambient_constraints.clone(),
-            self_override_type: self.self_override_type,
-            self_instance_type_override: self.self_instance_type_override,
+            receiver_value_override: self.receiver_value_override,
+            instance_self_override: self.instance_self_override,
             core_ids: self.core_ids.clone(),
             rigids: self.rigids.clone(),
             active_local_constraints: self.active_local_constraints.clone(),
@@ -1564,7 +1564,7 @@ impl<'a> CheckingContext<'a> {
         } else {
             TypeFormationSite::module(self.current_module.clone())
         };
-        if let Some(self_type) = self.self_instance_type_override {
+        if let Some(self_type) = self.instance_self_override {
             site = site.with_self_type_override(self_type);
         }
         let knowledge = crate::types::annotation::resolve_type_annotation(self.store, self.declarations, resolver, &site, annotation, &mut diagnostics);
