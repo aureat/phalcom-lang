@@ -1,5 +1,5 @@
-import hypothesis.core.failure as Failures
-import hypothesis.core.phase as Phases
+from hypothesis.core.failure import Failure, FailureOrigin
+from hypothesis.core.phase import Phase
 from hypothesis.core.status import ExampleStatus
 import hypothesis.choices.choice as Choices
 import hypothesis.choices.example as Examples
@@ -7,10 +7,10 @@ import hypothesis_tests.support.test as Testing
 
 let choices: List<Choices.Choice> = List.new()
 let example = Examples.Example.new(choices: choices)
-let failure = Failures.Failure(
+let failure = Failure(
   exampleIndex: 0,
-  phase: Phases.Phase.Generate,
-  origin: Failures.FailureOrigin(
+  phase: Phase::Generate,
+  origin: FailureOrigin(
     kind: #propertyReturnedFalse,
     property: #integerProperty
   ),
@@ -44,7 +44,10 @@ match falsified {
   ExampleStatus::Errored(_) => { throw Error.new("expected falsified status") }
   ExampleStatus::Falsified(value, observed, recorded) => {
     Testing.Test.expect(value == 7, "falsified status must retain its value")
-    Testing.Test.expect(observed.sameOrigin(failure), "falsified status must retain the failure")
+    Testing.Test.expect(
+      observed.sameOrigin(other: failure),
+      "falsified status must retain the failure"
+    )
     Testing.Test.expect(recorded.size == 0, "falsified status must retain its example")
   }
 }

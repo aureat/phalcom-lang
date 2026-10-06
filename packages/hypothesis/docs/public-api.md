@@ -10,15 +10,17 @@ monolithic `hypothesis` root facade.
 `choices.example` exports `Example`, and `choices.buffer` exports
 `ChoiceBuffer`. `choices.provider` exports:
 
-- `ChoiceProvider` and `ChoiceProviderFactory`;
+- `ChoiceProvider`, the generic `ChoiceProviderFactory<P>` class, and
+  provider-specific factory builders;
 - `ScriptedChoiceProvider` and `ScriptedChoiceProviderFactory`;
 - `ReplayChoiceProvider`;
 - `SystemRandomChoiceProvider` and `SystemRandomChoiceProviderFactory`.
 
-Provider factories preserve their concrete provider type through the
-`ChoiceProviderFactory::Provider` associated type. `SystemRandomChoiceProvider`
-accepts a seed; the factory derives a repeatable per-example seed from its
-configured seed.
+`ChoiceProviderFactory<P>` carries the concrete provider type through the
+pipeline and stores a typed creator function. `ScriptedChoiceProviderFactory`
+and `SystemRandomChoiceProviderFactory` expose a `providerFactory` property
+that creates independent providers for each example. The system-random factory
+derives a repeatable per-example seed from its configured seed.
 
 `choices.data` exports `DrawData<P>`, constrained by `P |= ChoiceProvider`.
 Strategies consume this typed context through a generic method and do not store
@@ -36,8 +38,8 @@ shrinking paths do not create or consume spans.
 `property.specification` exports `PropertySpec<T, S>`, which stores the
 concrete strategy `S`, a `(T) -> Bool` predicate, and an identity `Symbol`.
 `property.property` exports `Property`; `Property.check` accepts a
-`PropertySpec<T, S>`, `Settings`, and a concrete factory `F` whose associated
-provider conforms to `ChoiceProvider`.
+`PropertySpec<T, S>`, `Settings`, and a `ChoiceProviderFactory<P>` whose
+concrete provider `P` conforms to `ChoiceProvider`.
 
 `core.settings` exports `Settings(maxExamples, maxShrinkSteps)`. The shrink
 limit counts accepted improvements. Seed selection belongs to the injected

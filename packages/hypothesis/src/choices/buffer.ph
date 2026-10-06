@@ -10,7 +10,7 @@ class ChoiceBuffer {
 
   /// Appends an isolated copy of a choice to the active tape.
   append(_ choice: Choices.Choice) -> None {
-    _choices.add(choice.copy)
+    _choices.append(choice.copy)
   }
 
   /// Freezes the current choices into an independent example snapshot.

@@ -1,10 +1,10 @@
 from hypothesis.choices.choice import Choice
 import hypothesis_tests.support.test as Testing
 
-let source = Bytes.zeroed(2)
+let source = Bytes.new(2)
 source[0] = 10
 source[1] = 20
-let shrinkTarget = Bytes.zeroed(1)
+let shrinkTarget = Bytes.new(1)
 shrinkTarget[0] = 3
 
 let copied = Choice::Bytes(source, 0, 2, shrinkTarget).copy

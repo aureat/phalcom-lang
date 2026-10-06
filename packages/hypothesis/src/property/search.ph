@@ -1,38 +1,44 @@
 import ..core.settings as SettingsModule
-import ..core.statistics as StatisticsModule
-import ..core.result as Results
-import ..core.phase as Phases
-import ..choices.data as ChoiceData
-import ..choices.provider as Providers
-import ..choices.buffer as Buffers
+from ..core.statistics import Statistics
+from ..core.result import PropertyResult
+from ..core.phase import Phase
+from ..choices.data import DrawData
+from ..choices.provider import ChoiceProvider, ChoiceProviderFactory
+from ..choices.buffer import ChoiceBuffer
 import .specification as Specifications
-import .evaluator as Evaluators
-import ..core.status as StatusModule
-import ..engine.shrinker as Shrinkers
-import ..engine.shrink_pass as ShrinkPasses
+from .evaluator import Evaluator
+from ..core.status import ExampleStatus
+from ..engine.shrinker import Shrinker
+from ..engine.shrink_pass import IntegerShrinkPass
 import ..strategies.strategy as StrategyModule
 
 /// Evaluates examples until the budget is used or a failure is found.
 class SearchEngine<T, S>
     where S |= StrategyModule.Strategy<T>
 {
+  _specification: Specifications.PropertySpec<T, S>
+
+  @constructor
+  new(specification: Specifications.PropertySpec<T, S>) {
+    _specification = specification
+  }
+
   /// Runs bounded generation and shrinks the first falsifying example.
-  run<F>(
-    specification: Specifications.PropertySpec<T, S>,
+  run<P>(
     settings: SettingsModule.Settings,
-    factory: F
-  ) -> Results.PropertyResult<T>
+    factory: ChoiceProviderFactory<P>
+  ) -> PropertyResult<T>
       where
-        F |= Providers.ChoiceProviderFactory,
-        F::Provider |= Providers.ChoiceProvider
+        P |= ChoiceProvider
   {
-    let evaluator = Evaluators.Evaluator<T, S>.new()
+    let evaluator = Evaluator<T, S>.new()
     let mut exampleIndex = 0
     let mut examples = 0
     let mut discards = 0
 
-    if settings.maxExamples <= 0 or settings.maxShrinkSteps < 0 {
-      let statistics = StatisticsModule.Statistics(
+    let maxExamples = settings.maxExamples
+    if maxExamples <= 0 or settings.maxShrinkSteps < 0 {
+      let statistics = Statistics(
         generatedExamples: 0,
         shrinkEvaluations: 0,
         acceptedShrinks: 0,
@@ -40,8 +46,8 @@ class SearchEngine<T, S>
         verificationReplays: 0
       )
 
-      return Results.PropertyResult::GaveUp(
-        if settings.maxExamples <= 0 {
+      return PropertyResult<T>::GaveUp(
+        if maxExamples <= 0 {
           "maxExamples must be positive"
         } else {
           "maxShrinkSteps must not be negative"
@@ -50,45 +56,45 @@ class SearchEngine<T, S>
       )
     }
 
-    while exampleIndex < settings.maxExamples {
-      let provider: F::Provider = factory.create(exampleIndex)
-      let drawData = ChoiceData.DrawData<F::Provider>.new(
+    while exampleIndex < maxExamples {
+      let provider = factory.create(exampleIndex: exampleIndex)
+      let drawData = DrawData<P>.new(
         provider: provider,
-        buffer: Buffers.ChoiceBuffer.new()
+        buffer: ChoiceBuffer.new()
       )
       let status = evaluator.evaluate(
-        specification,
-        drawData,
-        exampleIndex,
-        Phases.Phase::Generate
+        specification: _specification,
+        drawData: drawData,
+        exampleIndex: exampleIndex,
+        phase: Phase::Generate
       )
       examples += 1
 
       match status {
-        StatusModule.ExampleStatus::Passed(_, _) => ()
+        ExampleStatus::Passed(_, _) => ()
 
-        StatusModule.ExampleStatus::Discarded(_) => {
+        ExampleStatus::Discarded(_) => {
           discards += 1
         }
 
-        StatusModule.ExampleStatus::Falsified(value, failure, example) => {
-          let shrinker = Shrinkers.Shrinker.new(
-            pass: ShrinkPasses.IntegerShrinkPass.new()
+        ExampleStatus::Falsified(value, failure, example) => {
+          let shrinker = Shrinker.new(
+            specification: _specification,
+            pass: IntegerShrinkPass.new()
           )
 
           return shrinker.shrink(
-            specification,
-            value,
-            failure,
-            example,
-            settings.maxShrinkSteps,
-            examples,
-            discards
+            initialValue: value,
+            initialFailure: failure,
+            initialExample: example,
+            maxShrinkSteps: settings.maxShrinkSteps,
+            generatedExamples: examples,
+            initialDiscards: discards
           )
         }
 
-        StatusModule.ExampleStatus::Errored(reason) => {
-          let statistics = StatisticsModule.Statistics(
+        ExampleStatus::Errored(reason) => {
+          let statistics = Statistics(
             generatedExamples: examples,
             shrinkEvaluations: 0,
             acceptedShrinks: 0,
@@ -96,14 +102,29 @@ class SearchEngine<T, S>
             verificationReplays: 0
           )
 
-          return Results.PropertyResult::Errored(reason, statistics)
+          return PropertyResult<T>::Errored(reason, statistics)
+        }
+
+        _ => {
+          let statistics = Statistics(
+            generatedExamples: examples,
+            shrinkEvaluations: 0,
+            acceptedShrinks: 0,
+            discards: discards,
+            verificationReplays: 0
+          )
+
+          return PropertyResult<T>::Errored(
+            "evaluator returned an unknown status",
+            statistics
+          )
         }
       }
 
       exampleIndex += 1
     }
 
-    let statistics = StatisticsModule.Statistics(
+    let statistics = Statistics(
       generatedExamples: examples,
       shrinkEvaluations: 0,
       acceptedShrinks: 0,
@@ -112,12 +133,12 @@ class SearchEngine<T, S>
     )
 
     if discards == examples {
-      Results.PropertyResult::GaveUp(
+      PropertyResult<T>::GaveUp(
         "no non-discarded examples were evaluated",
         statistics
       )
     } else {
-      Results.PropertyResult::Passed(statistics)
+      PropertyResult<T>::Passed(statistics)
     }
   }
 }

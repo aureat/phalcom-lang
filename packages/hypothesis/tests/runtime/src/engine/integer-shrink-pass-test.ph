@@ -1,10 +1,9 @@
-// BLOCKED: [probe=IntegerShrinkPass,Choice] awaiting runtime re-probe after simplifier expansion.
 from hypothesis.choices.choice import Choice
 import hypothesis.engine.shrink_pass as ShrinkPasses
 import hypothesis_tests.support.test as Testing
 
 let shrinkPass = ShrinkPasses.IntegerShrinkPass.new()
-let candidates = shrinkPass.candidates(Choice::Integer(37, 0, 100, 0))
+let candidates = shrinkPass.candidates(choice: Choice::Integer(37, 0, 100, 0))
 
 Testing.Test.expect(candidates.size > 1, "integer shrink pass must propose boundary candidates")
 match candidates[0] {
@@ -21,6 +20,6 @@ match candidates[10] {
   _ => { throw Error.new("expected an integer boundary candidate") }
 }
 
-let alreadyMinimal = shrinkPass.candidates(Choice::Integer(0, 0, 100, 0))
+let alreadyMinimal = shrinkPass.candidates(choice: Choice::Integer(0, 0, 100, 0))
 Testing.Test.expect(alreadyMinimal.size == 0, "integer shrink pass must omit an unchanged target")
 Testing.Test.pass("engine.integer_shrink_pass")

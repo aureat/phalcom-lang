@@ -21,7 +21,7 @@ class DrawData<P>
 
   /// Requests and records one normalized primitive choice.
   draw(request: Requests.ChoiceRequest) -> Choices.Choice {
-    let choice = _provider.choose(request)
+    let choice = _provider.choose(request: request)
     _buffer.append(choice)
     choice
   }
@@ -39,7 +39,7 @@ class DrawData<P>
 
   /// Draws an integer without exposing the heterogeneous choice sum.
   drawInt(min: Int, max: Int, shrinkTowards: Int) -> Int {
-    match self.draw(ChoiceRequest::Integer(min, max, shrinkTowards)) {
+    match self.draw(request: ChoiceRequest::Integer(min, max, shrinkTowards)) {
       Choice::Integer(value, _, _, _) => value
       _ => {
         throw Error.new("integer request returned a non-integer choice")
@@ -49,7 +49,7 @@ class DrawData<P>
 
   /// Draws a boolean without exposing the heterogeneous choice sum.
   drawBool(shrinkTowards: Bool) -> Bool {
-    match self.draw(ChoiceRequest::Boolean(shrinkTowards)) {
+    match self.draw(request: ChoiceRequest::Boolean(shrinkTowards)) {
       Choice::Boolean(value, _) => value
       _ => {
         throw Error.new("boolean request returned a non-boolean choice")
@@ -59,7 +59,7 @@ class DrawData<P>
 
   /// Draws an index in `[0, size)`.
   drawIndex(size: Int, shrinkTowards: Int) -> Int {
-    match self.draw(ChoiceRequest::Index(size, shrinkTowards)) {
+    match self.draw(request: ChoiceRequest::Index(size, shrinkTowards)) {
       Choice::Index(value, _, _) => value
       _ => {
         throw Error.new("index request returned a non-index choice")
@@ -70,7 +70,7 @@ class DrawData<P>
   /// Draws a byte sequence and records a defensive copy in the example.
   drawBytes(minSize: Int, maxSize: Int, shrinkTowards: Bytes) -> Bytes {
     match self.draw(
-      ChoiceRequest::Bytes(minSize, maxSize, shrinkTowards)
+      request: ChoiceRequest::Bytes(minSize, maxSize, shrinkTowards)
     ) {
       Choice::Bytes(value, _, _, _) => value
       _ => {

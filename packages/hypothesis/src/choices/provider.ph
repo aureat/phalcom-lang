@@ -41,13 +41,19 @@ trait ChoiceProvider {
   remainingChoices -> Option<Int>
 }
 
-/// Creates a fresh provider for a generated example.
-trait ChoiceProviderFactory {
-  /// Concrete provider type created for each example.
-  type Provider
+/// Creates fresh, statically typed providers for generated examples.
+class ChoiceProviderFactory<P> {
+  _create: (Int) -> P
+
+  @constructor
+  new(create: (Int) -> P) {
+    _create = create
+  }
 
   /// Creates the provider for `exampleIndex`.
-  create(exampleIndex: Int) -> Self::Provider
+  create(exampleIndex: Int) -> P {
+    _create(exampleIndex)
+  }
 }
 
 /// Generates choices from a seeded Phalcom random source.
@@ -67,7 +73,7 @@ class SystemRandomChoiceProvider {
   }
 
   randomIntIn(min: Int, max: Int) -> Int {
-    _random.nextIntIn(min, max)
+    _random.nextIntIn(min: min, max: max)
   }
 }
 
@@ -81,18 +87,18 @@ impl ChoiceProvider for SystemRandomChoiceProvider {
           throw Error.new("invalid integer choice request")
         }
 
-        Choice::Integer(randomIntIn(min, max), min, max, target)
+        Choice::Integer(randomIntIn(min: min, max: max), min, max, target)
       }
 
       Requests.ChoiceRequest::Boolean(target) =>
-        Choice::Boolean(randomIntIn(0, 1) == 1, target)
+        Choice::Boolean(randomIntIn(min: 0, max: 1) == 1, target)
 
       Requests.ChoiceRequest::Index(size, target) => {
         if size <= 0 or target < 0 or target >= size {
           throw Error.new("invalid index choice request")
         }
 
-        Choice::Index(randomIntIn(0, size - 1), size, target)
+        Choice::Index(randomIntIn(min: 0, max: size - 1), size, target)
       }
 
       Requests.ChoiceRequest::Bytes(minSize, maxSize, target) => {
@@ -101,12 +107,12 @@ impl ChoiceProvider for SystemRandomChoiceProvider {
           throw Error.new("invalid byte choice request")
         }
 
-        let length = randomIntIn(minSize, maxSize)
-        let bytes = Bytes.zeroed(length)
+        let length = randomIntIn(min: minSize, max: maxSize)
+        let bytes = Bytes.new(length)
         let mut index = 0
 
         while index < length {
-          bytes[index] = randomIntIn(0, 255)
+          bytes[index] = randomIntIn(min: 0, max: 255)
           index += 1
         }
 
@@ -126,7 +132,7 @@ class ScriptedChoiceProvider {
 
   @constructor
   new(script: List<Choices.Choice>) {
-    _script = ProviderCopies.choices(script)
+    _script = ProviderCopies.choices(values: script)
   }
 
   consumedChoiceCount -> Int { _cursor }
@@ -148,7 +154,7 @@ impl ChoiceProvider for ScriptedChoiceProvider {
 
     let source = nextChoice
 
-    ChoiceNormalization.normalize(request, source)
+    ChoiceNormalization.normalize(request: request, source: source)
   }
 
   consumedChoices -> Int { consumedChoiceCount }
@@ -171,8 +177,10 @@ class ReplayChoiceProvider {
 
   hasNext -> Bool { _cursor < _example.size }
 
+  exampleSize -> Int { _example.size }
+
   nextChoice -> Choices.Choice {
-    let choice = _example.at(_cursor)
+    let choice = _example.at(index: _cursor)
     _cursor += 1
     choice
   }
@@ -186,12 +194,12 @@ impl ChoiceProvider for ReplayChoiceProvider {
 
     let source = nextChoice
 
-    ChoiceNormalization.normalize(request, source)
+    ChoiceNormalization.normalize(request: request, source: source)
   }
 
   consumedChoices -> Int { consumedChoiceCount }
   remainingChoices -> Option<Int> {
-    Some(_example.size - consumedChoiceCount)
+    Some(exampleSize - consumedChoiceCount)
   }
 }
 
@@ -204,18 +212,16 @@ class SystemRandomChoiceProviderFactory {
     _seed = seed
   }
 
-  seedFor(exampleIndex: Int) -> Int {
-    _seed + exampleIndex
-  }
 }
 
-impl ChoiceProviderFactory for SystemRandomChoiceProviderFactory {
-  type Provider = SystemRandomChoiceProvider
-
-  create(exampleIndex: Int) -> Self::Provider {
+impl SystemRandomChoiceProviderFactory {
+  providerFactory -> ChoiceProviderFactory<SystemRandomChoiceProvider> {
     // Each example gets a repeatable stream independent of earlier consumption.
-    SystemRandomChoiceProvider.new(
-      seed: seedFor(exampleIndex)
+    let seed = _seed
+    ChoiceProviderFactory<SystemRandomChoiceProvider>.new(
+      create: |exampleIndex| {
+        SystemRandomChoiceProvider.new(seed: seed + exampleIndex)
+      }
     )
   }
 }
@@ -226,20 +232,23 @@ class ScriptedChoiceProviderFactory {
 
   @constructor
   new(script: List<Choices.Choice>) {
-    _script = ProviderCopies.choices(script)
+    _script = ProviderCopies.choices(values: script)
   }
 
   scriptCopy -> List<Choices.Choice> {
-    ProviderCopies.choices(_script)
+    ProviderCopies.choices(values: _script)
   }
 }
 
-impl ChoiceProviderFactory for ScriptedChoiceProviderFactory {
-  type Provider = ScriptedChoiceProvider
-
-  /// Creates a provider with an independent cursor over the stored script.
-  create(exampleIndex: Int) -> Self::Provider {
-    ScriptedChoiceProvider.new(script: scriptCopy)
+impl ScriptedChoiceProviderFactory {
+  /// Creates providers with independent cursors over defensive tape copies.
+  providerFactory -> ChoiceProviderFactory<ScriptedChoiceProvider> {
+    let script = scriptCopy
+    ChoiceProviderFactory<ScriptedChoiceProvider>.new(
+      create: |exampleIndex| {
+        ScriptedChoiceProvider.new(script: script)
+      }
+    )
   }
 }
 
@@ -321,7 +330,7 @@ class ProviderCopies {
     let mut index = 0
 
     while index < values.size {
-      copied.add(values[index].copy)
+      copied.append(values[index].copy)
       index += 1
     }
 

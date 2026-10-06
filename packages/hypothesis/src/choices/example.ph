@@ -8,7 +8,7 @@ class Example {
   new(choices: List<Choices.Choice>) {
     // Keep a private deep copy so mutating the source list or byte values
     // cannot change a previously recorded example.
-    _choices = ExampleCopies.choices(choices)
+    _choices = ExampleCopies.choices(values: choices)
   }
 
   /// Number of primitive choices in this example.
@@ -18,11 +18,13 @@ class Example {
   at(index: Int) -> Choices.Choice { _choices[index].copy }
 
   /// Returns an isolated copy of the full choice tape.
-  choices -> List<Choices.Choice> { ExampleCopies.choices(_choices) }
+  choices -> List<Choices.Choice> {
+    ExampleCopies.choices(values: _choices)
+  }
 
   /// Returns a new example with one choice replaced.
   replace(index: Int, choice: Choices.Choice) -> Example {
-    let mut next = ExampleCopies.choices(_choices)
+    let mut next = ExampleCopies.choices(values: _choices)
     next[index] = choice.copy
 
     Example.new(choices: next)
@@ -36,7 +38,7 @@ class ExampleCopies {
     let mut index = 0
 
     while index < values.size {
-      copied.add(values[index].copy)
+      copied.append(values[index].copy)
       index += 1
     }
 

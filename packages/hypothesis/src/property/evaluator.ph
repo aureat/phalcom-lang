@@ -1,10 +1,10 @@
 import .specification as Specifications
 import ..choices.data as ChoiceData
-import ..core.failure as Failures
-import ..core.phase as Phases
-import ..core.status as StatusModule
+from ..core.failure import Failure, FailureOrigin
+from ..core.phase import Phase
+from ..core.status import ExampleStatus
 import ..choices.provider as Providers
-import ..strategies.strategy as StrategyModule
+from ..strategies.strategy import Strategy
 
 data DrawOutcome<T> {
   Value(_ value: T)
@@ -16,80 +16,87 @@ data PredicateOutcome {
   Raised(_ reason: String)
 }
 
-class Evaluator<T, S>
-    where S |= StrategyModule.Strategy<T>
-{
+class Evaluator<T, S> {
   /// Evaluates a single generated value and records the consumed example.
   evaluate<P>(
     specification: Specifications.PropertySpec<T, S>,
     drawData: ChoiceData.DrawData<P>,
     exampleIndex: Int,
-    phase: Phases.Phase
-  ) -> StatusModule.ExampleStatus<T>
-      where P |= Providers.ChoiceProvider
+    phase: Phase
+  ) -> ExampleStatus<T>
+      where S |= Strategy<T>, P |= Providers.ChoiceProvider
   {
-    let drawOutcome = try {
-      DrawOutcome::Value(specification.strategy.draw(drawData))
+    let mut drawOutcome: DrawOutcome<T> =
+      DrawOutcome::Errored("strategy evaluation did not complete")
+    try {
+      drawOutcome = DrawOutcome::Value(
+        specification.strategy.draw(drawData: drawData)
+      )
     } catch error {
-      DrawOutcome::Errored(error.message)
+      drawOutcome = DrawOutcome::Errored(error.message)
     }
 
     let value = match drawOutcome {
       DrawOutcome::Value(value) => value
       DrawOutcome::Errored(reason) => {
-        return StatusModule.ExampleStatus::Errored(reason)
+        return ExampleStatus::Errored(reason)
       }
     }
     let example = drawData.example
 
     // Generation and replay must agree on the number of consumed choices.
     if drawData.consumedChoices != example.size {
-      return StatusModule.ExampleStatus::Errored(
+      return ExampleStatus::Errored(
         "provider consumption does not match the captured example"
       )
     }
     if not drawData.fullyConsumed {
-      return StatusModule.ExampleStatus::Errored(
+      return ExampleStatus::Errored(
         "provider tape contains unconsumed choices"
       )
     }
 
-    let predicateOutcome = try {
-      PredicateOutcome::Returned(specification.property(value))
+    let mut predicateOutcome: PredicateOutcome =
+      PredicateOutcome::Raised("property evaluation did not complete")
+    try {
+      predicateOutcome = PredicateOutcome::Returned(
+        specification.property(value)
+      )
     } catch error {
-      PredicateOutcome::Raised(error.message)
+      predicateOutcome = PredicateOutcome::Raised(error.message)
     }
 
     match predicateOutcome {
-      PredicateOutcome::Returned(true) =>
-        StatusModule.ExampleStatus::Passed(value, example)
+      PredicateOutcome::Returned(passed) => {
+        if passed {
+          ExampleStatus::Passed(value, example)
+        } else {
+          let failure = Failure(
+            exampleIndex: exampleIndex,
+            phase: phase,
+            origin: FailureOrigin(
+              kind: #propertyReturnedFalse,
+              property: specification.identity
+            ),
+            message: "property returned false"
+          )
 
-      PredicateOutcome::Returned(false) => {
-        let failure = Failures.Failure(
-          exampleIndex: exampleIndex,
-          phase: phase,
-          origin: Failures.FailureOrigin(
-            kind: #propertyReturnedFalse,
-            property: specification.identity
-          ),
-          message: "property returned false"
-        )
-
-        StatusModule.ExampleStatus::Falsified(value, failure, example)
+          ExampleStatus::Falsified(value, failure, example)
+        }
       }
 
       PredicateOutcome::Raised(reason) => {
-        let failure = Failures.Failure(
+        let failure = Failure(
           exampleIndex: exampleIndex,
           phase: phase,
-          origin: Failures.FailureOrigin(
+          origin: FailureOrigin(
             kind: #propertyRaised,
             property: specification.identity
           ),
           message: "property raised: " + reason
         )
 
-        StatusModule.ExampleStatus::Falsified(value, failure, example)
+        ExampleStatus::Falsified(value, failure, example)
       }
     }
   }

@@ -2,18 +2,18 @@ from hypothesis.choices.choice import Choice
 import hypothesis.choices.example as Examples
 import hypothesis_tests.support.test as Testing
 
-let sourceBytes = Bytes.zeroed(2)
+let sourceBytes = Bytes.new(2)
 sourceBytes[0] = 10
 sourceBytes[1] = 20
 let mut sourceChoices = List.new()
-sourceChoices.add(Choice::Bytes(sourceBytes, 0, 2, Bytes.zeroed(0)))
+sourceChoices.append(Choice::Bytes(sourceBytes, 0, 2, Bytes.new(0)))
 
 let example = Examples.Example.new(choices: sourceChoices)
 sourceBytes[0] = 99
-sourceChoices.add(Choice::Boolean(true, false))
+sourceChoices.append(Choice::Boolean(true, false))
 
 Testing.Test.expect(example.size == 1, "Example must snapshot its source list")
-match example.at(0) {
+match example.at(index: 0) {
   Choice::Bytes(value, _, _, _) => {
     Testing.Test.expect(
       value[0] == 10 and value[1] == 20,
@@ -25,10 +25,10 @@ match example.at(0) {
 }
 
 let mut exposedChoices = example.choices
-exposedChoices.add(Choice::Boolean(false, false))
+exposedChoices.append(Choice::Boolean(false, false))
 Testing.Test.expect(example.size == 1, "Example.choices must return an isolated list")
 
-match example.at(0) {
+match example.at(index: 0) {
   Choice::Bytes(value, _, _, _) =>
     Testing.Test.expect(value[0] == 10, "Example.at must return an isolated byte payload")
   _ => { throw Error.new("expected byte choice in example") }

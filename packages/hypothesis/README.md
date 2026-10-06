@@ -21,7 +21,8 @@ Provider, provider-factory, strategy, and property-specification types remain
 concrete through the generic pipeline. A property specification carries an
 identity symbol used to keep shrinking on the same property failure. The
 `Settings` value owns only search limits; seeded randomness is configured by
-`SystemRandomChoiceProviderFactory` and explicitly injected into `Property.check`.
+`SystemRandomChoiceProviderFactory` and injected through its typed
+`providerFactory` into `Property.check`.
 
 The package does not yet produce discarded examples. `Discarded` is reserved
 for a future assumption/rejection API. `Span` is present as data scaffolding,

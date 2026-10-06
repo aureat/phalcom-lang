@@ -13,7 +13,7 @@ impl StrategyModule.Strategy<Int> for IntStrategy {
   draw<P>(drawData: ChoiceData.DrawData<P>) -> Int
       where P |= Providers.ChoiceProvider
   {
-    drawData.drawInt(min, max, shrinkTowards)
+    drawData.drawInt(min: min, max: max, shrinkTowards: shrinkTowards)
   }
 }
 
@@ -22,7 +22,7 @@ impl StrategyModule.Strategy<Bool> for BoolStrategy {
   draw<P>(drawData: ChoiceData.DrawData<P>) -> Bool
       where P |= Providers.ChoiceProvider
   {
-    drawData.drawBool(shrinkTowards)
+    drawData.drawBool(shrinkTowards: shrinkTowards)
   }
 }
 

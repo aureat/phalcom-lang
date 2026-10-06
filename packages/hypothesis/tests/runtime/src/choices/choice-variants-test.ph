@@ -4,10 +4,10 @@ import hypothesis_tests.support.test as Testing
 let integer = Choice::Integer(7, 0, 10, 0)
 let boolean = Choice::Boolean(true, false)
 let index = Choice::Index(2, 5, 0)
-let bytes = Bytes.zeroed(2)
+let bytes = Bytes.new(2)
 bytes[0] = 10
 bytes[1] = 20
-let byteChoice = Choice::Bytes(bytes, 0, 4, Bytes.zeroed(0))
+let byteChoice = Choice::Bytes(bytes, 0, 4, Bytes.new(0))
 
 match integer {
   Choice::Integer(value, min, max, target) => {

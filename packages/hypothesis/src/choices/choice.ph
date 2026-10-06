@@ -40,10 +40,10 @@ impl Choice {
       Choice::Index(value, size, target) => Choice::Index(value, size, target)
       Choice::Bytes(value, minSize, maxSize, target) =>
         Choice::Bytes(
-          ByteCopies.copy(value),
+          ByteCopies.copy(value: value),
           minSize,
           maxSize,
-          ByteCopies.copy(target)
+          ByteCopies.copy(value: target)
         )
     }
   }
@@ -52,7 +52,7 @@ impl Choice {
 class ByteCopies {
   @class
   copy(value: Bytes) -> Bytes {
-    let copied = Bytes.zeroed(value.size)
+    let copied = Bytes.new(value.size)
     let mut index = 0
 
     while index < value.size {

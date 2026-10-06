@@ -9,7 +9,7 @@ buffer.append(Choice::Boolean(true, false))
 
 Testing.Test.expect(buffer.size == 2, "buffer must retain choices appended after snapshot")
 Testing.Test.expect(example.size == 1, "snapshot must be independent of later buffer writes")
-match example.at(0) {
+match example.at(index: 0) {
   Choice::Integer(value, _, _, _) =>
     Testing.Test.expect(value == 3, "snapshot must preserve the original choice")
   _ => { throw Error.new("expected integer choice in buffer snapshot") }

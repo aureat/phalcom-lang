@@ -24,7 +24,7 @@ data Failure(
 impl Failure {
   /// Compares the failure identity without comparing generated values.
   sameOrigin(other: Failure) -> Bool {
-    origin.sameOrigin(other.origin)
+    origin.sameOrigin(other: other.origin)
   }
 }
 

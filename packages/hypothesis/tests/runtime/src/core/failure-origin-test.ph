@@ -1,29 +1,29 @@
-import hypothesis.core.failure as Failures
-import hypothesis.core.phase as Phases
+from hypothesis.core.failure import Failure, FailureOrigin
+from hypothesis.core.phase import Phase
 import hypothesis_tests.support.test as Testing
 
-let first = Failures.Failure(
+let first = Failure(
   exampleIndex: 3,
-  phase: Phases.Phase.Generate,
-  origin: Failures.FailureOrigin(
+  phase: Phase::Generate,
+  origin: FailureOrigin(
     kind: #propertyReturnedFalse,
     property: #integerProperty
   ),
   message: "value is too large"
 )
-let sameOrigin = Failures.Failure(
+let sameOrigin = Failure(
   exampleIndex: 9,
-  phase: Phases.Phase.Shrink,
-  origin: Failures.FailureOrigin(
+  phase: Phase::Shrink,
+  origin: FailureOrigin(
     kind: #propertyReturnedFalse,
     property: #integerProperty
   ),
   message: "value is too large"
 )
-let differentOrigin = Failures.Failure(
+let differentOrigin = Failure(
   exampleIndex: 3,
-  phase: Phases.Phase.Generate,
-  origin: Failures.FailureOrigin(
+  phase: Phase::Generate,
+  origin: FailureOrigin(
     kind: #propertyReturnedFalse,
     property: #stringProperty
   ),
@@ -31,11 +31,11 @@ let differentOrigin = Failures.Failure(
 )
 
 Testing.Test.expect(
-  first.sameOrigin(sameOrigin),
+  first.sameOrigin(other: sameOrigin),
   "matching origins must remain stable across phases"
 )
 Testing.Test.expect(
-  not first.sameOrigin(differentOrigin),
+  not first.sameOrigin(other: differentOrigin),
   "different origins must not compare equal"
 )
 Testing.Test.pass("core.failure_origin")
