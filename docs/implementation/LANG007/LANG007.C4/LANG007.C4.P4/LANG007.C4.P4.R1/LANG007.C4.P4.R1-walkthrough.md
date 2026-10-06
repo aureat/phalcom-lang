@@ -48,3 +48,13 @@ Telogue project integration result remains the recorded failure.
 
 R1 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. P4 remains
 `IN_PROGRESS / PARTIAL / UNVERIFIED` under the C4 checkpoint.
+
+## Subsequent consolidation — 2026-10-06
+
+The initial organization evidence above is historical. A1 has since completed
+with focused tests (`09ac903b`); TEL-1's original project-compilation gate passed
+and its source/tests are preserved at `c2d72fed`, while expanded generic-rest
+inference remains partial with an unignored positive failing regression.
+The updated issue register, shared C4 checkpoint, and dedicated A1/TEL-1
+walkthroughs/handoffs record current state. R1 overall remains partial/unverified.
+Consolidation performed no behavioral tests or push and discarded no progress.

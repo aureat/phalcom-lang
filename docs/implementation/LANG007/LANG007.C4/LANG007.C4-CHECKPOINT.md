@@ -2758,3 +2758,42 @@ orchestration, replay, or alias support.
 The P4 status remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. This plan update
 records architectural direction; it does not claim implementation or T7.0E
 verification.
+
+
+### R1 progress consolidated on local main — 2026-10-06
+
+| Work unit | Implementation anchor | Status | Completion | Verification | Next action |
+|---|---|---|---|---|---|
+| R1 A1 shared match equality authority | `09ac903b` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Inherit shared refinement; continue A2 |
+| R1 TEL-1 original declared-entry project compile | `c2d72fed` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Preserve passing graph gate |
+| R1 TEL-1 expanded generic-Pack correctness | `c2d72fed` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Fix positive GoalQuery rest-call inference; classify additional failures |
+
+A1 consumes canonical equivalence components and typed projection results via
+`GenericEvidenceEnvironment::refine_type`; `apply_ambient_equalities` is absent.
+The unique concrete endpoint query is shared with generic projection
+normalization after its qualifying-conformance gate. Owners and query-local
+rigid isolation are preserved; unavailable refinement retains the original root
+and blocks coverage. Independent review prompted the transitive projection
+correction; no architecture redesign or escalation was required.
+
+A1 final evidence: shared-query unit tests 6/6 and matching suite 153 passed,
+16 existing ignored; scoped whitespace review passed. Its earlier semantic
+crate check and 29-pass/5-ignore exhaustiveness baseline preceded the final
+projection correction. Full semantic/workspace/release gates remain unrun.
+The A1 walkthrough and handoff are in the R1 directory.
+
+TEL-1's records report the complete declared-entry project compilation gate
+passed, including all eleven reachable imported modules. Expanded coverage
+retains a failing positive regression for `GoalQuery.of()` and heterogeneous
+`GoalQuery.of(1, "two")`, both underconstrained. Its broader generics run reports
+23 passed and 3 failed; the two additional Future/unsaturated-constructor
+failures remain classification C, not confirmed baselines. Open scoped Pack
+remainders, closed canonical element inference, runtime execution, and broad
+certification remain open. The TEL-1 walkthrough/handoff own detailed evidence.
+
+The user's all-progress consolidation committed A1 and TEL-1 on local main;
+it did not rerun behavioral tests or push. The other worktrees have no missing
+commits; the P2 verification-worktree regression already exists identically on
+main. Existing checkout files were preserved. Delivery does not promote P4 or
+R1 overall: both remain `IN_PROGRESS / PARTIAL / UNVERIFIED`. Next R1 issue is
+A2; P4's remaining-scope corrective plan remains its implementation authority.

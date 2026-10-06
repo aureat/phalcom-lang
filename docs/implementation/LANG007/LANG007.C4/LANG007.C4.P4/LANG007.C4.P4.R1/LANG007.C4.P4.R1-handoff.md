@@ -7,6 +7,8 @@ completion: PARTIAL
 verification: UNVERIFIED
 recorded_against_revision: 2d306c13da02fb3b85ee362498cf4c0280de3825
 recorded: 2026-10-06
+updated: 2026-10-06
+consolidated_branch: main
 ---
 
 # LANG007.C4.P4.R1 — Interim handoff
@@ -30,19 +32,20 @@ completion plan: rebaseline the live owner matrix before production edits.
 
 ## Inherited findings
 
-- A1 and A2 were classified as confirmed semantic blockers at `ee7e8ee7`.
-  Their corrective plans require preserving canonical generic-evidence
-  authority and the distinction between refutation and blocked proof.
+- A1 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED on main at `09ac903b`: inherit
+  its shared evidence query and dedicated walkthrough/handoff. A2 remains open;
+  preserve the distinction between refutation and blocked proof in its plan.
 - I1 is an incremental proof obligation. Its audit did not demonstrate a
   production failure.
 - T2 and T3 are coverage obligations for published coordinate purity and
   source-level nested forms.
 - V1 is current-head certification work and depends on the focused prerequisites
   in its plan.
-- The Telogue project-entry reproducer reached semantic analysis and failed
-  with generic-pack contribution, positional-lane projection, and
-  `Query.of` inference diagnostics. The findings record contains the observed
-  output and the architectural questions to resolve.
+- TEL-1 source/tests are consolidated as `c2d72fed` on main. The original
+  declared-entry compilation gate passed. Expanded generic-Pack correctness
+  remains partial: GoalQuery empty/heterogeneous rest calls are underconstrained,
+  and two additional generics failures are unclassified. Its latest dedicated
+  walkthrough/handoff supersede the historical project-failure observation.
 - The Hypothesis runtime corpus record reports 9 passed, 1 failed, and 1
   blocked at `ad1841f2`. The deterministic property-search case lacks an active
   runtime target for `Strategy.draw<P>`; integer replay panics during
@@ -50,7 +53,8 @@ completion plan: rebaseline the live owner matrix before production edits.
   blockers and keeps its scope package-side.
 - The historical covering-impl correction has focused semantic evidence in
   its walkthrough. That evidence does not establish broad certification or a
-  passing Telogue project compile.
+  passing Telogue project compile by itself; the later TEL-1 record supplies
+  that separate focused evidence.
 
 These classifications are inherited from the records. Reassess them only
 when new live evidence is acquired; do not silently mark an issue complete
@@ -76,10 +80,17 @@ from source changes alone.
 ## Next actions
 
 1. Check the live status and scoped diff before continuing.
-2. Keep A1 and A2 work tied to their issue plans and record actual focused
-   evidence and architectural decisions in the C4 checkpoint.
+2. Inherit completed A1 and begin A2 through its issue plan; record meaningful
+   focused evidence and architectural decisions in the C4 checkpoint.
 3. Complete I1, T2, and T3 obligations in the order allowed by their plans.
 4. Resolve or separately plan the Telogue package blockers with their owning
    semantic/syntax layers identified.
 5. Run V1 only after its prerequisites are satisfied, then update R1 and the
    shared C4 checkpoint with evidence actually acquired.
+
+## Consolidated delivery
+
+All current source/test progress is preserved on local main in `09ac903b` and
+`c2d72fed`; this handoff and companion lifecycle records are updated in the
+subsequent documentation commit. No remote push or new behavioral verification
+was requested by consolidation. No worktree was discarded.
