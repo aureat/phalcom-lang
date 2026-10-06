@@ -1,11 +1,13 @@
 use crate::semantic::incremental::support::single_module_input;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
+use phalcom_semantic::checker::analysis::SemanticDependency;
 use phalcom_semantic::db::{CancellationToken, QueryBudget, QueryOutcome};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::static_constant::StaticConstantId;
 use phalcom_semantic::static_eval::StaticEvalOutcome;
 use phalcom_semantic::static_value::{StaticInt, StaticValueData};
+use phalcom_semantic::types::store::TypeData;
 use std::sync::Arc;
 
 fn test_module() -> ModuleId {
@@ -43,6 +45,84 @@ fn test_computed_const() {
     let val_ref = product.value().expect("value");
     let val = update.snapshot.static_values().get(val_ref).expect("value data");
     assert_eq!(val, &StaticValueData::Int(StaticInt::Small(30)));
+}
+
+#[test]
+fn test_constant_annotation_projects_a_reduced_constant_record_key() {
+    let module = test_module();
+    let mut session = SemanticWorkspaceSession::new();
+    let source = "const Key: Symbol = #token\nconst Value: { [Key]: Int } = { [#token]: 1 }\n";
+
+    let update = session.update(single_module_input(module.clone(), source, 1));
+    assert!(
+        !update.snapshot.has_errors(),
+        "computed key annotation should form after Key reduces: {:?}",
+        update.snapshot.diagnostics
+    );
+
+    let value = update
+        .snapshot
+        .static_constant(&StaticConstantId::new(module, "Value"))
+        .expect("Value constant product");
+    assert!(value.is_successful());
+    assert!(
+        value
+            .checked
+            .dependencies
+            .contains(&SemanticDependency::StaticConstant(StaticConstantId::new(test_module(), "Key"))),
+        "the published Value product must retain its exact computed-key dependency"
+    );
+}
+
+#[test]
+fn test_constant_annotation_key_cycle_is_diagnosed_as_a_static_constant_cycle() {
+    let module = test_module();
+    let mut session = SemanticWorkspaceSession::new();
+    let source = "const A: Symbol = B\nconst B: { [A]: Int } = { [#token]: 1 }\n";
+
+    let update = session.update(single_module_input(module.clone(), source, 1));
+    let diagnostics = update.snapshot.diagnostics.get(&module).expect("cycle diagnostics");
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::StaticConstantCycle),
+        "computed-key formation cycle must use the static constant cycle path: {diagnostics:?}"
+    );
+    assert_eq!(
+        update
+            .snapshot
+            .static_constant(&StaticConstantId::new(module, "B"))
+            .expect("B constant product")
+            .outcome,
+        StaticEvalOutcome::Recursive
+    );
+}
+
+#[test]
+fn test_constant_key_edit_republishes_only_its_annotation_consumer() {
+    let module = test_module();
+    let mut session = SemanticWorkspaceSession::new();
+    let source1 = "const Key: Symbol = #first\nconst Value: { [Key]: Int } = { [#first]: 1 }\nconst Other: Int = 7\n";
+    let update1 = session.update(single_module_input(module.clone(), source1, 1));
+    assert!(!update1.snapshot.has_errors(), "diagnostics: {:?}", update1.snapshot.diagnostics);
+    let value_id = StaticConstantId::new(module.clone(), "Value");
+    let other_id = StaticConstantId::new(module.clone(), "Other");
+    let value1 = update1.snapshot.static_constant(&value_id).cloned().expect("Value revision 1");
+    let other1 = update1.snapshot.static_constant(&other_id).cloned().expect("Other revision 1");
+
+    let source2 = "const Key: Symbol = #other\nconst Value: { [Key]: Int } = { [#first]: 1 }\nconst Other: Int = 7\n";
+    let update2 = session.update(single_module_input(module, source2, 2));
+    let value2 = update2.snapshot.static_constant(&value_id).expect("Value revision 2");
+    let other2 = update2.snapshot.static_constant(&other_id).expect("Other revision 2");
+    assert!(!Arc::ptr_eq(&value1, value2), "Value must be republished after its selected key changes");
+    assert!(Arc::ptr_eq(&other1, other2), "unrelated constant must remain reusable");
+
+    let expected = value2.checked.result_type.expect("Value declared type");
+    let TypeData::Record(row_id) = update2.snapshot.store.get(expected) else {
+        panic!("Value annotation must remain a Record type")
+    };
+    assert_eq!(
+        update2.snapshot.store.record_row(*row_id).fields[0].key,
+        phalcom_semantic::field_key::FieldKey::symbol("other")
+    );
 }
 
 #[test]

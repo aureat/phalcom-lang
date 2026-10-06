@@ -24,9 +24,19 @@ use phalcom_ast::ast::{BindingKind, Pattern, Statement};
 pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> StatementControl {
     match statement {
         Statement::Let(binding) => {
-            let (declared_k, annotation_invalidity) = binding
-                .annotation
-                .as_ref()
+            // A module static-constant owner forms annotations containing
+            // computed Record keys only after its selected constants have
+            // reduced. Resolving such an annotation in this generic pass
+            // would create a competing literal-only interpretation before the
+            // owner can supply its checked projection facts.
+            let defer_computed_record_key_annotation = matches!(binding.kind, BindingKind::Const)
+                && binding
+                    .annotation
+                    .as_ref()
+                    .is_some_and(|annotation| !crate::static_key::type_record_key_expressions(annotation, 0).is_empty());
+            let (declared_k, annotation_invalidity) = (!defer_computed_record_key_annotation)
+                .then(|| binding.annotation.as_ref())
+                .flatten()
                 .map(|annotation| {
                     let resolver = ctx.resolver.clone();
                     let (knowledge, causal_invalidity) = ctx.resolve_type_annotation(&resolver, annotation);

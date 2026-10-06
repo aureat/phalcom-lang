@@ -6863,6 +6863,7 @@ impl SemanticWorkspaceSession {
             initializer: &'a phalcom_ast::ast::Expr,
             annotation: Option<&'a phalcom_ast::ast::TypeAnnotation>,
             expected_type: Option<crate::types::id::TypeId>,
+            has_computed_record_keys: bool,
             input_fingerprint: crate::db::key::InputFingerprint,
         }
 
@@ -6881,24 +6882,31 @@ impl SemanticWorkspaceSession {
                         crate::module_bindings::find_constant_declaration(&shard.source.program, &seed.symbol, seed.declaration_range, seed.initializer_range)
                     {
                         if let Some(initializer) = &binding.value {
-                            let expected_type = binding.annotation.as_ref().and_then(|annotation| {
-                                let mut annotation_diagnostics = Vec::new();
-                                let knowledge = crate::types::annotation::resolve_type_annotation(
-                                    Arc::make_mut(&mut self.store),
-                                    &declarations,
-                                    &resolver,
-                                    &TypeFormationSite::module(module_id.clone()),
-                                    annotation,
-                                    &mut annotation_diagnostics,
-                                );
-                                let module_diagnostics = diagnostics_map.entry(module_id.clone()).or_default();
-                                for diagnostic in annotation_diagnostics {
-                                    if !module_diagnostics.contains(&diagnostic) {
-                                        module_diagnostics.push(diagnostic);
+                            let has_computed_record_keys = binding
+                                .annotation
+                                .as_ref()
+                                .is_some_and(|annotation| !crate::static_key::type_record_key_expressions(annotation, 0).is_empty());
+                            let expected_type = (!has_computed_record_keys)
+                                .then(|| binding.annotation.as_ref())
+                                .flatten()
+                                .and_then(|annotation| {
+                                    let mut annotation_diagnostics = Vec::new();
+                                    let knowledge = crate::types::annotation::resolve_type_annotation(
+                                        Arc::make_mut(&mut self.store),
+                                        &declarations,
+                                        &resolver,
+                                        &TypeFormationSite::module(module_id.clone()),
+                                        annotation,
+                                        &mut annotation_diagnostics,
+                                    );
+                                    let module_diagnostics = diagnostics_map.entry(module_id.clone()).or_default();
+                                    for diagnostic in annotation_diagnostics {
+                                        if !module_diagnostics.contains(&diagnostic) {
+                                            module_diagnostics.push(diagnostic);
+                                        }
                                     }
-                                }
-                                knowledge.ty()
-                            });
+                                    knowledge.ty()
+                                });
                             let annotation = binding.annotation.as_ref();
                             let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(&id, initializer, annotation, expected_type);
                             constant_declarations.insert(
@@ -6911,6 +6919,7 @@ impl SemanticWorkspaceSession {
                                     initializer,
                                     annotation,
                                     expected_type,
+                                    has_computed_record_keys,
                                     input_fingerprint,
                                 },
                             );
@@ -6978,11 +6987,41 @@ impl SemanticWorkspaceSession {
                 &static_intrinsics,
             ));
 
-            let const_deps = checked
+            let mut const_deps = checked
                 .static_constant_reads
                 .iter()
                 .map(|sym| crate::static_constant::StaticConstantId(sym.clone()))
                 .collect::<BTreeSet<_>>();
+            if decl.has_computed_record_keys {
+                let binding_states = static_constant_binding_states(catalog, &module_static_binding_runtime_states, None);
+                for site in crate::static_key::type_record_key_expressions(decl.annotation.expect("computed key annotation"), 0) {
+                    let mut context = CheckingContext::new_with_dispatch_ref(
+                        Arc::make_mut(&mut self.store),
+                        &hierarchy,
+                        &resolver,
+                        &declarations,
+                        &dispatch,
+                        decl.module_id.clone(),
+                    );
+                    context.set_caller_package(semantic_topology.owning_package(&decl.module_id));
+                    context.set_access_topology(semantic_topology.as_ref());
+                    context.attach_field_signatures(&field_signatures);
+                    context.attach_field_lifecycle(&field_lifecycle);
+                    context.attach_enum_semantics(&enum_semantics);
+                    context.attach_data_semantics(&data_semantics);
+                    context.attach_associated_families(&associated_surfaces_table);
+                    context.attach_conformance_semantics(&conformance_semantics);
+                    let key_expression =
+                        crate::checker::static_body::analyze_static_expression(context, site.expression, None, catalog, &binding_states, &static_intrinsics);
+                    const_deps.extend(
+                        key_expression
+                            .static_constant_reads
+                            .iter()
+                            .cloned()
+                            .map(crate::static_constant::StaticConstantId),
+                    );
+                }
+            }
             constant_graph.insert(id.clone(), const_deps);
             checked_constants.insert(id.clone(), checked);
         }
@@ -7139,7 +7178,7 @@ impl SemanticWorkspaceSession {
                 for id in component {
                     let Some(decl) = constant_declarations.get(&id) else { continue };
 
-                    if !checked_constants.contains_key(&id) {
+                    if !decl.has_computed_record_keys && !checked_constants.contains_key(&id) {
                         if let Some(cached) = crate::db::query::cached_static_constant(&mut self.db, &id, decl.input_fingerprint) {
                             diagnostics_map
                                 .entry(decl.module_id.clone())
@@ -7160,6 +7199,81 @@ impl SemanticWorkspaceSession {
                     // result types.
                     checked_constants.remove(&id);
                     let binding_states = static_constant_binding_states(catalog, &module_static_binding_runtime_states, Some(&static_constants_table));
+                    let (expected_type, key_expressions) = if decl.has_computed_record_keys {
+                        let annotation = decl.annotation.expect("computed key annotation");
+                        let owner = QueryKey::StaticConstant(id.clone());
+                        let mut projections = crate::static_key::ProjectedRecordKeySet::new(owner);
+                        for site in crate::static_key::type_record_key_expressions(annotation, 0) {
+                            let mut key_context = CheckingContext::new_with_dispatch_ref(
+                                Arc::make_mut(&mut self.store),
+                                &hierarchy,
+                                &resolver,
+                                &declarations,
+                                &dispatch,
+                                decl.module_id.clone(),
+                            );
+                            key_context.set_caller_package(semantic_topology.owning_package(&decl.module_id));
+                            key_context.set_access_topology(semantic_topology.as_ref());
+                            key_context.attach_field_signatures(&field_signatures);
+                            key_context.attach_field_lifecycle(&field_lifecycle);
+                            key_context.attach_enum_semantics(&enum_semantics);
+                            key_context.attach_data_semantics(&data_semantics);
+                            key_context.attach_associated_families(&associated_surfaces_table);
+                            key_context.attach_conformance_semantics(&conformance_semantics);
+                            let checked_key = Arc::new(crate::checker::static_body::analyze_static_expression(
+                                key_context,
+                                site.expression,
+                                None,
+                                catalog,
+                                &binding_states,
+                                &static_intrinsics,
+                            ));
+                            let mut key_budget = budget;
+                            let projection = match crate::static_key::project_checked_static_key(
+                                &checked_key,
+                                &static_constants_table,
+                                &static_definitions_table,
+                                &self.store,
+                                &data_semantics,
+                                &enum_semantics,
+                                Arc::make_mut(&mut self.static_values),
+                                &mut key_budget,
+                                cancel,
+                            ) {
+                                QueryOutcome::Ready(projection) => projection,
+                                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                            };
+                            diagnostics_map
+                                .entry(decl.module_id.clone())
+                                .or_default()
+                                .extend(checked_key.diagnostics.iter().cloned());
+                            if projections.insert(site.syntax, site.ordinal, checked_key, projection).is_err() {
+                                return Err(QueryOutcome::Failed("duplicate computed Record key identity".to_string()));
+                            }
+                        }
+                        let key_expressions = projections.facts().map(|fact| fact.checked.clone()).collect::<Vec<_>>();
+                        let projected_resolver = crate::types::annotation::ProjectedRecordKeyResolver {
+                            parent: &resolver,
+                            projections: &projections,
+                        };
+                        let mut annotation_diagnostics = Vec::new();
+                        let expected_type = crate::types::annotation::resolve_type_annotation(
+                            Arc::make_mut(&mut self.store),
+                            &declarations,
+                            &projected_resolver,
+                            &TypeFormationSite::module(decl.module_id.clone()),
+                            annotation,
+                            &mut annotation_diagnostics,
+                        )
+                        .ty();
+                        diagnostics_map.entry(decl.module_id.clone()).or_default().extend(annotation_diagnostics);
+                        (expected_type, key_expressions)
+                    } else {
+                        (decl.expected_type, Vec::new())
+                    };
                     let mut context = CheckingContext::new_with_dispatch_ref(
                         Arc::make_mut(&mut self.store),
                         &hierarchy,
@@ -7176,18 +7290,34 @@ impl SemanticWorkspaceSession {
                     context.attach_data_semantics(&data_semantics);
                     context.attach_associated_families(&associated_surfaces_table);
                     context.attach_conformance_semantics(&conformance_semantics);
-                    let checked = Arc::new(crate::checker::static_body::analyze_static_constant_initializer(
+                    let checked = crate::checker::static_body::analyze_static_constant_initializer(
                         context,
                         &decl.id,
                         decl.declaration_range,
                         decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
                         decl.initializer,
                         decl.annotation,
-                        decl.expected_type,
+                        expected_type,
                         catalog,
                         &binding_states,
                         &static_intrinsics,
-                    ));
+                    );
+                    let mut checked = checked;
+                    if !key_expressions.is_empty() {
+                        let mut dependencies = checked.dependencies.to_vec();
+                        let mut reads = checked.static_constant_reads.to_vec();
+                        for key_expression in key_expressions {
+                            dependencies.extend(key_expression.dependencies.iter().cloned());
+                            reads.extend(key_expression.static_constant_reads.iter().cloned());
+                        }
+                        dependencies.sort();
+                        dependencies.dedup();
+                        reads.sort();
+                        reads.dedup();
+                        checked.expression.dependencies = Arc::from(dependencies.into_boxed_slice());
+                        checked.expression.static_constant_reads = Arc::from(reads.into_boxed_slice());
+                    }
+                    let checked = Arc::new(checked);
 
                     let mut eval_budget = budget;
                     let mut evaluator =
