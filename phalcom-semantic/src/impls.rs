@@ -2894,8 +2894,7 @@ fn occurs_in_conformance_binding(store: &TypeStore, parameter: TypeParameterId, 
         TypeData::LabeledTypePack(elements) => elements
             .iter()
             .any(|elem| occurs_in_conformance_binding(store, parameter, elem.element, bindings)),
-        TypeData::TupleFromPacks { positionals, labeled }
-        | TypeData::PackFromPacks { positionals, labeled } => {
+        TypeData::TupleFromPacks { positionals, labeled } | TypeData::PackFromPacks { positionals, labeled } => {
             occurs_in_conformance_binding(store, parameter, *positionals, bindings) || occurs_in_conformance_binding(store, parameter, *labeled, bindings)
         }
         TypeData::Pack(pack) => pack
@@ -3900,9 +3899,12 @@ fn specialize_signature_instance_self(
 ) -> CallableSemanticSignature {
     let specialize = |store: &mut TypeStore, fact: &mut crate::declaration_type::DeclaredTypeFact| {
         if let DeclaredTypeState::Known(TypeTerm::Canonical(ty)) = fact.state {
-            fact.state = DeclaredTypeState::Known(TypeTerm::Canonical(
-                crate::types::substitution::specialize_self_type(store, declarations, source_target_head, ty),
-            ));
+            fact.state = DeclaredTypeState::Known(TypeTerm::Canonical(crate::types::substitution::specialize_self_type(
+                store,
+                declarations,
+                source_target_head,
+                ty,
+            )));
         }
     };
     for parameter in &mut signature.parameters {
@@ -3911,6 +3913,28 @@ fn specialize_signature_instance_self(
     specialize(store, &mut signature.declared_return);
     if let Some(inferred) = &mut signature.inferred_return {
         *inferred = inferred.map_type(|ty| crate::types::substitution::specialize_self_type(store, declarations, source_target_head, ty));
+    }
+    if let Some(generics) = &mut signature.generics {
+        generics.constraints = generics
+            .constraints
+            .iter()
+            .map(|constraint| {
+                crate::types::parameter::map_generic_constraint(
+                    constraint,
+                    store,
+                    |store, ty| crate::types::substitution::specialize_self_type(store, declarations, source_target_head, ty),
+                    |store, self_term| {
+                        let self_ty = store.self_type(self_term.clone());
+                        TypeTerm::Canonical(crate::types::substitution::specialize_self_type(
+                            store,
+                            declarations,
+                            source_target_head,
+                            self_ty,
+                        ))
+                    },
+                )
+            })
+            .collect();
     }
     signature
 }

@@ -2030,7 +2030,7 @@ fn test_rejected_duplicate_impl_definition_is_not_published() {
     let mut session = SemanticWorkspaceSession::new();
     let output = session.update(single_module_input(
         module,
-        "class User {}\nimpl User { name() -> String { \"first\" } }\nimpl User { name() -> String { \"second\" } }\n",
+        "class User {}\nimpl User { name() -> String { \"first\" } }\nimpl User { name() -> String { 1 } }\n",
     ));
     assert!(output.snapshot.has_errors(), "duplicate impl member must diagnose");
 
@@ -2047,6 +2047,12 @@ fn test_rejected_duplicate_impl_definition_is_not_published() {
         .get(&callable)
         .expect("only the accepted duplicate candidate reaches lowering");
     assert!(matches!(snapshot_definition.origin, CallableDefinitionOrigin::InherentImpl(ref id) if id.local.0 == 1));
+    let body = output.snapshot.callable_analyses.get(&callable).expect("accepted definition body analysis");
+    assert!(
+        body.diagnostics.is_empty(),
+        "the rejected body must not replace the accepted definition: {:?}",
+        body.diagnostics
+    );
 }
 
 #[test]

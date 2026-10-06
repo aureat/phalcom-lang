@@ -2491,33 +2491,19 @@ impl<'a> CheckingContext<'a> {
         }
         signature.return_type = signature.return_type.map_type(|ty| specialize_type(self, ty));
         if let Some(mut generics) = signature.generics.take() {
-            let specialize_term = |ctx: &mut Self, term: &crate::types::parameter::TypeTerm| match term {
-                crate::types::parameter::TypeTerm::Canonical(ty) => crate::types::parameter::TypeTerm::Canonical(specialize_type(ctx, *ty)),
-                crate::types::parameter::TypeTerm::SelfType(self_term) => {
-                    let self_ty = ctx.store.self_type(self_term.clone());
-                    crate::types::parameter::TypeTerm::Canonical(ctx.specialize_self_type(receiver, self_ty))
-                }
-                crate::types::parameter::TypeTerm::Infer(variable) => crate::types::parameter::TypeTerm::Infer(*variable),
-            };
             generics.constraints = generics
                 .constraints
                 .iter()
-                .map(|constraint| match constraint {
-                    crate::types::parameter::GenericConstraint::Subtype { lower, upper } => crate::types::parameter::GenericConstraint::Subtype {
-                        lower: specialize_term(self, lower),
-                        upper: specialize_term(self, upper),
-                    },
-                    crate::types::parameter::GenericConstraint::Equivalent { left, right } => crate::types::parameter::GenericConstraint::Equivalent {
-                        left: specialize_term(self, left),
-                        right: specialize_term(self, right),
-                    },
-                    crate::types::parameter::GenericConstraint::Conforms { subject, trait_ref } => {
-                        let new_args: Vec<TypeId> = trait_ref.arguments.iter().map(|&arg| specialize_type(self, arg)).collect();
-                        crate::types::parameter::GenericConstraint::Conforms {
-                            subject: specialize_term(self, subject),
-                            trait_ref: crate::traits::TraitRef::new(trait_ref.declaration.clone(), new_args.into_boxed_slice()),
-                        }
-                    }
+                .map(|constraint| {
+                    crate::types::parameter::map_generic_constraint(
+                        constraint,
+                        self,
+                        |ctx, ty| specialize_type(ctx, ty),
+                        |ctx, self_term| {
+                            let self_ty = ctx.store.self_type(self_term.clone());
+                            crate::types::parameter::TypeTerm::Canonical(ctx.specialize_self_type(receiver, self_ty))
+                        },
+                    )
                 })
                 .collect();
             let constraint_mentions_parameter = |term: &crate::types::parameter::TypeTerm, parameter| match term {

@@ -1,7 +1,7 @@
 //! Type parameter substitution for generic declarations and applied member views.
 
 use super::application::TypeApplicationError;
-use super::id::{KindId, TypeId, TypeParameterId};
+use super::id::{KindId, RecordRowId, TypeId, TypeParameterId};
 use super::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail};
 use super::store::{
     AnonymousTupleRemainder, CallableParameterType, CallableType, PackFormationError, StaticDataFormationError, TupleTypeElement, TypeData, TypeStore,
@@ -229,12 +229,10 @@ impl TypeSubstitution {
                     key_type: self.apply_with_arena(store, arena, key_type),
                 })
             }
-            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }) => {
-                RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
-                    key_type: self.apply_with_arena(store, arena, key_type),
-                    value_type: self.apply_with_arena(store, arena, value_type),
-                })
-            }
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }) => RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+                key_type: self.apply_with_arena(store, arena, key_type),
+                value_type: self.apply_with_arena(store, arena, value_type),
+            }),
             RecordRowTail::Parameter(param) => RecordRowTail::Parameter(param),
             RecordRowTail::Projection(proj) => RecordRowTail::Projection(self.apply_with_arena(store, arena, proj)),
         };
@@ -515,6 +513,34 @@ pub fn substitution_for_applied(declarations: &DeclarationTypeTable, store: &Typ
     None
 }
 
+fn specialize_self_row(store: &mut TypeStore, declarations: &DeclarationTypeTable, receiver: TypeId, row_id: RecordRowId) -> RecordRowId {
+    let row = store.record_row(row_id).clone();
+    let fields = row
+        .fields
+        .into_iter()
+        .map(|field| RecordRowField {
+            key: field.key,
+            ty: specialize_self_type(store, declarations, receiver, field.ty),
+            presence: field.presence,
+        })
+        .collect::<Vec<_>>();
+    let tail = match row.tail {
+        RecordRowTail::Closed => RecordRowTail::Closed,
+        RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type }) => RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained {
+            key_type: specialize_self_type(store, declarations, receiver, key_type),
+        }),
+        RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }) => RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+            key_type: specialize_self_type(store, declarations, receiver, key_type),
+            value_type: specialize_self_type(store, declarations, receiver, value_type),
+        }),
+        RecordRowTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
+        RecordRowTail::Projection(projection) => RecordRowTail::Projection(specialize_self_type(store, declarations, receiver, projection)),
+    };
+    store
+        .record_row_checked(fields, tail)
+        .expect("Self specialization must preserve canonical Record-row invariants")
+}
+
 /// Specializes `Self` type terms within `ty` based on the concrete `receiver` type.
 pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTypeTable, receiver: TypeId, ty: TypeId) -> TypeId {
     match store.get(ty).clone() {
@@ -548,7 +574,9 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                     super::store::StaticArgument::Term(argument) => {
                         super::store::StaticArgument::Term(specialize_self_type(store, declarations, receiver, *argument))
                     }
-                    super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(*row),
+                    super::store::StaticArgument::RecordRow(row) => {
+                        super::store::StaticArgument::RecordRow(specialize_self_row(store, declarations, receiver, *row))
+                    }
                     super::store::StaticArgument::DynamicType => super::store::StaticArgument::DynamicType,
                 })
                 .collect::<Vec<_>>();
@@ -580,7 +608,9 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                 super::type_member::ProjectionSubject::Type(sub_ty) => {
                     super::type_member::ProjectionSubject::Type(specialize_self_type(store, declarations, receiver, *sub_ty))
                 }
-                super::type_member::ProjectionSubject::RecordRow(row_id) => super::type_member::ProjectionSubject::RecordRow(*row_id),
+                super::type_member::ProjectionSubject::RecordRow(row_id) => {
+                    super::type_member::ProjectionSubject::RecordRow(specialize_self_row(store, declarations, receiver, *row_id))
+                }
             };
             let arguments = projection
                 .arguments
@@ -590,7 +620,9 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                         super::type_member::TypeMemberArgument::Type(specialize_self_type(store, declarations, receiver, *arg_ty))
                     }
                     super::type_member::TypeMemberArgument::Const(c) => super::type_member::TypeMemberArgument::Const(c.clone()),
-                    super::type_member::TypeMemberArgument::RecordRow(row_id) => super::type_member::TypeMemberArgument::RecordRow(*row_id),
+                    super::type_member::TypeMemberArgument::RecordRow(row_id) => {
+                        super::type_member::TypeMemberArgument::RecordRow(specialize_self_row(store, declarations, receiver, *row_id))
+                    }
                 })
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
@@ -769,7 +801,9 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                     super::store::StaticArgument::Term(argument) => {
                         super::store::StaticArgument::Term(specialize_self_type(store, declarations, receiver, *argument))
                     }
-                    super::store::StaticArgument::RecordRow(row) => super::store::StaticArgument::RecordRow(*row),
+                    super::store::StaticArgument::RecordRow(row) => {
+                        super::store::StaticArgument::RecordRow(specialize_self_row(store, declarations, receiver, *row))
+                    }
                     super::store::StaticArgument::DynamicType => super::store::StaticArgument::DynamicType,
                 })
                 .collect::<Vec<_>>()

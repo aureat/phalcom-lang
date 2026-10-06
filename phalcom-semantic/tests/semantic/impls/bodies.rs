@@ -4,9 +4,12 @@ use phalcom_modules::interface::LinkedModuleInterface;
 use phalcom_modules::linker::{LinkedModule, LinkedProgram, ModuleBindingLayout};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
+use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
+use phalcom_semantic::types::parameter::{GenericConstraint, TypeParameterOwner, TypeTerm};
+use phalcom_semantic::types::store::TypeData;
 use phalcom_semantic::workspace::SemanticWorkspaceInput;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -248,36 +251,143 @@ impl<A, B> Pair<B, A> {
 }
 
 #[test]
-fn test_covering_body_incremental_binder_rename_matches_cold_analysis() {
-    let source_v1 = r#"
-data Token()
-data Id<Tag>(_ token: Token)
-impl<Tag> Id<Tag> {
+fn test_covering_body_specializes_callable_generic_self_constraint() {
+    let module = test_module();
+    let src = r#"
+data Pair<X, Y>(
+  _ first: X,
+  _ second: Y,
+)
+
+impl<A, B> Pair<B, A> {
   @class
-  fresh() -> Id<Tag> { Id<Tag>(Token()) }
+  retain<T>(_ value: T) -> T where T <: Self { value }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(single_module_input(module.clone(), src));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let callable = CallableId::new(
+        DeclarationId::new(module, "Pair".into()),
+        Selector::method("retain", [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+        DispatchSide::Class,
+    );
+    let definition = update.snapshot.callable_definitions.get(&callable).expect("accepted inherent definition");
+    let context = definition.inherent_body_context.as_ref().expect("covering impl body context");
+    let mut store = update.snapshot.store.as_ref().clone();
+    let body_signature = context
+        .signature_for_body(&mut store, &update.snapshot.declarations, definition.signature.clone())
+        .expect("accepted covering signature materializes for its source body");
+    let generics = body_signature.generics.as_ref().expect("retain generic signature");
+    let parameter = generics.parameters[0];
+    assert!(matches!(
+        &generics.constraints[0],
+        GenericConstraint::Subtype {
+            lower: TypeTerm::Canonical(lower),
+            upper: TypeTerm::Canonical(upper),
+        } if matches!(store.get(*lower), TypeData::Parameter(actual) if *actual == parameter)
+            && *upper == context.source_target_head
+    ));
+    assert!(matches!(
+        store.type_parameter(parameter).owner,
+        TypeParameterOwner::Callable(ref owner) if owner == &callable
+    ));
+    assert!(
+        update
+            .snapshot
+            .callable_analyses
+            .get(&callable)
+            .expect("retain body analysis")
+            .diagnostics
+            .is_empty()
+    );
+}
+
+#[test]
+fn test_covering_body_incremental_permutation_recomputes_and_matches_cold_analysis() {
+    let source_v1 = r#"
+data Pair<X, Y>(_ first: X, _ second: Y)
+impl<A, B> Pair<A, B> {
+  @class
+  value(_ a: A, _ b: B) -> A { a }
 }
 "#;
     let source_v2 = r#"
-data Token()
-data Id<Marker>(_ token: Token)
-impl<Marker> Id<Marker> {
+data Pair<X, Y>(_ first: X, _ second: Y)
+impl<A, B> Pair<B, A> {
   @class
-  fresh() -> Id<Marker> { Id<Marker>(Token()) }
+  value(_ a: A, _ b: B) -> A { a }
 }
 "#;
     let module = test_module();
+    let callable = CallableId::new(
+        DeclarationId::new(module.clone(), "Pair".into()),
+        Selector::method(
+            "value",
+            [
+                phalcom_common::selector::SelectorSlot::Positional,
+                phalcom_common::selector::SelectorSlot::Positional,
+            ],
+        )
+        .unwrap(),
+        DispatchSide::Class,
+    );
+    let definition_key = QueryKey::CallableDefinition(callable.clone());
+    let body_key = QueryKey::CallableBody(callable.clone());
     let mut incremental = SemanticWorkspaceSession::new();
     let first = incremental.update(single_module_input(module.clone(), source_v1));
     assert!(!first.snapshot.has_errors(), "v1 diagnostics: {:?}", first.snapshot.diagnostics);
+    let first_context_fingerprint = incremental
+        .db()
+        .query_state(&definition_key)
+        .and_then(|state| state.input_fingerprint())
+        .expect("initial callable definition fingerprint");
     let second = incremental.update(single_module_input(module.clone(), source_v2));
     assert!(!second.snapshot.has_errors(), "incremental diagnostics: {:?}", second.snapshot.diagnostics);
+    let second_context_fingerprint = incremental
+        .db()
+        .query_state(&definition_key)
+        .and_then(|state| state.input_fingerprint())
+        .expect("permuted callable definition fingerprint");
+    assert_ne!(
+        first_context_fingerprint, second_context_fingerprint,
+        "covering-map permutation must change body-context input"
+    );
+    assert_eq!(
+        incremental.db().query_state(&body_key).and_then(|state| state.revision()),
+        Some(second.snapshot.id.revision()),
+        "the callable body must be recomputed in the permutation revision",
+    );
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold = cold.update(single_module_input(module, source_v2));
+    let cold = cold.update(single_module_input(module.clone(), source_v2));
     assert_eq!(
         second.snapshot.diagnostics, cold.snapshot.diagnostics,
         "incremental and cold diagnostics must agree"
     );
+    let incremental_body = second.snapshot.callable_analyses.get(&callable).expect("incremental Pair.value body");
+    let cold_body = cold.snapshot.callable_analyses.get(&callable).expect("cold Pair.value body");
+    assert_eq!(
+        incremental_body.dependency_fingerprint, cold_body.dependency_fingerprint,
+        "incremental and cold callable body semantic products must agree",
+    );
+    assert_eq!(incremental_body.return_validation, cold_body.return_validation);
+    assert_eq!(incremental_body.diagnostics, cold_body.diagnostics);
+    assert_eq!(
+        second.snapshot.callable_signatures.get(&callable),
+        cold.snapshot.callable_signatures.get(&callable),
+        "incremental and cold public callable signatures must agree",
+    );
+    let public_signature = second.snapshot.callable_signatures.get(&callable).expect("public Pair.value signature");
+    let return_ty = public_signature.declared_return.canonical_type().expect("declared return type");
+    let TypeData::Parameter(return_parameter) = second.snapshot.store.get(return_ty) else {
+        panic!("public return must remain declaration-parameter-owned: {return_ty:?}");
+    };
+    assert!(matches!(
+        second.snapshot.store.type_parameter(*return_parameter).owner,
+        TypeParameterOwner::Declaration(ref owner) if owner == &DeclarationId::new(module, "Pair".into())
+    ));
 }
 
 #[test]

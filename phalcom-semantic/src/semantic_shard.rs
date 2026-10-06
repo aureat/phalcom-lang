@@ -110,9 +110,7 @@ impl ModuleSemanticStructureShard {
                 collect_impl_member_fingerprints(
                     &source,
                     &impl_id,
-                    &impl_def.kind,
-                    &impl_def.target,
-                    &impl_def.members,
+                    impl_def,
                     &mut callable_signature_fingerprints,
                     &mut callable_body_fingerprints,
                 );
@@ -256,15 +254,7 @@ fn callable_body_fingerprints_for_source(source: &ParsedModuleUnit) -> BTreeMap<
                     .position(|candidate| std::ptr::eq(candidate, statement))
                     .expect("impl statement must belong to its source");
                 let impl_id = ImplId::new(source.id.clone(), ImplLocalId(index as u32));
-                collect_impl_member_fingerprints(
-                    source,
-                    &impl_id,
-                    &impl_def.kind,
-                    &impl_def.target,
-                    &impl_def.members,
-                    &mut callable_signatures,
-                    &mut callable_bodies,
-                );
+                collect_impl_member_fingerprints(source, &impl_id, impl_def, &mut callable_signatures, &mut callable_bodies);
             }
             _ => {}
         }
@@ -275,15 +265,13 @@ fn callable_body_fingerprints_for_source(source: &ParsedModuleUnit) -> BTreeMap<
 fn collect_impl_member_fingerprints(
     source: &ParsedModuleUnit,
     impl_id: &ImplId,
-    kind: &phalcom_ast::ast::ImplKind,
-    target: &phalcom_ast::ast::TypeAnnotation,
-    members: &[phalcom_ast::ast::ImplMember],
+    impl_def: &phalcom_ast::ast::ImplDef,
     callable_signatures: &mut BTreeMap<CallableId, u64>,
     callable_bodies: &mut BTreeMap<CallableId, u64>,
 ) {
-    let callable_owner = match kind {
+    let callable_owner = match &impl_def.kind {
         phalcom_ast::ast::ImplKind::Conformance { .. } => CallableOwnerId::Conformance(impl_id.clone()),
-        phalcom_ast::ast::ImplKind::Inherent => match &target.expr {
+        phalcom_ast::ast::ImplKind::Inherent => match &impl_def.target.expr {
             phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase {
                 enum_target,
                 variant_name,
@@ -302,7 +290,7 @@ fn collect_impl_member_fingerprints(
                 CallableOwnerId::Variant(variant_id)
             }
             _ => {
-                let Some(target) = target.origin_symbol_ref() else {
+                let Some(target) = impl_def.target.origin_symbol_ref() else {
                     return;
                 };
                 if !target.members.is_empty() {
@@ -313,11 +301,19 @@ fn collect_impl_member_fingerprints(
             }
         },
     };
-    for member in members {
+    let context_fingerprint = impl_header_fingerprint(source, impl_def);
+    for member in &impl_def.members {
         let Some(behavior) = member.behavior() else {
             continue;
         };
-        collect_behavior_member_fingerprints(source, &callable_owner, std::slice::from_ref(behavior), callable_signatures, callable_bodies);
+        collect_behavior_member_fingerprints(
+            source,
+            &callable_owner,
+            std::slice::from_ref(behavior),
+            callable_signatures,
+            callable_bodies,
+            Some(context_fingerprint),
+        );
     }
 }
 
@@ -332,7 +328,14 @@ fn collect_trait_member_fingerprints(
         let Some(behavior) = member.behavior() else {
             continue;
         };
-        collect_behavior_member_fingerprints(source, callable_owner, std::slice::from_ref(behavior), callable_signatures, callable_bodies);
+        collect_behavior_member_fingerprints(
+            source,
+            callable_owner,
+            std::slice::from_ref(behavior),
+            callable_signatures,
+            callable_bodies,
+            None,
+        );
     }
 }
 
@@ -342,6 +345,7 @@ fn collect_behavior_member_fingerprints(
     members: &[BehaviorMember],
     callable_signatures: &mut BTreeMap<CallableId, u64>,
     callable_bodies: &mut BTreeMap<CallableId, u64>,
+    enclosing_context_fingerprint: Option<u64>,
 ) {
     for member in members {
         let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
@@ -349,11 +353,41 @@ fn collect_behavior_member_fingerprints(
         let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(callable_owner, syntax, side) else {
             continue;
         };
-        callable_signatures.insert(callable.clone(), behavior_signature_fingerprint(source, member));
+        let signature_fingerprint = behavior_signature_fingerprint(source, member);
+        callable_signatures.insert(
+            callable.clone(),
+            enclosing_context_fingerprint.map_or(signature_fingerprint, |context| combine_fingerprints(context, signature_fingerprint)),
+        );
         if behavior_body_range(member).is_some() {
-            callable_bodies.insert(callable, hash_range(source, member.range()));
+            let body_fingerprint = hash_range(source, member.range());
+            callable_bodies.insert(
+                callable,
+                enclosing_context_fingerprint.map_or(body_fingerprint, |context| combine_fingerprints(context, body_fingerprint)),
+            );
         }
     }
+}
+
+/// Hashes the portion of an impl that establishes the coordinate system for
+/// every member body: its generic binders, target, and where clause.
+fn impl_header_fingerprint(source: &ParsedModuleUnit, impl_def: &phalcom_ast::ast::ImplDef) -> u64 {
+    let header_end = impl_def
+        .members
+        .iter()
+        .filter_map(|member| member.behavior().map(|behavior| behavior.range().start))
+        .min()
+        .unwrap_or(impl_def.range.end);
+    let mut hasher = DefaultHasher::new();
+    source.id.hash(&mut hasher);
+    source.text.get(impl_def.range.start..header_end).hash(&mut hasher);
+    hasher.finish()
+}
+
+fn combine_fingerprints(context: u64, member: u64) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    context.hash(&mut hasher);
+    member.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn declaration_header_fingerprint(source: &ParsedModuleUnit, range: phalcom_common::range::SourceRange) -> u64 {

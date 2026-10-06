@@ -1,20 +1,23 @@
 use num_bigint::BigInt;
 use phalcom_modules::identity::ModuleId;
+use phalcom_semantic::declarations::DeclarationTypeTable;
 use phalcom_semantic::field_key::FieldKey;
-use phalcom_semantic::identity::DeclarationId;
+use phalcom_semantic::identity::{DeclarationId, DispatchSide};
 use phalcom_semantic::scalar::StaticInt;
 use phalcom_semantic::types::evidence::UnknownReason;
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::id::TypeId;
 use phalcom_semantic::types::outcome::{BlockReason, RelationOutcome};
 use phalcom_semantic::types::outcome::{CancellationToken, QueryBudget};
-use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
+use phalcom_semantic::types::parameter::{SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner};
 use phalcom_semantic::types::relation::{
     MapTypeHierarchy, UnorderedFieldLookup, check_field_key_domain_membership, check_subtype_bounded, lookup_unordered_field,
 };
 use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowField, RecordRowFormationError, RecordRowTail, StructuralMemberPresence};
 use phalcom_semantic::types::row_solver::{RecordRowFailure, RecordRowShapeSolveResult, RecordRowSolver, RecordRowTerm, RecordRowTermTail};
-use phalcom_semantic::types::store::TypeStore;
+use phalcom_semantic::types::store::{StaticArgument, TypeData, TypeStore};
+use phalcom_semantic::types::substitution::specialize_self_type;
+use phalcom_semantic::types::type_member::{ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector};
 
 fn declaration(name: &str) -> DeclarationId {
     DeclarationId::new(ModuleId::universe_root(), name.into())
@@ -52,6 +55,100 @@ fn canonical_row_identity_is_order_independent_for_mixed_field_keys() {
     assert_eq!(row.fields[0].presence, StructuralMemberPresence::Optional);
     assert_eq!(row.fields[1].presence, StructuralMemberPresence::Required);
     assert_eq!(row.fields[3].presence, StructuralMemberPresence::Optional);
+}
+
+#[test]
+fn self_specialization_recurses_through_all_record_row_carriers() {
+    let mut store = TypeStore::new();
+    let owner = declaration("Owner");
+    let receiver = store.nominal(declaration("Specialized"));
+    let self_ty = store.self_type(SelfTypeTerm {
+        owner,
+        side: DispatchSide::Instance,
+        role: SelfRole::InstanceType,
+    });
+    let nested_row = store
+        .record_row_checked(vec![RecordRowField::symbol_required("nested", self_ty)], RecordRowTail::Closed)
+        .expect("nested row");
+    let tail_projection = store.type_member_projection(
+        TypeLevelProjection {
+            subject: ProjectionSubject::RecordRow(nested_row),
+            selector: TypeMemberSelector::named("Tail"),
+            arguments: Box::new([]),
+            source_declaration: None,
+        },
+        KindId::RECORD_ROW,
+    );
+    let projection_row = store
+        .record_row_checked(
+            vec![RecordRowField::symbol_required("projected", self_ty)],
+            RecordRowTail::Projection(tail_projection),
+        )
+        .expect("projection-tailed row");
+    let anonymous_row = store
+        .record_row_checked(
+            vec![RecordRowField::symbol_required("anonymous", self_ty)],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+                key_type: self_ty,
+                value_type: self_ty,
+            }),
+        )
+        .expect("anonymous-tailed row");
+
+    let domain = store.nominal_static_domain(declaration("RowCarrier"));
+    let constructor = store.intern_static_constructor(domain, declaration("RowCarrier"), "RowCarrier", Box::new([KindId::RECORD_ROW]));
+    let static_row_carrier = store
+        .static_data(domain, constructor, Box::new([StaticArgument::RecordRow(projection_row)]))
+        .expect("static row carrier");
+    let type_member_carrier = store.type_member_projection(
+        TypeLevelProjection {
+            subject: ProjectionSubject::RecordRow(projection_row),
+            selector: TypeMemberSelector::named("Map"),
+            arguments: Box::new([TypeMemberArgument::RecordRow(anonymous_row)]),
+            source_declaration: None,
+        },
+        KindId::TYPE,
+    );
+
+    let declarations = DeclarationTypeTable::new();
+    let specialized_static = specialize_self_type(&mut store, &declarations, receiver, static_row_carrier);
+    let specialized_projection = specialize_self_type(&mut store, &declarations, receiver, type_member_carrier);
+
+    let TypeData::StaticData(static_term) = store.get(specialized_static) else {
+        panic!("expected specialized static row carrier");
+    };
+    let [StaticArgument::RecordRow(static_row)] = static_term.arguments.as_ref() else {
+        panic!("expected specialized static row argument");
+    };
+    let static_row = store.record_row(*static_row);
+    assert_eq!(static_row.fields[0].ty, receiver);
+    let RecordRowTail::Projection(specialized_tail_projection) = static_row.tail else {
+        panic!("expected specialized projection tail");
+    };
+    let TypeData::TypeMemberProjection(tail_projection) = store.get(specialized_tail_projection) else {
+        panic!("expected specialized type-member tail projection");
+    };
+    let ProjectionSubject::RecordRow(tail_row) = tail_projection.subject else {
+        panic!("expected specialized row subject in tail projection");
+    };
+    assert_eq!(store.record_row(tail_row).fields[0].ty, receiver);
+
+    let TypeData::TypeMemberProjection(projection) = store.get(specialized_projection) else {
+        panic!("expected specialized type-member projection");
+    };
+    let ProjectionSubject::RecordRow(subject_row) = projection.subject else {
+        panic!("expected specialized row projection subject");
+    };
+    assert_eq!(store.record_row(subject_row).fields[0].ty, receiver);
+    let [TypeMemberArgument::RecordRow(argument_row)] = projection.arguments.as_ref() else {
+        panic!("expected specialized row projection argument");
+    };
+    let argument_row = store.record_row(*argument_row);
+    assert_eq!(argument_row.fields[0].ty, receiver);
+    assert!(matches!(
+        argument_row.tail,
+        RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }) if key_type == receiver && value_type == receiver
+    ));
 }
 
 #[test]

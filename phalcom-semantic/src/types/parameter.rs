@@ -163,6 +163,57 @@ pub enum GenericConstraint {
     Conforms { subject: TypeTerm, trait_ref: crate::traits::TraitRef },
 }
 
+/// Maps every type-bearing position in one generic constraint.
+///
+/// `Self` terms remain explicit at this layer so callers can preserve their
+/// own receiver semantics while sharing the structural traversal for ordinary
+/// operands and trait-reference arguments.
+pub(crate) fn map_generic_constraint<Context, MapCanonical, MapSelf>(
+    constraint: &GenericConstraint,
+    context: &mut Context,
+    mut map_canonical: MapCanonical,
+    mut map_self: MapSelf,
+) -> GenericConstraint
+where
+    MapCanonical: FnMut(&mut Context, TypeId) -> TypeId,
+    MapSelf: FnMut(&mut Context, &SelfTypeTerm) -> TypeTerm,
+{
+    fn map_term<Context, MapCanonical, MapSelf>(term: &TypeTerm, context: &mut Context, map_canonical: &mut MapCanonical, map_self: &mut MapSelf) -> TypeTerm
+    where
+        MapCanonical: FnMut(&mut Context, TypeId) -> TypeId,
+        MapSelf: FnMut(&mut Context, &SelfTypeTerm) -> TypeTerm,
+    {
+        match term {
+            TypeTerm::Canonical(ty) => TypeTerm::Canonical(map_canonical(context, *ty)),
+            TypeTerm::SelfType(self_term) => map_self(context, self_term),
+            TypeTerm::Infer(variable) => TypeTerm::Infer(*variable),
+        }
+    }
+
+    match constraint {
+        GenericConstraint::Subtype { lower, upper } => GenericConstraint::Subtype {
+            lower: map_term(lower, context, &mut map_canonical, &mut map_self),
+            upper: map_term(upper, context, &mut map_canonical, &mut map_self),
+        },
+        GenericConstraint::Equivalent { left, right } => GenericConstraint::Equivalent {
+            left: map_term(left, context, &mut map_canonical, &mut map_self),
+            right: map_term(right, context, &mut map_canonical, &mut map_self),
+        },
+        GenericConstraint::Conforms { subject, trait_ref } => GenericConstraint::Conforms {
+            subject: map_term(subject, context, &mut map_canonical, &mut map_self),
+            trait_ref: crate::traits::TraitRef::new(
+                trait_ref.declaration.clone(),
+                trait_ref
+                    .arguments
+                    .iter()
+                    .map(|&argument| map_canonical(context, argument))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+        },
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GenericSignature {
     pub owner: TypeParameterOwner,
