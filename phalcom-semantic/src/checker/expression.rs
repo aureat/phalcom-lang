@@ -5234,31 +5234,41 @@ fn apply_ambient_equalities(
             }
         }
     }
-    if !subst.is_empty() { subst.apply(store, ty) } else { ty }
+    if subst.is_empty() {
+        return ty;
+    }
+
+    // TypeSubstitution performs one structural pass. Callable constraints may
+    // form a short, acyclic equality chain (`T == U`, `U == Option<V>`), so
+    // normalize through at most one pass per binding plus the final stability
+    // check. If a malformed cyclic recovery product cannot stabilize, retain
+    // the original term instead of publishing a partial specialization.
+    let mut normalized = ty;
+    for _ in 0..=subst.len() {
+        let next = subst.apply(store, normalized);
+        if next == normalized {
+            return normalized;
+        }
+        normalized = next;
+    }
+    ty
 }
 
 pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom_ast::ast::MatchExpr, expected: &ExpectedType) -> TypedExpression {
     let expr_id = ctx.current_expression_id().unwrap_or_else(|| ctx.alloc_expression_id());
     let scrutinee_typed = analyze_expression(ctx, &match_expr.value, &ExpectedType::None);
-    let original_scrutinee_ty = scrutinee_typed.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
-    let scrutinee_ty = apply_ambient_equalities(ctx.store, &ctx.ambient_constraints, original_scrutinee_ty);
+    let scrutinee_ty = apply_ambient_equalities(
+        ctx.store,
+        &ctx.ambient_constraints,
+        scrutinee_typed.knowledge.ty().unwrap_or_else(|| ctx.store.unit()),
+    );
     let before_flow = ctx.flow.clone();
     let stable_scrutinee = match match_expr.value.as_ref() {
         Expr::Var { value, .. } => ctx.lookup_binding_info(value).map(|binding| binding.id),
         _ => None,
     };
 
-    let scrutinee_local_ty = match scrutinee_typed.local_type.clone() {
-        // Ambient generic equalities are canonical callable facts. Once they
-        // specialize the coverage root, an ordinary local view of the old
-        // canonical term must not prevent variant opening against that root.
-        // A view with local rigids is branch-local proof state and remains
-        // authoritative until its own proof machinery rewrites it.
-        Some(local) if scrutinee_ty != original_scrutinee_ty && local.free_rigids().is_empty() => {
-            Some(crate::types::LocalType::Canonical(scrutinee_ty))
-        }
-        local => local,
-    };
+    let scrutinee_local_ty = scrutinee_typed.local_type.clone();
     let scrutinee_subject = crate::checker::coverage::CoverageSubject::from_parts(
         scrutinee_ty,
         scrutinee_local_ty.clone().unwrap_or(crate::types::LocalType::Canonical(scrutinee_ty)),

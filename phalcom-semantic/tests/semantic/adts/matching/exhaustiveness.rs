@@ -71,6 +71,27 @@ impl<T, E> Result<T, E> {
             Result::Error(error) => Option::Some(Result::Error(error))
         }
     }
+
+    directConstrainedOption<U>(_ option: T) where T == Option<U> {
+        match option {
+            Option::Some(_) => 1
+            Option::None => 0
+        }
+    }
+
+    reverseConstrainedOption<U>(_ option: T) where Option<U> == T {
+        match option {
+            Option::Some(_) => 1
+            Option::None => 0
+        }
+    }
+
+    directChainedConstrainedOption<U, V>(_ option: T) where T == V, V == Option<U> {
+        match option {
+            Option::Some(_) => 1
+            Option::None => 0
+        }
+    }
 }
 "#,
     );
@@ -97,7 +118,39 @@ impl<T, E> Result<T, E> {
 
     let transpose_outer = case.match_in_callable("Result", Selector::method("transpose", []).expect("transpose selector"), 0);
     let transpose_inner = case.match_in_callable("Result", Selector::method("transpose", []).expect("transpose selector"), 1);
+    let direct = case.match_in_callable(
+        "Result",
+        Selector::method("directConstrainedOption", [SelectorSlot::Positional]).expect("directConstrainedOption selector"),
+        0,
+    );
+    let chained_direct = case.match_in_callable(
+        "Result",
+        Selector::method("directChainedConstrainedOption", [SelectorSlot::Positional])
+            .expect("directChainedConstrainedOption selector"),
+        0,
+    );
+    let reverse_direct = case.match_in_callable(
+        "Result",
+        Selector::method("reverseConstrainedOption", [SelectorSlot::Positional])
+            .expect("reverseConstrainedOption selector"),
+        0,
+    );
     transpose_outer.assert_exhaustive();
+    direct.assert_exhaustive();
+    chained_direct.assert_exhaustive();
+    reverse_direct.assert_exhaustive();
+    let transpose_ok_arm = transpose_outer.arm(0);
+    let option_binding = transpose_ok_arm.find_binding("option").expect("Ok arm binds option");
+    let option_ty = option_binding.knowledge.ty().expect("option has a canonical type");
+    assert_eq!(
+        case.analysis
+            .snapshot
+            .store
+            .nominal_origin_declaration(option_ty)
+            .map(|declaration| declaration.name.as_ref()),
+        Some("Option"),
+        "the Result::Ok payload must be normalized under transpose's callable equality before it enters the arm scope",
+    );
     transpose_inner.assert_exhaustive();
     transpose_inner.assert_arm_candidate_variants(
         0,
