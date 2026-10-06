@@ -791,7 +791,6 @@ fn resolve_variant_pattern(
 
             let Some(opened) = crate::checker::coverage::open_variant_case(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, subject, v_info)
             else {
-                eprintln!("DEBUG pattern: open_variant_case returned None for {:?}", variant_id);
                 continue;
             };
             matched_any_variant = true;

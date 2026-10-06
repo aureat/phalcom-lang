@@ -5237,15 +5237,25 @@ fn apply_ambient_equalities(
 pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom_ast::ast::MatchExpr, expected: &ExpectedType) -> TypedExpression {
     let expr_id = ctx.current_expression_id().unwrap_or_else(|| ctx.alloc_expression_id());
     let scrutinee_typed = analyze_expression(ctx, &match_expr.value, &ExpectedType::None);
-    let scrutinee_ty = scrutinee_typed.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
-    let scrutinee_ty = apply_ambient_equalities(ctx.store, &ctx.ambient_constraints, scrutinee_ty);
+    let original_scrutinee_ty = scrutinee_typed.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
+    let scrutinee_ty = apply_ambient_equalities(ctx.store, &ctx.ambient_constraints, original_scrutinee_ty);
     let before_flow = ctx.flow.clone();
     let stable_scrutinee = match match_expr.value.as_ref() {
         Expr::Var { value, .. } => ctx.lookup_binding_info(value).map(|binding| binding.id),
         _ => None,
     };
 
-    let scrutinee_local_ty = scrutinee_typed.local_type.clone();
+    let scrutinee_local_ty = match scrutinee_typed.local_type.clone() {
+        // Ambient generic equalities are canonical callable facts. Once they
+        // specialize the coverage root, an ordinary local view of the old
+        // canonical term must not prevent variant opening against that root.
+        // A view with local rigids is branch-local proof state and remains
+        // authoritative until its own proof machinery rewrites it.
+        Some(local) if scrutinee_ty != original_scrutinee_ty && local.free_rigids().is_empty() => {
+            Some(crate::types::LocalType::Canonical(scrutinee_ty))
+        }
+        local => local,
+    };
     let scrutinee_subject = crate::checker::coverage::CoverageSubject::from_parts(
         scrutinee_ty,
         scrutinee_local_ty.clone().unwrap_or(crate::types::LocalType::Canonical(scrutinee_ty)),
@@ -5377,6 +5387,16 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
                 match_expr.range,
             )
             .with_note(format!("{} uncovered value-space witness(es) retained", witnesses.len())),
+        );
+    } else if let crate::match_semantics::ExhaustivenessResult::Blocked(ref reason) = exhaustiveness {
+        ctx.emit_diagnostic(
+            crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::MatchAnalysisBlocked,
+                "match analysis could not establish executable coverage",
+                match_expr.range,
+            )
+            .with_note(format!("coverage proof blocked: {reason:?}")),
         );
     }
 

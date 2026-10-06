@@ -1,5 +1,5 @@
 use super::super::support::analyze_adt;
-use phalcom_common::selector::Selector;
+use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::match_semantics::{ExhaustivenessResult, PatternSpaceSummary, PatternUsefulness};
 
@@ -23,6 +23,90 @@ class Test {
 "#,
     );
     case.only_match().assert_exhaustive();
+}
+
+#[test]
+fn canonical_result_name_self_match_proves_contextual_and_qualified_cases_equivalently() {
+    let case = analyze_adt(
+        r#"
+native data Result<T, E> {
+    @variant Ok(_ value: T) -> Result<T, E>
+    @variant Error(_ error: E) -> Result<T, E>
+}
+
+native data Option<T> {
+    @variant Some(_ value: T) -> Option<T>
+    @variant None -> Option<T>
+}
+
+impl<T, E> Result<T, E> {
+    match<R>(
+        ok: (value: T) -> R,
+        err: (error: E) -> R
+    ) -> R {
+        match self {
+            Ok(value) => ok.call(value)
+            Error(error) => err.call(error)
+        }
+    }
+
+    matchQualified<R>(
+        ok: (value: T) -> R,
+        err: (error: E) -> R
+    ) -> R {
+        match self {
+            Result::Ok(value) => ok.call(value)
+            Result::Error(error) => err.call(error)
+        }
+    }
+
+    transpose<U>() -> Option<Result<U, E>> where T == Option<U> {
+        match self {
+            Result::Ok(option) => {
+                match option {
+                    Option::Some(value) => Option::Some(Result::Ok(value))
+                    Option::None => Option::None
+                }
+            }
+            Result::Error(error) => Option::Some(Result::Error(error))
+        }
+    }
+}
+"#,
+    );
+
+    let slots = [SelectorSlot::Label("ok".into()), SelectorSlot::Label("err".into())];
+    let contextual = case.match_in_callable("Result", Selector::method("match", slots.clone()).expect("match selector"), 0);
+    let qualified = case.match_in_callable(
+        "Result",
+        Selector::method("matchQualified", slots).expect("matchQualified selector"),
+        0,
+    );
+
+    contextual.assert_exhaustive();
+    qualified.assert_exhaustive();
+
+    let expected = [
+        case.variant_id("Result", Selector::method("Ok", [SelectorSlot::Positional]).expect("Ok selector")),
+        case.variant_id("Result", Selector::method("Error", [SelectorSlot::Positional]).expect("Error selector")),
+    ];
+    contextual.assert_arm_candidate_variants(0, &expected[..1]);
+    contextual.assert_arm_candidate_variants(1, &expected[1..]);
+    qualified.assert_arm_candidate_variants(0, &expected[..1]);
+    qualified.assert_arm_candidate_variants(1, &expected[1..]);
+
+    let transpose_outer = case.match_in_callable("Result", Selector::method("transpose", []).expect("transpose selector"), 0);
+    let transpose_inner = case.match_in_callable("Result", Selector::method("transpose", []).expect("transpose selector"), 1);
+    transpose_outer.assert_exhaustive();
+    transpose_inner.assert_exhaustive();
+    transpose_inner.assert_arm_candidate_variants(
+        0,
+        &[case.variant_id("Option", Selector::method("Some", [SelectorSlot::Positional]).expect("Some selector"))],
+    );
+    transpose_inner.assert_arm_candidate_variants(
+        1,
+        &[case.variant_id("Option", Selector::getter("None").expect("None selector"))],
+    );
 }
 
 #[test]

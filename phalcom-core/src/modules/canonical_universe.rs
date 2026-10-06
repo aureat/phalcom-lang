@@ -6,7 +6,11 @@
 
 use crate::modules::{AnalyzedProgram, CompiledProgram, ProgramCompiler};
 use crate::native::{NativeSourceIndex, PRIMITIVES, verify_native_contracts};
+use phalcom_common::range::SourceRange;
 use phalcom_modules::{FilesystemSourceProvider, ImportSurface, ModuleId, ModuleLinker, ModuleResolver, ProjectUniverse};
+use phalcom_semantic::identity::{CallableId, ExpressionId};
+use phalcom_semantic::match_semantics::ExhaustivenessResult;
+use phalcom_semantic::snapshot::SemanticSnapshot;
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 use thiserror::Error;
@@ -69,6 +73,17 @@ pub(crate) enum CanonicalUniverseBuildError {
     /// Canonical semantic analysis panicked at its existing boundary.
     #[error("canonical Universe semantic analysis panicked")]
     SemanticAnalysisPanicked,
+    /// A semantic match product lacks the proof required for executable lowering.
+    #[error(
+        "canonical Universe semantic product is not executable: match in {module} ({callable:?}) at {range:?} is {reason}"
+    )]
+    NonExecutableMatch {
+        module: ModuleId,
+        callable: CallableId,
+        expression: ExpressionId,
+        range: SourceRange,
+        reason: String,
+    },
     /// Canonical semantic-to-runtime projection or compilation failed.
     #[error("canonical Universe compilation failed: {0}")]
     Compilation(String),
@@ -186,6 +201,7 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     {
         return Err(CanonicalUniverseBuildError::NativeContracts(diagnostic.message.clone()));
     }
+    ensure_executable_match_coverage(&semantic.snapshot)?;
 
     let analyzed = AnalyzedProgram {
         project_universe,
@@ -220,6 +236,56 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
         root_reachable: Arc::from(root_reachable.into_boxed_slice()),
         bootstrap_order: Arc::from(bootstrap_order.into_boxed_slice()),
     })
+}
+
+/// Ensures the canonical product never asks executable lowering to interpret a
+/// match whose semantic coverage proof is absent or blocked.
+///
+/// Canonical bootstrap deliberately retains a narrow diagnostics baseline for
+/// source/native migration work. That tolerance must not extend to executable
+/// semantic products: backend match lowering consumes only a proven coverage
+/// product and remains fail-closed as a defense in depth.
+fn ensure_executable_match_coverage(snapshot: &SemanticSnapshot) -> Result<(), CanonicalUniverseBuildError> {
+    let mut failures = Vec::new();
+
+    for analysis in snapshot.callable_analyses.values() {
+        for resolution in analysis.match_resolutions.values() {
+            let reason = match &resolution.exhaustiveness {
+                ExhaustivenessResult::Proven => continue,
+                ExhaustivenessResult::Missing(witnesses) => {
+                    format!("missing coverage proof ({} witness(es))", witnesses.len())
+                }
+                ExhaustivenessResult::Blocked(reason) => format!("blocked coverage proof: {reason:?}"),
+            };
+            let range = analysis
+                .expressions
+                .get(&resolution.expression)
+                .map(|expression| expression.range)
+                .unwrap_or(analysis.body_range);
+            failures.push((
+                analysis.callable.module().clone(),
+                analysis.callable.clone(),
+                resolution.expression,
+                range,
+                reason,
+            ));
+        }
+    }
+
+    failures.sort_by(|left, right| {
+        (&left.0, &left.1, left.3.start, left.3.end, &left.4).cmp(&(&right.0, &right.1, right.3.start, right.3.end, &right.4))
+    });
+    if let Some((module, callable, expression, range, reason)) = failures.into_iter().next() {
+        return Err(CanonicalUniverseBuildError::NonExecutableMatch {
+            module,
+            callable,
+            expression,
+            range,
+            reason,
+        });
+    }
+
+    Ok(())
 }
 
 fn validate_canonical_product(
