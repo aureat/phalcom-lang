@@ -16,13 +16,18 @@ verification: FOCUSED_TESTED
 - Kept `specialize_self_type()` structurally closed over RecordRow fields, anonymous tails, projection tails, static row arguments, projection subjects, and type-member row arguments.
 - Published signature-formation diagnostics from inherent contributions so invalid `Self<T>` applications are reported as `ApplicationNotConstructor`.
 - Added exact `(ImplId, source_member_index)` source-body provenance coverage.
+- Made inherent body receiver overrides dispatch-side aware: class-side
+  lowercase `self` remains a class object while type-level `Self` remains the
+  source-relative instance target.
+- Added an exact class-side receiver/dispatch regression and an explicit
+  `CallableBody -> CallableDefinition` dependency assertion.
 
 ## Focused evidence
 
 Passing:
 
 - `RUSTFLAGS='' cargo check -p phalcom-semantic`
-- `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic impls::bodies` — 17 passed
+- `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic impls::bodies` — 18 passed
 - `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic impls::signatures` — 4 passed
 - `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic foundations::record_rows_field_keys` — 14 passed
 - `git diff --check`

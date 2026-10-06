@@ -15,11 +15,12 @@ Stable invariants:
 - `EffectiveCallableDefinition.signature` remains declaration-canonical.
 - `InherentBodyContext` supplies the inverse covering view for body checking.
 - Body-local `Self` is specialized to the source target head.
-- Runtime receiver `self` remains distinct from type-level `Self`.
+- Runtime receiver `self` remains distinct from type-level `Self`; class-side bodies retain class-object receiver semantics while type-level `Self` uses the source target instance.
 - Callable-local binders are not rewritten by owner-relative `Self` specialization.
 - RecordRow carriers are recursively specialized through canonical TypeStore formation APIs.
 - Callable body invalidation continues through `CallableBody -> CallableDefinition -> InherentBodyContext`.
 - Source body identity remains `(ImplId, source_member_index)`.
 
 Focused verification and the incremental reuse corrective follow-up are
-recorded in `LANG007.C4.1-walkthrough.md` and `corrective-2.md`.
+recorded in `LANG007.C4.1-walkthrough.md`, `corrective-2.md`, and the
+receiver-separation audit follow-up in `corrective-3.md`.
