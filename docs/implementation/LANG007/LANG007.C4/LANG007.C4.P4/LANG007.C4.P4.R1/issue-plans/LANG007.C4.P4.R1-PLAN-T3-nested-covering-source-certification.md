@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust nightly, `phalcom-semantic` source fixtures and semantic products.
 
-**Issue brief:** `docs/audit/LANG007.C4.1/AUD-T3-nested-covering-source-certification.md`
+**Issue brief:** `../issue-audits/LANG007.C4.P4.R1-AUD-T3-nested-covering-source-certification.md`
 
 ---
 

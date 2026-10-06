@@ -115,7 +115,7 @@ record them as incomplete rather than implying release certification.
 - Consult `phalcom-semantic/tests/semantic/README.md` for test ownership.
 - Consult `phalcom-core/tests/README.md` for semantic versus compiler/runtime
   responsibility.
-- Update `LANG007.C4.1-walkthrough.md` and the checkpoint state only with
+- Update `../LANG007.C4.P4.R1-walkthrough.md` and the checkpoint state only with
   completed evidence.
 
 ## Acceptance condition

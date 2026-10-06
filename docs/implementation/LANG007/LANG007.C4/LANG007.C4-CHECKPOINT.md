@@ -2722,3 +2722,21 @@ the suspend/resume owner worklist, with no phase-wide reorder or provisional
 alias form. This is an execution-boundary clarification only. The alias owner
 worklist, exact `StaticDefinition` demand routing, and focused cold/incremental
 tests remain unimplemented; P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+### User-directed P4.R1 companion record — 2026-10-06
+
+The corrective implementation and audit records previously stored under the
+legacy `LANG007.C4.1` paths are now organized beneath
+[`LANG007.C4.P4.R1`](LANG007.C4.P4/LANG007.C4.P4.R1/LANG007.C4.P4.R1-plan.md).
+R1 is a companion issue register for the P4 implementation period; it is not a
+new checkpoint and does not replace this record as C4's shared state authority.
+
+R1 preserves the covering-inherent-impl corrective history, the A1/A2 semantic
+blocker audits and plans, the I1/T2/T3 proof and coverage obligations, the V1
+certification gap, and the Telogue project integration failure. The relocation
+is a record-hierarchy change. It does not establish new code behavior, current-
+head audit results, or completion of those open findings.
+
+P4 remains the primary active plan. Its amended T7.0D computed-key alias owner
+worklist and T7.0E acceptance matrix remain the next action; P4 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`.

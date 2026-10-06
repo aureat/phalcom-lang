@@ -23,10 +23,12 @@ recorded: 2026-10-06
 - At handoff, the P4 implementation and checkpoint commits are pushed and the
   branch is synchronized with its upstream. Confirm the live branch/status
   before making delivery decisions.
-- Preserve the unrelated C4.1 work in
-  `phalcom-semantic/tests/semantic/adts/matching/exhaustiveness.rs` and
-  `docs/audit/LANG007.C4.1/`. It is outside P4 and was explicitly left
-  untouched; do not stage, modify, or include it in P4 commits.
+- The earlier handoff treated the C4.1 corrective and audit records as outside
+  P4. By user direction on 2026-10-06, that record corpus is now organized in
+  [`LANG007.C4.P4.R1`](LANG007.C4.P4.R1/LANG007.C4.P4.R1-plan.md) as P4's
+  companion issue register. This lifecycle organization does not change P4's
+  active T7.0D/T7.0E objective or establish current-head closure of the
+  findings.
 
 ## Read first
 

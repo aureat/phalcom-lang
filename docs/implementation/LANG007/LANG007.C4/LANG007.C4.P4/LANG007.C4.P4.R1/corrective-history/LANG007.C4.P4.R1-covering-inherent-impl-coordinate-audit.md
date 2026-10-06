@@ -1215,7 +1215,7 @@ Assert exact class-side callable resolution.
 
 # 29. Documentation is currently inaccurate
 
-`LANG007.C4.1-handoff.md` states:
+`LANG007.C4.P4.R1-historical-covering-impl-closure-handoff.md` states:
 
 > Runtime receiver `self` remains distinct from type-level `Self`.
 

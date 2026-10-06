@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust nightly, `phalcom-semantic` semantic integration tests.
 
-**Issue brief:** `docs/audit/LANG007.C4.1/AUD-T2-public-signature-coordinate-purity.md`
+**Issue brief:** `../issue-audits/LANG007.C4.P4.R1-AUD-T2-public-signature-coordinate-purity.md`
 
 ---
 

@@ -6,7 +6,7 @@
 - **Checkpoint:** LANG007.C4.1 corrective closure
 - **Severity:** Blocker
 - **Status:** Confirmed architectural defect at `ee7e8ee7`
-- **First recorded in:** `corrective-4.md`, against the preceding C4.1 state
+- **First recorded in:** `../corrective-history/LANG007.C4.P4.R1-match-coverage-and-incremental-corrective-audit-24c25d5.md`, against the preceding C4.1 state
 - **Current owner:** `phalcom-semantic` checker and generic-evidence layers
 
 This document describes a live defect. It is separate from the C4.1 `Self`

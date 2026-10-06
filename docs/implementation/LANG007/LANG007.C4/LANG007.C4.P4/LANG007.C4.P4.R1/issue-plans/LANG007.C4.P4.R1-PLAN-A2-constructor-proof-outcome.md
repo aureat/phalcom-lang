@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust nightly, `phalcom-semantic`, ADT/match semantic tests, compiler lowering tests.
 
-**Issue brief:** `docs/audit/LANG007.C4.1/AUD-A2-constructor-proof-outcome.md`
+**Issue brief:** `../issue-audits/LANG007.C4.P4.R1-AUD-A2-constructor-proof-outcome.md`
 
 ---
 

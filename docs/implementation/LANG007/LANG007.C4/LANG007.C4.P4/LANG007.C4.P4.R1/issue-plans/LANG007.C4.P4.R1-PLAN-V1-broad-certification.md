@@ -8,7 +8,7 @@
 
 **Tech Stack:** Pinned nightly `nightly-2026-07-10`, Cargo, `phalcom-semantic`, `phalcom-core`, CI lanes in `.github/workflows/ci.yml`.
 
-**Issue brief:** `docs/audit/LANG007.C4.1/AUD-V1-broad-certification.md`
+**Issue brief:** `../issue-audits/LANG007.C4.P4.R1-AUD-V1-broad-certification.md`
 
 ---
 
@@ -54,8 +54,8 @@ RUSTFLAGS='' RUSTC_WRAPPER='' cargo clippy --workspace --all-targets -- -D warni
 ### Task 5: Update durable records
 
 **Files:**
-- Modify: `docs/implementation/LANG007/LANG007.C4.1/LANG007.C4.1-walkthrough.md`
-- Modify: `docs/implementation/LANG007/LANG007.C4.1/LANG007.C4.1-handoff.md`
+- Modify: `../LANG007.C4.P4.R1-walkthrough.md`
+- Modify: `../LANG007.C4.P4.R1-handoff.md`
 
 - [ ] Record focused and broad commands with results.
 - [ ] Preserve `FOCUSED_TESTED` versus `RELEASE_COMPLETE` distinction.

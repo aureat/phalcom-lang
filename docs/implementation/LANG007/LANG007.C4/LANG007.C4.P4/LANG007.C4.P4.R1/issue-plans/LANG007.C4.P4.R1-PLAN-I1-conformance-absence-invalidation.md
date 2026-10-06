@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust nightly, `phalcom-semantic` incremental tests, cross-module workspace fixtures.
 
-**Issue brief:** `docs/audit/LANG007.C4.1/AUD-I1-conformance-absence-invalidation.md`
+**Issue brief:** `../issue-audits/LANG007.C4.P4.R1-AUD-I1-conformance-absence-invalidation.md`
 
 ---
 
