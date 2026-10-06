@@ -30,9 +30,10 @@ failure, complexity, and integer-shrink utility fixtures pass independently.
 | Completion | `PARTIAL` | Package fixes and fixtures exist; the property-testing kernel has no passing vertical result. |
 | Verification | `FOCUSED_TESTED` | The active runtime corpus and the replay blocker probe were run; one active fixture failed and one remains blocked. |
 
-The package verification ledger is [TEST-RESULTS.md](TEST-RESULTS.md). The
-compiler lifecycle cross-reference is in the
-[LANG007.C3 checkpoint](../../docs/implementation/LANG007/LANG007.C3/LANG007.C3-CHECKPOINT.md).
+The package verification ledger is
+[LANG007.C4.P4.R1-hypothesis-runtime-test-results.md](LANG007.C4.P4.R1-hypothesis-runtime-test-results.md).
+The compiler lifecycle cross-reference is in the
+[LANG007.C3 checkpoint](../../../../../../../docs/implementation/LANG007/LANG007.C3/LANG007.C3-CHECKPOINT.md).
 
 ## Reproduction and observed failures
 
@@ -43,7 +44,7 @@ the runtime harness.
 ### A. Generic `Strategy.draw` has no active runtime conformance target
 
 Fixture:
-[`deterministic-property-search-test.ph`](tests/runtime/src/engine/deterministic-property-search-test.ph),
+[`deterministic-property-search-test.ph`](../../../../../../../packages/hypothesis/tests/runtime/src/engine/deterministic-property-search-test.ph),
 at its `PropertyResult::Errored` assertion.
 
 Command:
@@ -78,7 +79,7 @@ TraitRequirementId {
 
 The VM's `invoke_trait_requirement` reads the active frame's conformance
 environment and looks up the selected requirement slot. The lookup fails at
-[`dispatch.rs`](../../phalcom-core/src/vm/dispatch.rs#L1553). This proves the
+[`dispatch.rs`](../../../../../../../phalcom-core/src/vm/dispatch.rs#L1553). This proves the
 required slot is unavailable in the active invocation frame; it does not yet
 identify which compiler or VM transition failed to provide it.
 
@@ -99,7 +100,7 @@ assertions are not reached.
 ### B. Integer replay panics on a conformance-owned callable
 
 Fixture:
-[`integer-replay-test.ph`](tests/runtime/src/blocked/strategies/integer-replay-test.ph).
+[`integer-replay-test.ph`](../../../../../../../packages/hypothesis/tests/runtime/src/blocked/strategies/integer-replay-test.ph).
 
 Command:
 
@@ -120,7 +121,7 @@ ImplId { module: strategies.primitives, local: ImplLocalId(2) }
 
 `CallableOwnerId::Conformance` is intentionally identified by `ImplId`; it has
 no `DeclarationId`. The declaration-only accessor panics for that owner kind
-at [`identity.rs`](../../phalcom-semantic/src/identity.rs#L303). The caller
+at [`identity.rs`](../../../../../../../phalcom-semantic/src/identity.rs#L303). The caller
 that reached the accessor in this compilation path still needs to be traced.
 
 The blocked marker now matches the observed panic signature. This probe did

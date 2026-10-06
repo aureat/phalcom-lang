@@ -44,8 +44,9 @@ The current API inventory and kernel behavior are documented in
 [`docs/strategies.md`](docs/strategies.md), and
 [`docs/shrinking.md`](docs/shrinking.md). The archived 0.1.0 surface is not the
 active package API. Current verification status is in
-[`TEST-RESULTS.md`](TEST-RESULTS.md); the generic-conformance blocker is
-documented in [`INCIDENT-REPORT.md`](INCIDENT-REPORT.md).
+[`LANG007.C4.P4.R1-hypothesis-runtime-test-results.md`](../../docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4.R1/hypothesis/LANG007.C4.P4.R1-hypothesis-runtime-test-results.md);
+the generic-conformance blocker is documented in
+[`LANG007.C4.P4.R1-hypothesis-incident-report.md`](../../docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4.R1/hypothesis/LANG007.C4.P4.R1-hypothesis-incident-report.md).
 
 ## Runtime fixtures
 

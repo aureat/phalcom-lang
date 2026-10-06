@@ -1,6 +1,6 @@
 # Revised audit of the C4.1 covering-impl correction
 
-**Current repository head audited:** `ee7e8ee725f90d71ba4a96f907f27339abd989a0`  
+**Current repository head audited:** `ee7e8ee725f90d71ba4a96f907f27339abd989a0`
 **Earlier report target:** `24c25d5c244a9bff6478d729511295c1774060ab`
 
 ## Executive verdict

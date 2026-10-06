@@ -40,7 +40,8 @@ The covering-inherent-impl correction and its recorded focused checks remain
 completed historical work. R1 stays active because its issue corpus includes
 two confirmed semantic blockers at the audited revision, unresolved
 incremental and source-coverage obligations, current-head certification work,
-and a Telogue project integration failure.
+the Telogue project integration failure, and package-scoped Hypothesis runtime
+blockers whose incident record is co-located here.
 
 ## Issue register
 
@@ -53,6 +54,7 @@ and a Telogue project integration failure.
 | T3 | Nested covering forms need more source-level certification | Open verification obligation; no implementation defect demonstrated by the audit | [Audit](issue-audits/LANG007.C4.P4.R1-AUD-T3-nested-covering-source-certification.md), [plan](issue-plans/LANG007.C4.P4.R1-PLAN-T3-nested-covering-source-certification.md) |
 | V1 | Broad current-head certification is absent | Open certification obligation | [Audit](issue-audits/LANG007.C4.P4.R1-AUD-V1-broad-certification.md), [plan](issue-plans/LANG007.C4.P4.R1-PLAN-V1-broad-certification.md) |
 | TEL-1 | Telogue project compilation reaches semantic analysis and fails on generic-pack contributions, positional-lane projections, and `Query.of` inference | Reproduced in the recorded integration run; root causes and full-project success remain open | [Architect findings](corrective-history/LANG007.C4.P4.R1-Telogue-project-integration-findings-for-architect.md), [revised audit](corrective-history/LANG007.C4.P4.R1-revised-covering-impl-and-Telogue-integration-audit-ee7e8ee7.md) |
+| HYP-1 | Hypothesis runtime corpus is 9 passed, 1 failed, 1 blocked; `Strategy.draw<P>` lacks an active runtime conformance target and integer replay hits a compiler panic | `BLOCKED / PARTIAL / FOCUSED_TESTED` at `ad1841f2`; the report keeps remediation scope package-side and records compiler/runtime blockers without changing those layers | [Incident report](hypothesis/LANG007.C4.P4.R1-hypothesis-incident-report.md), [test results](hypothesis/LANG007.C4.P4.R1-hypothesis-runtime-test-results.md) |
 
 The classifications above preserve what each source record says. They do not
 assert that any audit was rerun against the current working tree.
@@ -88,9 +90,22 @@ their shared state and ordering:
    layers and retain the project-entry regression as the end-to-end gate.
 5. Run V1 broad certification after the focused prerequisites are complete.
 
-This order does not amend P4's active T7.0D worklist or its T7.0E acceptance
-gate. P4 continues under its current checkpoint next action. R1 records
-corrective issues and their evidence alongside that work.
+The Hypothesis incident records are co-located here at the user's direction.
+Their package lifecycle remains independently `BLOCKED / PARTIAL /
+FOCUSED_TESTED`; the incident report scopes this work to recording the generic
+dispatch and replay blockers without implementing compiler or VM changes.
+
+P4's remaining-scope execution order is now governed by the corrective
+completion plan. Begin with its T0 live-owner rebaseline, then converge
+`StaticConstant` formation before extending owner scheduling or alias support.
+T7.0E remains an acceptance gate, and Record-pattern work remains gated on it.
+R1 records the companion corrective findings and their evidence alongside the
+P4 completion work.
+
+The Hypothesis package incident and runtime result records are co-located here
+at the user's direction. Their own lifecycle remains
+`BLOCKED / PARTIAL / FOCUSED_TESTED`; this association does not expand their
+package-only repair scope.
 
 ## File map
 
@@ -99,6 +114,10 @@ corrective issues and their evidence alongside that work.
 - [`issue-audits/`](issue-audits/) — six issue and verification audits.
 - [`issue-plans/`](issue-plans/) — paired implementation and certification
   plans.
+- [`LANG007.C4.P4-completion-luna-patch-grade-implementation-plan.md`](../LANG007.C4.P4-completion-luna-patch-grade-implementation-plan.md)
+  — current P4 remaining-scope execution plan.
+- [`hypothesis/`](hypothesis/) — Hypothesis-specific incident and runtime
+  result records; filenames carry the package name explicitly.
 - [`LANG007.C4.P4.R1-walkthrough.md`](LANG007.C4.P4.R1-walkthrough.md) — this
   record's interim documentation walkthrough.
 - [`LANG007.C4.P4.R1-handoff.md`](LANG007.C4.P4.R1-handoff.md) — next-step

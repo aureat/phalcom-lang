@@ -13,18 +13,20 @@ recorded: 2026-10-06
 
 R1 is an active companion issue register. Its status is
 `IN_PROGRESS / PARTIAL / UNVERIFIED`. The C4 checkpoint remains authoritative
-for P4 state, and P4's active next action remains amended T7.0D computed-key
-alias owner scheduling followed by T7.0E.
+for P4 state. P4's remaining-scope work now starts with T0 in the corrective
+completion plan: rebaseline the live owner matrix before production edits.
 
 ## Read first
 
 1. [`LANG007.C4 checkpoint`](../../LANG007.C4-CHECKPOINT.md) for the shared
    C4 state and current P4 objective.
-2. [`LANG007.C4.P4 handoff`](../LANG007.C4.P4-handoff.md) for P4's current
-   implementation boundary and fixed constraints.
-3. [`LANG007.C4.P4.R1 plan`](LANG007.C4.P4.R1-plan.md) for the issue register
-   and sequencing.
-4. The paired issue audit and plan for the specific finding being continued.
+2. [`P4 corrective completion plan`](../LANG007.C4.P4-completion-luna-patch-grade-implementation-plan.md)
+   for the current remaining-scope architecture and T0 entry gate.
+3. [`LANG007.C4.P4 handoff`](../LANG007.C4.P4-handoff.md) for inherited P4
+   interfaces and verified T1-T6 state.
+4. [`LANG007.C4.P4.R1 plan`](LANG007.C4.P4.R1-plan.md) for the companion
+   findings and sequencing.
+5. The paired issue audit and plan for the specific finding being continued.
 
 ## Inherited findings
 
@@ -41,6 +43,11 @@ alias owner scheduling followed by T7.0E.
   with generic-pack contribution, positional-lane projection, and
   `Query.of` inference diagnostics. The findings record contains the observed
   output and the architectural questions to resolve.
+- The Hypothesis runtime corpus record reports 9 passed, 1 failed, and 1
+  blocked at `ad1841f2`. The deterministic property-search case lacks an active
+  runtime target for `Strategy.draw<P>`; integer replay panics during
+  conformance-callable lowering. The incident report records these as separate
+  blockers and keeps its scope package-side.
 - The historical covering-impl correction has focused semantic evidence in
   its walkthrough. That evidence does not establish broad certification or a
   passing Telogue project compile.
@@ -52,25 +59,27 @@ from source changes alone.
 ## Fixed continuation boundaries
 
 - Keep R1 as a companion to P4, not a second C4 checkpoint.
-- Do not alter P4's T7.0D/T7.0E acceptance or architecture while recording
-  these issues.
+- Follow the current P4 corrective completion plan for its remaining scope;
+  R1 issue tracking does not replace that plan or its gates.
 - Follow the paired plans for A1, A2, I1, T2, T3, and V1. Escalate if a
   proposed correction changes semantic authority, proof outcomes, identity,
   or incremental dependency ownership.
 - Keep the Telogue compile diagnostics distinct from the historical focused
   covering-impl result. Resolve each diagnostic at its owning layer and retain
   the project-entry regression as the integration discriminator.
+- Keep the Hypothesis incident's compiler/runtime failures recorded in its
+  named package lifecycle files. Do not broaden that package incident into
+  compiler or VM implementation work through this P4 companion.
 - Preserve unrelated working-tree changes. The organization task itself made
   no source-code changes.
 
 ## Next actions
 
 1. Check the live status and scoped diff before continuing.
-2. Continue the A1 and A2 work from their issue plans; record actual focused
-   evidence and resulting architectural decisions in the C4 checkpoint.
+2. Keep A1 and A2 work tied to their issue plans and record actual focused
+   evidence and architectural decisions in the C4 checkpoint.
 3. Complete I1, T2, and T3 obligations in the order allowed by their plans.
 4. Resolve or separately plan the Telogue package blockers with their owning
    semantic/syntax layers identified.
-5. Run V1 only after its prerequisites are satisfied, then update the R1
-   lifecycle records and shared C4 checkpoint with the evidence actually
-   acquired.
+5. Run V1 only after its prerequisites are satisfied, then update R1 and the
+   shared C4 checkpoint with evidence actually acquired.

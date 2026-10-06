@@ -2,7 +2,8 @@
 
 **Lifecycle: `BLOCKED` / `PARTIAL` / `FOCUSED_TESTED`.** The focused utility
 fixtures pass, but the end-to-end property search is blocked by Phalcom generic
-trait dispatch. See the detailed [incident report](INCIDENT-REPORT.md).
+trait dispatch. See the detailed
+[Hypothesis incident report](LANG007.C4.P4.R1-hypothesis-incident-report.md).
 
 ## Verified on 2026-10-06
 

@@ -17,8 +17,8 @@ prepared: 2026-10-04
 active_plan: LANG007.C4.P4
 latest_completed_plan: LANG007.C4.P3
 next_plan: LANG007.C4.P4
-active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md
-active_plan_prepared_against_revision: 03967716
+active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-completion-luna-patch-grade-implementation-plan.md
+active_plan_prepared_against_revision: 4f11cb1a900d76c1d45db108aa8d856ee5940394
 last_updated: 2026-10-06
 ---
 
@@ -37,10 +37,10 @@ verification: FOCUSED_TESTED
 active_plan: LANG007.C4.P4
 latest_completed_plan: LANG007.C4.P3
 next_plan: LANG007.C4.P4
-active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md
-active_plan_prepared_against_revision: 03967716
+active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-completion-luna-patch-grade-implementation-plan.md
+active_plan_prepared_against_revision: 4f11cb1a900d76c1d45db108aa8d856ee5940394
 next_action: >
-  Implement the amended T7.0D session suspend/demand/owner-publish/rebuild/resume worklist (INC-1 through INC-4), then complete remaining owner integration and run T7.0E. T4-T6 remain COMPLETE / IMPLEMENTED / FOCUSED_TESTED; P4 is IN_PROGRESS / PARTIAL / UNVERIFIED. Do not start T7.1 until T7.0E passes. P10 T6 and while-dependent T9 cases remain outside active P4 scope.
+  Rebase the corrective completion plan against the current consolidated tree and complete its T0 live-owner matrix before production edits. Then converge StaticConstant formation to one canonical owner path and implement the bounded exact-owner executor/replay boundary. Preserve T1-T6 as COMPLETE / IMPLEMENTED / FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED. Do not start Record-pattern work until the replacement plan T7.0E gate passes. P10 T6 and while-dependent T9 cases remain outside active P4 scope.
 last_updated: 2026-10-06
 ```
 
@@ -164,7 +164,7 @@ The intended C4 decomposition is:
 | `LANG007.C4.P1` | Binding, mutability, field lifecycle, corpus cutover | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | complete; all P1-owned behavior verified; G1/G2 closed to BASELINE_BLOCKED; all remaining failures classified D; unblocks P2 |
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
 | `LANG007.C4.P3` | First-class Pack and call/rest convergence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T1–T9 implemented and verified; G1 semantic/static vertical, G2 runtime/rest/spread vertical, G3 fixed-call/resource invariants, G4 compatibility/stabilization gates pass; unblocks P4/P5 |
-| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | PARTIAL | UNVERIFIED | T1-T6 are COMPLETE / IMPLEMENTED / FOCUSED_TESTED. T7.0A-B are implemented; the static-constant T7.0C-D slice now owns computed annotation-key projection, exact dependencies, targeted invalidation, and direct mixed cycles. Other type owners, imported-key forcing, transitive cycles, and T7.0E remain open. T7.1 remains gated on T7.0E. |
+| `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | PARTIAL | UNVERIFIED | T1-T6 remain COMPLETE / IMPLEMENTED / FOCUSED_TESTED. Earlier T7.0C-D work is retained as substrate, but the remaining execution order is superseded by the corrective completion plan: rebaseline the owner matrix, converge StaticConstant formation, then add exact owner orchestration and projection-aware replay before aliases/T7.0E. No T7.0E acceptance or Record-pattern work is claimed. |
 | `LANG007.C4.P10` | Parallel structural classification, static-control, and convergence foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | pre-barrier work through `46d00056` is integrated on main and S1 is complete; focused synchronization checks passed. T1-T5 remain implemented/focused-tested, T7/T8 audits completed, and Pack plus non-loop evaluator T9 harnesses focused-tested. T6 and while-dependent T9 cases are unstarted; an inherited fixed-call Pack runtime test remains unverified. |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
@@ -2733,10 +2733,28 @@ new checkpoint and does not replace this record as C4's shared state authority.
 
 R1 preserves the covering-inherent-impl corrective history, the A1/A2 semantic
 blocker audits and plans, the I1/T2/T3 proof and coverage obligations, the V1
-certification gap, and the Telogue project integration failure. The relocation
-is a record-hierarchy change. It does not establish new code behavior, current-
-head audit results, or completion of those open findings.
+certification gap, the Telogue project integration failure, and the
+package-scoped Hypothesis incident and runtime ledger. The Hypothesis records
+retain their own `BLOCKED / PARTIAL / FOCUSED_TESTED` status and package-only
+repair scope. The relocation is a record-hierarchy change. It does not
+establish new code behavior, current-head audit results, or completion of those
+open findings.
 
 P4 remains the primary active plan. Its amended T7.0D computed-key alias owner
 worklist and T7.0E acceptance matrix remain the next action; P4 remains
 `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+
+### P4 remaining-scope plan correction — 2026-10-06
+
+The current-head P4 audit found duplicate executable `StaticConstant` formation
+paths and a projection-aware signature replay path that can omit the required
+key preparation. The new [corrective completion plan](LANG007.C4.P4/LANG007.C4.P4-completion-luna-patch-grade-implementation-plan.md)
+replaces the remaining-scope execution order while retaining T1-T6 and the
+accepted FieldKey/row/ordered-product contracts. It starts with T0 live-owner
+rebaselining, then converges StaticConstant formation before expanding owner
+orchestration, replay, or alias support.
+
+The P4 status remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. This plan update
+records architectural direction; it does not claim implementation or T7.0E
+verification.

@@ -15,8 +15,10 @@ recorded: 2026-10-06
 
 Created the R1 companion lifecycle record under P4 and moved the complete
 20-file corpus from the former implementation and audit `LANG007.C4.1`
-folders. The move preserves the original issue content and its cited audit
-revisions. Files now have descriptive names and are grouped by role.
+folders. At the user's direction, also moved the two active Hypothesis
+lifecycle records from the package into a named `hypothesis/` section. The
+moves preserve their findings and cited evidence revisions. Files now have
+descriptive names and are grouped by role.
 
 ## Organization
 
@@ -25,12 +27,15 @@ revisions. Files now have descriptive names and are grouped by role.
 - `issue-audits/` contains the six A1, A2, I1, T2, T3, and V1 audit reports.
 - `issue-plans/` contains their six paired implementation or certification
   plans.
+- `hypothesis/` contains the Hypothesis-specific incident report and runtime
+  result ledger, each with `hypothesis` in its filename.
 - The R1 plan is the issue register and lifecycle entrypoint. This walkthrough
   records the initial organization; the handoff identifies the next actions.
 
-Internal references were updated to use the new locations. The C4 checkpoint
-and P4 handoff now identify R1 as the companion and preserve P4's existing
-active objective and verification classification.
+Internal references were updated to use the new locations, including the
+Hypothesis package README and the C3 checkpoint's incident link. The C4
+checkpoint and P4 handoff identify R1 as the companion and preserve P4's
+existing active objective and verification classification.
 
 ## Work and verification boundaries
 

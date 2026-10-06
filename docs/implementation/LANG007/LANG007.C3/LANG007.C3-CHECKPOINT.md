@@ -3939,7 +3939,7 @@ root cause or regression classification has been established.
 
 The detailed reproduction, exact outputs, required repair targets, and current
 scope decision are in
-[`packages/hypothesis/INCIDENT-REPORT.md`](../../../../packages/hypothesis/INCIDENT-REPORT.md).
+[`LANG007.C4.P4.R1-hypothesis-incident-report.md`](../LANG007.C4/LANG007.C4.P4/LANG007.C4.P4.R1/hypothesis/LANG007.C4.P4.R1-hypothesis-incident-report.md).
 Package lifecycle is `BLOCKED / PARTIAL / FOCUSED_TESTED`; the active corpus
 result is 9 passed, 1 failed, 1 blocked. No compiler or VM change was made in
 the Hypothesis task. Do not equate this consumer failure with the earlier

@@ -26,17 +26,18 @@ recorded: 2026-10-06
 - The earlier handoff treated the C4.1 corrective and audit records as outside
   P4. By user direction on 2026-10-06, that record corpus is now organized in
   [`LANG007.C4.P4.R1`](LANG007.C4.P4.R1/LANG007.C4.P4.R1-plan.md) as P4's
-  companion issue register. This lifecycle organization does not change P4's
-  active T7.0D/T7.0E objective or establish current-head closure of the
-  findings.
+  companion issue register. The move itself records no issue closure. The
+  checkpoint separately records the current replacement execution plan for
+  P4's remaining scope.
 
 ## Read first
 
 1. `docs/implementation/LANG007/LANG007.C4/LANG007.C4-CHECKPOINT.md` — shared
    C4 status, invariants, accepted consultations INC-1–INC-5, and current next
    action.
-2. `docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md`
-   — especially amended T7.0D/T7.0E and their acceptance criteria.
+2. `docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-completion-luna-patch-grade-implementation-plan.md`
+   — the active replacement plan for the remaining P4 scope. The original P4
+   plan remains historical context for completed T1-T6 and earlier decisions.
 3. `docs/workflow/implementation-record-lifecycle-convention.md` — lifecycle
    rules.
 4. The P4 requirements analysis and this interim walkthrough.
@@ -95,24 +96,12 @@ Relevant implementation locations:
 
 ## Next implementation objective
 
-Continue amended T7.0D, with the immediate missing slice being computed-key
-alias ownership:
-
-1. Identify/defer only aliases whose TypeForms contain computed Record keys,
-   without prematurely publishing an alias/static-definition/resolver value.
-2. Route an exact `QueryKey::StaticDefinition` demand to its canonical owner;
-   service only ready prerequisites through existing owner paths and rebuild
-   current checker context before resuming the waiting consumer.
-3. Preserve active owner/query frames and deterministic cycle unwinding,
-   including paths involving computed-key constants. Fail closed on unexplained
-   no-progress; do not create a second publisher or use LKG values.
-4. Add discriminating tests for cold alias projection, exact selected
-   dependencies, changed-key invalidation/republication, suspended-demand
-   retry with no partial diagnostics/products, syntax cycles, mixed cycles,
-   and imported constants/aliases as required by T7.0E.
-5. Run the complete T7.0E cold/incremental acceptance matrix and update the
-   checkpoint only when the evidence supports the result. T7.1 remains blocked
-   until that gate passes.
+Continue from the replacement completion plan. Its first task is a live
+rebaseline and exact owner matrix; no production edit should precede this
+checkpoint. The plan then converges `StaticConstant` formation to one
+canonical owner entrypoint before adding bounded exact-owner orchestration,
+projection-aware replay, and computed-key alias support. T7.0E remains an
+acceptance gate; Record-pattern work remains gated until it passes.
 
 After T7.0E, proceed in plan order through T7.1–T7.5, T8, and T9. Do not
 promote this interim handoff or P4 status based on focused slice checks.
@@ -126,7 +115,7 @@ walkthrough. An isolated type-member resolver unit probe remains unverified
 because the library test target was blocked by untouched record-row inference
 test compilation failures. No T7.0E, T7.1–T7.5, T8, or T9 gate is claimed.
 
-Start by checking live status and the scoped diff, then continue from the
-checkpoint's amended T7.0D contract. Do not re-audit the completed T1–T6 slices
-without a concrete regression or plan requirement; do not treat historical
-focused passes as current T7.0E evidence.
+Start by checking live status and the scoped diff, then execute T0 from the
+replacement plan against the consolidated tree. Do not re-audit the completed
+T1-T6 slices without a concrete regression or plan requirement; do not treat
+historical focused passes as current T7.0E evidence.
