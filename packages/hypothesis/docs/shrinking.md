@@ -1,48 +1,37 @@
-# Shrinking
+# Current shrinking
 
-Shrinking edits the immutable semantic `Example` and reruns the complete property. Strategies never own QuickCheck-style shrink trees.
+Shrinking edits the immutable `Example` choice tape and replays the complete
+strategy and property. A candidate is considered only when its
+`ExampleComplexity` is strictly smaller than the current tape.
 
-Checkpoint 05 installs the authoritative structural shrinker over the typed choices and semantic spans introduced in Checkpoints 03 and 04.
+## Primitive pass
 
-## Strict complexity order
+`IntegerShrinkPass` handles integer and index choices. It proposes, in stable
+order:
 
-Every example is ordered by:
+1. the configured target;
+2. in-domain offsets from the target up to 16 in both directions;
+3. repeated halving probes from the current value toward the target.
 
-1. number of primitive choices;
-2. structural span weight;
-3. aggregate distance from choice shrink targets;
-4. stable example signature.
+Candidates that do not move closer, leave the requested domain, or duplicate
+an earlier candidate are omitted. Boolean choices move directly to their
+configured target. Byte choices are not shrunk yet.
 
-An accepted candidate must strictly decrease this tuple. The engine therefore has an explicit termination argument in addition to `Settings.maxShrinks`.
+After the first same-origin failure is accepted, the shrinker restarts the pass
+from the new tape. It stops when no candidate is accepted or when
+`Settings.maxShrinkSteps` accepted improvements have been made. Each candidate
+evaluation is counted separately from accepted improvements. The final tape is
+replayed twice in `Verify` phase before returning `Falsified`.
 
-## Pass order
+## Failure identity and replay
 
-The standard shrinker repeatedly applies:
+A failure origin contains both a category and the identity symbol from its
+`PropertySpec`. Predicate `false` and a predicate exception have distinct
+categories. Shrinking accepts only a falsification with the same category and
+property identity. Replay providers report unconsumed tape entries, so a
+candidate that leaves choices unused cannot silently pass verification.
 
-1. discardable-span deletion;
-2. trailing-choice shortening;
-3. branch/index minimization;
-4. individual integer and Boolean minimization;
-5. related integer-block minimization;
-6. bytes/text simplification;
-7. recursive-branch collapse.
-
-After one candidate is accepted, the shrinker restarts from the first pass.
-
-## Structural deletion
-
-List and set elements, map entries, and text characters are represented by discardable spans. Deleting one of these spans also reduces the enclosing `#length` choice and adjusts all later span ranges. This can remove an element from the middle while preserving choices for later elements.
-
-Recursive expansion records a `#recursive` Boolean followed by a `#recursiveBranch` payload span. Collapsing a subtree changes the Boolean to the base case and deletes the payload range, leaving later sibling choices available for replay.
-
-## Candidate classification
-
-Replay candidates are accepted only when they:
-
-- reproduce an interesting failure;
-- preserve the exact `FailureOrigin`;
-- normalize to a strictly smaller example.
-
-Passing, invalid, overrun, flaky, and origin-changing candidates are not shrink successes.
-
-`find` uses the same passes and ordering, accepting candidates that still satisfy the predicate instead of encoding success as an exception.
+Structural spans, deletion of collection elements, byte simplification, and
+recursive-branch collapse are not implemented. Their former design is kept in
+the archived 0.1.0 material at
+`../archive/legacy-0.1.0/docs/shrinking.md`.

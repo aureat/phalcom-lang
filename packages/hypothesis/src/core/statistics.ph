@@ -1,8 +1,10 @@
 /// Counters captured at the end of a property run.
 data Statistics(
-  examples: Int,
-  shrinks: Int,
+  generatedExamples: Int,
+  shrinkEvaluations: Int,
+  acceptedShrinks: Int,
   discards: Int,
+  verificationReplays: Int,
 )
 
 export Statistics

@@ -7,12 +7,14 @@ from .request import ChoiceRequest
 from .choice import Choice
 
 /// Strategy-facing choice access and the mutable buffer for one example.
-class DrawData {
-  mut _provider: Providers.ChoiceProvider
+class DrawData<P>
+    where P |= Providers.ChoiceProvider
+{
+  mut _provider: P
   mut _buffer: Buffers.ChoiceBuffer
 
   @constructor
-  new(provider: Providers.ChoiceProvider, buffer: Buffers.ChoiceBuffer) {
+  new(provider: P, buffer: Buffers.ChoiceBuffer) {
     _provider = provider
     _buffer = buffer
   }
@@ -26,6 +28,14 @@ class DrawData {
 
   /// Number of choices consumed from the provider.
   consumedChoices -> Int { _provider.consumedChoices }
+
+  /// Whether a finite provider tape was consumed in full.
+  fullyConsumed -> Bool {
+    match _provider.remainingChoices {
+      None => true
+      Some(remaining) => remaining == 0
+    }
+  }
 
   /// Draws an integer without exposing the heterogeneous choice sum.
   drawInt(min: Int, max: Int, shrinkTowards: Int) -> Int {

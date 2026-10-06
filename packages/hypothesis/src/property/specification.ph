@@ -1,17 +1,8 @@
-import ..strategies.strategy as StrategyModule
-import ..choices.data as ChoiceData
-
 /// A generated value type paired with its property predicate.
-data PropertySpec<T>(
-  strategy: StrategyModule.Strategy<T>,
-  property: (T) -> Bool
+data PropertySpec<T, S>(
+  strategy: S,
+  property: (T) -> Bool,
+  identity: Symbol
 )
-
-impl<T> PropertySpec<T> {
-  /// Draws one value and applies the predicate.
-  check(drawData: ChoiceData.DrawData) -> Bool {
-    property(strategy.draw(drawData))
-  }
-}
 
 export PropertySpec

@@ -3,16 +3,22 @@ import ..core.result as Results
 import ..choices.provider as Providers
 import .specification as Specifications
 import .search as Search
+import ..strategies.strategy as StrategyModule
 
 class Property {
   /// Runs a typed property with the supplied settings and choice source.
   @class
-  check<T>(
-    specification: Specifications.PropertySpec<T>,
+  check<T, S, F>(
+    specification: Specifications.PropertySpec<T, S>,
     settings: SettingsModule.Settings,
-    providers: Providers.ChoiceProviderFactory
-  ) -> Results.PropertyResult<T> {
-    Search.SearchEngine<T>.new().run(specification, settings, providers)
+    providers: F
+  ) -> Results.PropertyResult<T>
+      where
+        S |= StrategyModule.Strategy<T>,
+        F |= Providers.ChoiceProviderFactory,
+        F::Provider |= Providers.ChoiceProvider
+  {
+    Search.SearchEngine<T, S>.new().run(specification, settings, providers)
   }
 }
 

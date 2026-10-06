@@ -1,5 +1,6 @@
 import .strategy as StrategyModule
 import ..choices.data as ChoiceData
+import ..choices.provider as Providers
 
 /// Generates integers from an inclusive range.
 data IntStrategy(min: Int, max: Int, shrinkTowards: Int)
@@ -9,14 +10,18 @@ data BoolStrategy(shrinkTowards: Bool)
 
 impl StrategyModule.Strategy<Int> for IntStrategy {
   /// Draws an integer from the configured inclusive range.
-  draw(drawData: ChoiceData.DrawData) -> Int {
+  draw<P>(drawData: ChoiceData.DrawData<P>) -> Int
+      where P |= Providers.ChoiceProvider
+  {
     drawData.drawInt(min, max, shrinkTowards)
   }
 }
 
 impl StrategyModule.Strategy<Bool> for BoolStrategy {
   /// Draws a boolean with the configured shrink target.
-  draw(drawData: ChoiceData.DrawData) -> Bool {
+  draw<P>(drawData: ChoiceData.DrawData<P>) -> Bool
+      where P |= Providers.ChoiceProvider
+  {
     drawData.drawBool(shrinkTowards)
   }
 }

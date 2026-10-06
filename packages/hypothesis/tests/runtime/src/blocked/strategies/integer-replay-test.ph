@@ -1,4 +1,4 @@
-// BLOCKED: the current DrawData and ChoiceProvider strategy path is not part of the executable baseline yet.
+// BLOCKED: [probe=DrawData,ChoiceProvider] awaiting runtime re-probe after generic refactor.
 import hypothesis.choices.provider as Providers
 import hypothesis.choices.buffer as Buffers
 import hypothesis.choices.data as ChoiceData
@@ -9,7 +9,7 @@ let mut script = List.new()
 script.add(Choice::Integer(7, 0, 100, 0))
 
 let provider = Providers.ScriptedChoiceProvider.new(script: script)
-let drawData = ChoiceData.DrawData.new(
+let drawData = ChoiceData.DrawData<Providers.ScriptedChoiceProvider>.new(
   provider: provider,
   buffer: Buffers.ChoiceBuffer.new()
 )

@@ -9,7 +9,8 @@ data ExampleStatus<T> {
     _ example: Examples.Example
   ),
 
-  /// Evaluation was intentionally abandoned with a reason.
+  /// Reserved for a future rejection/assumption API; current evaluators do not
+  /// produce discarded examples.
   Discarded(_ reason: String),
 
   /// The generated value falsified the property.
@@ -18,6 +19,9 @@ data ExampleStatus<T> {
     _ failure: Failures.Failure,
     _ example: Examples.Example
   ),
+
+  /// Strategy/provider execution could not produce a valid evaluation.
+  Errored(_ reason: String),
 }
 
 export ExampleStatus

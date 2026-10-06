@@ -1,15 +1,14 @@
-/// Limits and seed used for one property search.
+/// Example and accepted-shrink-step limits for one property search.
 data Settings(
   maxExamples: Int,
-  maxShrinks: Int,
-  seed: Int,
+  maxShrinkSteps: Int,
 )
 
 impl Settings {
-  /// Provides the default example limit, shrink limit, and seed.
+  /// Provides the default example and accepted-shrink-step limits.
   @class
   defaults -> Settings {
-    Settings(maxExamples: 100, maxShrinks: 500, seed: 0)
+    Settings(maxExamples: 100, maxShrinkSteps: 500)
   }
 }
 

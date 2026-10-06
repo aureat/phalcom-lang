@@ -6,7 +6,6 @@ import ..choices.example as Examples
 data PropertyResult<T> {
   /// The property held for every generated example.
   Passed(
-    _ value: T,
     _ statistics: StatisticsModule.Statistics
   )
 
@@ -27,6 +26,12 @@ data PropertyResult<T> {
 
   /// The search could not evaluate a usable example within its limits.
   GaveUp(
+    _ reason: String,
+    _ statistics: StatisticsModule.Statistics
+  )
+
+  /// Provider or strategy execution failed before a property result was known.
+  Errored(
     _ reason: String,
     _ statistics: StatisticsModule.Statistics
   )

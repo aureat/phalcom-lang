@@ -36,12 +36,18 @@ trait ChoiceProvider {
 
   /// Number of requests already consumed from this provider.
   consumedChoices -> Int
+
+  /// Remaining tape entries, or `None` for an unbounded provider.
+  remainingChoices -> Option<Int>
 }
 
 /// Creates a fresh provider for a generated example.
 trait ChoiceProviderFactory {
+  /// Concrete provider type created for each example.
+  type Provider
+
   /// Creates the provider for `exampleIndex`.
-  create(exampleIndex: Int) -> ChoiceProvider
+  create(exampleIndex: Int) -> Self::Provider
 }
 
 /// Generates choices from a seeded Phalcom random source.
@@ -50,8 +56,8 @@ class SystemRandomChoiceProvider {
   mut _consumedChoices: Int = 0
 
   @constructor
-  new(random: SeededRandom) {
-    _random = random
+  new(seed: Int) {
+    _random = SeededRandom.new(seed: seed)
   }
 
   consumedChoiceCount -> Int { _consumedChoices }
@@ -110,6 +116,7 @@ impl ChoiceProvider for SystemRandomChoiceProvider {
   }
 
   consumedChoices -> Int { consumedChoiceCount }
+  remainingChoices -> Option<Int> { None }
 }
 
 /// Supplies normalized choices from a fixed tape.
@@ -145,6 +152,9 @@ impl ChoiceProvider for ScriptedChoiceProvider {
   }
 
   consumedChoices -> Int { consumedChoiceCount }
+  remainingChoices -> Option<Int> {
+    Some(scriptSize - consumedChoiceCount)
+  }
 }
 
 /// Replays choices from an immutable example tape.
@@ -180,6 +190,9 @@ impl ChoiceProvider for ReplayChoiceProvider {
   }
 
   consumedChoices -> Int { consumedChoiceCount }
+  remainingChoices -> Option<Int> {
+    Some(_example.size - consumedChoiceCount)
+  }
 }
 
 /// Produces a deterministic random stream per example from one seed.
@@ -197,10 +210,12 @@ class SystemRandomChoiceProviderFactory {
 }
 
 impl ChoiceProviderFactory for SystemRandomChoiceProviderFactory {
-  create(exampleIndex: Int) -> ChoiceProvider {
+  type Provider = SystemRandomChoiceProvider
+
+  create(exampleIndex: Int) -> Self::Provider {
     // Each example gets a repeatable stream independent of earlier consumption.
     SystemRandomChoiceProvider.new(
-      random: SeededRandom.new(seed: seedFor(exampleIndex))
+      seed: seedFor(exampleIndex)
     )
   }
 }
@@ -220,8 +235,10 @@ class ScriptedChoiceProviderFactory {
 }
 
 impl ChoiceProviderFactory for ScriptedChoiceProviderFactory {
+  type Provider = ScriptedChoiceProvider
+
   /// Creates a provider with an independent cursor over the stored script.
-  create(exampleIndex: Int) -> ChoiceProvider {
+  create(exampleIndex: Int) -> Self::Provider {
     ScriptedChoiceProvider.new(script: scriptCopy)
   }
 }

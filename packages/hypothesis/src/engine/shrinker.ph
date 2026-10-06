@@ -5,9 +5,11 @@ import ..choices.buffer as Buffers
 import ..core.failure as Failures
 import ..core.result as Results
 import ..core.statistics as StatisticsModule
+import ..core.phase as Phases
 import ..core.status as StatusModule
 import ..property.specification as Specifications
 import ..property.evaluator as Evaluators
+import ..strategies.strategy as StrategyModule
 import .complexity as Complexities
 import .shrink_pass as Passes
 
@@ -21,23 +23,27 @@ class Shrinker {
   }
 
   /// Searches smaller choice tapes and confirms the final failure twice.
-  shrink<T>(
-    specification: Specifications.PropertySpec<T>,
+  shrink<T, S>(
+    specification: Specifications.PropertySpec<T, S>,
     initialValue: T,
     initialFailure: Failures.Failure,
     initialExample: Examples.Example,
-    maxShrinks: Int,
-    exampleCount: Int
-  ) -> Results.PropertyResult<T> {
-    let evaluator = Evaluators.Evaluator<T>.new()
+    maxShrinkSteps: Int,
+    generatedExamples: Int,
+    initialDiscards: Int
+  ) -> Results.PropertyResult<T>
+      where S |= StrategyModule.Strategy<T>
+  {
+    let evaluator = Evaluators.Evaluator<T, S>.new()
     let mut currentValue = initialValue
     let mut currentFailure = initialFailure
     let mut currentExample = initialExample
     let mut accepted = 0
     let mut evaluations = 0
+    let mut discards = initialDiscards
     let mut changed = true
 
-    while changed and accepted < maxShrinks {
+    while changed and accepted < maxShrinkSteps {
       changed = false
       let currentComplexity = Complexities.ExampleComplexity.of(currentExample)
       let proposals = self.candidates(currentExample)
@@ -49,7 +55,7 @@ class Shrinker {
         if Complexities.ExampleComplexity.of(proposal).lessThan(
           currentComplexity
         ) {
-          let drawData = ChoiceData.DrawData.new(
+          let drawData = ChoiceData.DrawData<Providers.ReplayChoiceProvider>.new(
             provider: Providers.ReplayChoiceProvider.new(example: proposal),
             buffer: Buffers.ChoiceBuffer.new()
           )
@@ -57,7 +63,8 @@ class Shrinker {
           match evaluator.evaluate(
             specification,
             drawData,
-            initialFailure.exampleIndex
+            initialFailure.exampleIndex,
+            Phases.Phase::Shrink
           ) {
             StatusModule.ExampleStatus::Falsified(
               value,
@@ -74,7 +81,14 @@ class Shrinker {
                 changed = true
               }
             }
-            _ => {
+            StatusModule.ExampleStatus::Passed(_, _) => {
+              evaluations += 1
+            }
+            StatusModule.ExampleStatus::Discarded(_) => {
+              evaluations += 1
+              discards += 1
+            }
+            StatusModule.ExampleStatus::Errored(_) => {
               evaluations += 1
             }
           }
@@ -85,39 +99,55 @@ class Shrinker {
     }
 
     // Replaying twice distinguishes a stable minimized failure from a flaky one.
-    let verifyDataA = ChoiceData.DrawData.new(
+    let verifyDataA = ChoiceData.DrawData<Providers.ReplayChoiceProvider>.new(
       provider: Providers.ReplayChoiceProvider.new(example: currentExample),
       buffer: Buffers.ChoiceBuffer.new()
     )
     let verifyA = evaluator.evaluate(
       specification,
       verifyDataA,
-      initialFailure.exampleIndex
+      initialFailure.exampleIndex,
+      Phases.Phase::Verify
     )
 
-    let verifyDataB = ChoiceData.DrawData.new(
+    let verifyDataB = ChoiceData.DrawData<Providers.ReplayChoiceProvider>.new(
       provider: Providers.ReplayChoiceProvider.new(example: currentExample),
       buffer: Buffers.ChoiceBuffer.new()
     )
     let verifyB = evaluator.evaluate(
       specification,
       verifyDataB,
-      initialFailure.exampleIndex
+      initialFailure.exampleIndex,
+      Phases.Phase::Verify
     )
 
-    evaluations += 2
+    if match verifyA {
+      StatusModule.ExampleStatus::Discarded(_) => true
+      _ => false
+    } {
+      discards += 1
+    }
+    if match verifyB {
+      StatusModule.ExampleStatus::Discarded(_) => true
+      _ => false
+    } {
+      discards += 1
+    }
 
     let statistics = StatisticsModule.Statistics(
-      examples: exampleCount + evaluations,
-      shrinks: accepted,
-      discards: 0
+      generatedExamples: generatedExamples,
+      shrinkEvaluations: evaluations,
+      acceptedShrinks: accepted,
+      discards: discards,
+      verificationReplays: 2
     )
 
     match verifyA {
       StatusModule.ExampleStatus::Falsified(value, failureA, _) => {
         match verifyB {
           StatusModule.ExampleStatus::Falsified(_, failureB, _) => {
-            if failureA.sameOrigin(failureB) {
+            if failureA.sameOrigin(currentFailure) and
+              failureB.sameOrigin(currentFailure) {
               Results.PropertyResult::Falsified(
                 value,
                 failureA,
@@ -129,12 +159,18 @@ class Shrinker {
             }
           }
 
+          StatusModule.ExampleStatus::Errored(reason) =>
+            Results.PropertyResult::Errored(reason, statistics)
+
           _ => Results.PropertyResult::Flaky(value, currentExample, statistics)
         }
       }
 
-      StatusModule.ExampleStatus::Passed(value, _) =>
-        Results.PropertyResult::Flaky(value, currentExample, statistics)
+      StatusModule.ExampleStatus::Passed(_, _) =>
+        Results.PropertyResult::Flaky(currentValue, currentExample, statistics)
+
+      StatusModule.ExampleStatus::Errored(reason) =>
+        Results.PropertyResult::Errored(reason, statistics)
 
       _ => Results.PropertyResult::Flaky(currentValue, currentExample, statistics)
     }

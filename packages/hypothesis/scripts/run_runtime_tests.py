@@ -82,8 +82,20 @@ def blocked_reason(path: Path) -> str | None:
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if stripped.startswith("// BLOCKED:"):
-            return stripped.removeprefix("// BLOCKED:").strip()
+            reason = stripped.removeprefix("// BLOCKED:").strip()
+            if reason.startswith("[probe=") and "]" in reason:
+                reason = reason.split("]", 1)[1].strip()
+            return reason
     return None
+
+
+def blocked_probe_tokens(path: Path) -> list[str]:
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("// BLOCKED: [probe=") and "]" in stripped:
+            value = stripped.split("[probe=", 1)[1].split("]", 1)[0]
+            return [token.strip() for token in value.split(",") if token.strip()]
+    return []
 
 
 def collect_tests(inputs: list[Path]) -> list[Path]:
@@ -157,6 +169,51 @@ def run_one(executable: Path, fixture: Path, timeout: int) -> bool:
     return False
 
 
+def probe_blocked(executable: Path, fixture: Path, timeout: int) -> str:
+    name = test_name(fixture)
+    marker = f"PASS {name}"
+    try:
+        completed = subprocess.run(
+            [str(executable), str(fixture)],
+            cwd=RUNTIME_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as error:
+        print(f"BLOCKER CHANGED {name}: timed out after {timeout}s", flush=True)
+        report_output("stdout", captured_text(error.stdout))
+        report_output("stderr", captured_text(error.stderr))
+        return "changed"
+    except OSError as error:
+        print(f"BLOCKER CHANGED {name}: could not start Phalcom: {error}", flush=True)
+        return "changed"
+
+    output = completed.stdout + "\n" + completed.stderr
+    if completed.returncode == 0 and marker in completed.stdout.splitlines():
+        print(f"UNEXPECTEDLY UNBLOCKED {name}: fixture passed", flush=True)
+        return "unblocked"
+
+    if completed.returncode == 0:
+        print(f"BLOCKER CHANGED {name}: process exited without the expected PASS marker", flush=True)
+        report_output("stdout", completed.stdout)
+        report_output("stderr", completed.stderr)
+        return "changed"
+
+    tokens = blocked_probe_tokens(fixture)
+    if tokens and all(token.casefold() in output.casefold() for token in tokens):
+        print(f"STILL BLOCKED {name}: recorded blocker signature remains", flush=True)
+        report_output("stdout", completed.stdout)
+        report_output("stderr", completed.stderr)
+        return "still_blocked"
+
+    print(f"BLOCKER CHANGED {name}: current output differs from its recorded signature", flush=True)
+    report_output("stdout", completed.stdout)
+    report_output("stderr", completed.stderr)
+    return "changed"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -175,6 +232,11 @@ def main() -> int:
         "--strict",
         action="store_true",
         help="return failure if any known-blocked runtime test is present",
+    )
+    parser.add_argument(
+        "--probe-blocked",
+        action="store_true",
+        help="run fixtures marked BLOCKED and classify their current blocker",
     )
     parser.add_argument(
         "tests",
@@ -196,7 +258,7 @@ def main() -> int:
         print(f"No runtime tests found under {SOURCE_ROOT}", file=sys.stderr)
         return 2
 
-    needs_executable = any(
+    needs_executable = args.probe_blocked or any(
         fixture.relative_to(SOURCE_ROOT).parts[0] != "blocked"
         for fixture in fixtures
     )
@@ -208,18 +270,31 @@ def main() -> int:
     passed = 0
     failed = 0
     blocked = 0
+    still_blocked = 0
+    unexpectedly_unblocked = 0
+    changed_blockers = 0
     for fixture in fixtures:
         if fixture.relative_to(SOURCE_ROOT).parts[0] == "blocked":
-            reason = blocked_reason(fixture)
-            if reason:
-                print(f"BLOCKED {test_name(fixture)}: {reason}", flush=True)
-                blocked += 1
+            if args.probe_blocked:
+                assert executable is not None
+                probe = probe_blocked(executable, fixture, args.timeout)
+                if probe == "still_blocked":
+                    still_blocked += 1
+                elif probe == "unblocked":
+                    unexpectedly_unblocked += 1
+                else:
+                    changed_blockers += 1
             else:
-                print(
-                    f"FAIL {test_name(fixture)}: blocked fixture is missing its // BLOCKED: reason",
-                    flush=True,
-                )
-                failed += 1
+                reason = blocked_reason(fixture)
+                if reason:
+                    print(f"BLOCKED {test_name(fixture)}: {reason}", flush=True)
+                    blocked += 1
+                else:
+                    print(
+                        f"FAIL {test_name(fixture)}: blocked fixture is missing its // BLOCKED: reason",
+                        flush=True,
+                    )
+                    failed += 1
         else:
             assert executable is not None
             if run_one(executable, fixture, args.timeout):
@@ -227,8 +302,20 @@ def main() -> int:
             else:
                 failed += 1
 
-    print(f"\n{passed} passed, {failed} failed, {blocked} blocked", flush=True)
-    return 1 if failed or (args.strict and blocked) else 0
+    summary = f"\n{passed} passed, {failed} failed, {blocked} blocked"
+    if args.probe_blocked:
+        summary += (
+            f", {still_blocked} still blocked, "
+            f"{unexpectedly_unblocked} unexpectedly unblocked, "
+            f"{changed_blockers} blocker changes"
+        )
+    print(summary, flush=True)
+    return 1 if (
+        failed
+        or unexpectedly_unblocked
+        or changed_blockers
+        or (args.strict and (blocked or still_blocked))
+    ) else 0
 
 
 if __name__ == "__main__":
