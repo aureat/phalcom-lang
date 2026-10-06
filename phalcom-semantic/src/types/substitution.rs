@@ -2,6 +2,7 @@
 
 use super::application::TypeApplicationError;
 use super::id::{KindId, RecordRowId, TypeId, TypeParameterId};
+use super::parameter::{GenericConstraint, TypeTerm};
 use super::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail};
 use super::store::{
     AnonymousTupleRemainder, CallableParameterType, CallableType, PackFormationError, StaticDataFormationError, TupleTypeElement, TypeData, TypeStore,
@@ -513,6 +514,31 @@ pub fn substitution_for_applied(declarations: &DeclarationTypeTable, store: &Typ
     None
 }
 
+/// Specializes owner-relative `Self` without changing inference or binder identities.
+pub fn specialize_self_type_term(store: &mut TypeStore, declarations: &DeclarationTypeTable, receiver: TypeId, term: &TypeTerm) -> TypeTerm {
+    let ty = match term {
+        TypeTerm::Canonical(ty) => *ty,
+        TypeTerm::SelfType(term) => store.self_type(term.clone()),
+        TypeTerm::Infer(_) => return term.clone(),
+    };
+    TypeTerm::Canonical(specialize_self_type(store, declarations, receiver, ty))
+}
+
+/// Specializes every operand and trait argument of a generic constraint.
+pub fn specialize_self_generic_constraint(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    receiver: TypeId,
+    constraint: &GenericConstraint,
+) -> GenericConstraint {
+    super::parameter::map_generic_constraint(
+        constraint,
+        store,
+        |store, ty| specialize_self_type(store, declarations, receiver, ty),
+        |store, term| specialize_self_type_term(store, declarations, receiver, &TypeTerm::SelfType(term.clone())),
+    )
+}
+
 fn specialize_self_row(store: &mut TypeStore, declarations: &DeclarationTypeTable, receiver: TypeId, row_id: RecordRowId) -> RecordRowId {
     let row = store.record_row(row_id).clone();
     let fields = row
@@ -660,36 +686,10 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
             store.open_tuple(subst_elements.into_boxed_slice(), pos_rem, lab_rem)
         }
         TypeData::Record(row_id) => {
-            let (fields, tail) = {
-                let row = store.record_row(row_id);
-                (row.fields.to_vec(), row.tail)
-            };
-            let subst_fields: Vec<RecordRowField> = fields
-                .into_iter()
-                .map(|field| RecordRowField {
-                    key: field.key,
-                    ty: specialize_self_type(store, declarations, receiver, field.ty),
-                    presence: field.presence,
-                })
-                .collect();
-            let subst_tail = match tail {
-                RecordRowTail::Closed => RecordRowTail::Closed,
-                RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type }) => {
-                    RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained {
-                        key_type: specialize_self_type(store, declarations, receiver, key_type),
-                    })
-                }
-                RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }) => {
-                    RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
-                        key_type: specialize_self_type(store, declarations, receiver, key_type),
-                        value_type: specialize_self_type(store, declarations, receiver, value_type),
-                    })
-                }
-                RecordRowTail::Parameter(param) => RecordRowTail::Parameter(param),
-                RecordRowTail::Projection(proj) => RecordRowTail::Projection(specialize_self_type(store, declarations, receiver, proj)),
-            };
+            let row_id = specialize_self_row(store, declarations, receiver, row_id);
+            let row = store.record_row(row_id).clone();
             store
-                .record_row_type_checked(subst_fields, subst_tail)
+                .record_row_type_checked(row.fields.to_vec(), row.tail)
                 .expect("Self specialization must preserve canonical Record-row invariants")
         }
         TypeData::Callable(callable) => {

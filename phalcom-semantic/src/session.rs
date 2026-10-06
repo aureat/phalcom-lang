@@ -6711,9 +6711,10 @@ impl SemanticWorkspaceSession {
             let Some(analysis) = callable_analyses.get(&main_callable) else {
                 continue;
             };
-            for (symbol, seed) in catalog.iter().filter(|(symbol, seed)| {
-                &symbol.module == module_id && seed.phase == crate::module_bindings::ModuleBindingPhase::Runtime
-            }) {
+            for (symbol, seed) in catalog
+                .iter()
+                .filter(|(symbol, seed)| &symbol.module == module_id && seed.phase == crate::module_bindings::ModuleBindingPhase::Runtime)
+            {
                 if let Some(state) = analysis
                     .bindings
                     .values()
@@ -7702,20 +7703,20 @@ fn collect_alias_dependencies(
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             collect_alias_dependencies(origin, module, resolver, aliases, dependencies);
             for argument in arguments {
-                    match argument {
-                        phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
-                            collect_alias_dependencies(annotation, module, resolver, aliases, dependencies);
-                        }
-                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
-                            collect_alias_dependencies(&expansion.operand, module, resolver, aliases, dependencies);
-                        }
-                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
-                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
-                                collect_alias_dependencies(constraint.as_ref(), module, resolver, aliases, dependencies);
-                            }
-                        }
-                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                match argument {
+                    phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
+                        collect_alias_dependencies(annotation, module, resolver, aliases, dependencies);
                     }
+                    phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
+                        collect_alias_dependencies(&expansion.operand, module, resolver, aliases, dependencies);
+                    }
+                    phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                            collect_alias_dependencies(constraint.as_ref(), module, resolver, aliases, dependencies);
+                        }
+                    }
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                }
             }
         }
         TypeAnnotationExpr::Union { members, .. } => {
@@ -7845,20 +7846,20 @@ fn collect_associated_projection_targets(
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             collect_associated_projection_targets(origin, module, surface, targets);
             for argument in arguments {
-                    match argument {
-                        phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
-                            collect_associated_projection_targets(annotation, module, surface, targets);
-                        }
-                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
-                            collect_associated_projection_targets(&expansion.operand, module, surface, targets);
-                        }
-                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
-                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
-                                collect_associated_projection_targets(constraint.as_ref(), module, surface, targets);
-                            }
-                        }
-                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                match argument {
+                    phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
+                        collect_associated_projection_targets(annotation, module, surface, targets);
                     }
+                    phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
+                        collect_associated_projection_targets(&expansion.operand, module, surface, targets);
+                    }
+                    phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                            collect_associated_projection_targets(constraint.as_ref(), module, surface, targets);
+                        }
+                    }
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                }
             }
         }
         TypeAnnotationExpr::Union { members, .. } => {
@@ -8009,20 +8010,20 @@ fn collect_type_annotation_declarations(
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             collect_type_annotation_declarations(origin, module, resolver, dependencies);
             for argument in arguments {
-                    match argument {
-                        phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
-                            collect_type_annotation_declarations(annotation, module, resolver, dependencies);
-                        }
-                        phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
-                            collect_type_annotation_declarations(&expansion.operand, module, resolver, dependencies);
-                        }
-                        phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
-                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
-                                collect_type_annotation_declarations(constraint.as_ref(), module, resolver, dependencies);
-                            }
-                        }
-                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                match argument {
+                    phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => {
+                        collect_type_annotation_declarations(annotation, module, resolver, dependencies);
                     }
+                    phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) => {
+                        collect_type_annotation_declarations(&expansion.operand, module, resolver, dependencies);
+                    }
+                    phalcom_ast::ast::GenericArgumentSyntax::Remainder(remainder) => {
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                            collect_type_annotation_declarations(constraint.as_ref(), module, resolver, dependencies);
+                        }
+                    }
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                }
             }
         }
         TypeAnnotationExpr::Union { members, .. } => {
@@ -8395,18 +8396,18 @@ fn collect_static_case_signature_dependencies(
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             collect_static_case_signature_dependencies(origin, module, resolver, catalogs, dependencies);
             for argument in arguments {
-                    match argument {
-                        GenericArgumentSyntax::Single(argument) => collect_static_case_signature_dependencies(argument, module, resolver, catalogs, dependencies),
-                        GenericArgumentSyntax::Expansion(expansion) => {
-                            collect_static_case_signature_dependencies(&expansion.operand, module, resolver, catalogs, dependencies)
-                        }
-                        GenericArgumentSyntax::Remainder(remainder) => {
-                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
-                                collect_static_case_signature_dependencies(constraint.as_ref(), module, resolver, catalogs, dependencies);
-                            }
-                        }
-                        GenericArgumentSyntax::Value(_) => {}
+                match argument {
+                    GenericArgumentSyntax::Single(argument) => collect_static_case_signature_dependencies(argument, module, resolver, catalogs, dependencies),
+                    GenericArgumentSyntax::Expansion(expansion) => {
+                        collect_static_case_signature_dependencies(&expansion.operand, module, resolver, catalogs, dependencies)
                     }
+                    GenericArgumentSyntax::Remainder(remainder) => {
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                            collect_static_case_signature_dependencies(constraint.as_ref(), module, resolver, catalogs, dependencies);
+                        }
+                    }
+                    GenericArgumentSyntax::Value(_) => {}
+                }
             }
         }
         TypeAnnotationExpr::Union { members, .. } => {
@@ -8791,20 +8792,20 @@ fn collect_source_member_projection_dependencies(
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             collect_source_member_projection_dependencies(origin, module, resolver, members, dependencies);
             for argument in arguments {
-                    match argument {
-                        GenericArgumentSyntax::Single(argument) => {
-                            collect_source_member_projection_dependencies(argument, module, resolver, members, dependencies);
-                        }
-                        GenericArgumentSyntax::Expansion(expansion) => {
-                            collect_source_member_projection_dependencies(&expansion.operand, module, resolver, members, dependencies);
-                        }
-                        GenericArgumentSyntax::Remainder(remainder) => {
-                            if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
-                                collect_source_member_projection_dependencies(constraint.as_ref(), module, resolver, members, dependencies);
-                            }
-                        }
-                        GenericArgumentSyntax::Value(_) => {}
+                match argument {
+                    GenericArgumentSyntax::Single(argument) => {
+                        collect_source_member_projection_dependencies(argument, module, resolver, members, dependencies);
                     }
+                    GenericArgumentSyntax::Expansion(expansion) => {
+                        collect_source_member_projection_dependencies(&expansion.operand, module, resolver, members, dependencies);
+                    }
+                    GenericArgumentSyntax::Remainder(remainder) => {
+                        if let phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } = &remainder.remainder {
+                            collect_source_member_projection_dependencies(constraint.as_ref(), module, resolver, members, dependencies);
+                        }
+                    }
+                    GenericArgumentSyntax::Value(_) => {}
+                }
             }
         }
         TypeAnnotationExpr::Union { members: items, .. } => {
@@ -11551,10 +11552,20 @@ fn publish_conformance_witness_plans(
 #[cfg(test)]
 mod tests {
     use super::semantic_diagnostics_from_module_diagnostics;
+    use super::source_body_for_callable;
+    use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
     use crate::diagnostic::DiagnosticCode;
+    use crate::identity::{CallableId, DeclarationId, DispatchSide, ImplId, ImplLocalId};
+    use crate::impls::{CallableDefinitionOrigin, EffectiveCallableDefinition};
+    use crate::signature::{CallableSemanticSignature, ReturnContractValidation};
+    use crate::types::id::TypeId;
+    use crate::types::parameter::TypeTerm;
     use phalcom_common::range::SourceRange;
+    use phalcom_common::selector::Selector;
     use phalcom_modules::diagnostic::{ModuleDiagnostic, ModuleDiagnosticKind};
     use phalcom_modules::identity::ModuleId;
+    use phalcom_modules::source::ModuleKind;
+    use std::sync::Arc;
 
     #[test]
     fn canonical_module_diagnostic_mapping_preserves_owner_range_and_code() {
@@ -11606,5 +11617,51 @@ mod tests {
             assert_eq!(diagnostic.primary_range, SourceRange::new(index, index + 1));
             assert_eq!(diagnostic.message, format!("module failure {index}"));
         }
+    }
+
+    #[test]
+    fn source_body_selection_uses_impl_identity_and_member_index() {
+        let module = ModuleId::universe_root();
+        let source = "impl User { ping() -> Unit { 1 } }\nimpl User { ping() -> Unit { 2 } }\n";
+        let parsed = phalcom_ast::parse(source, 0);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let unit = crate::source::ParsedModuleUnit::new(module.clone(), ModuleKind::Module, None, Arc::from(source), Arc::new(parsed.program));
+        let owner = DeclarationId::new(module.clone(), "User".into());
+        let selector = Selector::method("ping", []).unwrap();
+        let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
+        let signature = CallableSemanticSignature {
+            callable: callable.clone(),
+            owner,
+            side: DispatchSide::Instance,
+            selector,
+            generics: None,
+            parameters: Box::new([]),
+            declared_return: DeclaredTypeFact::known(TypeTerm::Canonical(TypeId(0)), DeclaredTypeBasis::SourceAnnotation),
+            return_validation: ReturnContractValidation::NotApplicable,
+            inferred_return: None,
+            source: None,
+            implementation: phalcom_common::modifier::ImplementationKind::Phalcom,
+            native_id: None,
+            effects: phalcom_native_meta::EffectSpec::Unknown,
+            raises: phalcom_native_meta::RaisesSpec::Unknown,
+            flow: phalcom_native_meta::ReturnFlowSpec::Value,
+            lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
+        };
+        let definition = EffectiveCallableDefinition {
+            callable: callable.clone(),
+            origin: CallableDefinitionOrigin::InherentImpl(ImplId::new(module.clone(), ImplLocalId(1))),
+            source_member_index: 0,
+            signature,
+            inherent_body_context: None,
+        };
+        let (_, selected_range) = source_body_for_callable(&callable, Some(&definition), &unit).expect("body selected");
+        let expected_range = match &unit.program.statements[1] {
+            phalcom_ast::ast::Statement::Impl(impl_def) => match impl_def.members[0].behavior().unwrap() {
+                phalcom_ast::ast::BehaviorMember::Method(method) => method.range,
+                _ => panic!("expected method"),
+            },
+            _ => panic!("expected second impl"),
+        };
+        assert_eq!(selected_range, expected_range, "selector scanning must not choose the first impl body");
     }
 }

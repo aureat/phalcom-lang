@@ -2131,10 +2131,16 @@ fn unrelated_class_body_edit_reuses_impl_callable_and_surface() {
     ));
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     assert_eq!(first_surface, surface_fingerprint(&second, &owner("User")));
-    assert!(Arc::ptr_eq(
-        &first_analysis,
-        second.snapshot.callable_analyses.get(&callable).expect("unrelated edit must retain impl body")
-    ));
+    assert!(
+        Arc::ptr_eq(
+            &first_analysis,
+            second.snapshot.callable_analyses.get(&callable).expect("unrelated edit must retain impl body")
+        ),
+        "unrelated body recomputed: stats={:?}, invalidated={:?}, recomputed={:?}",
+        second.stats,
+        second.invalidated,
+        second.recomputed,
+    );
 }
 
 #[test]
@@ -2199,10 +2205,13 @@ fn adding_impl_member_does_not_invalidate_another_target_or_its_caller() {
     ));
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     assert_eq!(alpha_surface, surface_fingerprint(&second, &owner("Alpha")));
-    assert!(Arc::ptr_eq(
-        &caller_v1,
-        second.snapshot.callable_analyses.get(&caller).expect("unchanged caller body")
-    ));
+    assert!(
+        Arc::ptr_eq(&caller_v1, second.snapshot.callable_analyses.get(&caller).expect("unchanged caller body")),
+        "caller was recomputed: stats={:?}, invalidated={:?}, recomputed={:?}",
+        second.stats,
+        second.invalidated,
+        second.recomputed,
+    );
     assert_ne!(surface_fingerprint(&first, &owner("Beta")), surface_fingerprint(&second, &owner("Beta")));
 }
 

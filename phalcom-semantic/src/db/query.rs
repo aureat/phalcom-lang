@@ -3012,27 +3012,6 @@ fn query_callable_body_with_requirement(
         }
     }
 
-    let input_fingerprint = match formal_inputs {
-        Some(inputs) => crate::db::fingerprint::callable_body_input_fingerprint_with_formal_inputs(
-            &callable,
-            body,
-            body_range,
-            store,
-            crate::db::fingerprint::CallableBodyFormalInputFingerprint {
-                sources: inputs.sources,
-                source_resolution_input: inputs.source_resolution_input,
-                linked_component_product: inputs.linked_component_product,
-                lifecycle: inputs.field_lifecycle,
-                owner_generic_signature,
-                declared_signature: explicit_declared_signature.map(|(_, signature)| signature),
-                self_instance_type_override,
-                trait_surface,
-                conformance_semantics: formal_inputs.and_then(|inputs| inputs.conformance_semantics),
-            },
-        ),
-        None => crate::db::fingerprint::callable_body_input_fingerprint_with_owner_generics(&callable, body, body_range, store, owner_generic_signature),
-    };
-
     // Every source callable declaration has a canonical signature product,
     // including partially-known signatures. Constructor body identities remain
     // instance-side while consuming their class-side constructor declaration.
@@ -3084,6 +3063,28 @@ fn query_callable_body_with_requirement(
                 }
             }
         },
+    };
+
+    let declared_signature_for_fingerprint = explicit_declared_signature.map(|(_, signature)| signature);
+    let input_fingerprint = match formal_inputs {
+        Some(inputs) => crate::db::fingerprint::callable_body_input_fingerprint_with_formal_inputs(
+            &callable,
+            body,
+            body_range,
+            store,
+            crate::db::fingerprint::CallableBodyFormalInputFingerprint {
+                sources: inputs.sources,
+                source_resolution_input: inputs.source_resolution_input,
+                linked_component_product: inputs.linked_component_product,
+                lifecycle: inputs.field_lifecycle,
+                owner_generic_signature,
+                declared_signature: declared_signature_for_fingerprint,
+                self_instance_type_override,
+                trait_surface,
+                conformance_semantics: formal_inputs.and_then(|inputs| inputs.conformance_semantics),
+            },
+        ),
+        None => crate::db::fingerprint::callable_body_input_fingerprint_with_owner_generics(&callable, body, body_range, store, owner_generic_signature),
     };
 
     // 1. Check if already computed and ready for the same callable input and dependency products.

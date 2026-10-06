@@ -1680,29 +1680,31 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
     inputs: CallableBodyFormalInputFingerprint<'_>,
 ) -> InputFingerprint {
     let CallableBodyFormalInputFingerprint {
-        sources,
-        source_resolution_input,
+        sources: _sources,
+        source_resolution_input: _source_resolution_input,
         linked_component_product: _linked_component_product,
         lifecycle,
         owner_generic_signature,
-        declared_signature,
+        declared_signature: _declared_signature,
         self_instance_type_override,
         trait_surface,
-        conformance_semantics,
+        conformance_semantics: _conformance_semantics,
     } = inputs;
     let mut hasher = DefaultHasher::new();
-    callable_body_input_fingerprint_with_owner_generics(callable, body, body_range, store, owner_generic_signature)
-        .0
-        .hash(&mut hasher);
-    if let Some(unit) = sources.get(callable.module()) {
-        unit.text.get(body_range.start..body_range.end).map(str::as_bytes).hash(&mut hasher);
+    let base = callable_body_input_fingerprint_with_owner_generics(callable, body, body_range, store, owner_generic_signature);
+    base.0.hash(&mut hasher);
+    let has_body_relative_contract = self_instance_type_override.is_some() || trait_surface.is_some();
+    let has_lifecycle_inputs = lifecycle.is_some_and(|lifecycle| {
+        lifecycle
+            .fields
+            .keys()
+            .any(|field| callable.try_declaration_owner().is_some_and(|owner| &field.owner == owner))
+    });
+    if !has_body_relative_contract && !has_lifecycle_inputs {
+        return base;
     }
-    source_resolution_input.raw().hash(&mut hasher);
-    if let Some(signature) = declared_signature {
+    if has_body_relative_contract {
         1u8.hash(&mut hasher);
-        callable_signature_product_fingerprint(signature).raw().hash(&mut hasher);
-    } else {
-        0u8.hash(&mut hasher);
     }
     self_instance_type_override.hash(&mut hasher);
     if let Some(surface) = trait_surface {
@@ -1711,18 +1713,8 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
     } else {
         0u8.hash(&mut hasher);
     }
-    if let Some(view) = conformance_semantics {
-        1u8.hash(&mut hasher);
-        view.fingerprint().raw().hash(&mut hasher);
-    } else {
-        0u8.hash(&mut hasher);
-    }
     if let Some(lifecycle) = lifecycle {
-        let lifecycle_owner = callable.try_declaration_owner().cloned().or_else(|| {
-            conformance_semantics
-                .and_then(|view| callable.conformance_owner().and_then(|impl_id| view.conformance_index.get(impl_id)))
-                .map(|contribution| contribution.target.declaration().clone())
-        });
+        let lifecycle_owner = callable.try_declaration_owner().cloned();
         for (field, fact) in lifecycle
             .fields
             .iter()

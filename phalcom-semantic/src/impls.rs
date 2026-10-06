@@ -3898,13 +3898,13 @@ fn specialize_signature_instance_self(
     mut signature: CallableSemanticSignature,
 ) -> CallableSemanticSignature {
     let specialize = |store: &mut TypeStore, fact: &mut crate::declaration_type::DeclaredTypeFact| {
-        if let DeclaredTypeState::Known(TypeTerm::Canonical(ty)) = fact.state {
-            fact.state = DeclaredTypeState::Known(TypeTerm::Canonical(crate::types::substitution::specialize_self_type(
+        if let DeclaredTypeState::Known(term) = &fact.state {
+            fact.state = DeclaredTypeState::Known(crate::types::substitution::specialize_self_type_term(
                 store,
                 declarations,
                 source_target_head,
-                ty,
-            )));
+                term,
+            ));
         }
     };
     for parameter in &mut signature.parameters {
@@ -3918,22 +3918,7 @@ fn specialize_signature_instance_self(
         generics.constraints = generics
             .constraints
             .iter()
-            .map(|constraint| {
-                crate::types::parameter::map_generic_constraint(
-                    constraint,
-                    store,
-                    |store, ty| crate::types::substitution::specialize_self_type(store, declarations, source_target_head, ty),
-                    |store, self_term| {
-                        let self_ty = store.self_type(self_term.clone());
-                        TypeTerm::Canonical(crate::types::substitution::specialize_self_type(
-                            store,
-                            declarations,
-                            source_target_head,
-                            self_ty,
-                        ))
-                    },
-                )
-            })
+            .map(|constraint| crate::types::substitution::specialize_self_generic_constraint(store, declarations, source_target_head, constraint))
             .collect();
     }
     signature
@@ -5847,7 +5832,12 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
 
         let side = if is_class_side { DispatchSide::Class } else { DispatchSide::Instance };
 
-        let Some(raw_sig) = semantic_signature_for_syntax_with_resolver(ctx, &target_owner, &impl_resolver, syntax, side) else {
+        let diagnostic_start = ctx.diagnostics.len();
+        let raw_sig = semantic_signature_for_syntax_with_resolver(ctx, &target_owner, &impl_resolver, syntax, side);
+        // Signature formation owns annotation errors even when the body never
+        // reads the invalid parameter. Publish them with the contribution.
+        diagnostics.extend(ctx.diagnostics[diagnostic_start..].iter().cloned());
+        let Some(raw_sig) = raw_sig else {
             continue;
         };
 

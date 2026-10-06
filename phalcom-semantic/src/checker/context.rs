@@ -2495,13 +2495,16 @@ impl<'a> CheckingContext<'a> {
                 .constraints
                 .iter()
                 .map(|constraint| {
+                    let constraint = crate::types::substitution::specialize_self_generic_constraint(self.store, self.declarations, receiver, constraint);
                     crate::types::parameter::map_generic_constraint(
-                        constraint,
+                        &constraint,
                         self,
-                        |ctx, ty| specialize_type(ctx, ty),
+                        |ctx, ty| crate::types::environment::TypeView::new(ty, environment.clone()).materialize(ctx.store),
                         |ctx, self_term| {
-                            let self_ty = ctx.store.self_type(self_term.clone());
-                            crate::types::parameter::TypeTerm::Canonical(ctx.specialize_self_type(receiver, self_ty))
+                            let ty = ctx.store.self_type(self_term.clone());
+                            crate::types::parameter::TypeTerm::Canonical(
+                                crate::types::environment::TypeView::new(ty, environment.clone()).materialize(ctx.store),
+                            )
                         },
                     )
                 })

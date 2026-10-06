@@ -14,11 +14,11 @@ use phalcom_semantic::workspace::SemanticWorkspaceInput;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-fn test_module() -> ModuleId {
+pub(super) fn test_module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(42), ModulePath::root())
 }
 
-fn single_module_input(module: ModuleId, source: &str) -> SemanticWorkspaceInput {
+pub(super) fn single_module_input(module: ModuleId, source: &str) -> SemanticWorkspaceInput {
     let parsed = phalcom_ast::parse(source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
 
@@ -98,7 +98,6 @@ class Counter {
     10
   }
 }
-
 impl Counter {
   @class
   getCount() -> Int {
@@ -117,6 +116,26 @@ impl Counter {
     );
     let analysis = update.snapshot.callable_analyses.get(&callable).expect("body analysis should be present");
     assert!(analysis.diagnostics.is_empty());
+}
+
+#[test]
+fn test_class_side_type_self_and_lowercase_receiver_remain_distinct() {
+    let module = test_module();
+    let source = r#"
+class Counter {
+  @class
+  direct() -> Int { 10 }
+}
+impl Counter {
+  @class
+  throughReceiver() -> Int { self.direct() }
+  @class
+  throughType() -> Self { Self.direct() }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(single_module_input(module, source));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 }
 
 #[test]
@@ -302,6 +321,165 @@ impl<A, B> Pair<B, A> {
             .diagnostics
             .is_empty()
     );
+}
+
+#[test]
+fn test_covering_body_consumes_callable_generic_self_equivalence() {
+    let module = test_module();
+    let source = r#"
+data Box<T>(_ value: T)
+impl<T> Box<T> {
+  identity<U>(_ value: U) -> Self where U == Self { value }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(single_module_input(module, source));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+}
+
+#[test]
+fn test_covering_body_preserves_callable_generic_shadowing() {
+    let module = test_module();
+    let source = r#"
+data Box<T>(_ value: T)
+impl<T> Box<T> {
+  identity<T>(_ value: T) -> T { value }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(single_module_input(module.clone(), source));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+    let callable = CallableId::new(
+        DeclarationId::new(module, "Box".into()),
+        Selector::method("identity", [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+        DispatchSide::Instance,
+    );
+    let definition = &update.snapshot.callable_definitions[&callable];
+    let context = definition.inherent_body_context.as_ref().unwrap();
+    let declaration_parameter = update.snapshot.declarations.generic_signature(callable.declaration_owner()).unwrap().parameters[0];
+    let impl_parameter = context.generic_signature.as_ref().unwrap().parameters[0];
+    let callable_parameter = definition.signature.generics.as_ref().unwrap().parameters[0];
+    assert_ne!(declaration_parameter, impl_parameter);
+    assert_ne!(declaration_parameter, callable_parameter);
+    assert_ne!(impl_parameter, callable_parameter);
+    for parameter in [declaration_parameter, impl_parameter, callable_parameter] {
+        assert_eq!(update.snapshot.store.type_parameter(parameter).name.as_ref(), "T");
+    }
+    assert_eq!(
+        update.snapshot.store.type_parameter(callable_parameter).owner,
+        TypeParameterOwner::Callable(callable.clone())
+    );
+    let mut store = update.snapshot.store.as_ref().clone();
+    let body = context
+        .signature_for_body(&mut store, &update.snapshot.declarations, definition.signature.clone())
+        .unwrap();
+    for ty in [
+        body.parameters[0].declared_type.canonical_type().unwrap(),
+        body.declared_return.canonical_type().unwrap(),
+    ] {
+        assert!(matches!(store.get(ty), TypeData::Parameter(parameter) if *parameter == callable_parameter));
+    }
+}
+
+#[test]
+fn test_covering_body_rejects_unrelated_callable_binder() {
+    let module = test_module();
+    let source = r#"
+data Id<T>()
+impl<T> Id<T> {
+  bad<U>(_ value: Id<U>) -> Id<T> { value }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(single_module_input(module, source));
+    assert!(
+        update
+            .snapshot
+            .diagnostics
+            .values()
+            .flat_map(|diagnostics| diagnostics.iter())
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::ReturnMismatch),
+        "unrelated binders must conflict: {:?}",
+        update.snapshot.diagnostics
+    );
+}
+
+#[test]
+fn test_covering_body_rejects_self_type_application() {
+    let module = test_module();
+    let source = r#"
+data Id<T>()
+impl<T> Id<T> {
+  bad(_ value: Self<T>) -> Unit { () }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(single_module_input(module, source));
+    assert!(
+        update
+            .snapshot
+            .diagnostics
+            .values()
+            .flat_map(|diagnostics| diagnostics.iter())
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::ApplicationNotConstructor),
+        "Self is a proper type: {:?}",
+        update.snapshot.diagnostics
+    );
+}
+
+#[test]
+fn test_covering_body_context_only_permutation_changes_context_not_public_contract() {
+    let module = test_module();
+    let source_v1 = r#"
+data Pair<X, Y>()
+impl<A, B> Pair<A, B> {
+  ping() -> Unit { () }
+}
+"#;
+    let source_v2 = r#"
+data Pair<X, Y>()
+impl<A, B> Pair<B, A> {
+  ping() -> Unit { () }
+}
+"#;
+    let callable = CallableId::new(
+        DeclarationId::new(module.clone(), "Pair".into()),
+        Selector::method("ping", []).unwrap(),
+        DispatchSide::Instance,
+    );
+    let definition_key = QueryKey::CallableDefinition(callable.clone());
+    let body_key = QueryKey::CallableBody(callable.clone());
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session.update(single_module_input(module.clone(), source_v1));
+    let first_def = first.snapshot.callable_definitions.get(&callable).expect("first definition");
+    let first_context = first_def.inherent_body_context.as_ref().unwrap().clone();
+    let first_definition_fp = session.db().ready_product_fingerprint(&definition_key).expect("first definition product");
+    let first_public_fp = phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(first.snapshot.callable_signatures.get(&callable).unwrap());
+    let second = session.update(single_module_input(module.clone(), source_v2));
+    let second_def = second.snapshot.callable_definitions.get(&callable).expect("second definition");
+    let second_context = second_def.inherent_body_context.as_ref().unwrap();
+    let second_definition_fp = session.db().ready_product_fingerprint(&definition_key).expect("second definition product");
+    let second_public_fp =
+        phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(second.snapshot.callable_signatures.get(&callable).unwrap());
+    assert_ne!(first_definition_fp, second_definition_fp);
+    assert_ne!(first_context.source_target_head, second_context.source_target_head);
+    assert_eq!(first_public_fp, second_public_fp);
+    assert_eq!(
+        session.db().query_state(&body_key).and_then(|state| state.revision()),
+        Some(second.snapshot.id.revision())
+    );
+    assert!(
+        second.stats.callable_bodies_recomputed > 0 || second.stats.query_products_revalidated > 0,
+        "body query must be recomputed or revalidated: {:?}",
+        second.stats
+    );
+    let mut cold_session = SemanticWorkspaceSession::new();
+    let cold = cold_session.update(single_module_input(module, source_v2));
+    let incremental_body = second.snapshot.callable_analyses.get(&callable).unwrap();
+    let cold_body = cold.snapshot.callable_analyses.get(&callable).unwrap();
+    assert_eq!(incremental_body.dependency_fingerprint, cold_body.dependency_fingerprint);
+    assert_eq!(incremental_body.return_validation, cold_body.return_validation);
+    assert_eq!(incremental_body.diagnostics, cold_body.diagnostics);
 }
 
 #[test]
