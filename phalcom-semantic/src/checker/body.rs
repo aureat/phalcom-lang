@@ -186,7 +186,9 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         ctx.self_override_type = Some(self_type);
     }
     ctx.self_instance_type_override = self_instance_type_override;
-    if let Some(domain) = &impl_domain {
+    if callable.side == crate::identity::DispatchSide::Instance
+        && let Some(domain) = &impl_domain
+    {
         ctx.self_override_type = Some(domain.head_type);
     }
 

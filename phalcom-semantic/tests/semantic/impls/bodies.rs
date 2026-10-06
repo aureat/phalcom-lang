@@ -130,12 +130,44 @@ impl Counter {
   @class
   throughReceiver() -> Int { self.direct() }
   @class
-  throughType() -> Self { Self.direct() }
+  throughType() -> Int { Self.direct() }
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module, source));
+    let update = session.update(single_module_input(module.clone(), source));
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let direct = CallableId::new(
+        DeclarationId::new(module.clone(), "Counter".into()),
+        Selector::method("direct", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let through_receiver = CallableId::new(
+        DeclarationId::new(module, "Counter".into()),
+        Selector::method("throughReceiver", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let analysis = update.snapshot.callable_analyses.get(&through_receiver).expect("throughReceiver body");
+    let receiver = analysis
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("self"))
+        .expect("lowercase self expression");
+    assert_eq!(receiver.callable, None, "the receiver itself is not a call");
+    assert!(
+        matches!(
+            receiver.knowledge.ty().map(|ty| update.snapshot.store.get(ty)),
+            Some(TypeData::ClassObject { declaration }) if declaration.name.as_ref() == "Counter"
+        ),
+        "lowercase self must be a class object: {receiver:#?}"
+    );
+
+    let send = analysis
+        .expressions
+        .values()
+        .find(|expression| expression.callable.as_ref() == Some(&direct))
+        .expect("self.direct() must select the class-side direct callable");
+    assert_eq!(send.callable.as_ref(), Some(&direct));
 }
 
 #[test]
@@ -201,6 +233,90 @@ impl<Tag> Id<Tag> {
     );
     let analysis = update.snapshot.callable_analyses.get(&callable).expect("fresh body analysis");
     assert!(analysis.diagnostics.is_empty());
+}
+
+#[test]
+fn test_generic_covering_class_side_receiver_remains_class_object() {
+    let module = test_module();
+    let source = r#"
+data Id<Tag>()
+
+impl<Tag> Id<Tag> {
+  @class
+  direct() -> Int { 10 }
+
+  @class
+  throughReceiver() -> Int { self.direct() }
+
+  @class
+  make() -> Self { Id<Tag>() }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(single_module_input(module.clone(), source));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let owner = DeclarationId::new(module.clone(), "Id".into());
+    let direct = CallableId::new(owner.clone(), Selector::method("direct", []).unwrap(), DispatchSide::Class);
+    let through_receiver = CallableId::new(owner, Selector::method("throughReceiver", []).unwrap(), DispatchSide::Class);
+    let analysis = update.snapshot.callable_analyses.get(&through_receiver).expect("throughReceiver body");
+    let receiver = analysis
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("self"))
+        .expect("generic class-side self expression");
+    assert!(matches!(
+        receiver.knowledge.ty().map(|ty| update.snapshot.store.get(ty)),
+        Some(TypeData::ClassObject { declaration }) if declaration.name.as_ref() == "Id"
+    ));
+    assert!(analysis.expressions.values().any(|expression| expression.callable.as_ref() == Some(&direct)));
+
+    let make = CallableId::new(
+        DeclarationId::new(module, "Id".into()),
+        Selector::method("make", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let definition = &update.snapshot.callable_definitions[&make];
+    let context = definition.inherent_body_context.as_ref().expect("covering context");
+    let mut store = update.snapshot.store.as_ref().clone();
+    let body_signature = context
+        .signature_for_body(&mut store, &update.snapshot.declarations, definition.signature.clone())
+        .expect("covering signature materializes");
+    assert_eq!(body_signature.declared_return.canonical_type(), Some(context.source_target_head));
+}
+
+#[test]
+fn test_conditional_class_side_receiver_remains_class_object() {
+    let module = test_module();
+    let source = r#"
+class Box<T> {
+  @class
+  direct() -> Int { 10 }
+}
+
+impl<T> Box<T> where T <: Int {
+  @class
+  throughReceiver() -> Int { self.direct() }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(single_module_input(module.clone(), source));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let owner = DeclarationId::new(module, "Box".into());
+    let direct = CallableId::new(owner.clone(), Selector::method("direct", []).unwrap(), DispatchSide::Class);
+    let through_receiver = CallableId::new(owner, Selector::method("throughReceiver", []).unwrap(), DispatchSide::Class);
+    let analysis = update.snapshot.callable_analyses.get(&through_receiver).expect("conditional throughReceiver body");
+    let receiver = analysis
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("self"))
+        .expect("conditional class-side self expression");
+    assert!(matches!(
+        receiver.knowledge.ty().map(|ty| update.snapshot.store.get(ty)),
+        Some(TypeData::ClassObject { declaration }) if declaration.name.as_ref() == "Box"
+    ));
+    assert!(analysis.expressions.values().any(|expression| expression.callable.as_ref() == Some(&direct)));
 }
 
 #[test]
@@ -454,6 +570,14 @@ impl<A, B> Pair<B, A> {
     let first_def = first.snapshot.callable_definitions.get(&callable).expect("first definition");
     let first_context = first_def.inherent_body_context.as_ref().unwrap().clone();
     let first_definition_fp = session.db().ready_product_fingerprint(&definition_key).expect("first definition product");
+    assert!(
+        session
+            .db()
+            .index()
+            .dependencies_of(&body_key)
+            .is_some_and(|edges| edges.iter().any(|edge| edge.dependency == definition_key)),
+        "callable body must record its accepted callable definition dependency"
+    );
     let first_public_fp = phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(first.snapshot.callable_signatures.get(&callable).unwrap());
     let second = session.update(single_module_input(module.clone(), source_v2));
     let second_def = second.snapshot.callable_definitions.get(&callable).expect("second definition");

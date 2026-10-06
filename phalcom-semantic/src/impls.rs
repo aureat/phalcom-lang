@@ -3875,6 +3875,21 @@ pub struct InherentBodyContext {
 }
 
 impl InherentBodyContext {
+    /// Returns the source-relative runtime receiver override for a body.
+    ///
+    /// Instance bodies use the impl target instance directly. Class-side
+    /// bodies retain the ordinary class-object receiver established by the
+    /// checker; their source-relative instance target is reserved for
+    /// type-level `Self`.
+    pub fn runtime_receiver_override(&self, side: DispatchSide) -> Option<TypeId> {
+        (side == DispatchSide::Instance).then_some(self.source_target_head)
+    }
+
+    /// Returns the source-relative instance type used for type-level `Self`.
+    pub fn instance_self_override(&self) -> TypeId {
+        self.source_target_head
+    }
+
     pub fn signature_for_body(
         &self,
         store: &mut TypeStore,

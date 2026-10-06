@@ -1655,11 +1655,12 @@ pub fn callable_body_input_fingerprint_with_fields(
     finish_input(hasher)
 }
 
-/// Computes callable-body input identity from the conservative A4 workspace inputs.
+/// Computes callable-body input identity from direct body-relative inputs.
 ///
-/// Exact semantic dependencies are recorded separately, but broad source and
-/// linked-program barriers remain until the next checkpoint proves they can be
-/// removed safely.
+/// Exact semantic dependencies are recorded separately and are validated by
+/// the query layer before reuse. Broad workspace and linked-program products
+/// are intentionally not hashed here because they are not direct inputs to a
+/// callable body.
 pub struct CallableBodyFormalInputFingerprint<'a> {
     pub sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     pub source_resolution_input: InputFingerprint,
