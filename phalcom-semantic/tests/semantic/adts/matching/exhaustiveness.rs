@@ -135,6 +135,45 @@ impl<T, E> Result<T, E> {
             .expect("reverseConstrainedOption selector"),
         0,
     );
+    let direct_ty = match direct.resolution().initial_space {
+        PatternSpaceSummary::Opaque(ty) => ty,
+        ref other => panic!("expected Opaque direct initial space, got {other:?}"),
+    };
+    let reverse_ty = match reverse_direct.resolution().initial_space {
+        PatternSpaceSummary::Opaque(ty) => ty,
+        ref other => panic!("expected Opaque reverse initial space, got {other:?}"),
+    };
+    let chained_ty = match chained_direct.resolution().initial_space {
+        PatternSpaceSummary::Opaque(ty) => ty,
+        ref other => panic!("expected Opaque chained initial space, got {other:?}"),
+    };
+    assert_eq!(
+        case.analysis
+            .snapshot
+            .store
+            .nominal_origin_declaration(direct_ty)
+            .map(|declaration| declaration.name.as_ref()),
+        Some("Option"),
+        "direct match initial space must resolve to Option under generic evidence",
+    );
+    assert_eq!(
+        case.analysis
+            .snapshot
+            .store
+            .nominal_origin_declaration(reverse_ty)
+            .map(|declaration| declaration.name.as_ref()),
+        Some("Option"),
+        "reverse match initial space must resolve to Option under generic evidence",
+    );
+    assert_eq!(
+        case.analysis
+            .snapshot
+            .store
+            .nominal_origin_declaration(chained_ty)
+            .map(|declaration| declaration.name.as_ref()),
+        Some("Option"),
+        "chained match initial space must resolve to Option under generic evidence",
+    );
     transpose_outer.assert_exhaustive();
     direct.assert_exhaustive();
     chained_direct.assert_exhaustive();
