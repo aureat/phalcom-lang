@@ -129,7 +129,9 @@ fn materialize_type_inner(
                 super::type_member::ProjectionSubject::Type(sub_ty) => {
                     super::type_member::ProjectionSubject::Type(materialize_type_inner(store, *sub_ty, instantiation, row_mode, visiting_rows)?)
                 }
-                super::type_member::ProjectionSubject::RecordRow(row_id) => super::type_member::ProjectionSubject::RecordRow(*row_id),
+                super::type_member::ProjectionSubject::RecordRow(row_id) => {
+                    super::type_member::ProjectionSubject::RecordRow(materialize_row_id(store, *row_id, instantiation, row_mode, visiting_rows)?)
+                }
             };
             let arguments = projection
                 .arguments
@@ -140,7 +142,9 @@ fn materialize_type_inner(
                         Ok(super::type_member::TypeMemberArgument::Type(mat))
                     }
                     super::type_member::TypeMemberArgument::Const(c) => Ok(super::type_member::TypeMemberArgument::Const(c.clone())),
-                    super::type_member::TypeMemberArgument::RecordRow(row_id) => Ok(super::type_member::TypeMemberArgument::RecordRow(*row_id)),
+                    super::type_member::TypeMemberArgument::RecordRow(row_id) => Ok(super::type_member::TypeMemberArgument::RecordRow(
+                        materialize_row_id(store, *row_id, instantiation, row_mode, visiting_rows)?,
+                    )),
                 })
                 .collect::<Result<Vec<_>, TypeMaterializationError>>()?
                 .into_boxed_slice();

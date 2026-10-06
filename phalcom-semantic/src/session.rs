@@ -4863,6 +4863,7 @@ impl SemanticWorkspaceSession {
                                     inherent_body_context: Some(crate::impls::InherentBodyContext {
                                         generic_signature: contrib.generic_signature.clone(),
                                         covering: contrib.covering.clone(),
+                                        source_target_head: contrib.source_target_head,
                                     }),
                                 };
                                 callable_definitions.insert(definition.callable.clone(), definition.clone());
@@ -5458,6 +5459,7 @@ impl SemanticWorkspaceSession {
                             declared_signature: Some((&surface_member.callable, &surface_member.signature)),
                             owner_generic_signature: header.generic_signature.as_ref(),
                             self_type_override: None,
+                            self_instance_type_override: None,
                             trait_surface: Some(surface),
                             store: Arc::make_mut(&mut self.store),
                             hierarchy: &hierarchy,
@@ -5624,6 +5626,7 @@ impl SemanticWorkspaceSession {
                                         declared_signature: None,
                                         owner_generic_signature: None,
                                         self_type_override: None,
+                                        self_instance_type_override: None,
                                         trait_surface: None,
                                         store: Arc::make_mut(&mut self.store),
                                         hierarchy: &hierarchy,
@@ -5797,6 +5800,7 @@ impl SemanticWorkspaceSession {
                                         declared_signature: Some((&signature.callable, signature)),
                                         owner_generic_signature: contribution_generic_signature.as_ref(),
                                         self_type_override: contribution_target_head,
+                                        self_instance_type_override: None,
                                         trait_surface: Some(trait_surface),
                                         store: Arc::make_mut(&mut self.store),
                                         hierarchy: &hierarchy,
@@ -5948,7 +5952,7 @@ impl SemanticWorkspaceSession {
                                     .as_ref()
                                     .map(|context| {
                                         context
-                                            .signature_for_body(Arc::make_mut(&mut self.store), canonical_signature.clone())
+                                            .signature_for_body(Arc::make_mut(&mut self.store), &declarations, canonical_signature.clone())
                                             .expect("validated covering substitution must materialize its accepted callable signature")
                                     })
                                     .unwrap_or(canonical_signature);
@@ -6001,6 +6005,7 @@ impl SemanticWorkspaceSession {
                                         declared_signature: Some((&callable_id, &body_signature)),
                                         owner_generic_signature: body_context.as_ref().and_then(|context| context.generic_signature.as_ref()),
                                         self_type_override: None,
+                                        self_instance_type_override: body_context.as_ref().map(|context| context.source_target_head),
                                         trait_surface: None,
                                         store: Arc::make_mut(&mut self.store),
                                         hierarchy: &hierarchy,
@@ -10451,10 +10456,14 @@ fn member_selector(member: &ClassMember) -> Option<Selector> {
     }
 }
 
-fn source_body_for_callable<'a>(callable: &CallableId, unit: &'a ParsedModuleUnit) -> Option<(&'a [Statement], SourceRange)> {
+fn source_body_for_callable<'a>(
+    callable: &CallableId,
+    definition: Option<&crate::impls::EffectiveCallableDefinition>,
+    unit: &'a ParsedModuleUnit,
+) -> Option<(&'a [Statement], SourceRange)> {
     callable.try_declaration_owner()?;
     let owner = callable.declaration_owner();
-    for statement in &unit.program.statements {
+    for (statement_index, statement) in unit.program.statements.iter().enumerate() {
         match statement {
             Statement::Class(class_def) if callable.owner == crate::identity::CallableOwnerId::Declaration(owner.clone()) => {
                 let declaration = DeclarationId::new(unit.id.clone(), class_def.name.clone().into());
@@ -10480,7 +10489,16 @@ fn source_body_for_callable<'a>(callable: &CallableId, unit: &'a ParsedModuleUni
                 }
             }
             Statement::Impl(impl_def) => {
-                for impl_member in &impl_def.members {
+                let expected_impl = crate::identity::ImplId::new(unit.id.clone(), crate::identity::ImplLocalId(statement_index as u32));
+                for (source_member_index, impl_member) in impl_def.members.iter().enumerate() {
+                    let Some(definition) = definition else {
+                        continue;
+                    };
+                    if definition.origin != crate::impls::CallableDefinitionOrigin::InherentImpl(expected_impl.clone())
+                        || definition.source_member_index != source_member_index
+                    {
+                        continue;
+                    }
                     let Some(member) = impl_member.behavior() else {
                         continue;
                     };
@@ -10584,13 +10602,14 @@ fn revalidate_downstream_callable_body(
         budget,
         cancel,
     } = state;
-    let Some((body, body_range)) = source_body_for_callable(callable, unit) else {
-        return Ok(());
-    };
-    let body_context = db
+    let definition = db
         .product(&QueryKey::CallableDefinition(callable.clone()))
         .and_then(|product| product.as_callable_definition())
-        .and_then(|definition| definition.inherent_body_context.clone());
+        .cloned();
+    let Some((body, body_range)) = source_body_for_callable(callable, definition.as_deref(), unit) else {
+        return Ok(());
+    };
+    let body_context = definition.as_ref().and_then(|definition| definition.inherent_body_context.clone());
     let mut type_parameters = HashMap::new();
     let owner_signature = body_context
         .as_ref()
@@ -10617,7 +10636,7 @@ fn revalidate_downstream_callable_body(
         .as_ref()
         .map(|context| {
             context
-                .signature_for_body(store, canonical_signature.clone())
+                .signature_for_body(store, formal_inputs.declarations, canonical_signature.clone())
                 .expect("validated covering substitution must materialize its accepted callable signature")
         })
         .unwrap_or(canonical_signature);
@@ -10630,6 +10649,7 @@ fn revalidate_downstream_callable_body(
             declared_signature: Some((callable, &body_signature)),
             owner_generic_signature: body_context.as_ref().and_then(|context| context.generic_signature.as_ref()),
             self_type_override: None,
+            self_instance_type_override: body_context.as_ref().map(|context| context.source_target_head),
             trait_surface: None,
             store,
             hierarchy,
@@ -11156,6 +11176,7 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                             body_range: range,
                             owner_generic_signature: None,
                             self_type_override: None,
+                            self_instance_type_override: None,
                             declared_signature,
                             budget,
                             cancel,

@@ -20,6 +20,7 @@ use crate::surface::DeclarationSurface;
 use crate::type_alias::TypeAliasInfo;
 use crate::types::denotation::SemanticDenotation;
 use crate::types::evidence::TypeKnowledge;
+use crate::types::id::TypeId;
 use crate::types::outcome::{BlockReason, BudgetReport};
 use crate::types::parameter::{GenericBinderHeader, GenericSignature};
 use crate::types::store::TypeStore;
@@ -297,7 +298,7 @@ pub(crate) fn hash_type_knowledge(knowledge: &TypeKnowledge, include_provenance:
     }
 }
 
-fn hash_generic_signature(signature: &GenericSignature, hasher: &mut impl Hasher) {
+pub(crate) fn hash_generic_signature(signature: &GenericSignature, hasher: &mut impl Hasher) {
     signature.owner.hash(hasher);
     if signature.parameter_kind_shapes.len() == signature.parameters.len()
         && signature.parameter_variances.len() == signature.parameters.len()
@@ -314,6 +315,31 @@ fn hash_generic_signature(signature: &GenericSignature, hasher: &mut impl Hasher
     for constraint in &sorted_constraints {
         constraint.hash(hasher);
     }
+}
+
+pub(crate) fn inherent_body_context_fingerprint(context: &crate::impls::InherentBodyContext) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    context.source_target_head.hash(&mut hasher);
+    match &context.generic_signature {
+        Some(signature) => {
+            1u8.hash(&mut hasher);
+            hash_generic_signature(signature, &mut hasher);
+        }
+        None => 0u8.hash(&mut hasher),
+    }
+    match &context.covering {
+        Some(covering) => {
+            1u8.hash(&mut hasher);
+            let mut mappings = covering.impl_to_decl.iter().collect::<Vec<_>>();
+            mappings.sort_unstable_by_key(|(implementation, _)| **implementation);
+            mappings.hash(&mut hasher);
+            let mut inverse_mappings = covering.decl_to_impl.iter().collect::<Vec<_>>();
+            inverse_mappings.sort_unstable_by_key(|(declaration, _)| **declaration);
+            inverse_mappings.hash(&mut hasher);
+        }
+        None => 0u8.hash(&mut hasher),
+    }
+    hasher.finish()
 }
 
 fn hash_generic_binder_header(header: &GenericBinderHeader, hasher: &mut impl Hasher) {
@@ -1641,6 +1667,7 @@ pub struct CallableBodyFormalInputFingerprint<'a> {
     pub lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
     pub owner_generic_signature: Option<&'a GenericSignature>,
     pub declared_signature: Option<&'a CallableSemanticSignature>,
+    pub self_instance_type_override: Option<TypeId>,
     pub trait_surface: Option<&'a crate::traits::TraitSurface>,
     pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
 }
@@ -1659,6 +1686,7 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
         lifecycle,
         owner_generic_signature,
         declared_signature,
+        self_instance_type_override,
         trait_surface,
         conformance_semantics,
     } = inputs;
@@ -1676,6 +1704,7 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
     } else {
         0u8.hash(&mut hasher);
     }
+    self_instance_type_override.hash(&mut hasher);
     if let Some(surface) = trait_surface {
         1u8.hash(&mut hasher);
         trait_surface_product_fingerprint(surface).raw().hash(&mut hasher);

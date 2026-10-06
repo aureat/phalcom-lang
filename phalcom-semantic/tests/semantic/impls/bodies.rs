@@ -182,6 +182,36 @@ impl<Tag> Id<Tag> {
 }
 
 #[test]
+fn test_covering_class_impl_body_specializes_bare_self() {
+    let module = test_module();
+    let src = r#"
+data Token()
+
+data Id<Tag>(
+  _ token: Token,
+)
+
+impl<Tag> Id<Tag> {
+  @class
+  fresh() -> Self {
+    Id<Tag>(Token())
+  }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(single_module_input(module.clone(), src));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let callable = CallableId::new(
+        DeclarationId::new(module, "Id".into()),
+        Selector::method("fresh", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let analysis = update.snapshot.callable_analyses.get(&callable).expect("fresh body analysis");
+    assert!(analysis.diagnostics.is_empty());
+}
+
+#[test]
 fn test_covering_permutation_body_specializes_parameters_and_return() {
     let module = test_module();
     let src = r#"

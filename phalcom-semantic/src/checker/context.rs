@@ -557,6 +557,7 @@ pub struct CheckingContext<'a> {
     pub generic_evidence: crate::generic_evidence::GenericEvidenceEnvironment,
     pub ambient_constraints: Vec<crate::types::parameter::GenericConstraint>,
     pub self_override_type: Option<TypeId>,
+    pub self_instance_type_override: Option<TypeId>,
     pub core_ids: CoreDeclarationIds,
     pub(crate) rigids: RigidArena,
     /// Active branch-local constraints used only while checking one branch.
@@ -681,6 +682,7 @@ impl<'a> CheckingContext<'a> {
             generic_evidence: crate::generic_evidence::GenericEvidenceEnvironment::empty(),
             ambient_constraints: Vec::new(),
             self_override_type: None,
+            self_instance_type_override: None,
             core_ids: CoreDeclarationIds::default(),
             rigids: RigidArena::new(),
             active_local_constraints: Vec::new(),
@@ -787,6 +789,7 @@ impl<'a> CheckingContext<'a> {
             generic_evidence: crate::generic_evidence::GenericEvidenceEnvironment::empty(),
             ambient_constraints: Vec::new(),
             self_override_type: None,
+            self_instance_type_override: None,
             core_ids: CoreDeclarationIds::default(),
             rigids: RigidArena::new(),
             active_local_constraints: Vec::new(),
@@ -872,6 +875,7 @@ impl<'a> CheckingContext<'a> {
             generic_evidence: self.generic_evidence.clone(),
             ambient_constraints: self.ambient_constraints.clone(),
             self_override_type: self.self_override_type,
+            self_instance_type_override: self.self_instance_type_override,
             core_ids: self.core_ids.clone(),
             rigids: self.rigids.clone(),
             active_local_constraints: self.active_local_constraints.clone(),
@@ -1496,11 +1500,14 @@ impl<'a> CheckingContext<'a> {
         annotation: &phalcom_ast::ast::TypeAnnotation,
     ) -> (TypeKnowledge, crate::checker::causal::CausalInvalidity) {
         let mut diagnostics = Vec::new();
-        let site = if let Some(owner) = self.current_class.clone() {
+        let mut site = if let Some(owner) = self.current_class.clone() {
             TypeFormationSite::member(self.current_module.clone(), owner, self.current_side)
         } else {
             TypeFormationSite::module(self.current_module.clone())
         };
+        if let Some(self_type) = self.self_instance_type_override {
+            site = site.with_self_type_override(self_type);
+        }
         let knowledge = crate::types::annotation::resolve_type_annotation(self.store, self.declarations, resolver, &site, annotation, &mut diagnostics);
         let causal_invalidity = self.publish_diagnostics(diagnostics);
         (knowledge, causal_invalidity)

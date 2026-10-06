@@ -3716,6 +3716,8 @@ pub struct InherentMemberContribution {
 pub struct InherentImplContribution {
     pub id: ImplId,
     pub target: InherentImplTarget,
+    /// The source impl target in its own generic coordinate system.
+    pub source_target_head: TypeId,
     pub generic_signature: Option<GenericSignature>,
     pub covering: Option<CoveringImplSubstitution>,
     /// Whether applicability depends on the receiver beyond the target's
@@ -3868,20 +3870,49 @@ pub struct EffectiveCallableDefinition {
 pub struct InherentBodyContext {
     pub generic_signature: Option<GenericSignature>,
     pub covering: Option<CoveringImplSubstitution>,
+    /// Source-relative instance type for `Self` in this impl body. This is
+    /// deliberately distinct from the runtime receiver value type.
+    pub source_target_head: TypeId,
 }
 
 impl InherentBodyContext {
     pub fn signature_for_body(
         &self,
         store: &mut TypeStore,
+        declarations: &DeclarationTypeTable,
         canonical_signature: CallableSemanticSignature,
     ) -> Result<CallableSemanticSignature, TypeMaterializationError> {
-        let Some(covering) = &self.covering else {
-            return Ok(canonical_signature);
+        let signature = if let Some(covering) = &self.covering {
+            let instantiation = covering.to_body_instantiation(store)?;
+            apply_covering_instantiation_to_signature(store, &instantiation, canonical_signature)?
+        } else {
+            canonical_signature
         };
-        let instantiation = covering.to_body_instantiation(store)?;
-        apply_covering_instantiation_to_signature(store, &instantiation, canonical_signature)
+        Ok(specialize_signature_instance_self(store, declarations, self.source_target_head, signature))
     }
+}
+
+fn specialize_signature_instance_self(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    source_target_head: TypeId,
+    mut signature: CallableSemanticSignature,
+) -> CallableSemanticSignature {
+    let specialize = |store: &mut TypeStore, fact: &mut crate::declaration_type::DeclaredTypeFact| {
+        if let DeclaredTypeState::Known(TypeTerm::Canonical(ty)) = fact.state {
+            fact.state = DeclaredTypeState::Known(TypeTerm::Canonical(
+                crate::types::substitution::specialize_self_type(store, declarations, source_target_head, ty),
+            ));
+        }
+    };
+    for parameter in &mut signature.parameters {
+        specialize(store, &mut parameter.declared_type);
+    }
+    specialize(store, &mut signature.declared_return);
+    if let Some(inferred) = &mut signature.inferred_return {
+        *inferred = inferred.map_type(|ty| crate::types::substitution::specialize_self_type(store, declarations, source_target_head, ty));
+    }
+    signature
 }
 
 /// Product of merging a primary declared surface with inherent impl contributions.
@@ -4137,6 +4168,7 @@ pub fn build_effective_surface(
                         inherent_body_context: Some(InherentBodyContext {
                             generic_signature: contribution.generic_signature.clone(),
                             covering: contribution.covering.clone(),
+                            source_target_head: contribution.source_target_head,
                         }),
                     },
                 );
@@ -5563,6 +5595,7 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
             return InherentImplContribution {
                 id: impl_id.clone(),
                 target: InherentImplTarget::Declaration(DeclarationId::new(ctx.current_module.clone(), "_".into())),
+                source_target_head: ctx.store.unit(),
                 generic_signature: None,
                 covering: None,
                 is_conditionally_applicable: false,
@@ -5842,6 +5875,7 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
     InherentImplContribution {
         id: impl_id.clone(),
         target: resolved_target.target,
+        source_target_head: resolved_target.target_type,
         generic_signature: resolved_target.generic_signature,
         covering: match resolved_target.applicability {
             InherentImplApplicability::Covering(cov) => Some(cov),

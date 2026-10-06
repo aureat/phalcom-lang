@@ -345,6 +345,7 @@ class Owner {
             declared_signature: None,
             owner_generic_signature: None,
             self_type_override: None,
+            self_instance_type_override: None,
             trait_surface: None,
             store: &mut store,
             hierarchy: &hierarchy,

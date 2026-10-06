@@ -2179,24 +2179,10 @@ pub fn query_callable_definition(
             hasher.finish().rotate_left(7)
         }
     };
-    let body_context_tag = definition.inherent_body_context.as_ref().map_or(0, |context| {
-        let mut hasher = DefaultHasher::new();
-        if let Some(generics) = &context.generic_signature {
-            generics.owner.hash(&mut hasher);
-            for parameter in generics.parameters.iter() {
-                parameter.hash(&mut hasher);
-            }
-        }
-        if let Some(covering) = &context.covering {
-            let mut mappings = covering.decl_to_impl.iter().collect::<Vec<_>>();
-            mappings.sort_unstable_by_key(|(declaration, _)| **declaration);
-            for (declaration, implementation) in mappings {
-                declaration.hash(&mut hasher);
-                implementation.hash(&mut hasher);
-            }
-        }
-        hasher.finish()
-    });
+    let body_context_tag = definition
+        .inherent_body_context
+        .as_ref()
+        .map_or(0, crate::db::fingerprint::inherent_body_context_fingerprint);
     let value =
         signature_fingerprint.raw() ^ origin_tag.rotate_left(17) ^ (definition.source_member_index as u64).rotate_left(33) ^ body_context_tag.rotate_left(11);
     let input_fingerprint = crate::db::InputFingerprint::new(value);
@@ -2953,6 +2939,9 @@ pub struct CallableBodyQuery<'a> {
     pub owner_generic_signature: Option<&'a crate::types::parameter::GenericSignature>,
     /// Optional concrete receiver used by conformance witness body checking.
     pub self_type_override: Option<TypeId>,
+    /// Optional type-level `Self` specialization that leaves the runtime
+    /// receiver value unchanged.
+    pub self_instance_type_override: Option<TypeId>,
     /// Optional abstract trait contract used for trait default body analysis.
     pub trait_surface: Option<&'a crate::traits::TraitSurface>,
     pub store: &'a mut TypeStore,
@@ -2999,6 +2988,7 @@ fn query_callable_body_with_requirement(
         declared_signature: explicit_declared_signature,
         owner_generic_signature,
         self_type_override,
+        self_instance_type_override,
         trait_surface,
         store,
         hierarchy,
@@ -3035,6 +3025,7 @@ fn query_callable_body_with_requirement(
                 lifecycle: inputs.field_lifecycle,
                 owner_generic_signature,
                 declared_signature: explicit_declared_signature.map(|(_, signature)| signature),
+                self_instance_type_override,
                 trait_surface,
                 conformance_semantics: formal_inputs.and_then(|inputs| inputs.conformance_semantics),
             },
@@ -3133,6 +3124,7 @@ fn query_callable_body_with_requirement(
             body_range,
             owner_generic_signature,
             self_type_override,
+            self_instance_type_override,
             declared_signature: declared_signature.as_ref().map(|(signature_id, signature)| (signature_id, signature.as_ref())),
             budget,
             cancel,
@@ -3195,6 +3187,11 @@ fn query_callable_body_with_requirement(
         // collection is empty.
         CallableAnalysisStatus::Complete | CallableAnalysisStatus::Partial | CallableAnalysisStatus::InternalFailure(_) => {
             let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+            if db.product(&QueryKey::CallableDefinition(callable.clone())).is_some()
+                && let Err(error) = db.record_dependency(&mut recorder, QueryKey::CallableDefinition(callable.clone()))
+            {
+                return query_failure(db, key, error);
+            }
             for sem_dep in arc_analysis.semantic_dependencies.iter() {
                 let outcome = if let Some(inputs) = formal_inputs {
                     ensure_formal_semantic_dependency_current(db, sem_dep, inputs, store)

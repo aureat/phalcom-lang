@@ -66,6 +66,9 @@ pub struct CallableBodyRequest<'a> {
     /// Explicit receiver type for non-nominal callable owners such as
     /// conformance-local witnesses.
     pub self_type_override: Option<crate::types::id::TypeId>,
+    /// Source-relative type for type-level `Self`; it does not alter the
+    /// runtime lowercase `self` value.
+    pub self_instance_type_override: Option<crate::types::id::TypeId>,
     pub declared_signature: Option<(&'a CallableId, &'a crate::signature::CallableSemanticSignature)>,
     pub budget: QueryBudget,
     pub cancel: &'a CancellationToken,
@@ -99,6 +102,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         body_range,
         owner_generic_signature,
         self_type_override,
+        self_instance_type_override,
         declared_signature,
         budget,
         cancel,
@@ -181,6 +185,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     if let Some(self_type) = self_type_override {
         ctx.self_override_type = Some(self_type);
     }
+    ctx.self_instance_type_override = self_instance_type_override;
     if let Some(domain) = &impl_domain {
         ctx.self_override_type = Some(domain.head_type);
     }

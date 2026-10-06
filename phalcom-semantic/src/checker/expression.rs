@@ -933,11 +933,14 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 return static_application;
             }
             let resolver = ctx.resolver.inner();
-            let site = if let Some(owner) = ctx.current_class.clone() {
+            let mut site = if let Some(owner) = ctx.current_class.clone() {
                 crate::types::annotation::TypeFormationSite::member(ctx.current_module.clone(), owner, ctx.current_side)
             } else {
                 crate::types::annotation::TypeFormationSite::module(ctx.current_module.clone())
             };
+            if let Some(self_type) = ctx.self_instance_type_override {
+                site = site.with_self_type_override(self_type);
+            }
             let (resolution, causal_invalidity) = ctx.resolve_type_form(resolver, &site, annotation);
             let mut typed = match resolution {
                 crate::types::annotation::TypeFormResolution::Ready(form) => {
