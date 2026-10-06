@@ -12,8 +12,8 @@ data Person {
   Diana
 }
 
-let parent = Predicate<Person, Person>.named(#parent)
-let grandparent = Predicate<Person, Person>.named(#grandparent)
+let parent = Predicate<*(Person, Person)>.named(#parent)
+let grandparent = Predicate<*(Person, Person)>.named(#grandparent)
 
 let ancestor = Variable<Person>.named(#ancestor)
 let middle = Variable<Person>.named(#middle)

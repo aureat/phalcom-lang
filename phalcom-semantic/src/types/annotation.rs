@@ -3944,9 +3944,12 @@ fn resolve_type_member_projection(
             TypeData::TypePack(_) => Some(crate::types::type_member::IntrinsicTypeOwner::TypePack),
             TypeData::LabeledTypePack(_) => Some(crate::types::type_member::IntrinsicTypeOwner::LabeledTypePack),
             TypeData::CompleteTypePack { .. } => Some(crate::types::type_member::IntrinsicTypeOwner::CompleteTypePack),
-            TypeData::TypeMemberProjection(_) if store.kind_of(subject_ty) == KindId::RECORD_ROW => {
-                Some(crate::types::type_member::IntrinsicTypeOwner::RecordRow)
-            }
+            // Domain-native members belong to the subject's kind, including
+            // symbolic binders, concatenations, and earlier projections.
+            _ if store.kind_of(subject_ty) == KindId::TYPE_PACK => Some(crate::types::type_member::IntrinsicTypeOwner::TypePack),
+            _ if store.kind_of(subject_ty) == KindId::LABELED_TYPE_PACK => Some(crate::types::type_member::IntrinsicTypeOwner::LabeledTypePack),
+            _ if store.kind_of(subject_ty) == KindId::COMPLETE_TYPE_PACK => Some(crate::types::type_member::IntrinsicTypeOwner::CompleteTypePack),
+            _ if store.kind_of(subject_ty) == KindId::RECORD_ROW => Some(crate::types::type_member::IntrinsicTypeOwner::RecordRow),
             TypeData::Nominal { declaration } => declarations.intrinsic_type_owner(declaration),
             TypeData::Applied { .. } => store
                 .nominal_origin_declaration(subject_ty)
@@ -4011,6 +4014,7 @@ fn resolve_type_member_projection(
                 | IntrinsicTypeOperation::RecordMap
                 | IntrinsicTypeOperation::TypePackMap
                 | IntrinsicTypeOperation::LabeledTypePackMap
+                | IntrinsicTypeOperation::CompleteTypePackMap
                 | IntrinsicTypeOperation::RecordRowMap,
         )
     );

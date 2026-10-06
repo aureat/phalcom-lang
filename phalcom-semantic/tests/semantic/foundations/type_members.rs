@@ -869,6 +869,43 @@ fn record_fields_projection_preserves_exact_row_identity() {
 }
 
 #[test]
+fn symbolic_pack_maps_preserve_domain_and_source_member_identity() {
+    use phalcom_semantic::types::id::KindId;
+    use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
+
+    let mut env = setup();
+    for (name, kind) in [("Ts", KindId::TYPE_PACK), ("Ls", KindId::LABELED_TYPE_PACK), ("Es", KindId::COMPLETE_TYPE_PACK)] {
+        let parameter = env.store.intern_type_parameter(TypeParameterData::new(
+            TypeParameterOwner::Declaration(decl("SymbolicPackMaps")),
+            kind.index() as u32,
+            name,
+            kind,
+        ));
+        let form = env.store.parameter_form(parameter);
+        env.resolver.insert_parameter(name, form);
+        let mut diagnostics = Vec::new();
+        let mapped = proj_ann(ref_ann(name), "Map", vec![TypeMemberArgumentSyntax::TypeForm(ref_ann("List"))]);
+        let TypeFormResolution::Ready(mapped) = resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &mapped, &mut diagnostics)
+        else {
+            panic!("symbolic pack Map must resolve: {diagnostics:?}");
+        };
+        assert_eq!(env.store.kind_of(mapped), kind);
+        let TypeData::TypeMemberProjection(projection) = env.store.get(mapped) else {
+            panic!("symbolic mapping must remain a projection");
+        };
+        assert!(projection.source_declaration.is_some());
+        // A second mapping exercises projection subjects, not only binders.
+        env.resolver.insert_parameter("Mapped", mapped);
+        let twice = proj_ann(ref_ann("Mapped"), "Map", vec![TypeMemberArgumentSyntax::TypeForm(ref_ann("Option"))]);
+        let TypeFormResolution::Ready(twice) = resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &twice, &mut diagnostics) else {
+            panic!("composed pack Map must resolve: {diagnostics:?}");
+        };
+        assert_eq!(env.store.kind_of(twice), kind);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+}
+
+#[test]
 fn test_map_rejects_non_constructor_argument() {
     let mut env = setup();
     let ann = proj_ann(

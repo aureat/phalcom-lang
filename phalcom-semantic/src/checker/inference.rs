@@ -87,6 +87,11 @@ pub enum InferenceTerm {
     },
     TypePackConcat(Box<[InferenceTerm]>),
     LabeledTypePackConcat(Box<[InferenceTerm]>),
+    /// Proper Pack identity with solver-visible lane terms.
+    PackFromPacks {
+        positionals: Box<InferenceTerm>,
+        labeled: Box<InferenceTerm>,
+    },
     TupleFromPacks {
         positionals: Box<InferenceTerm>,
         labeled: Box<InferenceTerm>,
@@ -413,6 +418,7 @@ fn inference_term_contains_row_variable(
         InferenceTerm::CompleteTypePack { positionals, labeled } => visit!(positionals) || visit!(labeled),
         InferenceTerm::TypePackConcat(segments) | InferenceTerm::LabeledTypePackConcat(segments) => segments.iter().any(|nested| visit!(nested)),
         InferenceTerm::TupleFromPacks { positionals, labeled } => visit!(positionals) || visit!(labeled),
+        InferenceTerm::PackFromPacks { positionals, labeled } => visit!(positionals) || visit!(labeled),
         InferenceTerm::CallableFromPacks {
             positionals,
             labeled,
@@ -1186,6 +1192,10 @@ impl InferenceSession {
                 positionals: Box::new(self.type_id_to_inference(*positionals, subst, store)),
                 labeled: Box::new(self.type_id_to_inference(*labeled, subst, store)),
             },
+            TypeData::PackFromPacks { positionals, labeled } => InferenceTerm::PackFromPacks {
+                positionals: Box::new(self.type_id_to_inference(*positionals, subst, store)),
+                labeled: Box::new(self.type_id_to_inference(*labeled, subst, store)),
+            },
             TypeData::CallableFromPacks {
                 positionals,
                 labeled,
@@ -1374,6 +1384,10 @@ impl InferenceSession {
                     .into_boxed_slice(),
             ),
             TypeData::TupleFromPacks { positionals, labeled } => InferenceTerm::TupleFromPacks {
+                positionals: Box::new(self.type_id_to_inference_with_rows(*positionals, subst, row_subst, store)),
+                labeled: Box::new(self.type_id_to_inference_with_rows(*labeled, subst, row_subst, store)),
+            },
+            TypeData::PackFromPacks { positionals, labeled } => InferenceTerm::PackFromPacks {
                 positionals: Box::new(self.type_id_to_inference_with_rows(*positionals, subst, row_subst, store)),
                 labeled: Box::new(self.type_id_to_inference_with_rows(*labeled, subst, row_subst, store)),
             },
@@ -1692,6 +1706,11 @@ impl InferenceSession {
                 let lab = self.materialize_for_expected(labeled, store)?;
                 store.tuple_from_packs(pos, lab).ok()
             }
+            InferenceTerm::PackFromPacks { positionals, labeled } => {
+                let pos = self.materialize_for_expected(positionals, store)?;
+                let lab = self.materialize_for_expected(labeled, store)?;
+                store.pack_from_packs(pos, lab).ok()
+            }
             InferenceTerm::CallableFromPacks {
                 positionals,
                 labeled,
@@ -1970,11 +1989,12 @@ impl InferenceSession {
                 positionals: Box::new(self.scoped_to_inference(positionals, depth, arguments, store)?),
                 labeled: Box::new(self.scoped_to_inference(labeled, depth, arguments, store)?),
             }),
-            // Inference has no symbolic proper-Pack term yet. Keep this
-            // scoped form unavailable until the bound constraints can be
-            // represented without collapsing Pack identity to a Tuple.
+            // Open proper Pack remainders still require their own solver representation.
             ScopedTypeData::Pack(_) => None,
-            ScopedTypeData::PackFromPacks { .. } => None,
+            ScopedTypeData::PackFromPacks { positionals, labeled } => Some(InferenceTerm::PackFromPacks {
+                positionals: Box::new(self.scoped_to_inference(positionals, depth, arguments, store)?),
+                labeled: Box::new(self.scoped_to_inference(labeled, depth, arguments, store)?),
+            }),
             ScopedTypeData::CallableFromPacks {
                 positionals,
                 labeled,
@@ -2358,6 +2378,10 @@ impl InferenceSession {
                 InferenceTerm::LabeledTypePackConcat(segments.iter().map(|seg| self.term_for_expected(seg)).collect::<Vec<_>>().into_boxed_slice())
             }
             InferenceTerm::TupleFromPacks { positionals, labeled } => InferenceTerm::TupleFromPacks {
+                positionals: Box::new(self.term_for_expected(positionals)),
+                labeled: Box::new(self.term_for_expected(labeled)),
+            },
+            InferenceTerm::PackFromPacks { positionals, labeled } => InferenceTerm::PackFromPacks {
                 positionals: Box::new(self.term_for_expected(positionals)),
                 labeled: Box::new(self.term_for_expected(labeled)),
             },
@@ -2892,6 +2916,10 @@ impl InferenceSession {
                 positionals: Box::new(self.term_substitute_variables(positionals)),
                 labeled: Box::new(self.term_substitute_variables(labeled)),
             },
+            InferenceTerm::PackFromPacks { positionals, labeled } => InferenceTerm::PackFromPacks {
+                positionals: Box::new(self.term_substitute_variables(positionals)),
+                labeled: Box::new(self.term_substitute_variables(labeled)),
+            },
             InferenceTerm::CallableFromPacks {
                 positionals,
                 labeled,
@@ -2934,6 +2962,7 @@ impl InferenceSession {
             InferenceTerm::TypePackConcat(segments) => segments.iter().any(|s| self.term_contains_projection(s)),
             InferenceTerm::LabeledTypePackConcat(segments) => segments.iter().any(|s| self.term_contains_projection(s)),
             InferenceTerm::TupleFromPacks { positionals, labeled } => self.term_contains_projection(positionals) || self.term_contains_projection(labeled),
+            InferenceTerm::PackFromPacks { positionals, labeled } => self.term_contains_projection(positionals) || self.term_contains_projection(labeled),
             InferenceTerm::CallableFromPacks {
                 positionals,
                 labeled,
@@ -3223,6 +3252,9 @@ impl InferenceSession {
             InferenceTerm::TupleFromPacks { positionals, labeled } => {
                 self.term_has_unresolved_variables(positionals) || self.term_has_unresolved_variables(labeled)
             }
+            InferenceTerm::PackFromPacks { positionals, labeled } => {
+                self.term_has_unresolved_variables(positionals) || self.term_has_unresolved_variables(labeled)
+            }
             InferenceTerm::CallableFromPacks {
                 positionals,
                 labeled,
@@ -3374,6 +3406,10 @@ impl InferenceSession {
                 self.collect_term_variables(positionals, variables);
                 self.collect_term_variables(labeled, variables);
             }
+            InferenceTerm::PackFromPacks { positionals, labeled } => {
+                self.collect_term_variables(positionals, variables);
+                self.collect_term_variables(labeled, variables);
+            }
             InferenceTerm::CallableFromPacks {
                 positionals,
                 labeled,
@@ -3498,6 +3534,10 @@ impl InferenceSession {
                 self.record_term_proof_state(positionals, proof.clone());
                 self.record_term_proof_state(labeled, proof);
             }
+            InferenceTerm::PackFromPacks { positionals, labeled } => {
+                self.record_term_proof_state(positionals, proof.clone());
+                self.record_term_proof_state(labeled, proof);
+            }
             InferenceTerm::CallableFromPacks {
                 positionals,
                 labeled,
@@ -3610,6 +3650,10 @@ impl InferenceSession {
                 }
             }
             InferenceTerm::TupleFromPacks { positionals, labeled } => {
+                self.record_term_support(positionals, support);
+                self.record_term_support(labeled, support);
+            }
+            InferenceTerm::PackFromPacks { positionals, labeled } => {
                 self.record_term_support(positionals, support);
                 self.record_term_support(labeled, support);
             }
@@ -3778,6 +3822,7 @@ impl InferenceSession {
                 segments.iter().any(|seg| self.occurs_in_term(rep, seg))
             }
             InferenceTerm::TupleFromPacks { positionals, labeled } => self.occurs_in_term(rep, positionals) || self.occurs_in_term(rep, labeled),
+            InferenceTerm::PackFromPacks { positionals, labeled } => self.occurs_in_term(rep, positionals) || self.occurs_in_term(rep, labeled),
             InferenceTerm::CallableFromPacks {
                 positionals,
                 labeled,
@@ -3842,6 +3887,7 @@ impl InferenceSession {
                 segments.iter().any(|seg| self.term_has_projection(seg, store))
             }
             InferenceTerm::TupleFromPacks { positionals, labeled } => self.term_has_projection(positionals, store) || self.term_has_projection(labeled, store),
+            InferenceTerm::PackFromPacks { positionals, labeled } => self.term_has_projection(positionals, store) || self.term_has_projection(labeled, store),
             InferenceTerm::CallableFromPacks {
                 positionals,
                 labeled,
@@ -4298,6 +4344,7 @@ impl InferenceSession {
                 | InferenceTerm::TypePackConcat(_)
                 | InferenceTerm::LabeledTypePackConcat(_)
                 | InferenceTerm::TupleFromPacks { .. }
+                | InferenceTerm::PackFromPacks { .. }
                 | InferenceTerm::CallableFromPacks { .. }
                 | InferenceTerm::PackProjection { .. }),
             )
@@ -4312,6 +4359,7 @@ impl InferenceSession {
                 | InferenceTerm::TypePackConcat(_)
                 | InferenceTerm::LabeledTypePackConcat(_)
                 | InferenceTerm::TupleFromPacks { .. }
+                | InferenceTerm::PackFromPacks { .. }
                 | InferenceTerm::CallableFromPacks { .. }
                 | InferenceTerm::PackProjection { .. }),
                 InferenceTerm::Canonical(ty),
@@ -4410,6 +4458,20 @@ impl InferenceSession {
                     labeled: left_lab,
                 },
                 InferenceTerm::TupleFromPacks {
+                    positionals: right_pos,
+                    labeled: right_lab,
+                },
+            ) => {
+                let mut changed = self.unify_terms(left_pos, right_pos, store)?.is_changed();
+                changed |= self.unify_terms(left_lab, right_lab, store)?.is_changed();
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (
+                InferenceTerm::PackFromPacks {
+                    positionals: left_pos,
+                    labeled: left_lab,
+                },
+                InferenceTerm::PackFromPacks {
                     positionals: right_pos,
                     labeled: right_lab,
                 },
@@ -4543,7 +4605,13 @@ impl InferenceSession {
             // Type-member operations are not injective. Their subjects and
             // arguments may become canonical after other constraints solve,
             // but projection equality must not solve those children backwards.
-            (InferenceTerm::TypeMemberProjection { .. }, InferenceTerm::TypeMemberProjection { .. }) if left == right => Ok(SolveEffect::Unchanged),
+            (InferenceTerm::TypeMemberProjection { .. }, InferenceTerm::TypeMemberProjection { .. })
+                if self.term_for_expected(left) == self.term_for_expected(right) =>
+            {
+                // Apply established substitutions forward. Congruence proves
+                // identical projections; it never infers their children.
+                Ok(SolveEffect::Unchanged)
+            }
             (InferenceTerm::TypeMemberProjection { .. }, _) | (_, InferenceTerm::TypeMemberProjection { .. }) => {
                 self.defer_active_constraint();
                 Ok(SolveEffect::Unchanged)
@@ -4945,6 +5013,20 @@ impl InferenceSession {
                 Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
             }
             (
+                InferenceTerm::PackFromPacks {
+                    positionals: sub_pos,
+                    labeled: sub_lab,
+                },
+                InferenceTerm::PackFromPacks {
+                    positionals: sup_pos,
+                    labeled: sup_lab,
+                },
+            ) => {
+                let mut changed = self.unify_terms(sub_pos, sup_pos, store)?.is_changed();
+                changed |= self.unify_terms(sub_lab, sup_lab, store)?.is_changed();
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (
                 InferenceTerm::CallableFromPacks {
                     positionals: sub_pos,
                     labeled: sub_lab,
@@ -5150,6 +5232,11 @@ impl InferenceSession {
                 let pos = self.materialize(positionals, store)?;
                 let lab = self.materialize(labeled, store)?;
                 store.tuple_from_packs(pos, lab).map_err(InferenceMaterializationFailure::Pack)
+            }
+            InferenceTerm::PackFromPacks { positionals, labeled } => {
+                let pos = self.materialize(positionals, store)?;
+                let lab = self.materialize(labeled, store)?;
+                store.pack_from_packs(pos, lab).map_err(InferenceMaterializationFailure::Pack)
             }
             InferenceTerm::CallableFromPacks {
                 positionals,

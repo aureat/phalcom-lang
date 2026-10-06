@@ -1806,3 +1806,203 @@ fn solved_subjects_with_symbolic_type_member_relation_still_block_solved() {
     ));
     assert_eq!(session.residual_obligations().len(), 1);
 }
+
+#[test]
+fn proper_pack_lane_inference_preserves_pack_identity() {
+    let mut store = TypeStore::new();
+    let mut session = InferenceSession::new();
+    let parameter = store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(test_decl("PackOwner")),
+        0,
+        "Ts",
+        KindId::TYPE_PACK,
+    ));
+    let positional = store.parameter_form(parameter);
+    let labeled = store.labeled_type_pack(Box::new([])).unwrap();
+    let generic_pack = store.pack_from_packs(positional, labeled).unwrap();
+    let variable = session.fresh_variable(KindId::TYPE_PACK);
+    let substitutions = std::collections::HashMap::from([(parameter, InferenceTerm::Var(variable))]);
+    let inferred = session.type_id_to_inference(generic_pack, &substitutions, &store);
+    assert!(matches!(&inferred, InferenceTerm::PackFromPacks { .. }));
+    let int = store.nominal(test_decl("Int"));
+    let lane = store.type_pack(Box::new([int])).unwrap();
+    let actual = InferenceTerm::PackFromPacks {
+        positionals: Box::new(InferenceTerm::Canonical(lane)),
+        labeled: Box::new(InferenceTerm::Canonical(labeled)),
+    };
+    session.add_constraint(InferenceRelation::Equivalent(inferred.clone(), actual), ConstraintOrigin::Explicit, None);
+    assert!(session.solve(&mut store, &MapTypeHierarchy::new()).is_solved());
+    let materialized = session.materialize(&inferred, &mut store).unwrap();
+    assert!(matches!(store.get(materialized), TypeData::Pack(_)));
+    let tuple = store.tuple_from_packs(lane, labeled).unwrap();
+    assert_ne!(materialized, tuple, "Pack identity must never collapse to Tuple");
+}
+
+#[test]
+fn type_member_projection_residual_discharges_after_independent_subject_solution() {
+    for projection_first in [true, false] {
+        let mut store = TypeStore::new();
+        let hierarchy = MapTypeHierarchy::new();
+        let mut session = InferenceSession::new();
+        let subject = session.fresh_variable(KindId::TYPE);
+        let rigid = rigid_parameter(&mut store);
+        let projection = InferenceRelation::Equivalent(
+            residual_type_member_projection(InferenceTerm::Var(subject)),
+            residual_type_member_projection(InferenceTerm::Canonical(rigid)),
+        );
+        let selection = InferenceRelation::Equivalent(InferenceTerm::Var(subject), InferenceTerm::Canonical(rigid));
+        let constraints = if projection_first { [projection, selection] } else { [selection, projection] };
+        for constraint in constraints {
+            session.add_constraint(constraint, ConstraintOrigin::Explicit, None);
+        }
+        assert!(session.solve(&mut store, &hierarchy).is_solved());
+        assert!(session.residual_obligations().is_empty());
+        assert_eq!(session.materialize(&InferenceTerm::Var(subject), &mut store).unwrap(), rigid);
+    }
+}
+
+fn two_lane_pack(positionals: InferenceTerm, labeled: InferenceTerm) -> InferenceTerm {
+    InferenceTerm::PackFromPacks { positionals: Box::new(positionals), labeled: Box::new(labeled) }
+}
+
+#[test]
+fn proper_pack_inference_preserves_both_lanes_labels_and_empty_cases() {
+    for (positional_count, labels) in [(0, vec![]), (2, vec![]), (0, vec!["first", "second"]), (2, vec!["first", "second"])] {
+        let mut store = TypeStore::new();
+        let int = store.nominal(test_decl("Int"));
+        let string = store.nominal(test_decl("String"));
+        let positionals = store.type_pack(vec![int, string][..positional_count].to_vec().into_boxed_slice()).unwrap();
+        let labeled = store.labeled_type_pack(labels.iter().enumerate().map(|(index, label)| {
+            phalcom_semantic::types::store::LabeledTypePackElement { label: (*label).into(), element: [string, int][index] }
+        }).collect::<Vec<_>>().into_boxed_slice()).unwrap();
+        let mut session = InferenceSession::new();
+        let p = session.fresh_variable(KindId::TYPE_PACK);
+        let l = session.fresh_variable(KindId::LABELED_TYPE_PACK);
+        let inferred = two_lane_pack(InferenceTerm::Var(p), InferenceTerm::Var(l));
+        session.add_constraint(InferenceRelation::Equivalent(inferred.clone(), two_lane_pack(
+            InferenceTerm::Canonical(positionals), InferenceTerm::Canonical(labeled),
+        )), ConstraintOrigin::Explicit, None);
+        assert!(session.solve(&mut store, &MapTypeHierarchy::new()).is_solved());
+        let actual = session.materialize(&inferred, &mut store).unwrap();
+        assert_eq!(actual, store.pack_from_packs(positionals, labeled).unwrap());
+        assert_ne!(actual, store.tuple_from_packs(positionals, labeled).unwrap());
+        assert_eq!(session.materialize_for_expected(&inferred, &mut store), Some(actual));
+        assert_eq!(session.materialize(&InferenceTerm::Var(p), &mut store).unwrap(), positionals);
+        assert_eq!(session.materialize(&InferenceTerm::Var(l), &mut store).unwrap(), labeled);
+    }
+}
+
+#[test]
+fn proper_pack_inference_rejects_tuple_identity_in_both_directions() {
+    for reverse in [false, true] {
+        for subtype in [false, true] {
+            let mut store = TypeStore::new();
+            let int = store.nominal(test_decl("Int"));
+            let positional = store.type_pack(Box::new([int])).unwrap();
+            let labeled = store.labeled_type_pack(Box::new([])).unwrap();
+            let tuple = store.tuple_from_packs(positional, labeled).unwrap();
+            let pack = two_lane_pack(InferenceTerm::Canonical(positional), InferenceTerm::Canonical(labeled));
+            let (left, right) = if reverse { (InferenceTerm::Canonical(tuple), pack) } else { (pack, InferenceTerm::Canonical(tuple)) };
+            let relation = if subtype { InferenceRelation::Subtype(left, right) } else { InferenceRelation::Equivalent(left, right) };
+            let mut session = InferenceSession::new();
+            session.add_constraint(relation, ConstraintOrigin::Explicit, None);
+            assert!(matches!(session.solve(&mut store, &MapTypeHierarchy::new()), InferenceOutcome::Conflicting(_)));
+        }
+    }
+}
+
+#[test]
+fn proper_pack_inference_rejects_lane_kind_mismatch() {
+    let mut store = TypeStore::new();
+    let labeled = store.labeled_type_pack(Box::new([])).unwrap();
+    let mut session = InferenceSession::new();
+    let p = session.fresh_variable(KindId::TYPE_PACK);
+    session.add_constraint(InferenceRelation::Equivalent(
+        two_lane_pack(InferenceTerm::Var(p), InferenceTerm::Canonical(labeled)),
+        two_lane_pack(InferenceTerm::Canonical(labeled), InferenceTerm::Canonical(labeled)),
+    ), ConstraintOrigin::Explicit, None);
+    assert!(matches!(session.solve(&mut store, &MapTypeHierarchy::new()),
+        InferenceOutcome::Conflicting(ref conflict) if matches!(conflict.failure, InferenceFailureReason::KindMismatch { .. })));
+}
+
+#[test]
+fn proper_pack_inference_occurs_check_detects_recursive_element() {
+    let mut store = TypeStore::new();
+    let labeled = store.labeled_type_pack(Box::new([])).unwrap();
+    let mut session = InferenceSession::new();
+    let element = session.fresh_variable(KindId::TYPE);
+    let recursive = two_lane_pack(InferenceTerm::TypePack(Box::new([InferenceTerm::Var(element)])), InferenceTerm::Canonical(labeled));
+    session.add_constraint(InferenceRelation::Equivalent(InferenceTerm::Var(element), recursive), ConstraintOrigin::Explicit, None);
+    assert!(matches!(session.solve(&mut store, &MapTypeHierarchy::new()), InferenceOutcome::Conflicting(_)));
+    assert!(session.materialize(&InferenceTerm::Var(element), &mut store).is_err());
+}
+
+#[test]
+fn proper_pack_inference_keeps_unknown_lane_proof_after_type_selection() {
+    for unknown_labeled in [false, true] {
+        let mut store = TypeStore::new();
+        let positional = store.type_pack(Box::new([])).unwrap();
+        let labeled = store.labeled_type_pack(Box::new([])).unwrap();
+        let mut session = InferenceSession::new();
+        let p = session.fresh_variable(KindId::TYPE_PACK);
+        let l = session.fresh_variable(KindId::LABELED_TYPE_PACK);
+        let term = two_lane_pack(InferenceTerm::Var(p), InferenceTerm::Var(l));
+        session.record_context_selection(&term);
+        let reason = UnknownReason::UnresolvedName("missing_argument".into());
+        session.record_required_premise(&InferenceTerm::Var(if unknown_labeled { l } else { p }),
+            ConstraintOrigin::Explicit, &TypeKnowledge::Unknown(reason.clone()), None);
+        session.add_constraint(InferenceRelation::Equivalent(term.clone(), two_lane_pack(
+            InferenceTerm::Canonical(positional), InferenceTerm::Canonical(labeled),
+        )), ConstraintOrigin::Explicit, None);
+        assert!(session.solve(&mut store, &MapTypeHierarchy::new()).is_solved());
+        assert!(session.materialize(&term, &mut store).is_ok());
+        assert_eq!(session.proof_state_for_term(&term), InferenceProofState::Unknown(reason));
+    }
+}
+
+fn map_projection(subject: InferenceTerm, constructor: InferenceTerm) -> InferenceTerm {
+    InferenceTerm::TypeMemberProjection {
+        subject: phalcom_semantic::checker::inference::InferenceProjectionSubject::Type(Box::new(subject)),
+        selector: phalcom_semantic::types::type_member::TypeMemberSelector::named("Map"),
+        arguments: Box::new([phalcom_semantic::checker::inference::InferenceTypeMemberArgument::Type(constructor)]),
+        source_declaration: None,
+        result_kind: KindId::TYPE_PACK,
+    }
+}
+
+#[test]
+fn pack_map_congruence_uses_independently_solved_constructor_arguments() {
+    let mut store = TypeStore::new();
+    let owner = TypeParameterOwner::Declaration(test_decl("AbstractMap"));
+    let parameter = store.intern_type_parameter(TypeParameterData::new(owner, 0, "Ts", KindId::TYPE_PACK));
+    let subject = store.parameter_form(parameter);
+    let constructor = unary_form(&mut store, "List");
+    let mut session = InferenceSession::new();
+    let f = session.fresh_variable(store.kind_of(constructor));
+    session.add_constraint(InferenceRelation::Equivalent(
+        map_projection(InferenceTerm::Canonical(subject), InferenceTerm::Var(f)),
+        map_projection(InferenceTerm::Canonical(subject), InferenceTerm::Canonical(constructor)),
+    ), ConstraintOrigin::Explicit, None);
+    assert!(matches!(session.solve(&mut store, &MapTypeHierarchy::new()), InferenceOutcome::Underconstrained(_)));
+    assert!(session.materialize(&InferenceTerm::Var(f), &mut store).is_err(), "Map equality must not select its constructor backwards");
+    session.add_constraint(InferenceRelation::Equivalent(InferenceTerm::Var(f), InferenceTerm::Canonical(constructor)), ConstraintOrigin::Explicit, None);
+    assert!(session.solve(&mut store, &MapTypeHierarchy::new()).is_solved());
+    assert!(session.residual_obligations().is_empty());
+}
+
+#[test]
+fn pack_map_distinct_constructors_remain_residual_after_subject_selection() {
+    let mut store = TypeStore::new();
+    let list = unary_form(&mut store, "List");
+    let option = unary_form(&mut store, "Option");
+    let mut session = InferenceSession::new();
+    let subject = session.fresh_variable(KindId::TYPE_PACK);
+    let lane = store.type_pack(Box::new([])).unwrap();
+    session.add_constraint(InferenceRelation::Equivalent(
+        map_projection(InferenceTerm::Var(subject), InferenceTerm::Canonical(list)),
+        map_projection(InferenceTerm::Var(subject), InferenceTerm::Canonical(option)),
+    ), ConstraintOrigin::Explicit, None);
+    session.add_constraint(InferenceRelation::Equivalent(InferenceTerm::Var(subject), InferenceTerm::Canonical(lane)), ConstraintOrigin::Explicit, None);
+    assert!(matches!(session.solve(&mut store, &MapTypeHierarchy::new()), InferenceOutcome::Underconstrained(_)));
+    assert_eq!(session.residual_obligations().len(), 1, "different maps require normalization, not subject congruence");
+}

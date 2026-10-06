@@ -245,3 +245,46 @@ fn cold_and_warm_pack_results_agree() {
         "incremental and cold parameter types must have equal formatted structural types"
     );
 }
+
+#[test]
+fn mapped_pack_constructor_edit_matches_cold_analysis_and_changes_contract() {
+    let module = module(405);
+    let initial = r#"
+type Wrap<T> = List<T>
+data MapCarrier<*Ts> { args: Pack<*(Ts::Map<Wrap>)> }
+class MapConsumer { @class accept<*Ts>(_ args: Pack<*(Ts::Map<Wrap>)>) -> Unit { () } }
+class Stable { @class value() -> Int { 1 } }
+"#;
+    let updated = initial.replace("List<T>", "Option<T>");
+    let mut incremental = SemanticWorkspaceSession::new();
+    let before = incremental.update(single_module_input(module.clone(), initial, 1));
+    assert!(!before.snapshot.has_errors());
+    let warm = incremental.update(single_module_input(module.clone(), &updated, 2));
+    let mut cold_session = SemanticWorkspaceSession::new();
+    let cold = cold_session.update(single_module_input(module.clone(), &updated, 1));
+    assert!(!warm.snapshot.has_errors());
+    assert!(!cold.snapshot.has_errors());
+    let consumer = callable_id(&warm.snapshot, &module, "MapConsumer", "accept", DispatchSide::Class);
+    let parameter = |snapshot: &SemanticSnapshot| {
+        let signature = snapshot.callable_signatures.get(&consumer).unwrap();
+        // Formatting an abstract lambda prints only [TypeLambda]. Apply the
+        // actual Map constructor to a concrete type to compare its semantics.
+        use phalcom_semantic::types::store::TypeData;
+        use phalcom_semantic::types::type_member::TypeMemberArgument;
+        let pack = signature.parameters[0].declared_type.canonical_type().unwrap();
+        let TypeData::PackFromPacks { positionals, .. } = snapshot.store.get(pack) else { panic!("symbolic Pack contract"); };
+        let TypeData::TypeMemberProjection(projection) = snapshot.store.get(*positionals) else { panic!("Map projection"); };
+        let TypeMemberArgument::Type(constructor) = projection.arguments[0] else { panic!("unary constructor argument"); };
+        let mut store = snapshot.store.as_ref().clone();
+        let int = store.nominal(phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int));
+        let applied = store.apply_type_form(constructor, &[int]).unwrap();
+        store.format_type(applied)
+    };
+    assert_ne!(parameter(&before.snapshot), parameter(&warm.snapshot), "Map constructor changes must invalidate the dependent Pack contract");
+    assert_eq!(parameter(&warm.snapshot), parameter(&cold.snapshot));
+    let stable = callable_id(&warm.snapshot, &module, "Stable", "value", DispatchSide::Class);
+    assert_eq!(
+        callable_signature_product_fingerprint(before.snapshot.callable_signatures.get(&stable).unwrap()),
+        callable_signature_product_fingerprint(warm.snapshot.callable_signatures.get(&stable).unwrap()),
+    );
+}

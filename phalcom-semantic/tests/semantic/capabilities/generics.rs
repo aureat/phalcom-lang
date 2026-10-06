@@ -655,3 +655,92 @@ class CallableProbe {
     assert_eq!(f.binding(run, "b").current.ty(), Some(f.ty("String")));
     f.assert_no_error_diagnostics();
 }
+
+#[test]
+fn generic_pack_query_constructor_preserves_abstract_field_lane() {
+    let f = Fixture::new(r#"
+data PackQuery<*Goals> { goals: Pack<*Goals> }
+impl<*Goals> PackQuery<*Goals> {
+  @class of(*goals: Pack<*Goals>) -> Self { PackQuery { goals: goals } }
+}
+"#);
+    f.assert_no_error_diagnostics();
+}
+
+#[test]
+fn abstract_pack_map_is_valid_in_parameters_and_record_fields() {
+    let f = Fixture::new(r#"
+type Wrap<T> = List<T>
+data PackPredicate<*Ts>(_ tag: Int)
+data PackRelationship<*Ts> {
+  predicate: PackPredicate<*Ts>,
+  args: Pack<*(Ts::Map<Wrap>)>,
+}
+impl<*Ts> PackPredicate<*Ts> {
+  call(*args: Pack<*(Ts::Map<Wrap>)>) -> PackRelationship<*Ts> {
+    PackRelationship { predicate: self, args: args }
+  }
+}
+"#);
+    f.assert_no_error_diagnostics();
+}
+
+#[test]
+fn generic_pack_contributions_expand_concrete_types_in_applied_arguments() {
+    let f = Fixture::new(r#"
+data PackCarrier<*Ts>()
+class PackConsumer {
+  @class accept(_ value: PackCarrier<*(Int, String)>) -> Unit { () }
+}
+"#);
+    f.assert_no_error_diagnostics();
+}
+
+#[test]
+fn mapped_pack_record_constructor_inference_is_field_order_independent() {
+    for fields in ["predicate: OrderedPredicate<*Ts>, args: Pack<*(Ts::Map<Wrap>)>", "args: Pack<*(Ts::Map<Wrap>)>, predicate: OrderedPredicate<*Ts>"] {
+        for values in ["predicate: self, args: args", "args: args, predicate: self"] {
+            let source = format!(r#"
+data PackVariable<T>(_ marker: Int)
+type Wrap<T> = T | PackVariable<T>
+data OrderedPredicate<*Ts>(_ marker: Int)
+data OrderedRelationship<*Ts> {{ {fields} }}
+impl<*Ts> OrderedPredicate<*Ts> {{
+  call(*args: Pack<*(Ts::Map<Wrap>)>) -> OrderedRelationship<*Ts> {{
+    OrderedRelationship {{ {values} }}
+  }}
+}}
+"#);
+            let f = Fixture::new(&source);
+            f.assert_no_error_diagnostics();
+        }
+    }
+}
+
+/// RED-CAPABILITY: generic rest calls currently leave Goals underconstrained.
+/// Keep the valid-source oracle so the missing call-site Pack inference is visible.
+#[test]
+fn generic_pack_query_infers_empty_and_heterogeneous_goal_lanes() {
+    use phalcom_semantic::types::store::TypeData;
+    let f = Fixture::new(r#"
+data GoalQuery<*Goals> { goals: Pack<*Goals> }
+impl<*Goals> GoalQuery<*Goals> {
+  @class of(*goals: Pack<*Goals>) -> Self { GoalQuery { goals: goals } }
+}
+class QueryProbe {
+  @class run() {
+    const empty = GoalQuery.of()
+    const mixed = GoalQuery.of(1, "two")
+  }
+}
+"#);
+    f.assert_no_error_diagnostics();
+    let run = f.callable("QueryProbe", "run", DispatchSide::Class);
+    for (binding, expected) in [("empty", vec![]), ("mixed", vec![f.ty("Int"), f.ty("String")])] {
+        let ty = f.binding(run, binding).current.ty().expect("inferred Query result");
+        let TypeData::Applied { arguments, .. } = f.analysis.snapshot.store.get(ty) else { panic!("expected specialized Query"); };
+        let lane = arguments[0].as_type_id().expect("type-pack argument retains its domain");
+        let TypeData::TypePack(elements) = f.analysis.snapshot.store.get(lane) else { panic!("expected positional type pack"); };
+        assert_eq!(elements.as_ref(), expected.as_slice());
+    }
+}

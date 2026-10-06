@@ -538,7 +538,9 @@ pub fn term_has_row_variables(term: &InferenceTerm) -> bool {
         InferenceTerm::LabeledTypePack(elements) => elements.iter().any(|elem| term_has_row_variables(&elem.term)),
         InferenceTerm::CompleteTypePack { positionals, labeled } => term_has_row_variables(positionals) || term_has_row_variables(labeled),
         InferenceTerm::TypePackConcat(segments) | InferenceTerm::LabeledTypePackConcat(segments) => segments.iter().any(term_has_row_variables),
-        InferenceTerm::TupleFromPacks { positionals, labeled } => term_has_row_variables(positionals) || term_has_row_variables(labeled),
+        InferenceTerm::TupleFromPacks { positionals, labeled } | InferenceTerm::PackFromPacks { positionals, labeled } => {
+            term_has_row_variables(positionals) || term_has_row_variables(labeled)
+        }
         InferenceTerm::CallableFromPacks {
             positionals,
             labeled,
@@ -595,7 +597,9 @@ fn row_variables_in_term(term: &InferenceTerm, variables: &mut HashSet<RecordRow
         }
         InferenceTerm::TypePack(elements) => elements.iter().for_each(|element| row_variables_in_term(element, variables)),
         InferenceTerm::LabeledTypePack(elements) => elements.iter().for_each(|element| row_variables_in_term(&element.term, variables)),
-        InferenceTerm::CompleteTypePack { positionals, labeled } | InferenceTerm::TupleFromPacks { positionals, labeled } => {
+        InferenceTerm::CompleteTypePack { positionals, labeled }
+        | InferenceTerm::TupleFromPacks { positionals, labeled }
+        | InferenceTerm::PackFromPacks { positionals, labeled } => {
             row_variables_in_term(positionals, variables);
             row_variables_in_term(labeled, variables);
         }
