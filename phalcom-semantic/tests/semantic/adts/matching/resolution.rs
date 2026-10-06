@@ -48,6 +48,7 @@ fn match_product_model_shape() {
                     proof: BranchProofEnvironment::default(),
                     case_instantiation: None,
                 }]),
+                blocked: None,
             }),
             reachable_space: PatternSpaceSummary::Empty,
             residual_after: PatternSpaceSummary::Empty,

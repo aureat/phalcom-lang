@@ -27,6 +27,8 @@ pub enum GadtProofResult {
     },
     /// Case is contradictory / impossible under the scrutinee type.
     Refuted,
+    /// The supported equality machinery cannot establish reachability or contradiction.
+    Blocked(crate::types::outcome::BlockReason),
 }
 
 /// Result of merging proof environments from two overlapping semantic spaces.
@@ -34,16 +36,54 @@ pub enum GadtProofResult {
 pub(crate) enum ProofMerge {
     Compatible(BranchProofEnvironment),
     Contradictory,
+    Blocked(crate::types::outcome::BlockReason),
 }
 
-pub(crate) type LocalCaseProof = Option<(BTreeMap<TypeParameterId, LocalType>, Box<[LocalConstraint]>)>;
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum LocalCaseProof {
+    Reachable {
+        bindings: BTreeMap<TypeParameterId, LocalType>,
+        equalities: Box<[LocalConstraint]>,
+    },
+    Refuted,
+    Blocked(crate::types::outcome::BlockReason),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum LocalProofFailure {
+    Refuted,
+    Blocked(crate::types::outcome::BlockReason),
+}
+
+type LocalUnification = Result<(), LocalProofFailure>;
+
+fn local_proof_blocked() -> LocalProofFailure {
+    LocalProofFailure::Blocked(crate::types::outcome::BlockReason::UnknownType(
+        crate::types::evidence::UnknownReason::UnderconstrainedTypeVariable,
+    ))
+}
+
+pub(crate) fn local_proof_control(control: &crate::checker::context::CheckerControl) -> Result<(), crate::types::outcome::BlockReason> {
+    if control.is_cancelled() {
+        return Err(crate::types::outcome::BlockReason::UnknownType(
+            crate::types::evidence::UnknownReason::InferenceCancelled,
+        ));
+    }
+    control.charge_step().map_err(crate::types::outcome::BlockReason::BudgetExceeded)
+}
 
 /// Refines a canonical scrutinee view against one freshly opened constructor
 /// result. Flexible declaration parameters may be mapped to local terms, but
 /// rigid leaves are opaque and are never rewritten.
 #[allow(dead_code)]
 pub(crate) fn solve_local_case_proof(store: &mut TypeStore, proof: &BranchProofEnvironment, expected_ty: TypeId, case: &CaseInstantiation) -> LocalCaseProof {
-    solve_local_case_proof_against_local(store, proof, &LocalType::Canonical(expected_ty), case)
+    solve_local_case_proof_against_local(
+        store,
+        proof,
+        &LocalType::Canonical(expected_ty),
+        case,
+        &crate::checker::context::CheckerControl::default(),
+    )
 }
 
 /// Refines an arbitrary local subject term against one freshly opened constructor
@@ -53,17 +93,36 @@ pub(crate) fn solve_local_case_proof_against_local(
     proof: &BranchProofEnvironment,
     expected: &LocalType,
     case: &CaseInstantiation,
+    control: &crate::checker::context::CheckerControl,
 ) -> LocalCaseProof {
+    if let Err(reason) = local_proof_control(control) {
+        return LocalCaseProof::Blocked(reason);
+    }
     if !case.is_local() && matches!(expected, LocalType::Canonical(_)) && proof.local_bindings.is_empty() {
-        return Some((BTreeMap::new(), Box::new([])));
+        return LocalCaseProof::Reachable {
+            bindings: BTreeMap::new(),
+            equalities: Box::new([]),
+        };
     }
 
     let specialized_expected = apply_branch_proof_to_local(store, proof, expected);
     let (expected_term, exact_case_observation) = unpack_expected_local_term(store, specialized_expected, case);
 
     let mut bindings = BTreeMap::new();
-    if !unify_local_types(store, case, &case.result_type, &expected_term, &mut bindings, exact_case_observation) {
-        return None;
+    if let Err(failure) = unify_local_types(
+        store,
+        case,
+        &case.result_type,
+        &expected_term,
+        &mut bindings,
+        exact_case_observation,
+        control,
+        0,
+    ) {
+        return match failure {
+            LocalProofFailure::Refuted => LocalCaseProof::Refuted,
+            LocalProofFailure::Blocked(reason) => LocalCaseProof::Blocked(reason),
+        };
     }
 
     let mut equalities = case.constraints.to_vec();
@@ -71,7 +130,10 @@ pub(crate) fn solve_local_case_proof_against_local(
         left: case.result_type.clone(),
         right: expected_term,
     });
-    Some((bindings, equalities.into_boxed_slice()))
+    LocalCaseProof::Reachable {
+        bindings,
+        equalities: equalities.into_boxed_slice(),
+    }
 }
 
 fn unpack_expected_local_term(store: &TypeStore, expected: LocalType, case: &CaseInstantiation) -> (LocalType, bool) {
@@ -161,59 +223,93 @@ fn unify_local_types(
     right: &LocalType,
     bindings: &mut BTreeMap<TypeParameterId, LocalType>,
     exact_case_observation: bool,
-) -> bool {
-    if left == right {
-        return true;
+    control: &crate::checker::context::CheckerControl,
+    depth: u16,
+) -> LocalUnification {
+    local_proof_control(control).map_err(LocalProofFailure::Blocked)?;
+    let max_depth = control.budget.borrow().max_type_depth;
+    if depth > max_depth {
+        return Err(LocalProofFailure::Blocked(crate::types::outcome::BlockReason::BudgetExceeded(
+            crate::types::outcome::BudgetReport::new(crate::types::outcome::BudgetKind::TypeDepth, u64::from(max_depth), u64::from(depth)),
+        )));
     }
+    // A retained canonical leaf containing a constructor binder could not be
+    // localized by LocalType. It must not erase existential identity or refute
+    // a case merely because this representation has no local counterpart.
+    for term in [left, right] {
+        if let LocalType::Canonical(ty) = term {
+            if case.local_rigids.keys().any(|parameter| store.contains_type_parameter(*ty, *parameter)) && !matches!(store.get(*ty), TypeData::Parameter(_)) {
+                return Err(LocalProofFailure::Blocked(crate::types::outcome::BlockReason::ReflectionBoundary));
+            }
+        }
+    }
+    if left == right {
+        return Ok(());
+    }
+    let recurse = |left: &LocalType, right: &LocalType, bindings: &mut BTreeMap<TypeParameterId, LocalType>| {
+        unify_local_types(store, case, left, right, bindings, exact_case_observation, control, depth.saturating_add(1))
+    };
     match (left, right) {
-        (LocalType::Rigid(rigid), other) => {
-            if let Some((&param, _)) = case.local_rigids.iter().find(|(_, r)| *r == rigid) {
-                if let Some(existing) = bindings.get(&param) {
-                    existing == other
+        (LocalType::Rigid(rigid), other) | (other, LocalType::Rigid(rigid)) => {
+            let rigid_term = LocalType::Rigid(*rigid);
+            if let Some((&parameter, _)) = case.local_rigids.iter().find(|(_, value)| *value == rigid) {
+                if let Some(existing) = bindings.get(&parameter).cloned() {
+                    recurse(&existing, other, bindings)
+                } else if other.free_rigids().contains(rigid) {
+                    Err(LocalProofFailure::Refuted)
                 } else {
-                    bindings.insert(param, other.clone());
-                    true
+                    bindings.insert(parameter, other.clone());
+                    Ok(())
                 }
+            } else if let LocalType::Canonical(ty) = other {
+                if matches!(store.get(*ty), TypeData::Parameter(_)) {
+                    bind_local_parameter(store, *ty, &rigid_term, bindings)
+                } else if exact_case_observation {
+                    Ok(())
+                } else {
+                    Err(local_proof_blocked())
+                }
+            } else if exact_case_observation {
+                Ok(())
             } else {
-                match other {
-                    LocalType::Canonical(ty) if matches!(store.get(*ty), TypeData::Parameter(_)) => bind_local_parameter(store, *ty, left, bindings),
-                    _ => exact_case_observation,
-                }
+                // Parent rigids are opaque: the absence of a supported equality
+                // proof is not evidence that their indices are contradictory.
+                Err(local_proof_blocked())
             }
         }
-        (other, LocalType::Rigid(rigid)) => {
-            if let Some((&param, _)) = case.local_rigids.iter().find(|(_, r)| *r == rigid) {
-                if let Some(existing) = bindings.get(&param) {
-                    existing == other
-                } else {
-                    bindings.insert(param, other.clone());
-                    true
+        (LocalType::Canonical(ty), other) | (other, LocalType::Canonical(ty)) => {
+            if matches!(store.get(*ty), TypeData::Parameter(_)) {
+                return bind_local_parameter(store, *ty, other, bindings);
+            }
+            let expanded = LocalType::from_canonical(store, *ty, &HashMap::new());
+            if !matches!(expanded, LocalType::Canonical(_)) {
+                return recurse(&expanded, other, bindings);
+            }
+            match other {
+                LocalType::Canonical(other_ty) if canonical_local_leaf_is_closed(store, *ty) && canonical_local_leaf_is_closed(store, *other_ty) => {
+                    Err(LocalProofFailure::Refuted)
                 }
-            } else {
-                match other {
-                    LocalType::Canonical(ty) if matches!(store.get(*ty), TypeData::Parameter(_)) => bind_local_parameter(store, *ty, right, bindings),
-                    _ => exact_case_observation,
-                }
+                _ => Err(local_proof_blocked()),
             }
         }
-        (LocalType::Canonical(left), _) => bind_local_parameter(store, *left, right, bindings),
-        (_, LocalType::Canonical(right)) => bind_local_parameter(store, *right, left, bindings),
         (
             LocalType::Applied {
                 origin: left_origin,
-                arguments: left_arguments,
+                arguments: left_args,
             },
             LocalType::Applied {
                 origin: right_origin,
-                arguments: right_arguments,
+                arguments: right_args,
             },
         ) => {
-            left_arguments.len() == right_arguments.len()
-                && unify_local_types(store, case, left_origin, right_origin, bindings, exact_case_observation)
-                && left_arguments
-                    .iter()
-                    .zip(right_arguments.iter())
-                    .all(|(left, right)| unify_local_types(store, case, left, right, bindings, exact_case_observation))
+            if left_args.len() != right_args.len() {
+                return Err(LocalProofFailure::Refuted);
+            }
+            recurse(left_origin, right_origin, bindings)?;
+            for (left, right) in left_args.iter().zip(right_args.iter()) {
+                recurse(left, right, bindings)?;
+            }
+            Ok(())
         }
         (
             LocalType::ExactCase {
@@ -224,62 +320,116 @@ fn unify_local_types(
                 variant: right_variant,
                 enum_type: right_enum,
             },
-        ) => left_variant == right_variant && unify_local_types(store, case, left_enum, right_enum, bindings, exact_case_observation),
+        ) => {
+            if left_variant != right_variant {
+                return Err(LocalProofFailure::Refuted);
+            }
+            recurse(left_enum, right_enum, bindings)
+        }
         (LocalType::Union(left), LocalType::Union(right)) => {
-            left.len() == right.len()
-                && left
-                    .iter()
-                    .zip(right.iter())
-                    .all(|(left, right)| unify_local_types(store, case, left, right, bindings, exact_case_observation))
+            if left.len() != right.len() {
+                return Err(local_proof_blocked());
+            }
+            for (left, right) in left.iter().zip(right.iter()) {
+                // Local union members need not retain canonical ordering after
+                // substitution. A failed pairing cannot refute set equality.
+                if let Err(failure) = recurse(left, right, bindings) {
+                    return Err(match failure {
+                        LocalProofFailure::Refuted => local_proof_blocked(),
+                        blocked => blocked,
+                    });
+                }
+            }
+            Ok(())
         }
         (LocalType::Tuple(left), LocalType::Tuple(right)) => {
-            left.len() == right.len()
-                && left
-                    .iter()
-                    .zip(right.iter())
-                    .all(|(left, right)| left.label == right.label && unify_local_types(store, case, &left.ty, &right.ty, bindings, exact_case_observation))
+            if left.len() != right.len() {
+                return Err(LocalProofFailure::Refuted);
+            }
+            for (left, right) in left.iter().zip(right.iter()) {
+                if left.label != right.label {
+                    return Err(LocalProofFailure::Refuted);
+                }
+                recurse(&left.ty, &right.ty, bindings)?;
+            }
+            Ok(())
         }
         (LocalType::Record(left), LocalType::Record(right)) => {
-            left.len() == right.len()
-                && left
-                    .iter()
-                    .zip(right.iter())
-                    .all(|(left, right)| left.key == right.key && unify_local_types(store, case, &left.ty, &right.ty, bindings, exact_case_observation))
+            if left.len() != right.len() {
+                return Err(LocalProofFailure::Refuted);
+            }
+            for left in left.iter() {
+                let Some(right) = right.iter().find(|right| right.key == left.key) else {
+                    return Err(LocalProofFailure::Refuted);
+                };
+                recurse(&left.ty, &right.ty, bindings)?;
+            }
+            Ok(())
         }
         (
             LocalType::Callable {
-                parameters: left_parameters,
+                parameters: left,
                 return_type: left_return,
             },
             LocalType::Callable {
-                parameters: right_parameters,
+                parameters: right,
                 return_type: right_return,
             },
         ) => {
-            left_parameters.len() == right_parameters.len()
-                && left_parameters.iter().zip(right_parameters.iter()).all(|(left, right)| {
-                    left.label == right.label
-                        && left.rest == right.rest
-                        && unify_local_types(store, case, &left.ty, &right.ty, bindings, exact_case_observation)
-                })
-                && unify_local_types(store, case, left_return, right_return, bindings, exact_case_observation)
+            if left.len() != right.len() {
+                return Err(LocalProofFailure::Refuted);
+            }
+            for (left, right) in left.iter().zip(right.iter()) {
+                if left.label != right.label || left.rest != right.rest {
+                    return Err(LocalProofFailure::Refuted);
+                }
+                recurse(&left.ty, &right.ty, bindings)?;
+            }
+            recurse(left_return, right_return, bindings)
         }
-        _ => false,
+        _ => Err(local_proof_blocked()),
     }
 }
 
-fn bind_local_parameter(store: &TypeStore, ty: TypeId, replacement: &LocalType, bindings: &mut BTreeMap<TypeParameterId, LocalType>) -> bool {
+fn canonical_local_leaf_is_closed(store: &TypeStore, ty: TypeId) -> bool {
+    matches!(
+        store.get(ty),
+        TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } | TypeData::ConstInt(_)
+    )
+}
+
+fn bind_local_parameter(store: &TypeStore, ty: TypeId, replacement: &LocalType, bindings: &mut BTreeMap<TypeParameterId, LocalType>) -> LocalUnification {
     let TypeData::Parameter(parameter) = store.get(ty) else {
-        return matches!(replacement, LocalType::Canonical(other) if *other == ty);
+        return Err(local_proof_blocked());
     };
     if let Some(existing) = bindings.get(parameter) {
-        return existing == replacement;
+        return if existing == replacement { Ok(()) } else { Err(local_proof_blocked()) };
     }
     if matches!(replacement, LocalType::Canonical(other) if *other == ty) {
-        return true;
+        return Ok(());
+    }
+    if local_contains_parameter(store, replacement, *parameter) {
+        return Err(LocalProofFailure::Refuted);
     }
     bindings.insert(*parameter, replacement.clone());
-    true
+    Ok(())
+}
+
+fn local_contains_parameter(store: &TypeStore, term: &LocalType, parameter: TypeParameterId) -> bool {
+    match term {
+        LocalType::Canonical(ty) => store.contains_type_parameter(*ty, parameter),
+        LocalType::Rigid(_) => false,
+        LocalType::Applied { origin, arguments } => {
+            local_contains_parameter(store, origin, parameter) || arguments.iter().any(|term| local_contains_parameter(store, term, parameter))
+        }
+        LocalType::ExactCase { enum_type, .. } => local_contains_parameter(store, enum_type, parameter),
+        LocalType::Union(terms) => terms.iter().any(|term| local_contains_parameter(store, term, parameter)),
+        LocalType::Tuple(elements) => elements.iter().any(|element| local_contains_parameter(store, &element.ty, parameter)),
+        LocalType::Record(fields) => fields.iter().any(|field| local_contains_parameter(store, &field.ty, parameter)),
+        LocalType::Callable { parameters, return_type } => {
+            parameters.iter().any(|entry| local_contains_parameter(store, &entry.ty, parameter)) || local_contains_parameter(store, return_type, parameter)
+        }
+    }
 }
 
 /// Merges branch equalities without allowing a later constraint to overwrite
@@ -290,8 +440,11 @@ pub(crate) fn merge_branch_proofs(store: &mut TypeStore, left: &BranchProofEnvir
     for (&parameter, &ty) in left.bindings.iter().chain(right.bindings.iter()) {
         parameters.insert(parameter);
         let parameter_ty = store.parameter_form(parameter);
-        if !unify_equality(store, &mut substitution, parameter_ty, ty) {
-            return ProofMerge::Contradictory;
+        if let Err(failure) = unify_equality(store, &mut substitution, parameter_ty, ty) {
+            return match failure {
+                LocalProofFailure::Refuted => ProofMerge::Contradictory,
+                LocalProofFailure::Blocked(reason) => ProofMerge::Blocked(reason),
+            };
         }
     }
 
@@ -303,8 +456,11 @@ pub(crate) fn merge_branch_proofs(store: &mut TypeStore, left: &BranchProofEnvir
             }
             continue;
         };
-        if !unify_equality(store, &mut substitution, *lhs, *rhs) {
-            return ProofMerge::Contradictory;
+        if let Err(failure) = unify_equality(store, &mut substitution, *lhs, *rhs) {
+            return match failure {
+                LocalProofFailure::Refuted => ProofMerge::Contradictory,
+                LocalProofFailure::Blocked(reason) => ProofMerge::Blocked(reason),
+            };
         }
         if !equalities.contains(equality) {
             equalities.push(equality.clone());
@@ -335,7 +491,15 @@ pub(crate) fn merge_branch_proofs(store: &mut TypeStore, left: &BranchProofEnvir
     for (&parameter, right_type) in &right.local_bindings {
         if let Some(left_type) = local_bindings.get(&parameter) {
             if left_type != right_type {
-                return ProofMerge::Contradictory;
+                // Unequal local syntax, especially opaque rigids, is not a
+                // contradiction proof. Only distinct closed canonical leaves
+                // establish a contradiction without additional local solving.
+                if let (LocalType::Canonical(left), LocalType::Canonical(right)) = (left_type, right_type) {
+                    if canonical_local_leaf_is_closed(store, *left) && canonical_local_leaf_is_closed(store, *right) {
+                        return ProofMerge::Contradictory;
+                    }
+                }
+                return ProofMerge::Blocked(crate::types::outcome::BlockReason::ReflectionBoundary);
             }
         } else {
             local_bindings.insert(parameter, right_type.clone());
@@ -392,8 +556,11 @@ pub fn solve_gadt_branch_proof(
         let enum_parameter_ty = store.parameter_form(enum_parameter);
         let Some(&scrutinee_arg_ty) = scrutinee_args.get(parameter_index) else {
             // Unspecialized enum roots retain the declaration-owned case equality.
-            if !unify_equality(store, &mut substitution, enum_parameter_ty, case_ty) {
-                return GadtProofResult::Refuted;
+            if let Err(failure) = unify_equality(store, &mut substitution, enum_parameter_ty, case_ty) {
+                return match failure {
+                    LocalProofFailure::Refuted => GadtProofResult::Refuted,
+                    LocalProofFailure::Blocked(reason) => GadtProofResult::Blocked(reason),
+                };
             }
             equalities.push(TypeConstraint::Equal(enum_parameter_ty, case_ty));
             continue;
@@ -402,11 +569,17 @@ pub fn solve_gadt_branch_proof(
         // The case result contributes an equality, and the scrutinee argument may
         // itself be a type parameter belonging to the enclosing callable. Solving
         // the two structurally is what introduces that branch-local refinement.
-        if !unify_equality(store, &mut substitution, case_ty, scrutinee_arg_ty) {
-            return GadtProofResult::Refuted;
+        if let Err(failure) = unify_equality(store, &mut substitution, case_ty, scrutinee_arg_ty) {
+            return match failure {
+                LocalProofFailure::Refuted => GadtProofResult::Refuted,
+                LocalProofFailure::Blocked(reason) => GadtProofResult::Blocked(reason),
+            };
         }
-        if !unify_equality(store, &mut substitution, enum_parameter_ty, case_ty) {
-            return GadtProofResult::Refuted;
+        if let Err(failure) = unify_equality(store, &mut substitution, enum_parameter_ty, case_ty) {
+            return match failure {
+                LocalProofFailure::Refuted => GadtProofResult::Refuted,
+                LocalProofFailure::Blocked(reason) => GadtProofResult::Blocked(reason),
+            };
         }
         equalities.push(TypeConstraint::Equal(case_ty, scrutinee_arg_ty));
     }
@@ -825,36 +998,37 @@ fn collect_type_parameters(store: &TypeStore, ty: TypeId, output: &mut Vec<TypeP
 ///
 /// Only equality can establish a GADT case. Nominal subtyping deliberately does
 /// not participate here: a superclass relationship does not prove type equality.
-fn unify_equality(store: &mut TypeStore, substitution: &mut TypeSubstitution, left: TypeId, right: TypeId) -> bool {
+fn unify_equality(store: &mut TypeStore, substitution: &mut TypeSubstitution, left: TypeId, right: TypeId) -> LocalUnification {
     let left = apply_substitution_to_fixpoint(store, substitution, left);
     let right = apply_substitution_to_fixpoint(store, substitution, right);
     if left == right {
-        return true;
+        return Ok(());
     }
-
     match (store.get(left).clone(), store.get(right).clone()) {
         (TypeData::Parameter(parameter), _) => bind_parameter(store, substitution, parameter, right),
         (_, TypeData::Parameter(parameter)) => bind_parameter(store, substitution, parameter, left),
         (
             TypeData::Applied {
                 origin: left_origin,
-                arguments: left_arguments,
+                arguments: left_args,
             },
             TypeData::Applied {
                 origin: right_origin,
-                arguments: right_arguments,
+                arguments: right_args,
             },
         ) => {
-            left_arguments.len() == right_arguments.len()
-                && unify_equality(store, substitution, left_origin, right_origin)
-                && left_arguments
-                    .iter()
-                    .zip(right_arguments.iter())
-                    .all(|(&left, &right)| match (left.as_type_id(), right.as_type_id()) {
-                        (Some(left), Some(right)) => unify_equality(store, substitution, left, right),
-                        (None, None) => left == right,
-                        _ => false,
-                    })
+            if left_args.len() != right_args.len() {
+                return Err(LocalProofFailure::Refuted);
+            }
+            unify_equality(store, substitution, left_origin, right_origin)?;
+            for (left, right) in left_args.iter().zip(right_args.iter()) {
+                match (left.as_type_id(), right.as_type_id()) {
+                    (Some(left), Some(right)) => unify_equality(store, substitution, left, right)?,
+                    _ if left == right => {}
+                    _ => return Err(local_proof_blocked()),
+                }
+            }
+            Ok(())
         }
         (
             TypeData::ExactCase {
@@ -865,38 +1039,70 @@ fn unify_equality(store: &mut TypeStore, substitution: &mut TypeSubstitution, le
                 variant: right_variant,
                 enum_type: right_enum,
             },
-        ) => left_variant == right_variant && unify_equality(store, substitution, left_enum, right_enum),
+        ) => {
+            if left_variant != right_variant {
+                return Err(LocalProofFailure::Refuted);
+            }
+            unify_equality(store, substitution, left_enum, right_enum)
+        }
         (TypeData::Union(left_members), TypeData::Union(right_members)) => {
-            left_members.len() == right_members.len()
-                && left_members
-                    .iter()
-                    .zip(right_members.iter())
-                    .all(|(&left, &right)| unify_equality(store, substitution, left, right))
+            if left_members.len() != right_members.len() {
+                return Err(local_proof_blocked());
+            }
+            for (left, right) in left_members.iter().zip(right_members.iter()) {
+                // An unmatched positional pairing does not refute set equivalence.
+                if unify_equality(store, substitution, *left, *right).is_err() {
+                    return Err(local_proof_blocked());
+                }
+            }
+            Ok(())
         }
         (TypeData::Tuple(left_tuple), TypeData::Tuple(right_tuple)) => {
-            left_tuple.positional_remainder == right_tuple.positional_remainder
-                && left_tuple.labeled_remainder == right_tuple.labeled_remainder
-                && left_tuple.elements.len() == right_tuple.elements.len()
-                && left_tuple
-                    .elements
-                    .iter()
-                    .zip(right_tuple.elements.iter())
-                    .all(|(left, right)| left.label == right.label && unify_equality(store, substitution, left.ty, right.ty))
+            if left_tuple.positional_remainder != AnonymousTupleRemainder::None
+                || right_tuple.positional_remainder != AnonymousTupleRemainder::None
+                || left_tuple.labeled_remainder != AnonymousTupleRemainder::None
+                || right_tuple.labeled_remainder != AnonymousTupleRemainder::None
+            {
+                return Err(local_proof_blocked());
+            }
+            if left_tuple.elements.len() != right_tuple.elements.len() {
+                return Err(LocalProofFailure::Refuted);
+            }
+            for (left, right) in left_tuple.elements.iter().zip(right_tuple.elements.iter()) {
+                if left.label != right.label {
+                    return Err(LocalProofFailure::Refuted);
+                }
+                unify_equality(store, substitution, left.ty, right.ty)?;
+            }
+            Ok(())
         }
-        (TypeData::Record(left_row_id), TypeData::Record(right_row_id)) => unify_record_rows(store, substitution, left_row_id, right_row_id),
+        (TypeData::Record(left_row), TypeData::Record(right_row)) => unify_record_rows(store, substitution, left_row, right_row),
         (TypeData::Callable(left_callable), TypeData::Callable(right_callable)) => {
-            left_callable.parameters.len() == right_callable.parameters.len()
-                && left_callable
-                    .parameters
-                    .iter()
-                    .zip(right_callable.parameters.iter())
-                    .all(|(left, right)| left.label == right.label && left.rest == right.rest && unify_equality(store, substitution, left.ty, right.ty))
-                && unify_equality(store, substitution, left_callable.return_type, right_callable.return_type)
+            if left_callable.parameters.len() != right_callable.parameters.len() {
+                return Err(LocalProofFailure::Refuted);
+            }
+            for (left, right) in left_callable.parameters.iter().zip(right_callable.parameters.iter()) {
+                if left.label != right.label || left.rest != right.rest {
+                    return Err(LocalProofFailure::Refuted);
+                }
+                unify_equality(store, substitution, left.ty, right.ty)?;
+            }
+            unify_equality(store, substitution, left_callable.return_type, right_callable.return_type)
         }
-        // The remaining canonical forms contain no ordinary proper-type
-        // parameter positions that this v1 GADT solver is permitted to rewrite.
-        // Since unequal TypeIds reached this arm, equality is refuted.
-        _ => false,
+        _ if canonical_has_closed_head(store, left) && canonical_has_closed_head(store, right) => Err(LocalProofFailure::Refuted),
+        // Projections, higher-kind/static forms, and unsupported representations
+        // have no contradiction proof in this solver. They cannot omit a case.
+        _ => Err(local_proof_blocked()),
+    }
+}
+
+fn canonical_has_closed_head(store: &TypeStore, ty: TypeId) -> bool {
+    match store.get(ty) {
+        TypeData::Applied { origin, .. } => matches!(store.get(*origin), TypeData::Nominal { .. }),
+        TypeData::Tuple(tuple) => tuple.positional_remainder == AnonymousTupleRemainder::None && tuple.labeled_remainder == AnonymousTupleRemainder::None,
+        TypeData::Record(row) => store.record_row(*row).tail == RecordRowTail::Closed,
+        TypeData::Callable(_) | TypeData::ExactCase { .. } => true,
+        _ => canonical_local_leaf_is_closed(store, ty),
     }
 }
 
@@ -905,45 +1111,226 @@ fn unify_record_rows(
     substitution: &mut TypeSubstitution,
     left_row_id: crate::types::id::RecordRowId,
     right_row_id: crate::types::id::RecordRowId,
-) -> bool {
+) -> LocalUnification {
     let left = store.record_row(left_row_id).clone();
     let right = store.record_row(right_row_id).clone();
-
+    if left.tail != RecordRowTail::Closed || right.tail != RecordRowTail::Closed {
+        return Err(local_proof_blocked());
+    }
+    if left.fields.len() != right.fields.len() {
+        return Err(LocalProofFailure::Refuted);
+    }
     for left_field in left.fields.iter() {
-        if let Some(right_field) = right.fields.iter().find(|field| field.key == left_field.key) {
-            if !unify_equality(store, substitution, left_field.ty, right_field.ty) {
-                return false;
-            }
-        } else if left.tail == RecordRowTail::Closed && right.tail == RecordRowTail::Closed {
-            return false;
-        }
+        let Some(right_field) = right.fields.iter().find(|field| field.key == left_field.key) else {
+            return Err(LocalProofFailure::Refuted);
+        };
+        unify_equality(store, substitution, left_field.ty, right_field.ty)?;
     }
-    for right_field in right.fields.iter() {
-        if !left.fields.iter().any(|field| field.key == right_field.key) && left.tail == RecordRowTail::Closed && right.tail == RecordRowTail::Closed {
-            return false;
-        }
-    }
-
-    // Open row parameters can absorb unmatched fields. Their substitution is
-    // owned by the row solver, not the proper-type substitution used here; the
-    // equality proof therefore records compatibility without fabricating a
-    // proper type for a row parameter.
-    true
+    Ok(())
 }
 
-fn bind_parameter(store: &mut TypeStore, substitution: &mut TypeSubstitution, parameter: TypeParameterId, ty: TypeId) -> bool {
+fn bind_parameter(store: &mut TypeStore, substitution: &mut TypeSubstitution, parameter: TypeParameterId, ty: TypeId) -> LocalUnification {
     if let Some(existing) = substitution.get(parameter) {
         return unify_equality(store, substitution, existing, ty);
     }
-
     let ty = apply_substitution_to_fixpoint(store, substitution, ty);
     let parameter_ty = store.parameter_form(parameter);
     if ty == parameter_ty {
-        return true;
+        return Ok(());
     }
     if store.contains_type_parameter(ty, parameter) {
-        return false;
+        return Err(LocalProofFailure::Refuted);
     }
     substitution.bind(parameter, ty);
-    true
+    Ok(())
+}
+
+#[cfg(test)]
+mod local_outcome_tests {
+    use super::*;
+    use crate::checker::context::CheckerControl;
+    use crate::identity::{ModuleId, VariantId};
+    use crate::types::id::KindId;
+    use crate::types::outcome::{BlockReason, CancellationToken, QueryBudget};
+    use crate::types::parameter::{TypeParameterData, TypeParameterOwner};
+    use crate::types::rigid::{LocalTupleElement, RigidArena, RigidOrigin};
+    use phalcom_common::selector::Selector;
+
+    fn fixture() -> (TypeStore, CaseInstantiation, LocalType, TypeId) {
+        let mut store = TypeStore::new();
+        let owner = DeclarationId::new(ModuleId::universe_root(), "LocalOutcome".into());
+        let origin = store.nominal_type(owner.clone());
+        let parameter = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(owner.clone()), 0, "A", KindId::TYPE));
+        let mut arena = RigidArena::new();
+        let parent_scope = arena.fresh_scope(None);
+        let parent = arena.fresh(parent_scope, KindId::TYPE, RigidOrigin::Synthetic);
+        let scope = arena.fresh_scope(Some(parent_scope));
+        let variant = VariantId::new(owner, Selector::getter("Case").unwrap());
+        let rigid = arena.fresh(
+            scope,
+            KindId::TYPE,
+            RigidOrigin::VariantParameter {
+                variant: variant.clone(),
+                parameter,
+            },
+        );
+        let local = |argument| LocalType::Applied {
+            origin: Box::new(LocalType::Canonical(origin)),
+            arguments: Box::new([argument]),
+        };
+        let case = CaseInstantiation {
+            variant,
+            scope,
+            local_rigids: BTreeMap::from([(parameter, rigid)]),
+            payload_types: Box::new([LocalType::Rigid(rigid)]),
+            result_type: local(LocalType::Rigid(rigid)),
+            constraints: Box::new([]),
+        };
+        (store, case, local(LocalType::Rigid(parent)), origin)
+    }
+
+    #[test]
+    fn local_case_outcomes_preserve_nested_parent_rigids_and_refute_closed_mismatch() {
+        let (mut store, case, expected, _) = fixture();
+        let outcome = solve_local_case_proof_against_local(&mut store, &BranchProofEnvironment::default(), &expected, &case, &CheckerControl::default());
+        let LocalCaseProof::Reachable { bindings, equalities } = outcome else {
+            panic!("supported local shape must be reachable: {outcome:?}");
+        };
+        assert_eq!(bindings.values().next(), expected_argument(&expected));
+        assert!(!equalities.is_empty());
+        assert_eq!(case.payload_types[0].free_rigids().len(), 1);
+        let other = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Other".into()));
+        let mismatch = LocalType::Applied {
+            origin: Box::new(LocalType::Canonical(other)),
+            arguments: Box::new([LocalType::Canonical(store.unit())]),
+        };
+        assert_eq!(
+            solve_local_case_proof_against_local(&mut store, &BranchProofEnvironment::default(), &mismatch, &case, &CheckerControl::default()),
+            LocalCaseProof::Refuted
+        );
+    }
+
+    fn expected_argument(expected: &LocalType) -> Option<&LocalType> {
+        match expected {
+            LocalType::Applied { arguments, .. } => arguments.first(),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn local_case_outcomes_refute_occurs_checks_and_block_unresolved_projection() {
+        let (mut store, mut case, _, origin) = fixture();
+        let rigid = *case.local_rigids.values().next().unwrap();
+        let recursive = LocalType::Applied {
+            origin: Box::new(LocalType::Canonical(origin)),
+            arguments: Box::new([LocalType::Tuple(Box::new([LocalTupleElement {
+                label: None,
+                ty: LocalType::Rigid(rigid),
+            }]))]),
+        };
+        assert_eq!(
+            solve_local_case_proof_against_local(&mut store, &BranchProofEnvironment::default(), &recursive, &case, &CheckerControl::default()),
+            LocalCaseProof::Refuted
+        );
+        let trait_owner = DeclarationId::new(ModuleId::universe_root(), "Projected".into());
+        let projection = store.associated_projection(
+            origin,
+            crate::traits::TraitRef::new(trait_owner.clone(), Vec::new()),
+            crate::traits::AssociatedTypeRequirementId::new(trait_owner, 0),
+        );
+        case.result_type = LocalType::Applied {
+            origin: Box::new(LocalType::Canonical(origin)),
+            arguments: Box::new([LocalType::Canonical(projection)]),
+        };
+        let expected = LocalType::Applied {
+            origin: Box::new(LocalType::Canonical(origin)),
+            arguments: Box::new([LocalType::Canonical(store.unit())]),
+        };
+        assert!(matches!(
+            solve_local_case_proof_against_local(&mut store, &BranchProofEnvironment::default(), &expected, &case, &CheckerControl::default()),
+            LocalCaseProof::Blocked(_)
+        ));
+    }
+
+    #[test]
+    fn canonical_projection_and_proof_merge_uncertainty_remain_blocked() {
+        let (mut store, case, _, origin) = fixture();
+        let owner = DeclarationId::new(ModuleId::universe_root(), "Projection".into());
+        let projection = store.associated_projection(
+            origin,
+            crate::traits::TraitRef::new(owner.clone(), Vec::new()),
+            crate::traits::AssociatedTypeRequirementId::new(owner, 0),
+        );
+        let concrete = store.unit();
+        assert!(matches!(
+            unify_equality(&mut store, &mut TypeSubstitution::new(), projection, concrete),
+            Err(LocalProofFailure::Blocked(_))
+        ));
+        let parameter = *case.local_rigids.keys().next().unwrap();
+        let left = BranchProofEnvironment {
+            bindings: BTreeMap::from([(parameter, projection)]),
+            ..Default::default()
+        };
+        let right = BranchProofEnvironment {
+            bindings: BTreeMap::from([(parameter, concrete)]),
+            ..Default::default()
+        };
+        assert!(matches!(merge_branch_proofs(&mut store, &left, &right), ProofMerge::Blocked(_)));
+        let left = BranchProofEnvironment {
+            local_bindings: BTreeMap::from([(parameter, LocalType::Canonical(projection))]),
+            ..Default::default()
+        };
+        let right = BranchProofEnvironment {
+            local_bindings: BTreeMap::from([(parameter, LocalType::Canonical(concrete))]),
+            ..Default::default()
+        };
+        assert!(matches!(merge_branch_proofs(&mut store, &left, &right), ProofMerge::Blocked(_)));
+
+        let left = LocalType::Union(Box::new([LocalType::Canonical(origin), LocalType::Canonical(concrete)]));
+        let right = LocalType::Union(Box::new([LocalType::Canonical(concrete), LocalType::Canonical(origin)]));
+        assert!(matches!(
+            unify_local_types(&store, &case, &left, &right, &mut BTreeMap::new(), false, &CheckerControl::default(), 0),
+            Err(LocalProofFailure::Blocked(_))
+        ));
+    }
+
+    #[test]
+    fn local_case_outcomes_keep_cancellation_budget_and_depth_failure_blocked() {
+        let (mut store, case, expected, _) = fixture();
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        assert!(matches!(
+            solve_local_case_proof_against_local(
+                &mut store,
+                &BranchProofEnvironment::default(),
+                &expected,
+                &case,
+                &CheckerControl::new(QueryBudget::default(), &cancellation)
+            ),
+            LocalCaseProof::Blocked(BlockReason::UnknownType(crate::types::evidence::UnknownReason::InferenceCancelled))
+        ));
+        let cancellation = CancellationToken::new();
+        assert!(matches!(
+            solve_local_case_proof_against_local(
+                &mut store,
+                &BranchProofEnvironment::default(),
+                &expected,
+                &case,
+                &CheckerControl::new(QueryBudget::new(0), &cancellation)
+            ),
+            LocalCaseProof::Blocked(BlockReason::BudgetExceeded(_))
+        ));
+        let mut budget = QueryBudget::default();
+        budget.max_type_depth = 0;
+        assert!(matches!(
+            solve_local_case_proof_against_local(
+                &mut store,
+                &BranchProofEnvironment::default(),
+                &expected,
+                &case,
+                &CheckerControl::new(budget, &cancellation)
+            ),
+            LocalCaseProof::Blocked(BlockReason::BudgetExceeded(_))
+        ));
+    }
 }

@@ -609,3 +609,37 @@ fn r2_t06_empty_match_witnesses_are_bounded() {
     };
     assert!(witnesses.len() <= 8, "witness bound exceeded: {}", witnesses.len());
 }
+
+#[test]
+fn a2_blocked_contextual_singleton_retains_variant_identity_and_blocks_exhaustiveness() {
+    let case = analyze_adt(
+        r#"
+data Inner<T> { @variant Ready -> Inner<Int> }
+data Outer<T> { @variant Wrap<A>(_ inner: Inner<A>) -> Outer<A> }
+class Eval {
+    eval<T>(_ value: Outer<T>) {
+        match value { Outer::Wrap(Ready) => 1 _ => 0 }
+    }
+}
+"#,
+    );
+    let handle = case.only_match();
+    assert!(matches!(handle.resolution().exhaustiveness, ExhaustivenessResult::Blocked(_)));
+    handle.arm(0).assert_usefulness(PatternUsefulness::Useful);
+    let arm = handle.arm(0);
+    let phalcom_semantic::match_semantics::PatternResolution::Variant(outer) = &arm.resolution().pattern else {
+        panic!("outer variant");
+    };
+    let phalcom_semantic::match_semantics::PatternResolution::Variant(inner) = outer.candidates[0].fields[0].child.as_ref() else {
+        panic!("blocked singleton must stay a variant, not become a binding");
+    };
+    assert_eq!(inner.owner.as_ref().map(|owner| owner.name.as_ref()), Some("Inner"));
+    assert!(inner.blocked.is_some());
+    assert!(inner.candidates.is_empty());
+    assert!(case.diagnostics().any(|diagnostic| diagnostic.code == DiagnosticCode::MatchAnalysisBlocked));
+    assert!(
+        !case
+            .diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::MatchPatternContradictory)
+    );
+}

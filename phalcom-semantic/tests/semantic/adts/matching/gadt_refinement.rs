@@ -492,3 +492,44 @@ class Eval {
         "head binding in list pattern must preserve element rigid ρ, got {head_local:?}"
     );
 }
+
+#[test]
+fn a2_unresolved_parent_rigid_constructor_proof_blocks_match_instead_of_refuting() {
+    let case = analyze_adt(
+        r#"
+data Inner<T> {
+    @variant Int(_ value: Int) -> Inner<Int>
+}
+data Outer<T> {
+    @variant Wrap<A>(_ inner: Inner<A>) -> Outer<A>
+}
+class Eval {
+    eval<T>(_ value: Outer<T>) {
+        match value {
+            Outer::Wrap(Inner::Int(_)) => 1
+            _ => 0
+        }
+    }
+}
+"#,
+    );
+    let handle = case.only_match();
+    assert!(
+        matches!(
+            handle.resolution().exhaustiveness,
+            phalcom_semantic::match_semantics::ExhaustivenessResult::Blocked(_)
+        ),
+        "unresolved parent-rigid equality must block, got {:?}",
+        handle.resolution().exhaustiveness
+    );
+    handle.arm(0).assert_usefulness(PatternUsefulness::Useful);
+    assert!(
+        case.diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::MatchAnalysisBlocked)
+    );
+    assert!(
+        !case
+            .diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::MatchPatternContradictory)
+    );
+}

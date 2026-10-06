@@ -74,6 +74,9 @@ pub struct ResolvedVariantPattern {
     pub owner_candidates: Box<[DeclarationId]>,
     pub selector: VariantSelectorConstraint,
     pub candidates: Box<[ResolvedVariantCandidate]>,
+    /// A potentially applicable constructor could not be classified. Its absence
+    /// from `candidates` must not be interpreted as formal refutation.
+    pub blocked: Option<BlockReason>,
 }
 
 /// Selector constraint shape on a variant pattern.

@@ -2797,3 +2797,48 @@ commits; the P2 verification-worktree regression already exists identically on
 main. Existing checkout files were preserved. Delivery does not promote P4 or
 R1 overall: both remain `IN_PROGRESS / PARTIAL / UNVERIFIED`. Next R1 issue is
 A2; P4's remaining-scope corrective plan remains its implementation authority.
+
+
+### R1 A2 constructor proof outcomes — 2026-10-06
+
+A2 is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` on main, starting at
+`4a1cd6c7`. Its implementation, regressions, and checkpoint update are committed
+together. The user confirmed the preceding consolidation was pushed and its
+local branch deleted; implementation continued inline on main. The subsequent
+request authorizes commit/push delivery. Initial working tree was clean and
+upstream parity 0/0.
+
+`LocalCaseProof` and `VariantOpenOutcome` preserve Reachable, Refuted, and Blocked.
+Canonical GADT equality and proof merges also retain uncertainty. Only genuine
+refutation omits a constructor; an uncertain potentially applicable constructor
+blocks exact/enum/union decomposition. Union members retain their local subject
+terms, and an open member cannot hide a later blocked member. Local equality
+uses the existing shared cancellation/step/depth control. Unsupported local
+representations are blocked without changing LocalType or materialization.
+
+`ResolvedVariantPattern.blocked` retains declaration-backed singleton/variant
+identity, and nested/Or observations propagate uncertainty into the owning
+coverage engine. No uncertain candidate/proof is fabricated; blocked analysis
+is rejected by the existing compiler semantic gate before lowering. Canonical
+identity, semantic ownership, and parent/constructor rigid scopes are preserved.
+The issue plan records the consumer/canonical-helper amendment. Inline review
+found opaque local merge and union-pairing collapse paths and corrected them;
+no external consultation or architecture redesign occurred.
+
+Final focused evidence: matching suite 155 passed / 16 existing ignored, local
+proof unit tests 4 passed, coverage unit tests 3 passed, compiler lowering guard
+1 passed, semantic crate check passed, and scoped whitespace review passed.
+The valid nested source discriminator was red before the patch (`Proven`
+instead of `Blocked`) and green after it. A broader checker-library probe was
+80 passed / 2 failed: the new domain fixture was corrected and now passes;
+`tracking_resolver_demands_the_exact_unready_type_member_owner` remains deferred,
+classification C, outside A2 acceptance. No predecessor run establishes baseline.
+A constructor-result associated-projection source probe was invalid at declaration
+formation and removed; direct proof-unit coverage does not certify that producer.
+
+The [A2 walkthrough](LANG007.C4.P4/LANG007.C4.P4.R1/LANG007.C4.P4.R1-A2-walkthrough.md)
+and [handoff](LANG007.C4.P4/LANG007.C4.P4.R1/LANG007.C4.P4.R1-A2-handoff.md)
+own reproduction details and takeover interfaces. Broad semantic, core,
+workspace, lint, release, and runtime certification remain unrun. R1 and P4 stay
+`IN_PROGRESS / PARTIAL / UNVERIFIED`; next R1 work is I1 absence-invalidation
+certification. P4's primary corrective completion plan remains authoritative.

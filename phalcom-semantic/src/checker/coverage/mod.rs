@@ -5,7 +5,7 @@ pub(crate) mod subject;
 pub(crate) mod usefulness;
 
 #[allow(unused_imports)]
-pub(crate) use domain::{ConstructorCase, ConstructorHead, DomainDecomposition, OpenedVariantCase, decompose_domain, open_variant_case};
+pub(crate) use domain::{ConstructorCase, ConstructorHead, DomainDecomposition, OpenedVariantCase, VariantOpenOutcome, decompose_domain, open_variant_case};
 #[allow(unused_imports)]
 pub(crate) use pattern::{CoveragePattern, CoveragePatternArena, CoveragePatternId};
 #[allow(unused_imports)]

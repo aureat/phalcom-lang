@@ -538,3 +538,26 @@ fn lexical_if_and_match_branches_lower_inline_without_closure_construction() {
         "explicit Closure remains a first-class value"
     );
 }
+
+#[test]
+fn a2_blocked_nested_constructor_match_is_rejected_before_lowering() {
+    let source = r#"
+data Inner<T> { @variant Int(_ value: Int) -> Inner<Int> }
+data Outer<T> { @variant Wrap<A>(_ inner: Inner<A>) -> Outer<A> }
+class Eval {
+    eval<T>(_ value: Outer<T>) {
+        match value { Outer::Wrap(Inner::Int(_)) => 1 _ => 0 }
+    }
+}
+"#;
+    let result = compile_inline(source);
+    let failure = match result {
+        Ok(_) => panic!("blocked semantic match must not lower as exhaustive"),
+        Err(error) => error,
+    };
+    let diagnostics = format!("{failure:?}");
+    assert!(
+        diagnostics.contains("MatchAnalysisBlocked"),
+        "compiler must reject the semantic blocked proof: {diagnostics}"
+    );
+}

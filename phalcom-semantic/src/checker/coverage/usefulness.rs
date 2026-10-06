@@ -273,7 +273,7 @@ impl CoverageEngine {
         }
 
         if self.prior_matrix.is_empty() {
-            match decompose_domain(declarations, store, hierarchy, rigids, enum_table, &self.root) {
+            match decompose_domain(declarations, store, hierarchy, rigids, enum_table, &self.root, &self.control) {
                 DomainDecomposition::Empty => return ExhaustivenessResult::Proven,
                 DomainDecomposition::Blocked(b) => return ExhaustivenessResult::Blocked(b),
                 DomainDecomposition::Closed(cases) => {
@@ -390,11 +390,12 @@ pub(crate) fn summarize_pattern(
     arena: &CoveragePatternArena,
     pattern: CoveragePatternId,
     subject: &CoverageSubject,
+    control: &CheckerControl,
 ) -> PatternSpaceSummary {
     match arena.get(pattern) {
         CoveragePattern::Wildcard => PatternSpaceSummary::Opaque(subject.canonical),
         CoveragePattern::Variant { candidates, fields, .. } => {
-            let cases = match decompose_domain(declarations, store, hierarchy, rigids, enum_table, subject) {
+            let cases = match decompose_domain(declarations, store, hierarchy, rigids, enum_table, subject, control) {
                 DomainDecomposition::Closed(cases) => cases,
                 DomainDecomposition::Empty => return PatternSpaceSummary::Empty,
                 DomainDecomposition::Blocked(reason) => return PatternSpaceSummary::Blocked(reason),
@@ -415,7 +416,7 @@ pub(crate) fn summarize_pattern(
                     .map(|(index, child_subject)| {
                         fields
                             .get(index)
-                            .map(|child| summarize_pattern(declarations, store, hierarchy, rigids, enum_table, arena, *child, child_subject))
+                            .map(|child| summarize_pattern(declarations, store, hierarchy, rigids, enum_table, arena, *child, child_subject, control))
                             .unwrap_or(PatternSpaceSummary::Opaque(child_subject.canonical))
                     })
                     .collect::<Vec<_>>()
@@ -433,7 +434,7 @@ pub(crate) fn summarize_pattern(
             }
         }
         CoveragePattern::Tuple(fields) => {
-            let cases = match decompose_domain(declarations, store, hierarchy, rigids, enum_table, subject) {
+            let cases = match decompose_domain(declarations, store, hierarchy, rigids, enum_table, subject, control) {
                 DomainDecomposition::Closed(cases) => cases,
                 DomainDecomposition::Empty => return PatternSpaceSummary::Empty,
                 DomainDecomposition::Blocked(reason) => return PatternSpaceSummary::Blocked(reason),
@@ -449,7 +450,7 @@ pub(crate) fn summarize_pattern(
                 .map(|(index, child_subject)| {
                     fields
                         .get(index)
-                        .map(|child| summarize_pattern(declarations, store, hierarchy, rigids, enum_table, arena, *child, child_subject))
+                        .map(|child| summarize_pattern(declarations, store, hierarchy, rigids, enum_table, arena, *child, child_subject, control))
                         .unwrap_or(PatternSpaceSummary::Opaque(child_subject.canonical))
                 })
                 .collect();
@@ -459,7 +460,7 @@ pub(crate) fn summarize_pattern(
         CoveragePattern::Or(alts) => {
             let summaries = alts
                 .iter()
-                .map(|&alt| summarize_pattern(declarations, store, hierarchy, rigids, enum_table, arena, alt, subject))
+                .map(|&alt| summarize_pattern(declarations, store, hierarchy, rigids, enum_table, arena, alt, subject, control))
                 .collect();
             PatternSpaceSummary::Union(summaries)
         }
@@ -576,7 +577,7 @@ fn useful_internal(
 
         // At least one prior row inspected this column. Decompose domain:
         metrics.constructor_decompositions += 1;
-        match decompose_domain(declarations, store, hierarchy, rigids, enum_table, head_subject) {
+        match decompose_domain(declarations, store, hierarchy, rigids, enum_table, head_subject, control) {
             DomainDecomposition::Empty => UsefulnessSearch::NotUseful,
             DomainDecomposition::Blocked(b) => UsefulnessSearch::Blocked(b),
             DomainDecomposition::Open => {
@@ -617,6 +618,7 @@ fn useful_internal(
                     let merged_proof = match crate::checker::gadt_proof::merge_branch_proofs(store, proof, &case.proof) {
                         crate::checker::gadt_proof::ProofMerge::Compatible(p) => p,
                         crate::checker::gadt_proof::ProofMerge::Contradictory => continue,
+                        crate::checker::gadt_proof::ProofMerge::Blocked(reason) => return UsefulnessSearch::Blocked(reason),
                     };
 
                     match useful_internal(
@@ -650,7 +652,7 @@ fn useful_internal(
     } else {
         // Candidate head is a constructor (Variant, Tuple, List):
         metrics.constructor_decompositions += 1;
-        match decompose_domain(declarations, store, hierarchy, rigids, enum_table, head_subject) {
+        match decompose_domain(declarations, store, hierarchy, rigids, enum_table, head_subject, control) {
             DomainDecomposition::Empty => UsefulnessSearch::NotUseful,
             DomainDecomposition::Blocked(b) => UsefulnessSearch::Blocked(b),
             DomainDecomposition::Open => {
@@ -677,6 +679,7 @@ fn useful_internal(
                     let merged_proof = match crate::checker::gadt_proof::merge_branch_proofs(store, proof, &case.proof) {
                         crate::checker::gadt_proof::ProofMerge::Compatible(p) => p,
                         crate::checker::gadt_proof::ProofMerge::Contradictory => continue,
+                        crate::checker::gadt_proof::ProofMerge::Blocked(reason) => return UsefulnessSearch::Blocked(reason),
                     };
 
                     match useful_internal(

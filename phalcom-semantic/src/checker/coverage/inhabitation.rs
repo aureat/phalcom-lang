@@ -62,7 +62,7 @@ pub(crate) fn check_inhabitation(
         }
         let current = CoverageSubject::canonical(ty);
         metrics.constructor_decompositions += 1;
-        let domain = match decompose_domain(declarations, store, hierarchy, rigids, enum_table, &current) {
+        let domain = match decompose_domain(declarations, store, hierarchy, rigids, enum_table, &current, control) {
             DomainDecomposition::Blocked(reason) => return Inhabitation::Blocked(reason),
             DomainDecomposition::Empty => DomainNode::default(),
             DomainDecomposition::Open => DomainNode {

@@ -5280,6 +5280,9 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
         ctx.push_scope();
         let mut arm_bindings = Vec::new();
         let pattern_res = crate::checker::pattern::resolve_pattern(ctx, &arm.pattern, &scrutinee_subject, &mut arm_bindings);
+        if let Some(reason) = crate::checker::pattern::blocked_reason_for_resolution(&pattern_res) {
+            engine.retain_blocked(reason.clone());
+        }
         let coverage_pat = crate::checker::pattern::coverage_pattern_for_resolution(engine.arena_mut(), &pattern_res);
         let usefulness = engine.classify_arm(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, ctx.enum_table, coverage_pat);
         if usefulness == crate::match_semantics::PatternUsefulness::Redundant {
@@ -5304,6 +5307,7 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
                     engine.arena(),
                     coverage_pat,
                     engine.root(),
+                    &ctx.control,
                 );
                 if let crate::match_semantics::PatternSpaceSummary::Blocked(reason) = &summary {
                     engine.retain_blocked(reason.clone());
@@ -5318,11 +5322,19 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
             engine.commit_arm(coverage_pat);
         }
 
-        let residual_summary = engine.summarize_residual(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, ctx.enum_table);
+        let mut residual_summary = engine.summarize_residual(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, ctx.enum_table);
         if let Some(reason) = engine.blocked_reason() {
             reachable_summary = crate::match_semantics::PatternSpaceSummary::Blocked(reason.clone());
         }
-        let proof = pattern_common_proof(ctx, &pattern_res);
+        let proof = match pattern_common_proof(ctx, &pattern_res) {
+            Ok(proof) => proof,
+            Err(reason) => {
+                engine.retain_blocked(reason.clone());
+                reachable_summary = crate::match_semantics::PatternSpaceSummary::Blocked(reason.clone());
+                residual_summary = crate::match_semantics::PatternSpaceSummary::Blocked(reason);
+                crate::match_semantics::BranchProofEnvironment::default()
+            }
+        };
 
         let analyzed_branch = if usefulness == crate::match_semantics::PatternUsefulness::Useful {
             if let (Some(binding), Some(exact_case)) = (stable_scrutinee, pattern_exact_case_type(ctx, &pattern_res)) {
@@ -5492,7 +5504,7 @@ fn pattern_exact_case_type(ctx: &mut CheckingContext<'_>, resolution: &crate::ma
 fn pattern_common_proof(
     ctx: &mut CheckingContext<'_>,
     resolution: &crate::match_semantics::PatternResolution,
-) -> crate::match_semantics::BranchProofEnvironment {
+) -> Result<crate::match_semantics::BranchProofEnvironment, crate::types::outcome::BlockReason> {
     let alternatives = match resolution {
         crate::match_semantics::PatternResolution::Variant(variant) => variant
             .candidates
@@ -5500,25 +5512,25 @@ fn pattern_common_proof(
             .map(|candidate| {
                 let mut proof = candidate.proof.clone();
                 for field in candidate.fields.iter() {
-                    let nested = pattern_common_proof(ctx, &field.child);
-                    if let crate::checker::gadt_proof::ProofMerge::Compatible(merged) =
-                        crate::checker::gadt_proof::merge_branch_proofs(ctx.store, &proof, &nested)
-                    {
-                        proof = merged;
+                    let nested = pattern_common_proof(ctx, &field.child)?;
+                    match crate::checker::gadt_proof::merge_branch_proofs(ctx.store, &proof, &nested) {
+                        crate::checker::gadt_proof::ProofMerge::Compatible(merged) => proof = merged,
+                        crate::checker::gadt_proof::ProofMerge::Blocked(reason) => return Err(reason),
+                        crate::checker::gadt_proof::ProofMerge::Contradictory => {}
                     }
                 }
-                proof
+                Ok(proof)
             })
-            .collect::<Vec<_>>(),
+            .collect::<Result<Vec<_>, _>>()?,
         crate::match_semantics::PatternResolution::Or(or_pattern) => or_pattern
             .alternatives
             .iter()
             .map(|alternative| pattern_common_proof(ctx, alternative))
-            .collect::<Vec<_>>(),
-        _ => return crate::match_semantics::BranchProofEnvironment::default(),
+            .collect::<Result<Vec<_>, _>>()?,
+        _ => return Ok(crate::match_semantics::BranchProofEnvironment::default()),
     };
     let Some(first) = alternatives.first() else {
-        return crate::match_semantics::BranchProofEnvironment::default();
+        return Ok(crate::match_semantics::BranchProofEnvironment::default());
     };
     let mut proof = first.clone();
     proof
@@ -5531,5 +5543,5 @@ fn pattern_common_proof(
         .cloned()
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    proof
+    Ok(proof)
 }

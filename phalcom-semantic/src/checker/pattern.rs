@@ -67,6 +67,9 @@ fn resolve_pattern_with_mode(
                 let mut local_bindings = Vec::new();
                 let resolution = resolve_pattern_with_mode(ctx, alternative, subject, &mut local_bindings, BindingMode::Detached);
 
+                if let Some(reason) = blocked_reason_for_resolution(&resolution) {
+                    engine.retain_blocked(reason.clone());
+                }
                 let cov_alt = coverage_pattern_for_resolution(engine.arena_mut(), &resolution);
                 let usefulness = engine.check_or_alternative(
                     ctx.declarations,
@@ -490,6 +493,8 @@ fn try_resolve_contextual_singleton(
     // owner from the contextual leaf spelling.
     let owner_types = nominal_owner_types(ctx.store, subject.canonical);
     let mut matches = Vec::new();
+    let mut blocked = None;
+    let mut blocked_owners = Vec::new();
     for (owner, owner_ty) in owner_types {
         let Some(enum_info) = enum_table.enums.get(&owner) else {
             continue;
@@ -506,10 +511,24 @@ fn try_resolve_contextual_singleton(
 
         ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
         let owner_subject = contextual_owner_subject(ctx.store, subject, &owner, owner_ty);
-        let Some(opened) =
-            crate::checker::coverage::open_variant_case(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, &owner_subject, &variant_info)
-        else {
-            continue;
+        let opened = match crate::checker::coverage::open_variant_case(
+            ctx.declarations,
+            ctx.store,
+            &ctx.hierarchy,
+            &mut ctx.rigids,
+            &owner_subject,
+            &variant_info,
+            &ctx.control,
+        ) {
+            crate::checker::coverage::VariantOpenOutcome::Reachable(opened) => opened,
+            crate::checker::coverage::VariantOpenOutcome::Refuted => continue,
+            crate::checker::coverage::VariantOpenOutcome::Blocked(reason) => {
+                blocked.get_or_insert(reason);
+                if !blocked_owners.contains(&owner) {
+                    blocked_owners.push(owner);
+                }
+                continue;
+            }
         };
         matches.push((
             owner,
@@ -521,12 +540,12 @@ fn try_resolve_contextual_singleton(
         ));
     }
 
-    if matches.is_empty() {
+    if matches.is_empty() && blocked.is_none() {
         return None;
     }
     matches.sort_by(|left, right| left.1.cmp(&right.1));
 
-    let mut owner_candidates = Vec::new();
+    let mut owner_candidates = blocked_owners;
     let mut candidates = Vec::with_capacity(matches.len());
     for (owner, variant_id, _variant_info, exact_case, proof, case_instantiation) in matches.iter() {
         if !owner_candidates.contains(owner) {
@@ -565,6 +584,7 @@ fn try_resolve_contextual_singleton(
         owner_candidates: owner_candidates.into_boxed_slice(),
         selector: VariantSelectorConstraint::Exact(target_selector),
         candidates: candidates.into_boxed_slice(),
+        blocked,
     };
 
     Some(resolution)
@@ -695,6 +715,7 @@ fn resolve_variant_pattern(
                 owner_candidates: Box::new([]),
                 selector: constraint,
                 candidates: Box::new([]),
+                blocked: None,
             };
         };
         if !expected_owners.is_empty() && !expected_owners.iter().any(|(expected, _)| expected == &decl) {
@@ -725,6 +746,7 @@ fn resolve_variant_pattern(
             owner_candidates: Box::new([]),
             selector: constraint,
             candidates: Box::new([]),
+            blocked: None,
         };
     };
 
@@ -746,10 +768,12 @@ fn resolve_variant_pattern(
             owner_candidates: Box::new([owner_decl]),
             selector: constraint,
             candidates: Box::new([]),
+            blocked: None,
         };
     }
 
     let mut candidate_resolutions = Vec::new();
+    let mut blocked = None;
     let mut candidate_bindings = Vec::new();
 
     if let (Some(table), Some(info)) = (&enum_table, &enum_info) {
@@ -789,9 +813,22 @@ fn resolve_variant_pattern(
             }
             had_shape_or_label_match = true;
 
-            let Some(opened) = crate::checker::coverage::open_variant_case(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, subject, v_info)
-            else {
-                continue;
+            let opened = match crate::checker::coverage::open_variant_case(
+                ctx.declarations,
+                ctx.store,
+                &ctx.hierarchy,
+                &mut ctx.rigids,
+                subject,
+                v_info,
+                &ctx.control,
+            ) {
+                crate::checker::coverage::VariantOpenOutcome::Reachable(opened) => opened,
+                crate::checker::coverage::VariantOpenOutcome::Refuted => continue,
+                crate::checker::coverage::VariantOpenOutcome::Blocked(reason) => {
+                    blocked.get_or_insert(reason);
+                    matched_any_variant = true;
+                    continue;
+                }
             };
             matched_any_variant = true;
 
@@ -1030,6 +1067,7 @@ fn resolve_variant_pattern(
         owner_candidates: Box::new([owner_decl]),
         selector: constraint,
         candidates: candidate_resolutions.into_boxed_slice(),
+        blocked,
     }
 }
 
@@ -1080,6 +1118,29 @@ fn matches_variant_info(
             })
         }
         VariantSelectorConstraint::Pattern(pattern) => pattern.matches(&v_info.id.selector),
+    }
+}
+
+/// Carries uncertainty from nested pattern observations into their owning match.
+pub(crate) fn blocked_reason_for_resolution(resolution: &PatternResolution) -> Option<&crate::types::outcome::BlockReason> {
+    match resolution {
+        PatternResolution::Variant(variant) => variant.blocked.as_ref().or_else(|| {
+            variant
+                .candidates
+                .iter()
+                .flat_map(|candidate| candidate.fields.iter())
+                .find_map(|field| blocked_reason_for_resolution(&field.child))
+        }),
+        PatternResolution::Or(pattern) => pattern.alternatives.iter().find_map(blocked_reason_for_resolution),
+        PatternResolution::Tuple(elements) => elements.iter().find_map(blocked_reason_for_resolution),
+        PatternResolution::List(pattern) => pattern
+            .prefix
+            .iter()
+            .find_map(blocked_reason_for_resolution)
+            .or_else(|| pattern.rest.as_deref().and_then(blocked_reason_for_resolution)),
+        PatternResolution::Record(fields) => fields.iter().find_map(|field| blocked_reason_for_resolution(&field.child)),
+        PatternResolution::Map(entries) => entries.iter().find_map(|entry| blocked_reason_for_resolution(&entry.child)),
+        PatternResolution::Wildcard | PatternResolution::Binding { .. } => None,
     }
 }
 
