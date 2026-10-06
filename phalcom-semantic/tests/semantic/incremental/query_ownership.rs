@@ -286,6 +286,7 @@ class Owner {
             resolver: &resolver,
             declarations: &declarations,
             field_signatures: None,
+            callable_signatures: None,
             type_aliases: None,
             linked: Some(&input.linked),
             import_products: Some(&input.import_products),

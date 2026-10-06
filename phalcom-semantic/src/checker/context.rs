@@ -7,6 +7,7 @@ use crate::checker::incident::{
 };
 use crate::core_surface::CoreDeclarationIds;
 use crate::db::budget::{BudgetReport, CancellationToken, QueryBudget};
+use crate::db::key::QueryKey;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
 use crate::dispatch::{CallableParameter, CallableSignature, DispatchResult, ResolvedDispatch, ResolvedDispatchResult, SurfaceDispatchResolver};
@@ -82,6 +83,7 @@ impl<'a> std::ops::Deref for DispatchAccess<'a> {
 }
 
 type SharedSemanticDependencies = Rc<RefCell<BTreeSet<SemanticDependency>>>;
+type SharedSemanticQueryDemands = Rc<RefCell<BTreeSet<QueryKey>>>;
 
 /// Shared control for one callable/query semantic analysis.
 ///
@@ -200,11 +202,39 @@ fn record_hierarchy_dependency(dependencies: &SharedSemanticDependencies, declar
 pub struct TrackingTypeResolver<'a> {
     inner: &'a dyn TypeResolver,
     dependencies: SharedSemanticDependencies,
+    query_demands: SharedSemanticQueryDemands,
+    deferred_static_definitions: Rc<RefCell<BTreeSet<DeclarationId>>>,
 }
 
 impl<'a> TrackingTypeResolver<'a> {
     fn new(inner: &'a dyn TypeResolver, dependencies: SharedSemanticDependencies) -> Self {
-        Self { inner, dependencies }
+        Self {
+            inner,
+            dependencies,
+            query_demands: Rc::new(RefCell::new(BTreeSet::new())),
+            deferred_static_definitions: Rc::new(RefCell::new(BTreeSet::new())),
+        }
+    }
+
+    fn with_inner<'b>(&'b self, inner: &'b dyn TypeResolver) -> TrackingTypeResolver<'b> {
+        TrackingTypeResolver {
+            inner,
+            dependencies: self.dependencies.clone(),
+            query_demands: self.query_demands.clone(),
+            deferred_static_definitions: self.deferred_static_definitions.clone(),
+        }
+    }
+
+    /// Marks known alias owners whose canonical forms are intentionally absent
+    /// until their computed Record keys have been projected. A lookup that
+    /// selects one of these owners suspends on its exact StaticDefinition key
+    /// instead of publishing the ordinary missing-form diagnostic.
+    pub(crate) fn track_deferred_static_definition(&self, declaration: DeclarationId) {
+        self.deferred_static_definitions.borrow_mut().insert(declaration);
+    }
+
+    pub(crate) fn semantic_query_demands_snapshot(&self) -> BTreeSet<QueryKey> {
+        self.query_demands.borrow().clone()
     }
 
     pub(crate) fn inner(&self) -> &'a dyn TypeResolver {
@@ -320,13 +350,19 @@ impl TypeResolver for TrackingTypeResolver<'_> {
     }
 
     fn resolve_alias_form(&self, declaration: &DeclarationId) -> Option<TypeId> {
-        self.inner.resolve_alias_form(declaration)
+        let form = self.inner.resolve_alias_form(declaration);
+        if form.is_none() && self.deferred_static_definitions.borrow().contains(declaration) {
+            self.query_demands.borrow_mut().insert(QueryKey::StaticDefinition(declaration.clone()));
+        }
+        form
     }
 
     fn resolve_static_definition(&self, declaration: &DeclarationId) -> Option<Arc<crate::static_definition::StaticDefinitionProduct>> {
         let product = self.inner.resolve_static_definition(declaration);
         if product.is_some() {
             record_query_dependency(&self.dependencies, SemanticDependency::StaticDefinition(declaration.clone()));
+        } else if self.deferred_static_definitions.borrow().contains(declaration) {
+            self.query_demands.borrow_mut().insert(QueryKey::StaticDefinition(declaration.clone()));
         }
         product
     }
@@ -344,12 +380,35 @@ impl TypeResolver for TrackingTypeResolver<'_> {
         owner: &DeclarationId,
         selector: &crate::types::type_member::TypeMemberSelector,
     ) -> Option<std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>> {
-        let product = self.inner.resolve_associated_type_member(owner, selector);
-        if let Some(product) = &product {
+        let id = self.inner.resolve_associated_type_member_id(owner, selector)?;
+        let Some(product) = self.inner.resolve_associated_type_member(owner, selector) else {
+            // Selection is authoritative even when its checked product has not
+            // reached the current resolver view. Suspend on that exact owner;
+            // never turn this absence into a source diagnostic or dependency.
+            self.query_demands
+                .borrow_mut()
+                .insert(QueryKey::TypeMemberDeclaration(id));
+            return None;
+        };
+        if product.id == id {
             record_query_dependency(&self.dependencies, SemanticDependency::AssociatedSurface(owner.clone()));
             record_query_dependency(&self.dependencies, SemanticDependency::TypeMemberDeclaration(product.id.clone()));
+            Some(product)
+        } else {
+            // The resolver must never answer a stable surface identity with a
+            // different checked product. Treat disagreement as unavailable so
+            // the owner boundary can refresh and retry canonically.
+            self.query_demands.borrow_mut().insert(QueryKey::TypeMemberDeclaration(id));
+            None
         }
-        product
+    }
+
+    fn resolve_associated_type_member_id(
+        &self,
+        owner: &DeclarationId,
+        selector: &crate::types::type_member::TypeMemberSelector,
+    ) -> Option<crate::types::type_member::TypeMemberDeclarationId> {
+        self.inner.resolve_associated_type_member_id(owner, selector)
     }
 
     fn resolve_static_case_catalog(
@@ -810,7 +869,7 @@ impl<'a> CheckingContext<'a> {
         CheckingContext {
             store: self.store,
             hierarchy: TrackingTypeHierarchy::new(self.hierarchy.inner, self.declarations, self.semantic_dependencies.clone()),
-            resolver: TrackingTypeResolver::new(resolver, self.semantic_dependencies.clone()),
+            resolver: self.resolver.with_inner(resolver),
             declarations: self.declarations,
             current_module: self.current_module.clone(),
             caller_package: self.caller_package.clone(),
@@ -2209,6 +2268,12 @@ impl<'a> CheckingContext<'a> {
         self.semantic_dependencies.borrow().clone()
     }
 
+    /// Returns exact owner queries selected while their products were not yet
+    /// current. Callers must discard this attempt's diagnostics and products.
+    pub(crate) fn semantic_query_demands_snapshot(&self) -> BTreeSet<QueryKey> {
+        self.resolver.semantic_query_demands_snapshot()
+    }
+
     /// Records a dispatch lookup's structural and callable-type dependencies.
     ///
     /// `DeclarationSurface` owns selector/visibility/hierarchy projection only;
@@ -3265,6 +3330,16 @@ impl<'a> CheckingContext<'a> {
         Some(signature)
     }
 
+    /// Resolves a canonical declaration-owned callable signature while
+    /// recording the signature query as a dependency of the current owner.
+    pub(crate) fn resolve_callable_signature(&self, callable: &CallableId) -> Option<&crate::signature::CallableSemanticSignature> {
+        let signature = self.callable_signatures?.get(callable)?;
+        if is_query_owned_module(callable.module()) {
+            self.record_semantic_dependency(SemanticDependency::CallableSignature(callable.clone()));
+        }
+        Some(signature)
+    }
+
     /// Resolves the nearest declaration-owned field signature in the class
     /// hierarchy, preserving the declaring field's canonical `FieldId`.
     pub(crate) fn resolve_field_signature_in_hierarchy(
@@ -3839,7 +3914,7 @@ fn rewrite_local_rigids(local: &LocalType, bindings: &BTreeMap<crate::types::id:
 
 #[cfg(test)]
 mod tests {
-    use super::CheckingContext;
+    use super::{CheckingContext, TrackingTypeResolver};
     use crate::checker::binding::{BindingContract, BindingContractOrigin};
     use crate::checker::causal::CausalInvalidity;
     use crate::checker::flow::state::FlowInvariantFailure;
@@ -3848,11 +3923,84 @@ mod tests {
     use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
     use crate::dispatch::{CallableSignature, ResolvedDispatchResult};
     use crate::identity::{CallableId, DeclarationId, DispatchSide, ModuleId};
+    use crate::types::annotation::TypeResolver;
+    use crate::types::type_member::{TypeMemberDeclarationId, TypeMemberSelector};
     use crate::types::SimpleTypeResolver;
     use crate::types::id::TypeId;
     use crate::types::relation::MapTypeHierarchy;
     use crate::types::store::TypeStore;
     use phalcom_common::range::SourceRange;
+    use std::cell::RefCell;
+    use std::collections::BTreeSet;
+    use std::rc::Rc;
+
+    struct IdentityOnlyTypeResolver(TypeMemberDeclarationId);
+
+    impl TypeResolver for IdentityOnlyTypeResolver {
+        fn resolve_type_name(&self, _current_module: &ModuleId, _root: &str, _members: &[String]) -> Option<DeclarationId> {
+            None
+        }
+
+        fn resolve_associated_type_member_id(
+            &self,
+            _owner: &DeclarationId,
+            _selector: &TypeMemberSelector,
+        ) -> Option<TypeMemberDeclarationId> {
+            Some(self.0.clone())
+        }
+
+        fn resolve_associated_type_member(
+            &self,
+            _owner: &DeclarationId,
+            _selector: &TypeMemberSelector,
+        ) -> Option<std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>> {
+            panic!("an unready product must not be fetched from the stale resolver view")
+        }
+    }
+
+    #[test]
+    fn tracking_resolver_demands_the_exact_unready_type_member_owner() {
+        let module = ModuleId::universe_root();
+        let owner = DeclarationId::new(module, "Owner".into());
+        let id = TypeMemberDeclarationId::new(owner.clone(), TypeMemberSelector::named("Item"));
+        let key = crate::db::key::QueryKey::TypeMemberDeclaration(id.clone());
+        let inner = IdentityOnlyTypeResolver(id);
+        let dependencies = Rc::new(RefCell::new(BTreeSet::new()));
+        let demands = Rc::new(RefCell::new(BTreeSet::new()));
+        let resolver = TrackingTypeResolver {
+            inner: &inner,
+            dependencies,
+            query_demands: demands.clone(),
+            deferred_static_definitions: Rc::new(RefCell::new(BTreeSet::new())),
+        };
+
+        let product = resolver.resolve_associated_type_member(&owner, &TypeMemberSelector::named("Item"));
+
+        assert!(product.is_none());
+        assert_eq!(*demands.borrow(), BTreeSet::from([key]));
+    }
+
+    #[test]
+    fn tracking_resolver_demands_only_a_known_deferred_static_definition() {
+        let module = ModuleId::universe_root();
+        let declaration = DeclarationId::new(module, "DeferredAlias".into());
+        let inner = crate::types::SimpleTypeResolver::new();
+        let dependencies = Rc::new(RefCell::new(BTreeSet::new()));
+        let demands = Rc::new(RefCell::new(BTreeSet::new()));
+        let resolver = TrackingTypeResolver {
+            inner: &inner,
+            dependencies,
+            query_demands: demands.clone(),
+            deferred_static_definitions: Rc::new(RefCell::new(BTreeSet::new())),
+        };
+
+        assert!(resolver.resolve_alias_form(&declaration).is_none());
+        assert!(demands.borrow().is_empty(), "ordinary absent aliases are not scheduler demands");
+
+        resolver.track_deferred_static_definition(declaration.clone());
+        assert!(resolver.resolve_alias_form(&declaration).is_none());
+        assert_eq!(*demands.borrow(), BTreeSet::from([crate::db::QueryKey::StaticDefinition(declaration)]));
+    }
 
     #[test]
     fn published_annotation_diagnostics_join_all_error_causes() {

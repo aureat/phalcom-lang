@@ -70,10 +70,60 @@ pub struct SignatureQueryInputs<'a> {
     pub store: &'a mut TypeStore,
     pub hierarchy: &'a dyn TypeHierarchy,
     pub resolver: &'a dyn TypeResolver,
+    /// Owner-relative computed Record-key facts prepared by the session demand
+    /// driver before this signature query forms any canonical rows.
+    pub record_key_projections: Option<&'a crate::static_key::ProjectedRecordKeySet<'a>>,
     pub declarations: &'a DeclarationTypeTable,
     pub linked: Option<&'a LinkedProgram>,
     pub type_aliases: Option<&'a crate::type_alias::TypeAliasTable>,
     pub import_products: Option<&'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
+}
+
+fn signature_projection_resolver<'a>(
+    resolver: &'a dyn TypeResolver,
+    projections: Option<&'a crate::static_key::ProjectedRecordKeySet<'a>>,
+    owner: &QueryKey,
+) -> Result<Option<crate::types::annotation::ProjectedRecordKeyResolver<'a>>, String> {
+    let Some(projections) = projections else {
+        return Ok(None);
+    };
+    if projections.owner() != owner {
+        return Err(format!(
+            "computed Record-key projections belong to {:?}, expected {owner:?}",
+            projections.owner()
+        ));
+    }
+    Ok(Some(crate::types::annotation::ProjectedRecordKeyResolver { parent: resolver, projections }))
+}
+
+fn require_current_projection_dependencies(db: &SemanticDb, projections: &crate::static_key::ProjectedRecordKeySet<'_>) -> QueryOutcome<()> {
+    for dependency in projections.dependencies() {
+        let key = semantic_dependency_query_key(&dependency);
+        if db.query_state(&key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+            return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+        }
+    }
+    QueryOutcome::Ready(())
+}
+
+fn signature_projection_input_fingerprint(
+    fingerprint: crate::db::InputFingerprint,
+    projections: Option<&crate::static_key::ProjectedRecordKeySet<'_>>,
+) -> crate::db::InputFingerprint {
+    let Some(projections) = projections else {
+        return fingerprint;
+    };
+    let mut hasher = DefaultHasher::new();
+    fingerprint.hash(&mut hasher);
+    projections.owner().hash(&mut hasher);
+    for fact in projections.facts() {
+        fact.use_id.hash(&mut hasher);
+        format!("{:?}", fact.checked.root).hash(&mut hasher);
+        format!("{:?}", fact.projection).hash(&mut hasher);
+        fact.checked.static_constant_reads.hash(&mut hasher);
+        fact.checked.dependencies.hash(&mut hasher);
+    }
+    crate::db::InputFingerprint::new(hasher.finish())
 }
 
 fn semantic_dependency_query_key(dependency: &crate::checker::analysis::SemanticDependency) -> QueryKey {
@@ -1349,6 +1399,93 @@ pub fn query_static_definition(
     QueryOutcome::Ready(product)
 }
 
+/// Publishes a type-alias static definition formed with owner-relative
+/// computed Record-key facts and records the exact semantic products selected
+/// while checking those keys.
+pub fn query_static_definition_with_record_key_projections(
+    db: &mut SemanticDb,
+    product: Arc<crate::static_definition::StaticDefinitionProduct>,
+    projections: &crate::static_key::ProjectedRecordKeySet<'_>,
+    alias_dependencies: &[crate::identity::DeclarationId],
+    conformance_semantics: Option<&crate::trait_dispatch::ConformanceSemanticView<'_>>,
+) -> QueryOutcome<Arc<crate::static_definition::StaticDefinitionProduct>> {
+    let key = QueryKey::StaticDefinition(product.definition.id.clone());
+    if projections.owner() != &key {
+        return query_failure(
+            db,
+            key.clone(),
+            format!("computed Record-key projections belong to {:?}, expected {key:?}", projections.owner()),
+        );
+    }
+    for declaration in alias_dependencies {
+        let dependency_key = QueryKey::StaticDefinition(declaration.clone());
+        if dependency_key == key {
+            return query_failure(db, key, "static definition projection captured a self-dependency");
+        }
+        if db.query_state(&dependency_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+            return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+        }
+    }
+    for dependency in projections.dependencies() {
+        let dependency_key = semantic_dependency_query_key(&dependency);
+        if dependency_key == key {
+            return query_failure(db, key, "static definition key projection captured a self-dependency");
+        }
+        if let crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) = dependency {
+            if conformance_semantics.and_then(|view| view.fingerprint_for(&impl_id)).is_none() {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            }
+        } else if db.query_state(&dependency_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+            return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+        }
+    }
+
+    let input_fingerprint = signature_projection_input_fingerprint(
+        crate::db::fingerprint::static_definition_input_fingerprint(&product),
+        Some(projections),
+    );
+    if db.validate_reuse(&key, input_fingerprint)
+        && let Some(cached) = db.product(&key).and_then(|value| value.as_static_definition())
+    {
+        db.metrics().record_hit();
+        return QueryOutcome::Ready(cached.clone());
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+
+    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+    for declaration in alias_dependencies {
+        if let Err(error) = db.record_dependency(&mut recorder, QueryKey::StaticDefinition(declaration.clone())) {
+            return query_failure(db, key, error);
+        }
+    }
+    for dependency in projections.dependencies() {
+        let dependency_key = semantic_dependency_query_key(&dependency);
+        if let crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) = dependency {
+            let Some(fingerprint) = conformance_semantics.and_then(|view| view.fingerprint_for(&impl_id)) else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            recorder.record(dependency_key, fingerprint);
+        } else if let Err(error) = db.record_dependency(&mut recorder, dependency_key) {
+            return query_failure(db, key, error);
+        }
+    }
+    let product_fingerprint = crate::db::fingerprint::static_definition_product_fingerprint(&product);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::StaticDefinition(product.clone()),
+        recorder.finish(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
 /// Publishes source-structural case membership before payload signature checks.
 pub fn query_static_domain_case_catalog(
     db: &mut SemanticDb,
@@ -1486,6 +1623,7 @@ pub struct DeclarationSurfaceQuery<'a> {
     pub resolver: &'a dyn TypeResolver,
     pub declarations: &'a DeclarationTypeTable,
     pub field_signatures: Option<&'a crate::signature::FieldSignatureTable>,
+    pub callable_signatures: Option<&'a crate::signature::CallableSignatureTable>,
     pub type_aliases: Option<&'a crate::type_alias::TypeAliasTable>,
     pub linked: Option<&'a LinkedProgram>,
     pub import_products: Option<&'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
@@ -1663,6 +1801,7 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                     store,
                     hierarchy: inputs.hierarchy,
                     resolver: inputs.base_resolver,
+                    record_key_projections: None,
                     declarations: inputs.declarations,
                     linked: Some(inputs.linked),
                     type_aliases: Some(inputs.type_aliases),
@@ -1685,6 +1824,7 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                     store,
                     hierarchy: inputs.hierarchy,
                     resolver: inputs.base_resolver,
+                    record_key_projections: None,
                     declarations: inputs.declarations,
                     linked: Some(inputs.linked),
                     type_aliases: Some(inputs.type_aliases),
@@ -1728,6 +1868,7 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                     resolver: inputs.base_resolver,
                     declarations: inputs.declarations,
                     field_signatures: None,
+                    callable_signatures: inputs.callable_signatures,
                     type_aliases: Some(inputs.type_aliases),
                     linked: Some(inputs.linked),
                     import_products: Some(inputs.import_products),
@@ -1993,6 +2134,7 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
         resolver,
         declarations,
         field_signatures,
+        callable_signatures,
         type_aliases,
         linked,
         import_products,
@@ -2072,6 +2214,9 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
         let mut context = crate::checker::context::CheckingContext::new(store, hierarchy, resolver, declarations, decl_id.module.clone());
         if let Some(field_signatures) = field_signatures {
             context.attach_field_signatures(field_signatures);
+        }
+        if let Some(callable_signatures) = callable_signatures {
+            context.attach_callable_signatures(callable_signatures);
         }
         if let Some(class_def) = class_def {
             crate::checker::declaration::register_class_surface(&mut context, class_def);
@@ -2231,6 +2376,7 @@ pub fn query_callable_signature(
             store,
             hierarchy,
             resolver,
+            record_key_projections: None,
             declarations,
             linked: None,
             type_aliases: None,
@@ -2249,12 +2395,27 @@ pub fn query_callable_signature_with_inputs(
         store,
         hierarchy,
         resolver,
+        record_key_projections,
         declarations,
         linked,
         type_aliases,
         import_products,
     } = inputs;
     let key = QueryKey::CallableSignature(callable.clone());
+    let projected_resolver = match signature_projection_resolver(resolver, record_key_projections, &key) {
+        Ok(projected_resolver) => projected_resolver,
+        Err(error) => return query_failure(db, key, error),
+    };
+    if let Some(projections) = record_key_projections {
+        match require_current_projection_dependencies(db, projections) {
+            QueryOutcome::Ready(()) => {}
+            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+            QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+            QueryOutcome::Failed(error) => return QueryOutcome::Failed(error),
+        }
+    }
+    let resolver = projected_resolver.as_ref().map_or(resolver, |projected| projected as &dyn TypeResolver);
     if unit.id != *callable.module() {
         return query_failure(db, key, format!("source unit does not own callable {callable:?}"));
     }
@@ -2301,8 +2462,11 @@ pub fn query_callable_signature_with_inputs(
         .and_then(|product| product.as_callable_definition())
         .cloned();
     let uses_effective_definition = effective_definition.is_some();
+    if uses_effective_definition && record_key_projections.is_some() {
+        return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+    }
 
-    let (signature, captured_dependencies) = if let Some(definition) = effective_definition {
+    let (signature, mut captured_dependencies) = if let Some(definition) = effective_definition {
         (Arc::new(definition.signature.clone()), BTreeSet::new())
     } else if let Some(class_def) = class_definition_for(&unit, callable.declaration_owner()) {
         if let Some(member) = class_def.members.iter().find(|member| {
@@ -2321,7 +2485,12 @@ pub fn query_callable_signature_with_inputs(
         return query_failure(db, key, format!("missing effective definition for callable {callable:?}"));
     };
 
-    let input_fingerprint = crate::db::fingerprint::callable_signature_input_fingerprint(&signature);
+    if let Some(projections) = record_key_projections {
+        captured_dependencies.extend(projections.dependencies());
+    }
+
+    let input_fingerprint =
+        signature_projection_input_fingerprint(crate::db::fingerprint::callable_signature_input_fingerprint(&signature), record_key_projections);
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(product) = db.product(&key).and_then(|product| product.as_callable_signature()) {
             db.metrics().record_hit();
@@ -2395,6 +2564,7 @@ pub fn query_field_signature(
             store,
             hierarchy,
             resolver,
+            record_key_projections: None,
             declarations,
             linked: None,
             type_aliases: None,
@@ -2447,12 +2617,27 @@ pub fn query_field_signature_with_inputs(
         store,
         hierarchy,
         resolver,
+        record_key_projections,
         declarations,
         linked,
         type_aliases,
         import_products,
     } = inputs;
     let key = QueryKey::FieldSignature(field.clone());
+    let projected_resolver = match signature_projection_resolver(resolver, record_key_projections, &key) {
+        Ok(projected_resolver) => projected_resolver,
+        Err(error) => return query_failure(db, key, error),
+    };
+    if let Some(projections) = record_key_projections {
+        match require_current_projection_dependencies(db, projections) {
+            QueryOutcome::Ready(()) => {}
+            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+            QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+            QueryOutcome::Failed(error) => return QueryOutcome::Failed(error),
+        }
+    }
+    let resolver = projected_resolver.as_ref().map_or(resolver, |projected| projected as &dyn TypeResolver);
     if unit.id != field.owner.module {
         return query_failure(db, key, format!("source unit does not own field {field:?}"));
     }
@@ -2506,7 +2691,8 @@ pub fn query_field_signature_with_inputs(
         return query_failure(db, key, format!("source member cannot publish field signature {field:?}"));
     };
 
-    let input_fingerprint = crate::db::fingerprint::field_signature_input_fingerprint(&signature);
+    let input_fingerprint =
+        signature_projection_input_fingerprint(crate::db::fingerprint::field_signature_input_fingerprint(&signature), record_key_projections);
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(product) = db.product(&key).and_then(|product| product.as_field_signature()) {
             db.metrics().record_hit();
@@ -2518,7 +2704,10 @@ pub fn query_field_signature_with_inputs(
     }
     db.metrics().record_miss();
 
-    let captured_dependencies = context.semantic_dependencies_snapshot();
+    let mut captured_dependencies = context.semantic_dependencies_snapshot();
+    if let Some(projections) = record_key_projections {
+        captured_dependencies.extend(projections.dependencies());
+    }
     for dependency in &captured_dependencies {
         match ensure_semantic_dependency_current(db, dependency, linked, declarations, type_aliases, import_products) {
             QueryOutcome::Ready(()) => {}
@@ -2608,6 +2797,12 @@ fn ensure_callable_signature_with_inputs(
     formal_inputs: &FormalQueryInputs<'_>,
     store: &mut TypeStore,
 ) -> QueryOutcome<Arc<CallableSemanticSignature>> {
+    let key = QueryKey::CallableSignature(callable.clone());
+    if db.validate_ready(&key) {
+        if let Some(signature) = db.product(&key).and_then(|product| product.as_callable_signature()) {
+            return QueryOutcome::Ready(signature.clone());
+        }
+    }
     match ensure_declaration_shell(db, callable.declaration_owner(), formal_inputs.declarations) {
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
@@ -2633,6 +2828,7 @@ fn ensure_callable_signature_with_inputs(
             store,
             hierarchy: formal_inputs.hierarchy,
             resolver: formal_inputs.base_resolver,
+            record_key_projections: None,
             declarations: formal_inputs.declarations,
             linked: Some(formal_inputs.linked),
             type_aliases: Some(formal_inputs.type_aliases),

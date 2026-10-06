@@ -4,6 +4,7 @@ use crate::checker::analysis::{AnalysisStatus, BindingAnalysisIndex, ExpressionA
 use crate::checker::binding::{BindingContract, BindingContractOrigin, BindingSeed};
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::context::CheckingContext;
+use crate::db::key::QueryKey;
 use crate::checker::control::analyze_executable_region;
 use crate::checker::expected::{ExpectationOrigin, ExpectedType};
 use crate::checker::expression::analyze_expression;
@@ -97,6 +98,7 @@ pub fn analyze_static_constant_initializer(
         declaration_range,
         initializer_range,
         expression,
+        record_key_static_constant_reads: Arc::from([]),
         input_fingerprint,
     }
 }
@@ -105,13 +107,58 @@ pub fn analyze_static_constant_initializer(
 /// reusable expression/evaluator product used by constant initializers and
 /// computed Record-key projection.
 pub fn analyze_static_expression(
-    mut context: CheckingContext<'_>,
+    context: CheckingContext<'_>,
     initializer: &Expr,
     expected_type: Option<crate::types::id::TypeId>,
     catalog: &crate::module_bindings::ModuleStaticBindingCatalog,
     binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
     intrinsics: &StaticIntrinsicRegistry,
 ) -> crate::static_constant::CheckedStaticExpression {
+    analyze_static_expression_with_demands(context, initializer, expected_type, catalog, binding_states, intrinsics).0
+}
+
+/// Result of checking a static expression against the current semantic world.
+#[derive(Clone, Debug)]
+pub enum StaticExpressionCheckOutcome {
+    /// The expression checked without diagnostics or unavailable prerequisites.
+    Ready(crate::static_constant::CheckedStaticExpression),
+    /// Exact semantic owner products must become current before checking can
+    /// be classified as valid or invalid.
+    Awaiting(BTreeSet<QueryKey>),
+    /// The expression was checked against current inputs and produced source
+    /// diagnostics; no owner product may be published from it.
+    Invalid(crate::static_constant::CheckedStaticExpression),
+}
+
+/// Checks a static expression and preserves semantic-owner readiness as
+/// scheduler control instead of converting it into a source diagnostic.
+pub fn check_static_expression(
+    context: CheckingContext<'_>,
+    initializer: &Expr,
+    expected_type: Option<crate::types::id::TypeId>,
+    catalog: &crate::module_bindings::ModuleStaticBindingCatalog,
+    binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
+    intrinsics: &StaticIntrinsicRegistry,
+) -> StaticExpressionCheckOutcome {
+    let (checked, demands) = analyze_static_expression_with_demands(context, initializer, expected_type, catalog, binding_states, intrinsics);
+    if !demands.is_empty() {
+        return StaticExpressionCheckOutcome::Awaiting(demands);
+    }
+    if checked.diagnostics.is_empty() {
+        StaticExpressionCheckOutcome::Ready(checked)
+    } else {
+        StaticExpressionCheckOutcome::Invalid(checked)
+    }
+}
+
+fn analyze_static_expression_with_demands(
+    mut context: CheckingContext<'_>,
+    initializer: &Expr,
+    expected_type: Option<crate::types::id::TypeId>,
+    catalog: &crate::module_bindings::ModuleStaticBindingCatalog,
+    binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
+    intrinsics: &StaticIntrinsicRegistry,
+) -> (crate::static_constant::CheckedStaticExpression, BTreeSet<QueryKey>) {
     let diagnostic_start = context.diagnostics.len();
     let existing_expressions = context.expressions.keys().copied().collect::<BTreeSet<_>>();
     let expression_start = context.next_local_expr_id;
@@ -224,7 +271,7 @@ pub fn analyze_static_expression(
     dependencies.dedup();
 
     let diagnostics = Arc::from(context.diagnostics[diagnostic_start..].to_vec().into_boxed_slice());
-    crate::static_constant::CheckedStaticExpression {
+    let checked = crate::static_constant::CheckedStaticExpression {
         root: initializer.clone(),
         expressions: Arc::new(expressions),
         bindings: Arc::new(bindings),
@@ -238,7 +285,8 @@ pub fn analyze_static_expression(
         dependencies: dependencies.into(),
         result_type: expected_type.or_else(|| typed_result.knowledge.ty()),
         diagnostics,
-    }
+    };
+    (checked, context.semantic_query_demands_snapshot())
 }
 
 fn analyze_static_body_inner(

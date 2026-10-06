@@ -1304,6 +1304,7 @@ pub fn lookup_unordered_field(
 mod tests {
     use super::*;
     use crate::types::evidence::EvidenceOrigin;
+    use crate::field_key::FieldKey;
     use crate::types::id::KindId;
     use crate::types::store::TupleTypeElement;
     use phalcom_modules::identity::ModuleId;
@@ -1605,12 +1606,12 @@ mod tests {
         let string = store.nominal(test_decl("String"));
 
         let r1 = store.record(Box::new([
-            crate::types::row::RecordRowField::required("a".into(), int),
-            crate::types::row::RecordRowField::required("b".into(), string),
+            crate::types::row::RecordRowField::required(FieldKey::symbol("a"), int),
+            crate::types::row::RecordRowField::required(FieldKey::symbol("b"), string),
         ]));
         let r2 = store.record(Box::new([
-            crate::types::row::RecordRowField::required("b".into(), string),
-            crate::types::row::RecordRowField::required("a".into(), int),
+            crate::types::row::RecordRowField::required(FieldKey::symbol("b"), string),
+            crate::types::row::RecordRowField::required(FieldKey::symbol("a"), int),
         ]));
         assert_eq!(r1, r2, "Unordered record fields canonicalize to identical TypeId");
         assert!(is_subtype(&mut store, &hier, r1, r2));

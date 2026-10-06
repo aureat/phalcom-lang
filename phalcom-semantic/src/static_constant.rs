@@ -76,6 +76,12 @@ pub struct CheckedStaticConstantInitializer {
     pub declaration_range: SourceRange,
     pub initializer_range: SourceRange,
     pub expression: CheckedStaticExpression,
+    /// Exact constant reads made while reducing computed Record keys in this
+    /// constant's declared type. These reads are also included in
+    /// `expression.static_constant_reads`; keeping their origin separately
+    /// lets the owner diagnose a static-formation cycle without treating an
+    /// ordinary initializer cycle as a computed-key cycle.
+    pub record_key_static_constant_reads: Arc<[SymbolId]>,
     pub input_fingerprint: InputFingerprint,
 }
 

@@ -2819,6 +2819,7 @@ pub fn static_constant_product_fingerprint(
 ) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
     product.id.hash(&mut hasher);
+    product.checked.record_key_static_constant_reads.hash(&mut hasher);
     match &product.outcome {
         crate::static_eval::StaticEvalOutcome::Reduced(val_ref) => {
             0u8.hash(&mut hasher);

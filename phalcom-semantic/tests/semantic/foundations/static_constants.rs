@@ -1,8 +1,11 @@
-use crate::semantic::incremental::support::single_module_input;
+use crate::semantic::incremental::support::{multi_module_input, single_module_input};
+use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
+use phalcom_modules::linker::{ImportBindingId, LinkedReadSpec, SymbolId};
 use phalcom_semantic::checker::analysis::SemanticDependency;
 use phalcom_semantic::db::{CancellationToken, QueryBudget, QueryOutcome};
 use phalcom_semantic::diagnostic::DiagnosticCode;
+use phalcom_semantic::identity::{DeclarationId, DispatchSide, FieldId};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::static_constant::StaticConstantId;
 use phalcom_semantic::static_eval::StaticEvalOutcome;
@@ -75,6 +78,149 @@ fn test_constant_annotation_projects_a_reduced_constant_record_key() {
 }
 
 #[test]
+fn test_field_signature_projects_a_cold_computed_record_key() {
+    let module = test_module();
+    let mut session = SemanticWorkspaceSession::new();
+    let source = "const Key: Symbol = #token\nclass Box {\n  _value: { [Key]: Int }\n}\n";
+    let update = session.update(single_module_input(module.clone(), source, 1));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let field = FieldId::new(DeclarationId::new(module, "Box".into()), "_value", DispatchSide::Instance);
+    let signature = update.snapshot.field_signatures.get(&field).expect("field signature");
+    let ty = signature.declared_type.to_knowledge().ty().expect("field type should be known");
+    let TypeData::Record(row) = update.snapshot.store.get(ty) else {
+        panic!("computed-key field annotation should publish a Record type")
+    };
+    assert_eq!(
+        update.snapshot.store.record_row(*row).fields[0].key,
+        phalcom_semantic::field_key::FieldKey::symbol("token")
+    );
+    assert!(session
+        .db()
+        .index()
+        .dependencies_of(&phalcom_semantic::db::QueryKey::FieldSignature(field))
+        .is_some_and(|dependencies| dependencies.iter().any(|edge| {
+            edge.dependency == phalcom_semantic::db::QueryKey::StaticConstant(StaticConstantId::new(test_module(), "Key"))
+        })));
+}
+
+#[test]
+fn test_field_signature_key_edit_matches_cold_surface_and_invalidates_exactly() {
+    let module = test_module();
+    let field = FieldId::new(DeclarationId::new(module.clone(), "Box".into()), "_value", DispatchSide::Instance);
+    let source_a = "const Key: Symbol = #first\nclass Box {\n  _value: { [Key]: Int }\n}\n";
+    let source_b = "const Key: Symbol = #second\nclass Box {\n  _value: { [Key]: Int }\n}\n";
+    let mut incremental = SemanticWorkspaceSession::new();
+    let first = incremental.update(single_module_input(module.clone(), source_a, 1));
+    assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
+    let signature_a = first.snapshot.field_signatures.get(&field).cloned().expect("field signature revision 1");
+
+    let updated = incremental.update(single_module_input(module.clone(), source_b, 2));
+    assert!(!updated.snapshot.has_errors(), "diagnostics: {:?}", updated.snapshot.diagnostics);
+    let signature_b = updated.snapshot.field_signatures.get(&field).expect("field signature revision 2");
+    assert_ne!(signature_a, *signature_b, "the owner signature must change with its selected key");
+    let ty = signature_b.declared_type.to_knowledge().ty().expect("field type");
+    let TypeData::Record(row) = updated.snapshot.store.get(ty) else {
+        panic!("field annotation must remain a Record type")
+    };
+    assert_eq!(updated.snapshot.store.record_row(*row).fields[0].key, phalcom_semantic::field_key::FieldKey::symbol("second"));
+
+    let surface = updated.snapshot.dispatch.get_surface(&field.owner).expect("declaration surface");
+    let surfaced = surface.get_field(DispatchSide::Instance, "_value").expect("surface field");
+    let TypeData::Record(surface_row) = updated.snapshot.store.get(surfaced.ty().expect("surface field type")) else {
+        panic!("surface field must consume the canonical computed-key signature")
+    };
+    assert_eq!(updated.snapshot.store.record_row(*surface_row).fields[0].key, phalcom_semantic::field_key::FieldKey::symbol("second"));
+
+    let cold = SemanticWorkspaceSession::new().update(single_module_input(module, source_b, 1));
+    assert!(!cold.snapshot.has_errors(), "cold diagnostics: {:?}", cold.snapshot.diagnostics);
+    let cold_signature = cold.snapshot.field_signatures.get(&field).expect("cold field signature");
+    let cold_ty = cold_signature.declared_type.to_knowledge().ty().expect("cold field type");
+    let TypeData::Record(cold_row) = cold.snapshot.store.get(cold_ty) else {
+        panic!("cold field annotation must remain a Record type")
+    };
+    assert_eq!(
+        updated.snapshot.store.record_row(*row).fields[0].key,
+        cold.snapshot.store.record_row(*cold_row).fields[0].key,
+        "incremental owner product must match cold analysis"
+    );
+}
+
+#[test]
+fn test_callable_signature_projects_all_parameter_and_return_record_keys() {
+    let module = test_module();
+    let mut session = SemanticWorkspaceSession::new();
+    let source_a = r#"
+const Key: Symbol = #token
+class Box {
+  @class transform(_ value: { [Key]: Int }) -> { [Key]: Int } { value }
+}
+"#;
+    let update = session.update(single_module_input(module.clone(), source_a, 1));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let callable = phalcom_semantic::identity::CallableId::new(
+        DeclarationId::new(module.clone(), "Box".into()),
+        Selector::method("transform", [SelectorSlot::Positional]).expect("valid selector"),
+        DispatchSide::Class,
+    );
+    let signature = update.snapshot.callable_signatures.get(&callable).expect("callable signature");
+    let signature_a = signature.clone();
+    let parameter_ty = signature.parameters[0].declared_type.to_knowledge().ty().expect("parameter Record type");
+    let return_ty = signature.declared_return.to_knowledge().ty().expect("return Record type");
+    for ty in [parameter_ty, return_ty] {
+        let TypeData::Record(row) = update.snapshot.store.get(ty) else {
+            panic!("callable annotation must publish a Record type")
+        };
+        assert_eq!(
+            update.snapshot.store.record_row(*row).fields[0].key,
+            phalcom_semantic::field_key::FieldKey::symbol("token")
+        );
+    }
+    let dependencies = session.db().index().dependencies_of(&phalcom_semantic::db::QueryKey::CallableSignature(callable.clone()));
+    assert!(dependencies.is_some_and(|dependencies| {
+        dependencies.iter().any(|edge| {
+            edge.dependency == phalcom_semantic::db::QueryKey::StaticConstant(StaticConstantId::new(test_module(), "Key"))
+        })
+    }), "callable owner must depend on the selected constant: {dependencies:?}");
+
+    let source_b = source_a.replace("#token", "#second");
+    let updated = session.update(single_module_input(module.clone(), &source_b, 2));
+    assert!(!updated.snapshot.has_errors(), "incremental diagnostics: {:?}", updated.snapshot.diagnostics);
+    let signature_b = updated.snapshot.callable_signatures.get(&callable).expect("updated callable signature");
+    assert_ne!(&signature_a, signature_b, "the callable product must republish when its key dependency changes");
+    for ty in [
+        signature_b.parameters[0].declared_type.to_knowledge().ty().expect("updated parameter type"),
+        signature_b.declared_return.to_knowledge().ty().expect("updated return type"),
+    ] {
+        let TypeData::Record(row) = updated.snapshot.store.get(ty) else {
+            panic!("updated callable annotation must remain a Record type")
+        };
+        assert_eq!(
+            updated.snapshot.store.record_row(*row).fields[0].key,
+            phalcom_semantic::field_key::FieldKey::symbol("second")
+        );
+    }
+
+    let cold = SemanticWorkspaceSession::new().update(single_module_input(module, &source_b, 1));
+    assert!(!cold.snapshot.has_errors(), "cold diagnostics: {:?}", cold.snapshot.diagnostics);
+    let cold_signature = cold.snapshot.callable_signatures.get(&callable).expect("cold callable signature");
+    let cold_ty = cold_signature.declared_return.to_knowledge().ty().expect("cold return type");
+    let TypeData::Record(cold_row) = cold.snapshot.store.get(cold_ty) else {
+        panic!("cold callable return must remain a Record type")
+    };
+    let updated_ty = signature_b.declared_return.to_knowledge().ty().expect("updated return type");
+    let TypeData::Record(updated_row) = updated.snapshot.store.get(updated_ty) else {
+        panic!("updated callable return must remain a Record type")
+    };
+    assert_eq!(
+        updated.snapshot.store.record_row(*updated_row).fields[0].key,
+        cold.snapshot.store.record_row(*cold_row).fields[0].key,
+        "incremental callable projection must match cold analysis"
+    );
+}
+
+#[test]
 fn test_constant_annotation_key_cycle_is_diagnosed_as_a_static_constant_cycle() {
     let module = test_module();
     let mut session = SemanticWorkspaceSession::new();
@@ -94,6 +240,76 @@ fn test_constant_annotation_key_cycle_is_diagnosed_as_a_static_constant_cycle() 
             .outcome,
         StaticEvalOutcome::Recursive
     );
+}
+
+#[test]
+fn test_transitive_constant_formation_cycle_retains_computed_key_cause() {
+    let module = test_module();
+    let mut session = SemanticWorkspaceSession::new();
+    let source = "const A: Int = B\nconst B: { [C]: Int } = { [#token]: 1 }\nconst C: Symbol = A\n";
+
+    let update = session.update(single_module_input(module.clone(), source, 1));
+    let diagnostics = update.snapshot.diagnostics.get(&module).expect("cycle diagnostics");
+    assert!(
+        diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == DiagnosticCode::StaticConstantCycle && diagnostic.message.contains("computed Record key")
+        }),
+        "the transitive mixed cycle must retain its computed-key formation cause: {diagnostics:?}"
+    );
+    for name in ["A", "B", "C"] {
+        assert_eq!(
+            update
+                .snapshot
+                .static_constant(&StaticConstantId::new(module.clone(), name))
+                .expect("cycle constant product")
+                .outcome,
+            StaticEvalOutcome::Recursive,
+            "{name} must not retain a successful current product"
+        );
+    }
+}
+
+#[test]
+fn test_imported_constant_projects_a_computed_record_key_with_remote_identity() {
+    let provider = ModuleId::resolved(
+        ResolvedProjectId::from_raw(1),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("provider").unwrap()]),
+    );
+    let consumer = ModuleId::resolved(
+        ResolvedProjectId::from_raw(1),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("consumer").unwrap()]),
+    );
+    let mut input = multi_module_input(
+        vec![
+            (provider.clone(), "const Key: Symbol = #token\n".to_owned()),
+            (consumer.clone(), "const Value: { [Key]: Int } = { [#token]: 1 }\n".to_owned()),
+        ],
+        1,
+    );
+    let mut linked = (*input.linked).clone();
+    let consumer_module = linked.modules.get_mut(&consumer).expect("consumer module");
+    consumer_module.bindings.imports.insert("Key".into(), ImportBindingId(0));
+    consumer_module.linked_reads.push(LinkedReadSpec::Binding(SymbolId {
+        module: provider.clone(),
+        name: "Key".into(),
+    }));
+    consumer_module.runtime_dependencies.push(provider.clone());
+    input.linked = Arc::new(linked);
+
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(input);
+    assert!(
+        !update.snapshot.has_errors(),
+        "an imported constant must project through its canonical remote symbol: {:?}",
+        update.snapshot.diagnostics
+    );
+
+    let value = update
+        .snapshot
+        .static_constant(&StaticConstantId::new(consumer.clone(), "Value"))
+        .expect("consumer Value constant");
+    assert!(value.is_successful());
+    assert!(value.checked.dependencies.contains(&SemanticDependency::StaticConstant(StaticConstantId::new(provider, "Key"))));
 }
 
 #[test]
@@ -123,6 +339,52 @@ fn test_constant_key_edit_republishes_only_its_annotation_consumer() {
         update2.snapshot.store.record_row(*row_id).fields[0].key,
         phalcom_semantic::field_key::FieldKey::symbol("other")
     );
+}
+
+#[test]
+fn test_same_result_key_source_edit_revalidates_its_annotation_consumer() {
+    let module = test_module();
+    let mut session = SemanticWorkspaceSession::new();
+    let value_id = StaticConstantId::new(module.clone(), "Value");
+    let source1 = "const Key: Symbol = #stable\nconst Value: { [Key]: Int } = { [#stable]: 1 }\n";
+    let update1 = session.update(single_module_input(module.clone(), source1, 1));
+    assert!(!update1.snapshot.has_errors(), "diagnostics: {:?}", update1.snapshot.diagnostics);
+    let value1 = update1.snapshot.static_constant(&value_id).cloned().expect("Value revision 1");
+
+    // Parenthesizing the initializer changes its checked source product while
+    // preserving the reduced FieldKey. The exact dependency must be
+    // revalidated without disturbing unrelated products.
+    let source2 = "const Key: Symbol = (#stable)\nconst Value: { [Key]: Int } = { [#stable]: 1 }\n";
+    let update2 = session.update(single_module_input(module.clone(), source2, 2));
+    assert!(!update2.snapshot.has_errors(), "diagnostics: {:?}", update2.snapshot.diagnostics);
+    let value2 = update2.snapshot.static_constant(&value_id).expect("Value revision 2");
+    assert!(
+        !Arc::ptr_eq(&value1, value2),
+        "the annotation owner must revalidate a selected key even when its reduced FieldKey is unchanged"
+    );
+    assert!(value2.checked.dependencies.contains(&SemanticDependency::StaticConstant(StaticConstantId::new(module.clone(), "Key"))));
+
+    let mut cold_session = SemanticWorkspaceSession::new();
+    let cold = cold_session.update(single_module_input(
+        module.clone(),
+        "const Key: Symbol = (#stable)\nconst Value: { [Key]: Int } = { [#stable]: 1 }\n",
+        1,
+    ));
+    assert_eq!(update2.snapshot.diagnostics.get(&module), cold.snapshot.diagnostics.get(&module));
+    let cold_value = cold.snapshot.static_constant(&value_id).expect("cold Value");
+    assert!(value2.is_successful() && cold_value.is_successful());
+    assert_eq!(
+        update2.snapshot.static_values().get(value2.value().expect("incremental value")),
+        cold.snapshot.static_values().get(cold_value.value().expect("cold value"))
+    );
+    let incremental_type = value2.checked.result_type.expect("incremental Value type");
+    let cold_type = cold_value.checked.result_type.expect("cold Value type");
+    let (TypeData::Record(incremental_row), TypeData::Record(cold_row)) =
+        (update2.snapshot.store.get(incremental_type), cold.snapshot.store.get(cold_type))
+    else {
+        panic!("both Value annotations must form Record types")
+    };
+    assert_eq!(update2.snapshot.store.record_row(*incremental_row), cold.snapshot.store.record_row(*cold_row));
 }
 
 #[test]

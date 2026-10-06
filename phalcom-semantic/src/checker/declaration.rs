@@ -221,10 +221,13 @@ pub fn build_declared_class_surface(
     for member in &class_def.members {
         let visibility = member_visibility(member);
         match member {
-            ClassMember::Field(_) => {
-                let Some(signature) = super::declaration_signature::semantic_field_signature_for_member(ctx, &decl_id, member) else {
-                    continue;
-                };
+            ClassMember::Field(field) => {
+                let side = member_side(member);
+                let signature = ctx
+                    .resolve_field_signature(&decl_id, side, &field.name)
+                    .cloned()
+                    .or_else(|| super::declaration_signature::semantic_field_signature_for_member(ctx, &decl_id, member));
+                let Some(signature) = signature else { continue };
                 surface.add_field_with_visibility(
                     signature.side,
                     signature.name.as_ref(),
@@ -233,9 +236,12 @@ pub fn build_declared_class_surface(
                 );
             }
             ClassMember::Method(_) | ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Index(_) => {
-                let Some(signature) = super::declaration_signature::semantic_signature_for_member(ctx, &decl_id, member) else {
-                    continue;
-                };
+                let Some(callable) = super::declaration_signature::callable_id_for_member(&decl_id, member) else { continue };
+                let signature = ctx
+                    .resolve_callable_signature(&callable)
+                    .cloned()
+                    .or_else(|| super::declaration_signature::semantic_signature_for_member(ctx, &decl_id, member));
+                let Some(signature) = signature else { continue };
                 let side = signature.side;
                 let projection = super::declaration_signature::project_semantic_signature(&signature);
                 surface.add_callable_with_visibility(side, projection, visibility);

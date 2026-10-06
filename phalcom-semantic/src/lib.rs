@@ -58,6 +58,7 @@ pub mod source_index;
 pub mod stable_identity;
 pub mod static_case;
 pub mod static_constant;
+mod static_constant_demand;
 pub mod static_definition;
 pub mod static_domain;
 pub mod static_eval;

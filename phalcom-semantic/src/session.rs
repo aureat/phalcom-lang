@@ -2902,27 +2902,19 @@ impl SemanticWorkspaceSession {
                 continue;
             };
             let parsed_unit = &shard.source;
-            let (product, diagnostics) = crate::checker::type_member_declaration::build_type_member_declaration(
+            let _ = publish_type_member_owner(
+                &mut self.db,
                 Arc::make_mut(&mut self.store),
-                &id.owner,
-                definition,
-                &declarations,
                 &resolver,
+                &associated_surfaces_table,
+                &mut type_member_declarations_table,
+                &declarations,
+                &id,
                 module_id,
-            );
-            diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
-            if let Some(product) = product {
-                match query_type_member_declaration(&mut self.db, Some(parsed_unit), Arc::new(product)) {
-                    QueryOutcome::Ready(product) => {
-                        type_member_declarations_table.insert(id.clone(), product);
-                        resolver.update_associated_type_members(&associated_surfaces_table, &type_member_declarations_table);
-                    }
-                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
-                }
-            }
+                definition,
+                parsed_unit,
+                &mut diags_by_module,
+            )?;
             pending_members.remove(&id);
         }
 
@@ -3030,27 +3022,19 @@ impl SemanticWorkspaceSession {
                 if let Some((module_id, definition)) = member_definitions.get(&id)
                     && let Some(shard) = self.semantic_structure_shards.get(module_id)
                 {
-                    let (product, diagnostics) = crate::checker::type_member_declaration::build_type_member_declaration(
+                    let _ = publish_type_member_owner(
+                        &mut self.db,
                         Arc::make_mut(&mut self.store),
-                        &id.owner,
-                        definition,
-                        &declarations,
                         &resolver,
+                        &associated_surfaces_table,
+                        &mut type_member_declarations_table,
+                        &declarations,
+                        &id,
                         module_id,
-                    );
-                    diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
-                    if let Some(product) = product {
-                        match query_type_member_declaration(&mut self.db, Some(&shard.source), Arc::new(product)) {
-                            QueryOutcome::Ready(product) => {
-                                type_member_declarations_table.insert(id.clone(), product);
-                                resolver.update_associated_type_members(&associated_surfaces_table, &type_member_declarations_table);
-                            }
-                            QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                            QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                            QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                            QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
-                        }
-                    }
+                        definition,
+                        &shard.source,
+                        &mut diags_by_module,
+                    )?;
                 }
                 pending_members.remove(&id);
                 continue;
@@ -3821,6 +3805,11 @@ impl SemanticWorkspaceSession {
             let _ = query_enum_requirements(&mut self.db, decl_id.clone(), base_req.clone());
         }
 
+        let static_intrinsics =
+            crate::static_intrinsic::StaticIntrinsicRegistry::from_canonical_core().map_err(|error| QueryOutcome::Failed(error.to_string()))?;
+        let early_data_semantics = self.base_data_semantics.clone();
+        let early_enum_semantics = self.base_enum_semantics.clone();
+        let no_deferred_static_definitions = BTreeSet::new();
         for module_id in &formal_declaration_modules {
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
                 continue;
@@ -3848,6 +3837,81 @@ impl SemanticWorkspaceSession {
                     if previous_snapshot.is_some() && !field_signature_work.contains(&field_id) {
                         continue;
                     }
+                    let key_projections = if let ClassMember::Field(field) = member
+                        && let Some(annotation) = field.annotation.as_ref()
+                        && !crate::static_key::type_record_key_expressions(annotation, 0).is_empty()
+                    {
+                        loop {
+                            let projection = {
+                                let mut driver = crate::static_constant_demand::StaticConstantDemandDriver {
+                                    db: &mut self.db,
+                                    store: Arc::make_mut(&mut self.store),
+                                    values: Arc::make_mut(&mut self.static_values),
+                                    constants: &mut static_constants_table,
+                                    definitions: &static_definitions_table,
+                                    catalogs: &module_static_binding_catalogs,
+                                    sources: &retained_sources,
+                                    linked: input.linked.as_ref(),
+                                    topology: semantic_topology.as_ref(),
+                                    import_products: &input.import_products,
+                                    source_resolution_input,
+                                    linked_component_product,
+                                    hierarchy: &hierarchy,
+                                    resolver: &resolver,
+                                    declarations: &declarations,
+                                    type_aliases: &type_aliases,
+                                    dispatch: &dispatch,
+                                    field_signatures: &field_signatures,
+                                    callable_signatures: &callable_signatures,
+                                    data_semantics: &early_data_semantics,
+                                    enum_semantics: &early_enum_semantics,
+                                    associated_families: &associated_surfaces_table,
+                                    deferred_static_definitions: &no_deferred_static_definitions,
+                                    intrinsics: &static_intrinsics,
+                                    budget,
+                                    cancel,
+                                    active_constants: Vec::new(),
+                                };
+                                driver.project_annotation(QueryKey::FieldSignature(field_id.clone()), module_id, annotation)
+                            };
+                            match projection {
+                                crate::static_constant_demand::StaticDemandOutcome::Ready(projections) => break Some(projections),
+                                crate::static_constant_demand::StaticDemandOutcome::Awaiting(demands) => {
+                                    match service_type_member_demands(
+                                        &mut self.db,
+                                        Arc::make_mut(&mut self.store),
+                                        &resolver,
+                                        &demands,
+                                        &signature_graph,
+                                        &alias_sources,
+                                        &type_aliases,
+                                        &declarations,
+                                        &associated_surfaces_table,
+                                        &mut type_member_declarations_table,
+                                        &static_case_signatures_table,
+                                        &type_signature_cycle_members,
+                                        &member_definitions,
+                                        &retained_sources,
+                                        &mut diags_by_module,
+                                    )? {
+                                        TypeMemberDemandService::Current => continue,
+                                        TypeMemberDemandService::Cycle => break None,
+                                        TypeMemberDemandService::NoProgress => {
+                                            return Err(QueryOutcome::Failed(format!(
+                                                "type-member demand for field signature {field_id:?} could not progress: {demands:?}"
+                                            )));
+                                        }
+                                    }
+                                }
+                                crate::static_constant_demand::StaticDemandOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                crate::static_constant_demand::StaticDemandOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                crate::static_constant_demand::StaticDemandOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                crate::static_constant_demand::StaticDemandOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                            }
+                        }
+                    } else {
+                        None
+                    };
                     match query_field_signature_with_inputs(
                         &mut self.db,
                         field_id,
@@ -3856,6 +3920,7 @@ impl SemanticWorkspaceSession {
                             store: Arc::make_mut(&mut self.store),
                             hierarchy: &hierarchy,
                             resolver: &resolver,
+                            record_key_projections: key_projections.as_ref(),
                             declarations: &declarations,
                             linked: Some(input.linked.as_ref()),
                             type_aliases: Some(&type_aliases),
@@ -3880,6 +3945,86 @@ impl SemanticWorkspaceSession {
                     if previous_snapshot.is_some() && !callable_signature_work.contains(&callable_id) {
                         continue;
                     }
+                    let annotations = callable_type_annotations(member);
+                    let key_projections = if annotations
+                        .iter()
+                        .any(|annotation| !crate::static_key::type_record_key_expressions(annotation, 0).is_empty())
+                    {
+                        loop {
+                            let projection = {
+                                let mut driver = crate::static_constant_demand::StaticConstantDemandDriver {
+                                    db: &mut self.db,
+                                    store: Arc::make_mut(&mut self.store),
+                                    values: Arc::make_mut(&mut self.static_values),
+                                    constants: &mut static_constants_table,
+                                    definitions: &static_definitions_table,
+                                    catalogs: &module_static_binding_catalogs,
+                                    sources: &retained_sources,
+                                    linked: input.linked.as_ref(),
+                                    topology: semantic_topology.as_ref(),
+                                    import_products: &input.import_products,
+                                    source_resolution_input,
+                                    linked_component_product,
+                                    hierarchy: &hierarchy,
+                                    resolver: &resolver,
+                                    declarations: &declarations,
+                                    type_aliases: &type_aliases,
+                                    dispatch: &dispatch,
+                                    field_signatures: &field_signatures,
+                                    callable_signatures: &callable_signatures,
+                                    data_semantics: &early_data_semantics,
+                                    enum_semantics: &early_enum_semantics,
+                                    associated_families: &associated_surfaces_table,
+                                    deferred_static_definitions: &no_deferred_static_definitions,
+                                    intrinsics: &static_intrinsics,
+                                    budget,
+                                    cancel,
+                                    active_constants: Vec::new(),
+                                };
+                                driver.project_annotations(
+                                    QueryKey::CallableSignature(callable_id.clone()),
+                                    module_id,
+                                    annotations.iter().copied(),
+                                )
+                            };
+                            match projection {
+                                crate::static_constant_demand::StaticDemandOutcome::Ready(projections) => break Some(projections),
+                                crate::static_constant_demand::StaticDemandOutcome::Awaiting(demands) => {
+                                    match service_type_member_demands(
+                                        &mut self.db,
+                                        Arc::make_mut(&mut self.store),
+                                        &resolver,
+                                        &demands,
+                                        &signature_graph,
+                                        &alias_sources,
+                                        &type_aliases,
+                                        &declarations,
+                                        &associated_surfaces_table,
+                                        &mut type_member_declarations_table,
+                                        &static_case_signatures_table,
+                                        &type_signature_cycle_members,
+                                        &member_definitions,
+                                        &retained_sources,
+                                        &mut diags_by_module,
+                                    )? {
+                                        TypeMemberDemandService::Current => continue,
+                                        TypeMemberDemandService::Cycle => break None,
+                                        TypeMemberDemandService::NoProgress => {
+                                            return Err(QueryOutcome::Failed(format!(
+                                                "type-member demand for callable signature {callable_id:?} could not progress: {demands:?}"
+                                            )));
+                                        }
+                                    }
+                                }
+                                crate::static_constant_demand::StaticDemandOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                crate::static_constant_demand::StaticDemandOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                crate::static_constant_demand::StaticDemandOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                crate::static_constant_demand::StaticDemandOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                            }
+                        }
+                    } else {
+                        None
+                    };
                     match query_callable_signature_with_inputs(
                         &mut self.db,
                         callable_id.clone(),
@@ -3888,6 +4033,7 @@ impl SemanticWorkspaceSession {
                             store: Arc::make_mut(&mut self.store),
                             hierarchy: &hierarchy,
                             resolver: &resolver,
+                            record_key_projections: key_projections.as_ref(),
                             declarations: &declarations,
                             linked: Some(input.linked.as_ref()),
                             type_aliases: Some(&type_aliases),
@@ -3935,6 +4081,7 @@ impl SemanticWorkspaceSession {
                         resolver: &resolver,
                         declarations: &declarations,
                         field_signatures: Some(&field_signatures),
+                        callable_signatures: Some(&callable_signatures),
                         type_aliases: Some(&type_aliases),
                         linked: Some(input.linked.as_ref()),
                         import_products: Some(&input.import_products),
@@ -4833,6 +4980,7 @@ impl SemanticWorkspaceSession {
                             resolver: &resolver,
                             declarations: &declarations,
                             field_signatures: None,
+                            callable_signatures: Some(&callable_signatures),
                             type_aliases: Some(&type_aliases),
                             linked: Some(input.linked.as_ref()),
                             import_products: Some(&input.import_products),
@@ -4996,6 +5144,7 @@ impl SemanticWorkspaceSession {
                                 store: Arc::make_mut(&mut self.store),
                                 hierarchy: &hierarchy,
                                 resolver: &resolver,
+                                record_key_projections: None,
                                 declarations: &declarations,
                                 linked: Some(input.linked.as_ref()),
                                 type_aliases: Some(&type_aliases),
@@ -6772,8 +6921,6 @@ impl SemanticWorkspaceSession {
             module_static_bindings.insert(module_id, module_bindings);
         }
 
-        let static_intrinsics =
-            crate::static_intrinsic::StaticIntrinsicRegistry::from_canonical_core().map_err(|error| QueryOutcome::Failed(error.to_string()))?;
         let static_body_formal_inputs = FormalQueryInputs {
             sources: &retained_sources,
             source_resolution_input,
@@ -6938,6 +7085,14 @@ impl SemanticWorkspaceSession {
         let mut checked_constants: BTreeMap<crate::static_constant::StaticConstantId, Arc<crate::static_constant::CheckedStaticConstantInitializer>> =
             BTreeMap::new();
         let mut constant_graph: BTreeMap<crate::static_constant::StaticConstantId, BTreeSet<crate::static_constant::StaticConstantId>> = BTreeMap::new();
+        // The graph remains the authority for reachability. Preserve the
+        // narrower computed-key edge origin separately so a mixed formation
+        // cycle is diagnosed causally, including when an unchanged producer is
+        // reused from the previous revision.
+        let mut constant_record_key_dependencies: BTreeMap<
+            crate::static_constant::StaticConstantId,
+            BTreeSet<crate::static_constant::StaticConstantId>,
+        > = BTreeMap::new();
 
         for (id, decl) in &constant_declarations {
             let key = crate::db::QueryKey::StaticConstant(id.clone());
@@ -6955,6 +7110,16 @@ impl SemanticWorkspaceSession {
                         })
                         .collect::<BTreeSet<_>>();
                     constant_graph.insert(id.clone(), const_deps);
+                    let record_key_deps = self
+                        .db
+                        .product(&key)
+                        .and_then(|product| product.as_static_constant())
+                        .into_iter()
+                        .flat_map(|product| product.checked.record_key_static_constant_reads.iter())
+                        .cloned()
+                        .map(crate::static_constant::StaticConstantId)
+                        .collect();
+                    constant_record_key_dependencies.insert(id.clone(), record_key_deps);
                     continue;
                 }
             }
@@ -6998,6 +7163,7 @@ impl SemanticWorkspaceSession {
                 .iter()
                 .map(|sym| crate::static_constant::StaticConstantId(sym.clone()))
                 .collect::<BTreeSet<_>>();
+            let mut record_key_deps = BTreeSet::new();
             if decl.has_computed_record_keys {
                 let binding_states = static_constant_binding_states(catalog, &module_static_binding_runtime_states, None);
                 for site in crate::static_key::type_record_key_expressions(decl.annotation.expect("computed key annotation"), 0) {
@@ -7026,9 +7192,17 @@ impl SemanticWorkspaceSession {
                             .cloned()
                             .map(crate::static_constant::StaticConstantId),
                     );
+                    record_key_deps.extend(
+                        key_expression
+                            .static_constant_reads
+                            .iter()
+                            .cloned()
+                            .map(crate::static_constant::StaticConstantId),
+                    );
                 }
             }
             constant_graph.insert(id.clone(), const_deps);
+            constant_record_key_dependencies.insert(id.clone(), record_key_deps);
             checked_constants.insert(id.clone(), checked);
         }
 
@@ -7096,6 +7270,11 @@ impl SemanticWorkspaceSession {
 
         for component in tarjan_state.components {
             let is_cycle = component.len() > 1 || component.iter().any(|node| constant_graph.get(node).is_some_and(|deps| deps.contains(node)));
+            let includes_computed_key_edge = component.iter().any(|source| {
+                constant_record_key_dependencies
+                    .get(source)
+                    .is_some_and(|dependencies| dependencies.iter().any(|target| component.contains(target)))
+            });
 
             if is_cycle {
                 for id in component {
@@ -7141,7 +7320,14 @@ impl SemanticWorkspaceSession {
                     let cycle_diag = SemanticDiagnostic::error_in(
                         decl.module_id.clone(),
                         DiagnosticCode::StaticConstantCycle,
-                        format!("static constant `{}` participates in a cycle", id.name()),
+                        if includes_computed_key_edge {
+                            format!(
+                                "static constant `{}` participates in a static-formation cycle through a computed Record key",
+                                id.name()
+                            )
+                        } else {
+                            format!("static constant `{}` participates in a cycle", id.name())
+                        },
                         decl.declaration_range,
                     );
                     let mut diags = checked.diagnostics.to_vec();
@@ -7312,16 +7498,21 @@ impl SemanticWorkspaceSession {
                     if !key_expressions.is_empty() {
                         let mut dependencies = checked.dependencies.to_vec();
                         let mut reads = checked.static_constant_reads.to_vec();
+                        let mut record_key_reads = Vec::new();
                         for key_expression in key_expressions {
                             dependencies.extend(key_expression.dependencies.iter().cloned());
                             reads.extend(key_expression.static_constant_reads.iter().cloned());
+                            record_key_reads.extend(key_expression.static_constant_reads.iter().cloned());
                         }
                         dependencies.sort();
                         dependencies.dedup();
                         reads.sort();
                         reads.dedup();
+                        record_key_reads.sort();
+                        record_key_reads.dedup();
                         checked.expression.dependencies = Arc::from(dependencies.into_boxed_slice());
                         checked.expression.static_constant_reads = Arc::from(reads.into_boxed_slice());
+                        checked.record_key_static_constant_reads = Arc::from(record_key_reads.into_boxed_slice());
                     }
                     let checked = Arc::new(checked);
 
@@ -9233,6 +9424,164 @@ fn associated_surface_admits(
     })
 }
 
+enum TypeMemberDemandService {
+    Current,
+    Cycle,
+    NoProgress,
+}
+
+/// The single publication path for a checked type-member owner.
+#[allow(clippy::too_many_arguments)]
+fn publish_type_member_owner(
+    db: &mut SemanticDb,
+    store: &mut TypeStore,
+    resolver: &LinkedTypeResolver,
+    surfaces: &crate::associated::AssociatedFamilyTable,
+    members: &mut BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+    declarations: &DeclarationTypeTable,
+    id: &crate::types::type_member::TypeMemberDeclarationId,
+    module: &ModuleId,
+    definition: &phalcom_ast::ast::TypeMemberDef,
+    source: &crate::source::ParsedModuleUnit,
+    diagnostics: &mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
+) -> Result<bool, QueryOutcome<()>> {
+    let (product, owner_diagnostics) = crate::checker::type_member_declaration::build_type_member_declaration(
+        store,
+        &id.owner,
+        definition,
+        declarations,
+        resolver,
+        module,
+    );
+    diagnostics.entry(module.clone()).or_default().extend(owner_diagnostics);
+    let Some(product) = product else { return Ok(false) };
+    match query_type_member_declaration(db, Some(source), Arc::new(product)) {
+        QueryOutcome::Ready(product) => {
+            members.insert(id.clone(), product);
+            resolver.update_associated_type_members(surfaces, members);
+            Ok(true)
+        }
+        QueryOutcome::Cancelled => Err(QueryOutcome::Cancelled),
+        QueryOutcome::BudgetExceeded(report) => Err(QueryOutcome::BudgetExceeded(report)),
+        QueryOutcome::Blocked(reason) => Err(QueryOutcome::Blocked(reason)),
+        QueryOutcome::Failed(error) => Err(QueryOutcome::Failed(error)),
+    }
+}
+
+/// Services exact type-member readiness requests through the session's canonical
+/// member owner query. This never manufactures or publishes a second product.
+#[allow(clippy::too_many_arguments)]
+fn service_type_member_demands(
+    db: &mut SemanticDb,
+    store: &mut TypeStore,
+    resolver: &LinkedTypeResolver,
+    demands: &BTreeSet<QueryKey>,
+    signature_graph: &BTreeMap<TypeSignatureDependencyNode, BTreeSet<TypeSignatureDependencyNode>>,
+    alias_sources: &BTreeMap<DeclarationId, (ModuleId, phalcom_ast::ast::TypeAliasDef)>,
+    type_aliases: &TypeAliasTable,
+    declarations: &DeclarationTypeTable,
+    surfaces: &crate::associated::AssociatedFamilyTable,
+    members: &mut BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+    static_case_signatures: &BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
+    cycle_members: &BTreeSet<crate::types::type_member::TypeMemberDeclarationId>,
+    member_definitions: &BTreeMap<crate::types::type_member::TypeMemberDeclarationId, (ModuleId, &phalcom_ast::ast::TypeMemberDef)>,
+    sources: &BTreeMap<ModuleId, Arc<crate::source::ParsedModuleUnit>>,
+    diagnostics: &mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
+) -> Result<TypeMemberDemandService, QueryOutcome<()>> {
+    let mut pending = BTreeSet::new();
+    for demand in demands {
+        let QueryKey::TypeMemberDeclaration(id) = demand else {
+            return Ok(TypeMemberDemandService::NoProgress);
+        };
+        pending.insert(id.clone());
+    }
+
+    loop {
+        pending.retain(|id| !members.contains_key(id));
+        if pending.is_empty() {
+            resolver.update_associated_type_members(surfaces, members);
+            return Ok(TypeMemberDemandService::Current);
+        }
+
+        // Reconcile a current DB product into the session resolver view before
+        // attempting any owner computation.
+        let mut made_progress = false;
+        for id in pending.iter() {
+            let key = QueryKey::TypeMemberDeclaration(id.clone());
+            if db.validate_ready(&key)
+                && let Some(product) = db.product(&key).and_then(|product| product.as_type_member_declaration()).cloned()
+                && product.id == *id
+            {
+                members.insert(id.clone(), product);
+                resolver.update_associated_type_members(surfaces, members);
+                made_progress = true;
+                break;
+            }
+        }
+        if made_progress {
+            continue;
+        }
+
+        // Expand exact member prerequisites and run one ready owner through the
+        // same canonical builder/query publication used by the initial scheduler.
+        let mut ready = None;
+        let candidates = pending.iter().cloned().collect::<Vec<_>>();
+        for id in candidates {
+            if cycle_members.contains(&id) {
+                continue;
+            }
+            let dependencies = signature_graph.get(&TypeSignatureDependencyNode::Member(id.clone()));
+            let Some(dependencies) = dependencies else {
+                ready = Some(id.clone());
+                break;
+            };
+            let mut prerequisites_ready = true;
+            for dependency in dependencies {
+                let available = match dependency {
+                    TypeSignatureDependencyNode::Alias(alias) => !alias_sources.contains_key(alias) || type_aliases.contains_key(alias),
+                    TypeSignatureDependencyNode::Header(header) => declarations.generic_binder_header(header).is_some(),
+                    TypeSignatureDependencyNode::Member(member) => members.contains_key(member),
+                    TypeSignatureDependencyNode::StaticCaseSignature(case) => static_case_signatures.contains_key(case),
+                };
+                if !available {
+                    prerequisites_ready = false;
+                    if let TypeSignatureDependencyNode::Member(member) = dependency
+                        && member_definitions.contains_key(member)
+                        && !cycle_members.contains(member)
+                    {
+                        pending.insert(member.clone());
+                    }
+                }
+            }
+            if prerequisites_ready {
+                ready = Some(id);
+                break;
+            }
+        }
+        let Some(id) = ready else {
+            return Ok(if pending.iter().any(|id| cycle_members.contains(id)) {
+                TypeMemberDemandService::Cycle
+            } else {
+                TypeMemberDemandService::NoProgress
+            });
+        };
+        if !associated_surface_admits(surfaces, &id.owner, &crate::associated::AssociatedMemberId::TypeMember(id.clone())) {
+            pending.remove(&id);
+            continue;
+        }
+        let Some((module, definition)) = member_definitions.get(&id) else {
+            return Ok(TypeMemberDemandService::NoProgress);
+        };
+        let Some(source) = sources.get(module) else {
+            return Ok(TypeMemberDemandService::NoProgress);
+        };
+        if !publish_type_member_owner(db, store, resolver, surfaces, members, declarations, &id, module, definition, source, diagnostics)? {
+            return Ok(TypeMemberDemandService::NoProgress);
+        }
+        pending.remove(&id);
+    }
+}
+
 fn associated_static_domain_shell(
     owner: &DeclarationId,
     definition: &phalcom_ast::ast::AlgebraicDef,
@@ -9362,6 +9711,45 @@ fn compute_module_fingerprint(unit: &ParsedModuleUnit) -> u64 {
     hasher.finish()
 }
 
+fn callable_type_annotations(member: &phalcom_ast::ast::ClassMember) -> Vec<&phalcom_ast::ast::TypeAnnotation> {
+    use phalcom_ast::ast::{ClassMember, IndexAccessor};
+
+    fn add_parameter<'a>(
+        annotations: &mut Vec<&'a phalcom_ast::ast::TypeAnnotation>,
+        parameter: &'a phalcom_ast::ast::ParameterDef,
+    ) {
+        if let Some(annotation) = parameter.annotation.as_ref() {
+            annotations.push(annotation);
+        }
+    }
+
+    let mut annotations = Vec::new();
+    match member {
+        ClassMember::Method(method) => {
+            for parameter in &method.params {
+                add_parameter(&mut annotations, parameter);
+            }
+            annotations.extend(method.return_annotation.as_ref());
+        }
+        ClassMember::Getter(getter) => annotations.extend(getter.return_annotation.as_ref()),
+        ClassMember::Setter(setter) => {
+            add_parameter(&mut annotations, &setter.param);
+            annotations.extend(setter.return_annotation.as_ref());
+        }
+        ClassMember::Index(index) => {
+            for parameter in &index.params {
+                add_parameter(&mut annotations, parameter);
+            }
+            if let IndexAccessor::Set { value } = &index.accessor {
+                add_parameter(&mut annotations, value);
+            }
+            annotations.extend(index.return_annotation.as_ref());
+        }
+        ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => {}
+    }
+    annotations
+}
+
 fn field_lifecycle_source_fingerprint(unit: &ParsedModuleUnit) -> u64 {
     let mut hasher = DefaultHasher::new();
     unit.id.hash(&mut hasher);
@@ -9382,7 +9770,7 @@ fn field_lifecycle_source_fingerprint(unit: &ParsedModuleUnit) -> u64 {
 /// rejected precisely. Constant bindings are unknown during dependency
 /// discovery and acquire their type only from a published checked constant
 /// product during the final check.
-fn static_constant_binding_states(
+pub(crate) fn static_constant_binding_states(
     catalog: &crate::module_bindings::ModuleStaticBindingCatalog,
     runtime_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
     constants: Option<&crate::static_constant::StaticConstantTable>,

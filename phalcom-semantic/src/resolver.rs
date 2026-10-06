@@ -179,6 +179,15 @@ impl TypeResolver for LinkedTypeResolver {
         owner: &DeclarationId,
         selector: &crate::types::type_member::TypeMemberSelector,
     ) -> Option<Arc<crate::db::product::TypeMemberDeclarationProduct>> {
+        let id = self.resolve_associated_type_member_id(owner, selector)?;
+        self.associated_type_members.read().ok()?.declarations.get(&id).cloned()
+    }
+
+    fn resolve_associated_type_member_id(
+        &self,
+        owner: &DeclarationId,
+        selector: &crate::types::type_member::TypeMemberSelector,
+    ) -> Option<crate::types::type_member::TypeMemberDeclarationId> {
         let base = match selector {
             crate::types::type_member::TypeMemberSelector::Named(name) => phalcom_common::selector::SelectorBase::Named(name.to_string()),
             crate::types::type_member::TypeMemberSelector::Subscript => phalcom_common::selector::SelectorBase::Subscript,
@@ -188,7 +197,7 @@ impl TypeResolver for LinkedTypeResolver {
         let crate::associated::AssociatedMemberId::TypeMember(id) = family.members.first()? else {
             return None;
         };
-        products.declarations.get(id).cloned()
+        Some(id.clone())
     }
 
     fn resolve_module_alias(&self, current_module: &ModuleId, alias: &str) -> Option<ModuleId> {

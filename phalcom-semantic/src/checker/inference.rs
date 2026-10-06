@@ -6007,6 +6007,7 @@ mod tests {
 mod coordinated_row_completion_tests {
     use super::{InferenceCoordinator, InferenceRecord, InferenceRecordField, InferenceRecordTail, InferenceStaticArgument, InferenceTerm};
     use crate::checker::context::CheckerControl;
+    use crate::field_key::FieldKey;
     use crate::identity::DeclarationId;
     use crate::types::id::{KindId, TypeId};
     use crate::types::outcome::{CancellationToken, QueryBudget};
@@ -6021,11 +6022,15 @@ mod coordinated_row_completion_tests {
         store.nominal(DeclarationId::new(ModuleId::universe_root(), name.into()))
     }
 
-    fn row(fields: Vec<(&str, TypeId)>, tail: RecordRowTermTail) -> RecordRowTerm<InferenceTerm> {
+    fn symbol(name: &str) -> FieldKey {
+        FieldKey::symbol(name)
+    }
+
+    fn row(fields: Vec<(&str, TypeId)>, tail: RecordRowTermTail<InferenceTerm>) -> RecordRowTerm<InferenceTerm> {
         RecordRowTerm::new(
             fields
                 .into_iter()
-                .map(|(name, ty)| RecordRowField::required(name.into(), InferenceTerm::Canonical(ty)))
+                .map(|(name, ty)| RecordRowField::required(symbol(name), InferenceTerm::Canonical(ty)))
                 .collect(),
             tail,
         )
@@ -6138,7 +6143,7 @@ mod coordinated_row_completion_tests {
         let term = resolved.term_for(local).expect("child root has a normalized solution");
         assert_eq!(term.tail, RecordRowTermTail::Closed);
         assert_eq!(
-            term.fields.iter().map(|field| field.name.as_ref()).collect::<Vec<_>>(),
+            term.fields.iter().map(|field| field.key.as_symbol().expect("symbol fixture key")).collect::<Vec<_>>(),
             ["cached", "mapped", "name"]
         );
     }
@@ -6164,7 +6169,7 @@ mod coordinated_row_completion_tests {
         let equation = (
             RecordRowTerm::new(Vec::new(), RecordRowTermTail::Var(row_var)).unwrap(),
             RecordRowTerm {
-                fields: vec![RecordRowField::required("x".into(), InferenceTerm::Var(type_var))].into_boxed_slice(),
+                fields: vec![RecordRowField::required(symbol("x"), InferenceTerm::Var(type_var))].into_boxed_slice(),
                 tail: RecordRowTermTail::Closed,
             },
         );
@@ -6193,7 +6198,7 @@ mod coordinated_row_completion_tests {
         let equation = (
             RecordRowTerm::new(Vec::new(), RecordRowTermTail::Var(row_var)).unwrap(),
             RecordRowTerm {
-                fields: vec![RecordRowField::required("x".into(), payload)].into_boxed_slice(),
+                fields: vec![RecordRowField::required(symbol("x"), payload)].into_boxed_slice(),
                 tail: RecordRowTermTail::Closed,
             },
         );
@@ -6254,7 +6259,7 @@ mod coordinated_row_completion_tests {
                 InferenceStaticArgument::Term(InferenceTerm::Var(type_var)),
                 InferenceStaticArgument::RecordRow(InferenceRecord {
                     fields: vec![InferenceRecordField {
-                        name: "x".into(),
+                        key: symbol("x"),
                         term: InferenceTerm::Var(field_var),
                     }]
                     .into_boxed_slice(),
@@ -6271,11 +6276,11 @@ mod coordinated_row_completion_tests {
                 InferenceStaticArgument::RecordRow(InferenceRecord {
                     fields: vec![
                         InferenceRecordField {
-                            name: "x".into(),
+                            key: symbol("x"),
                             term: InferenceTerm::Canonical(int),
                         },
                         InferenceRecordField {
-                            name: "y".into(),
+                            key: symbol("y"),
                             term: InferenceTerm::Canonical(string),
                         },
                     ]
@@ -6300,7 +6305,7 @@ mod coordinated_row_completion_tests {
         assert_eq!(remainder.tail, RecordRowTermTail::Closed);
         assert_eq!(
             remainder.fields.as_ref(),
-            &[RecordRowField::required("y".into(), InferenceTerm::Canonical(string))]
+            &[RecordRowField::required(symbol("y"), InferenceTerm::Canonical(string))]
         );
     }
 
@@ -6323,7 +6328,7 @@ mod coordinated_row_completion_tests {
             arguments: vec![
                 InferenceStaticArgument::RecordRow(InferenceRecord {
                     fields: vec![InferenceRecordField {
-                        name: "x".into(),
+                        key: symbol("x"),
                         term: InferenceTerm::Var(field_var),
                     }]
                     .into_boxed_slice(),
@@ -6340,11 +6345,11 @@ mod coordinated_row_completion_tests {
                 InferenceStaticArgument::RecordRow(InferenceRecord {
                     fields: vec![
                         InferenceRecordField {
-                            name: "x".into(),
+                            key: symbol("x"),
                             term: InferenceTerm::Canonical(int),
                         },
                         InferenceRecordField {
-                            name: "y".into(),
+                            key: symbol("y"),
                             term: InferenceTerm::Canonical(string),
                         },
                     ]
@@ -6368,7 +6373,7 @@ mod coordinated_row_completion_tests {
         assert_eq!(remainder.tail, RecordRowTermTail::Closed);
         assert_eq!(
             remainder.fields.as_ref(),
-            &[RecordRowField::required("y".into(), InferenceTerm::Canonical(string))]
+            &[RecordRowField::required(symbol("y"), InferenceTerm::Canonical(string))]
         );
     }
 
@@ -6399,7 +6404,7 @@ mod coordinated_row_completion_tests {
                 InferenceStaticArgument::Term(InferenceTerm::Canonical(string)),
                 InferenceStaticArgument::RecordRow(InferenceRecord {
                     fields: vec![InferenceRecordField {
-                        name: "extra".into(),
+                        key: symbol("extra"),
                         term: InferenceTerm::Var(payload),
                     }]
                     .into_boxed_slice(),
@@ -6428,7 +6433,7 @@ mod coordinated_row_completion_tests {
         };
         assert_eq!(
             store.record_row(*row).fields.as_ref(),
-            &[crate::types::row::RecordRowField::required("extra".into(), string)]
+            &[crate::types::row::RecordRowField::required(symbol("extra"), string)]
         );
     }
 
@@ -6445,7 +6450,7 @@ mod coordinated_row_completion_tests {
             origin: Box::new(InferenceTerm::Canonical(form)),
             arguments: Box::new([InferenceStaticArgument::RecordRow(InferenceRecord {
                 fields: vec![InferenceRecordField {
-                    name: "x".into(),
+                    key: symbol("x"),
                     term: InferenceTerm::Canonical(int),
                 }]
                 .into_boxed_slice(),
@@ -6456,7 +6461,7 @@ mod coordinated_row_completion_tests {
             origin: Box::new(InferenceTerm::Canonical(form)),
             arguments: Box::new([InferenceStaticArgument::RecordRow(InferenceRecord {
                 fields: vec![InferenceRecordField {
-                    name: "x".into(),
+                    key: symbol("x"),
                     term: InferenceTerm::Canonical(string),
                 }]
                 .into_boxed_slice(),

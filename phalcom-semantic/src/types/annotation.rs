@@ -186,6 +186,16 @@ pub trait TypeResolver {
         None
     }
 
+    /// Resolves the stable identity selected by the published associated
+    /// surface, independently of whether its checked product is available.
+    fn resolve_associated_type_member_id(
+        &self,
+        owner: &DeclarationId,
+        selector: &TypeMemberSelector,
+    ) -> Option<crate::types::type_member::TypeMemberDeclarationId> {
+        self.resolve_associated_type_member(owner, selector).map(|product| product.id.clone())
+    }
+
     /// Retrieves the declaration-owned case set for an already resolved static domain.
     fn resolve_static_case_catalog(
         &self,
@@ -254,6 +264,14 @@ impl TypeResolver for ProjectedRecordKeyResolver<'_> {
         self.parent.resolve_associated_type_member(owner, selector)
     }
 
+    fn resolve_associated_type_member_id(
+        &self,
+        owner: &DeclarationId,
+        selector: &TypeMemberSelector,
+    ) -> Option<crate::types::type_member::TypeMemberDeclarationId> {
+        self.parent.resolve_associated_type_member_id(owner, selector)
+    }
+
     fn resolve_static_case_catalog(
         &self,
         domain: &crate::identity::StaticDomainDeclarationId,
@@ -319,6 +337,14 @@ impl<'a> TypeResolver for ScopedTypeResolver<'a> {
         selector: &TypeMemberSelector,
     ) -> Option<std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>> {
         self.parent.resolve_associated_type_member(owner, selector)
+    }
+
+    fn resolve_associated_type_member_id(
+        &self,
+        owner: &DeclarationId,
+        selector: &TypeMemberSelector,
+    ) -> Option<crate::types::type_member::TypeMemberDeclarationId> {
+        self.parent.resolve_associated_type_member_id(owner, selector)
     }
 
     fn resolve_static_case_catalog(
