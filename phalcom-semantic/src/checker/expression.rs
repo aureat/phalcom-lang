@@ -5217,51 +5217,44 @@ fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSem
     }
 }
 
-fn apply_ambient_equalities(
-    store: &mut crate::types::store::TypeStore,
-    ambient_constraints: &[crate::types::parameter::GenericConstraint],
-    ty: TypeId,
-) -> TypeId {
-    let mut subst = crate::types::substitution::TypeSubstitution::new();
-    for c in ambient_constraints {
-        if let crate::types::parameter::GenericConstraint::Equivalent { left, right } = c {
-            if let (crate::types::parameter::TypeTerm::Canonical(left_ty), crate::types::parameter::TypeTerm::Canonical(right_ty)) = (left, right) {
-                if let TypeData::Parameter(p) = store.get(*left_ty) {
-                    subst.bind(*p, *right_ty);
-                } else if let TypeData::Parameter(p) = store.get(*right_ty) {
-                    subst.bind(*p, *left_ty);
-                }
-            }
-        }
-    }
-    if subst.is_empty() {
-        return ty;
-    }
-
-    // TypeSubstitution performs one structural pass. Callable constraints may
-    // form a short, acyclic equality chain (`T == U`, `U == Option<V>`), so
-    // normalize through at most one pass per binding plus the final stability
-    // check. If a malformed cyclic recovery product cannot stabilize, retain
-    // the original term instead of publishing a partial specialization.
-    let mut normalized = ty;
-    for _ in 0..=subst.len() {
-        let next = subst.apply(store, normalized);
-        if next == normalized {
-            return normalized;
-        }
-        normalized = next;
-    }
-    ty
-}
-
 pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom_ast::ast::MatchExpr, expected: &ExpectedType) -> TypedExpression {
     let expr_id = ctx.current_expression_id().unwrap_or_else(|| ctx.alloc_expression_id());
     let scrutinee_typed = analyze_expression(ctx, &match_expr.value, &ExpectedType::None);
-    let scrutinee_ty = apply_ambient_equalities(
-        ctx.store,
-        &ctx.ambient_constraints,
-        scrutinee_typed.knowledge.ty().unwrap_or_else(|| ctx.store.unit()),
-    );
+    let original_ty = scrutinee_typed.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
+    let refinement = {
+        let empty_surfaces = crate::traits::TraitSurfaceTable::new();
+        let mut budget = ctx.control.budget.borrow_mut();
+        let mut context = crate::types::ProjectionNormalizationContext::new(
+            crate::types::ProjectionNormalizationMode::Generic {
+                evidence: &ctx.generic_evidence,
+                conformance_index: ctx.conformance_semantics.map(|cs| cs.conformance_index),
+                witness_plans: ctx.conformance_semantics.map(|cs| cs.witness_plans),
+                trait_surfaces: ctx.conformance_semantics.map(|cs| cs.trait_surfaces).unwrap_or(&empty_surfaces),
+                derived_rules: ctx.conformance_semantics.map(|cs| cs.derived_conformance_rules),
+                declarations: ctx.declarations,
+                hierarchy: ctx.hierarchy.inner(),
+            },
+            &mut budget,
+            &ctx.control.cancellation,
+        );
+        ctx.generic_evidence.refine_type(ctx.store, original_ty, &mut context)
+    };
+    let (scrutinee_ty, refinement_block) = match refinement {
+        crate::generic_evidence::GenericTypeRefinement::Known(ty) | crate::generic_evidence::GenericTypeRefinement::Refined(ty) => (ty, None),
+        crate::generic_evidence::GenericTypeRefinement::Unavailable(outcome) => {
+            use crate::types::ProjectionNormalizationResult as Outcome;
+            use crate::types::outcome::BlockReason;
+            let reason = match outcome {
+                Outcome::Blocked(reason) => reason,
+                Outcome::Unknown(reason) => BlockReason::UnknownType(reason),
+                Outcome::Recursive => BlockReason::RecursiveFixpoint,
+                Outcome::BudgetExceeded(report) => BlockReason::BudgetExceeded(report),
+                Outcome::Cancelled => BlockReason::SuppressedDependency,
+                _ => BlockReason::UnknownType(crate::types::evidence::UnknownReason::UnderconstrainedTypeVariable),
+            };
+            (original_ty, Some(reason))
+        }
+    };
     let before_flow = ctx.flow.clone();
     let stable_scrutinee = match match_expr.value.as_ref() {
         Expr::Var { value, .. } => ctx.lookup_binding_info(value).map(|binding| binding.id),
@@ -5274,6 +5267,9 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
         scrutinee_local_ty.clone().unwrap_or(crate::types::LocalType::Canonical(scrutinee_ty)),
     );
     let mut engine = crate::checker::coverage::CoverageEngine::new(scrutinee_subject.clone(), ctx.control.clone());
+    if let Some(reason) = refinement_block {
+        engine.retain_blocked(reason);
+    }
     let mut arm_resolutions = Vec::with_capacity(match_expr.arms.len());
     let mut normal_branch_types = Vec::new();
     let mut normal_branch_local_types = Vec::new();

@@ -665,11 +665,15 @@ fn normalize_projection(
             if has_assumed {
                 // 2. Check if there is a unique lexical refinement for this projection
                 let proj_term = TypeTerm::Canonical(rewritten);
-                if let Some(TypeTerm::Canonical(refinement_ty)) = evidence.unique_refinement(&proj_term) {
+                let refinement = evidence.concrete_refinement(store, &proj_term).or_else(|| match evidence.unique_refinement(&proj_term) {
+                    Some(TypeTerm::Canonical(ty)) => Some(*ty),
+                    _ => None,
+                });
+                if let Some(refinement_ty) = refinement {
                     if !context.active.insert(projection.clone()) {
                         return ProjectionNormalizationResult::Recursive;
                     }
-                    let result = normalize_type(store, *refinement_ty, context);
+                    let result = normalize_type(store, refinement_ty, context);
                     context.active.remove(&projection);
                     return result;
                 }

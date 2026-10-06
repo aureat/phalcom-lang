@@ -4,6 +4,44 @@ use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::match_semantics::{ExhaustivenessResult, PatternSpaceSummary, PatternUsefulness};
 
 #[test]
+fn ambient_equality_chain_order_preserves_match_coverage_and_payload_type() {
+    for constraints in ["T == V, V == Option<Int>", "V == Option<Int>, T == V", "Option<Int> == V, V == T"] {
+        let source = format!(
+            "data Option<T> {{ @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }}\n\
+             class Test {{ run<T, V>(_ value: T) where {constraints} {{ match value {{ Option::Some(x) => x Option::None => 0 }} }} }}\n"
+        );
+        let case = analyze_adt(&source);
+        let handle = case.only_match();
+        handle.assert_exhaustive();
+        handle.arm(0).assert_usefulness(PatternUsefulness::Useful);
+        handle.arm(1).assert_usefulness(PatternUsefulness::Useful);
+        handle.arm(0).assert_binding_type("x", case.declaration("Int").form);
+        handle.assert_arm_candidate_variants(
+            0,
+            &[case.variant_id("Option", Selector::method("Some", [SelectorSlot::Positional]).expect("Some selector"))],
+        );
+    }
+}
+
+#[test]
+fn ambient_parameter_equality_cycle_keeps_payload_symbolic() {
+    let case = analyze_adt(
+        "data Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\n\
+         class Test { run<T, U>(_ value: Option<T>) where T == U, U == T { match value { Option::Some(x) => x Option::None => 0 } } }\n",
+    );
+    let handle = case.only_match();
+    handle.assert_exhaustive();
+    handle.arm(0).assert_usefulness(PatternUsefulness::Useful);
+    let arm = handle.arm(0);
+    let binding = arm.find_binding("x").expect("Some arm binds x");
+    let ty = binding.knowledge.ty().expect("symbolic payload has a canonical type");
+    assert!(
+        matches!(case.type_data(ty), phalcom_semantic::types::store::TypeData::Parameter(_)),
+        "parameter-only equality cycles must not invent concrete payloads"
+    );
+}
+
+#[test]
 fn exhaustive_match_proves_full_coverage() {
     let case = analyze_adt(
         r#"

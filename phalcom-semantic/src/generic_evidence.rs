@@ -248,6 +248,14 @@ impl GenericEvidenceLayout {
     }
 }
 
+/// Evidence-backed canonical refinement; unavailable outcomes retain their cause.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GenericTypeRefinement {
+    Known(TypeId),
+    Refined(TypeId),
+    Unavailable(crate::types::projection::ProjectionNormalizationResult),
+}
+
 /// Lexical, compositional generic evidence environment for a checking scope.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct GenericEvidenceEnvironment {
@@ -429,6 +437,75 @@ impl GenericEvidenceEnvironment {
     /// Returns all terms provably equivalent to `start` in the lexical environment.
     pub fn equivalent_terms(&self, start: &TypeTerm) -> BTreeSet<TypeTerm> {
         self.equivalences.get(start).cloned().unwrap_or_default()
+    }
+
+    /// Refines canonical parameters from the existing equivalence components,
+    /// then delegates projections to the canonical projection query. No inference
+    /// or local-rigid identities are introduced by this operation.
+    pub fn refine_type(
+        &self,
+        store: &mut TypeStore,
+        ty: TypeId,
+        context: &mut crate::types::projection::ProjectionNormalizationContext<'_>,
+    ) -> GenericTypeRefinement {
+        use crate::types::projection::ProjectionNormalizationResult as Outcome;
+        use crate::types::store::TypeData;
+        let mut substitution = TypeSubstitution::new();
+        let mut ambiguous = Vec::new();
+        for term in self.equivalences.keys() {
+            let TypeTerm::Canonical(parameter_ty) = term else { continue };
+            let TypeData::Parameter(parameter) = store.get(*parameter_ty) else { continue };
+            let parameter = *parameter;
+            let endpoints: Vec<_> = self.concrete_refinement(store, term).map(|ty| vec![ty]).unwrap_or_else(|| self.equivalent_terms(term).into_iter().filter_map(|endpoint| {
+                let TypeTerm::Canonical(endpoint_ty) = endpoint else { return None };
+                (!matches!(store.get(endpoint_ty), TypeData::Parameter(_))).then_some(endpoint_ty)
+            }).collect());
+            match endpoints.as_slice() {
+                [endpoint] if self.are_equivalent(term, &TypeTerm::Canonical(*endpoint)).is_proven() => {
+                    substitution.bind(parameter, *endpoint);
+                }
+                [] => {} // A parameter-only component has no concrete refinement.
+                _ => ambiguous.push(parameter),
+            }
+        }
+        let mut refined = ty;
+        let mut seen = BTreeSet::new();
+        loop {
+            if context.cancel.is_cancelled() {
+                return GenericTypeRefinement::Unavailable(Outcome::Cancelled);
+            }
+            if let Err(report) = context.budget.charge_step() {
+                return GenericTypeRefinement::Unavailable(Outcome::BudgetExceeded(report));
+            }
+            if ambiguous.iter().any(|parameter| store.contains_type_parameter(refined, *parameter)) {
+                return GenericTypeRefinement::Unavailable(Outcome::Unknown(UnknownReason::UnderconstrainedTypeVariable));
+            }
+            if !seen.insert(refined) || seen.len() > substitution.len() + 1 {
+                return GenericTypeRefinement::Unavailable(Outcome::Recursive);
+            }
+            let next = substitution.apply(store, refined);
+            if next == refined { break; }
+            refined = next;
+        }
+        match crate::types::projection::normalize_type(store, refined, context) {
+            Outcome::Normalized(normalized) if normalized == ty => GenericTypeRefinement::Known(ty),
+            Outcome::Normalized(normalized) => GenericTypeRefinement::Refined(normalized),
+            outcome => GenericTypeRefinement::Unavailable(outcome),
+        }
+    }
+
+    /// Selects a unique concrete endpoint from a proven equivalence component.
+    /// Projection callers must first establish their qualifying conformance.
+    pub(crate) fn concrete_refinement(&self, store: &TypeStore, term: &TypeTerm) -> Option<TypeId> {
+        use crate::types::store::TypeData;
+        let endpoints: Vec<_> = self.equivalent_terms(term).into_iter().filter_map(|endpoint| {
+            let TypeTerm::Canonical(ty) = endpoint else { return None };
+            (!matches!(store.get(ty), TypeData::Parameter(_) | TypeData::AssociatedProjection(_) | TypeData::TypeMemberProjection(_))).then_some(ty)
+        }).collect();
+        match endpoints.as_slice() {
+            [ty] if self.are_equivalent(term, &TypeTerm::Canonical(*ty)).is_proven() => Some(*ty),
+            _ => None,
+        }
     }
 
     /// Does projection P have a unique lexical refinement?
@@ -1082,4 +1159,151 @@ pub fn query_generic_conformance_proof(
         .with_derived_rules(derived_rules);
     let key = GenericConformanceKey::new(subject.clone(), trait_ref.clone());
     prove_conformance_with_context(&key, &mut context)
+}
+
+#[cfg(test)]
+mod refinement_tests {
+    use super::*;
+    use crate::identity::DeclarationId;
+    use crate::types::id::KindId;
+    use crate::types::parameter::TypeParameterData;
+    use crate::types::projection::{ProjectionNormalizationContext, ProjectionNormalizationMode, ProjectionNormalizationResult};
+    use crate::types::store::TupleTypeElement;
+    use phalcom_modules::identity::ModuleId;
+
+    fn declaration(name: &str) -> DeclarationId {
+        DeclarationId::new(ModuleId::universe_root(), name.into())
+    }
+
+    fn parameter(store: &mut TypeStore, owner: &str, index: u32) -> TypeId {
+        let id = store.intern_type_parameter(TypeParameterData::new(
+            TypeParameterOwner::Declaration(declaration(owner)),
+            index,
+            format!("T{index}"),
+            KindId::TYPE,
+        ));
+        store.parameter_form(id)
+    }
+
+    fn environment(pairs: &[(TypeId, TypeId)]) -> GenericEvidenceEnvironment {
+        GenericEvidenceEnvironment::new(
+            pairs
+                .iter()
+                .map(|(left, right)| GenericConstraint::Equivalent {
+                    left: TypeTerm::Canonical(*left),
+                    right: TypeTerm::Canonical(*right),
+                })
+                .collect(),
+            BTreeMap::new(),
+            GenericEvidenceLayout::empty(),
+        )
+    }
+
+    fn refine(environment: &GenericEvidenceEnvironment, store: &mut TypeStore, ty: TypeId) -> GenericTypeRefinement {
+        let trait_ref = TraitRef::new(declaration("Abstract"), Vec::<TypeId>::new());
+        let mut budget = QueryBudget::default();
+        let cancel = CancellationToken::new();
+        let mut context = ProjectionNormalizationContext::new(ProjectionNormalizationMode::AbstractTrait { trait_ref: &trait_ref }, &mut budget, &cancel);
+        environment.refine_type(store, ty, &mut context)
+    }
+
+    #[test]
+    fn refine_type_is_independent_of_equality_direction_and_order() {
+        let mut store = TypeStore::new();
+        let t = parameter(&mut store, "Owner", 0);
+        let u = parameter(&mut store, "Owner", 1);
+        let concrete = store.nominal_type(declaration("Concrete"));
+        for pairs in [
+            vec![(t, concrete)],
+            vec![(concrete, t)],
+            vec![(t, u), (u, concrete)],
+            vec![(u, concrete), (t, u)],
+            vec![(concrete, u), (u, t)],
+        ] {
+            assert_eq!(refine(&environment(&pairs), &mut store, t), GenericTypeRefinement::Refined(concrete));
+        }
+    }
+
+    #[test]
+    fn refine_type_keeps_parameter_cycles_symbolic_and_owner_facts_isolated() {
+        let mut store = TypeStore::new();
+        let t = parameter(&mut store, "Owner", 0);
+        let u = parameter(&mut store, "Owner", 1);
+        let foreign = parameter(&mut store, "OtherOwner", 0);
+        let concrete = store.nominal_type(declaration("Concrete"));
+        assert_eq!(refine(&environment(&[(t, u), (u, t)]), &mut store, t), GenericTypeRefinement::Known(t));
+        assert_eq!(
+            refine(&environment(&[(t, concrete)]), &mut store, foreign),
+            GenericTypeRefinement::Known(foreign)
+        );
+    }
+
+    #[test]
+    fn refine_type_reports_recursive_component_without_inventing_a_type() {
+        let mut store = TypeStore::new();
+        let t = parameter(&mut store, "Owner", 0);
+        let recursive = store.tuple(vec![TupleTypeElement::unlabeled(t)].into_boxed_slice());
+        assert_eq!(
+            refine(&environment(&[(t, recursive)]), &mut store, t),
+            GenericTypeRefinement::Unavailable(ProjectionNormalizationResult::Recursive),
+        );
+    }
+
+    #[test]
+    fn refine_type_preserves_unresolved_projection_outcome() {
+        let mut store = TypeStore::new();
+        let subject = parameter(&mut store, "Owner", 0);
+        let owner = declaration("Abstract");
+        let trait_ref = TraitRef::new(owner.clone(), Vec::<TypeId>::new());
+        let projection = store.associated_projection(subject, trait_ref, crate::traits::AssociatedTypeRequirementId::new(owner, 0));
+        assert_eq!(
+            refine(&GenericEvidenceEnvironment::empty(), &mut store, projection),
+            GenericTypeRefinement::Unavailable(ProjectionNormalizationResult::Symbolic(projection)),
+        );
+    }
+
+    #[test]
+    fn refine_type_transitive_projection_matches_parameter_under_assumed_conformance() {
+        let mut store = TypeStore::new();
+        let subject = parameter(&mut store, "Owner", 0);
+        let t = parameter(&mut store, "Owner", 1);
+        let owner = declaration("Abstract");
+        let trait_ref = TraitRef::new(owner.clone(), Vec::<TypeId>::new());
+        let projection = store.associated_projection(subject, trait_ref.clone(), crate::traits::AssociatedTypeRequirementId::new(owner, 0));
+        let concrete = store.nominal_type(declaration("Concrete"));
+        let surfaces = TraitSurfaceTable::new();
+        let constraints = vec![GenericConstraint::Equivalent { left: TypeTerm::Canonical(t), right: TypeTerm::Canonical(projection) }, GenericConstraint::Equivalent { left: TypeTerm::Canonical(t), right: TypeTerm::Canonical(concrete) }, GenericConstraint::Conforms { subject: TypeTerm::Canonical(subject), trait_ref }];
+        let environment = GenericEvidenceEnvironment::try_from_constraints(&constraints, TypeParameterOwner::Declaration(declaration("Owner")), &surfaces).unwrap();
+        let declarations = DeclarationTypeTable::new();
+        let hierarchy = crate::types::relation::MapTypeHierarchy::new();
+        for ty in [projection, t] {
+            let mut budget = QueryBudget::default();
+            let cancel = CancellationToken::new();
+            let mut context = ProjectionNormalizationContext::new(ProjectionNormalizationMode::Generic { evidence: &environment, conformance_index: None, witness_plans: None, trait_surfaces: &surfaces, derived_rules: None, declarations: &declarations, hierarchy: &hierarchy }, &mut budget, &cancel);
+            assert_eq!(environment.refine_type(&mut store, ty, &mut context), GenericTypeRefinement::Refined(concrete));
+        }
+    }
+
+    #[test]
+    fn refine_type_preserves_cancellation_and_budget_exhaustion() {
+        let mut store = TypeStore::new();
+        let t = parameter(&mut store, "Owner", 0);
+        let environment = GenericEvidenceEnvironment::empty();
+        let trait_ref = TraitRef::new(declaration("Abstract"), Vec::<TypeId>::new());
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let mut budget = QueryBudget::default();
+        let mut context = ProjectionNormalizationContext::new(ProjectionNormalizationMode::AbstractTrait { trait_ref: &trait_ref }, &mut budget, &cancel);
+        assert_eq!(
+            environment.refine_type(&mut store, t, &mut context),
+            GenericTypeRefinement::Unavailable(ProjectionNormalizationResult::Cancelled)
+        );
+        let cancel = CancellationToken::new();
+        let mut budget = QueryBudget::new(0);
+        let mut context = ProjectionNormalizationContext::new(ProjectionNormalizationMode::AbstractTrait { trait_ref: &trait_ref }, &mut budget, &cancel);
+        assert!(matches!(
+            environment.refine_type(&mut store, t, &mut context),
+            GenericTypeRefinement::Unavailable(ProjectionNormalizationResult::BudgetExceeded(_))
+        ));
+    }
 }

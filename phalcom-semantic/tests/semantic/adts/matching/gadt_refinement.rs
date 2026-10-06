@@ -4,6 +4,22 @@ use phalcom_semantic::match_semantics::{PatternResolution, PatternUsefulness};
 use phalcom_semantic::types::LocalType;
 
 #[test]
+fn ambient_equality_chain_refutes_incompatible_concrete_gadt_case() {
+    for constraints in ["T == U, U == Int", "U == Int, T == U", "Int == U, U == T"] {
+        let source = format!(
+            "data Expr<T> {{ @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }}\n\
+             class Test {{ run<T, U>(_ value: Expr<T>) where {constraints} {{ match value {{ Expr::Bool(x) => x Expr::Int(x) => x }} }} }}\n"
+        );
+        let case = analyze_adt(&source);
+        let handle = case.only_match();
+        handle.arm(0).assert_usefulness(PatternUsefulness::Impossible);
+        handle.arm(1).assert_usefulness(PatternUsefulness::Useful);
+        handle.arm(1).assert_binding_type("x", case.declaration("Int").form);
+        handle.assert_exhaustive();
+    }
+}
+
+#[test]
 fn gadt_branch_proof_refines_type_parameter_and_omits_refuted_cases() {
     let case = analyze_adt(
         r#"
