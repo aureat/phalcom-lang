@@ -2821,20 +2821,72 @@ republishes the owning type/signature through the existing owner query.
 
 ##### T7.0D Exact forcing, invalidation, republication, and mixed cycles
 
-The semantic query/session orchestrator forces not-ready selected constants
-during owner computation, tracks the active evaluation stack/`Computing` state,
-and retains transient cause information for recursive entry through key
-projection. Classify a cycle containing this edge and a closed `StaticConstant`
-as an invalid static-formation cycle. Prefer a dedicated diagnostic such as
-`StaticConstantFormationCycle`, or reuse the established cycle diagnostic with
-a clear computed-key/type-formation note. Do not add a persistent second cycle
-graph.
+Use a session-owned depth-first demand driver. While a type-bearing owner is
+being computed, that owner checks/selects each computed key expression and
+emits exact static-constant demands before Record row formation. The driver
+suspends the owner, recursively computes each demanded `StaticConstant`
+product, then resumes the same owner with its owner-relative projection facts.
+The owner remains the sole publisher of its type/signature/pattern product and
+the sole recorder of its exact dependencies; the driver schedules demand and
+does not publish a competing owner product.
+
+Before a frame checks its computed-key expressions, its ordinary-checker
+semantic context inputs must also be current. If those inputs are themselves
+published by semantic owners, the session-owned driver schedules those exact
+owner queries and resumes the waiting frame with a fresh context assembled
+from current products. Never check against fabricated empty tables or
+previous-snapshot products for owners invalidated in the current revision.
+Schedule only ready owner frames; if a context prerequisite recursively waits
+on the suspended owner, classify and unwind the active query cycle rather than
+reordering all type owners or accepting stale context.
+
+At the checked static-expression boundary, distinguish three outcomes:
+`Ready(CheckedStaticExpression)`, `Awaiting(exact semantic owner demands)`, and
+`Invalid(CheckedStaticExpression with source diagnostics)`. A demand is emitted
+only after ordinary resolution has identified a canonical owner whose product
+is not current; do not infer demands from diagnostic text or captured
+dependencies. The demand driver returns exact demands to the session; it does
+not build demanded products or mutate canonical resolver state. The session
+routes each demand through that query's existing owner scheduler. Only the
+owner publishes; its canonical product table and resolver view are refreshed
+after publication. The suspended consumer then rebuilds its checker context
+from current products and retries before forming or publishing its own
+product. If an owner cannot progress because a prerequisite is the suspended
+consumer, classify and unwind through the active owner/query stack rather than
+replaying against stale state. An awaiting attempt contributes neither
+canonical diagnostics nor a publishable owner product. The active owner/demand
+stack supplies transient cycle causes and deterministic unwind. Use the early
+linked binding catalog and canonical intrinsic registry where needed, but do
+not preflight unrelated semantic owners.
+
+The active revision stack records `Computing` state and transient cause data
+for entry through a computed-key demand. If recursive entry closes a path
+containing both a computed-key demand and a closed `StaticConstant`, unwind the
+participating frames with deterministic invalid static-formation diagnostics.
+Prefer a dedicated diagnostic such as `StaticConstantFormationCycle`, or reuse
+the established cycle diagnostic with a clear computed-key/type-formation
+note. Do not add a persistent second cycle graph, eagerly reorder formation
+into phases, or add callbacks to `TypeResolver`. Never publish provisional
+canonical rows or satisfy current work with a previous-snapshot/LKG product.
+
+Transparent type aliases whose `TypeForm` bodies contain computed Record keys
+also participate in this owner worklist. Defer only those `StaticDefinition`
+owners until their required current checker context is available; aliases with
+no computed keys retain the early path. A deferred alias has no visible form
+in `TypeAliasTable`, `StaticDefinitionTable`, or the canonical resolver until
+its projected owner product is published. If another owner demands that alias,
+route the exact `QueryKey::StaticDefinition` back through the alias publisher.
+Track alias/signature re-entry on the same transient active stack and unwind
+deterministically; a path that also crosses a closed constant uses the
+computed-key static-formation diagnostic. The `StaticDefinition` query remains
+the sole publisher and records current exact dependencies plus a fingerprint
+of the source definition and owner-scoped projections.
 
 Keep exact consumer-to-constant dependency edges. Use normal reverse dependency
 invalidation and fingerprint revalidation: unchanged constant products may let
 consumers validate; changed products cause only exact consumers to reproject,
 reform canonical rows, and republish dependent products. Old interned rows stay
-immutable. Previous-snapshot/LKG values cannot satisfy a current computation.
+immutable.
 
 Acceptance for this slice: direct and transitive mixed cycles diagnose
 deterministically without hanging; an edit that introduces a cycle cannot keep
@@ -2855,6 +2907,9 @@ vertical slice. Confirm each selector actually runs tests. Cover:
   canonical row/type/signature republication, and cold/incremental parity;
 - direct and transitive mixed cycles, deterministic diagnostic, no hang, no
   stale LKG semantic reuse, and no placeholder in a canonical row;
+- a checker-context prerequisite that returns an exact owner demand, resumes
+  against a fresh current context, and does not leak diagnostics or partial
+  products from an awaiting attempt;
 - symbolic deferral without `FieldKey`, `RecordRowData`, or AST placeholder.
 
 T7.0E passes only when cold and incrementally updated sessions agree on key,

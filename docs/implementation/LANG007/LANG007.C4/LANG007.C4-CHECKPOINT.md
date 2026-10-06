@@ -19,7 +19,7 @@ latest_completed_plan: LANG007.C4.P3
 next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 03967716
-last_updated: 2026-10-05
+last_updated: 2026-10-06
 ---
 
 # LANG007.C4 — Checkpoint Record
@@ -40,7 +40,8 @@ next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 03967716
 next_action: >
-  The static-constant owner now projects computed annotation keys through the shared checked-expression/evaluator path, retains exact constant dependencies, and handles the direct mixed cycle. Continue T7.0C-D for declaration/signature owners, imported-key forcing, and transitive mixed-cycle behavior before T7.0E. T4-T6 remain COMPLETE / IMPLEMENTED / FOCUSED_TESTED; P4 is IN_PROGRESS / PARTIAL / UNVERIFIED. Do not start T7.1 until T7.0E passes. P10 T6 and while-dependent T9 cases remain outside active P4 scope.
+  Implement the amended T7.0D session suspend/demand/owner-publish/rebuild/resume worklist (INC-1 through INC-4), then complete remaining owner integration and run T7.0E. T4-T6 remain COMPLETE / IMPLEMENTED / FOCUSED_TESTED; P4 is IN_PROGRESS / PARTIAL / UNVERIFIED. Do not start T7.1 until T7.0E passes. P10 T6 and while-dependent T9 cases remain outside active P4 scope.
+last_updated: 2026-10-06
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -1445,6 +1446,24 @@ rules; no internal representation rule is added to it. No source or test code
 was changed in this consultation. P1 remains `IN_PROGRESS / PARTIAL /
 UNVERIFIED`.
 
+
+### T7.0C CallableSignature owner slice — 2026-10-06
+
+The session now checks and projects computed keys selected by callable
+parameter and return annotations before `CallableSignature` formation. It
+projects all annotations under the callable's stable query identity, and
+`DeclarationSurface` consumes the canonical signature rather than re-forming
+those types without projection. Callable-body prerequisite validation reuses
+the current owner product, avoiding an unprojected replacement publication.
+
+Focused evidence: `foundations::static_constants` passed 18/18. The callable
+case covers both parameter and return keys, the exact selected
+`StaticConstant(Key)` edge, changed-key incremental republication, and
+cold/incremental parity. The earlier field-owner coverage remains at 17/17.
+This does not pass T7.0E: the remaining T7.0 type owners, full static value,
+import, and cycle matrix, and downstream visibility acceptance remain open.
+T7.1 remains gated; P4 is still `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
 ## 2026-10-04 — T8a semantic-product-driven constructor projection consultation
 
 ### Scope
@@ -2526,3 +2545,180 @@ static-constant owner slice: declaration/signature owners, imported-key
 forcing, transitive mixed-cycle reporting, and the complete T7.0E
 cold/incremental acceptance matrix remain open. P4 remains
 `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+### INC-1 — T7.0D demand scheduling clarification — 2026-10-06
+
+**Trigger:** mandatory escalation for an underspecified nonlocal query
+scheduling and mixed-cycle protocol (shared-consultation protocol RED trigger
+15). **Observation:** the accepted T7.0 architecture establishes owner
+identity, dependency ownership, active-computation cycle detection, and
+prohibits phase reordering, but T7.0D did not specify how an early
+type-bearing owner receives constants whose computed keys it selects.
+
+**Adviser decision:** the architecture is sound; clarify T7.0D as a
+session-owned depth-first demand driver. A type-bearing owner checks/selects
+key expressions and emits exact static-constant demands before row formation;
+the driver suspends that owner, recursively computes demanded
+`StaticConstant` products, and resumes the owner with owner-relative projection
+facts. The active revision stack records `Computing` and transient
+computed-key cause data. When recursive entry closes a path containing a
+computed-key demand and a closed `StaticConstant`, unwind deterministic invalid
+static-formation diagnostics through participating frames. Each owner remains
+its sole publisher and dependency recorder. Do not eagerly reorder phases, add
+`TypeResolver` callbacks, publish provisional rows, or use LKG products for
+current work. This is a Level-1 plan clarification; it changes no ownership.
+
+**Amendment:** T7.0D now spells out the suspend/demand/compute/resume protocol
+and diagnostic unwind. **Verification required:** demonstrate this behavior,
+exact dependencies, and cold/incremental parity at T7.0E. T7.1 remains blocked
+until T7.0E passes. **Active status:** P4 remains `IN_PROGRESS / PARTIAL /
+UNVERIFIED`; no acceptance gate is claimed by this consultation or amendment.
+
+### INC-2 — current checker-context prerequisites for owner frames — 2026-10-06
+
+**Trigger:** mandatory escalation after T7.0C type-member integration exposed
+that the owner scheduler runs before the current dispatch, signature,
+data/enum, and intrinsic context products required by ordinary static-key
+checking are assembled. Passing empty tables or retained products invalidated
+in the current revision would violate the semantic-context and no-LKG rules.
+
+**Adviser decision:** extend the T7.0D suspend/resume clarification. A waiting
+owner frame must demand its ordinary-checker context prerequisites through
+their existing owners, then resume with a fresh context made only from current
+products. Keep a session-owned ready-owner worklist; do not eagerly move the
+whole type-member phase after signatures, since those signatures can themselves
+depend on type members. If an exact context prerequisite recursively waits on
+the suspended owner, classify/unwind the active query cycle. Owner publication
+and exact dependency ownership remain unchanged.
+
+**Amendment:** T7.0D now requires current context prerequisites to be scheduled
+before checking key expressions and forbids fabricated or stale context.
+**Verification required:** exercise a key expression whose checker context
+requires a current semantic owner, and prove cold/incremental parity and cycle
+unwinding at T7.0E. T7.1 remains gated; P4 stays `IN_PROGRESS / PARTIAL /
+UNVERIFIED`.
+
+### T7.0C FieldSignature owner slice — 2026-10-06
+
+The session now checks and projects computed keys selected by a cold field
+annotation before `FieldSignature` formation. `DeclarationSurface` consumes
+that canonical field signature and records its exact dependency instead of
+re-resolving the annotation through an unprojected resolver. This preserves one
+type owner and makes an edited key flow through normal signature-to-surface
+invalidation.
+
+Focused evidence at the FieldSignature slice: `foundations::static_constants`
+passed 18/18, including cold field formation, changed-key incremental update,
+exact surface propagation, callable projection, and cold/incremental key
+parity. At that point the checked-expression `Awaiting` outcome lacked a
+session dispatcher. The exact-demand slice below adds the dispatcher, but its
+retry/no-leak behavior is not exercised by these tests; T7.0E remains open.
+T7.1 remains gated; P4 is still `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+### INC-3 — checked-expression readiness outcome — 2026-10-06
+
+**Trigger:** the INC-2 current-context worklist cannot infer readiness from
+the current checker result. `analyze_static_expression` returns a checked
+expression with diagnostics and captured dependencies, but has no distinct
+signal for a canonical semantic owner that has been identified but is not
+current; resolver/dispatch absence may already have emitted a source
+diagnostic before any dependency was captured.
+
+**Adviser decision:** add a transient three-way checked-expression outcome:
+`Ready(CheckedStaticExpression)`, `Awaiting(exact owner demands)`, or
+`Invalid(CheckedStaticExpression)`. Emit an exact demand only when ordinary
+resolution identifies the canonical owner and its product is not current.
+Resolve demands through existing owners, rebuild context from current products,
+and retry. Awaiting attempts publish neither diagnostics nor products. Broad
+preflight is rejected because it can force unrelated owners and create false
+dependencies. The active owner/demand stack owns cycle causes; all semantic
+owners remain sole publishers.
+
+**Amendment:** T7.0D and T7.0E now require this readiness result and its focused
+resume/no-leak/cycle coverage. **Active status:** P4 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`; implementation and T7.0E remain open.
+
+### INC-4 — exact-demand execution boundary — 2026-10-06
+
+**Trigger:** implementation of the checked-expression readiness boundary
+showed that `StaticConstantDemandDriver` has only an immutable `TypeResolver`
+view, while the session already owns the canonical member table, owner
+scheduler, and resolver refresh operation. Letting the driver build or publish
+a missing member would create a second publisher; leaving it with a stale
+resolver would violate current-context resumption.
+
+**Adviser decision:** return each exact `TypeMemberDeclaration` demand to the
+session. Dispatch it through the existing member owner scheduler; the member
+owner alone builds and publishes its product. Refresh the canonical member
+table/resolver after publication, rebuild the suspended consumer's checker
+context, and retry it before it forms or publishes its own product. If the
+member cannot progress because it depends on the suspended owner, classify and
+unwind via the active owner/query stack. A current DB product may be reconciled
+into the current resolver view before retry. Do not run the member builder
+outside its scheduler or resume against stale state.
+
+**Amendment:** T7.0D now records this exact session execution boundary and
+cycle rule. The session has since gained an exact-demand ready-owner worklist:
+it reconciles only current DB member products or advances exact member graph
+prerequisites, publishes through the shared canonical member-owner path,
+refreshes the resolver, and retries the suspended projection with fresh
+checker context. `Awaiting` now propagates through computed-key expression
+checking and transitive constant initializer checks, rather than becoming a
+source diagnostic or generic blocked result. Type-member cycles unwind to the
+ordinary signature formation path; unexplained no-progress fails closed.
+
+Focused evidence after this slice: `cargo check -p phalcom-semantic` passed;
+`foundations::type_members` passed 11/11; `foundations::static_constants`
+passed 18/18. `git diff --check` passed after the latest initializer-demand
+edit. These checks do not exercise exact session dispatch,
+fresh-context retry, or no-partial-publication behavior. Those behaviors and
+the remaining T7.0E matrix are still unverified; P4 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`, and T7.1 remains gated.
+
+The checker-side selector now asks the canonical associated surface for the
+stable `TypeMemberDeclarationId` before retrieving its checked product. If that
+selected product is absent from the current resolver view, it records exactly
+`QueryKey::TypeMemberDeclaration(id)` and makes no semantic dependency or
+publication from that attempt. Once present, the checked product ID must match
+the selected surface ID before the ordinary dependency edges are recorded.
+This avoids broad owner preflight. The checked-expression API returns
+`Awaiting(exact demands)`; the session dispatcher/retry implementation now
+exists, but its behavioral integration test remains open.
+
+**Verification probe:** a focused unit test now asserts that the tracking
+resolver emits the exact canonical type-member query and does not fetch a
+product from its unready resolver view. The filtered `--lib` test could not
+execute because the library unit-test target fails to compile in untouched
+record-row inference tests (`checker/inference.rs`, `checker/row_inference.rs`,
+and related files); the test remains unverified. The production crate check and
+semantic integration gate pass, but do not establish session demand routing or
+T7.0E. The current dispatcher slice has now passed the focused production
+check and semantic type-member/static-constant integration gates noted above;
+the isolated unit-test compilation limitation remains unchanged.
+
+### INC-5 — computed-key type-alias owner scheduling — 2026-10-06
+
+**Trigger:** T7.0C explicitly includes static/type aliases among key-bearing
+owners, but their `StaticDefinition` worklist runs before the current
+dispatch/signature/conformance checker context is assembled. An attempted
+inline projection at that phase could not obtain current owner inputs and was
+backed out before publication. Moving the whole alias phase after signatures
+would create a phase-order cycle because signatures may consume aliases.
+
+**Adviser decision:** defer only aliases whose TypeForm contains computed
+Record keys. They remain absent from `TypeAliasTable`,
+`StaticDefinitionTable`, and the canonical resolver until their canonical
+`StaticDefinition` owner is ready to project and publish. If a signature
+demands one, route the exact static-definition query back to the alias-owner
+worklist. That worklist services only ready prerequisites; signature/alias
+re-entry unwinds on the transient cross-owner stack, using the existing alias
+cycle diagnostic for syntax SCCs and the static-formation diagnostic when a
+closed constant participates. The `StaticDefinition` query remains the sole
+publisher and must fingerprint projection facts and record exact current
+dependencies.
+
+**Amendment:** T7.0D now explicitly includes deferred computed-key aliases in
+the suspend/resume owner worklist, with no phase-wide reorder or provisional
+alias form. This is an execution-boundary clarification only. The alias owner
+worklist, exact `StaticDefinition` demand routing, and focused cold/incremental
+tests remain unimplemented; P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
