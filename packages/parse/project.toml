@@ -1,0 +1,5 @@
+[project]
+name = "parse"
+namespace = "parse"
+version = "0.1.0"
+entry = "parse.main"

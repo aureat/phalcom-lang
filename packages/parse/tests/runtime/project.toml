@@ -1,0 +1,8 @@
+[project]
+name = "parse-runtime-tests"
+namespace = "parse_tests"
+version = "0.0.0"
+source = "src"
+
+[dependencies]
+parse = { path = "../.." }
