@@ -64,6 +64,18 @@ When documents overlap:
 
 If two current `docs/specs/` documents appear to make incompatible claims about the same owned concept, that is a specification defect. It must be resolved explicitly rather than by choosing whichever document, implementation behavior, or test is more convenient.
 
+Feature-specific normative specifications remain authoritative over older
+registry laws when reconciliation has not yet occurred. A registry divergence
+is a specification defect to repair, not an alternate semantic interpretation.
+
+For structural semantics, the intended relationship is:
+
+```text
+structural-products.md          semantic authority
+tuple-and-record-typing.md      syntax/examples companion
+typing/type/type.*              formal law registry, required to agree with the above
+```
+
 ### Older specification trees
 
 Material outside `docs/specs/` may remain useful for history, rationale, implementation archaeology, or unfinished design work, including directories such as:
@@ -92,7 +104,7 @@ An accepted decision or implementation checkpoint that changes current language 
 | Static evaluation, constants, static `type` computation, residualization, proof predicates | [`static-evaluation.md`](static-evaluation.md) |
 | Proper Types, static value domains, Pack-based Type collections, compile-time parameter domains | [`type-level-domains.md`](type-level-domains.md) |
 | Type-member declarations, ownership, identity, lookup, application, and projection normalization | [`type-members.md`](type-members.md) |
-| Pack/Product structural typing, ordered/unordered shapes, FieldKey, tails, lookup, iteration | [`structural-products.md`](structural-products.md) (companion: [`tuple-and-record-typing.md`](tuple-and-record-typing.md)) |
+| Pack/Product structural typing, ordered/unordered shapes, FieldKey, tails, lookup, iteration | [`structural-products.md`](structural-products.md) — semantic authority (syntax/examples companion: [`tuple-and-record-typing.md`](tuple-and-record-typing.md); formal registry: [`typing/type/`](typing/type/), which must agree) |
 | Sum/Variant/Variants structural reflection | [`structural-sums.md`](structural-sums.md) |
 | Tuple/Record family typing details | [`tuple-and-record-typing.md`](tuple-and-record-typing.md) |
 | Generic `where` constraints and generic evidence | [`generic-constraints.md`](generic-constraints.md) |

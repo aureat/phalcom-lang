@@ -246,17 +246,15 @@ A Closure without rest accepts exactly its fixed positional count and requires a
 
 A Closure with terminal `*rest` accepts at least the fixed positional prefix and still requires an empty labeled lane.
 
-Residual rest capture is:
+Closure `*rest` follows the general Pack-native rest rules in
+[Arguments and Parameters](arguments.md):
 
 ```text
-no residual values
-    → ()
-
-one or more residual values
-    → Tuple
+Closure *rest -> positional Pack
 ```
 
-Closure rest does not produce a List.
+The empty rest value is `Pack()` under this positional-Pack specialization, not
+`()`: `Pack() != Unit`. Closure rest never produces `Unit` or `Tuple`.
 
 ## Lexical capture
 

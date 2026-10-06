@@ -1,28 +1,43 @@
 # Phalcom Type Algebra Registry — `type.record-row`
 
-**Status:** Normative specification  
-**Registry families:** `type.record`, `type.row`  
+**Status:** Normative specification
+**Registry families:** `type.record`, `type.row`
 **Identifier range used here:** `T0700–T0721`
 
 ## Purpose
 
-This file defines the semantic laws of record types and their underlying row structure.
+This file defines the formal record and unordered-row laws required to agree
+with [`structural-products.md`](../../structural-products.md). Records are
+unordered field products. Their keys are `FieldKey`s; source ordering is not
+semantic; and structural compatibility accounts for field presence and tail
+state. Width compatibility is never implicit for a closed target.
 
-Records are unordered field products. Field names are semantic keys, field order is not semantic, and immutable record fields support width and depth subtyping. Mutable fields are invariant in their value type unless a more specific capability discipline later says otherwise.
-
-Rows are the structural substrate shared by records and potentially other structured types, but sharing row machinery does not force identical surface semantics. In particular, tuple order remains significant under `type.tuple`.
+Rows are the unordered structural substrate. Sharing row machinery does not
+give Tuple entries Record behavior: Tuple order, `Symbol` labels, required
+entries, and per-lane remainders remain governed by `type.tuple`.
 
 ## Domain and notation
 
 Unless stated otherwise:
 
-- `{ x: A, y: B }` denotes an immutable record type.
-- `mutable { x: A }` denotes a record with a mutable field.
-- `row { x: A, y: B }` denotes the corresponding structural row conceptually.
-- `fields(R)` denotes the field-label set of a record or row.
-- `R::At<"x">` denotes static field-type projection by label.
-- `<:` means semantic subtype.
-- `==` means semantic type identity.
+- `{ x: A, y: B }` denotes a closed Record type with two required fields.
+- `{ x?: A }` denotes a closed Record with an optional `x` field.
+- `{ x: A, ... }` denotes a Record with an unconstrained anonymous tail.
+- `{ x: A, **: T }` denotes a Record with a typed anonymous tail.
+- `fieldKeys(R)` denotes the set of declared fixed `FieldKey`s of `R`.
+- `Lookup<K>` is the public unordered-reflection operation and returns a
+  `FieldLookup` result: `Required(T)`, `Optional(T)`, `Absent`, or `Unknown`.
+- `<:` means semantic subtype and `==` means semantic type identity.
+
+Record keys are exactly:
+
+```telos
+type FieldKey =
+    Symbol | String | Int | Bool
+```
+
+`Record::At<K>` is not part of the ratified public Record reflection model.
+The laws below use `Lookup<K>` and `FieldLookup` instead.
 
 ## Laws
 
@@ -34,103 +49,110 @@ RecordKind<***Fields> {
 }
 
 @id(T0701)
-@name(type.row.field-names.unique)
-RowFieldNamesUnique<R> {
-    unique(fields(R))
+@name(type.row.field-key.domain)
+FieldKeyDomain<K> {
+    K : FieldKey iff K : Symbol | String | Int | Bool
 }
 
 @id(T0702)
+@name(type.row.field-keys.unique)
+RowFieldKeysUnique<R> {
+    unique(fieldKeys(R))
+}
+
+@id(T0703)
 @name(type.record.field-order.irrelevant)
 RecordFieldOrderIrrelevant<A, B> {
     { x: A, y: B } == { y: B, x: A }
 }
 
-@id(T0703)
-@name(type.record.field-name.significant)
-RecordFieldNamesSignificant<A> {
+@id(T0704)
+@name(type.record.field-key.significant)
+RecordFieldKeysSignificant<A> {
     { x: A } != { y: A }
 }
 
-@id(T0704)
-@name(type.record.identity-substitution)
+@id(T0705)
+@name(type.record.field.identity-substitution)
 RecordFieldIdentitySubstitution<A, B, C> {
     if A == B {
         { x: A, y: C } == { x: B, y: C }
     }
 }
 
-@id(T0705)
-@name(type.record.width-subtype)
-RecordWidthSubtype<A, B> {
-    { x: A, y: B } <: { x: A }
-}
-
 @id(T0706)
-@name(type.record.depth-subtype)
-RecordDepthSubtype<A, B> {
-    if A <: B {
-        { x: A } <: { x: B }
-    }
+@name(type.record.closed-target.rejects-surplus)
+ClosedRecordTargetRejectsSurplusFields<A, B> {
+    { x: A, y: B } </: { x: A }
 }
 
 @id(T0707)
-@name(type.record.width-depth-subtype)
-RecordWidthDepthSubtype<A1, A2, B1> {
-    if A1 <: B1 {
-        { x: A1, y: A2 } <: { x: B1 }
-    }
+@name(type.record.open-target.width)
+OpenRecordTargetAdmitsSurplusFields<A, B> {
+    { x: A, y: B } <: { x: A, ... }
 }
 
 @id(T0708)
-@name(type.record.required-fields)
-RecordSubtypeRequiresFields<R1, R2> {
-    if R1 <: R2 {
-        fields(R2) <= fields(R1)
+@name(type.record.typed-tail.width)
+TypedRecordTailConstrainsSurplusFields<A, B, T> {
+    if B <: T {
+        { x: A, y: B } <: { x: A, **: T }
     }
 }
 
 @id(T0709)
-@name(type.record.field-subtype)
-RecordSubtypeRequiresFieldCompatibility<R1, R2, N> {
-    if R1 <: R2 and N in fields(R2) {
-        R1::At<N> <: R2::At<N>
+@name(type.record.required.presence)
+RequiredTargetFieldNeedsRequiredSource<A, B> {
+    if A <: B {
+        { x: A } <: { x: B }
     }
+
+    { x?: A } </: { x: A }
 }
 
 @id(T0710)
-@name(type.row.projection)
-RowFieldProjection<R, N> {
-    if N in fields(R) {
-        kind(R::At<N>) == Type
+@name(type.record.optional.presence)
+OptionalTargetFieldCompatibility<A, B> {
+    if A <: B {
+        { x: A } <: { x?: B }
+        { x?: A } <: { x?: B }
+        {} <: { x?: B }
     }
 }
 
 @id(T0711)
-@name(type.row.projection.missing)
-MissingRowFieldProjectionIllFormed<R, N> {
-    if N not in fields(R) {
-        illFormed(R::At<N>)
+@name(type.record.optional.open-source)
+OptionalTargetFieldNeedsCompatibleOpenSource<A, B> {
+    if A <: B {
+        { **: A } <: { x?: B, ... }
     }
+
+    { ... } </: { x?: B, ... }
 }
 
 @id(T0712)
-@name(type.record.projection)
-RecordFieldProjection<A, B> {
-    { x: A, y: B }::At<"x"> == A
-    { x: A, y: B }::At<"y"> == B
+@name(type.record.open-source.closed-target)
+OpenSourceCannotSatisfyClosedTarget<S, T> {
+    if hasOpenTail(S) and closedRecord(T) {
+        S </: T
+    }
 }
 
 @id(T0713)
-@name(type.record.mutable.invariant)
-MutableRecordFieldInvariant<A, B> {
-    mutable { x: A } <: mutable { x: B }
-        iff A == B
+@name(type.record.lookup.field-lookup)
+RecordLookupProducesFieldLookup<A> {
+    { x: A }.Lookup<x> == Required(A)
+    { x?: A }.Lookup<x> == Optional(A)
+    {}.Lookup<x> == Absent
+    { ... }.Lookup<x> == Unknown
 }
 
 @id(T0714)
-@name(type.record.mutable.width)
-MutableRecordWidthSubtype<A, B> {
-    mutable { x: A, y: B } <: mutable { x: A }
+@name(type.row.captured-tail.lookup)
+CapturedTailPreservesLookupCorrelation<R, K> {
+    if capturedTail(R) == Q {
+        R.Lookup<K> == Q.Lookup<K>
+    }
 }
 
 @id(T0715)
@@ -142,25 +164,25 @@ RowPermutationIdentity<A, B, C> {
 
 @id(T0716)
 @name(type.row.extension)
-RowExtension<R, N, A> {
-    if N not in fields(R) {
-        fields(extend(R, N: A)) == fields(R) + { N }
+RowExtension<R, K, A> {
+    if K : FieldKey and K not in fieldKeys(R) {
+        fieldKeys(extend(R, K: Required(A))) == fieldKeys(R) + { K }
     }
 }
 
 @id(T0717)
-@name(type.row.extension.projection)
-RowExtensionProjection<R, N, A> {
-    if N not in fields(R) {
-        extend(R, N: A)::At<N> == A
+@name(type.row.extension.lookup)
+RowExtensionLookup<R, K, A> {
+    if K : FieldKey and K not in fieldKeys(R) {
+        extend(R, K: Required(A)).Lookup<K> == Required(A)
     }
 }
 
 @id(T0718)
 @name(type.row.extension.preservation)
-RowExtensionPreservesExistingFields<R, N, A, M> {
-    if N not in fields(R) and M in fields(R) {
-        extend(R, N: A)::At<M> == R::At<M>
+RowExtensionPreservesExistingLookup<R, K, A, M> {
+    if K : FieldKey and K not in fieldKeys(R) and M in fieldKeys(R) {
+        extend(R, K: Required(A)).Lookup<M> == R.Lookup<M>
     }
 }
 
@@ -171,7 +193,7 @@ RecordTupleDistinct<A, B> {
 }
 
 @id(T0720)
-@name(type.record.never-field)
+@name(type.record.never.required-field)
 RecordWithNeverRequiredFieldIsNever<A> {
     { x: A, y: Never } == Never
 }
@@ -183,204 +205,134 @@ RecordFieldUnionWidening<A, B> {
 }
 ```
 
+## Record compatibility model
+
+Record compatibility is determined as a whole relation, not by the old
+field-set-subset shortcut. It checks declared-field presence, fixed field
+compatibility, source and target tail state, and any correlation retained by a
+captured tail.
+
+### Declared target fields
+
+- A target required field `K: T` needs a source result
+  `Lookup<K> == Required(S)` with `S <: T`. A source `Optional(S)` result
+  cannot satisfy it.
+- A target optional field `K?: T` accepts `Required(S)` or `Optional(S)` only
+  when `S <: T`. `Absent` satisfies it. `Unknown` does not establish
+  compatibility.
+- For an undeclared `K`, a closed source yields `Absent`. A typed anonymous
+  source tail proves a compatible possible value for `K` only when its tail
+  value constraint is a subtype of the target value type. An unconstrained
+  anonymous source tail yields `Unknown`. A captured tail is checked through
+  its correlated `Lookup<K>` result rather than treated as an anonymous tail.
+
+### Tail and surplus-field rules
+
+A Record tail is one of these states:
+
+1. **Closed** — no surplus fields are admitted.
+2. **Captured** — preserves an exact, correlated row identity.
+3. **Typed** (`**: T`) — admits zero or more surplus fields whose values are
+   subtypes of `T` (and any declared key-domain constraint).
+4. **Unconstrained** (`...` or `**: ...`) — admits zero or more surplus fields
+   without a common value-type constraint.
+
+An open source cannot satisfy a closed target. A closed target rejects every
+surplus source field. An unconstrained open target admits surplus fields. A
+typed open target requires every surplus fixed source field and every possible
+source tail contribution to satisfy its value constraint. Captured source tails
+remain correlated and must be proven compatible through their retained shape,
+not discarded into a fresh anonymous row.
+
+Thus width compatibility is explicit:
+
+```telos
+{ x: A, y: B } <: { x: A, ... }
+```
+
+but not implicit:
+
+```telos
+{ x: A, y: B } </: { x: A }
+```
+
 ## Law notes
 
-### T0700 — `RecordKind`
+### T0700–T0705 — Record identity and `FieldKey`
 
-Every well-formed record type is a proper type.
+Every well-formed Record is a proper type. Fixed keys are unique and belong to
+the `FieldKey` domain. Record source order is not semantic, but changing a key
+changes the Record identity. Replacing a field value type with an identical type
+preserves identity.
 
-**Kind:** Semantic law  
-**Depends on:** T0060
+**Kind:** Semantic and well-formedness laws
+**Depends on:** T0001–T0003, T0060
 
-### T0701 — `RowFieldNamesUnique`
+### T0706–T0708 — Explicit width compatibility
 
-A row may not contain two semantic fields with the same label.
+Closed targets do not perform width subtyping. A target admits surplus source
+fields only through an explicit tail; a typed tail also constrains their value
+types.
 
-Duplicate-field source syntax must be rejected or resolved before a valid semantic row exists.
-
-**Kind:** Well-formedness invariant  
-**Depends on:** T0700
-
-### T0702 — `RecordFieldOrderIrrelevant`
-
-Record field ordering is not semantic.
-
-Reordering fields preserves record identity.
-
-**Kind:** Semantic identity law  
-**Depends on:** T0001–T0003
-
-### T0703 — `RecordFieldNamesSignificant`
-
-Field labels are semantic keys. Structurally identical value types under different labels do not produce identical record types.
-
-**Kind:** Semantic identity law  
-**Depends on:** T0001–T0003
-
-### T0704 — `RecordFieldIdentitySubstitution`
-
-Replacing a field type with a semantically identical type preserves record identity.
-
-**Kind:** Derived coherence law  
-**Depends on:** T0001–T0003
-
-### T0705 — `RecordWidthSubtype`
-
-An immutable record with additional fields may be used where a subset of those fields is required.
-
-**Kind:** Semantic subtype law  
+**Kind:** Semantic subtype laws
 **Depends on:** T0100–T0103
 
-### T0706 — `RecordDepthSubtype`
+### T0709–T0711 — Presence and open-source compatibility
 
-Immutable record fields are covariant in their value type.
+Required and optional field presence are part of Record compatibility.
+Optional presence is not `Option<T>` or `T | Unit`. A closed source may omit an
+optional target key; an open source must prove the possible key value is
+compatible. An unconstrained source tail cannot supply that proof.
 
-**Kind:** Semantic variance law  
-**Depends on:** T0100–T0103
+**Kind:** Semantic subtype laws
+**Depends on:** T0700, T0706
 
-### T0707 — `RecordWidthDepthSubtype`
+### T0712–T0714 — Tails and reflection
 
-Width and depth subtyping compose.
+Closed/open status is part of compatibility. Public unordered reflection uses
+`Lookup<K>` and `FieldLookup`; no independent `At` projection is introduced.
+Captured tails retain their exact correlation for lookup and compatibility.
 
-A record may provide additional fields and narrower types for the fields required by the target.
+**Kind:** Semantic compatibility and reflection laws
+**Depends on:** T0701, T0702, T0709–T0711
 
-**Kind:** Derived semantic law  
-**Depends on:** T0705, T0706, T0101
+### T0715–T0718 — Unordered row operations
 
-### T0708 — `RecordSubtypeRequiresFields`
+Row permutation preserves identity. Extending a row by a fresh `FieldKey`
+introduces the corresponding required lookup result and preserves every other
+fixed lookup.
 
-If `R1 <: R2`, the source record must provide every field required by the target record.
+**Kind:** Semantic row laws
+**Depends on:** T0701–T0703, T0713
 
-**Kind:** Semantic subtype invariant  
-**Depends on:** T0705
+### T0719–T0721 — Cross-family derived laws
 
-### T0709 — `RecordSubtypeRequiresFieldCompatibility`
+Records are distinct from labeled Tuples. A required `Never` field makes a
+Record uninhabited, and required field values are covariant under union
+widening.
 
-For immutable fields required by the target record, the corresponding source field type must subtype the target field type.
-
-**Kind:** Semantic subtype invariant  
-**Depends on:** T0706
-
-### T0710 — `RowFieldProjection`
-
-Projecting a present row field yields a proper type.
-
-**Kind:** Kinding law  
-**Depends on:** T0050, T0701
-
-### T0711 — `MissingRowFieldProjectionIllFormed`
-
-Static projection of a missing field is ill formed.
-
-The compiler must not manufacture `Never`, `Any`, or `Unknown` as though the field existed.
-
-**Kind:** Well-formedness invariant  
-**Depends on:** T0055, T0701
-
-### T0712 — `RecordFieldProjection`
-
-Record field projection returns the type associated with the selected semantic field label.
-
-**Kind:** Semantic projection law  
-**Depends on:** T0710
-
-### T0713 — `MutableRecordFieldInvariant`
-
-A writable field is invariant in its value type.
-
-Covariance would be unsound: code expecting `mutable { x: B }` could write any `B` into storage that only safely accepts a narrower `A`.
-
-**Kind:** Semantic variance law  
-**Depends on:** T0100–T0104
-
-### T0714 — `MutableRecordWidthSubtype`
-
-Field mutability does not by itself invalidate width subtyping when the retained field contracts are identical.
-
-This law concerns dropping visibility of extra fields, not changing the writable type of retained fields.
-
-**Kind:** Semantic subtype law  
-**Depends on:** T0705, T0713
-
-### T0715 — `RowPermutationIdentity`
-
-Rows are unordered maps from semantic labels to field contracts.
-
-**Kind:** Semantic row law  
-**Depends on:** T0701, T0702
-
-### T0716 — `RowExtension`
-
-Extending a row with a fresh field adds exactly that semantic field.
-
-**Kind:** Semantic row law  
-**Depends on:** T0701
-
-### T0717 — `RowExtensionProjection`
-
-The newly introduced field projects to its declared type.
-
-**Kind:** Semantic row law  
-**Depends on:** T0710, T0716
-
-### T0718 — `RowExtensionPreservesExistingFields`
-
-Extending a row with a fresh field preserves every existing field projection.
-
-**Kind:** Semantic row law  
-**Depends on:** T0716, T0717
-
-### T0719 — `RecordTupleDistinct`
-
-A record and a labeled tuple are not semantically identical merely because they expose similarly named entries.
-
-Records are unordered structural field products; tuples remain ordered products.
-
-**Kind:** Cross-family semantic law  
-**Depends on:** T0654, T0664, T0702
-
-### T0720 — `RecordWithNeverRequiredFieldIsNever`
-
-A record with a required field of type `Never` is uninhabited and therefore semantically identical to `Never`.
-
-**Kind:** Cross-family semantic law  
-**Depends on:** T0152–T0154, T0700
-
-### T0721 — `RecordFieldUnionWidening`
-
-An immutable field may be widened to a union supertype.
-
-**Kind:** Cross-family derived law  
-**Depends on:** T0456, T0457, T0706
-
-## Row/record separation
-
-The row abstraction captures field membership, field labels, field projection, and row extension. Record semantics additionally determine:
-
-- whether fields are readable or writable,
-- whether width subtyping is permitted,
-- how mutability affects variance,
-- how record values are constructed,
-- and which row contracts form proper record types.
-
-This separation permits tuple entries and other structural features to reuse row machinery without inheriting record-specific order or subtyping semantics.
+**Kind:** Cross-family derived laws
+**Depends on:** T0152–T0154, T0456, T0457, T0654, T0664
 
 ## Required implementation invariants
 
-Record canonicalization must be independent of source field order.
+Record canonicalization must be independent of source order and use the
+language-defined `FieldKey` ordering. It must preserve required/optional
+presence, tail state, and captured-tail correlation. Consumers must use the
+canonical `Lookup<K>` / `FieldLookup` product rather than reconstructing field
+presence from a field set.
 
-Two records that differ only by source field permutation must converge on the same semantic record identity, while diagnostic/source information may retain original ordering separately.
+## Current boundary
 
-Mutable field handling must not reuse immutable depth-subtyping rules without checking field capabilities.
+Mutable structural Record types are not part of the current Record model.
+Any future mutable structural Record rules require a separately ratified
+specification; this registry defines no `mutable { ... }` laws.
 
 ## Explicitly deferred laws
 
-- optional fields
-- open rows and row variables
-- polymorphic row tails
 - read-only versus write-only capabilities
 - getter/setter property decomposition
 - method/interface members mixed with state rows
 - object state/interface exposure
-- nominal classes with structural record views
+- nominal classes with structural Record views
 - row union/difference operations

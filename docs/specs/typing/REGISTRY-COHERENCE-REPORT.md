@@ -1,13 +1,19 @@
 # Phalcom Type Algebra Registry — Coherence Pass Report
 
-**Status:** `COHERENT / VALIDATED`  
-**Scope:** Existing Type Algebra Registry corpus plus foundational repairs required to make the corpus internally coherent.  
-**Resulting specification files:** 22  
-**Resulting laws:** 371
+**Status:** `STRUCTURAL RULES RECONCILED / MECHANICALLY VALIDATED`
+**Scope:** Existing Type Algebra Registry corpus plus foundational repairs, including the current Tuple/Record/Pack cross-specification reconciliation.
+**Resulting specification files:** 22
+**Resulting laws:** 375
 
 ## 1. Objective
 
 The pass converted the initial law collection into a dependency-ordered semantic registry suitable for implementation references and solver-conformance work. The pass targeted contradictions, over-strong laws, category errors, forward dependencies, and ambiguity in the registry's conceptual notation. It did not attempt to add every still-missing Phalcom type-system family.
+
+The original report described only registry-internal mechanical checks. Those checks
+did not establish agreement with newer feature-specific normative specifications.
+The current result adds and reruns targeted structural cross-specification
+assertions. It still does not claim that every current or future language
+specification has been semantically reconciled.
 
 ## 2. Registry-level changes
 
@@ -42,17 +48,47 @@ The initial IDs were provisional and did not consistently respect foundational d
 - ascending IDs within files;
 - backward-only explicit normative dependencies;
 - balanced Markdown code fences.
+- the 11 canonical Tuple, Record, `FieldKey`, and Pack-rest invariants listed
+  in §2.4 across the registry, structural owner/companion specifications, and
+  callable specifications.
 
 Current result:
 
 ```text
 REGISTRY VALIDATION: PASSED
 specification files: 22
-laws: 371
-unique IDs: 371
-unique semantic paths: 371
+laws: 375
+unique IDs: 375
+unique semantic paths: 375
 dangling references: 0
 forward/self explicit dependencies: 0
+cross-spec canonical assertions: 11
+```
+
+### 2.4 Structural cross-specification conformance assertions
+
+The registry validator now fails if the registry, the structural semantic owner
+or syntax companion, or the callable rest specification cease to agree on:
+
+- `Tuple<> == Unit`;
+- negative Tuple indexing;
+- closed Tuple rejection of implicit width subtyping;
+- open Tuple remainder subtyping;
+- required-only fixed Tuple entries;
+- closed Record rejection of implicit width subtyping;
+- open Record width compatibility;
+- Record optional-field presence;
+- the `FieldKey` domain;
+- Pack-native Closure rest capture; and
+- `Pack() != Unit`.
+
+These are maintained assertions over stable normative markers, not a claim that
+the validator proves the complete prose semantics.
+
+```text
+registry mechanical validation
+!=
+whole-spec semantic coherence
 ```
 
 ## 3. Semantic corrections
@@ -179,7 +215,12 @@ Cross-family derived laws were moved conceptually to locations/ranges where thei
 
 ## 5. What this pass does not claim
 
-The corpus is now internally coherent under the validator and the corrections above. It is still not a complete specification of every Phalcom type-system feature.
+The original registry pass was mechanically validated only against its
+then-existing internal checks. The current pass reconciles the listed structural
+invariants and verifies them mechanically across their owner, companion, and
+registry views. Neither result alone proves whole-spec semantic coherence, and
+the corpus is still not a complete specification of every Phalcom type-system
+feature.
 
 High-priority semantic families still requiring dedicated specification include:
 
@@ -196,6 +237,10 @@ Those are extension work. They are no longer needed to repair the internal contr
 
 ## 6. Recommended status
 
-The revised corpus is suitable to become the **core Type Algebra Registry baseline** and to begin a solver-conformance audit against the laws it actually covers.
+The revised corpus is suitable as the **core Type Algebra Registry baseline**
+for the laws it actually covers, with the current structural rules reconciled
+against their feature-specific owners. Its status remains mechanical validation
+plus scoped cross-specification conformance, not a blanket semantic-coherence
+certificate.
 
 New type-system features should either reference an existing law ID or extend the registry before implementation semantics are considered authoritative.

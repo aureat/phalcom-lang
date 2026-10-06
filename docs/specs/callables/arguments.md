@@ -730,15 +730,15 @@ labeled lane must be empty
 P >= fixed positional count
 ```
 
-Residual Closure rest uses the same canonical product rule:
+Closure rest uses the positional-Pack specialization of the general
+Pack-native rest rule:
 
 ```text
-zero residual values
-    → ()
-
-one or more residual values
-    → Tuple
+Closure *rest -> positional Pack
 ```
+
+This includes the empty case: the bound value is `Pack()`. Closure rest never
+produces `Unit` or `Tuple`; `Pack() != Unit`.
 
 Detailed lexical-capture and execution semantics belong to the Closure specification.
 
@@ -951,4 +951,3 @@ Such failures occur before target behavioral activation.
   exactly once in source evaluation order.
 - **ARG-SHAPE-BEFORE-BEHAVIOR** — duplicate/shape construction failure occurs before
   target behavioral activation.
-

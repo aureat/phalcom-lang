@@ -6,7 +6,7 @@ This specification defines the surface syntax, notation, and structural typing e
 
 - closed and open structural types;
 - positional and labeled tuple lanes;
-- required and optional labeled members;
+- required Tuple entries and required/optional Record fields;
 - homogeneous and unconstrained remainders;
 - the structural meaning of `...`;
 - the lane operators `*`, `**`, and `***`;
@@ -20,9 +20,10 @@ This specification defines type semantics only. Runtime rest parameters, generic
 
 ## 2. Structural Closedness
 
-Tuple and record types are **closed by default**.
+Tuple and Record types are **closed by default**.
 
-A closed type admits no structural members other than those explicitly described by the type, except for members explicitly declared optional.
+A closed structural type admits no undeclared members. An explicitly declared
+optional Record field may be absent; it does not make the Record open.
 
 ```phalcom
 (Int, String)
@@ -48,7 +49,7 @@ describes a record with exactly the fields `id` and `name`.
 The empty forms are therefore exact empty structures:
 
 ```phalcom
-()
+()      // Tuple<> ≡ Unit ≡ ()
 {}
 ```
 
@@ -60,12 +61,14 @@ A structure becomes open only through an explicit remainder.
 
 ## 3. Tuple Lanes
 
-A tuple type consists of two independent structural lanes:
+A Tuple type consists of two independent structural lanes:
 
 1. the **positional lane**, containing ordered positional members;
-2. the **labeled lane**, containing uniquely labeled members.
+2. the **labeled lane**, containing uniquely `Symbol`-labeled entries.
 
-The positional lane precedes the labeled lane in source syntax.
+The positional lane precedes the labeled lane in source syntax. Both positional
+and labeled fixed Tuple entries are required; Tuple syntax has no field-presence
+qualifier.
 
 ```phalcom
 (
@@ -312,13 +315,23 @@ requires the field `name` to be present; its value has type `Option<String>`.
 
 Tuple fixed elements never carry optional presence: `(name?: String)` is rejected by the grammar. Tuple variability is expressed exclusively through positional and labeled remainders (`*: T`, `**: T`).
 
-Explicitly declared required and optional fields are excluded from the record remainder. A record remainder constrains only fields not explicitly declared by the enclosing type.
+Explicitly declared required and optional Record fields are excluded from the
+Record remainder. A Record remainder constrains only keys not explicitly
+declared by the enclosing type.
 
 ---
 
 ## 8. Record Types
 
-A record is a structural type consisting solely of labeled fields.
+A Record is an unordered structural type consisting solely of `FieldKey`-keyed
+fields. A Record key is one of:
+
+```telos
+Symbol | String | Int | Bool
+```
+
+Tuple labels are `Symbol`s and remain ordered; Record keys use the wider
+`FieldKey` domain and are unordered.
 
 A record is closed unless it contains a remainder.
 
@@ -374,7 +387,7 @@ A record may instead constrain every additional field to a common type:
 }
 ```
 
-The remainder applies only to labels not explicitly declared by the record.
+The remainder applies only to keys not explicitly declared by the Record.
 
 Records and tuples are distinct structural type constructors. Neither `{ ... }` nor any concrete record type is a subtype of `(...)`, and no tuple type is a subtype of `{ ... }`, solely by virtue of structural openness.
 
@@ -458,72 +471,68 @@ A closed source lane may be a subtype of either a closed or open target lane, su
 
 ---
 
-## 10. Labeled Structural Subtyping
+## 10. Labeled Tuple Entries and Record Fields
 
-The labeled lane of a tuple and the field row of a record use the same member-compatibility rules.
+Tuple labeled entries and Record fields are distinct structural categories.
+They do not share one member-compatibility rule.
 
-Let `S` be the source labeled structure and `T` the target.
+### 10.1 Labeled Tuple entries
 
-### 10.1 Required target members
+A labeled Tuple entry has a `Symbol` label, occupies an ordered position in the
+labeled lane, and is required. A source Tuple satisfies a fixed labeled target
+entry only when it has the matching fixed `Symbol` label at the corresponding
+position and its entry type is a subtype of the target entry type.
 
-Every required member declared by `T` must be declared as required by `S`.
+A labeled Tuple remainder cannot establish a required fixed target entry because
+the remainder may be empty. Surplus source labeled entries are admitted only by
+an explicit target `**:` remainder. The typed and unconstrained remainder rules
+are the lane rules in [§9](#9-positional-tuple-subtyping), with `**:` in place
+of `*:`.
 
-For each required target label `k`:
+### 10.2 Required Record fields
 
-```text
-S[k] <: T[k]
-```
-
-An optional source member does not satisfy a required target member.
-
-An open source remainder does not establish the presence of a required target label.
-
-### 10.2 Optional target members
-
-For an optional target member:
+A Record target required field:
 
 ```phalcom
-k?: T
+K: T
 ```
 
-the source may omit `k`.
-
-If the source explicitly declares `k`, whether required or optional, its member type must be a subtype of `T`.
-
-If the source does not explicitly declare `k`:
-
-- a closed source satisfies the optional target member because `k` is guaranteed absent;
-- a typed open source remainder satisfies it only if the remainder constraint is a subtype of `T`;
-- an unconstrained open source remainder does not establish compatibility with `k?: T`, because the source may contain `k` with an incompatible type.
-
-### 10.3 Additional explicit source members
-
-Every explicit source label not declared by the target must be admitted by the target labeled remainder.
-
-If the target labeled lane is closed, such an additional source member makes the subtype relation fail.
-
-If the target remainder is unconstrained, the additional member is admitted.
-
-If the target remainder is typed `**: T`, the additional source member's type must be a subtype of `T`.
-
-This rule applies equally to required and optional additional source members.
-
-### 10.4 Source labeled remainder
-
-If the source has an open labeled remainder, the target must also have an open labeled remainder.
-
-For typed remainders:
+requires a source `Lookup<K>` result of `Required(S)` with:
 
 ```text
-source **: U <: target **: T
-    iff U <: T
+S <: T
 ```
 
-A typed source remainder is a subtype of an unconstrained target remainder.
+A source `Optional(S)` result and an unknown anonymous source remainder do not
+satisfy a required target field. A captured source tail is checked through its
+correlated `Lookup<K>` result.
 
-An unconstrained source remainder is not a subtype of a typed target remainder.
+### 10.3 Optional Record fields
 
-An unconstrained source remainder is a subtype of an unconstrained target remainder.
+For a Record target optional field:
+
+```phalcom
+K?: T
+```
+
+`Required(S)` and `Optional(S)` source lookup results are compatible only when
+`S <: T`. `Absent` is compatible. A closed source that omits `K` therefore
+satisfies the field. A typed anonymous source tail is compatible only when its
+constraint is a subtype of `T`; an unconstrained anonymous source tail yields
+`Unknown` and does not establish compatibility. These rules establish the
+declared `K` field only; the target tail must still admit every other possible
+source field under §10.4.
+
+### 10.4 Record tails and surplus fields
+
+Every surplus source key must be admitted by the target tail. A closed target
+rejects surplus fields. An unconstrained target tail accepts them. A typed
+target `**: T` tail requires each surplus fixed source field and every possible
+source-tail contribution to have a value type that is a subtype of `T`.
+
+An open source cannot satisfy a closed target. A closed source may satisfy an
+open target. Captured tails preserve their exact correlation; they are not
+silently converted to a fresh anonymous remainder.
 
 ---
 
@@ -629,7 +638,8 @@ whereas:
 (Int, *: String)
 ```
 
-Optional members do not open a type. They admit only the explicitly named optional labels.
+Optional Record fields do not open a type. They admit only the explicitly named
+optional Record keys.
 
 ---
 
@@ -708,23 +718,27 @@ For any type `T`:
 
 are equivalent.
 
-Normalization MUST preserve lane closedness, required members, optional members, fixed positional order, and remainder constraints.
+Normalization MUST preserve lane closedness, required Tuple entries,
+required/optional Record-field presence, fixed positional order, ordered Tuple
+`Symbol` labels, unordered Record `FieldKey`s, and remainder constraints.
 
 ---
 
 ## 15. Well-Formedness Constraints
 
-A tuple or record structural type is well-formed only if all of the following conditions hold:
+A Tuple or Record structural type is well-formed only if all of the following conditions hold:
 
-- labels within a labeled lane are unique;
-- a label cannot be declared both required and optional;
+- Tuple labels within a labeled lane are unique `Symbol`s;
+- Record `FieldKey`s are unique;
+- a Record key cannot be declared both required and optional;
+- every fixed Tuple entry is required; presence qualifiers are not Tuple syntax;
 - there is at most one positional remainder in a tuple;
 - there is at most one labeled remainder in a tuple or record;
 - there is at most one complete `***` remainder in a tuple;
 - a complete `***` remainder cannot coexist with a separate `*` or `**` remainder;
 - the positional remainder, when written explicitly as `*: ...` or `*: T`, terminates the positional lane;
 - the labeled remainder terminates the labeled lane;
-- optionality applies only to explicitly labeled members;
+- optionality applies only to explicitly declared Record fields;
 - a remainder may contain zero members.
 
 A complete `***` remainder is equivalent to declaring both lane remainders and is subject to the same constraints after normalization.

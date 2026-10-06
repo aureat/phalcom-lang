@@ -1,28 +1,37 @@
 # Phalcom Type Algebra Registry — `type.tuple`
 
-**Status:** Normative specification  
-**Registry family:** `type.tuple`  
-**Identifier range used here:** `T0650–T0668`
+**Status:** Normative specification
+**Registry family:** `type.tuple`
+**Identifier range used here:** `T0650–T0672`
 
 ## Purpose
 
-This file defines the semantic laws of tuple types.
+This file defines the semantic laws of Tuple types. It is the formal-law
+registry for the ordered structural-product semantics owned by
+[`structural-products.md`](../../structural-products.md).
 
-Tuples are ordered product types. Arity, positional order, labels where present, and element types are semantically significant. Tuple subtyping is covariant element-wise for immutable tuple structure. Projection laws connect tuple shape to compile-time indexing and associated-type access.
+Tuples are ordered product types. Arity, positional order, `Symbol` labels where
+present, and entry types are semantically significant. Fixed positional and
+labeled entries are always required. The positional and labeled lanes are
+independently closed or opened by their respective remainders.
 
-This file does not define record semantics. Record fields may be order-insensitive; tuple entries are not.
+This file does not define Record semantics. Record fields are unordered and use
+`FieldKey`; Tuple entries are ordered and use positional indices or `Symbol`
+labels.
 
 ## Domain and notation
 
 Unless stated otherwise:
 
-- `(A, B)` denotes a two-element tuple type.
-- `(A,)` denotes a one-element tuple type.
-- `()` remains the unit value/type context and is not a zero-element tuple unless Phalcom explicitly unifies those concepts elsewhere.
-- `tuple<***Es>` denotes a variadic tuple type conceptually.
-- `T[I]` denotes compile-time tuple type indexing.
+- `(A, B)` denotes a two-entry Tuple type.
+- `(A,)` denotes a one-entry Tuple type.
+- `Tuple<> ≡ Unit ≡ ()` canonicalizes the zero-entry Tuple to the singleton
+  Unit type and value context.
+- `tuple<***Es>` denotes a Tuple type conceptually.
+- `T[I]` denotes compile-time Tuple type indexing.
 - `T::At<I>` denotes the associated type-level projection at index `I`.
-- labels such as `(x: A, y: B)` are part of tuple entry structure when present.
+- labels such as `(x: A, y: B)` are ordered `Symbol` labels.
+- `N` is the fixed positional arity when normalizing an index.
 
 ## Laws
 
@@ -34,9 +43,10 @@ TupleKind<***Es> {
 }
 
 @id(T0651)
-@name(type.tuple.identity)
-TupleIdentity<***Es> {
-    tuple<***Es> == tuple<***Es>
+@name(type.tuple.zero.unit)
+ZeroTupleIsUnit {
+    Tuple<> == Unit
+    Tuple<> == ()
 }
 
 @id(T0652)
@@ -46,8 +56,8 @@ TupleAritySignificant<A, B> {
 }
 
 @id(T0653)
-@name(type.tuple.singleton.distinct-from-element)
-SingletonTupleDistinctFromElement<A> {
+@name(type.tuple.singleton.distinct-from-entry)
+SingletonTupleDistinctFromEntry<A> {
     (A,) != A
 }
 
@@ -60,8 +70,8 @@ TuplePositionOrderSignificant<A, B> {
 }
 
 @id(T0655)
-@name(type.tuple.element.identity-substitution)
-TupleElementIdentitySubstitution<A, B, C> {
+@name(type.tuple.entry.identity-substitution)
+TupleEntryIdentitySubstitution<A, B, C> {
     if A == B {
         (A, C) == (B, C)
     }
@@ -76,17 +86,22 @@ TupleCovariant<A1, A2, B1, B2> {
 }
 
 @id(T0657)
-@name(type.tuple.subtype.requires-equal-arity)
-TupleSubtypeRequiresEqualArity<***As, ***Bs> {
-    if tuple<***As> <: tuple<***Bs> {
+@name(type.tuple.closed-fixed-subtype.requires-equal-arity)
+ClosedFixedTupleSubtypeRequiresEqualArity<***As, ***Bs> {
+    if closedFixedTuple(tuple<***As>)
+        and closedFixedTuple(tuple<***Bs>)
+        and tuple<***As> <: tuple<***Bs>
+    {
         arity(***As) == arity(***Bs)
     }
 }
 
 @id(T0658)
-@name(type.tuple.subtype.pointwise)
-TupleSubtypePointwise<***As, ***Bs> {
-    if arity(***As) == arity(***Bs)
+@name(type.tuple.closed-fixed-subtype.pointwise)
+ClosedFixedTupleSubtypePointwise<***As, ***Bs> {
+    if closedFixedTuple(tuple<***As>)
+        and closedFixedTuple(tuple<***Bs>)
+        and arity(***As) == arity(***Bs)
         and pointwiseSubtype(***As, ***Bs)
     {
         tuple<***As> <: tuple<***Bs>
@@ -114,13 +129,22 @@ TupleIndexProjectionEquivalent<***Es, I> {
 @id(T0662)
 @name(type.tuple.projection.kind)
 TupleProjectionKind<***Es, I> {
-    kind(tuple<***Es>::At<I>) == Type
+    if validNormalizedIndex(I, arity(***Es)) {
+        kind(tuple<***Es>::At<I>) == Type
+    }
 }
 
 @id(T0663)
-@name(type.tuple.projection.bounds)
-TupleProjectionRequiresValidIndex<***Es, I> {
-    if I < 0 or I >= arity(***Es) {
+@name(type.tuple.projection.end-relative-indexing)
+TupleProjectionUsesEndRelativeIndexing<***Es, I> {
+    N == arity(***Es)
+
+    normalizedIndex(I, N) ==
+        if I >= 0 { I } else { N + I }
+
+    if normalizedIndex(I, N) < 0
+        or normalizedIndex(I, N) >= N
+    {
         illFormed(tuple<***Es>::At<I>)
     }
 }
@@ -138,8 +162,8 @@ TupleLabelPositionSignificant<A, B> {
 }
 
 @id(T0666)
-@name(type.tuple.named-entry.covariant)
-NamedTupleCovariant<A1, A2, B1, B2> {
+@name(type.tuple.labeled-entry.covariant)
+LabeledTupleCovariant<A1, A2, B1, B2> {
     if A1 <: B1 and A2 <: B2 {
         (x: A1, y: A2) <: (x: B1, y: B2)
     }
@@ -152,9 +176,50 @@ TuplePointwiseUnionWidening<A1, A2, B1, B2> {
 }
 
 @id(T0668)
-@name(type.tuple.never.element)
-TupleWithNeverElementIsNever<A> {
+@name(type.tuple.never.entry)
+TupleWithNeverEntryIsNever<A> {
     (A, Never) == Never
+}
+
+@id(T0669)
+@name(type.tuple.closed-target.rejects-surplus)
+ClosedTupleTargetRejectsSurplusEntries<A, B> {
+    (A, B) </: (A,)
+    (x: A, y: B) </: (x: A)
+}
+
+@id(T0670)
+@name(type.tuple.positional-remainder.subtype)
+PositionalTupleRemainderSubtype<A, B, T> {
+    (A, B) <: (A, *: ...)
+
+    if B <: T {
+        (A, B) <: (A, *: T)
+    }
+
+    (A, *: ...) </: (A, B, *: ...)
+}
+
+@id(T0671)
+@name(type.tuple.labeled-remainder.subtype)
+LabeledTupleRemainderSubtype<A, B, T> {
+    (x: A, y: B) <: (x: A, **: ...)
+
+    if B <: T {
+        (x: A, y: B) <: (x: A, **: T)
+    }
+
+    (x: A, **: ...) </: (x: A, y: B, **: ...)
+}
+
+@id(T0672)
+@name(type.tuple.complete-remainder.lane-wise)
+CompleteTupleRemainderIsLaneWise<A, B, T> {
+    (A, x: B) <: (***: ...)
+
+    if A <: T and B <: T {
+        (A, x: B) <: (***: T)
+    }
 }
 ```
 
@@ -162,157 +227,107 @@ TupleWithNeverElementIsNever<A> {
 
 ### T0650 — `TupleKind`
 
-Every well-formed tuple type is a proper type.
+Every well-formed Tuple type is a proper type.
 
-**Kind:** Semantic law  
+**Kind:** Semantic law
 **Depends on:** T0060
 
-### T0651 — `TupleIdentity`
+### T0651 — `ZeroTupleIsUnit`
 
-Tuple types participate in ordinary semantic identity.
+The zero-entry Tuple is not a separate structural type. `Tuple<>`, `Unit`, and
+`()` are one canonical singleton.
 
-**Kind:** Semantic law  
-**Depends on:** T0001
+**Kind:** Semantic identity law
+**Depends on:** T0001–T0003, T0562
 
-### T0652 — `TupleAritySignificant`
+### T0652–T0655 — Fixed-entry identity
 
-Tuple arity is part of semantic identity.
+Arity, positional order, and entry identity are part of Tuple identity. A
+one-entry Tuple remains distinct from its entry type.
 
-**Kind:** Semantic identity law  
+**Kind:** Semantic identity laws
 **Depends on:** T0001–T0003
 
-### T0653 — `SingletonTupleDistinctFromElement`
+### T0656–T0658 — Closed fixed Tuple subtyping
 
-A one-element tuple is not semantically identical to its element type.
+Immutable fixed entries are covariant. Equal arity and pointwise subtyping are
+the complete rule only when both Tuple operands are closed and have only fixed
+entries. These laws do not apply to a target that carries `*:`, `**:`,
+`***:`, or `...`.
 
-**Kind:** Semantic identity law  
-**Depends on:** T0652
+**Kind:** Semantic subtype laws
+**Depends on:** T0100–T0103, T0652
 
-### T0654 — `TuplePositionOrderSignificant`
+### T0659–T0663 — Projections and indices
 
-Tuple positions are ordered.
+Tuple indexing is zero-based for non-negative indices and end-relative for
+negative indices:
 
-When the element types differ, swapping positions changes the tuple type.
+```text
+I >= 0 -> I
+I < 0  -> N + I
+```
 
-**Kind:** Semantic identity law  
-**Depends on:** T0652
+Projection is rejected only when that normalized index lies outside `[0, N)`.
+It must not produce `Never`, `Any`, `Unknown`, or an unresolved ordinary type
+merely to keep solving.
 
-### T0655 — `TupleElementIdentitySubstitution`
+**Kind:** Projection and well-formedness laws
+**Depends on:** T0050, T0055, T0650–T0652
 
-Replacing an element type with a semantically identical type preserves tuple identity.
+### T0664–T0666 — Labeled Tuple entries
 
-**Kind:** Derived coherence law  
-**Depends on:** T0001–T0003, T0651
+Labeled Tuple entries retain ordered `Symbol` labels. The label and its
+position participate in identity, and matching fixed labeled entries are
+covariant.
 
-### T0656 — `TupleCovariant`
+**Kind:** Semantic identity and variance laws
+**Depends on:** T0654, T0656
 
-Immutable tuple elements are covariant.
+### T0667–T0668 — Derived entry laws
 
-**Kind:** Semantic variance law  
-**Depends on:** T0100–T0103
+Pointwise union widening follows covariance. A required entry of type `Never`
+makes the Tuple uninhabited.
 
-### T0657 — `TupleSubtypeRequiresEqualArity`
+**Kind:** Cross-family derived laws
+**Depends on:** T0152–T0154, T0456, T0457, T0656
 
-Tuple subtyping does not erase or invent positions. A tuple may only subtype another tuple of the same arity unless a future explicit variadic/open-tuple feature says otherwise.
+### T0669–T0672 — Open and remainder Tuple subtyping
 
-**Kind:** Semantic subtype law  
-**Depends on:** T0652
+Tuple subtyping is lane-wise. For each lane, fixed target entries must be
+present as fixed source entries and must be compatible. A source remainder
+cannot establish a required fixed target entry because it may be empty.
 
-### T0658 — `TupleSubtypePointwise`
+A closed target lane rejects surplus fixed source entries. A target `*: ...`
+or `**: ...` admits them without a common entry-type constraint; a typed target
+remainder admits them only when their types are subtypes of the target
+constraint. An open source lane requires an open target lane. For source and
+target typed remainders, `U <: T` is required; a typed source remainder is
+accepted by an unconstrained target remainder; an unconstrained source
+remainder is not accepted by a typed target remainder. `(***: T)` applies the
+same rule independently to both lanes, and `(...)` is its unconstrained form.
 
-For equal-arity immutable tuples, pointwise element subtyping implies tuple subtyping.
-
-**Kind:** Semantic subtype law  
-**Depends on:** T0656, T0657
-
-### T0659 / T0660 — Basic projections
-
-Tuple projection by valid static index yields the element type at that position.
-
-**Kind:** Semantic projection laws  
-**Depends on:** T0650–T0652
-
-### T0661 — `TupleIndexProjectionEquivalent`
-
-Compile-time indexing and the associated projection `::At<I>` are two syntactic routes to the same semantic type projection.
-
-**Kind:** Cross-syntax semantic law  
-**Depends on:** T0659, T0660
-
-### T0662 — `TupleProjectionKind`
-
-A valid tuple element projection produces a proper type.
-
-**Kind:** Kinding law  
-**Depends on:** T0050, T0650
-
-### T0663 — `TupleProjectionRequiresValidIndex`
-
-Out-of-bounds tuple type projection is ill formed.
-
-It must not produce `Never`, `Any`, `Unknown`, or an unresolved ordinary type merely to keep solving.
-
-**Kind:** Well-formedness invariant  
-**Depends on:** T0055, T0652
-
-### T0664 — `TupleLabelsSignificant`
-
-When tuple entries are labeled, labels participate in semantic identity.
-
-This law assumes the ratified model where named tuple entries expose semantic labels rather than diagnostic-only source names.
-
-**Kind:** Semantic identity law  
-**Depends on:** T0651
-
-### T0665 — `TupleLabelPositionSignificant`
-
-Labels do not make tuples unordered. Position remains semantically significant.
-
-**Kind:** Semantic identity law  
-**Depends on:** T0654, T0664
-
-### T0666 — `NamedTupleCovariant`
-
-Named tuple elements are covariant when labels and arity agree.
-
-**Kind:** Semantic variance law  
-**Depends on:** T0656, T0664
-
-### T0667 — `TuplePointwiseUnionWidening`
-
-A tuple is a subtype of a tuple whose corresponding element types have been widened by union.
-
-**Kind:** Cross-family derived law  
-**Depends on:** T0456, T0457, T0656
-
-### T0668 — `TupleWithNeverElementIsNever`
-
-A strict product type with an uninhabited required element is itself uninhabited.
-
-This law assumes every tuple position must be populated by a value. Because `Never` has no value, no value can inhabit `(A, Never)`.
-
-**Kind:** Cross-family semantic law  
-**Depends on:** T0152–T0154, T0650
+**Kind:** Semantic subtype laws
+**Depends on:** T0656–T0658
 
 ## Required implementation invariants
 
-Tuple semantics must remain ordered even if tuple entries reuse underlying row machinery.
-
-Shared row storage does not imply record-style field-order irrelevance.
+Tuple semantics must remain ordered even if Tuple entries reuse underlying row
+machinery. Shared storage does not imply unordered Record behavior.
 
 Tuple canonicalization must preserve:
 
-- arity,
-- positional order,
-- entry labels where semantically present,
-- element types,
-- and valid static projection indices.
+- zero-entry canonicalization to `Unit`;
+- fixed-entry arity and positional order;
+- ordered `Symbol` labels;
+- required fixed-entry presence;
+- per-lane closedness and remainder constraints; and
+- normalized static projection indices.
 
 ## Explicitly deferred laws
 
-- open or variadic-tail tuple subtyping
-- tuple concatenation/spread algebra
-- tuple pack mapping such as `Tuple::Map`
+- Tuple concatenation/spread algebra
+- Tuple pack mapping such as `Tuple::Map`
 - labels that are diagnostic-only rather than semantic
-- mutable tuple slots, if ever introduced
+- mutable Tuple slots, if ever introduced
 - runtime indexing versus static type indexing
