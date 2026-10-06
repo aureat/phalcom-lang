@@ -25,7 +25,7 @@ data Id<Tag> private(
 
 impl<Tag> Id<Tag> {
   @class
-  fresh -> Self<Tag> {
+  fresh -> Self {
     Id<Tag>(token: IdentityToken.fresh)
   }
 

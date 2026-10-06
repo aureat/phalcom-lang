@@ -6,7 +6,7 @@ impl<T> KnowledgeBase<T> {
   @class
   of(
     clauses: T
-  ) -> Self<T> {
+  ) -> Self {
     KnowledgeBase<T>(clauses: clauses)
   }
 

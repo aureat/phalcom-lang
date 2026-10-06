@@ -5,9 +5,9 @@ data Query<*Goals> {
 impl<*Goals> Query<*Goals> {
   @class
   of(
-    *goals: *Goals
+    *goals: Pack<*Goals>
   ) -> Self {
-    Query<*Goals> {
+    Query {
       goals: goals,
     }
   }

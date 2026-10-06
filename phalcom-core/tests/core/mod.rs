@@ -31,6 +31,8 @@ mod modules_project_reflection;
 mod modules_reflection;
 #[path = "modules/universe.rs"]
 mod modules_universe;
+#[path = "modules/telogue_project.rs"]
+mod modules_telogue_project;
 #[path = "native/contracts.rs"]
 mod native_surface_contracts;
 #[path = "object_model/invariants.rs"]

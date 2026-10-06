@@ -7,7 +7,7 @@ data Variable<T> private(
 
 impl<T> Variable<T> {
   @class
-  named(name: Symbol) -> Self<T> {
+  named(name: Symbol) -> Self {
     Variable<T>(
       id: VariableId.fresh,
       name: name

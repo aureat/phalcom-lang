@@ -10,7 +10,7 @@ data Predicate<*Ts> private(
 
 impl<*Ts> Predicate<*Ts> {
   @class
-  named(name: Symbol) -> Self<*Ts> {
+  named(name: Symbol) -> Self {
     Predicate<*Ts>(
       id: PredicateId.fresh,
       name: name
