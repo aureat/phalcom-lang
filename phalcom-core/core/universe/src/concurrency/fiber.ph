@@ -655,7 +655,7 @@ class Future<T> {
         break
       }
       let index = i
-      let input = inputs.at(i)
+      let input: Future<U> = inputs.at(i)
       let sub = input.subscribeReady(|| {
         if settled {
           return ()
@@ -728,7 +728,7 @@ class Future<T> {
     let mut i = 0
     while i < n {
       let index = i
-      let input = inputs.at(i)
+      let input: Future<U> = inputs.at(i)
       let sub = input.subscribeReady(|| {
         match input.outcome {
           Option::Some(out) => {
@@ -771,7 +771,7 @@ class Future<T> {
         break
       }
       let index = i
-      let input = inputs.at(i)
+      let input: Future<U> = inputs.at(i)
       let sub = input.subscribeReady(|| {
         if settled {
           return ()

@@ -260,7 +260,7 @@ trait Iterable
     let mut rejected = List<Dynamic>.new()
 
     let mut it = self.iterator
-    while let Some(val) = it.next {
+    while let Option::Some(val) = it.next {
       if predicate.call(val) {
         accepted.append(val)
       } else {

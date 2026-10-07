@@ -1,4 +1,5 @@
 use crate::bytecode::Bytecode;
+use crate::modules::semantic_lowering::LoweringSiteKind;
 use crate::value::Value;
 use phalcom_ast::ast::{ForStatement, Pattern};
 use phalcom_common::range::SourceRange;
@@ -216,14 +217,23 @@ impl<'vm> Compiler<'vm> {
                 None
             });
         }
+        let mut lane_specs = Vec::with_capacity(lanes.len());
+        for lane in &lanes {
+            let spec = self.pattern_site_spec(LoweringSiteKind::ForLanePattern, lane.pattern.range())?;
+            lane_specs.push(spec);
+        }
+
         let mut results = Vec::with_capacity(lanes.len());
         let mut values = Vec::with_capacity(lanes.len());
         for (number, lane) in lanes.iter().enumerate() {
             results.push(self.declare_loop_local(&format!("$for_result_{number}"), true)? as u16);
             values.push(self.reserve_pack_scratch(&format!("$for_value_{number}"), lane.range)?);
         }
-        for lane in &lanes {
-            self.declare_pattern_locals(&lane.pattern, false)?;
+
+        let mut lane_frames = Vec::with_capacity(lanes.len());
+        for (lane, spec) in lanes.iter().zip(lane_specs.iter()) {
+            let frame = self.setup_pattern_frame(&spec.bindings, lane.pattern.range())?;
+            lane_frames.push(frame);
         }
 
         self.push_loop_context();
@@ -265,30 +275,41 @@ impl<'vm> Compiler<'vm> {
             self.patch_forward_jump_to(jump, error);
         }
 
+        let temporary_base = self.functions.last().unwrap().num_locals;
         let mut pattern_failures = Vec::new();
         for (number, lane) in lanes.iter().enumerate() {
             self.emit(Bytecode::GetLocal(results[number]), lane.range);
             self.emit(Bytecode::GetVariantPayload(0), lane.range);
             self.emit(Bytecode::SetLocal(values[number]), lane.range);
             self.emit(Bytecode::Pop, lane.range);
-            let temporary_base = self.functions.last().unwrap().num_locals;
-            self.emit_pattern_match_tests(&lane.pattern, values[number], &mut pattern_failures)?;
-            self.commit_pattern_bindings(&lane.pattern, values[number])?;
-            let temporary_count = self.functions.last().unwrap().num_locals - temporary_base;
-            self.release_pack_scratch_from(temporary_base as u16, temporary_count, lane.range);
-            if let Some(index) = indices[number] {
-                self.emit(Bytecode::GetLocal(ordinal), lane.range);
-                self.emit(Bytecode::SetLocal(index), lane.range);
-                self.emit(Bytecode::Pop, lane.range);
-            }
+
+            self.emit_executable_pattern(
+                &lane_specs[number].pattern,
+                values[number],
+                &lane_frames[number],
+                &mut pattern_failures,
+                lane.pattern.range(),
+            )?;
         }
         let after_pattern = self.emit_forward_jump(Bytecode::Jump, range);
         let pattern_failure = self.chunk_len();
         for jump in pattern_failures {
             self.patch_forward_jump_to(jump, pattern_failure);
         }
+        let temporary_count = self.functions.last().unwrap().num_locals - temporary_base;
+        self.release_pack_scratch_from(temporary_base as u16, temporary_count, range);
         self.emit_pattern_mismatch_raise("for pattern did not match iterable value".into(), range)?;
         self.patch_forward_jump_to(after_pattern, self.chunk_len());
+
+        for (number, lane) in lanes.iter().enumerate() {
+            self.commit_pattern_frame(&lane_frames[number], lane.pattern.range())?;
+            if let Some(index) = indices[number] {
+                self.emit(Bytecode::GetLocal(ordinal), lane.range);
+                self.emit(Bytecode::SetLocal(index), lane.range);
+                self.emit(Bytecode::Pop, lane.range);
+            }
+        }
+        self.release_pack_scratch_from(temporary_base as u16, temporary_count, range);
 
         self.begin_scope();
         for statement in body {
@@ -296,18 +317,14 @@ impl<'vm> Compiler<'vm> {
         }
         self.end_scope(range);
         let step = self.chunk_len();
-        let mut names = Vec::new();
-        for lane in &lanes {
-            collect_pattern_names(&lane.pattern, &mut names);
-        }
-        names.sort();
-        names.dedup();
-        for name in names {
-            let symbol = self.vm.interner.intern(&name);
-            if let Some(slot) = self.resolve_local(symbol)
-                && self.functions.last().unwrap().locals[slot].is_captured
-            {
-                self.emit(Bytecode::CloseUpvalue(slot as u16), range);
+        for spec in &lane_specs {
+            for b in spec.bindings.iter() {
+                let symbol = self.vm.interner.intern(&b.name);
+                if let Some(slot) = self.resolve_local(symbol)
+                    && self.functions.last().unwrap().locals[slot].is_captured
+                {
+                    self.emit(Bytecode::CloseUpvalue(slot as u16), range);
+                }
             }
         }
         self.emit(Bytecode::GetLocal(ordinal), range);
@@ -424,48 +441,5 @@ impl<'vm> Compiler<'vm> {
             self.emit_deopt_block_control_trap(range)?;
         }
         Ok(())
-    }
-}
-
-fn collect_pattern_names(pattern: &Pattern, out: &mut Vec<String>) {
-    match pattern {
-        Pattern::Name { name, .. } => out.push(name.clone()),
-        Pattern::Tuple { elements, .. } | Pattern::List { elements, .. } => {
-            for element in elements {
-                collect_pattern_names(element, out);
-            }
-            if let Pattern::List { rest: Some(rest), .. } = pattern {
-                collect_pattern_names(rest, out);
-            }
-        }
-        Pattern::Variant(variant_pat) => match &variant_pat.mode {
-            phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
-                for arg in arguments {
-                    collect_pattern_names(&arg.pattern, out);
-                }
-            }
-            phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
-                for arg in prefix.iter().chain(suffix.iter()) {
-                    collect_pattern_names(&arg.pattern, out);
-                }
-            }
-            _ => {}
-        },
-        Pattern::Or { alternatives, .. } => {
-            for p in alternatives {
-                collect_pattern_names(p, out);
-            }
-        }
-        Pattern::Wildcard { .. } | Pattern::Char { .. } => {}
-        Pattern::Record { entries, .. } => {
-            for entry in entries {
-                collect_pattern_names(&entry.pattern, out);
-            }
-        }
-        Pattern::Map { entries, .. } => {
-            for entry in entries {
-                collect_pattern_names(&entry.pattern, out);
-            }
-        }
     }
 }

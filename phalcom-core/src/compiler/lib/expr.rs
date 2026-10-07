@@ -2180,6 +2180,8 @@ impl<'vm> Compiler<'vm> {
 
     fn compile_if_let(&mut self, node: phalcom_ast::ast::IfLetExpr) -> Result<(), CompilerError> {
         let range = node.range;
+        let spec = self.pattern_site_spec(LoweringSiteKind::IfLetPattern, node.pattern.range())?;
+
         self.begin_scope();
         self.compile_expr(node.value)?;
         let value_slot = self.reserve_pack_scratch("$if_let_value", range)?;
@@ -2189,18 +2191,17 @@ impl<'vm> Compiler<'vm> {
         // Pattern names live only in then-body. Keep their declaration scope
         // separate so an else-body cannot resolve them accidentally.
         self.begin_scope();
-        let pattern_base = self.functions.last().unwrap().num_locals;
-        self.declare_pattern_locals(&node.pattern, false)?;
+        let frame = self.setup_pattern_frame(&spec.bindings, node.pattern.range())?;
+        let pattern_scratch_count = self.functions.last().unwrap().num_locals - frame.scope_start as usize;
         let mut failures = Vec::new();
-        self.emit_pattern_match_tests(&node.pattern, value_slot, &mut failures)?;
-        self.commit_pattern_bindings(&node.pattern, value_slot)?;
-        let match_local_count = self.functions.last().unwrap().num_locals - pattern_base;
+        self.emit_executable_pattern(&spec.pattern, value_slot, &frame, &mut failures, node.pattern.range())?;
+        self.commit_pattern_frame(&frame, node.pattern.range())?;
         self.compile_inline_lexical_body(node.then_body.body, node.then_body.range)?;
         self.end_scope(range);
         if node.else_body.is_none() {
             self.emit(Bytecode::WrapSome, range);
         }
-        self.emit_release_scratch_range(pattern_base as u16, match_local_count, range);
+        self.emit_release_scratch_range(frame.scope_start, pattern_scratch_count, range);
         self.emit_release_scratch_range(value_slot, 1, range);
         let success_end = self.emit_forward_jump(Bytecode::Jump, range);
 
@@ -2208,7 +2209,7 @@ impl<'vm> Compiler<'vm> {
         for jump in failures {
             self.patch_forward_jump_to(jump, failure_label);
         }
-        self.emit_release_scratch_range(pattern_base as u16, match_local_count, range);
+        self.emit_release_scratch_range(frame.scope_start, pattern_scratch_count, range);
         self.emit_release_scratch_range(value_slot, 1, range);
         if let Some(else_body) = node.else_body {
             self.compile_inline_lexical_body(else_body.body, else_body.range)?;
@@ -2254,6 +2255,7 @@ impl<'vm> Compiler<'vm> {
 
     fn compile_while_let(&mut self, node: phalcom_ast::ast::WhileLetExpr) -> Result<(), CompilerError> {
         let range = node.range;
+        let spec = self.pattern_site_spec(LoweringSiteKind::WhileLetPattern, node.pattern.range())?;
         self.begin_scope();
 
         // Reserve the value slot once; each loop attempt overwrites it after
@@ -2264,14 +2266,16 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::Pop, range);
 
         self.begin_scope();
-        self.declare_pattern_locals(&node.pattern, false)?;
+        let frame = self.setup_pattern_frame(&spec.bindings, node.pattern.range())?;
+        let pattern_scratch_count = self.functions.last().unwrap().num_locals - frame.scope_start as usize;
+
         self.push_loop_context();
         let loop_start = self.chunk_len();
         self.compile_expr(node.value)?;
         self.emit(Bytecode::SetLocal(value_slot), range);
         let mut failures = Vec::new();
-        self.emit_pattern_match_tests(&node.pattern, value_slot, &mut failures)?;
-        self.commit_pattern_bindings(&node.pattern, value_slot)?;
+        self.emit_executable_pattern(&spec.pattern, value_slot, &frame, &mut failures, node.pattern.range())?;
+        self.commit_pattern_frame(&frame, node.pattern.range())?;
 
         self.begin_scope();
         for statement in node.body {
@@ -2280,12 +2284,8 @@ impl<'vm> Compiler<'vm> {
         self.end_scope(range);
 
         let step = self.chunk_len();
-        let mut names = Vec::new();
-        collect_pattern_names_for_control(&node.pattern, &mut names);
-        names.sort();
-        names.dedup();
-        for name in names {
-            let symbol = self.vm.interner.intern(&name);
+        for b in spec.bindings.iter() {
+            let symbol = self.vm.interner.intern(&b.name);
             if let Some(slot) = self.resolve_local(symbol)
                 && self.functions.last().unwrap().locals[slot].is_captured
             {
@@ -2305,7 +2305,9 @@ impl<'vm> Compiler<'vm> {
         for jump in continues {
             self.patch_forward_jump_to(jump, step);
         }
+        self.emit_release_scratch_range(frame.scope_start, pattern_scratch_count, range);
         self.end_scope(range);
+        self.emit_release_scratch_range(value_slot, 1, range);
         self.end_scope(range);
         self.emit(Bytecode::Nil, range);
         Ok(())
@@ -2553,48 +2555,5 @@ fn bilateral_operator_spec(op: &BinaryOp) -> (&'static str, &'static str, &'stat
         BinaryOp::BitXor => ("^", "^", "^", false),
         BinaryOp::Compare => ("<=>", "compare", "compare", true),
         _ => unreachable!("non-bilateral operator passed to bilateral_operator_spec"),
-    }
-}
-
-fn collect_pattern_names_for_control(pattern: &phalcom_ast::ast::Pattern, out: &mut Vec<String>) {
-    match pattern {
-        phalcom_ast::ast::Pattern::Name { name, .. } => out.push(name.clone()),
-        phalcom_ast::ast::Pattern::Tuple { elements, .. } | phalcom_ast::ast::Pattern::List { elements, .. } => {
-            for element in elements {
-                collect_pattern_names_for_control(element, out);
-            }
-            if let phalcom_ast::ast::Pattern::List { rest: Some(rest), .. } = pattern {
-                collect_pattern_names_for_control(rest, out);
-            }
-        }
-        phalcom_ast::ast::Pattern::Variant(variant_pat) => match &variant_pat.mode {
-            phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
-                for arg in arguments {
-                    collect_pattern_names_for_control(&arg.pattern, out);
-                }
-            }
-            phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
-                for arg in prefix.iter().chain(suffix.iter()) {
-                    collect_pattern_names_for_control(&arg.pattern, out);
-                }
-            }
-            _ => {}
-        },
-        phalcom_ast::ast::Pattern::Or { alternatives, .. } => {
-            for p in alternatives {
-                collect_pattern_names_for_control(p, out);
-            }
-        }
-        phalcom_ast::ast::Pattern::Wildcard { .. } | phalcom_ast::ast::Pattern::Char { .. } => {}
-        phalcom_ast::ast::Pattern::Record { entries, .. } => {
-            for entry in entries {
-                collect_pattern_names_for_control(&entry.pattern, out);
-            }
-        }
-        phalcom_ast::ast::Pattern::Map { entries, .. } => {
-            for entry in entries {
-                collect_pattern_names_for_control(&entry.pattern, out);
-            }
-        }
     }
 }

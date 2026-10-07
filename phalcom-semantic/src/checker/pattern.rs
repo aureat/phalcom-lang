@@ -89,12 +89,14 @@ fn resolve_pattern_with_mode(
                         *range,
                     ));
                 } else if usefulness == crate::match_semantics::PatternUsefulness::Impossible {
-                    ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
-                        ctx.current_module.clone(),
-                        crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
-                        "impossible or-pattern alternative: it cannot match any value of the scrutinee type",
-                        alternative.range(),
-                    ));
+                    if !pattern_is_variant_of_scrutinee_family(ctx.store, &resolution, subject.canonical) {
+                        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
+                            "impossible or-pattern alternative: it cannot match any value of the scrutinee type",
+                            alternative.range(),
+                        ));
+                    }
                 }
                 prior_coverage_alts.push(cov_alt);
 
@@ -629,7 +631,7 @@ fn local_nominal_owner(store: &crate::types::store::TypeStore, local: &LocalType
 
 /// Returns nominal owners and the corresponding expected type for each union
 /// member. The type is retained so GADT proof solving stays member-specific.
-fn nominal_owner_types(store: &crate::types::store::TypeStore, ty: TypeId) -> Vec<(DeclarationId, TypeId)> {
+pub(crate) fn nominal_owner_types(store: &crate::types::store::TypeStore, ty: TypeId) -> Vec<(DeclarationId, TypeId)> {
     fn collect(store: &crate::types::store::TypeStore, ty: TypeId, seen: &mut BTreeSet<TypeId>, owners: &mut Vec<(DeclarationId, TypeId)>) {
         if !seen.insert(ty) {
             return;
@@ -653,6 +655,37 @@ fn nominal_owner_types(store: &crate::types::store::TypeStore, ty: TypeId) -> Ve
     let mut owners = Vec::new();
     collect(store, ty, &mut BTreeSet::new(), &mut owners);
     owners
+}
+
+pub(crate) fn pattern_is_variant_of_scrutinee_family(
+    store: &crate::types::store::TypeStore,
+    pattern: &crate::match_semantics::PatternResolution,
+    scrutinee_ty: TypeId,
+) -> bool {
+    let expected_owners = nominal_owner_types(store, scrutinee_ty);
+    if expected_owners.is_empty() {
+        return false;
+    }
+    match pattern {
+        crate::match_semantics::PatternResolution::Variant(variant) => {
+            if let Some(owner) = &variant.owner {
+                expected_owners.iter().any(|(expected, _)| expected == owner)
+            } else if !variant.owner_candidates.is_empty() {
+                variant.owner_candidates.iter().any(|candidate| {
+                    expected_owners.iter().any(|(expected, _)| expected == candidate)
+                })
+            } else {
+                false
+            }
+        }
+        crate::match_semantics::PatternResolution::Or(or_pattern) => {
+            !or_pattern.alternatives.is_empty()
+                && or_pattern.alternatives.iter().all(|alt| {
+                    pattern_is_variant_of_scrutinee_family(store, alt, scrutinee_ty)
+                })
+        }
+        _ => false,
+    }
 }
 
 fn variant_selector_constraint(variant_pat: &VariantPattern) -> VariantSelectorConstraint {

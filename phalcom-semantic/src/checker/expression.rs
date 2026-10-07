@@ -5346,12 +5346,14 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
                 arm.range,
             ));
         } else if usefulness == crate::match_semantics::PatternUsefulness::Impossible {
-            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
-                ctx.current_module.clone(),
-                crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
-                "impossible match pattern: it cannot match any value of the scrutinee type",
-                arm.range,
-            ));
+            if !crate::checker::pattern::pattern_is_variant_of_scrutinee_family(ctx.store, &pattern_res, scrutinee_subject.canonical) {
+                ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
+                    "impossible match pattern: it cannot match any value of the scrutinee type",
+                    arm.range,
+                ));
+            }
         }
 
         let mut reachable_summary = if usefulness == crate::match_semantics::PatternUsefulness::Useful {
@@ -5378,7 +5380,7 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
             crate::match_semantics::PatternSpaceSummary::Empty
         };
 
-        if usefulness == crate::match_semantics::PatternUsefulness::Useful && engine.blocked_reason().is_none() {
+        if usefulness == crate::match_semantics::PatternUsefulness::Useful {
             engine.commit_arm(coverage_pat);
         }
 
@@ -5605,3 +5607,4 @@ fn pattern_common_proof(
         .into_boxed_slice();
     Ok(proof)
 }
+

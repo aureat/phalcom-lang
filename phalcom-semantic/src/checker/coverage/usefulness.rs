@@ -265,8 +265,13 @@ impl CoverageEngine {
         rigids: &mut RigidArena,
         enum_table: Option<&EnumSemanticTable>,
     ) -> ExhaustivenessResult {
-        if let Some(reason) = self.blocked.clone() {
-            return ExhaustivenessResult::Blocked(reason);
+        let has_wildcard = self.prior_matrix.iter().any(|row| {
+            row.first().is_some_and(|&pat| pattern_has_wildcard(&self.arena, pat))
+        });
+        if !has_wildcard {
+            if let Some(reason) = self.blocked.clone() {
+                return ExhaustivenessResult::Blocked(reason);
+            }
         }
         match self.root_inhabitation(declarations, store, hierarchy, rigids, enum_table) {
             Inhabitation::Uninhabited => return ExhaustivenessResult::Proven,
@@ -974,12 +979,16 @@ fn char_values_in_matrix(
     Ok(values)
 }
 
-fn char_pattern_has_wildcard(arena: &CoveragePatternArena, pattern: CoveragePatternId) -> bool {
+fn pattern_has_wildcard(arena: &CoveragePatternArena, pattern: CoveragePatternId) -> bool {
     match arena.get(pattern) {
         CoveragePattern::Wildcard => true,
-        CoveragePattern::Or(alternatives) => alternatives.iter().any(|alternative| char_pattern_has_wildcard(arena, *alternative)),
+        CoveragePattern::Or(alternatives) => alternatives.iter().any(|alternative| pattern_has_wildcard(arena, *alternative)),
         _ => false,
     }
+}
+
+fn char_pattern_has_wildcard(arena: &CoveragePatternArena, pattern: CoveragePatternId) -> bool {
+    pattern_has_wildcard(arena, pattern)
 }
 
 fn specialize_matrix_for_char_value(
