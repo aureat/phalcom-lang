@@ -68,6 +68,8 @@ pub enum UniverseKey {
     SystemWallClock,
     /// Source-owned timezone value whose rule queries use the VM adapter.
     TimeZone,
+    /// Source-owned floating-point mathematical kernels.
+    FloatMathKernel,
     Message,
     Attribute,
 
@@ -391,6 +393,7 @@ impl UniverseKey {
             Self::SystemClock => &["time", "clock"],
             Self::SystemWallClock => &["time", "timestamp"],
             Self::TimeZone => &["time", "timezone"],
+            Self::FloatMathKernel => &["math", "float_kernel"],
             Self::Message => &["reflection", "message"],
             Self::Attribute => &["reflection", "attribute"],
             Self::Error | Self::MessageNotUnderstood | Self::CannotYieldAcrossNativeFrame | Self::UseAfterCloseError => &["errors", "error"],
@@ -458,6 +461,7 @@ impl UniverseKey {
             Self::SystemClock => "SystemClock",
             Self::SystemWallClock => "SystemWallClock",
             Self::TimeZone => "TimeZone",
+            Self::FloatMathKernel => "FloatMathKernel",
             Self::Message => "Message",
             Self::Attribute => "Attribute",
             Self::Error => "Error",
@@ -530,6 +534,7 @@ impl UniverseKey {
             "SystemClock" => Some(Self::SystemClock),
             "SystemWallClock" => Some(Self::SystemWallClock),
             "TimeZone" => Some(Self::TimeZone),
+            "FloatMathKernel" => Some(Self::FloatMathKernel),
             "Message" => Some(Self::Message),
             "Attribute" => Some(Self::Attribute),
             "Error" => Some(Self::Error),

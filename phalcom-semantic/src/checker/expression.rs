@@ -3750,6 +3750,29 @@ fn synthesize_constructor_super_call(
 }
 
 fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, expected: &ExpectedType) -> TypedExpression {
+    // A known module namespace is not an ordinary object receiver. Resolve its
+    // linked public export to the canonical checked binding fact, then invoke
+    // the exported value through the normal callable/Family machinery.
+    if let Expr::Var { value: module_alias, .. } = &call.object {
+        if let Some(fact) = ctx.resolve_module_export_value(module_alias, &call.method) {
+            let premise = CallPremise {
+                knowledge: fact.knowledge.clone(),
+                status: AnalysisStatus::Ready,
+                causal_invalidity: crate::checker::causal::CausalInvalidity::Clean,
+                explanation: None,
+            };
+            let arguments = application_arguments(&call.args);
+            if let Some(ty) = fact.knowledge.ty() {
+                if matches!(ctx.store.get(ty), TypeData::Family(_)) {
+                    return synthesize_family_value_call(ctx, ty, fact.denotation.as_ref(), &premise, &arguments, expected, call.range);
+                }
+                if let Some(target) = super::call::callable_value_target(ctx.store, ty, fact.knowledge.status().unwrap_or(EvidenceStatus::Assumed)) {
+                    return apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range).into();
+                }
+            }
+            return analyze_non_callable_invocation(ctx, &premise, &call.args, call.range).into();
+        }
+    }
     let recv_typed = analyze_expression(ctx, &call.object, &ExpectedType::None);
     let premise = CallPremise::from_typed(ctx, &recv_typed);
 
@@ -4684,6 +4707,13 @@ fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr, expec
 }
 
 fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr, expected: &ExpectedType) -> TypedExpression {
+    if let Expr::Var { value: module_alias, .. } = &get.object {
+        if let Some(fact) = ctx.resolve_module_export_value(module_alias, &get.property) {
+            let mut typed = TypedExpression::new(fact.knowledge.with_range(get.range));
+            typed.denotation = fact.denotation;
+            return typed;
+        }
+    }
     let recv_typed = analyze_expression(ctx, &get.object, &ExpectedType::None);
     let premise = CallPremise::from_typed(ctx, &recv_typed);
     let Some(recv_ty) = recv_typed.knowledge.ty() else {

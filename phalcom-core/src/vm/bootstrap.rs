@@ -186,6 +186,7 @@ impl VM {
         // their real module slots before compiling any initializer so those
         // references can use linked reads just like native Universe bindings.
         vm.prepare_universe_source_bindings(canonical)?;
+        vm.prepare_universe_static_constants(canonical)?;
         crate::native::install::refresh_registered_primitive_origins(&mut vm, canonical.source_index()).map_err(crate::error::VmBootstrapError::Runtime)?;
         if let Some(metadata_bundle) = canonical.program().semantic_metadata.clone() {
             vm.install_semantic_metadata_bundle(metadata_bundle)
@@ -292,6 +293,20 @@ impl VM {
             );
         }
 
+        Ok(())
+    }
+
+    /// Materialize checked constants in their canonical Universe modules before
+    /// source initializers access imports. Constants have no runtime slot.
+    fn prepare_universe_static_constants(&mut self, canonical: &crate::modules::CanonicalUniverseProgram) -> Result<(), crate::error::VmBootstrapError> {
+        for (id, compiled) in &canonical.program().modules {
+            let module = self
+                .module_registry
+                .get(id)
+                .ok_or_else(|| crate::error::VmBootstrapError::Invariant(format!("Universe module {id} is not materialized")))?
+                .object;
+            self.heap.module_mut(module).lowering = Some(compiled.lowering.clone());
+        }
         Ok(())
     }
 

@@ -1645,6 +1645,15 @@ impl VM {
                 }
                 val
             }
+            crate::heap::RuntimeExportRef::StaticConstant(reference) => {
+                let value = self.resolve_static_constant(reference)?;
+                if matches!(kind, SignatureKind::Getter) {
+                    self.stack.truncate(receiver_idx);
+                    self.stack.push(value);
+                    return Ok(Some(()));
+                }
+                value
+            }
         };
 
         self.stack[receiver_idx] = target_val;
@@ -1715,6 +1724,13 @@ impl VM {
                     return Ok(Some(val));
                 }
                 val
+            }
+            crate::heap::RuntimeExportRef::StaticConstant(reference) => {
+                let value = self.resolve_static_constant(reference)?;
+                if matches!(kind, SignatureKind::Getter) {
+                    return Ok(Some(value));
+                }
+                value
             }
         };
 

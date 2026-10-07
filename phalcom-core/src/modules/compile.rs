@@ -1741,6 +1741,7 @@ impl ProgramCompiler {
             modules.insert(id.clone(), compile_module(id.clone(), linked_module, source, source_text, Arc::new(lowering)));
         }
 
+
         Ok(CompiledProgram {
             project_universe: analyzed.project_universe.clone(),
             linked: analyzed.linked.clone(),

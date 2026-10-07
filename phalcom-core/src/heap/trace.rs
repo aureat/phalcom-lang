@@ -137,15 +137,20 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
             for global in &module.globals {
                 trace_value(*global, push);
             }
+            for constant in module.static_constants.values() {
+                trace_value(*constant, push);
+            }
             for export in module.exports.values() {
                 match export {
                     crate::heap::RuntimeExportRef::Binding(b) => push(b.module),
+                    crate::heap::RuntimeExportRef::StaticConstant(reference) => push(reference.module),
                     crate::heap::RuntimeExportRef::Module(obj) => push(*obj),
                 }
             }
             for read in &module.linked_reads {
                 match read {
                     crate::modules::RuntimeLinkedRead::Binding(b) => push(b.module),
+                    crate::modules::RuntimeLinkedRead::StaticConstant(reference) => push(reference.module),
                     crate::modules::RuntimeLinkedRead::Module(obj) => push(*obj),
                 }
             }

@@ -11,6 +11,7 @@ pub mod float;
 pub mod index;
 pub mod int;
 pub mod list;
+pub mod math;
 pub mod map;
 pub mod method;
 pub mod method_family;

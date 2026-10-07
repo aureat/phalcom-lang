@@ -1,0 +1,31 @@
+// area: math
+// status: PASS
+
+import universe.math as math
+
+System.print(math.sqrt(2.25))
+System.print(math.cbrt(-8.0))
+System.print(math.exp(1.0))
+System.print(math.exp2(3.0))
+System.print(math.expm1(0.25))
+System.print(math.ln(2.0))
+System.print(math.ln1p(0.25))
+System.print(math.log(8.0, base: 2.0))
+System.print(math.log2(8.0))
+System.print(math.log10(100.0))
+System.print(math.sin(0.25))
+System.print(math.cos(0.25))
+System.print(math.tan(0.25))
+System.print(math.asin(0.25))
+System.print(math.acos(0.25))
+System.print(math.atan(0.25))
+System.print(math.atan2(1.0, -2.0))
+System.print(math.degrees(math.pi))
+System.print(math.radians(180.0))
+System.print(math.sinh(0.25))
+System.print(math.cosh(0.25))
+System.print(math.tanh(0.25))
+System.print(math.asinh(0.25))
+System.print(math.acosh(1.25))
+System.print(math.atanh(0.25))
+System.print(math.hypot(3.0, 4.0))

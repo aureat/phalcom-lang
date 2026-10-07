@@ -303,6 +303,7 @@ fn mat_05_selective_import_value_non_none() {
     let value = match linked_read {
         RuntimeLinkedRead::Module(m) => Value::obj(m),
         RuntimeLinkedRead::Binding(b) => vm.heap.module(b.module).get_by_slot(b.slot as usize).expect("slot value"),
+        RuntimeLinkedRead::StaticConstant(reference) => vm.heap.module(reference.module).static_constants[&reference.name],
     };
     assert!(!value.is_none(), "linked read for Widget must be non-None");
     assert!(value.is_obj(), "linked read for Widget must be an object");
@@ -345,5 +346,6 @@ fn mat_06_module_import_binding_resolves_to_module() {
             assert_eq!(vm.heap.module(m).id, expected);
         }
         RuntimeLinkedRead::Binding(_) => panic!("expected Module linked read"),
+        RuntimeLinkedRead::StaticConstant(_) => panic!("expected Module linked read"),
     }
 }

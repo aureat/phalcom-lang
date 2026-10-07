@@ -78,6 +78,16 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["math"],
         kind: ModuleKind::Package,
+        children: &["float_kernel", "integer"],
+    },
+    UniverseNodeSpec {
+        path: &["math", "float_kernel"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["math", "integer"],
+        kind: ModuleKind::Module,
         children: &[],
     },
     UniverseNodeSpec {
@@ -717,6 +727,12 @@ impl UniverseSourceProvider {
             [c] if c.as_str() == "regex" => include_str!("../../phalcom-core/core/universe/src/regex/package.ph"),
             [c] if c.as_str() == "json" => include_str!("../../phalcom-core/core/universe/src/json/package.ph"),
             [c] if c.as_str() == "math" => include_str!("../../phalcom-core/core/universe/src/math/package.ph"),
+            [c, m] if c.as_str() == "math" && m.as_str() == "float_kernel" => {
+                include_str!("../../phalcom-core/core/universe/src/math/float_kernel.ph")
+            }
+            [c, m] if c.as_str() == "math" && m.as_str() == "integer" => {
+                include_str!("../../phalcom-core/core/universe/src/math/integer.ph")
+            }
             [c] if c.as_str() == "random" => include_str!("../../phalcom-core/core/universe/src/random/package.ph"),
             [c] if c.as_str() == "time" => include_str!("../../phalcom-core/core/universe/src/time/package.ph"),
             [c, m] if c.as_str() == "time" && m.as_str() == "clock" => {

@@ -1,6 +1,7 @@
 //! Compiler binding metadata derived from a linked module.
 
 use crate::heap::ObjRef;
+use crate::interner::Symbol;
 use phalcom_modules::{ImportBindingId, LinkedModule, LinkedReadSpec, SymbolId};
 use std::collections::BTreeMap;
 
@@ -13,6 +14,18 @@ pub struct BindingRef {
     pub slot: u16,
 }
 
+/// Canonical VM-local reference to one module-owned static constant.
+///
+/// The owner and source name preserve the semantic identity through imports
+/// and re-exports without copying the materialized value into each descriptor.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RuntimeStaticConstantRef {
+    /// Module object that owns the source declaration.
+    pub module: ObjRef,
+    /// Interned canonical source name, independent of any export alias.
+    pub name: Symbol,
+}
+
 /// VM materialization of one symbolic linked read.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeLinkedRead {
@@ -20,6 +33,8 @@ pub enum RuntimeLinkedRead {
     Module(ObjRef),
     /// Live source binding slot.
     Binding(BindingRef),
+    /// Canonical source-owned static constant.
+    StaticConstant(RuntimeStaticConstantRef),
 }
 
 /// Top-level binding kind visible to the compiler.

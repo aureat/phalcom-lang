@@ -167,6 +167,11 @@ fn time_negative() {
 }
 
 #[test]
+fn math() {
+    support::check_pass("math");
+}
+
+#[test]
 fn concurrency() {
     // CONC002/C1: cooperative Fiber + scheduler/Future execution.
     // The active corpus covers manual call/try/yield/current/abort semantics,

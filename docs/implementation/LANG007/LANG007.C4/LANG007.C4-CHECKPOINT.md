@@ -2924,3 +2924,37 @@ pre-existing formatting drift in other files. The audit's remaining broad
 incremental cold/warm, runtime source-order, unknown/dynamic, trait-witness,
 and full certification obligations are not claimed closed by this focused
 remediation. R1 and P4 remain `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+
+### Adjacent standard-library guidance — 2026-10-07
+
+The `main` consolidation merge retains both parent histories:
+`e0de68b2` (Char/String and semantic pattern authority) and `617d99f5`
+(math, exported static constants, and imported Family corrections). The only
+source integration addition is Char support in the general static-constant
+materializer, with selected/qualified/re-export/reflection/GC regression
+coverage. The combined native surface contains 399 declarations.
+See [consolidation verification](LANG007.C4.P4/math/stdlib-math-char-main-consolidation.md)
+for preservation checks and executed gates. This merge does not change C4's
+active structural/static plan or promote its acceptance state.
+
+The [stdlib `math` and `random` implementation guidance](LANG007.C4.P4/LANG007.C4.P4.R1/stdlib-random-math.md)
+was authored at `3369adf1`; a partial `math` implementation followed in
+`3ab77b6e` on remote branch `stdlib-random-math`. This remains adjacent work,
+outside C4's bounded acceptance objective and the active P4/R1 corrective issue
+scope. The current branch is `stdlib-random-math` with T7–T11 implemented and
+focused-tested. T12 focused gates pass, but the broad core library run has
+three unrelated failures and workspace format checking finds existing drift.
+M1 is `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`. The final numeric suite
+passes 11 tests; the wider module cluster passes 54 and reports 6 baseline
+fixture/generic failures. These and the three core failures/formatting drift
+are recorded in the math walkthrough. See the
+[implementation handoff](LANG007.C4.P4/LANG007.C4.P4.R1/stdlib-random-math-implementation-handoff.md)
+and the math continuation records for exact evidence and next gates. This
+update does not change the C4 or P4 acceptance state.
+
+The [R1 walkthrough](LANG007.C4.P4/LANG007.C4.P4.R1/LANG007.C4.P4.R1-walkthrough.md)
+and [R1 handoff](LANG007.C4.P4/LANG007.C4.P4.R1/LANG007.C4.P4.R1-handoff.md)
+record the documentation-only evidence boundary and auditor takeover points.
+This update does not alter the active P4 plan, next action, or any C4/R1
+completion or verification classification.

@@ -12,6 +12,17 @@ use phalcom_common::range::SourceRange;
 use phalcom_modules::linker::SymbolId;
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+
+/// Canonical checked module values available while analyzing callable bodies.
+///
+/// The linker supplies public-name and import identity; these indexes supply
+/// the ordinary checker's published value facts.
+#[derive(Clone, Copy)]
+pub struct ModuleValueEnvironment<'a> {
+    pub bindings: &'a BTreeMap<ModuleId, Arc<ModuleStaticBindingIndex>>,
+    pub exports: &'a BTreeMap<(ModuleId, String), SymbolId>,
+}
 
 /// Type-free source identity for a module-owned binding before checked
 /// `BindingState` products are available.

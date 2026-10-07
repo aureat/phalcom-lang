@@ -17,6 +17,7 @@ pub mod reflection_cache;
 pub mod reflection_metadata;
 pub mod registry;
 pub mod semantic_lowering;
+mod static_constant;
 
 pub use artifact::{ClassBlueprint, EnumBlueprint, ModuleMaterializationPlan, RuntimeDeclarationBlueprint, VariantBlueprint};
 pub(crate) use canonical_universe::{CanonicalUniverseProgram, canonical_universe_program};
@@ -25,7 +26,7 @@ pub use compile::{
 };
 pub use compile_session::ProgramCompilationSession;
 pub use context::ModuleExecutionContext;
-pub use linkage::{BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRead, TopLevelBindingInfo, TopLevelBindingKind};
+pub use linkage::{BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRead, RuntimeStaticConstantRef, TopLevelBindingInfo, TopLevelBindingKind};
 pub use reflection_cache::ReflectionCache;
 pub use registry::{ModuleFailure, ModuleFailureRef, ModulePlanFingerprint, ModuleRecord, ModuleRegistry, ModuleState, RuntimeProgramId};
 pub use semantic_lowering::{

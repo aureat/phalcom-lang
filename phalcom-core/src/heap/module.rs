@@ -8,7 +8,7 @@
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::ObjRef;
 use crate::interner::Symbol;
-use crate::modules::{BindingRef, RuntimeLinkedRead};
+use crate::modules::{BindingRef, RuntimeLinkedRead, RuntimeStaticConstantRef};
 use crate::value::Value;
 pub use phalcom_modules::{ModuleId, ModuleKind};
 use std::collections::HashMap;
@@ -25,6 +25,8 @@ pub const MAIN_MODULE_NAME: &str = "main";
 pub enum RuntimeExportRef {
     /// Live binding slot in an exporting module.
     Binding(BindingRef),
+    /// Canonical source-owned static constant; no runtime global slot.
+    StaticConstant(RuntimeStaticConstantRef),
     /// Re-exported module or submodule object.
     Module(ObjRef),
 }
@@ -54,6 +56,9 @@ pub struct ModuleObject {
     pub closure: Option<ObjRef>,
     /// Global variable slots, indexed by slot number.
     pub globals: Vec<Value>,
+    /// Canonically materialized values of source-owned static constants.
+    /// This is runtime storage, not a language-level binding table.
+    pub static_constants: HashMap<Symbol, Value>,
     /// Maps a global name [`Symbol`] to its slot index in [`Self::globals`].
     pub name_to_slot: HashMap<Symbol, usize>,
     /// Bumped **only** when [`Self::declare`] allocates a *new* slot; guards the
@@ -103,6 +108,7 @@ impl ModuleObject {
             path,
             closure: None,
             globals: Vec::new(),
+            static_constants: HashMap::new(),
             name_to_slot: HashMap::new(),
             globals_version: 0,
             sources: source.into_iter().collect(),

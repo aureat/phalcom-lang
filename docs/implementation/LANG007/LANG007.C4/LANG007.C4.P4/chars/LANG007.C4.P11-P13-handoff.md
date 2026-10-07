@@ -22,7 +22,12 @@ This handoff documents the completed implementation state for `LANG007.C4.P11-P1
 - **Delivered Revision:** `112396d1`
 - **Status:** `COMPLETE / COMPLETE / FOCUSED_TESTED`
 
-All tasks of `LANG007.C4.P11-P13` have been implemented and verified. The `universe.math` implementation remains isolated on sibling branch `stdlib-random-math`.
+All tasks of `LANG007.C4.P11-P13` have been implemented and verified. The
+`universe.math` implementation and its Family/static-constant corrections are
+now consolidated into `main` with this work. The merge titled
+`merge: consolidate math and Char corrective work` preserves both parent
+histories (`e0de68b2` and `617d99f5`). See the
+[combined verification record](../math/stdlib-math-char-main-consolidation.md).
 
 ---
 
