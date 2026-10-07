@@ -268,7 +268,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Eof => None,
 
         // Handled by the caller before `classify` is reached.
-        Token::String(_) | Token::StringInterp(_) => None,
+        Token::String(_) | Token::StringInterp(_) | Token::Char(_) => None,
     }
 }
 
@@ -304,7 +304,7 @@ fn collect_tokens(text: &str, offset: usize, out: &mut Vec<RawToken>) {
             Token::StringInterp(segments) => {
                 push_string_interp(&segments, offset, offset + start, offset + end, out);
             }
-            Token::String(_) => out.push(RawToken {
+            Token::String(_) | Token::Char(_) => out.push(RawToken {
                 start: offset + start,
                 end: offset + end,
                 kind: SemanticTokenKind::String,
@@ -990,6 +990,7 @@ fn collect_decl_names_in_expr(expr: &Expr, out: &mut Vec<DeclNameOverride>) {
         Expr::Int { .. }
         | Expr::Float { .. }
         | Expr::String { .. }
+        | Expr::Char { .. }
         | Expr::Boolean { .. }
         | Expr::Var { .. }
         | Expr::Field { .. }

@@ -1,7 +1,7 @@
 #![doc = r" Generated canonical native surface records."]
 #[doc = r" Number of authored `#[primitive]` declarations scanned by the surface"]
 #[doc = r" generator."]
-pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 373usize;
+pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 375usize;
 use crate::{NativeMemberKind, NativeReturnShape, NativeSurfaceRecord};
 use phalcom_native_meta::*;
 pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
@@ -3348,6 +3348,59 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             key: PrimitiveKey {
                 owner: UniverseKey::String,
                 side: NativeDispatch::Instance,
+                selector: "decodeCharAt(_)",
+            },
+            visibility: NativeVisibility::Public,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Applied {
+                origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
+                arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Char)],
+            },
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Applied {
+                    origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
+                    arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Char)],
+                },
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Signature: `String::decodeCharAt(_)` — decodes the Unicode scalar at byte offset `byteOffset`."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("Option"),
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::String,
+                side: NativeDispatch::Instance,
                 selector: "hash",
             },
             visibility: NativeVisibility::Public,
@@ -3395,6 +3448,53 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             key: PrimitiveKey {
                 owner: UniverseKey::String,
                 side: NativeDispatch::Instance,
+                selector: "isCharBoundary(_)",
+            },
+            visibility: NativeVisibility::Public,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Bool),
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Bool),
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Signature: `String::isCharBoundary(_)` — returns whether `byteOffset` is a valid UTF-8 boundary."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("Bool"),
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::String,
+                side: NativeDispatch::Instance,
                 selector: "rawByteAt(_)",
             },
             visibility: NativeVisibility::Internal,
@@ -3405,7 +3505,10 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                 labeled: &[],
                 rest: None,
             },
-            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
+            returns: &::phalcom_native_meta::TypeExprSpec::Applied {
+                origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
+                arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+            },
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
@@ -3413,7 +3516,10 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                     labeled: &[],
                     rest: None,
                 },
-                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
+                return_type: &::phalcom_native_meta::TypeExprSpec::Applied {
+                    origin: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
+                    arguments: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                },
                 constraints: &[],
             },
             raises: ::phalcom_native_meta::RaisesSpec::Unknown,
@@ -3435,7 +3541,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         },
         kind: NativeMemberKind::Method,
         abi: PrimitiveAbi::Value,
-        return_shape: NativeReturnShape::Instance("Int"),
+        return_shape: NativeReturnShape::Instance("Option"),
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {

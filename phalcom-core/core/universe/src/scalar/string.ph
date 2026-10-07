@@ -22,8 +22,10 @@ native class String is Object {
   native new(_ value: Dynamic) -> String
 
   internal native rawByteCount -> Int
-  internal native rawByteAt(_ index: Int) -> Int
+  internal native rawByteAt(_ index: Int) -> Option<Int>
   internal native rawSlice(_ start: Int, _ end: Int) -> String
+  native isCharBoundary(_ byteOffset: Int) -> Bool
+  native decodeCharAt(_ byteOffset: Int) -> Option<Char>
 
   /// Returns the string itself as its string representation.
   toString { self }
@@ -48,19 +50,9 @@ native class String is Object {
   /// @param i Byte offset into the string.
   /// @returns Number of bytes (1-4) or `None`.
   leadByteLen(_ i) {
-    let b = rawByteAt(i)
-    if b == None {
-      return None
-    }
-
-    if b < 128 {
-      return 1
-    } else if b < 224 {
-      return 2
-    } else if b < 240 {
-      return 3
-    } else {
-      return 4
+    match decodeCharAt(i) {
+      Option::Some(c) => c.utf8Length
+      _ => None
     }
   }
 
@@ -71,44 +63,9 @@ native class String is Object {
   /// @param i Byte offset into the string.
   /// @returns Decoded Unicode codepoint as an `Int`, or `None`.
   codePointAt(_ i) {
-    let b0 = rawByteAt(i)
-    if b0 == None {
-      return None
-    }
-
-    if b0 < 128 {
-      // Single-byte ASCII (0xxxxxxx)
-      return b0
-    } else if b0 < 192 {
-      // Continuation byte (10xxxxxx), not a valid UTF-8 start byte
-      return None
-    } else if b0 < 224 {
-      // 2-byte sequence (110xxxxx 10xxxxxx)
-      let b1 = rawByteAt(i + 1)
-      if b1 == None or b1 < 128 or b1 >= 192 {
-        return None
-      }
-      return ((b0 - 192) * 64) + (b1 - 128)
-    } else if b0 < 240 {
-      // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
-      let b1 = rawByteAt(i + 1)
-      let b2 = rawByteAt(i + 2)
-      if b1 == None or b2 == None or b1 < 128 or b1 >= 192 or b2 < 128 or b2 >= 192 {
-        return None
-      }
-      return ((b0 - 224) * 4096) + ((b1 - 128) * 64) + (b2 - 128)
-    } else if b0 < 248 {
-      // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
-      let b1 = rawByteAt(i + 1)
-      let b2 = rawByteAt(i + 2)
-      let b3 = rawByteAt(i + 3)
-      if b1 == None or b2 == None or b3 == None or b1 < 128 or b1 >= 192 or b2 < 128 or b2 >= 192 or b3 < 128 or b3 >= 192 {
-        return None
-      }
-      return ((b0 - 240) * 262144) + ((b1 - 128) * 4096) + ((b2 - 128) * 64) + (b3 - 128)
-    } else {
-      // Invalid start byte
-      return None
+    match decodeCharAt(i) {
+      Option::Some(c) => Some(c.codePoint)
+      _ => None
     }
   }
 
@@ -118,7 +75,7 @@ native class String is Object {
   ///
   /// @param needle The substring to find.
   /// @returns Byte index of the match or `-1`.
-  indexOf(_ needle) {
+  indexOf(_ needle) -> Int {
     if not needle.is(String) {
       throw ArgumentError.new("indexOf: needle must be a String")
     }
@@ -152,7 +109,7 @@ native class String is Object {
   ///
   /// @param needle The substring to search for.
   /// @returns `true` if `needle` is found; otherwise `false`.
-  contains(_ needle) {
+  contains(_ needle) -> Bool {
     if not needle.is(String) {
       throw ArgumentError.new("contains: needle must be a String")
     }
@@ -163,7 +120,7 @@ native class String is Object {
   }
 
   /// Alias for `contains`.
-  includes(_ needle) { contains(needle) }
+  includes(_ needle) -> Bool { contains(needle) }
 
   /// Splits the string around occurrences of `delimiter`.
   ///
@@ -171,7 +128,7 @@ native class String is Object {
   ///
   /// @param delimiter Non-empty string separator.
   /// @returns List of sliced string components.
-  split(_ delimiter) {
+  split(_ delimiter) -> List<String> {
     if not delimiter.is(String) {
       throw ArgumentError.new("split: delimiter must be a String")
     }
@@ -179,7 +136,7 @@ native class String is Object {
       throw ArgumentError.new("split: delimiter must be non-empty")
     }
 
-    let mut result = List<Dynamic>.new()
+    let mut result = List<String>.new()
     let mut prev = 0
     let mut i = indexOf(delimiter)
     while i != -1 {
@@ -204,7 +161,7 @@ native class String is Object {
   /// @param needle Non-empty substring to be replaced.
   /// @param to Substring replacement.
   /// @returns Transformed string.
-  replace(_ needle, _ to) {
+  replace(_ needle, _ to) -> String {
     if not needle.is(String) {
       throw ArgumentError.new("replace: from must be a String")
     }
@@ -215,7 +172,7 @@ native class String is Object {
       throw ArgumentError.new("replace: from must be non-empty")
     }
 
-    let mut result = ""
+    let mut result: String = ""
     let mut prev = 0
     let mut i = indexOf(needle)
     while i != -1 {
@@ -234,17 +191,17 @@ native class String is Object {
   }
 
   /// Trims whitespace from both the beginning and end of the string.
-  trim() {
+  trim() -> String {
     return trim(" \t\n\r")
   }
 
   /// Trims whitespace from the beginning of the string.
-  trimStart() {
+  trimStart() -> String {
     return trimStart(" \t\n\r")
   }
 
   /// Trims whitespace from the end of the string.
-  trimEnd() {
+  trimEnd() -> String {
     return trimEnd(" \t\n\r")
   }
 
@@ -252,13 +209,13 @@ native class String is Object {
   ///
   /// @param chars String containing characters to strip.
   /// @returns Trimmed string.
-  trim(_ chars) { trimStart(chars).trimEnd(chars) }
+  trim(_ chars) -> String { trimStart(chars).trimEnd(chars) }
 
   /// Trims custom characters from the start of the string.
   ///
   /// @param chars String containing characters to strip.
   /// @returns Trimmed string.
-  trimStart(_ chars) {
+  trimStart(_ chars) -> String {
     if not chars.is(String) {
       throw ArgumentError.new("trimStart: chars must be a String")
     }
@@ -266,24 +223,17 @@ native class String is Object {
     let mut i = 0
     let mut stop = false
     while i < rawByteCount and not stop {
-      let cp = codePointAt(i)
-      let mut found = false
-      let mut j = 0
-      while j < chars.rawByteCount {
-        if chars.codePointAt(j) == cp {
-          found = true
+      match decodeCharAt(i) {
+        Option::Some(c) => {
+          if chars.contains(c.toString) {
+            i = i + c.utf8Length
+          } else {
+            stop = true
+          }
         }
-        let len = chars.leadByteLen(j)
-        if len == None {
-          j = j + 1
-        } else {
-          j = j + len
+        _ => {
+          stop = true
         }
-      }
-      if found {
-        i = i + leadByteLen(i)
-      } else {
-        stop = true // Exit loop at first non-trimmed character
       }
     }
     return rawSlice(i, rawByteCount)
@@ -293,7 +243,7 @@ native class String is Object {
   ///
   /// @param chars String containing characters to strip.
   /// @returns Trimmed string.
-  trimEnd(_ chars) {
+  trimEnd(_ chars) -> String {
     if not chars.is(String) {
       throw ArgumentError.new("trimEnd: chars must be a String")
     }
@@ -301,27 +251,19 @@ native class String is Object {
     let mut i = rawByteCount
     let mut stop = false
     while i > 0 and not stop {
-      // Scan backward one byte at a time to find previous lead byte
-      i = i - 1
-      let mut cp = codePointAt(i)
-      if cp != None {
-        // Found a lead byte; check if it matches the trim set
-        let mut found = false
-        let mut j = 0
-        while j < chars.rawByteCount {
-          if chars.codePointAt(j) == cp {
-            found = true
-          }
-          let len = chars.leadByteLen(j)
-          if len == None {
-            j = j + 1
+      let mut prev = i - 1
+      while prev > 0 and not isCharBoundary(prev) {
+        prev = prev - 1
+      }
+      match decodeCharAt(prev) {
+        Option::Some(c) => {
+          if chars.contains(c.toString) {
+            i = prev
           } else {
-            j = j + len
+            stop = true
           }
         }
-        if not found {
-          // Not in trim set; keep this character and terminate scanning
-          i = i + leadByteLen(i)
+        _ => {
           stop = true
         }
       }
@@ -359,8 +301,76 @@ native class String is Object {
   /// Returns a byte-level sequence view of this string.
   bytes { StringByteSequence.new(self) }
 
+  /// Returns a character sequence view yielding `Char` Unicode scalar values.
+  chars -> StringChars { StringChars.new(self) }
+
   /// Returns a Unicode codepoint sequence view of this string.
   codePoints { StringCodePointSequence.new(self) }
+}
+
+/// Character sequence view over a UTF-8 string.
+class StringChars {
+  _string: String
+
+  @constructor
+  new(_ s: String) { _string = s }
+
+  rawByteCount -> Int { _string.rawByteCount }
+
+  decodeCharAt(_ byteOffset: Int) -> Option<Char> { _string.decodeCharAt(byteOffset) }
+
+  iterator -> StringCharIterator { StringCharIterator.new(self) }
+
+  each(_ f) {
+    let mut it = iterator
+    while let Option::Some(ch) = it.next {
+      f.call(ch)
+    }
+  }
+}
+
+/// Iterator over decoded Unicode scalar `Char` values of a string.
+class StringCharIterator {
+  _source: StringChars
+  mut _byteOffset: Int
+  mut _done: Bool
+
+  @constructor
+  new(_ source: StringChars) {
+    _source = source
+    _byteOffset = 0
+    _done = false
+  }
+
+  next -> Option<Char> {
+    if _done { return None }
+    if _byteOffset >= _source.rawByteCount {
+      _done = true
+      return None
+    }
+    match _source.decodeCharAt(_byteOffset) {
+      Option::Some(ch) => {
+        _byteOffset = _byteOffset + ch.utf8Length
+        Some(ch)
+      }
+      _ => {
+        _done = true
+        None
+      }
+    }
+  }
+
+  iterator { self }
+}
+
+impl CanonicalIterator for StringCharIterator {
+  type Item = Char
+}
+
+impl CanonicalIterable for StringChars {
+  type Item = Char
+  type Iterator = StringCharIterator
+  iterator -> StringCharIterator { StringCharIterator.new(self) }
 }
 
 /// Byte-level sequence view over a UTF-8 string.
@@ -420,7 +430,7 @@ class StringByteIterator {
     }
     let mut value = _source.rawByteAt(_offset)
     _offset = _offset + 1
-    Some(value)
+    value
   }
 
   iterator { self }
@@ -445,42 +455,42 @@ class StringCodePointSequence {
   iterator -> StringCodePointIterator { StringCodePointIterator.new(self) }
 
   /// Number of Unicode code points in the string.
-  size {
+  size -> Int {
     let mut n = 0
-    let mut i = nextCursor(None)
-    while i != None {
+    let mut it = _string.chars.iterator
+    while let Option::Some(_) = it.next {
       n = n + 1
-      i = nextCursor(i)
     }
     return n
   }
 
-  at(_ byteOffset) { _string.codePointAt(byteOffset) }
+  at(_ ordinal: Int) -> Option<Int> {
+    if ordinal < 0 {
+      return None
+    }
+    let mut it = _string.chars.iterator
+    let mut idx = 0
+    while let Option::Some(ch) = it.next {
+      if idx == ordinal {
+        return Some(ch.codePoint)
+      }
+      idx = idx + 1
+    }
+    return None
+  }
 
-  internal byteCountView { _string.rawByteCount }
+  internal byteCountView -> Int { _string.rawByteCount }
+
+  decodeCharAt(_ byteOffset: Int) -> Option<Char> { _string.decodeCharAt(byteOffset) }
 
   internal rawCodePointAt(_ byteOffset) { _string.codePointAt(byteOffset) }
 
   internal rawLeadByteLen(_ byteOffset) { _string.leadByteLen(byteOffset) }
 
   each(_ f) {
-    let mut i = nextCursor(None)
-    while i != None {
-      f.call(at(i))
-      i = nextCursor(i)
-    }
-  }
-
-  // Iterate over byte offsets: cursor steps by UTF-8 character boundary.
-  private nextCursor(_ cursor) {
-    let mut next = 0
-    if cursor != None {
-      next = cursor + _string.leadByteLen(cursor)
-    }
-    if next < _string.rawByteCount {
-      return next
-    } else {
-      return None
+    let mut it = _string.chars.iterator
+    while let Option::Some(ch) = it.next {
+      f.call(ch.codePoint)
     }
   }
 }
@@ -504,16 +514,16 @@ class StringCodePointIterator {
       _done = true
       return None
     }
-    let mut value = _source.rawCodePointAt(_offset)
-    if value == None {
-      throw Error.new("String code-point iterator encountered an invalid sequence")
+    match _source.decodeCharAt(_offset) {
+      Option::Some(ch) => {
+        _offset = _offset + ch.utf8Length
+        Some(ch.codePoint)
+      }
+      _ => {
+        _done = true
+        None
+      }
     }
-    let mut length = _source.rawLeadByteLen(_offset)
-    if length == None {
-      throw Error.new("String code-point iterator encountered an invalid lead byte")
-    }
-    _offset = _offset + length
-    Some(value)
   }
 
   iterator { self }

@@ -1,20 +1,10 @@
 //! Native primitives on `String`.
-//!
-//! REVIEW: BLOCKING ISSUES — IMPLEMENTATION INCOMPLETE / NON-FUNCTIONAL
-//! ====================================================================
-//! (1) split() crashes unconditionally (core.ph:155 uses bare `List.new`, not `List.new()`)
-//! (2) trim/trimStart/trimEnd fail dispatch (declared as getters, called with `()` parens)
-//! (3) codePointAt(_) is a stub — multi-byte UTF-8 decode never implemented (lines 112 both return None)
-//! (4) Test corpus `tests/fixtures/language/strings/` empty; load-bearing tests shelved in `pending/` with `#[ignore]`
-//! (5) Docs not synced: floor-census.md, core-classes.md, deferred-work.md still omit new bindings
-//! (6) ADR-0049 collision: two files claim same number, conflicting naming (raw* vs _ suffix per U-NATIVE-MARKER)
-//!
-//! See inline REVIEW comments in core.php and the language corpus runner for details. Unit blocked pending fixes.
 
 use crate::error::{PhResult, RuntimeError};
 use crate::primitive::expect_string;
 use crate::value::Value;
 use crate::vm::VM;
+use num_traits::ToPrimitive;
 
 /// Signature: `String::hash` — the cached djb2 content hash.
 #[phalcom_native_macros::primitive(
@@ -122,48 +112,22 @@ pub fn string_raw_byte_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> 
     String,
     "rawByteAt(_)",
     params = [Int],
-    returns = Int,
-    types = "(Int) -> Int",
+    returns = "Option<Int>",
+    types = "(Int) -> Option<Int>",
     effects = pure,
     visibility = internal
 )]
 pub fn string_raw_byte_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let s = if let Some(id) = receiver.as_obj() {
-        if vm.heap.as_string(id).is_some() {
-            vm.heap.string(id).as_str()
-        } else {
-            return Err(RuntimeError::Type {
-                expected: "String",
-                found: receiver.type_name(),
-            }
-            .into());
-        }
-    } else {
-        return Err(RuntimeError::Type {
-            expected: "String",
-            found: receiver.type_name(),
-        }
-        .into());
-    };
-
-    let idx = if let Some(n) = args[0].as_int() {
-        if n < 0 {
-            return Ok(vm.none_value());
-        }
-        n as usize
-    } else if let Some(n) = args[0].as_float() {
-        if n.fract() != 0.0 || n < 0.0 {
-            return Ok(vm.none_value());
-        }
-        n as usize
-    } else {
-        return Ok(vm.none_value());
+    let s = expect_string(vm, receiver)?;
+    let int_val = crate::primitive::int::expect_int_big(&args[0], vm)?;
+    let Some(idx) = int_val.to_usize() else {
+        return Ok(Value::none());
     };
 
     if idx < s.len() {
-        Ok(Value::int(s.as_bytes()[idx] as i64))
+        Ok(Value::int(s.as_bytes()[idx] as i64).wrap_some().unwrap())
     } else {
-        Ok(vm.none_value())
+        Ok(Value::none())
     }
 }
 
@@ -178,72 +142,22 @@ pub fn string_raw_byte_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     visibility = internal
 )]
 pub fn string_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let s = if let Some(id) = receiver.as_obj() {
-        if vm.heap.as_string(id).is_some() {
-            vm.heap.string(id).as_str()
-        } else {
-            return Err(RuntimeError::Type {
-                expected: "String",
-                found: receiver.type_name(),
-            }
-            .into());
-        }
-    } else {
+    let s = expect_string(vm, receiver)?;
+    let start_big = crate::primitive::int::expect_int_big(&args[0], vm)?;
+    let end_big = crate::primitive::int::expect_int_big(&args[1], vm)?;
+
+    let Some(start) = start_big.to_usize() else {
         return Err(RuntimeError::Type {
-            expected: "String",
-            found: receiver.type_name(),
+            expected: "valid slice range",
+            found: "out of bounds",
         }
         .into());
     };
 
-    let start = if let Some(n) = args[0].as_int() {
-        if n < 0 {
-            return Err(RuntimeError::Type {
-                expected: "valid index",
-                found: "invalid number",
-            }
-            .into());
-        }
-        n as usize
-    } else if let Some(n) = args[0].as_float() {
-        if n.fract() != 0.0 || n < 0.0 {
-            return Err(RuntimeError::Type {
-                expected: "valid index",
-                found: "invalid number",
-            }
-            .into());
-        }
-        n as usize
-    } else {
+    let Some(end) = end_big.to_usize() else {
         return Err(RuntimeError::Type {
-            expected: "number",
-            found: args[0].type_name(),
-        }
-        .into());
-    };
-
-    let end = if let Some(n) = args[1].as_int() {
-        if n < 0 {
-            return Err(RuntimeError::Type {
-                expected: "valid index",
-                found: "invalid number",
-            }
-            .into());
-        }
-        n as usize
-    } else if let Some(n) = args[1].as_float() {
-        if n.fract() != 0.0 || n < 0.0 {
-            return Err(RuntimeError::Type {
-                expected: "valid index",
-                found: "invalid number",
-            }
-            .into());
-        }
-        n as usize
-    } else {
-        return Err(RuntimeError::Type {
-            expected: "number",
-            found: args[1].type_name(),
+            expected: "valid slice range",
+            found: "out of bounds",
         }
         .into());
     };
@@ -267,4 +181,47 @@ pub fn string_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 
     let slice = &s[start..end];
     Ok(vm.alloc_string_value(slice.to_string()))
+}
+
+/// Signature: `String::isCharBoundary(_)` — returns whether `byteOffset` is a valid UTF-8 boundary.
+#[phalcom_native_macros::primitive(
+    String,
+    "isCharBoundary(_)",
+    params = [Int],
+    returns = Bool,
+    types = "(Int) -> Bool",
+    effects = pure
+)]
+pub fn string_is_char_boundary(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let s = expect_string(vm, receiver)?;
+    let int_val = crate::primitive::int::expect_int_big(&args[0], vm)?;
+    let Some(offset) = int_val.to_usize() else {
+        return Ok(Value::bool(false));
+    };
+    if offset > s.len() {
+        return Ok(Value::bool(false));
+    }
+    Ok(Value::bool(s.is_char_boundary(offset)))
+}
+
+/// Signature: `String::decodeCharAt(_)` — decodes the Unicode scalar at byte offset `byteOffset`.
+#[phalcom_native_macros::primitive(
+    String,
+    "decodeCharAt(_)",
+    params = [Int],
+    returns = "Option<Char>",
+    types = "(Int) -> Option<Char>",
+    effects = pure
+)]
+pub fn string_decode_char_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let s = expect_string(vm, receiver)?;
+    let int_val = crate::primitive::int::expect_int_big(&args[0], vm)?;
+    let Some(offset) = int_val.to_usize() else {
+        return Ok(Value::none());
+    };
+    if offset >= s.len() || !s.is_char_boundary(offset) {
+        return Ok(Value::none());
+    }
+    let ch = s[offset..].chars().next().expect("valid non-EOF char boundary");
+    Ok(Value::char(ch).wrap_some().unwrap())
 }
