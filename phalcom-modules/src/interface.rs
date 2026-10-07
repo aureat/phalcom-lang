@@ -474,7 +474,7 @@ impl InterfaceBuilder {
                 }
                 Ok(())
             }
-            Pattern::Wildcard { .. } => Ok(()),
+            Pattern::Wildcard { .. } | Pattern::Char { .. } => Ok(()),
             Pattern::Or { alternatives, .. } => {
                 for alt in alternatives {
                     Self::collect_pattern_declarations(alt, semantics, namespace, declarations)?;

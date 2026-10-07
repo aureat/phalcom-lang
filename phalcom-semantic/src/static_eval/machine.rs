@@ -493,6 +493,7 @@ impl<'a> StaticEvaluator<'a> {
                         }
                         Expr::String { value, .. } => stack.push(self.values.intern_string(value)),
                         Expr::Boolean { value, .. } => stack.push(self.values.intern_bool(*value)),
+                        Expr::Char { value, .. } => stack.push(self.values.intern_char(*value)),
                         Expr::Symbol(symbol) => {
                             let spelling = canonical_symbol_spelling(&symbol.kind).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                             self.charge_variable_work(spelling.len())?;

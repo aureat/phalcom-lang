@@ -78,6 +78,22 @@ pub(crate) fn check_inhabitation(
                 }
                 node
             }
+            DomainDecomposition::Char => DomainNode {
+                constructors: vec![Vec::new()],
+                open: false,
+            },
+            DomainDecomposition::ClosedWithChar(cases) => {
+                let mut node = DomainNode {
+                    constructors: vec![Vec::new()],
+                    open: false,
+                };
+                for case in cases.iter() {
+                    let fields = case.fields.iter().map(|field| field.canonical).collect::<Vec<_>>();
+                    pending.extend(fields.iter().copied());
+                    node.constructors.push(fields);
+                }
+                node
+            }
         };
         domains.insert(ty, domain);
     }

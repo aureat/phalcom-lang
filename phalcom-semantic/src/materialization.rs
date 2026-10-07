@@ -32,6 +32,7 @@ pub enum DeferredStructuralKind {
 pub enum MaterializationDescriptor {
     Unit,
     Bool(bool),
+    Char(char),
     Int(StaticInt),
     Float(StaticFloat),
     String(Arc<str>),
@@ -43,7 +44,7 @@ pub enum MaterializationDescriptor {
 impl MaterializationDescriptor {
     pub fn capability(&self) -> MaterializationCapability {
         match self {
-            Self::Unit | Self::Bool(_) | Self::Int(_) | Self::Float(_) | Self::String(_) | Self::Symbol(_) => MaterializationCapability::P2Primitive,
+            Self::Unit | Self::Bool(_) | Self::Char(_) | Self::Int(_) | Self::Float(_) | Self::String(_) | Self::Symbol(_) => MaterializationCapability::P2Primitive,
             Self::DeferredStructural(_) => MaterializationCapability::DeferredStructural,
             Self::Unsupported(_) => MaterializationCapability::Unsupported,
         }
@@ -59,6 +60,7 @@ impl MaterializationDescriptor {
         let descriptor = match data {
             StaticValueData::Unit => Self::Unit,
             StaticValueData::Bool(b) => Self::Bool(*b),
+            StaticValueData::Char(c) => Self::Char(*c),
             StaticValueData::Int(i) => Self::Int(i.clone()),
             StaticValueData::Float(f) => Self::Float(*f),
             StaticValueData::String(str_id) => {

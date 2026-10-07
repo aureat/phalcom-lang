@@ -194,6 +194,22 @@ fn lex_error_to_syntax(err: LexicalError, offset: usize) -> SyntaxError {
             kind: SyntaxErrorKind::UnterminatedString,
             range: (span.start + offset)..(span.end + offset),
         },
+        LexicalError::UnterminatedCharacterLiteral(span) => SyntaxError {
+            kind: SyntaxErrorKind::UnterminatedCharacterLiteral,
+            range: (span.start + offset)..(span.end + offset),
+        },
+        LexicalError::InvalidCharacterLiteral(span) => SyntaxError {
+            kind: SyntaxErrorKind::InvalidCharacterLiteral,
+            range: (span.start + offset)..(span.end + offset),
+        },
+        LexicalError::InvalidCharacterEscape(span) => SyntaxError {
+            kind: SyntaxErrorKind::InvalidCharacterEscape,
+            range: (span.start + offset)..(span.end + offset),
+        },
+        LexicalError::RawNewlineInCharacterLiteral(span) => SyntaxError {
+            kind: SyntaxErrorKind::RawNewlineInCharacterLiteral,
+            range: (span.start + offset)..(span.end + offset),
+        },
         LexicalError::UnterminatedBlockComment(span) => SyntaxError {
             kind: SyntaxErrorKind::UnterminatedComment,
             range: (span.start + offset)..(span.end + offset),
@@ -255,6 +271,7 @@ fn push_lex_error(errors: &mut Vec<SyntaxError>, err: LexicalError, offset: usiz
     let expected_closer = match &err {
         LexicalError::UnterminatedBlockComment(_) => Some("`*/`"),
         LexicalError::UnterminatedString(_) => Some("`\"`"),
+        LexicalError::UnterminatedCharacterLiteral(_) => Some("`'`"),
         LexicalError::UnterminatedInterpolation(_) => Some("`)`"),
         LexicalError::UnterminatedMultilineString(_) => Some("`\"\"\"`"),
         _ => None,
@@ -1604,6 +1621,7 @@ impl<'source> Parser<'source> {
                 | Token::Int { .. }
                 | Token::Float(_)
                 | Token::String(_)
+                | Token::Char(_)
                 | Token::StringInterp(_)
                 | Token::Hash
                 | Token::If
@@ -2305,7 +2323,12 @@ impl<'source> Parser<'source> {
     fn is_value_generic_argument_ahead(&self) -> bool {
         match self.peek() {
             Token::True | Token::False => true,
-            Token::Int { .. } | Token::Float(..) | Token::String(..) | Token::Hash | Token::QuotedSymbol(..) => true,
+            Token::Int { .. }
+            | Token::Float(..)
+            | Token::String(..)
+            | Token::Char(..)
+            | Token::Hash
+            | Token::QuotedSymbol(..) => true,
             Token::Minus => {
                 if let Some(next) = self.tokens.get(self.pos + 1) {
                     matches!(next.token, Token::Int { .. } | Token::Float(..))
@@ -3587,8 +3610,8 @@ impl<'source> Parser<'source> {
     /// Returns a [`SyntaxErrorKind::Message`] diagnostic if a rest
     /// sub-pattern is not a list pattern's last element, or if the current
     /// token cannot begin a pattern.
-    /// Parses a pattern, supporting or-patterns (`p1 | p2`), wildcards (`_`),
-    /// tuples `(p1, ...)`, lists `[p1, ...]`, records `{...}`, maps `Map {...}`,
+    /// Parses a pattern, supporting Char literals, or-patterns (`p1 | p2`),
+    /// wildcards (`_`), tuples `(p1, ...)`, lists `[p1, ...]`, records `{...}`, maps `Map {...}`,
     /// qualified/contextual variants (`Animal::Dog*`, `Dog(...)`, `Dog(x, ..., named: y)`),
     /// and name bindings (`x`).
     fn parse_pattern(&mut self) -> ParserResult<Pattern> {
@@ -3616,6 +3639,12 @@ impl<'source> Parser<'source> {
 
     fn parse_pattern_atom(&mut self) -> ParserResult<Pattern> {
         match self.peek() {
+            Token::Char(value) => {
+                let start = self.cur_start();
+                self.advance();
+                let range = (start..self.prev_end).into();
+                Ok(Pattern::Char { value, range })
+            }
             Token::Underscore => {
                 let start = self.cur_start();
                 self.advance();
@@ -4028,6 +4057,7 @@ impl<'source> Parser<'source> {
             Token::Int { .. }
                 | Token::Float(_)
                 | Token::String(_)
+                | Token::Char(_)
                 | Token::StringInterp(_)
                 | Token::True
                 | Token::False
@@ -7027,6 +7057,7 @@ impl<'source> Parser<'source> {
                 | Token::Int { .. }
                 | Token::Float(_)
                 | Token::String(_)
+                | Token::Char(_)
                 | Token::StringInterp(_)
                 | Token::Hash
                 | Token::QuotedSymbol(_)
@@ -9109,6 +9140,10 @@ impl<'source> Parser<'source> {
             Token::Float(value) => {
                 self.advance();
                 Ok(Expr::Float { value, range })
+            }
+            Token::Char(value) => {
+                self.advance();
+                Ok(Expr::Char { value, range })
             }
             Token::String(value) => {
                 self.advance();

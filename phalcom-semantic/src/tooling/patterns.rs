@@ -74,6 +74,13 @@ impl MissingCaseEditPlan {
         let mut arms = Vec::new();
         for witness in witnesses {
             match witness {
+                CoverageWitness::Char(value) => {
+                    let escaped = value.escape_default().collect::<String>();
+                    arms.push(MissingCaseArmPlan {
+                        pattern_syntax: format!("'{}'", escaped).into_boxed_str(),
+                        variant: None,
+                    });
+                }
                 CoverageWitness::Variant { variant, .. } => {
                     let vinfo = variants.iter().find(|v| v.id == *variant);
                     let syntax = if let Some(v) = vinfo {

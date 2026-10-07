@@ -8,6 +8,11 @@ use crate::primitive::bytes::{
     bytes_class_from_string, bytes_class_new, bytes_raw_at, bytes_raw_copy_into, bytes_raw_equals_constant_time, bytes_raw_fill, bytes_raw_set, bytes_raw_size,
     bytes_raw_slice, bytes_raw_utf8, bytes_raw_utf8_lossy,
 };
+use crate::primitive::char::{
+    char_code_point, char_from_code_point, char_hash, char_is_ascii, char_is_ascii_alphanumeric, char_is_ascii_alphabetic, char_is_ascii_digit,
+    char_is_ascii_hex_digit, char_is_ascii_lowercase, char_is_ascii_uppercase, char_is_control, char_is_whitespace, char_to_string,
+    char_utf8_length,
+};
 use crate::primitive::class::{behavior_extract_shape, behavior_methods, behavior_name, class_add, class_new_, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
 use crate::primitive::family::{
@@ -226,6 +231,22 @@ impl Universe {
         primitive_internal!(vm, string_cls, "rawByteCount", SignatureKind::Getter, string_raw_byte_count);
         primitive_internal!(vm, string_cls, "rawByteAt", SignatureKind::Method(1), string_raw_byte_at);
         primitive_internal!(vm, string_cls, "rawSlice", SignatureKind::Method(2), string_raw_slice);
+
+        let char_cls = vm.universe.classes.char_class;
+        primitive!(vm, char_cls, "codePoint", SignatureKind::Getter, char_code_point);
+        primitive!(vm, char_cls, "utf8Length", SignatureKind::Getter, char_utf8_length);
+        primitive!(vm, char_cls, "toString", SignatureKind::Getter, char_to_string);
+        primitive!(vm, char_cls, "isAscii", SignatureKind::Getter, char_is_ascii);
+        primitive!(vm, char_cls, "isAsciiDigit", SignatureKind::Getter, char_is_ascii_digit);
+        primitive!(vm, char_cls, "isAsciiAlphabetic", SignatureKind::Getter, char_is_ascii_alphabetic);
+        primitive!(vm, char_cls, "isAsciiLowercase", SignatureKind::Getter, char_is_ascii_lowercase);
+        primitive!(vm, char_cls, "isAsciiUppercase", SignatureKind::Getter, char_is_ascii_uppercase);
+        primitive!(vm, char_cls, "isAsciiAlphanumeric", SignatureKind::Getter, char_is_ascii_alphanumeric);
+        primitive!(vm, char_cls, "isAsciiHexDigit", SignatureKind::Getter, char_is_ascii_hex_digit);
+        primitive!(vm, char_cls, "isWhitespace", SignatureKind::Getter, char_is_whitespace);
+        primitive!(vm, char_cls, "isControl", SignatureKind::Getter, char_is_control);
+        primitive!(vm, char_cls, "hash", SignatureKind::Getter, char_hash);
+        primitive_static!(vm, char_cls, "fromCodePoint", SignatureKind::Method(1), char_from_code_point);
 
         let bool_cls = vm.universe.classes.bool_class;
         primitive_static!(vm, bool_cls, "new", SignatureKind::Method(0), bool_class_new);

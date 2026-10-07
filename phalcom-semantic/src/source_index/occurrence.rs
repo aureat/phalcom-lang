@@ -802,6 +802,7 @@ impl OccurrenceBuilder<'_> {
             Expr::Int { .. }
             | Expr::Float { .. }
             | Expr::String { .. }
+            | Expr::Char { .. }
             | Expr::Boolean { .. }
             | Expr::Ellipsis { .. }
             | Expr::Symbol { .. }

@@ -190,6 +190,22 @@ pub enum SyntaxErrorKind {
     #[error("Unterminated string")]
     UnterminatedString,
 
+    /// A character literal was not closed before end-of-input.
+    #[error("Unterminated character literal")]
+    UnterminatedCharacterLiteral,
+
+    /// A character literal did not contain exactly one decoded Unicode scalar.
+    #[error("Character literal must contain exactly one Unicode scalar")]
+    InvalidCharacterLiteral,
+
+    /// A character literal contained a malformed or unsupported escape.
+    #[error("Invalid character escape")]
+    InvalidCharacterEscape,
+
+    /// A raw physical newline occurred inside a character literal.
+    #[error("Raw newline is not allowed in a character literal")]
+    RawNewlineInCharacterLiteral,
+
     /// A block comment was not closed before end-of-input.
     #[error("Unterminated comment")]
     UnterminatedComment,
@@ -273,6 +289,10 @@ impl SyntaxErrorKind {
             Self::InvalidInteger => "number.invalid_integer",
             Self::InvalidFloat => "number.invalid_float",
             Self::UnterminatedString => "string.unterminated",
+            Self::UnterminatedCharacterLiteral => "character.unterminated",
+            Self::InvalidCharacterLiteral => "character.invalid_literal",
+            Self::InvalidCharacterEscape => "character.invalid_escape",
+            Self::RawNewlineInCharacterLiteral => "character.raw_newline",
             Self::UnterminatedComment => "comment.unterminated",
             Self::InvalidStringEscape => "string.invalid_escape",
             Self::UnterminatedInterpolation => "string.interpolation.unterminated",

@@ -48,6 +48,7 @@ pub struct MatchArmResolution {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PatternResolution {
     Wildcard,
+    Char(char),
     Binding {
         binding: BindingId,
         name: Box<str>,
@@ -177,6 +178,7 @@ pub enum ExhaustivenessResult {
 /// Compact witness for an uncovered value space.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CoverageWitness {
+    Char(char),
     Variant {
         variant: VariantId,
         exact_case: TypeId,
@@ -192,6 +194,7 @@ pub enum CoverageWitness {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PatternSpaceSummary {
     Empty,
+    Char(char),
     /// Coverage could not safely determine this summary. This is distinct
     /// from `Opaque`, which is a known conservative value-space summary.
     Blocked(BlockReason),

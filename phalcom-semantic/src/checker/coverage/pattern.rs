@@ -9,6 +9,7 @@ pub(crate) struct CoveragePatternId(pub(crate) u32);
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum CoveragePattern {
     Wildcard,
+    Char(char),
 
     Variant {
         candidates: Box<[VariantId]>,

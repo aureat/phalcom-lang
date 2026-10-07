@@ -49,6 +49,7 @@ fn resolve_pattern_with_mode(
 ) -> PatternResolution {
     match pattern {
         Pattern::Wildcard { .. } => PatternResolution::Wildcard,
+        Pattern::Char { value, .. } => PatternResolution::Char(*value),
         Pattern::Name { name, range } => {
             if let Some(var_res) = try_resolve_contextual_singleton(ctx, name, *range, subject) {
                 PatternResolution::Variant(var_res)
@@ -86,6 +87,13 @@ fn resolve_pattern_with_mode(
                         crate::diagnostic::DiagnosticCode::MatchPatternOrRedundant,
                         "redundant or-pattern alternative: earlier alternatives already cover its reachable value space",
                         *range,
+                    ));
+                } else if usefulness == crate::match_semantics::PatternUsefulness::Impossible {
+                    ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
+                        "impossible or-pattern alternative: it cannot match any value of the scrutinee type",
+                        alternative.range(),
                     ));
                 }
                 prior_coverage_alts.push(cov_alt);
@@ -438,7 +446,7 @@ fn joined_local_type(matching: &[&PatternBindingResolution]) -> Option<crate::ty
 
 fn remap_pattern_bindings(resolution: &mut PatternResolution, replacements: &BTreeMap<String, (BindingId, TypeKnowledge)>) {
     match resolution {
-        PatternResolution::Wildcard => {}
+        PatternResolution::Wildcard | PatternResolution::Char(_) => {}
         PatternResolution::Binding { binding, name, knowledge } => {
             if let Some((replacement, joined)) = replacements.get(name.as_ref()) {
                 *binding = *replacement;
@@ -1144,7 +1152,7 @@ pub(crate) fn blocked_reason_for_resolution(resolution: &PatternResolution) -> O
             .or_else(|| pattern.rest.as_deref().and_then(blocked_reason_for_resolution)),
         PatternResolution::Record(fields) => fields.iter().find_map(|field| blocked_reason_for_resolution(&field.child)),
         PatternResolution::Map(entries) => entries.iter().find_map(|entry| blocked_reason_for_resolution(&entry.child)),
-        PatternResolution::Wildcard | PatternResolution::Binding { .. } => None,
+        PatternResolution::Wildcard | PatternResolution::Char(_) | PatternResolution::Binding { .. } => None,
     }
 }
 
@@ -1155,6 +1163,7 @@ pub(crate) fn coverage_pattern_for_resolution(
 ) -> crate::checker::coverage::CoveragePatternId {
     match resolution {
         PatternResolution::Wildcard | PatternResolution::Binding { .. } => arena.wildcard(),
+        PatternResolution::Char(value) => arena.alloc(crate::checker::coverage::CoveragePattern::Char(*value)),
         PatternResolution::Variant(variant) => {
             if variant.candidates.len() <= 1 {
                 let (candidates, exact_cases, fields) = if let Some(cand) = variant.candidates.first() {

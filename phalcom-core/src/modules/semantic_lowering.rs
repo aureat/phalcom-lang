@@ -378,6 +378,7 @@ pub struct ExecutableVariantCandidate {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExecutablePattern {
     Wildcard,
+    Char(char),
     Binding {
         binding_index: u32,
         name: Box<str>,
@@ -2017,6 +2018,7 @@ fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<A
         Expr::Int { .. }
         | Expr::Float { .. }
         | Expr::String { .. }
+        | Expr::Char { .. }
         | Expr::Boolean { .. }
         | Expr::Var { .. }
         | Expr::Field { .. }
@@ -2484,6 +2486,7 @@ fn project_pattern_resolution(
 ) -> Result<ExecutablePattern, ProjectionError> {
     match pattern {
         phalcom_semantic::match_semantics::PatternResolution::Wildcard => Ok(ExecutablePattern::Wildcard),
+        phalcom_semantic::match_semantics::PatternResolution::Char(value) => Ok(ExecutablePattern::Char(*value)),
         phalcom_semantic::match_semantics::PatternResolution::Binding { binding, name, .. } => {
             let index = bindings
                 .iter()

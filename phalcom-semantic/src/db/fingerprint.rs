@@ -2088,6 +2088,10 @@ fn hash_pattern_resolution(pat: &crate::match_semantics::PatternResolution, hash
                 hash_pattern_resolution(&e.child, hasher);
             }
         }
+        crate::match_semantics::PatternResolution::Char(value) => {
+            8u8.hash(hasher);
+            (*value as u32).hash(hasher);
+        }
     }
 }
 
@@ -2126,6 +2130,10 @@ fn hash_pattern_space_summary(space: &crate::match_semantics::PatternSpaceSummar
             }
         }
         crate::match_semantics::PatternSpaceSummary::List => 5u8.hash(hasher),
+        crate::match_semantics::PatternSpaceSummary::Char(value) => {
+            7u8.hash(hasher);
+            (*value as u32).hash(hasher);
+        }
     }
 }
 
@@ -2204,6 +2212,10 @@ fn hash_coverage_witness(w: &crate::match_semantics::CoverageWitness, hasher: &m
             ty.hash(hasher);
         }
         crate::match_semantics::CoverageWitness::Wildcard => 4u8.hash(hasher),
+        crate::match_semantics::CoverageWitness::Char(value) => {
+            5u8.hash(hasher);
+            (*value as u32).hash(hasher);
+        }
     }
 }
 

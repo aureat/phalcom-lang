@@ -243,7 +243,7 @@ fn bind_pattern(pattern: &Pattern, fact: &AdvisoryFact, context: &AdvisoryFlowCo
                 bind_pattern(rest, &fact.rest_shape(), context, product);
             }
         }
-        Pattern::Wildcard { .. } => {}
+        Pattern::Wildcard { .. } | Pattern::Char { .. } => {}
         Pattern::Or { alternatives, .. } => {
             for alt in alternatives {
                 bind_pattern(alt, fact, context, product);

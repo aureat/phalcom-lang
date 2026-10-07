@@ -33,6 +33,7 @@ pub struct AdvisoryBuiltins {
     pub int: Option<DeclarationId>,
     pub float: Option<DeclarationId>,
     pub string: Option<DeclarationId>,
+    pub char_: Option<DeclarationId>,
     pub boolean: Option<DeclarationId>,
     pub symbol: Option<DeclarationId>,
     pub ordering: Option<DeclarationId>,
@@ -48,6 +49,7 @@ impl AdvisoryBuiltins {
                 "Int" => phalcom_native_meta::UniverseKey::Int,
                 "Float" => phalcom_native_meta::UniverseKey::Float,
                 "String" => phalcom_native_meta::UniverseKey::String,
+                "Char" => phalcom_native_meta::UniverseKey::Char,
                 "Bool" => phalcom_native_meta::UniverseKey::Bool,
                 "Symbol" => phalcom_native_meta::UniverseKey::Symbol,
                 "Ordering" => phalcom_native_meta::UniverseKey::Ordering,
@@ -61,6 +63,7 @@ impl AdvisoryBuiltins {
             int: lookup(declarations, "Int"),
             float: lookup(declarations, "Float"),
             string: lookup(declarations, "String"),
+            char_: lookup(declarations, "Char"),
             boolean: lookup(declarations, "Bool"),
             symbol: lookup(declarations, "Symbol"),
             ordering: lookup(declarations, "Ordering"),
@@ -142,6 +145,7 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
         Expr::Int { .. } => literal(context, context.builtins.int.clone(), range),
         Expr::Float { .. } => literal(context, context.builtins.float.clone(), range),
         Expr::String { .. } => literal(context, context.builtins.string.clone(), range),
+        Expr::Char { .. } => literal(context, context.builtins.char_.clone(), range),
         Expr::Boolean { value, .. } => {
             let mut fact = literal(context, context.builtins.boolean.clone(), range);
             fact.literal = Some(super::AdvisoryLiteral::Bool(*value));

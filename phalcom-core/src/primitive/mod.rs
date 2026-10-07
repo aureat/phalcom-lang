@@ -2,6 +2,7 @@ pub mod attribute;
 pub mod block;
 pub mod boolean;
 pub mod bytes;
+pub mod char;
 pub mod class;
 pub mod error;
 pub mod family;
@@ -90,6 +91,7 @@ impl ClassName {
     pub const False: &'static str = "False";
     pub const Number: &'static str = "Number";
     pub const String: &'static str = "String";
+    pub const Char: &'static str = "Char";
     pub const Symbol: &'static str = "Symbol";
     pub const System: &'static str = "System";
     pub const Module: &'static str = "Module";

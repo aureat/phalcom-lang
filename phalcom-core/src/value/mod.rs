@@ -63,6 +63,8 @@ impl Value {
             "bool"
         } else if self.is_int() {
             "int"
+        } else if self.is_char() {
+            "Char"
         } else if self.is_float() {
             "float"
         } else if self.is_symbol() {
@@ -129,6 +131,9 @@ impl Value {
         }
         if self.is_int() {
             return vm.universe.classes.int_class;
+        }
+        if self.is_char() {
+            return vm.universe.classes.char_class;
         }
         if self.is_float() {
             return vm.universe.classes.float_class;
@@ -225,7 +230,7 @@ impl Value {
     /// Builds the [`CallContext`] a closure-backed method call against `self`
     /// runs with.
     ///
-    /// An immediate receiver (`Bool`/`Int`/`Float`/`Symbol`/`Option`/the private `Nil`
+    /// An immediate receiver (`Bool`/`Int`/`Char`/`Float`/`Symbol`/`Option`/the private `Nil`
     /// sentinel) yields [`CallContext::Immediate`] rather than panicking —
     /// U5 (ADR-0018) needs this so a user-reopened sacred selector on the
     /// kernel `Bool` class (a closure method, unlike the primitive it
@@ -291,7 +296,7 @@ impl Value {
     /// preserved across the handle-arena migration
     /// ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)):
     ///
-    /// - `Nil`, `Bool`, `Int`, `Float` compare by value.
+    /// - `Nil`, `Bool`, `Int`, `Char`, and `Float` compare by value.
     /// - Two [`Value::obj`] strings compare by content; instances, classes and
     ///   methods compare by identity ([`ObjRef`] handle equality).
     /// - [`Value::symbol`] pairs compare by **interned identity**: two symbols
@@ -365,6 +370,9 @@ impl Value {
             return true;
         }
         if let (Some(a), Some(b)) = (self.as_bool(), other.as_bool()) {
+            return a == b;
+        }
+        if let (Some(a), Some(b)) = (self.as_char(), other.as_char()) {
             return a == b;
         }
         if let (Some(a), Some(b)) = (self.as_int(), other.as_int()) {

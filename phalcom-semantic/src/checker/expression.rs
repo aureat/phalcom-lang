@@ -77,7 +77,7 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
         TypeKnowledge::Known(_) => {
             let ty = typed.knowledge.ty().expect("known expression has type");
             match expr {
-                Expr::Int { .. } | Expr::Float { .. } | Expr::String { .. } | Expr::Boolean { .. } => {
+                Expr::Int { .. } | Expr::Float { .. } | Expr::String { .. } | Expr::Char { .. } | Expr::Boolean { .. } => {
                     crate::explain::ExplanationStep::Literal { expression: expr_id, ty }
                 }
                 Expr::Var { value, .. } => match ctx.lookup_binding_info(value) {
@@ -217,6 +217,14 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         Expr::String { range, .. } => {
             let string_decl = ctx.core_ids.string.clone();
             if let Some(ty) = ctx.core_type(&string_decl) {
+                TypedExpression::established(ty, EvidenceOrigin::Syntax, *range)
+            } else {
+                TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
+            }
+        }
+        Expr::Char { range, .. } => {
+            let char_decl = ctx.core_ids.char_.clone();
+            if let Some(ty) = ctx.core_type(&char_decl) {
                 TypedExpression::established(ty, EvidenceOrigin::Syntax, *range)
             } else {
                 TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
@@ -5214,6 +5222,11 @@ fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSem
 pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom_ast::ast::MatchExpr, expected: &ExpectedType) -> TypedExpression {
     let expr_id = ctx.current_expression_id().unwrap_or_else(|| ctx.alloc_expression_id());
     let scrutinee_typed = analyze_expression(ctx, &match_expr.value, &ExpectedType::None);
+    let scrutinee_knowledge_block = match &scrutinee_typed.knowledge {
+        TypeKnowledge::Unknown(reason) => Some(crate::types::outcome::BlockReason::UnknownType(reason.clone())),
+        TypeKnowledge::Dynamic(_) => Some(crate::types::outcome::BlockReason::ReflectionBoundary),
+        TypeKnowledge::Known(_) => None,
+    };
     let original_ty = scrutinee_typed.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
     let refinement = {
         let empty_surfaces = crate::traits::TraitSurfaceTable::new();
@@ -5249,6 +5262,7 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
             (original_ty, Some(reason))
         }
     };
+    let refinement_block = refinement_block.or(scrutinee_knowledge_block);
     let before_flow = ctx.flow.clone();
     let stable_scrutinee = match match_expr.value.as_ref() {
         Expr::Var { value, .. } => ctx.lookup_binding_info(value).map(|binding| binding.id),
@@ -5284,6 +5298,13 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
                 ctx.current_module.clone(),
                 crate::diagnostic::DiagnosticCode::MatchArmRedundant,
                 "redundant match arm: earlier patterns already cover every reachable value of this pattern",
+                arm.range,
+            ));
+        } else if usefulness == crate::match_semantics::PatternUsefulness::Impossible {
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
+                "impossible match pattern: it cannot match any value of the scrutinee type",
                 arm.range,
             ));
         }

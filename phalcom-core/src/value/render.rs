@@ -39,6 +39,9 @@ impl Value {
         if let Some(n) = self.as_int() {
             return n.to_string();
         }
+        if let Some(value) = self.as_char() {
+            return value.to_string();
+        }
         if let Some(n) = self.as_float() {
             return render_float(n);
         }
@@ -157,6 +160,9 @@ impl Value {
         if let Some(n) = self.as_int() {
             return n.to_string();
         }
+        if let Some(value) = self.as_char() {
+            return format!("Char(U+{:04X})", value as u32);
+        }
         if let Some(n) = self.as_float() {
             return render_float(n);
         }
@@ -259,6 +265,10 @@ fn fmt_base_value(f: &mut fmt::Formatter<'_>, base: Value) -> fmt::Result {
         ValueTag::EmptyPack => write!(f, "Pack()"),
         ValueTag::Bool => write!(f, "{}", base.as_bool().unwrap_or(false)),
         ValueTag::Int => write!(f, "{}", base.as_int().unwrap_or(0)),
+        ValueTag::Char => match base.as_char() {
+            Some(value) => write!(f, "Char(U+{:04X})", value as u32),
+            None => write!(f, "Char(<invalid>)"),
+        },
         ValueTag::Float => write!(f, "{}", render_float(base.as_float().unwrap_or(0.0))),
         ValueTag::Symbol => write!(f, "Symbol({})", base.symbol_value().map(|s| s.0).unwrap_or(0)),
         ValueTag::Obj => {

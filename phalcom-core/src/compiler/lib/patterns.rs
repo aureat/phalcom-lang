@@ -60,6 +60,14 @@ impl<'vm> Compiler<'vm> {
     ) -> Result<(), CompilerError> {
         match pattern {
             ExecutablePattern::Wildcard => Ok(()),
+            ExecutablePattern::Char(value) => {
+                let constant = self.add_constant(crate::value::Value::char(*value), range)?;
+                self.emit(Bytecode::GetLocal(value_slot), range);
+                self.emit(Bytecode::Constant(constant), range);
+                self.emit(Bytecode::Same, range);
+                failures.push(self.emit_forward_jump(Bytecode::JumpIfFalse, range));
+                Ok(())
+            }
             ExecutablePattern::Binding { binding_index, .. } => {
                 if let Some(&stage_slot) = frame.staging_slots.get(*binding_index as usize) {
                     self.emit(Bytecode::GetLocal(value_slot), range);
@@ -251,7 +259,7 @@ impl<'vm> Compiler<'vm> {
                     self.declare_pattern_locals(p, mutable)?;
                 }
             }
-            Pattern::Wildcard { .. } => {}
+            Pattern::Wildcard { .. } | Pattern::Char { .. } => {}
             Pattern::Record { entries, rest, .. } => {
                 for entry in entries {
                     self.declare_pattern_locals(&entry.pattern, mutable)?;
@@ -275,9 +283,34 @@ impl<'vm> Compiler<'vm> {
         match pattern {
             Pattern::Name { .. } => {}
             Pattern::Wildcard { .. } => {}
+            Pattern::Char { value, range } => {
+                let constant = self.add_constant(Value::char(*value), *range)?;
+                self.emit(Bytecode::GetLocal(value_slot), *range);
+                self.emit(Bytecode::Constant(constant), *range);
+                self.emit(Bytecode::Same, *range);
+                failures.push(self.emit_forward_jump(Bytecode::JumpIfFalse, *range));
+            }
             Pattern::Or { alternatives, .. } => {
-                for p in alternatives {
-                    self.emit_pattern_match_tests(p, value_slot, failures)?;
+                let mut success_jumps = Vec::new();
+                for (index, alternative) in alternatives.iter().enumerate() {
+                    let is_last = index + 1 == alternatives.len();
+                    let mut alternative_failures = Vec::new();
+                    self.emit_pattern_match_tests(alternative, value_slot, &mut alternative_failures)?;
+
+                    if is_last {
+                        failures.extend(alternative_failures);
+                    } else {
+                        success_jumps.push(self.emit_forward_jump(Bytecode::Jump, alternative.range()));
+                        let next_alternative = self.chunk_len();
+                        for jump in alternative_failures {
+                            self.patch_forward_jump_to(jump, next_alternative);
+                        }
+                    }
+                }
+
+                let success = self.chunk_len();
+                for jump in success_jumps {
+                    self.patch_forward_jump_to(jump, success);
                 }
             }
             Pattern::Tuple { elements, range } => {
@@ -414,7 +447,7 @@ impl<'vm> Compiler<'vm> {
                     self.assign_pattern_from_slot(rest, rest_slot)?;
                 }
             }
-            Pattern::Wildcard { .. } => {}
+            Pattern::Wildcard { .. } | Pattern::Char { .. } => {}
             Pattern::Or { alternatives, .. } => {
                 for p in alternatives {
                     self.assign_pattern_from_slot(p, value_slot)?;
@@ -683,6 +716,9 @@ impl<'vm> Compiler<'vm> {
     /// declared in the same scope (L-3/L-5); otherwise propagates any error
     /// from a nested pattern.
     pub(super) fn compile_pattern_bind_top_of_stack(&mut self, pattern: &Pattern, mutable: bool, as_global: bool) -> Result<(), CompilerError> {
+        if contains_char_literal(pattern) {
+            return Err(CompilerError::InvalidExecutablePattern(pattern.range()));
+        }
         match pattern {
             Pattern::Name { name, range } => {
                 let name_sym = self.vm.interner.intern(name);
@@ -716,6 +752,7 @@ impl<'vm> Compiler<'vm> {
                 self.compile_pattern_bind_from_slot(pattern, slot, mutable, as_global)
             }
             Pattern::Or { .. } | Pattern::Wildcard { .. } => Ok(()),
+            Pattern::Char { .. } => Err(CompilerError::InvalidExecutablePattern(pattern.range())),
         }
     }
 
@@ -743,6 +780,7 @@ impl<'vm> Compiler<'vm> {
                 self.compile_pattern_bind_top_of_stack(pattern, mutable, as_global)
             }
             Pattern::Wildcard { .. } => Ok(()),
+            Pattern::Char { .. } => Err(CompilerError::InvalidExecutablePattern(pattern.range())),
             Pattern::Or { alternatives, .. } => {
                 for p in alternatives {
                     self.compile_pattern_bind_from_slot(p, value_slot, mutable, as_global)?;
@@ -983,5 +1021,28 @@ impl<'vm> Compiler<'vm> {
         self.end_scope(range);
 
         self.compile_pattern_bind_from_slot(rest_pattern, rest_slot, mutable, as_global)
+    }
+}
+
+fn contains_char_literal(pattern: &Pattern) -> bool {
+    match pattern {
+        Pattern::Char { .. } => true,
+        Pattern::Tuple { elements, .. } => elements.iter().any(contains_char_literal),
+        Pattern::List { elements, rest, .. } => {
+            elements.iter().any(contains_char_literal) || rest.as_deref().is_some_and(contains_char_literal)
+        }
+        Pattern::Variant(variant) => match &variant.mode {
+            phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => arguments.iter().any(|argument| contains_char_literal(&argument.pattern)),
+            phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => prefix
+                .iter()
+                .chain(suffix)
+                .any(|argument| contains_char_literal(&argument.pattern)),
+            phalcom_ast::ast::VariantPatternMode::Singleton | phalcom_ast::ast::VariantPatternMode::WholeFamily { .. } => false,
+        },
+        Pattern::Or { alternatives, .. } => alternatives.iter().any(contains_char_literal),
+        Pattern::Record { entries, rest, .. } => entries.iter().any(|entry| contains_char_literal(&entry.pattern))
+            || rest.as_deref().is_some_and(contains_char_literal),
+        Pattern::Map { entries, .. } => entries.iter().any(|entry| contains_char_literal(&entry.pattern)),
+        Pattern::Name { .. } | Pattern::Wildcard { .. } => false,
     }
 }

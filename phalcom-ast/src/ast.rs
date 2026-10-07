@@ -1192,6 +1192,7 @@ impl PartialEq for GenericArgumentSyntax {
             (Self::Value(a), Self::Value(b)) => match (&**a, &**b) {
                 (Expr::Int { digits: d1, radix: r1, .. }, Expr::Int { digits: d2, radix: r2, .. }) => d1 == d2 && r1 == r2,
                 (Expr::Float { value: v1, .. }, Expr::Float { value: v2, .. }) => v1.to_bits() == v2.to_bits(),
+                (Expr::Char { value: c1, .. }, Expr::Char { value: c2, .. }) => c1 == c2,
                 (Expr::String { value: s1, .. }, Expr::String { value: s2, .. }) => s1 == s2,
                 (Expr::Boolean { value: b1, .. }, Expr::Boolean { value: b2, .. }) => b1 == b2,
                 (Expr::Var { value: v1, .. }, Expr::Var { value: v2, .. }) => v1 == v2,
@@ -2306,6 +2307,8 @@ pub struct LetBinding {
 pub enum Pattern {
     /// A first-class recursive wildcard `_` matching any value and binding nothing.
     Wildcard { range: SourceRange },
+    /// An exact Unicode scalar literal pattern.
+    Char { value: char, range: SourceRange },
     /// A single bound name — the non-destructuring case (`let x = …`).
     Name {
         /// The bound name.
@@ -2364,6 +2367,7 @@ impl Pattern {
     pub fn range(&self) -> SourceRange {
         match self {
             Pattern::Wildcard { range }
+            | Pattern::Char { range, .. }
             | Pattern::Name { range, .. }
             | Pattern::Tuple { range, .. }
             | Pattern::List { range, .. }
@@ -2502,6 +2506,10 @@ pub enum FieldKind {
 
 #[derive(Debug, Clone)]
 pub enum Expr {
+    Char {
+        value: char,
+        range: SourceRange,
+    },
     Int {
         digits: String,
         radix: u32,
@@ -2605,7 +2613,8 @@ impl Expr {
     /// block literal.
     pub fn range(&self) -> SourceRange {
         match self {
-            Expr::Int { range, .. }
+            Expr::Char { range, .. }
+            | Expr::Int { range, .. }
             | Expr::Float { range, .. }
             | Expr::String { range, .. }
             | Expr::Boolean { range, .. }

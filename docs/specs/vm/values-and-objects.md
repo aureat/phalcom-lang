@@ -237,11 +237,13 @@ The current tag set is:
 | 10 | `EmptyRecord` | no payload |
 | 11 | `UninitializedBinding` | no payload (sentinel for unassigned local/binding) |
 | 12 | `EmptyPack` | no payload |
+| 13 | `Char` | zero-extended Unicode scalar value |
 
 Adding a new `ValueTag` requires review of:
 
 - constructors and checked accessors;
 - `Value::class`;
+- Char constructors/accessors and Unicode-scalar validation;
 - representation equality/hash;
 - rendering;
 - `Option` wrapping;

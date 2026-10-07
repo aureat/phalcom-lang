@@ -185,6 +185,10 @@ impl<'vm> Compiler<'vm> {
     ) -> Result<(), CompilerError> {
         match pattern {
             ExecutablePattern::Wildcard => Ok(()),
+            ExecutablePattern::Char(_) => {
+                failures.push(self.emit_forward_jump(Bytecode::Jump, range));
+                Ok(())
+            }
             ExecutablePattern::Binding { .. } => Err(CompilerError::Message("cannot bind whole unmaterialized variant in pattern".to_string())),
             ExecutablePattern::Variant { candidates } => {
                 let matching_candidate = candidates.iter().find(|c| c.variant == *known_variant);
@@ -261,6 +265,7 @@ fn synthesize_fallback_pattern(
 ) -> Result<ExecutablePattern, CompilerError> {
     match pat {
         Pattern::Wildcard { .. } => Ok(ExecutablePattern::Wildcard),
+        Pattern::Char { value, .. } => Ok(ExecutablePattern::Char(*value)),
         Pattern::Name { name, range } => {
             let idx = *binding_counter;
             *binding_counter += 1;

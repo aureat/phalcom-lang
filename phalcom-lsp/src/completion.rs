@@ -455,7 +455,7 @@ fn collect_pattern_names(pattern: &Pattern, out: &mut Vec<String>) {
             _ => {}
         },
         Pattern::Or { alternatives, .. } => alternatives.iter().for_each(|pat| collect_pattern_names(pat, out)),
-        Pattern::Wildcard { .. } => {}
+        Pattern::Wildcard { .. } | Pattern::Char { .. } => {}
         Pattern::Record { entries, rest, .. } => {
             entries.iter().for_each(|entry| collect_pattern_names(&entry.pattern, out));
             if let Some(rest) = rest {

@@ -5,10 +5,11 @@ use crate::declarations::DeclarationTypeTable;
 use crate::enum_semantics::EnumSemanticTable;
 use crate::match_semantics::{BranchProofEnvironment, CoverageWitness, ExhaustivenessResult, PatternSpaceSummary, PatternUsefulness};
 use crate::types::evidence::UnknownReason;
-use crate::types::outcome::BlockReason;
-use crate::types::relation::TypeHierarchy;
+use crate::types::outcome::{BlockReason, RelationFailure, RelationOutcome};
+use crate::types::relation::{TypeHierarchy, check_subtype_bounded};
 use crate::types::rigid::RigidArena;
-use crate::types::store::TypeStore;
+use crate::types::store::{TypeData, TypeStore};
+use std::collections::BTreeSet;
 
 use super::domain::{ConstructorCase, ConstructorHead, DomainDecomposition, decompose_domain};
 use super::inhabitation::{Inhabitation, check_inhabitation};
@@ -16,6 +17,7 @@ use super::pattern::{CoveragePattern, CoveragePatternArena, CoveragePatternId};
 use super::subject::CoverageSubject;
 
 pub(crate) const MAX_COVERAGE_WITNESSES: usize = 8;
+const UNICODE_SCALAR_COUNT: usize = 0x11_0000 - 0x800;
 
 #[derive(Clone, Debug)]
 pub(crate) enum UsefulnessSearch {
@@ -284,6 +286,14 @@ impl CoverageEngine {
                         .collect();
                     return ExhaustivenessResult::Missing(witnesses.into_boxed_slice());
                 }
+                DomainDecomposition::Char => {
+                    return ExhaustivenessResult::Missing(Box::new([CoverageWitness::Char('\0')]));
+                }
+                DomainDecomposition::ClosedWithChar(cases) => {
+                    let mut witnesses = vec![CoverageWitness::Char('\0')];
+                    witnesses.extend(cases.iter().take(MAX_COVERAGE_WITNESSES - 1).map(|case| construct_case_witness(case, &self.root, None)));
+                    return ExhaustivenessResult::Missing(witnesses.into_boxed_slice());
+                }
                 DomainDecomposition::Open => {
                     return ExhaustivenessResult::Missing(Box::new([CoverageWitness::Opaque(self.root.canonical)]));
                 }
@@ -362,6 +372,7 @@ impl CoverageEngine {
 
 pub(crate) fn witness_to_summary(witness: &CoverageWitness) -> PatternSpaceSummary {
     match witness {
+        CoverageWitness::Char(value) => PatternSpaceSummary::Char(*value),
         CoverageWitness::Wildcard => PatternSpaceSummary::Empty,
         CoverageWitness::Opaque(ty) => PatternSpaceSummary::Opaque(*ty),
         CoverageWitness::Variant { variant, exact_case, fields } => {
@@ -394,9 +405,11 @@ pub(crate) fn summarize_pattern(
 ) -> PatternSpaceSummary {
     match arena.get(pattern) {
         CoveragePattern::Wildcard => PatternSpaceSummary::Opaque(subject.canonical),
+        CoveragePattern::Char(value) => PatternSpaceSummary::Char(*value),
         CoveragePattern::Variant { candidates, fields, .. } => {
             let cases = match decompose_domain(declarations, store, hierarchy, rigids, enum_table, subject, control) {
-                DomainDecomposition::Closed(cases) => cases,
+                DomainDecomposition::Closed(cases) | DomainDecomposition::ClosedWithChar(cases) => cases,
+                DomainDecomposition::Char => return PatternSpaceSummary::Empty,
                 DomainDecomposition::Empty => return PatternSpaceSummary::Empty,
                 DomainDecomposition::Blocked(reason) => return PatternSpaceSummary::Blocked(reason),
                 DomainDecomposition::Open => return PatternSpaceSummary::Opaque(subject.canonical),
@@ -435,12 +448,13 @@ pub(crate) fn summarize_pattern(
         }
         CoveragePattern::Tuple(fields) => {
             let cases = match decompose_domain(declarations, store, hierarchy, rigids, enum_table, subject, control) {
-                DomainDecomposition::Closed(cases) => cases,
+                DomainDecomposition::Closed(cases) | DomainDecomposition::ClosedWithChar(cases) => cases,
+                DomainDecomposition::Char => return PatternSpaceSummary::Empty,
                 DomainDecomposition::Empty => return PatternSpaceSummary::Empty,
                 DomainDecomposition::Blocked(reason) => return PatternSpaceSummary::Blocked(reason),
                 DomainDecomposition::Open => return PatternSpaceSummary::Opaque(subject.canonical),
             };
-            let Some(case) = cases.first() else {
+            let Some(case) = cases.iter().find(|case| matches!(&case.head, ConstructorHead::Tuple { .. })) else {
                 return PatternSpaceSummary::Empty;
             };
             let summaries = case
@@ -530,6 +544,34 @@ fn useful_internal(
         return UsefulnessSearch::NotUseful;
     }
 
+    if let CoveragePattern::Char(value) = &head_pat {
+        let value = *value;
+        match char_pattern_may_match(declarations, store, hierarchy, control, head_subject) {
+            Ok(false) => return UsefulnessSearch::NotUseful,
+            Err(reason) => return UsefulnessSearch::Blocked(reason),
+            Ok(true) => {}
+        }
+        let specialized = specialize_matrix_for_char_value(arena, matrix, value);
+        return match useful_internal(
+            declarations,
+            store,
+            hierarchy,
+            rigids,
+            enum_table,
+            arena,
+            control,
+            metrics,
+            &specialized,
+            &candidate[1..],
+            &subjects[1..],
+            proof,
+        ) {
+            UsefulnessSearch::Useful(_) => UsefulnessSearch::Useful(Some(CoverageWitness::Char(value))),
+            UsefulnessSearch::NotUseful => UsefulnessSearch::NotUseful,
+            UsefulnessSearch::Blocked(reason) => UsefulnessSearch::Blocked(reason),
+        };
+    }
+
     // Predicates on open domains:
     if matches!(head_pat, CoveragePattern::RecordPredicate | CoveragePattern::MapPredicate) {
         let wildcard_prior: Vec<Vec<CoveragePatternId>> = matrix
@@ -601,52 +643,48 @@ fn useful_internal(
                     proof,
                 )
             }
-            DomainDecomposition::Closed(all_constructors) => {
-                for case in all_constructors.iter() {
-                    if let Err(reason) = charge_search_work(control) {
-                        return UsefulnessSearch::Blocked(reason);
-                    }
-                    metrics.matrix_specializations += 1;
-                    let spec_matrix = specialize_matrix_for_case(arena, matrix, case);
-                    let mut spec_cand = vec![arena.wildcard(); case.fields.len()];
-                    spec_cand.extend_from_slice(&candidate[1..]);
-
-                    let mut spec_subj = case.fields.to_vec();
-                    spec_subj.extend_from_slice(&subjects[1..]);
-
-                    metrics.proof_merges += 1;
-                    let merged_proof = match crate::checker::gadt_proof::merge_branch_proofs(store, proof, &case.proof) {
-                        crate::checker::gadt_proof::ProofMerge::Compatible(p) => p,
-                        crate::checker::gadt_proof::ProofMerge::Contradictory => continue,
-                        crate::checker::gadt_proof::ProofMerge::Blocked(reason) => return UsefulnessSearch::Blocked(reason),
-                    };
-
-                    match useful_internal(
-                        declarations,
-                        store,
-                        hierarchy,
-                        rigids,
-                        enum_table,
-                        arena,
-                        control,
-                        metrics,
-                        &spec_matrix,
-                        &spec_cand,
-                        &spec_subj,
-                        &merged_proof,
-                    ) {
-                        UsefulnessSearch::Useful(child_wit) => {
-                            if let Err(reason) = charge_search_work(control) {
-                                return UsefulnessSearch::Blocked(reason);
-                            }
-                            let witness = construct_case_witness(case, head_subject, child_wit);
-                            return UsefulnessSearch::Useful(Some(witness));
-                        }
-                        UsefulnessSearch::Blocked(b) => return UsefulnessSearch::Blocked(b),
-                        UsefulnessSearch::NotUseful => continue,
-                    }
+            DomainDecomposition::Char => useful_char_domain(
+                declarations, store, hierarchy, rigids, enum_table, arena, control, metrics, matrix, candidate, subjects, proof,
+            ),
+            DomainDecomposition::Closed(all_constructors) => useful_closed_constructors(
+                declarations,
+                store,
+                hierarchy,
+                rigids,
+                enum_table,
+                arena,
+                control,
+                metrics,
+                matrix,
+                candidate,
+                subjects,
+                proof,
+                &all_constructors,
+                head_subject,
+            ),
+            DomainDecomposition::ClosedWithChar(all_constructors) => {
+                match useful_closed_constructors(
+                    declarations,
+                    store,
+                    hierarchy,
+                    rigids,
+                    enum_table,
+                    arena,
+                    control,
+                    metrics,
+                    matrix,
+                    candidate,
+                    subjects,
+                    proof,
+                    &all_constructors,
+                    head_subject,
+                ) {
+                    UsefulnessSearch::Useful(witness) => UsefulnessSearch::Useful(witness),
+                    UsefulnessSearch::Blocked(reason) => UsefulnessSearch::Blocked(reason),
+                    UsefulnessSearch::NotUseful => useful_char_domain(
+                        declarations, store, hierarchy, rigids, enum_table, arena, control, metrics, matrix, candidate, subjects, proof,
+                    ),
                 }
-                UsefulnessSearch::NotUseful
             }
         }
     } else {
@@ -654,12 +692,13 @@ fn useful_internal(
         metrics.constructor_decompositions += 1;
         match decompose_domain(declarations, store, hierarchy, rigids, enum_table, head_subject, control) {
             DomainDecomposition::Empty => UsefulnessSearch::NotUseful,
+            DomainDecomposition::Char => UsefulnessSearch::NotUseful,
             DomainDecomposition::Blocked(b) => UsefulnessSearch::Blocked(b),
             DomainDecomposition::Open => {
                 // Constructor on an open domain:
                 UsefulnessSearch::Useful(Some(CoverageWitness::Opaque(head_subject.canonical)))
             }
-            DomainDecomposition::Closed(all_constructors) => {
+            DomainDecomposition::Closed(all_constructors) | DomainDecomposition::ClosedWithChar(all_constructors) => {
                 for case in all_constructors.iter() {
                     if !case_matches_pattern(arena, case, &head_pat) {
                         continue;
@@ -711,6 +750,292 @@ fn useful_internal(
             }
         }
     }
+}
+
+fn char_pattern_may_match(
+    declarations: &DeclarationTypeTable,
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    control: &CheckerControl,
+    subject: &CoverageSubject,
+) -> Result<bool, BlockReason> {
+    let char_declaration = crate::core_surface::CoreDeclarationIds::default().char_;
+    let Some(char_type) = declarations.get(&char_declaration).map(|info| info.form) else {
+        return Err(BlockReason::ReflectionBoundary);
+    };
+
+    let relation = control.relation(|budget, cancellation| {
+        check_subtype_bounded(store, hierarchy, char_type, subject.canonical, budget, cancellation)
+    });
+    match relation {
+        RelationOutcome::Proven { .. } => Ok(true),
+        RelationOutcome::Blocked(reason) => Err(reason),
+        RelationOutcome::Cancelled => Err(BlockReason::UnknownType(UnknownReason::InferenceCancelled)),
+        RelationOutcome::BudgetExceeded(report) => Err(BlockReason::BudgetExceeded(report)),
+        RelationOutcome::DynamicBoundary(_) | RelationOutcome::InternalFailure(_) => Err(BlockReason::ReflectionBoundary),
+        RelationOutcome::Refuted(RelationFailure::CycleDetected { .. } | RelationFailure::DepthExceeded | RelationFailure::Custom(_)) => {
+            Err(BlockReason::ReflectionBoundary)
+        }
+        RelationOutcome::Refuted(_) => {
+            if subject.contains_local_rigids()
+                || matches!(
+                    store.get(subject.canonical),
+                    TypeData::Parameter(_) | TypeData::SelfType(_) | TypeData::AssociatedProjection(_) | TypeData::TypeMemberProjection(_)
+                )
+            {
+                Err(BlockReason::ReflectionBoundary)
+            } else {
+                Ok(false)
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn useful_char_domain(
+    declarations: &DeclarationTypeTable,
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    rigids: &mut RigidArena,
+    enum_table: Option<&EnumSemanticTable>,
+    arena: &mut CoveragePatternArena,
+    control: &CheckerControl,
+    metrics: &mut CoverageMetrics,
+    matrix: &[Vec<CoveragePatternId>],
+    candidate: &[CoveragePatternId],
+    subjects: &[CoverageSubject],
+    proof: &BranchProofEnvironment,
+) -> UsefulnessSearch {
+    let values = match char_values_in_matrix(arena, matrix, control) {
+        Ok(values) => values,
+        Err(reason) => return UsefulnessSearch::Blocked(reason),
+    };
+    if candidate.len() == 1 && subjects.len() == 1 {
+        if matrix.iter().any(|row| {
+            row.first().is_some_and(|head| char_pattern_has_wildcard(arena, *head))
+        }) || values.len() == UNICODE_SCALAR_COUNT
+        {
+            return UsefulnessSearch::NotUseful;
+        }
+        return first_missing_scalar(&values)
+            .map(|value| UsefulnessSearch::Useful(Some(CoverageWitness::Char(value))))
+            .unwrap_or(UsefulnessSearch::NotUseful);
+    }
+
+    for value in values.iter().copied() {
+        if let Err(reason) = charge_search_work(control) {
+            return UsefulnessSearch::Blocked(reason);
+        }
+        metrics.matrix_specializations += 1;
+        let specialized = specialize_matrix_for_char_value(arena, matrix, Some(value));
+        match useful_internal(
+            declarations,
+            store,
+            hierarchy,
+            rigids,
+            enum_table,
+            arena,
+            control,
+            metrics,
+            &specialized,
+            &candidate[1..],
+            &subjects[1..],
+            proof,
+        ) {
+            UsefulnessSearch::Useful(_) => return UsefulnessSearch::Useful(Some(CoverageWitness::Char(value))),
+            UsefulnessSearch::Blocked(reason) => return UsefulnessSearch::Blocked(reason),
+            UsefulnessSearch::NotUseful => {}
+        }
+    }
+
+    let Some(missing) = first_missing_scalar(&values) else {
+        return UsefulnessSearch::NotUseful;
+    };
+    if let Err(reason) = charge_search_work(control) {
+        return UsefulnessSearch::Blocked(reason);
+    }
+    metrics.matrix_specializations += 1;
+    let default_matrix = specialize_matrix_for_char_value(arena, matrix, None);
+    match useful_internal(
+        declarations,
+        store,
+        hierarchy,
+        rigids,
+        enum_table,
+        arena,
+        control,
+        metrics,
+        &default_matrix,
+        &candidate[1..],
+        &subjects[1..],
+        proof,
+    ) {
+        UsefulnessSearch::Useful(_) => UsefulnessSearch::Useful(Some(CoverageWitness::Char(missing))),
+        UsefulnessSearch::NotUseful => UsefulnessSearch::NotUseful,
+        UsefulnessSearch::Blocked(reason) => UsefulnessSearch::Blocked(reason),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn useful_closed_constructors(
+    declarations: &DeclarationTypeTable,
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    rigids: &mut RigidArena,
+    enum_table: Option<&EnumSemanticTable>,
+    arena: &mut CoveragePatternArena,
+    control: &CheckerControl,
+    metrics: &mut CoverageMetrics,
+    matrix: &[Vec<CoveragePatternId>],
+    candidate: &[CoveragePatternId],
+    subjects: &[CoverageSubject],
+    proof: &BranchProofEnvironment,
+    cases: &[ConstructorCase],
+    head_subject: &CoverageSubject,
+) -> UsefulnessSearch {
+    for case in cases {
+        if let Err(reason) = charge_search_work(control) {
+            return UsefulnessSearch::Blocked(reason);
+        }
+        metrics.matrix_specializations += 1;
+        let spec_matrix = specialize_matrix_for_case(arena, matrix, case);
+        let mut spec_cand = vec![arena.wildcard(); case.fields.len()];
+        spec_cand.extend_from_slice(&candidate[1..]);
+
+        let mut spec_subj = case.fields.to_vec();
+        spec_subj.extend_from_slice(&subjects[1..]);
+
+        metrics.proof_merges += 1;
+        let merged_proof = match crate::checker::gadt_proof::merge_branch_proofs(store, proof, &case.proof) {
+            crate::checker::gadt_proof::ProofMerge::Compatible(p) => p,
+            crate::checker::gadt_proof::ProofMerge::Contradictory => continue,
+            crate::checker::gadt_proof::ProofMerge::Blocked(reason) => return UsefulnessSearch::Blocked(reason),
+        };
+
+        match useful_internal(
+            declarations,
+            store,
+            hierarchy,
+            rigids,
+            enum_table,
+            arena,
+            control,
+            metrics,
+            &spec_matrix,
+            &spec_cand,
+            &spec_subj,
+            &merged_proof,
+        ) {
+            UsefulnessSearch::Useful(child_wit) => {
+                if let Err(reason) = charge_search_work(control) {
+                    return UsefulnessSearch::Blocked(reason);
+                }
+                return UsefulnessSearch::Useful(Some(construct_case_witness(case, head_subject, child_wit)));
+            }
+            UsefulnessSearch::Blocked(reason) => return UsefulnessSearch::Blocked(reason),
+            UsefulnessSearch::NotUseful => {}
+        }
+    }
+    UsefulnessSearch::NotUseful
+}
+
+fn char_values_in_matrix(
+    arena: &CoveragePatternArena,
+    matrix: &[Vec<CoveragePatternId>],
+    control: &CheckerControl,
+) -> Result<BTreeSet<char>, BlockReason> {
+    fn collect(
+        arena: &CoveragePatternArena,
+        pattern: CoveragePatternId,
+        values: &mut BTreeSet<char>,
+        control: &CheckerControl,
+    ) -> Result<(), BlockReason> {
+        charge_search_work(control)?;
+        match arena.get(pattern) {
+            CoveragePattern::Char(value) => {
+                values.insert(*value);
+            }
+            CoveragePattern::Or(alternatives) => {
+                for alternative in alternatives.iter() {
+                    collect(arena, *alternative, values, control)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    let mut values = BTreeSet::new();
+    for row in matrix {
+        if let Some(head) = row.first() {
+            collect(arena, *head, &mut values, control)?;
+        }
+    }
+    Ok(values)
+}
+
+fn char_pattern_has_wildcard(arena: &CoveragePatternArena, pattern: CoveragePatternId) -> bool {
+    match arena.get(pattern) {
+        CoveragePattern::Wildcard => true,
+        CoveragePattern::Or(alternatives) => alternatives.iter().any(|alternative| char_pattern_has_wildcard(arena, *alternative)),
+        _ => false,
+    }
+}
+
+fn specialize_matrix_for_char_value(
+    arena: &CoveragePatternArena,
+    matrix: &[Vec<CoveragePatternId>],
+    value: Option<char>,
+) -> Vec<Vec<CoveragePatternId>> {
+    fn add_matching_alternatives(
+        arena: &CoveragePatternArena,
+        pattern: CoveragePatternId,
+        value: Option<char>,
+        suffix: &[CoveragePatternId],
+        output: &mut Vec<Vec<CoveragePatternId>>,
+    ) {
+        match arena.get(pattern) {
+            CoveragePattern::Wildcard => output.push(suffix.to_vec()),
+            CoveragePattern::Char(candidate) if value == Some(*candidate) => output.push(suffix.to_vec()),
+            CoveragePattern::Or(alternatives) => {
+                for alternative in alternatives.iter() {
+                    add_matching_alternatives(arena, *alternative, value, suffix, output);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut specialized = Vec::new();
+    for row in matrix {
+        if let Some((&head, suffix)) = row.split_first() {
+            add_matching_alternatives(arena, head, value, suffix, &mut specialized);
+        }
+    }
+    specialized
+}
+
+fn first_missing_scalar(values: &BTreeSet<char>) -> Option<char> {
+    if values.len() == UNICODE_SCALAR_COUNT {
+        return None;
+    }
+    let mut next = 0_u32;
+    for value in values {
+        if next == 0xD800 {
+            next = 0xE000;
+        }
+        let code_point = *value as u32;
+        if code_point > next {
+            return char::from_u32(next);
+        }
+        if code_point == next {
+            next += 1;
+        }
+    }
+    if next == 0xD800 {
+        next = 0xE000;
+    }
+    char::from_u32(next)
 }
 
 fn charge_search_work(control: &CheckerControl) -> Result<(), BlockReason> {

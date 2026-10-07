@@ -1798,7 +1798,7 @@ impl SourceScopeBuilder<'_> {
                     self.declare_pattern_with_annotation(scope, rest, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
                 }
             }
-            Pattern::Wildcard { .. } => {}
+            Pattern::Wildcard { .. } | Pattern::Char { .. } => {}
             Pattern::Or { alternatives, .. } => {
                 for alt in alternatives {
                     self.declare_pattern_with_annotation(scope, alt, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
@@ -2022,6 +2022,7 @@ impl SourceScopeBuilder<'_> {
             Expr::Int { .. }
             | Expr::Float { .. }
             | Expr::String { .. }
+            | Expr::Char { .. }
             | Expr::Boolean { .. }
             | Expr::Var { .. }
             | Expr::Field { .. }

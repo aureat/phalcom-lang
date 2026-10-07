@@ -136,6 +136,8 @@ pub enum Token {
     /// A string with no `\(…)` interpolation lexes to this variant; one with at
     /// least one interpolation lexes to [`Token::StringInterp`] instead.
     String(String),
+    /// A single-quoted literal containing exactly one decoded Unicode scalar.
+    Char(char),
     /// An interpolated double-quoted string literal (ADR-0022).
     ///
     /// Produced when a string body contains at least one `\(expr)`
@@ -352,6 +354,14 @@ pub enum LexicalError {
     InvalidToken(Range<usize>),
     /// A string literal was opened but never closed before end-of-input.
     UnterminatedString(Range<usize>),
+    /// A character literal was opened but never closed before end-of-input.
+    UnterminatedCharacterLiteral(Range<usize>),
+    /// A character literal did not decode to exactly one Unicode scalar.
+    InvalidCharacterLiteral(Range<usize>),
+    /// An escape sequence in a character literal was malformed or unsupported.
+    InvalidCharacterEscape(Range<usize>),
+    /// A raw physical newline occurred inside a character literal.
+    RawNewlineInCharacterLiteral(Range<usize>),
     /// A block comment `/* … */` was opened but never closed before
     /// end-of-input.
     ///

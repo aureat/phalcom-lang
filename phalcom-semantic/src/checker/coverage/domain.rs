@@ -19,6 +19,10 @@ use super::subject::CoverageSubject;
 pub(crate) enum DomainDecomposition {
     Empty,
     Closed(Box<[ConstructorCase]>),
+    /// The closed Unicode scalar domain owned by the canonical Char type.
+    Char,
+    /// A closed union containing both constructor cases and the Char scalar domain.
+    ClosedWithChar(Box<[ConstructorCase]>),
     Open,
     Blocked(BlockReason),
 }
@@ -216,6 +220,7 @@ fn local_subject_replacements(
 /// Decomposes a coverage subject into its top-level constructors one layer deep.
 ///
 /// Closed enums/GADTs, tuples, lists, and closed exact cases return a finite set of ConstructorCases.
+/// Char returns its closed scalar domain without enumerating every scalar.
 /// Open domains (Object, unknown, etc.) return Open.
 /// Uninhabited types return Empty.
 pub(crate) fn decompose_domain(
@@ -229,6 +234,11 @@ pub(crate) fn decompose_domain(
 ) -> DomainDecomposition {
     if matches!(store.get(subject.canonical), TypeData::Never) {
         return DomainDecomposition::Empty;
+    }
+
+    let char_declaration = crate::core_surface::CoreDeclarationIds::default().char_;
+    if store.nominal_origin_declaration(subject.canonical) == Some(&char_declaration) {
+        return DomainDecomposition::Char;
     }
 
     if let TypeData::ExactCase { variant, .. } = store.get(subject.canonical).clone() {
@@ -329,6 +339,7 @@ pub(crate) fn decompose_domain(
 
     if let TypeData::Union(members) = store.get(subject.canonical).clone() {
         let mut all_cases = Vec::new();
+        let mut has_char_domain = false;
         let mut has_open_member = false;
         for (index, &member) in members.iter().enumerate() {
             let member_sub = match &subject.local {
@@ -340,6 +351,11 @@ pub(crate) fn decompose_domain(
                 DomainDecomposition::Closed(member_cases) => {
                     all_cases.extend(member_cases.into_vec());
                 }
+                DomainDecomposition::Char => has_char_domain = true,
+                DomainDecomposition::ClosedWithChar(member_cases) => {
+                    all_cases.extend(member_cases.into_vec());
+                    has_char_domain = true;
+                }
                 DomainDecomposition::Empty => {}
                 DomainDecomposition::Open => has_open_member = true,
                 DomainDecomposition::Blocked(b) => return DomainDecomposition::Blocked(b),
@@ -350,7 +366,10 @@ pub(crate) fn decompose_domain(
             return DomainDecomposition::Open;
         }
         if all_cases.is_empty() {
-            return DomainDecomposition::Empty;
+            return if has_char_domain { DomainDecomposition::Char } else { DomainDecomposition::Empty };
+        }
+        if has_char_domain {
+            return DomainDecomposition::ClosedWithChar(all_cases.into_boxed_slice());
         }
         return DomainDecomposition::Closed(all_cases.into_boxed_slice());
     }

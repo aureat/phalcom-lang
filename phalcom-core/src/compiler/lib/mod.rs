@@ -734,7 +734,7 @@ impl<'vm> Compiler<'vm> {
                         collect_pattern(p, out);
                     }
                 }
-                phalcom_ast::ast::Pattern::Wildcard { .. } => {}
+                phalcom_ast::ast::Pattern::Wildcard { .. } | phalcom_ast::ast::Pattern::Char { .. } => {}
                 phalcom_ast::ast::Pattern::Record { entries, .. } => {
                     for entry in entries {
                         collect_pattern(&entry.pattern, out);
@@ -1034,7 +1034,7 @@ impl<'vm> Compiler<'vm> {
 fn is_non_error_literal(expr: &Expr) -> bool {
     matches!(
         expr,
-        Expr::Int { .. } | Expr::Float { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Symbol(_)
+        Expr::Int { .. } | Expr::Float { .. } | Expr::String { .. } | Expr::Char { .. } | Expr::Boolean { .. } | Expr::Symbol(_)
     )
 }
 

@@ -456,7 +456,7 @@ fn collect_pattern_names(pattern: &Pattern, out: &mut Vec<String>) {
                 collect_pattern_names(p, out);
             }
         }
-        Pattern::Wildcard { .. } => {}
+        Pattern::Wildcard { .. } | Pattern::Char { .. } => {}
         Pattern::Record { entries, .. } => {
             for entry in entries {
                 collect_pattern_names(&entry.pattern, out);

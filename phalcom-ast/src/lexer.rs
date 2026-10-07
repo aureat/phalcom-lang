@@ -199,6 +199,7 @@ impl<'input> Lexer<'input> {
             }
             b'#' if self.peek_at(1) == Some(b'"') => self.scan_quoted_symbol(),
             b'"' => self.scan_string_like(),
+            b'\'' => self.scan_character(),
             b'#' => {
                 self.pos += 1;
                 Ok(Token::Hash)
@@ -561,6 +562,11 @@ impl<'input> Lexer<'input> {
                 Some(b'"') => {
                     // Consume nested string or multiline string using centralized dispatcher.
                     let _ = self.scan_string_like()?;
+                }
+                Some(b'\'') => {
+                    // Character literals are nested lexical modes too: their
+                    // quotes and parentheses do not affect interpolation depth.
+                    let _ = self.scan_character()?;
                 }
                 Some(b'/') if self.peek_at(1) == Some(b'/') => {
                     self.scan_line_comment();
@@ -983,6 +989,104 @@ impl<'input> Lexer<'input> {
                     self.pos += len;
                 }
             }
+        }
+    }
+
+    /// Scans a single-quoted character literal, applying escapes before
+    /// requiring exactly one Unicode scalar.
+    fn scan_character(&mut self) -> Result<Token, LexicalError> {
+        let open = self.pos;
+        self.pos += 1;
+        let mut value = None;
+        let mut scalar_count = 0usize;
+
+        loop {
+            match self.peek_at(0) {
+                None => return Err(LexicalError::UnterminatedCharacterLiteral(open..self.pos)),
+                Some(b'\'') => {
+                    self.pos += 1;
+                    if scalar_count == 1 {
+                        return Ok(Token::Char(value.expect("one decoded scalar was recorded")));
+                    }
+                    return Err(LexicalError::InvalidCharacterLiteral(open..self.pos));
+                }
+                Some(b'\n') => {
+                    let start = self.pos;
+                    self.pos += 1;
+                    return Err(LexicalError::RawNewlineInCharacterLiteral(start..self.pos));
+                }
+                Some(b'\r') => {
+                    let start = self.pos;
+                    self.pos += if self.peek_at(1) == Some(b'\n') { 2 } else { 1 };
+                    return Err(LexicalError::RawNewlineInCharacterLiteral(start..self.pos));
+                }
+                Some(b'\\') => {
+                    let scalar = self.scan_character_escape()?;
+                    scalar_count += 1;
+                    if scalar_count == 1 {
+                        value = Some(scalar);
+                    }
+                }
+                Some(_) => {
+                    // `input` is valid UTF-8, so the current position is a
+                    // scalar boundary and `chars().next()` succeeds.
+                    let scalar = self.input[self.pos..].chars().next().expect("position is before input end");
+                    self.pos += scalar.len_utf8();
+                    scalar_count += 1;
+                    if scalar_count == 1 {
+                        value = Some(scalar);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Decodes the escape beginning at the current backslash.
+    fn scan_character_escape(&mut self) -> Result<char, LexicalError> {
+        let start = self.pos;
+        self.pos += 1;
+        match self.peek_at(0) {
+            Some(b'n') => { self.pos += 1; Ok('\n') }
+            Some(b'r') => { self.pos += 1; Ok('\r') }
+            Some(b't') => { self.pos += 1; Ok('\t') }
+            Some(b'\\') => { self.pos += 1; Ok('\\') }
+            Some(b'\'') => { self.pos += 1; Ok('\'') }
+            Some(b'u') => {
+                self.pos += 1;
+                if self.peek_at(0) != Some(b'{') {
+                    return Err(LexicalError::InvalidCharacterEscape(start..self.pos));
+                }
+                self.pos += 1;
+                let digits_start = self.pos;
+                while matches!(self.peek_at(0), Some(b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F')) {
+                    self.pos += 1;
+                }
+                let digit_count = self.pos - digits_start;
+                let digits = &self.input[digits_start..self.pos];
+                if !(1..=6).contains(&digit_count) || self.peek_at(0) != Some(b'}') {
+                    while let Some(byte) = self.peek_at(0) {
+                        if matches!(byte, b'}' | b'\'' | b'\n' | b'\r') {
+                            break;
+                        }
+                        self.pos += 1;
+                    }
+                    if self.peek_at(0) == Some(b'}') {
+                        self.pos += 1;
+                    }
+                    return Err(LexicalError::InvalidCharacterEscape(start..self.pos));
+                }
+                self.pos += 1;
+                u32::from_str_radix(digits, 16)
+                    .ok()
+                    .and_then(char::from_u32)
+                    .ok_or_else(|| LexicalError::InvalidCharacterEscape(start..self.pos))
+            }
+            Some(_) => {
+                let end = self.pos + self.char_len_at(self.pos);
+                self.pos = end;
+                Err(LexicalError::InvalidCharacterEscape(start..end))
+            }
+            None => Err(LexicalError::InvalidCharacterEscape(start..self.pos)),
         }
     }
 

@@ -57,6 +57,7 @@ impl Universe {
         heap.class_mut(number_class).is_abstract = true;
         heap.class_mut(behavior_class).is_abstract = true;
         let string_class = make_core_class(heap, "String", object_class, metaclass_class);
+        let char_class = make_core_class(heap, "Char", object_class, metaclass_class);
         let nil_class = make_core_class(heap, "Nil", object_class, metaclass_class);
         let bool_class = make_core_class(heap, "Bool", object_class, metaclass_class);
         heap.class_mut(bool_class).is_abstract = true;
@@ -201,6 +202,7 @@ impl Universe {
             int_class,
             float_class,
             string_class,
+            char_class,
             nil_class,
             bool_class,
             true_class,
@@ -382,6 +384,8 @@ pub struct CoreClasses {
     pub float_class: ClassId,
     /// `String`.
     pub string_class: ClassId,
+    /// `Char`.
+    pub char_class: ClassId,
     /// `Nil`.
     pub nil_class: ClassId,
     /// `Bool`, the abstract boolean superclass
@@ -565,6 +569,7 @@ impl CoreClasses {
             UniverseKey::Int => self.int_class,
             UniverseKey::Float => self.float_class,
             UniverseKey::String => self.string_class,
+            UniverseKey::Char => self.char_class,
             UniverseKey::Nil => self.nil_class,
             UniverseKey::Bool => self.bool_class,
             UniverseKey::True => self.true_class,
@@ -651,6 +656,7 @@ impl CoreClasses {
             int_class,
             float_class,
             string_class,
+            char_class,
             nil_class,
             bool_class,
             true_class,
@@ -716,6 +722,7 @@ impl CoreClasses {
             int_class,
             float_class,
             string_class,
+            char_class,
             nil_class,
             bool_class,
             true_class,

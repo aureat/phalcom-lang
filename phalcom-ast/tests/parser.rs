@@ -28,6 +28,12 @@ use phalcom_ast::{
     parse as parse_with_recovery, parse_source,
 };
 
+#[test]
+fn character_literal_parses_as_an_expression() {
+    let parsed = parse_source("'é'", 0).expect("character literal should parse");
+    assert_eq!(parsed.statements.len(), 1);
+}
+
 fn source_slice(source: &str, range: phalcom_common::range::SourceRange) -> &str {
     &source[range.start..range.end]
 }

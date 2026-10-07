@@ -19,7 +19,7 @@ latest_completed_plan: LANG007.C4.P3
 next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-completion-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 4f11cb1a900d76c1d45db108aa8d856ee5940394
-last_updated: 2026-10-06
+last_updated: 2026-10-07
 ---
 
 # LANG007.C4 — Checkpoint Record
@@ -41,7 +41,8 @@ active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007
 active_plan_prepared_against_revision: 4f11cb1a900d76c1d45db108aa8d856ee5940394
 next_action: >
   Rebase the corrective completion plan against the current consolidated tree and complete its T0 live-owner matrix before production edits. Then converge StaticConstant formation to one canonical owner path and implement the bounded exact-owner executor/replay boundary. Preserve T1-T6 as COMPLETE / IMPLEMENTED / FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED. Do not start Record-pattern work until the replacement plan T7.0E gate passes. P10 T6 and while-dependent T9 cases remain outside active P4 scope.
-last_updated: 2026-10-06
+parallel_follow_on: LANG007.C4.P11
+last_updated: 2026-10-07
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -77,6 +78,7 @@ removal of the competing legacy unordered-product ontology while retaining
 C3's kinded Pack domains and migrating the public RecordFields surface where
 replaced by Product/UnorderedShape vocabulary
 tooling, documentation, incrementality, and performance closure
+approved standard-library text substrate follow-on for Unicode-capable parse v1 and TOML consumers
 ```
 
 The architectural objective is not merely to add metaprogramming syntax.
@@ -119,6 +121,9 @@ C4 owns:
 - semantic-to-runtime materialization descriptors;
 - public ontology migration;
 - C4-specific tooling/docs/performance/incremental certification.
+- the approved P11–P16 standard-library substrate: Unicode-scalar `Char`, safe
+  String/parse text operations, owned immutable parser snapshots, typed numeric
+  conversion, and efficient text construction.
 
 ## 1.3 C4 does not own
 
@@ -171,6 +176,24 @@ The intended C4 decomposition is:
 | `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P8` | Incremental durability, metadata, cross-module static products, materialization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P9` | Public ontology migration, tooling, documentation, performance certification, checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
+| `LANG007.C4.P11` | `Char` scalar, character literals, semantic/runtime integration | IN_PROGRESS | PARTIAL | UNVERIFIED | local-only implementation adds scalar/literal/static/runtime/Universe/native seams, generated surface, Char literal parsing/resolution, closed-scalar coverage, and exact runtime lowering; no tests or crate checks run |
+| `LANG007.C4.P12` | String–Char bridge, UTF-8 boundaries, iteration, parse.text migration | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P11 |
+| `LANG007.C4.P13` | Typed String hygiene and text-position utilities | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P12 |
+| `LANG007.C4.P14` | Owned immutable homogeneous indexed snapshots | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P11 and iteration laws |
+| `LANG007.C4.P15` | Typed integer/floating conversion | PROPOSED | NOT_STARTED | UNVERIFIED | diagnostics may consume P11/P12 |
+| `LANG007.C4.P16` | StringBuilder, parse migration completion, TOML substrate proof | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P12/P13 and consumes P14/P15 |
+
+### P11 pattern decision — INC-6
+
+On 2026-10-07 the user selected a closed Unicode scalar domain: Char is
+non-subclassable for matching, exact literals contribute singleton scalar-set
+coverage, and the complete valid scalar set may prove exhaustiveness. The
+accepted details are recorded in
+[`LANG007.C4.P11-pattern-coverage-incident.md`](LANG007.C4.P11-pattern-coverage-incident.md)
+and the normative contract in [`characters.md`](../../../specs/objects/characters.md).
+P11 resumed with parser, semantic coverage, semantic products, and executable
+lowering in scope. No tests or crate checks were run; P11 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`.
 
 Dependency direction:
 

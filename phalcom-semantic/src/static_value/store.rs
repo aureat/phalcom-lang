@@ -176,6 +176,8 @@ pub enum StaticValueData {
     Unit,
     /// Boolean value.
     Bool(bool),
+    /// Unicode scalar value, represented by Rust's validated `char`.
+    Char(char),
     /// Exact integer value.
     Int(StaticInt),
     /// Exact IEEE-754 representation.
@@ -332,6 +334,11 @@ impl StaticValueStore {
     /// Interns a boolean value.
     pub fn intern_bool(&mut self, value: bool) -> StaticValueRef {
         self.intern(StaticValueData::Bool(value))
+    }
+
+    /// Interns a Unicode scalar value.
+    pub fn intern_char(&mut self, value: char) -> StaticValueRef {
+        self.intern(StaticValueData::Char(value))
     }
 
     /// Interns an exact integer, normalizing values back to `i64` when possible.
@@ -668,6 +675,7 @@ impl StaticValueStore {
         Ok(match value {
             StaticValueData::Unit => types.unit(),
             StaticValueData::Bool(_) => self.builtin_type(types, phalcom_native_meta::UniverseKey::Bool)?,
+            StaticValueData::Char(_) => self.builtin_type(types, phalcom_native_meta::UniverseKey::Char)?,
             StaticValueData::Int(_) => self.builtin_type(types, phalcom_native_meta::UniverseKey::Int)?,
             StaticValueData::Float(_) => self.builtin_type(types, phalcom_native_meta::UniverseKey::Float)?,
             StaticValueData::String(_) => self.builtin_type(types, phalcom_native_meta::UniverseKey::String)?,
@@ -799,6 +807,7 @@ impl StaticValueStore {
         let domain = match self.get(reference)? {
             StaticValueData::Unit => StaticValueDomain::ValueType(types.unit()),
             StaticValueData::Bool(_) => StaticValueDomain::ValueType(self.builtin_type(types, phalcom_native_meta::UniverseKey::Bool)?),
+            StaticValueData::Char(_) => StaticValueDomain::ValueType(self.builtin_type(types, phalcom_native_meta::UniverseKey::Char)?),
             StaticValueData::Int(_) => StaticValueDomain::ValueType(self.builtin_type(types, phalcom_native_meta::UniverseKey::Int)?),
             StaticValueData::Float(_) => StaticValueDomain::ValueType(self.builtin_type(types, phalcom_native_meta::UniverseKey::Float)?),
             StaticValueData::String(_) => StaticValueDomain::ValueType(self.builtin_type(types, phalcom_native_meta::UniverseKey::String)?),
@@ -822,6 +831,7 @@ impl StaticValueStore {
         Ok(match (left, right) {
             (StaticValueData::Unit, StaticValueData::Unit) => true,
             (StaticValueData::Bool(a), StaticValueData::Bool(b)) => a == b,
+            (StaticValueData::Char(a), StaticValueData::Char(b)) => a == b,
             (StaticValueData::Int(a), StaticValueData::Int(b)) => a.to_bigint() == b.to_bigint(),
             (StaticValueData::Float(a), StaticValueData::Float(b)) => static_float_eq(a, b),
             (StaticValueData::String(a), StaticValueData::String(b)) => self.strings.get(a.0 as usize) == self.strings.get(b.0 as usize),
@@ -903,6 +913,10 @@ impl StaticValueStore {
             StaticValueData::Bool(value) => {
                 hash.byte(1);
                 hash.byte(u8::from(*value));
+            }
+            StaticValueData::Char(value) => {
+                hash.byte(13);
+                hash.u32(*value as u32);
             }
             StaticValueData::Int(value) => {
                 hash.byte(2);
@@ -994,6 +1008,10 @@ impl StaticValueStore {
             StaticValueData::Bool(value) => {
                 hash.byte(1);
                 hash.byte(u8::from(*value));
+            }
+            StaticValueData::Char(value) => {
+                hash.byte(13);
+                hash.u32(*value as u32);
             }
             StaticValueData::Int(value) => {
                 hash.byte(2);

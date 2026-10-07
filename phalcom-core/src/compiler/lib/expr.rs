@@ -1099,6 +1099,10 @@ impl<'vm> Compiler<'vm> {
                 let idx = self.add_constant(string_obj, range)?;
                 self.emit(Bytecode::Constant(idx), range);
             }
+            Expr::Char { value, range } => {
+                let idx = self.add_constant(Value::char(value), range)?;
+                self.emit(Bytecode::Constant(idx), range);
+            }
             Expr::Boolean { value, range } => {
                 if value {
                     self.emit(Bytecode::True, range);
@@ -1447,6 +1451,11 @@ impl<'vm> Compiler<'vm> {
                                 } else {
                                     self.emit(Bytecode::False, range);
                                 }
+                                return Ok(());
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::Char(value) => {
+                                let idx = self.add_constant(Value::char(value), range)?;
+                                self.emit(Bytecode::Constant(idx), range);
                                 return Ok(());
                             }
                             phalcom_semantic::materialization::MaterializationDescriptor::Int(static_int) => {
@@ -2576,7 +2585,7 @@ fn collect_pattern_names_for_control(pattern: &phalcom_ast::ast::Pattern, out: &
                 collect_pattern_names_for_control(p, out);
             }
         }
-        phalcom_ast::ast::Pattern::Wildcard { .. } => {}
+        phalcom_ast::ast::Pattern::Wildcard { .. } | phalcom_ast::ast::Pattern::Char { .. } => {}
         phalcom_ast::ast::Pattern::Record { entries, .. } => {
             for entry in entries {
                 collect_pattern_names_for_control(&entry.pattern, out);

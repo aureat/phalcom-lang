@@ -30,6 +30,7 @@ pub(crate) enum ValueTag {
     EmptyRecord = 10,
     UninitializedBinding = 11,
     EmptyPack = 12,
+    Char = 13,
 }
 
 impl ValueTag {
@@ -49,6 +50,7 @@ impl ValueTag {
             10 => Self::EmptyRecord,
             11 => Self::UninitializedBinding,
             12 => Self::EmptyPack,
+            13 => Self::Char,
             _ => panic!("invalid ValueTag"),
         }
     }
@@ -108,6 +110,15 @@ impl Value {
         Self {
             payload: value as u64,
             meta: ValueTag::Int as u64,
+        }
+    }
+
+    /// Creates an immediate Unicode scalar value.
+    #[inline]
+    pub const fn char(value: char) -> Self {
+        Self {
+            payload: value as u32 as u64,
+            meta: ValueTag::Char as u64,
         }
     }
 
@@ -259,6 +270,12 @@ impl Value {
         self.tag() == ValueTag::Int && self.some_depth_raw() == 0
     }
 
+    /// Returns whether this value is an unwrapped immediate `Char`.
+    #[inline]
+    pub fn is_char(self) -> bool {
+        self.tag() == ValueTag::Char && self.some_depth_raw() == 0
+    }
+
     #[inline]
     pub fn is_float(self) -> bool {
         self.tag() == ValueTag::Float && self.some_depth_raw() == 0
@@ -287,6 +304,16 @@ impl Value {
     #[inline]
     pub fn as_int(self) -> Option<i64> {
         if self.is_int() { Some(self.payload as i64) } else { None }
+    }
+
+    /// Returns the Unicode scalar carried by this immediate `Char`.
+    #[inline]
+    pub fn as_char(self) -> Option<char> {
+        if self.is_char() && self.payload <= u32::MAX as u64 {
+            char::from_u32(self.payload as u32)
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -337,6 +364,7 @@ impl PartialEq for Value {
             ValueTag::Nil | ValueTag::Unit | ValueTag::EmptyRecord | ValueTag::EmptyPack | ValueTag::None => true,
             ValueTag::Bool => (self.payload != 0) == (other.payload != 0),
             ValueTag::Int => (self.payload as i64) == (other.payload as i64),
+            ValueTag::Char => (self.payload as u32) == (other.payload as u32),
             ValueTag::Float => {
                 let f1 = f64::from_bits(self.payload);
                 let f2 = f64::from_bits(other.payload);
@@ -364,6 +392,7 @@ impl Hash for Value {
             ValueTag::Nil | ValueTag::Unit | ValueTag::EmptyRecord | ValueTag::EmptyPack | ValueTag::None => {}
             ValueTag::Bool => (self.payload != 0).hash(state),
             ValueTag::Int => (self.payload as i64).hash(state),
+            ValueTag::Char => (self.payload as u32).hash(state),
             ValueTag::Float => {
                 let f = f64::from_bits(self.payload);
                 if f == 0.0 {

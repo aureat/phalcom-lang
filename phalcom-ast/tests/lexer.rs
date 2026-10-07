@@ -54,6 +54,13 @@ fn string_and_number_literals() {
 }
 
 #[test]
+fn character_literal_is_a_single_scalar_token() {
+    let mut lexer = Lexer::new("'é'");
+    let first = lexer.next().expect("character literal should produce a token");
+    assert!(first.is_ok(), "character literal should lex: {first:?}");
+}
+
+#[test]
 fn keywords_and_operators() {
     insta::assert_debug_snapshot!(tokens("if a and b or not c { self } else { super }"));
 }

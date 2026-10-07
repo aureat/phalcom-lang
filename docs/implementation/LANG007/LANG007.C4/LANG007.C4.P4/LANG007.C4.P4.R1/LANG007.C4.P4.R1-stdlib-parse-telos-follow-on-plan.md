@@ -5,8 +5,8 @@ program: LANG007
 checkpoint: LANG007.C4
 kind: implementation-proposal
 title: "C4 Standard Library Text Substrate for parse v1 and TOML"
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 parent_record: LANG007.C4.P4.R1
 prepared_against_revision: 22cf74739a59fe178c0e3c1bb75c258a14327535
@@ -60,12 +60,10 @@ ledger as separate numbered plans. The provisional decomposition is:
 | `LANG007.C4.P15` | Typed integer/floating conversion | P11/P12 for diagnostics only | Numeric/TOML gate |
 | `LANG007.C4.P16` | `StringBuilder`, parse migration, TOML substrate proof | P12/P13; consumes P14/P15 | Follow-on closure |
 
-The plan numbers are provisional until the C4 checkpoint record is amended. C4
-closure will require this follow-on's focused acceptance in addition to its
-existing structural/static gates. Registration must amend the checkpoint's
-bounded objective and ownership sections as well as its ledger. The
-implementation must not silently add P11–P16 to the checkpoint ledger without an
-approved lifecycle update.
+The C4 checkpoint has accepted the follow-on and registered P11–P16. P11 is
+active under its own execution plan; P12–P16 remain proposed and must not be
+treated as started. C4 closure will require this follow-on's focused acceptance
+in addition to its existing structural/static gates.
 
 This follow-on is orthogonal to the current P4 semantic-owner correction. It may
 be planned in parallel with P4, but it must not modify P4's semantic owner,
@@ -552,7 +550,7 @@ RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-ast lexer
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-ast parser
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::expression_analysis
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::static_values
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core strings
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus strings
 ```
 
 **Acceptance:** `Char` has distinct class and semantic identity; scalar validity,
@@ -632,7 +630,7 @@ second parser-local UTF-8 decoder.
 **Focused verification:**
 
 ```sh
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core strings
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus strings
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_parse_package
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core
 ```
@@ -886,7 +884,7 @@ StringBuilder.build -> String
 
 ```sh
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_parse_package
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core strings
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus strings
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core language::iteration
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core -p phalcom-semantic
 ```
@@ -1066,6 +1064,52 @@ Text.takeWhile |char| { char != 'x' }
 Running the last parser over `"é中x"` returns `"é中"` and ends at the correct
 UTF-8 byte offset. No test may pass by restoring a public byte/`Int` character
 API.
+
+These are target developer-experience examples. The current parse README records
+that `and`/`or` in value position may produce Object rather than Bool. Fixtures
+may use the existing `if predicate { true } else { false }` idiom until that
+compiler issue is resolved. Record the deviation and owning issue; it does not
+authorize Int predicates or a silent type-erasure fallback. Likewise, an
+associated-type dispatch or data-method lowering blocker is recorded at its
+owning layer rather than hidden inside stdlib implementations.
+
+### Requirements-to-gates ledger
+
+| User requirement | Owning slice | Required evidence |
+|---|---|---|
+| P0 Char and literals | S1 | `a`, `é`, `中`, `🙂`, escapes, invalid/surrogate/upper-bound rejection, distinct identity |
+| P0 decode and byte/scalar separation | S2 | `aé中🙂z` offsets 0/1/3/6/10, next offsets 1/3/6/10/11; continuation and EOF rejection |
+| P0 safe slice | S2 | each scalar width, invalid start/end, range failures, empty boundary slice |
+| P1 classifications | S1 | all ASCII predicates, White_Space and Cc positive/negative representatives |
+| P1 iteration | S2 | five Char items, typed Item, stable exhaustion, coherent legacy ordinal indexing |
+| P1 typed String/prefix/search | S3 | typed split and deterministic signatures, multibyte and empty prefix/search policies |
+| P1 snapshot/copy | S4 | source mutation isolation, List.copy independence, snapshot immutable structure and shallow elements |
+| P1 numbers | S5 | Int radix/promotion/errors; Float correct rounding, overflow, underflow and specials |
+| P1 construction/builder | S6 | Char/String append, fromChars typing, earlier builds unchanged after mutation |
+| P1 line/column | S2, inherited by S3 | scalar columns and precise LF/CRLF/boundary policy |
+| parse v1 migration | S2/S4/S6 | all existing fixtures plus Unicode span/commit/backtracking regressions |
+| TOML sufficiency | S6 | bare-key/whitespace/string predicates and typed conversion without low-level workarounds |
+| P2 Byte/bytes/views/case facilities | Deferred | no dependency introduced by P0/P1 work |
+
+Each numbered plan must turn its rows into exact test registrations and G<n>
+gates. Tests belong at the semantic identity/type layer, compiler projection
+layer, or runtime/consumer layer that owns the assertion. A package fixture is
+not sufficient proof of canonical semantic identity or incremental parity.
+
+Complexity acceptance is O(1) scalar width and ASCII classification, at most
+four bytes examined per decode, O(prefix byte length) prefix matching without a
+substring allocation, O(1) snapshot size/indexed access, O(n) snapshot creation,
+and amortized O(total bytes) builder appends. Arbitrary-precision Int conversion
+must use the existing BigInt engine; do not promise fixed-width linear bit-cost
+for unbounded integers. Float conversion is linear in text length through the
+host conversion engine. Verify algorithm/call-path properties and allocator
+instrumentation where useful; avoid timing thresholds as correctness tests.
+
+S1's semantic acceptance includes literal pattern behavior, static-domain Char
+identity, static content fingerprints, immutable publication/materialization,
+and cold versus incremental agreement when editing Char constants. Schema
+changes must follow the owning metadata/version contract; inventing a parallel
+Char store or serializing VM tags as semantic identity is forbidden.
 
 ---
 

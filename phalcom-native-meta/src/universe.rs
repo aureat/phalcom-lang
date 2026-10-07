@@ -22,6 +22,7 @@ pub enum UniverseKey {
     Int,
     Float,
     String,
+    Char,
     Nil,
     Bool,
     True,
@@ -127,6 +128,10 @@ pub const UNIVERSE_CLASS_RELATIONS: &[UniverseClassRelationSpec] = &[
     },
     UniverseClassRelationSpec {
         class: UniverseKey::String,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Char,
         superclass: Some(UniverseKey::Object),
     },
     UniverseClassRelationSpec {
@@ -358,6 +363,7 @@ impl UniverseKey {
             Self::Metaclass => &["object", "metaclass"],
             Self::Number | Self::Int | Self::Float => &["scalar", "number"],
             Self::String => &["scalar", "string"],
+            Self::Char => &["scalar", "char"],
             Self::Nil => &["scalar", "nil"],
             Self::Bool | Self::True | Self::False => &["scalar", "bool"],
             Self::Symbol => &["scalar", "symbol"],
@@ -415,6 +421,7 @@ impl UniverseKey {
             Self::Int => "Int",
             Self::Float => "Float",
             Self::String => "String",
+            Self::Char => "Char",
             Self::Nil => "Nil",
             Self::Bool => "Bool",
             Self::True => "True",
@@ -486,6 +493,7 @@ impl UniverseKey {
             "Int" => Some(Self::Int),
             "Float" => Some(Self::Float),
             "String" => Some(Self::String),
+            "Char" => Some(Self::Char),
             "Nil" => Some(Self::Nil),
             "Bool" => Some(Self::Bool),
             "True" => Some(Self::True),
@@ -622,6 +630,13 @@ pub const UNIVERSE_BINDINGS: &[UniverseBindingSpec] = &[
     UniverseBindingSpec {
         key: UniverseKey::String,
         name: "String",
+        kind: UniverseBindingKind::Class,
+        exported: true,
+        prelude: true,
+    },
+    UniverseBindingSpec {
+        key: UniverseKey::Char,
+        name: "Char",
         kind: UniverseBindingKind::Class,
         exported: true,
         prelude: true,
