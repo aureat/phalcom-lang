@@ -1,5 +1,29 @@
 # Math proposal implementation handoff — 2026-10-07
 
+## Consolidation into main — 2026-10-08
+
+The complete worktree snapshot was committed as `568c545a` on
+`feat/math-proposals-consolidation` and merged into `main` as `c361793a`.
+Git reported no conflicts. It automatically combined `builtin.rs`, `call.rs`,
+and `context.rs`, preserving main's random APIs and callable-owner corrections.
+
+Post-merge verification on main:
+
+- inference unit tests: 16 passed;
+- generic conformance tests: 21 passed;
+- Family invocation tests: 13 passed;
+- special-function reference matrix: 1 test passed, covering 219 cases;
+- merge diff whitespace check: passed.
+
+The earlier probability acceptance failures remain documented below. Those
+tests and workspace/release gates were not rerun for consolidation. Probability
+remains draft/UNVERIFIED, and the List reduction signature remains temporary
+containment. Follow-up implementation should inherit main's merged compiler
+prerequisites and consult `MATH-GENERIC-ITERABLE-INCIDENT.md`.
+
+The source worktree and its branch are retained. No push was requested.
+The sections below preserve the pre-consolidation implementation history.
+
 ## Continuation update — 2026-10-08
 
 The supplied projection-residual progress defect is corrected in
