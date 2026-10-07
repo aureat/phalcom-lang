@@ -163,6 +163,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             }
             ctx.sync_expression_outcome(&val_typed);
 
+            validate_declaration_pattern(ctx, &binding.pattern);
             bind_declaration_pattern(
                 ctx,
                 &binding.pattern,
@@ -674,3 +675,63 @@ fn local_list_element(local_type: &LocalType) -> Option<LocalType> {
         _ => None,
     }
 }
+
+fn validate_declaration_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern) {
+    match pattern {
+        Pattern::Char { range, .. } => {
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::DeclarationPatternRefutable,
+                "character literal patterns are refutable and cannot be used in declaration destructuring",
+                *range,
+            ));
+        }
+        Pattern::Tuple { elements, .. } => {
+            for element in elements {
+                validate_declaration_pattern(ctx, element);
+            }
+        }
+        Pattern::List { elements, rest, .. } => {
+            for element in elements {
+                validate_declaration_pattern(ctx, element);
+            }
+            if let Some(rest) = rest {
+                validate_declaration_pattern(ctx, rest);
+            }
+        }
+        Pattern::Record { entries, rest, .. } => {
+            for entry in entries {
+                validate_declaration_pattern(ctx, &entry.pattern);
+            }
+            if let Some(rest) = rest {
+                validate_declaration_pattern(ctx, rest);
+            }
+        }
+        Pattern::Or { range, .. } => {
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::DeclarationPatternRefutable,
+                "or-patterns are refutable and cannot be used in declaration destructuring",
+                *range,
+            ));
+        }
+        Pattern::Variant(variant) => {
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::DeclarationPatternRefutable,
+                "variant patterns are refutable and cannot be used in declaration destructuring",
+                variant.range,
+            ));
+        }
+        Pattern::Map { range, .. } => {
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::DeclarationPatternRefutable,
+                "map patterns are refutable and cannot be used in declaration destructuring",
+                *range,
+            ));
+        }
+        Pattern::Name { .. } | Pattern::Wildcard { .. } => {}
+    }
+}
+

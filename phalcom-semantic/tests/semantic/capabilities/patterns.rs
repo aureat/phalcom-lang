@@ -112,3 +112,24 @@ class Probe {
     f.assert_tuple_types(f.binding(run, "pair").current.ty().expect("pair type"), &[int_ty, tail]);
     f.assert_record(f.binding(run, "record").current.ty().expect("record type"));
 }
+
+#[test]
+fn declaration_pattern_rejects_refutable_char_literals() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(c: Char, pair: (Char, Int), values: List<Char>, record: { key: Char }) {
+    let 'a' = c
+    let ('a', x) = pair
+    let ['a', *rest] = values
+    let { key: 'a' } = record
+  }
+}
+"#,
+    );
+    assert_eq!(
+        f.diagnostics(phalcom_semantic::diagnostic::DiagnosticCode::DeclarationPatternRefutable).len(),
+        4
+    );
+}

@@ -121,6 +121,8 @@ pub enum DiagnosticCode {
     MatchPatternImpossible,
     /// Match totality or reachability could not be proved because formal analysis was blocked.
     MatchAnalysisBlocked,
+    /// A refutable pattern was used in a declaration binding (let/var).
+    DeclarationPatternRefutable,
     DataDuplicateComponent,
     DataComponentImmutable,
     DataUsedAsSuperclass,
@@ -258,6 +260,7 @@ impl DiagnosticCode {
             Self::MatchPatternOrRedundant => "match.pattern.or_redundant",
             Self::MatchPatternImpossible => "match.pattern.impossible",
             Self::MatchAnalysisBlocked => "match.analysis.blocked",
+            Self::DeclarationPatternRefutable => "declaration.pattern_refutable",
             Self::DataDuplicateComponent => "data.duplicate_component",
             Self::DataComponentImmutable => "data.component_immutable",
             Self::DataUsedAsSuperclass => "data.used_as_superclass",
