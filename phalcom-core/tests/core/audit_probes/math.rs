@@ -523,3 +523,220 @@ fn integer_math_keeps_existing_limits_and_divides_before_multiplying() {
     let module = vm.module_registry.get(&program.entry).unwrap().object;
     assert_eq!(as_big_int(&vm, read_global(&vm, module, "result")), BigInt::one() << 100);
 }
+
+#[test]
+fn log_sum_exp_preserves_extreme_values_and_small_corrections() {
+    assert_float_result("math.logSumExp([])", f64::NEG_INFINITY);
+    assert_float_result("math.logSumExp([-1.0 / 0.0, -1.0 / 0.0])", f64::NEG_INFINITY);
+    assert_float_result("math.logSumExp([1.0 / 0.0, 0.0 / 0.0])", f64::NAN);
+    assert_float_result("math.logSumExp([0.0 / 0.0, 1.0 / 0.0])", f64::NAN);
+    assert_float_result("math.logSumExp([1.0 / 0.0, 2.0])", f64::INFINITY);
+    assert_float_result("math.logSumExp([1000.0, 1000.0])", 1000.0 + 2.0_f64.ln());
+    assert_float_result("math.logSumExp([-1000.0, -1000.0])", -1000.0 + 2.0_f64.ln());
+    assert_float_result("math.logSumExp([0.0, -40.0])", (-40.0_f64).exp().ln_1p());
+    assert_float_result("math.logSumExp([42.0, -1.0 / 0.0])", 42.0);
+}
+
+#[test]
+fn exact_combinatorics_handles_boundaries_and_arbitrary_precision() {
+    for (expression, expected) in [
+        ("math.factorial(0)", "1"),
+        ("math.factorial(30)", "265252859812191058636308480000000"),
+        ("math.choose(100, 50)", "100891344545564193334812497256"),
+        ("math.choose(5, -1)", "0"),
+        ("math.choose(5, 6)", "0"),
+        ("math.choose(0, 0)", "1"),
+        ("math.fallingFactorial(5, 3)", "60"),
+        ("math.fallingFactorial(3, 4)", "0"),
+        ("math.risingFactorial(5, 3)", "210"),
+        ("math.risingFactorial(0, 0)", "1"),
+        ("math.risingFactorial(0, 100000000000000000000)", "0"),
+    ] {
+        let (vm, result) = run_expression(expression);
+        assert_eq!(as_big_int(&vm, result), expected.parse::<BigInt>().unwrap(), "{expression}");
+    }
+}
+
+#[test]
+fn exact_combinatorics_rejects_invalid_domains_and_honors_resource_limits() {
+    for expression in [
+        "math.factorial(-1)",
+        "math.choose(-1, 0)",
+        "math.fallingFactorial(1, -1)",
+        "math.risingFactorial(-1, 0)",
+    ] {
+        let (_temp, program) = compile_package(&format!("import universe.math as math\n{expression}\n"));
+        let mut vm = VM::new();
+        let error = vm.run_compiled(&program).expect_err("negative domain must raise");
+        let RuntimeError::Raise { error, .. } = runtime_error(&error) else {
+            panic!("expected ArgumentError")
+        };
+        assert_eq!(vm.heap.class(error.class(&vm)).name, "ArgumentError");
+    }
+    let (_temp, program) = compile_package("import universe.math as math\nlet result = math.choose(100, 50)\n");
+    let mut vm = VM::new();
+    vm.numeric_policy.max_integer_bits = Some(32);
+    let error = vm.run_compiled(&program).expect_err("exact result must respect bit budget");
+    assert_numeric_limit(&mut vm, &error);
+}
+
+#[test]
+fn special_functions_match_independent_high_precision_references() {
+    let mut source = String::from("import universe.math.special as special\n");
+    let mut references = Vec::new();
+    for row in include_str!("../../fixtures/math_special_reference.tsv")
+        .lines()
+        .filter(|row| !row.starts_with('#'))
+    {
+        let mut columns = row.split('\t');
+        let expression = columns.next().unwrap();
+        let expected: f64 = columns.next().unwrap().parse().unwrap();
+        let tolerance: f64 = columns.next().unwrap().parse().unwrap();
+        source.push_str(&format!("let result{} = {expression}\n", references.len()));
+        references.push((expression, expected, tolerance));
+    }
+    assert!(references.len() > 100, "reference fixture must select real cases");
+    let (_temp, program) = compile_package(&source);
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("special-function reference matrix executes");
+    let module = vm.module_registry.get(&program.entry).unwrap().object;
+    for (i, (expression, expected, tolerance)) in references.iter().enumerate() {
+        let actual = read_global(&vm, module, &format!("result{i}")).as_float().expect("Float result");
+        if expected.is_infinite() {
+            assert_eq!(actual, *expected, "{expression}");
+        } else {
+            let scale = if expression.contains(".log") && !expression.contains(".logErfc") {
+                expected.abs().max(1.0)
+            } else {
+                expected.abs()
+            };
+            let budget = tolerance * scale;
+            assert!(
+                (actual - expected).abs() <= budget,
+                "{expression}: actual={actual:.17e}, reference={expected:.17e}, budget={budget:.3e}"
+            );
+        }
+    }
+}
+
+fn compile_probability(source: &str) -> (TempDir, phalcom_core::modules::compile::CompiledProgram) {
+    let temp = TempDir::new().unwrap();
+    fs::create_dir(temp.path().join("src")).unwrap();
+    let dependency = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../packages/probability");
+    fs::write(
+        temp.path().join("project.toml"),
+        format!(
+            "[project]\nname = \"probability-tests\"\nnamespace = \"probability_tests\"\nsource = \"src\"\n\n[dependencies]\nprobability = {{ path = {:?} }}\n",
+            dependency.to_str().unwrap()
+        ),
+    )
+    .unwrap();
+    fs::write(temp.path().join("src/package.ph"), "expose .main\n").unwrap();
+    let main = temp.path().join("src/main.ph");
+    fs::write(&main, source).unwrap();
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Module(main)).expect("probability client compiles");
+    (temp, program)
+}
+
+#[test]
+fn probability_helpers_normalize_extremes_without_replaying_or_mutating_inputs() {
+    let source = r#"
+import probability as p
+import universe.math as math
+let weights = [1.0e308, 1.0e308, 0.0]
+let normalized = p.normalizeWeights(weights.iterator)
+let first = normalized.at(0)
+let second = normalized.at(1)
+let zero = normalized.at(2)
+let original = weights.at(0)
+let iterator = [1.0e308, 1.0e308].iterator
+let logs = p.normalizedLogWeights(iterator)
+let logFirst = logs.at(0)
+let exhausted = iterator.next.isNone
+let impossible = p.normalizedLogWeights([-1.0 / 0.0, 0.0]).at(0)
+let smallLog = p.normalizedLogWeights([0.0, -1000.0]).at(1)
+let tiny = p.normalizeLogWeights([0.0, -1000.0]).at(1)
+let hugeSpread = p.normalizeLogWeights([1.0e308, -1.0e308]).at(1)
+let logitZero = p.logit(0.0)
+let logitOne = p.logit(1.0)
+let logitHalf = p.logit(0.5)
+let oddsOne = p.odds(1.0)
+let oddsZero = p.odds(-0.0)
+let negative = p.invLogit(-1000.0)
+let positive = p.invLogit(1000.0)
+let middle = p.invLogit(0.0)
+let reductionIterator = [1000.0, 1000.0].iterator
+let reduction = math.logSumExp(reductionIterator)
+let reductionExhausted = reductionIterator.next.isNone
+"#;
+    let (_temp, program) = compile_probability(source);
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("probability helper client executes");
+    let module = vm.module_registry.get(&program.entry).unwrap().object;
+    for (name, expected) in [
+        ("first", 0.5),
+        ("second", 0.5),
+        ("zero", 0.0),
+        ("original", 1e308),
+        ("logFirst", -2.0_f64.ln()),
+        ("impossible", f64::NEG_INFINITY),
+        ("smallLog", -1000.0),
+        ("tiny", 0.0),
+        ("hugeSpread", 0.0),
+        ("logitZero", f64::NEG_INFINITY),
+        ("logitOne", f64::INFINITY),
+        ("logitHalf", 0.0),
+        ("oddsOne", f64::INFINITY),
+        ("oddsZero", 0.0),
+        ("negative", 0.0),
+        ("positive", 1.0),
+        ("middle", 0.5),
+        ("reduction", 1000.0 + 2.0_f64.ln()),
+    ] {
+        let actual = read_global(&vm, module, name).as_float().unwrap();
+        assert_eq!(actual.to_bits(), expected.to_bits(), "{name}");
+    }
+    assert_eq!(read_global(&vm, module, "exhausted"), Value::bool(true));
+    assert_eq!(read_global(&vm, module, "reductionExhausted"), Value::bool(true));
+}
+
+#[test]
+fn probability_helpers_preserve_distinct_error_categories() {
+    for (expression, class) in [
+        ("p.normalizeWeights([0.0, 0.0])", "UndefinedNormalizationError"),
+        ("p.normalizeLogWeights([-1.0 / 0.0])", "UndefinedNormalizationError"),
+        ("p.normalizeWeights([-1.0])", "ArgumentError"),
+        ("p.normalizedLogWeights([1.0 / 0.0])", "ArgumentError"),
+        ("p.normalizedLogWeights([1.0e308, -1.0e308])", "NumericalRangeError"),
+        ("p.logit(1.1)", "ArgumentError"),
+    ] {
+        let (_temp, program) = compile_probability(&format!("import probability as p\n{expression}\n"));
+        let mut vm = VM::new();
+        let failure = vm.run_compiled(&program).expect_err("invalid probability operation must raise");
+        let RuntimeError::Raise { error, .. } = runtime_error(&failure) else {
+            panic!("expected raised {class}: {failure}")
+        };
+        assert_eq!(vm.heap.class(error.class(&vm)).name, class, "{expression}");
+    }
+}
+
+#[test]
+fn special_functions_reject_invalid_domains_and_unrepresentable_log_results() {
+    for (expression, class) in [
+        ("special.logGamma(0.0)", "ArgumentError"),
+        ("special.regularizedGammaP(2.0, -1.0)", "ArgumentError"),
+        ("special.regularizedBeta(2.0, 3.0, 1.1)", "ArgumentError"),
+        ("special.inverseNormal(0.0 / 0.0)", "ArgumentError"),
+        ("special.logRegularizedGammaQ(1000001.0, 1.0)", "NumericalRangeError"),
+        ("special.logErfc(1.0e308)", "NumericalRangeError"),
+        ("special.logChoose(9007199254740992, 1)", "NumericalRangeError"),
+    ] {
+        let (_temp, program) = compile_package(&format!("import universe.math.special as special\n{expression}\n"));
+        let mut vm = VM::new();
+        let failure = vm.run_compiled(&program).expect_err("invalid special-function operation must raise");
+        let RuntimeError::Raise { error, .. } = runtime_error(&failure) else {
+            panic!("expected raised {class}: {failure}")
+        };
+        assert_eq!(vm.heap.class(error.class(&vm)).name, class, "{expression}");
+    }
+}

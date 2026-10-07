@@ -2505,6 +2505,17 @@ fn apply_generic_callable_in_context(
         && !ctx.call_status_is_recorded()
         && !matches!(expected, ExpectedType::Inference { .. })
     {
+        // A known callee binding with an unproved declaration equality is a
+        // constraint failure, not missing value evidence. Keep the residual
+        // mandatory and do not publish a specialization for this call.
+        let unproved_equality = underconstrained.unsolved_vars.is_empty() && {
+            let session = session_handle.borrow();
+            var_map.values().all(|term| session.materialize(term, ctx.store).is_ok())
+                && session.residual_obligations().iter().any(|obligation| {
+                    matches!(&obligation.origin, ConstraintOrigin::GenericWhere { callable: owner, .. } if Some(owner) == callable.as_ref())
+                        && matches!(obligation.relation, InferenceRelation::Equivalent(_, _))
+                })
+        };
         let parameter = underconstrained
             .unsolved_vars
             .iter()
@@ -2523,8 +2534,16 @@ fn apply_generic_callable_in_context(
         );
         let mut diagnostic = SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
-            DiagnosticCode::GenericInferenceUnderconstrained,
-            "generic inference has insufficient value-producing evidence",
+            if unproved_equality {
+                DiagnosticCode::GenericConstraintUnsatisfied
+            } else {
+                DiagnosticCode::GenericInferenceUnderconstrained
+            },
+            if unproved_equality {
+                "generic constraint unsatisfied: associated type equality cannot be proven"
+            } else {
+                "generic inference has insufficient value-producing evidence"
+            },
             call_range,
         );
         if let Some(owner) = ctx.current_callable.clone() {

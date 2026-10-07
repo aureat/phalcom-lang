@@ -1248,6 +1248,8 @@ impl<'a> CheckingContext<'a> {
                     };
                     match norm_progress {
                         Ok(changed) => {
+                            // Rewrites, including reflexive equalities with no
+                            // new binding, require a canonical residual retry.
                             progress |= changed;
                         }
                         Err(failure) => {

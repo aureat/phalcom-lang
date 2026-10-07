@@ -766,6 +766,123 @@ class Probe {
 }
 
 #[test]
+fn generic_helper_binds_fresh_callee_parameter_to_rigid_caller_parameter() {
+    let fixture = Fixture::new(
+        r#"
+class Forwarder {
+  @class inner<T>(_ value: T) -> T { value }
+  @class outer<U>(_ value: U) -> U {
+    let forwarded = Forwarder.inner(value)
+    forwarded
+  }
+}
+"#,
+    );
+    fixture.assert_no_error_diagnostics();
+    let outer = fixture.callable("Forwarder", "outer", DispatchSide::Class);
+    let inner = fixture.callable("Forwarder", "inner", DispatchSide::Class);
+    let signatures = &fixture.analysis.snapshot.callable_signatures;
+    let caller = signatures
+        .get(&outer.callable)
+        .expect("caller signature")
+        .generics
+        .as_ref()
+        .expect("caller generics")
+        .parameters[0];
+    let callee = signatures
+        .get(&inner.callable)
+        .expect("callee signature")
+        .generics
+        .as_ref()
+        .expect("callee generics")
+        .parameters[0];
+    assert_ne!(caller, callee);
+    let call = fixture.expression(outer, "Forwarder.inner(value)");
+    let specialization = call.call_specialization.as_ref().expect("generic helper specialization");
+    assert_eq!(specialization.bindings.len(), 1);
+    let (parameter, ty) = specialization.bindings[0];
+    assert_eq!(parameter, callee);
+    assert!(matches!(fixture.analysis.snapshot.store.get(ty), TypeData::Parameter(parameter) if *parameter == caller));
+    assert_eq!(call.knowledge.ty(), Some(ty));
+}
+
+#[test]
+fn associated_equality_caller_forwards_evidence_to_generic_helper() {
+    for bounds in ["I |= Iterable, <I as Iterable>::Item == Float", "I |= Iterable<Item = Float>"] {
+        let fixture = Fixture::new(&format!(
+            r#"
+trait Iterable {{ type Item }}
+class FloatReduction {{
+  @class snapshot<J>(_ input: J) -> Float
+    where J |= Iterable, <J as Iterable>::Item == Float {{ 0.0 }}
+  @class reduce<I>(_ input: I) -> Float where {bounds} {{
+    let values = FloatReduction.snapshot(input)
+    values
+  }}
+}}
+"#
+        ));
+        fixture.assert_no_error_diagnostics();
+        let reduce = fixture.callable("FloatReduction", "reduce", DispatchSide::Class);
+        let call = fixture.expression(reduce, "FloatReduction.snapshot(input)");
+        let specialization = call.call_specialization.as_ref().expect("helper specialization");
+        let caller_parameter = fixture
+            .analysis
+            .snapshot
+            .callable_signatures
+            .get(&reduce.callable)
+            .expect("caller signature")
+            .generics
+            .as_ref()
+            .expect("caller generics")
+            .parameters[0];
+        let (_, bound_type) = specialization.bindings[0];
+        assert!(matches!(fixture.analysis.snapshot.store.get(bound_type), TypeData::Parameter(parameter) if *parameter == caller_parameter));
+        assert_eq!(specialization.conformances.len(), 1);
+        assert!(matches!(
+            specialization.conformances[0].source,
+            phalcom_semantic::checker::analysis::GenericCallConformanceSource::Forwarded { .. }
+        ));
+        assert_eq!(call.knowledge.ty(), Some(fixture.ty("Float")));
+    }
+}
+
+#[test]
+fn associated_equality_rejects_insufficient_or_contradictory_caller_evidence() {
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+    let mut failures = Vec::new();
+    for bounds in ["I |= Iterable", "I |= Iterable<Item = Int>"] {
+        let fixture = Fixture::new(&format!(
+            r#"
+trait Iterable {{ type Item }}
+class FloatReduction {{
+  @class snapshot<J>(_ input: J) -> Float
+    where J |= Iterable<Item = Float> {{ 0.0 }}
+  @class reduce<I>(_ input: I) -> Float where {bounds} {{
+    let values = FloatReduction.snapshot(input)
+    0.0
+  }}
+}}
+"#
+        ));
+        if fixture.diagnostics(DiagnosticCode::GenericConstraintUnsatisfied).len() != 1
+            || !fixture.diagnostics(DiagnosticCode::GenericInferenceUnderconstrained).is_empty()
+        {
+            failures.push((
+                bounds,
+                fixture
+                    .analysis
+                    .snapshot
+                    .all_diagnostics()
+                    .map(|diagnostic| diagnostic.code)
+                    .collect::<Vec<_>>(),
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "incorrect associated-equality rejection diagnostics: {failures:#?}");
+}
+
+#[test]
 fn bounded_generic_caller_forwards_evidence_to_bounded_callee() {
     let fixture = Fixture::new(
         r#"

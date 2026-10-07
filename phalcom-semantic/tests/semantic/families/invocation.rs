@@ -18,6 +18,114 @@ use phalcom_semantic::workspace::SemanticWorkspaceInput;
 use std::collections::BTreeMap;
 
 #[test]
+fn associated_equality_generic_family_routes_forward_caller_evidence() {
+    let client_source = r#"
+from .facade import snapshot
+from .helpers import Iterable
+from .helpers import Floats, Helpers
+import .helpers as helpers
+class Client {
+  @class run<I>(_ input: I) -> Float where I |= Iterable<Item = Float> {
+    let local = snapshot
+    let a = local(input)
+    let b = helpers.snapshot(input)
+    let c = snapshot(input)
+    c
+  }
+}
+let concrete = Floats.new()
+let direct = Helpers.snapshot(concrete)
+let localFamily = &Helpers.snapshot(_)
+let localResult = localFamily(concrete)
+let importedResult = snapshot(concrete)
+"#;
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "helpers",
+            r#"
+trait Iterable { type Item }
+class Helpers {
+  @class snapshot<J>(_ value: J) -> Float where J |= Iterable<Item = Float> { 0.0 }
+  @class local<I>(_ input: I) -> Float where I |= Iterable<Item = Float> {
+    let family = &Helpers.snapshot(_)
+    let values = family(input)
+    values
+  }
+}
+let snapshot = &Helpers.snapshot(_)
+class Floats { @constructor new() {} }
+impl Iterable for Floats { type Item = Float }
+export snapshot, Iterable, Floats, Helpers
+"#,
+        )
+        .module("facade", "from .helpers import snapshot\nexport snapshot\n")
+        .module("client", client_source)
+        .entry("client")
+        .analyze();
+    let diagnostics = fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>();
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    let client_calls = fixture
+        .analysis
+        .snapshot
+        .callable_analyses
+        .iter()
+        .filter(|(callable, _)| callable.owner.module() == fixture.module("client"));
+    let mut checked = 0;
+    for (_, analysis) in client_calls {
+        for expression in analysis.expressions.values() {
+            let text = &client_source[expression.range.start..expression.range.end];
+            if ["local(input)", "helpers.snapshot(input)", "snapshot(input)"].contains(&text) {
+                let specialization = expression
+                    .call_specialization
+                    .as_ref()
+                    .unwrap_or_else(|| panic!("missing specialization on {text}"));
+                assert_eq!(specialization.bindings.len(), 1);
+                assert!(matches!(
+                    specialization.conformances[0].source,
+                    phalcom_semantic::checker::analysis::GenericCallConformanceSource::Forwarded { .. }
+                ));
+                checked += 1;
+            }
+        }
+    }
+    assert_eq!(checked, 3);
+}
+
+#[test]
+fn exported_generic_identity_family_keeps_its_binder() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "helpers",
+            r#"
+class Helpers { @class identity<T>(_ value: T) -> T { value } }
+let identity = &Helpers.identity(_)
+export identity
+"#,
+        )
+        .module("facade", "from .helpers import identity\nexport identity\n")
+        .module(
+            "client",
+            r#"
+from .facade import identity
+import .helpers as helpers
+class Client {
+  @class run<U>(_ input: U) -> U {
+    let local = identity
+    let a = local(input)
+    let b = helpers.identity(input)
+    a
+  }
+}
+let concrete = identity(1)
+"#,
+        )
+        .entry("client")
+        .analyze();
+    let diagnostics = fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>();
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+}
+
+#[test]
 fn module_value_exports_preserve_family_type_for_selective_and_qualified_calls() {
     let fixture = WorkspaceFixture::new()
         .module(
