@@ -41,8 +41,8 @@ use crate::primitive::object::{
 };
 use crate::primitive::option::{option_match_shape, some_call, some_new};
 use crate::primitive::pack::{
-    pack_raw_label_at, pack_raw_labeled_rest_slice, pack_raw_labeled_size, pack_raw_labeled_value_at, pack_raw_positional_at,
-    pack_raw_positional_rest_slice, pack_raw_positional_size,
+    pack_raw_label_at, pack_raw_labeled_rest_slice, pack_raw_labeled_size, pack_raw_labeled_value_at, pack_raw_positional_at, pack_raw_positional_rest_slice,
+    pack_raw_positional_size,
 };
 use crate::primitive::primitive;
 use crate::primitive::primitive_internal;

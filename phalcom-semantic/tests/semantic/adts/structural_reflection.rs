@@ -24,7 +24,10 @@ data Twin<T>(_ first: T, _ second: String)
     for name in ["Pair", "Twin"] {
         let owner = DeclarationId::new(case.module.clone(), name.into());
         let info = snapshot.data_semantics.data_info(&owner).expect("data semantic product");
-        assert_eq!(classifier.classify(&types, info.root_form), phalcom_semantic::StructuralClassification::Unsupported);
+        assert_eq!(
+            classifier.classify(&types, info.root_form),
+            phalcom_semantic::StructuralClassification::Unsupported
+        );
         let specialized = types.apply_type_form(info.root_form, &[int]).expect("generic data specialization");
         let structure = classifier.ordered_product(&mut types, specialized).unwrap().expect("ordered data structure");
         assert_eq!(structure.origin, OrderedProductOrigin::Data { owner });
@@ -89,17 +92,17 @@ data Expr<T> {
     );
     assert_eq!(result.variants[0].exact_case.fields[0].specialized_type, Some(int));
     assert_eq!(result.variants[1].exact_case.fields[0].specialized_type, Some(string));
-    assert!(result
-        .variants
-        .iter()
-        .all(|variant| variant.exact_case.result_type == result_type));
+    assert!(result.variants.iter().all(|variant| variant.exact_case.result_type == result_type));
 
     let node_owner = DeclarationId::new(case.module.clone(), "Node".into());
     let node_type = types.nominal_type(node_owner.clone());
     let node = classifier.sum(&mut types, node_type).unwrap().expect("recursive Node Sum");
     assert_eq!(node.variants.len(), 1);
     assert_eq!(node.variants[0].exact_case.fields[0].specialized_type, Some(node_type));
-    assert_eq!(node.variants[0].exact_case.enum_type, node_type, "reflection stores a reference instead of expanding recursively");
+    assert_eq!(
+        node.variants[0].exact_case.enum_type, node_type,
+        "reflection stores a reference instead of expanding recursively"
+    );
 
     let family_owner = DeclarationId::new(case.module.clone(), "Family".into());
     let family_type = types.nominal_type(family_owner.clone());
@@ -115,14 +118,19 @@ data Expr<T> {
 
     let expr_owner = DeclarationId::new(case.module, "Expr".into());
     let expr_info = snapshot.enum_semantics.enum_info(&expr_owner).unwrap();
-    assert!(expr_info
-        .variants
-        .iter()
-        .any(|variant| snapshot.enum_semantics.variant_info(variant).unwrap().case_environment.bindings.len() > 0));
+    assert!(
+        expr_info
+            .variants
+            .iter()
+            .any(|variant| snapshot.enum_semantics.variant_info(variant).unwrap().case_environment.bindings.len() > 0)
+    );
     let expr_type = types.apply_type_form(expr_info.root_form, &[int]).expect("specialized Expr");
     let expr = classifier.sum(&mut types, expr_type).unwrap().expect("GADT Sum structure");
     assert_eq!(expr.variants.len(), 2);
     assert_eq!(expr.variants[0].exact_case.fields[0].specialized_type, Some(int));
-    assert_eq!(expr.variants[1].exact_case.fields[0].specialized_type, Some(types.nominal_type(universe_declaration(UniverseKey::Bool))));
+    assert_eq!(
+        expr.variants[1].exact_case.fields[0].specialized_type,
+        Some(types.nominal_type(universe_declaration(UniverseKey::Bool)))
+    );
     assert_eq!(types.kind_of(expr_type), KindId::TYPE);
 }

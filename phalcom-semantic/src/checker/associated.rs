@@ -664,7 +664,7 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
     }
 
     fn scoped_contains_any_type_parameter(store: &TypeStore, scoped: crate::types::id::ScopedTypeId) -> bool {
-use crate::types::type_lambda::{ScopedPackRemainder, ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
+        use crate::types::type_lambda::{ScopedPackRemainder, ScopedRecordRowTail, ScopedRecordTail, ScopedTypeData};
 
         match store.arena().get_scoped(scoped) {
             ScopedTypeData::Bound { .. } => false,

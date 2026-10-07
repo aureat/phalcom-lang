@@ -73,8 +73,8 @@ pub(crate) fn validate_class_overrides(ctx: &mut CheckingContext<'_>, class_def:
                 .iter()
                 .zip(&inherited.parameters)
                 .zip(candidate_semantic.parameters.iter())
-                .all(|((candidate, inherited), candidate_declaration)| {
-                    match (&candidate.contract, &inherited.contract) {
+                .all(
+                    |((candidate, inherited), candidate_declaration)| match (&candidate.contract, &inherited.contract) {
                         (crate::dispatch::CallableParameterContract::Fixed(_), crate::dispatch::CallableParameterContract::Fixed(_)) => {
                             if !candidate_declaration.declared_type.is_known() {
                                 return true;
@@ -99,17 +99,11 @@ pub(crate) fn validate_class_overrides(ctx: &mut CheckingContext<'_>, class_def:
                                 ctx.check_knowledge_against_type(&TypeKnowledge::established(inh_ty, EvidenceOrigin::CallableSignature), cand_ty)
                                     .is_proven()
                             }
-                            (crate::dispatch::RestValueContractKnowledge::Lane(c_lane), crate::dispatch::RestValueContractKnowledge::Lane(i_lane)) => {
-                                c_lane == i_lane
-                            }
-                            (crate::dispatch::RestValueContractKnowledge::Unconstrained, crate::dispatch::RestValueContractKnowledge::Unconstrained) => {
-                                true
-                            }
-                            _ => false,
+                            (candidate, inherited) => rest_contract_accepts(ctx, *m1, candidate, inherited),
                         },
                         _ => false,
-                    }
-                });
+                    },
+                );
         let returns_match = if !candidate_semantic.declared_return.is_known() {
             true
         } else {
@@ -173,6 +167,9 @@ fn align_callable_generic_binders(
 
     for parameter in &mut candidate.parameters {
         parameter.ty = parameter.ty.map_type(|ty| substitution.apply(ctx.store, ty));
+        parameter.contract = substitute_callable_parameter_contract(ctx, &substitution, &parameter.contract);
+        parameter.ty = parameter.contract.ty();
+        parameter.rest = parameter.contract.rest_mode();
     }
     candidate.return_type = candidate.return_type.map_type(|ty| substitution.apply(ctx.store, ty));
     candidate_generics.constraints = candidate_generics
@@ -186,6 +183,105 @@ fn align_callable_generic_binders(
     candidate_constraints.sort();
     inherited_constraints.sort();
     candidate_constraints == inherited_constraints
+}
+
+fn substitute_callable_parameter_contract(
+    ctx: &mut CheckingContext<'_>,
+    substitution: &TypeSubstitution,
+    contract: &crate::dispatch::CallableParameterContract,
+) -> crate::dispatch::CallableParameterContract {
+    use crate::dispatch::{CallableParameterContract, RestValueContractKnowledge};
+    match contract {
+        CallableParameterContract::Fixed(ty) => CallableParameterContract::Fixed(ty.map_type(|ty| substitution.apply(ctx.store, ty))),
+        CallableParameterContract::Rest { mode, contract } => CallableParameterContract::Rest {
+            mode: *mode,
+            contract: match contract {
+                RestValueContractKnowledge::Unconstrained => RestValueContractKnowledge::Unconstrained,
+                RestValueContractKnowledge::Element(ty) => RestValueContractKnowledge::Element(ty.map_type(|ty| substitution.apply(ctx.store, ty))),
+                RestValueContractKnowledge::Lane(lane) => RestValueContractKnowledge::Lane(substitution.apply(ctx.store, *lane)),
+                RestValueContractKnowledge::Invalid(reason) => RestValueContractKnowledge::Invalid(reason.clone()),
+            },
+        },
+    }
+}
+
+fn rest_contract_accepts(
+    ctx: &mut CheckingContext<'_>,
+    mode: phalcom_ast::ast::RestMode,
+    candidate: &crate::dispatch::RestValueContractKnowledge,
+    inherited: &crate::dispatch::RestValueContractKnowledge,
+) -> bool {
+    use crate::dispatch::RestValueContractKnowledge;
+    match (candidate, inherited) {
+        (RestValueContractKnowledge::Unconstrained, RestValueContractKnowledge::Invalid(_))
+        | (RestValueContractKnowledge::Invalid(_), _)
+        | (_, RestValueContractKnowledge::Invalid(_)) => false,
+        (RestValueContractKnowledge::Unconstrained, _) => true,
+        (RestValueContractKnowledge::Element(candidate), RestValueContractKnowledge::Element(inherited)) => match (candidate.ty(), inherited.ty()) {
+            (Some(candidate), Some(inherited)) => ctx
+                .check_knowledge_against_type(&TypeKnowledge::established(inherited, EvidenceOrigin::CallableSignature), candidate)
+                .is_proven(),
+            _ => true,
+        },
+        (RestValueContractKnowledge::Lane(candidate), RestValueContractKnowledge::Lane(inherited)) => {
+            if candidate == inherited {
+                return true;
+            }
+            let Some(candidate) = rest_lane_slots(ctx, *candidate, mode) else {
+                return false;
+            };
+            let Some(inherited) = rest_lane_slots(ctx, *inherited, mode) else {
+                return false;
+            };
+            if candidate.len() != inherited.len() {
+                return false;
+            }
+            return inherited
+                .iter()
+                .zip(candidate.iter())
+                .all(|((inherited_label, inherited), (candidate_label, candidate))| {
+                    inherited_label == candidate_label
+                        && ctx
+                            .check_knowledge_against_type(&TypeKnowledge::established(*inherited, EvidenceOrigin::CallableSignature), *candidate)
+                            .is_proven()
+                });
+        }
+        _ => false,
+    }
+}
+
+fn rest_lane_slots(
+    ctx: &mut CheckingContext<'_>,
+    lane: crate::types::id::TypeId,
+    mode: phalcom_ast::ast::RestMode,
+) -> Option<Vec<(Option<Box<str>>, crate::types::id::TypeId)>> {
+    if mode == phalcom_ast::ast::RestMode::Complete {
+        let positionals = ctx.store.project_positionals(lane).ok()?;
+        let labeled = ctx.store.project_labeled(lane).ok()?;
+        let crate::types::store::TypeData::TypePack(positionals) = ctx.store.get(positionals).clone() else {
+            return None;
+        };
+        let crate::types::store::TypeData::LabeledTypePack(labeled) = ctx.store.get(labeled).clone() else {
+            return None;
+        };
+        let mut slots = positionals.iter().map(|&element| (None, element)).collect::<Vec<_>>();
+        slots.extend(labeled.iter().map(|element| (Some(element.label.clone()), element.element)));
+        return Some(slots);
+    }
+    let lane = match mode {
+        phalcom_ast::ast::RestMode::Positional => ctx.store.project_positionals(lane).ok()?,
+        phalcom_ast::ast::RestMode::Labeled => ctx.store.project_labeled(lane).ok()?,
+        phalcom_ast::ast::RestMode::Complete | phalcom_ast::ast::RestMode::None => return None,
+    };
+    match ctx.store.get(lane).clone() {
+        crate::types::store::TypeData::TypePack(elements) if mode == phalcom_ast::ast::RestMode::Positional => {
+            Some(elements.iter().map(|&element| (None, element)).collect())
+        }
+        crate::types::store::TypeData::LabeledTypePack(elements) if mode == phalcom_ast::ast::RestMode::Labeled => {
+            Some(elements.iter().map(|element| (Some(element.label.clone()), element.element)).collect())
+        }
+        _ => None,
+    }
 }
 
 fn substitute_generic_constraint(
@@ -248,10 +344,7 @@ pub fn build_declared_class_surface(
             ClassMember::Field(field) => {
                 let side = member_side(member);
                 let lowered_signature = super::declaration_signature::semantic_field_signature_for_member(ctx, &decl_id, member);
-                let signature = ctx
-                    .resolve_field_signature(&decl_id, side, &field.name)
-                    .cloned()
-                    .or(lowered_signature);
+                let signature = ctx.resolve_field_signature(&decl_id, side, &field.name).cloned().or(lowered_signature);
                 let Some(signature) = signature else { continue };
                 surface.add_field_with_visibility(
                     signature.side,
@@ -261,12 +354,11 @@ pub fn build_declared_class_surface(
                 );
             }
             ClassMember::Method(_) | ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Index(_) => {
-                let Some(callable) = super::declaration_signature::callable_id_for_member(&decl_id, member) else { continue };
+                let Some(callable) = super::declaration_signature::callable_id_for_member(&decl_id, member) else {
+                    continue;
+                };
                 let lowered_signature = super::declaration_signature::semantic_signature_for_member(ctx, &decl_id, member);
-                let signature = ctx
-                    .resolve_callable_signature(&callable)
-                    .cloned()
-                    .or(lowered_signature);
+                let signature = ctx.resolve_callable_signature(&callable).cloned().or(lowered_signature);
                 let Some(signature) = signature else { continue };
                 let side = signature.side;
                 let projection = super::declaration_signature::project_semantic_signature(&signature);

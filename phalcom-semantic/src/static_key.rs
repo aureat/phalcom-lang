@@ -362,7 +362,11 @@ impl<'a> ProjectedRecordKeySet<'a> {
 
     /// All exact semantic dependencies selected while checking projected keys.
     pub fn dependencies(&self) -> BTreeSet<crate::checker::analysis::SemanticDependency> {
-        let mut dependencies = self.facts.values().flat_map(|fact| fact.checked.dependencies.iter().cloned()).collect::<BTreeSet<_>>();
+        let mut dependencies = self
+            .facts
+            .values()
+            .flat_map(|fact| fact.checked.dependencies.iter().cloned())
+            .collect::<BTreeSet<_>>();
         dependencies.extend(self.facts.values().flat_map(|fact| {
             fact.checked
                 .static_constant_reads

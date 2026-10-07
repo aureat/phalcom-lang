@@ -50,15 +50,8 @@ fn application(origin: TypeAnnotation, arguments: Vec<TypeAnnotation>) -> TypeAn
     }
 }
 
-fn pack_remainder(
-    mode: phalcom_ast::ast::ExpansionMode,
-    remainder: phalcom_ast::ast::AnonymousRemainderSyntax,
-) -> phalcom_ast::ast::GenericArgumentSyntax {
-    phalcom_ast::ast::GenericArgumentSyntax::Remainder(phalcom_ast::ast::TypePackRemainderSyntax {
-        mode,
-        remainder,
-        range: RANGE,
-    })
+fn pack_remainder(mode: phalcom_ast::ast::ExpansionMode, remainder: phalcom_ast::ast::AnonymousRemainderSyntax) -> phalcom_ast::ast::GenericArgumentSyntax {
+    phalcom_ast::ast::GenericArgumentSyntax::Remainder(phalcom_ast::ast::TypePackRemainderSyntax { mode, remainder, range: RANGE })
 }
 
 fn type_lambda(names: &[&str], body: TypeAnnotation) -> TypeAnnotation {
@@ -510,14 +503,8 @@ fn record_with_tail(tail: phalcom_ast::ast::RecordRowTailSyntax) -> TypeAnnotati
 fn resolve_record_tail(env: &mut TestEnv, tail: phalcom_ast::ast::AnonymousRecordRemainderSyntax) -> RecordRowTail {
     let annotation = record_with_tail(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(tail));
     let mut diagnostics = Vec::new();
-    let result = phalcom_semantic::types::annotation::resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &annotation,
-        &mut diagnostics,
-    );
+    let result =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &annotation, &mut diagnostics);
     assert!(diagnostics.is_empty(), "unexpected diagnostics: {diagnostics:?}");
     let TypeFormResolution::Ready(ty) = result else {
         panic!("expected Record type for anonymous tail, got {result:?}");
@@ -533,14 +520,8 @@ fn record_type_static_literal_keys_reduce_to_canonical_field_keys() {
     let mut env = setup();
     let annotation = parsed_record_type("type R = { [#token]: Int, [\"text\"]: Int, [42]: Int, [true]: Int }\n");
     let mut diagnostics = Vec::new();
-    let result = phalcom_semantic::types::annotation::resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &annotation,
-        &mut diagnostics,
-    );
+    let result =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &annotation, &mut diagnostics);
     assert!(diagnostics.is_empty(), "unexpected diagnostics: {diagnostics:?}");
     let TypeFormResolution::Ready(ty) = result else {
         panic!("expected a concrete Record type, got {result:?}");
@@ -574,17 +555,22 @@ fn record_type_names_and_general_expressions_fail_closed_before_row_interning() 
         let annotation = parsed_record_type(source);
         let rows_before = env.store.record_row_count();
         let mut diagnostics = Vec::new();
-        let result = phalcom_semantic::types::annotation::resolve_type_form(
-            &mut env.store,
-            &env.declarations,
-            &env.resolver,
-            &env.site,
-            &annotation,
-            &mut diagnostics,
+        let result =
+            phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &annotation, &mut diagnostics);
+        assert_eq!(
+            result,
+            TypeFormResolution::Invalid(TypeFormationInvalid::RecordKeyNotStatic),
+            "source: {source}"
         );
-        assert_eq!(result, TypeFormResolution::Invalid(TypeFormationInvalid::RecordKeyNotStatic), "source: {source}");
-        assert_eq!(diagnostics.iter().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(), vec![DiagnosticCode::RecordKeyNotStatic]);
-        assert_eq!(env.store.record_row_count(), rows_before, "unresolved key must not enter canonical row storage: {source}");
+        assert_eq!(
+            diagnostics.iter().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(),
+            vec![DiagnosticCode::RecordKeyNotStatic]
+        );
+        assert_eq!(
+            env.store.record_row_count(),
+            rows_before,
+            "unresolved key must not enter canonical row storage: {source}"
+        );
     }
 }
 
@@ -637,21 +623,17 @@ fn anonymous_record_tail_key_domains_default_and_substitute_correctly() {
     };
     let lambda = type_lambda(&["K", "V"], body);
     let mut diagnostics = Vec::new();
-    let result = phalcom_semantic::types::annotation::resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &lambda,
-        &mut diagnostics,
-    );
+    let result = phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &lambda, &mut diagnostics);
     assert!(diagnostics.is_empty(), "unexpected diagnostics: {diagnostics:?}");
     let TypeFormResolution::Ready(lambda) = result else {
         panic!("expected scoped Record type lambda");
     };
     let int_type = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
     let string_type = env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap();
-    let applied = env.store.apply_type_form(lambda, &[int_type, string_type]).expect("tail key/value binders should substitute");
+    let applied = env
+        .store
+        .apply_type_form(lambda, &[int_type, string_type])
+        .expect("tail key/value binders should substitute");
     let TypeData::Record(row_id) = env.store.get(applied) else {
         panic!("expected specialized Record");
     };
@@ -731,14 +713,8 @@ fn anonymous_record_tail_rejects_non_type_key_domains() {
         range: RANGE,
     };
     let mut diagnostics = Vec::new();
-    let result = phalcom_semantic::types::annotation::resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &annotation,
-        &mut diagnostics,
-    );
+    let result =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &annotation, &mut diagnostics);
     assert!(matches!(result, TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { .. })));
     assert_eq!(diagnostics.first().map(|diagnostic| diagnostic.code), Some(DiagnosticCode::KindExpectedType));
 }
@@ -2929,14 +2905,9 @@ fn pack_type_remainder_constraints_substitute_through_type_lambdas() {
     };
     let lambda = typed_type_lambda(vec![("T", KindSyntax::Type(RANGE))], body);
     let mut diagnostics = Vec::new();
-    let TypeFormResolution::Ready(lambda_ty) = phalcom_semantic::types::annotation::resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &lambda,
-        &mut diagnostics,
-    ) else {
+    let TypeFormResolution::Ready(lambda_ty) =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &lambda, &mut diagnostics)
+    else {
         panic!("expected a Pack type lambda: {diagnostics:?}");
     };
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
@@ -2998,16 +2969,13 @@ fn pack_type_unconstrained_remainders_are_retained_and_other_constructors_reject
         range: RANGE,
     };
     let mut diagnostics = Vec::new();
-    let result = phalcom_semantic::types::annotation::resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &unsupported,
-        &mut diagnostics,
-    );
+    let result =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &unsupported, &mut diagnostics);
     assert!(matches!(result, TypeFormResolution::Invalid(_)));
-    assert!(diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsupported), "{diagnostics:?}");
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsupported),
+        "{diagnostics:?}"
+    );
 }
 
 #[test]
@@ -3016,26 +2984,35 @@ fn rest_parameter_lane_projection_and_kind_enforcement() {
     use phalcom_semantic::diagnostic::DiagnosticCode;
 
     // 1. Explicit lane *P lowers to Lane(P)
-    let f1 = Fixture::new(r#"
+    let f1 = Fixture::new(
+        r#"
 class C {
     @class f<*P>(*args: *P) {}
 }
-"#);
+"#,
+    );
     f1.assert_no_error_diagnostics();
 
     // 2. Bare *args: P where P: TypePack is rejected with KindExpectedType
-    let f2 = Fixture::new(r#"
+    let f2 = Fixture::new(
+        r#"
 class C {
     @class f<*P>(*args: P) {}
 }
-"#);
-    assert!(!f2.diagnostics(DiagnosticCode::KindExpectedType).is_empty(), "expected KindExpectedType diagnostic");
+"#,
+    );
+    assert!(
+        !f2.diagnostics(DiagnosticCode::KindExpectedType).is_empty(),
+        "expected KindExpectedType diagnostic"
+    );
 
     // 3. Concrete tuple lane *args: *(Int, String) projects positionals
-    let f3 = Fixture::new(r#"
+    let f3 = Fixture::new(
+        r#"
 class C {
     @class f(*args: *(Int, String)) {}
 }
-"#);
+"#,
+    );
     f3.assert_no_error_diagnostics();
 }

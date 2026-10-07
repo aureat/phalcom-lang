@@ -262,9 +262,7 @@ impl TypeLambdaArena {
             ScopedTypeData::OpenRecord(record) => {
                 matches!(record.tail, ScopedRecordTail::Bound { depth, .. } if depth >= current_depth)
                     || match record.tail {
-                        ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => {
-                            self.has_free_bound(key_type, current_depth)
-                        }
+                        ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Unconstrained { key_type }) => self.has_free_bound(key_type, current_depth),
                         ScopedRecordTail::Anonymous(ScopedAnonymousRecordRemainder::Typed { key_type, value_type }) => {
                             self.has_free_bound(key_type, current_depth) || self.has_free_bound(value_type, current_depth)
                         }
@@ -599,9 +597,7 @@ impl TypeLambdaArena {
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
                 let mut substitute_remainder = |arena: &mut Self, remainder| match remainder {
-                    ScopedPackRemainder::Typed(ty) => {
-                        ScopedPackRemainder::Typed(arena.substitute_free_scoped(ty, substitution, store))
-                    }
+                    ScopedPackRemainder::Typed(ty) => ScopedPackRemainder::Typed(arena.substitute_free_scoped(ty, substitution, store)),
                     remainder => remainder,
                 };
                 let positional_remainder = substitute_remainder(self, pack.positional_remainder);
@@ -808,16 +804,12 @@ impl TypeLambdaArena {
                 let positional_remainder = match pack.positional_remainder {
                     ScopedPackRemainder::None => super::store::AnonymousTupleRemainder::None,
                     ScopedPackRemainder::Unconstrained => super::store::AnonymousTupleRemainder::Unconstrained,
-                    ScopedPackRemainder::Typed(ty) => {
-                        super::store::AnonymousTupleRemainder::Typed(self.subst_scoped_to_canonical(ty, depth, args, store)?)
-                    }
+                    ScopedPackRemainder::Typed(ty) => super::store::AnonymousTupleRemainder::Typed(self.subst_scoped_to_canonical(ty, depth, args, store)?),
                 };
                 let labeled_remainder = match pack.labeled_remainder {
                     ScopedPackRemainder::None => super::store::AnonymousTupleRemainder::None,
                     ScopedPackRemainder::Unconstrained => super::store::AnonymousTupleRemainder::Unconstrained,
-                    ScopedPackRemainder::Typed(ty) => {
-                        super::store::AnonymousTupleRemainder::Typed(self.subst_scoped_to_canonical(ty, depth, args, store)?)
-                    }
+                    ScopedPackRemainder::Typed(ty) => super::store::AnonymousTupleRemainder::Typed(self.subst_scoped_to_canonical(ty, depth, args, store)?),
                 };
                 store
                     .open_pack(elements, positional_remainder, labeled_remainder)

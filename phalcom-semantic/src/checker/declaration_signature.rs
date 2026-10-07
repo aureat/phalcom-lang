@@ -15,8 +15,8 @@ use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::id::KindId;
 use crate::types::parameter::{TypeParameterOwner, TypeTerm};
 use phalcom_ast::ast::{
-    BehaviorMember, ClassMember, DelegatedAccessorDef, DelegatedAccessorKind, ExpansionMode, GetterDef, IndexMethodDef, MethodDef,
-    ParameterAnnotationSyntax, ParameterDef, RestMode, SetterDef,
+    BehaviorMember, ClassMember, DelegatedAccessorDef, DelegatedAccessorKind, ExpansionMode, GetterDef, IndexMethodDef, MethodDef, ParameterAnnotationSyntax,
+    ParameterDef, RestMode, SetterDef,
 };
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
@@ -295,7 +295,10 @@ fn parameter_fact(
                             diagnostics.push(SemanticDiagnostic::error_in(
                                 ctx.current_module.clone(),
                                 DiagnosticCode::KindExpectedType,
-                                format!("rest element contract requires a proper Type; `{}` has domain {kind:?}", ann.origin_symbol_ref().map(|s| s.root.as_str()).unwrap_or("operand")),
+                                format!(
+                                    "rest element contract requires a proper Type; `{}` has domain {kind:?}",
+                                    ann.origin_symbol_ref().map(|s| s.root.as_str()).unwrap_or("operand")
+                                ),
                                 ann.range,
                             ));
                             DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause)
@@ -326,7 +329,7 @@ fn parameter_fact(
                     )]);
                     ParameterContract::Rest {
                         mode: parameter.rest_mode,
-                        contract: RestValueContract::Unconstrained,
+                        contract: RestValueContract::Invalid(UnknownReason::SuppressedByInvalidCause),
                     }
                 } else {
                     let mut diagnostics = Vec::new();
@@ -362,7 +365,7 @@ fn parameter_fact(
                         },
                         None => ParameterContract::Rest {
                             mode: parameter.rest_mode,
-                            contract: RestValueContract::Unconstrained,
+                            contract: RestValueContract::Invalid(UnknownReason::SuppressedByInvalidCause),
                         },
                     }
                 }
@@ -1000,11 +1003,12 @@ pub(crate) fn project_semantic_signature(signature: &CallableSemanticSignature) 
                         RestValueContract::Unconstrained => RestValueContractKnowledge::Unconstrained,
                         RestValueContract::Element(fact) => RestValueContractKnowledge::Element(fact.to_knowledge()),
                         RestValueContract::Lane(lane_id) => RestValueContractKnowledge::Lane(*lane_id),
+                        RestValueContract::Invalid(reason) => RestValueContractKnowledge::Invalid(reason.clone()),
                     },
                 },
             };
-            let mut projected = CallableParameter::new(parameter.local_name.to_string(), parameter.declared_type.to_knowledge())
-                .with_contract(contract_knowledge);
+            let mut projected =
+                CallableParameter::new(parameter.local_name.to_string(), parameter.declared_type.to_knowledge()).with_contract(contract_knowledge);
             if let Some(label) = &parameter.external_label {
                 projected = projected.with_label(label.to_string());
             }

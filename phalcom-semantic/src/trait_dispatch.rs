@@ -465,6 +465,23 @@ fn candidate_from_proof(
                     .into_iter()
                     .map(|mut parameter| {
                         parameter.declared_type = crate::traits::instantiate_declared_type_fact(store, &environment, &parameter.declared_type);
+                        parameter.contract = match parameter.contract {
+                            crate::signature::ParameterContract::Fixed(_) => crate::signature::ParameterContract::Fixed(parameter.declared_type.clone()),
+                            crate::signature::ParameterContract::Rest { mode, contract } => crate::signature::ParameterContract::Rest {
+                                mode,
+                                contract: match contract {
+                                    crate::signature::RestValueContract::Unconstrained => crate::signature::RestValueContract::Unconstrained,
+                                    crate::signature::RestValueContract::Element(fact) => {
+                                        crate::signature::RestValueContract::Element(crate::traits::instantiate_declared_type_fact(store, &environment, &fact))
+                                    }
+                                    crate::signature::RestValueContract::Lane(lane) => crate::signature::RestValueContract::Lane(
+                                        crate::types::environment::TypeView::new(lane, environment.clone()).materialize(store),
+                                    ),
+                                    crate::signature::RestValueContract::Invalid(reason) => crate::signature::RestValueContract::Invalid(reason),
+                                },
+                            },
+                        };
+                        parameter.rest = parameter.contract.rest_mode();
                         parameter
                     })
                     .collect::<Vec<_>>()

@@ -2358,11 +2358,7 @@ impl<'source> Parser<'source> {
                 }
             };
             let range = (start..self.prev_end).into();
-            Ok(GenericArgumentSyntax::Remainder(TypePackRemainderSyntax {
-                mode,
-                remainder,
-                range,
-            }))
+            Ok(GenericArgumentSyntax::Remainder(TypePackRemainderSyntax { mode, remainder, range }))
         } else if let Some(mode) = self.expansion_mode_at_cursor() {
             let operator_start = self.cur_start();
             let operator_range = (operator_start..self.tokens[self.pos].end).into();
@@ -5597,7 +5593,11 @@ impl<'source> Parser<'source> {
             let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
             let local_range = (local_start..self.prev_end).into();
-            let annotation = if self.eat(&Token::Colon) { Some(self.parse_parameter_annotation()?) } else { None };
+            let annotation = if self.eat(&Token::Colon) {
+                Some(self.parse_parameter_annotation()?)
+            } else {
+                None
+            };
             self.expect(&Token::RParen, &["\")\""])?;
             let param = ParameterDef {
                 name: local_name,
@@ -6026,7 +6026,11 @@ impl<'source> Parser<'source> {
             let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
             let local_range = (local_start..self.prev_end).into();
-            let annotation = if self.eat(&Token::Colon) { Some(self.parse_parameter_annotation()?) } else { None };
+            let annotation = if self.eat(&Token::Colon) {
+                Some(self.parse_parameter_annotation()?)
+            } else {
+                None
+            };
             self.expect(&Token::RParen, &["\")\""])?;
             let param = ParameterDef {
                 name: local_name,
@@ -6179,7 +6183,11 @@ impl<'source> Parser<'source> {
             self.expect(&Token::Underscore, &["\"_\""])?;
             let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
-            let annotation = if self.eat(&Token::Colon) { Some(self.parse_parameter_annotation()?) } else { None };
+            let annotation = if self.eat(&Token::Colon) {
+                Some(self.parse_parameter_annotation()?)
+            } else {
+                None
+            };
             self.expect(&Token::RParen, &["\")\""])?;
             let value = ParameterDef {
                 name: local_name,
@@ -6510,7 +6518,11 @@ impl<'source> Parser<'source> {
                         range: start..self.prev_end,
                     });
                 }
-                let annotation = if self.eat(&Token::Colon) { Some(self.parse_parameter_annotation()?) } else { None };
+                let annotation = if self.eat(&Token::Colon) {
+                    Some(self.parse_parameter_annotation()?)
+                } else {
+                    None
+                };
                 let range: SourceRange = (start..self.prev_end).into();
                 match rest_mode {
                     RestMode::Positional if positional_rest || complete_rest => {
@@ -6555,7 +6567,11 @@ impl<'source> Parser<'source> {
                         range: start..self.prev_end,
                     });
                 }
-                let annotation = if self.eat(&Token::Colon) { Some(self.parse_parameter_annotation()?) } else { None };
+                let annotation = if self.eat(&Token::Colon) {
+                    Some(self.parse_parameter_annotation()?)
+                } else {
+                    None
+                };
                 let range = (start..self.prev_end).into();
                 params.push(ParameterDef {
                     name,
@@ -6593,7 +6609,11 @@ impl<'source> Parser<'source> {
                             range: label_range.start..label_range.end,
                         });
                     }
-                    let annotation = if self.eat(&Token::Colon) { Some(self.parse_parameter_annotation()?) } else { None };
+                    let annotation = if self.eat(&Token::Colon) {
+                        Some(self.parse_parameter_annotation()?)
+                    } else {
+                        None
+                    };
                     params.push(ParameterDef {
                         name: local_ident,
                         name_range,
@@ -6612,7 +6632,11 @@ impl<'source> Parser<'source> {
                 if !first_is_identifier {
                     return Err(self.error_here(strs(&["local parameter name after reserved label"])));
                 }
-                let annotation = if self.eat(&Token::Colon) { Some(self.parse_parameter_annotation()?) } else { None };
+                let annotation = if self.eat(&Token::Colon) {
+                    Some(self.parse_parameter_annotation()?)
+                } else {
+                    None
+                };
                 any_labeled = true;
                 let label = Some(first_ident.clone());
                 if labels.insert(first_ident.clone(), label_range).is_some() {

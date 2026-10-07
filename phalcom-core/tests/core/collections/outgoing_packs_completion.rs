@@ -711,15 +711,17 @@ fn p3_shadowed_pack_name_remains_an_ordinary_call() {
 #[test]
 fn p3_analyzed_expanded_pack_uses_one_builder() {
     on_large_stack(|| {
-        use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
         use phalcom_core::bytecode::Bytecode;
+        use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
         let source = "let result = Pack(*(1, 2), **(label: 3,))\n";
         let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source.into())).expect("analyze expanded Pack");
         let lowering = &program.modules.get(&program.entry).expect("entry").lowering;
         assert_eq!(lowering.pack_constructions.len(), 1);
         let mut vm = phalcom_core::vm::VM::new();
         vm.materialize_program(&program).expect("materialize");
-        let closure = vm.compile_program_module_closure(&program.entry, source, &program).expect("compile expanded Pack");
+        let closure = vm
+            .compile_program_module_closure(&program.entry, source, &program)
+            .expect("compile expanded Pack");
         let code = &vm.heap.closure(closure).callable.chunk.code;
         assert_eq!(code.iter().filter(|op| matches!(op, Bytecode::NewArgumentPack)).count(), 1);
         assert_eq!(code.iter().filter(|op| matches!(op, Bytecode::FinishPack)).count(), 1);
@@ -911,7 +913,9 @@ let labeled_second_name = match labeled_rest.labeledView {
             assert_eq!(vm.resolve_symbol(symbol), expected);
         }
 
-        let root = compiled_global_value(&mut vm, main, "positional_root").as_obj().expect("positional root object");
+        let root = compiled_global_value(&mut vm, main, "positional_root")
+            .as_obj()
+            .expect("positional root object");
         for (name, expected_start) in [("positional_rest_a", 1), ("positional_rest_b", 1), ("positional_rest_next", 2)] {
             let slice = compiled_global_value(&mut vm, main, name).as_obj().expect("rest view must be a Pack slice");
             let pack = vm.heap.pack(slice);
@@ -964,7 +968,14 @@ let nested_hash_equal = Pack(Pack(7)).hash == Pack(Pack(7)).hash
 "#;
         let (mut vm, main) = run_compiled_source(source);
 
-        for name in ["root_equal", "slice_equal", "root_hash_equal", "slice_hash_equal", "nested_equal", "nested_hash_equal"] {
+        for name in [
+            "root_equal",
+            "slice_equal",
+            "root_hash_equal",
+            "slice_hash_equal",
+            "nested_equal",
+            "nested_hash_equal",
+        ] {
             assert_eq!(compiled_global_value(&mut vm, main, name), Value::bool(true), "{name}");
         }
         for name in ["position_order_differs", "label_order_differs", "label_identity_differs", "lane_differs"] {

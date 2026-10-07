@@ -257,10 +257,7 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
                 if let Some(layout) = layouts.get(storage.layout_id()) {
                     for &offset in layout.value_slot_offsets() {
                         let offset = offset as usize;
-                        trace_value(
-                            Value::from_raw_words(storage.words()[offset], storage.words()[offset + 1]),
-                            push,
-                        );
+                        trace_value(Value::from_raw_words(storage.words()[offset], storage.words()[offset + 1]), push);
                     }
                 }
             }

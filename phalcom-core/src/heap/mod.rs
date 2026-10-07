@@ -315,23 +315,11 @@ impl Heap {
         positional_len: u32,
         labeled_len: u32,
     ) -> ObjRef {
-        self.insert(Object::Pack(Box::new(PackObject::new_root(
-            descriptor,
-            storage,
-            positional_len,
-            labeled_len,
-        ))))
+        self.insert(Object::Pack(Box::new(PackObject::new_root(descriptor, storage, positional_len, labeled_len))))
     }
 
     /// Allocates a slice [`Object::Pack`] referencing an existing root Pack.
-    pub(crate) fn alloc_pack_slice(
-        &mut self,
-        root: ObjRef,
-        positional_start: u32,
-        positional_len: u32,
-        labeled_start: u32,
-        labeled_len: u32,
-    ) -> ObjRef {
+    pub(crate) fn alloc_pack_slice(&mut self, root: ObjRef, positional_start: u32, positional_len: u32, labeled_start: u32, labeled_len: u32) -> ObjRef {
         self.insert(Object::Pack(Box::new(PackObject::new_slice(
             root,
             positional_start,

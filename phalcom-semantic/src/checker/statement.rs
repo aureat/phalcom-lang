@@ -585,7 +585,11 @@ fn bind_declaration_pattern(
                     let remainder_fields = row
                         .fields
                         .into_iter()
-                        .filter(|field| !entries.iter().any(|entry| entry.label().is_some_and(|label| field.key == crate::field_key::FieldKey::symbol(label))))
+                        .filter(|field| {
+                            !entries
+                                .iter()
+                                .any(|entry| entry.label().is_some_and(|label| field.key == crate::field_key::FieldKey::symbol(label)))
+                        })
                         .collect();
                     match ctx.store.record_row_checked(remainder_fields, row.tail) {
                         Ok(row_id) => {

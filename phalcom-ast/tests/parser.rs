@@ -2508,11 +2508,21 @@ fn rest_lane_annotations_parse_contextually_on_parameters() {
 }
 "#;
     let prog = parse_source(src, 0).expect("source should parse");
-    let Statement::Class(c) = &prog.statements[0] else { panic!("expected class"); };
-    let ClassMember::Method(m1) = &c.members[0] else { panic!("expected method"); };
-    let ClassMember::Method(m2) = &c.members[1] else { panic!("expected method"); };
-    let ClassMember::Method(m3) = &c.members[2] else { panic!("expected method"); };
-    let ClassMember::Method(m4) = &c.members[3] else { panic!("expected method"); };
+    let Statement::Class(c) = &prog.statements[0] else {
+        panic!("expected class");
+    };
+    let ClassMember::Method(m1) = &c.members[0] else {
+        panic!("expected method");
+    };
+    let ClassMember::Method(m2) = &c.members[1] else {
+        panic!("expected method");
+    };
+    let ClassMember::Method(m3) = &c.members[2] else {
+        panic!("expected method");
+    };
+    let ClassMember::Method(m4) = &c.members[3] else {
+        panic!("expected method");
+    };
 
     assert_eq!(m1.params.len(), 2);
     assert_eq!(m2.params.len(), 1);

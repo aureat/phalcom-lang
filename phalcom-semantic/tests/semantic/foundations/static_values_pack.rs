@@ -21,10 +21,7 @@ fn static_pack_storage_slicing_and_equality() {
 
     // 1. intern_pack with positional and labeled elements
     let pack1 = values
-        .intern_pack(
-            vec![int_one, int_two, int_three],
-            vec![(sym_x, str_a), (sym_y, str_b)],
-        )
+        .intern_pack(vec![int_one, int_two, int_three], vec![(sym_x, str_a), (sym_y, str_b)])
         .expect("intern valid pack");
 
     let StaticValueData::Pack(pack1_id) = values.get(pack1).unwrap() else {
@@ -37,9 +34,7 @@ fn static_pack_storage_slicing_and_equality() {
     assert_eq!(pack1_data.labeled_len, 2);
 
     // 2. Slice creation shares backing (O(1) tail)
-    let slice1 = values
-        .intern_pack_slice(pack1, 1, 2, 0, 1)
-        .expect("valid slice");
+    let slice1 = values.intern_pack_slice(pack1, 1, 2, 0, 1).expect("valid slice");
     let StaticValueData::Pack(slice1_id) = values.get(slice1).unwrap() else {
         panic!("expected Pack slice");
     };
@@ -51,9 +46,7 @@ fn static_pack_storage_slicing_and_equality() {
     assert_eq!(slice1_data.labeled_len, 1);
 
     // Slice-of-slice (rest chain) also shares backing
-    let slice2 = values
-        .intern_pack_slice(slice1, 1, 1, 0, 0)
-        .expect("valid sub-slice");
+    let slice2 = values.intern_pack_slice(slice1, 1, 1, 0, 0).expect("valid sub-slice");
     let StaticValueData::Pack(slice2_id) = values.get(slice2).unwrap() else {
         panic!("expected Pack sub-slice");
     };
@@ -104,14 +97,8 @@ fn static_pack_storage_slicing_and_equality() {
     assert_eq!(invalid_slice, Err(StaticValueStoreError::InvalidPackSliceRange));
 
     // 4. Duplicate label in intern_pack rejected
-    let dup_label = values.intern_pack(
-        vec![int_one],
-        vec![(sym_x, str_a), (sym_x, str_b)],
-    );
-    assert_eq!(
-        dup_label,
-        Err(StaticValueStoreError::DuplicatePackLabel("x".into()))
-    );
+    let dup_label = values.intern_pack(vec![int_one], vec![(sym_x, str_a), (sym_x, str_b)]);
+    assert_eq!(dup_label, Err(StaticValueStoreError::DuplicatePackLabel("x".into())));
 
     // 5. Foreign child rejected
     let mut other_store = StaticValueStore::new();
@@ -122,10 +109,7 @@ fn static_pack_storage_slicing_and_equality() {
     // 6. Representation-distinct equal slices compare equal and have identical hashes/fingerprints
     // Create pack2 with directly interned elements that match slice1: positionals [int_two, int_three], labeled [(sym_x, str_a)]
     let pack2 = values
-        .intern_pack(
-            vec![int_two, int_three],
-            vec![(sym_x, str_a)],
-        )
+        .intern_pack(vec![int_two, int_three], vec![(sym_x, str_a)])
         .expect("intern matching pack");
     let StaticValueData::Pack(pack2_id) = values.get(pack2).unwrap() else {
         panic!("expected Pack");
@@ -172,9 +156,6 @@ fn static_pack_storage_slicing_and_equality() {
 
     // 9. MaterializationDescriptor for Pack is DeferredStructural(DeferredStructuralKind::Pack)
     let mat_desc = MaterializationDescriptor::from_static_value(&values, pack1).expect("materialization descriptor");
-    assert_eq!(
-        mat_desc,
-        MaterializationDescriptor::DeferredStructural(DeferredStructuralKind::Pack)
-    );
+    assert_eq!(mat_desc, MaterializationDescriptor::DeferredStructural(DeferredStructuralKind::Pack));
     assert_eq!(mat_desc.capability(), MaterializationCapability::DeferredStructural);
 }

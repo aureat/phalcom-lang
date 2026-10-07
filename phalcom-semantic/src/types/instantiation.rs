@@ -142,9 +142,13 @@ fn materialize_type_inner(
                         Ok(super::type_member::TypeMemberArgument::Type(mat))
                     }
                     super::type_member::TypeMemberArgument::Const(c) => Ok(super::type_member::TypeMemberArgument::Const(c.clone())),
-                    super::type_member::TypeMemberArgument::RecordRow(row_id) => Ok(super::type_member::TypeMemberArgument::RecordRow(
-                        materialize_row_id(store, *row_id, instantiation, row_mode, visiting_rows)?,
-                    )),
+                    super::type_member::TypeMemberArgument::RecordRow(row_id) => Ok(super::type_member::TypeMemberArgument::RecordRow(materialize_row_id(
+                        store,
+                        *row_id,
+                        instantiation,
+                        row_mode,
+                        visiting_rows,
+                    )?)),
                 })
                 .collect::<Result<Vec<_>, TypeMaterializationError>>()?
                 .into_boxed_slice();

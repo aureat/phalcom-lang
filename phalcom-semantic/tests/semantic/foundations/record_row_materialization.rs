@@ -40,7 +40,13 @@ fn materialization_substitutes_row_tail_into_canonical_record() {
     };
     let row = store.record_row(*row_id);
     assert_eq!(row.tail, RecordRowTail::Closed);
-    assert_eq!(row.fields.iter().map(|field| field.key.as_symbol().expect("symbol row field")).collect::<Vec<_>>(), vec!["name", "value"]);
+    assert_eq!(
+        row.fields
+            .iter()
+            .map(|field| field.key.as_symbol().expect("symbol row field"))
+            .collect::<Vec<_>>(),
+        vec!["name", "value"]
+    );
 }
 
 #[test]

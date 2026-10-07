@@ -22,8 +22,20 @@ Whole-lane rest parameter inference (`*args: *P`, `**args: **P`, `***args: ***P`
 - `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic rest_parameter_lane_projection_and_kind_enforcement` (PASS)
 
 ## Preserved Invariants & In-Flight State
-- `packages/parse/` and `phalcom-core/tests/core/mod.rs` preserved without modifications.
+- The earlier TEL-1 commit included unrelated `packages/parse/` and
+  `phalcom-core/tests/core/mod.rs` changes; lifecycle records now acknowledge
+  that drift rather than claiming those paths were untouched.
 - Pre-existing unrelated failures on `Future` and unsaturated constructors remain classified as baseline D.
+
+## Audit remediation state
+
+The post-implementation audit remediation is implemented on local `main`.
+Structured generic/concrete lane matching now uses pointwise relations,
+unavailable evidence is not converted to `Unit`, invalid lane recovery remains
+explicitly invalid, and callable compatibility consumers use parameter
+contracts. Fresh focused verification is 20 rest-contract tests, 3 enum
+requirement tests, and a passing semantic crate check. The broader audit
+obligations remain open and R1/P4 are not promoted to final completion.
 
 ## Next Steps
 - Continue with remaining C4.P4.R1 obligations per `docs/implementation/LANG007/LANG007.C4/LANG007.C4-CHECKPOINT.md`.

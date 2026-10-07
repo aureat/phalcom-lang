@@ -159,9 +159,7 @@ impl<'a> StructuralClassifier<'a> {
                 }
 
                 match self.data.data_info(&owner) {
-                    Some(info) if info.shape == DataShape::Tuple => {
-                        StructuralClassification::OrderedProduct(OrderedProductForm::Data { owner })
-                    }
+                    Some(info) if info.shape == DataShape::Tuple => StructuralClassification::OrderedProduct(OrderedProductForm::Data { owner }),
                     _ => StructuralClassification::Unsupported,
                 }
             }
@@ -174,11 +172,7 @@ impl<'a> StructuralClassifier<'a> {
     /// The descriptor retains open remainder terms and never recursively
     /// reflects component types. Data components are specialized through the
     /// existing canonical data materializer.
-    pub fn ordered_product(
-        &self,
-        types: &mut TypeStore,
-        ty: TypeId,
-    ) -> Result<Option<OrderedProductStructure>, DataProductShapeMaterializationError> {
+    pub fn ordered_product(&self, types: &mut TypeStore, ty: TypeId) -> Result<Option<OrderedProductStructure>, DataProductShapeMaterializationError> {
         let classification = self.classify(types, ty);
         let mut structure = match classification {
             StructuralClassification::Unsupported | StructuralClassification::Sum { .. } => return Ok(None),

@@ -86,7 +86,14 @@ pub fn check_enum_requirements(
     for req in root_requirements {
         // Check if root requirement signature is complete
         let req_ret_incomplete = req.signature.declared_return.is_unknown();
-        let req_params_incomplete = req.signature.parameters.iter().any(|p| p.declared_type.is_unknown());
+        let req_params_incomplete = req.signature.parameters.iter().any(|p| match &p.contract {
+            crate::signature::ParameterContract::Fixed(fact) => fact.is_unknown(),
+            crate::signature::ParameterContract::Rest { contract, .. } => match contract {
+                crate::signature::RestValueContract::Unconstrained | crate::signature::RestValueContract::Lane(_) => false,
+                crate::signature::RestValueContract::Element(fact) => fact.is_unknown(),
+                crate::signature::RestValueContract::Invalid(_) => true,
+            },
+        });
 
         if req_ret_incomplete || req_params_incomplete {
             diagnostics.push(SemanticDiagnostic::error_in(
@@ -168,12 +175,37 @@ pub fn check_enum_requirements(
                     // Check parameter equivalence under specialized environment
                     let mut params_compatible = true;
                     for (cp, rp) in case_sig.parameters.iter().zip(req.signature.parameters.iter()) {
-                        let req_param_ty = rp.declared_type.canonical_type().map(|t| case_subst.apply(store, t));
-                        let case_param_ty = cp.declared_type.canonical_type();
-
-                        match (req_param_ty, case_param_ty) {
-                            (Some(rt), Some(ct)) => {
-                                if rt != ct {
+                        match (&rp.contract, &cp.contract) {
+                            (
+                                crate::signature::ParameterContract::Rest {
+                                    mode: required_mode,
+                                    contract: required,
+                                },
+                                crate::signature::ParameterContract::Rest {
+                                    mode: case_mode,
+                                    contract: case,
+                                },
+                            ) if required_mode == case_mode => match (required, case) {
+                                (crate::signature::RestValueContract::Unconstrained, crate::signature::RestValueContract::Unconstrained) => {}
+                                (crate::signature::RestValueContract::Element(required), crate::signature::RestValueContract::Element(case)) => {
+                                    if required.canonical_type().map(|ty| case_subst.apply(store, ty)) != case.canonical_type() {
+                                        params_compatible = false;
+                                        break;
+                                    }
+                                }
+                                (crate::signature::RestValueContract::Lane(required), crate::signature::RestValueContract::Lane(case)) => {
+                                    if case_subst.apply(store, *required) != *case {
+                                        params_compatible = false;
+                                        break;
+                                    }
+                                }
+                                _ => {
+                                    params_compatible = false;
+                                    break;
+                                }
+                            },
+                            (crate::signature::ParameterContract::Fixed(required), crate::signature::ParameterContract::Fixed(case)) => {
+                                if required.canonical_type().map(|ty| case_subst.apply(store, ty)) != case.canonical_type() {
                                     params_compatible = false;
                                     break;
                                 }

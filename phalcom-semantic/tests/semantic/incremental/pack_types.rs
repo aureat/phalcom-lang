@@ -77,7 +77,10 @@ class Consumer {
     let fp_consumer_b = callable_signature_product_fingerprint(sig_consumer_b);
 
     // Exact dependent product signature changed
-    assert_ne!(fp_consumer_a, fp_consumer_b, "editing Pack element type must invalidate dependent signature fingerprint");
+    assert_ne!(
+        fp_consumer_a, fp_consumer_b,
+        "editing Pack element type must invalidate dependent signature fingerprint"
+    );
 
     // Unrelated declaration signature is preserved
     assert_eq!(fp_unrelated_a, fp_unrelated_b, "unrelated declaration signature must be preserved");
@@ -129,8 +132,7 @@ class Consumer {
     let fp_consumer_b = callable_signature_product_fingerprint(sig_consumer_b);
 
     assert_ne!(
-        fp_consumer_a,
-        fp_consumer_b,
+        fp_consumer_a, fp_consumer_b,
         "editing labeled remainder in Pack must invalidate dependent signature fingerprint"
     );
 }
@@ -192,18 +194,9 @@ class Unrelated {
     let sig_unrelated_b = update_b.snapshot.callable_signatures.get(&unrelated_id).expect("unrelated sig B");
     let unrelated_fp_b = callable_signature_product_fingerprint(sig_unrelated_b);
 
-    assert_ne!(
-        def_fp_a, def_fp_b,
-        "StaticParameter mode edit must invalidate definition product"
-    );
-    assert_ne!(
-        consumer_fp_a, consumer_fp_b,
-        "StaticParameter mode edit must invalidate application product"
-    );
-    assert_eq!(
-        unrelated_fp_a, unrelated_fp_b,
-        "unrelated declaration must remain reused"
-    );
+    assert_ne!(def_fp_a, def_fp_b, "StaticParameter mode edit must invalidate definition product");
+    assert_ne!(consumer_fp_a, consumer_fp_b, "StaticParameter mode edit must invalidate application product");
+    assert_eq!(unrelated_fp_a, unrelated_fp_b, "unrelated declaration must remain reused");
 }
 
 #[test]
@@ -272,15 +265,25 @@ class Stable { @class value() -> Int { 1 } }
         use phalcom_semantic::types::store::TypeData;
         use phalcom_semantic::types::type_member::TypeMemberArgument;
         let pack = signature.parameters[0].declared_type.canonical_type().unwrap();
-        let TypeData::PackFromPacks { positionals, .. } = snapshot.store.get(pack) else { panic!("symbolic Pack contract"); };
-        let TypeData::TypeMemberProjection(projection) = snapshot.store.get(*positionals) else { panic!("Map projection"); };
-        let TypeMemberArgument::Type(constructor) = projection.arguments[0] else { panic!("unary constructor argument"); };
+        let TypeData::PackFromPacks { positionals, .. } = snapshot.store.get(pack) else {
+            panic!("symbolic Pack contract");
+        };
+        let TypeData::TypeMemberProjection(projection) = snapshot.store.get(*positionals) else {
+            panic!("Map projection");
+        };
+        let TypeMemberArgument::Type(constructor) = projection.arguments[0] else {
+            panic!("unary constructor argument");
+        };
         let mut store = snapshot.store.as_ref().clone();
         let int = store.nominal(phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int));
         let applied = store.apply_type_form(constructor, &[int]).unwrap();
         store.format_type(applied)
     };
-    assert_ne!(parameter(&before.snapshot), parameter(&warm.snapshot), "Map constructor changes must invalidate the dependent Pack contract");
+    assert_ne!(
+        parameter(&before.snapshot),
+        parameter(&warm.snapshot),
+        "Map constructor changes must invalidate the dependent Pack contract"
+    );
     assert_eq!(parameter(&warm.snapshot), parameter(&cold.snapshot));
     let stable = callable_id(&warm.snapshot, &module, "Stable", "value", DispatchSide::Class);
     assert_eq!(

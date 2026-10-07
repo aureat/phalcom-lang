@@ -4,12 +4,12 @@ use crate::checker::analysis::{AnalysisStatus, BindingAnalysisIndex, ExpressionA
 use crate::checker::binding::{BindingContract, BindingContractOrigin, BindingSeed};
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::context::CheckingContext;
-use crate::db::key::QueryKey;
 use crate::checker::control::analyze_executable_region;
 use crate::checker::expected::{ExpectationOrigin, ExpectedType};
 use crate::checker::expression::analyze_expression;
 use crate::checker::flow::InitializationState;
 use crate::checker::typed_expr::TypedExpression;
+use crate::db::key::QueryKey;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::identity::{BindingId, ExpressionId};
 use crate::static_definition::{CheckedStaticBody, StaticBodyId, StaticDefinition, StaticDefinitionBodyRepr};
@@ -339,10 +339,7 @@ fn analyze_static_body_inner(
             }
             crate::types::parameter::GenericParameterMode::CompletePack => {
                 let remainder = crate::types::store::AnonymousTupleRemainder::Typed(elem_ty);
-                context
-                    .store
-                    .open_pack(Box::new([]), remainder, remainder)
-                    .unwrap_or(elem_ty)
+                context.store.open_pack(Box::new([]), remainder, remainder).unwrap_or(elem_ty)
             }
         };
         let current = TypeKnowledge::assumed(bound_ty, EvidenceOrigin::CallableSignature);

@@ -298,10 +298,7 @@ fn extended_type_relation_controls() {
     let ln = s.apply_type_form(list, &[n]).unwrap();
     let x = RecordTypeField::symbol_required("x", i);
     let r1 = s.record(Box::new([x.clone()]));
-    let r2 = s.record(Box::new([
-        x,
-        RecordTypeField::symbol_required("y", st),
-    ]));
+    let r2 = s.record(Box::new([x, RecordTypeField::symbol_required("y", st)]));
     let c1 = s.callable(CallableType {
         parameters: Box::new([CallableParameterType::new(n)]),
         return_type: i,

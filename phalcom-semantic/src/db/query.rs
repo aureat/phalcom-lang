@@ -176,9 +176,7 @@ fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::
         QueryKey::ResolvedImport(site) => Some(crate::checker::analysis::SemanticDependency::ResolvedImport(site.clone())),
         QueryKey::LinkedName(module, name) => Some(crate::checker::analysis::SemanticDependency::LinkedName(module.clone(), name.clone())),
         QueryKey::PublicExport(module, name) => Some(crate::checker::analysis::SemanticDependency::PublicExport(module.clone(), name.clone())),
-        QueryKey::ModuleStaticBindingCatalog(module) => {
-            Some(crate::checker::analysis::SemanticDependency::ModuleStaticBindingCatalog(module.clone()))
-        }
+        QueryKey::ModuleStaticBindingCatalog(module) => Some(crate::checker::analysis::SemanticDependency::ModuleStaticBindingCatalog(module.clone())),
         QueryKey::ModuleStaticBindings(module) => Some(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(module.clone())),
         QueryKey::StaticConstant(id) => Some(crate::checker::analysis::SemanticDependency::StaticConstant(id.clone())),
         _ => None,
@@ -1440,10 +1438,7 @@ pub fn query_static_definition_with_record_key_projections(
         }
     }
 
-    let input_fingerprint = signature_projection_input_fingerprint(
-        crate::db::fingerprint::static_definition_input_fingerprint(&product),
-        Some(projections),
-    );
+    let input_fingerprint = signature_projection_input_fingerprint(crate::db::fingerprint::static_definition_input_fingerprint(&product), Some(projections));
     if db.validate_reuse(&key, input_fingerprint)
         && let Some(cached) = db.product(&key).and_then(|value| value.as_static_definition())
     {
@@ -2032,12 +2027,7 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
         }
         crate::checker::analysis::SemanticDependency::ModuleStaticBindingCatalog(module) => {
             let key = QueryKey::ModuleStaticBindingCatalog(module.clone());
-            if db
-                .product(&key)
-                .and_then(|product| product.as_module_static_binding_catalog())
-                .is_some()
-                && db.validate_ready(&key)
-            {
+            if db.product(&key).and_then(|product| product.as_module_static_binding_catalog()).is_some() && db.validate_ready(&key) {
                 QueryOutcome::Ready(())
             } else {
                 QueryOutcome::Blocked(BlockReason::SuppressedDependency)

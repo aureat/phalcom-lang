@@ -385,9 +385,7 @@ impl TypeResolver for TrackingTypeResolver<'_> {
             // Selection is authoritative even when its checked product has not
             // reached the current resolver view. Suspend on that exact owner;
             // never turn this absence into a source diagnostic or dependency.
-            self.query_demands
-                .borrow_mut()
-                .insert(QueryKey::TypeMemberDeclaration(id));
+            self.query_demands.borrow_mut().insert(QueryKey::TypeMemberDeclaration(id));
             return None;
         };
         if product.id == id {
@@ -2558,22 +2556,19 @@ impl<'a> CheckingContext<'a> {
                 crate::dispatch::CallableParameterContract::Fixed(ty) => {
                     crate::dispatch::CallableParameterContract::Fixed(ty.map_type(|ty| specialize_type(self, ty)))
                 }
-                crate::dispatch::CallableParameterContract::Rest { mode, contract } => {
-                    crate::dispatch::CallableParameterContract::Rest {
-                        mode: *mode,
-                        contract: match contract {
-                            crate::dispatch::RestValueContractKnowledge::Element(ty) => {
-                                crate::dispatch::RestValueContractKnowledge::Element(ty.map_type(|ty| specialize_type(self, ty)))
-                            }
-                            crate::dispatch::RestValueContractKnowledge::Lane(lane_id) => {
-                                crate::dispatch::RestValueContractKnowledge::Lane(specialize_type(self, *lane_id))
-                            }
-                            crate::dispatch::RestValueContractKnowledge::Unconstrained => {
-                                crate::dispatch::RestValueContractKnowledge::Unconstrained
-                            }
-                        },
-                    }
-                }
+                crate::dispatch::CallableParameterContract::Rest { mode, contract } => crate::dispatch::CallableParameterContract::Rest {
+                    mode: *mode,
+                    contract: match contract {
+                        crate::dispatch::RestValueContractKnowledge::Element(ty) => {
+                            crate::dispatch::RestValueContractKnowledge::Element(ty.map_type(|ty| specialize_type(self, ty)))
+                        }
+                        crate::dispatch::RestValueContractKnowledge::Lane(lane_id) => {
+                            crate::dispatch::RestValueContractKnowledge::Lane(specialize_type(self, *lane_id))
+                        }
+                        crate::dispatch::RestValueContractKnowledge::Unconstrained => crate::dispatch::RestValueContractKnowledge::Unconstrained,
+                        crate::dispatch::RestValueContractKnowledge::Invalid(reason) => crate::dispatch::RestValueContractKnowledge::Invalid(reason.clone()),
+                    },
+                },
             };
         }
         signature.return_type = signature.return_type.map_type(|ty| specialize_type(self, ty));
@@ -2606,13 +2601,11 @@ impl<'a> CheckingContext<'a> {
                     crate::dispatch::RestValueContractKnowledge::Element(ty) => ty.ty().is_some_and(|ty| self.store.contains_type_parameter(ty, p)),
                     crate::dispatch::RestValueContractKnowledge::Lane(lane_id) => self.store.contains_type_parameter(*lane_id, p),
                     crate::dispatch::RestValueContractKnowledge::Unconstrained => false,
+                    crate::dispatch::RestValueContractKnowledge::Invalid(_) => false,
                 },
             };
             let remains_in_signature = generics.parameters.iter().copied().any(|parameter| {
-                signature
-                    .parameters
-                    .iter()
-                    .any(|p| parameter_contract_mentions(&p.contract, parameter))
+                signature.parameters.iter().any(|p| parameter_contract_mentions(&p.contract, parameter))
                     || signature.return_type.ty().is_some_and(|ty| self.store.contains_type_parameter(ty, parameter))
                     || generics.constraints.iter().any(|constraint| match constraint {
                         crate::types::parameter::GenericConstraint::Subtype { lower, upper }
@@ -3952,12 +3945,12 @@ mod tests {
     use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
     use crate::dispatch::{CallableSignature, ResolvedDispatchResult};
     use crate::identity::{CallableId, DeclarationId, DispatchSide, ModuleId};
-    use crate::types::annotation::TypeResolver;
-    use crate::types::type_member::{TypeMemberDeclarationId, TypeMemberSelector};
     use crate::types::SimpleTypeResolver;
+    use crate::types::annotation::TypeResolver;
     use crate::types::id::TypeId;
     use crate::types::relation::MapTypeHierarchy;
     use crate::types::store::TypeStore;
+    use crate::types::type_member::{TypeMemberDeclarationId, TypeMemberSelector};
     use phalcom_common::range::SourceRange;
     use std::cell::RefCell;
     use std::collections::BTreeSet;
@@ -3970,11 +3963,7 @@ mod tests {
             None
         }
 
-        fn resolve_associated_type_member_id(
-            &self,
-            _owner: &DeclarationId,
-            _selector: &TypeMemberSelector,
-        ) -> Option<TypeMemberDeclarationId> {
+        fn resolve_associated_type_member_id(&self, _owner: &DeclarationId, _selector: &TypeMemberSelector) -> Option<TypeMemberDeclarationId> {
             Some(self.0.clone())
         }
 

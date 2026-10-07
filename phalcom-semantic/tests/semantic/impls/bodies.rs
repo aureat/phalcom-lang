@@ -74,9 +74,7 @@ impl ImplParameterGraph<'_> {
         }
         match self.store.get(ty) {
             TypeData::Parameter(parameter) => self.forbidden.contains(parameter),
-            TypeData::Applied { origin, arguments } => {
-                self.contains_type(*origin) || arguments.iter().any(|argument| self.contains_argument(*argument))
-            }
+            TypeData::Applied { origin, arguments } => self.contains_type(*origin) || arguments.iter().any(|argument| self.contains_argument(*argument)),
             TypeData::ExactCase { enum_type, .. } => self.contains_type(*enum_type),
             TypeData::Union(members) | TypeData::TypePack(members) | TypeData::TypePackConcat(members) | TypeData::LabeledTypePackConcat(members) => {
                 members.iter().any(|member| self.contains_type(*member))
@@ -114,11 +112,12 @@ impl ImplParameterGraph<'_> {
                     phalcom_semantic::types::type_member::ProjectionSubject::Type(ty) => self.contains_type(ty),
                     phalcom_semantic::types::type_member::ProjectionSubject::RecordRow(row) => self.contains_row(row),
                 };
-                subject_contains || projection.arguments.iter().any(|argument| match argument {
-                    phalcom_semantic::types::type_member::TypeMemberArgument::Type(ty) => self.contains_type(*ty),
-                    phalcom_semantic::types::type_member::TypeMemberArgument::Const(_) => false,
-                    phalcom_semantic::types::type_member::TypeMemberArgument::RecordRow(row) => self.contains_row(*row),
-                })
+                subject_contains
+                    || projection.arguments.iter().any(|argument| match argument {
+                        phalcom_semantic::types::type_member::TypeMemberArgument::Type(ty) => self.contains_type(*ty),
+                        phalcom_semantic::types::type_member::TypeMemberArgument::Const(_) => false,
+                        phalcom_semantic::types::type_member::TypeMemberArgument::RecordRow(row) => self.contains_row(*row),
+                    })
             }
             TypeData::StaticDomainForm { domain } => self.contains_domain(*domain),
             TypeData::StaticData(term) => self.contains_domain(term.domain) || term.arguments.iter().any(|argument| self.contains_argument(*argument)),
@@ -129,8 +128,7 @@ impl ImplParameterGraph<'_> {
     fn contains_tuple_remainder(&mut self, remainder: phalcom_semantic::types::store::AnonymousTupleRemainder) -> bool {
         match remainder {
             phalcom_semantic::types::store::AnonymousTupleRemainder::Typed(ty) => self.contains_type(ty),
-            phalcom_semantic::types::store::AnonymousTupleRemainder::None
-            | phalcom_semantic::types::store::AnonymousTupleRemainder::Unconstrained => false,
+            phalcom_semantic::types::store::AnonymousTupleRemainder::None | phalcom_semantic::types::store::AnonymousTupleRemainder::Unconstrained => false,
         }
     }
 
@@ -202,7 +200,11 @@ impl ImplParameterGraph<'_> {
             .filter_map(|parameter| parameter.declared_type.canonical_type())
             .any(|ty| self.contains_type(ty))
             || signature.declared_return.canonical_type().is_some_and(|ty| self.contains_type(ty))
-            || signature.inferred_return.as_ref().and_then(|knowledge| knowledge.ty()).is_some_and(|ty| self.contains_type(ty))
+            || signature
+                .inferred_return
+                .as_ref()
+                .and_then(|knowledge| knowledge.ty())
+                .is_some_and(|ty| self.contains_type(ty))
             || signature.generics.as_ref().is_some_and(|generics| {
                 generics.parameters.iter().any(|parameter| self.forbidden.contains(parameter))
                     || generics.constraints.iter().any(|constraint| self.contains_constraint(constraint))
@@ -475,7 +477,11 @@ impl<T> Box<T> where T <: Int {
     let owner = DeclarationId::new(module, "Box".into());
     let direct = CallableId::new(owner.clone(), Selector::method("direct", []).unwrap(), DispatchSide::Class);
     let through_receiver = CallableId::new(owner, Selector::method("throughReceiver", []).unwrap(), DispatchSide::Class);
-    let analysis = update.snapshot.callable_analyses.get(&through_receiver).expect("conditional throughReceiver body");
+    let analysis = update
+        .snapshot
+        .callable_analyses
+        .get(&through_receiver)
+        .expect("conditional throughReceiver body");
     let receiver = analysis
         .expressions
         .values()
@@ -556,14 +562,7 @@ impl<A, B> Pair<B, A> {
 
 #[test]
 fn test_covering_body_coordinates_all_three_parameter_permutations() {
-    let permutations = [
-        [0, 1, 2],
-        [0, 2, 1],
-        [1, 0, 2],
-        [1, 2, 0],
-        [2, 0, 1],
-        [2, 1, 0],
-    ];
+    let permutations = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
     let names = ["A", "B", "C"];
 
     for permutation in permutations {
@@ -580,7 +579,11 @@ impl<A, B, C> Triple<{target}> {{
         let module = test_module();
         let mut session = SemanticWorkspaceSession::new();
         let update = session.update(single_module_input(module.clone(), &source));
-        assert!(!update.snapshot.has_errors(), "permutation {permutation:?} diagnostics: {:?}", update.snapshot.diagnostics);
+        assert!(
+            !update.snapshot.has_errors(),
+            "permutation {permutation:?} diagnostics: {:?}",
+            update.snapshot.diagnostics
+        );
 
         let owner = DeclarationId::new(module, "Triple".into());
         let callable = CallableId::new(
@@ -599,7 +602,13 @@ impl<A, B, C> Triple<{target}> {{
         let definition = update.snapshot.callable_definitions.get(&callable).expect("accepted covering definition");
         let context = definition.inherent_body_context.as_ref().expect("covering body context");
         let implementation_parameters = context.generic_signature.as_ref().expect("impl binders").parameters.as_ref();
-        let declaration_parameters = update.snapshot.declarations.generic_signature(&owner).expect("declaration binders").parameters.as_ref();
+        let declaration_parameters = update
+            .snapshot
+            .declarations
+            .generic_signature(&owner)
+            .expect("declaration binders")
+            .parameters
+            .as_ref();
         let covering = context.covering.as_ref().expect("permutation must use a covering substitution");
         let mut declaration_slot_for_impl = [usize::MAX; 3];
         for (declaration_slot, &impl_slot) in permutation.iter().enumerate() {
@@ -619,11 +628,23 @@ impl<A, B, C> Triple<{target}> {{
         assert_eq!(public_signature.callable, definition.signature.callable);
         assert_eq!(public_signature.generics, definition.signature.generics);
         assert_eq!(
-            public_signature.parameters.iter().map(|parameter| parameter.declared_type.canonical_type()).collect::<Vec<_>>(),
-            definition.signature.parameters.iter().map(|parameter| parameter.declared_type.canonical_type()).collect::<Vec<_>>(),
+            public_signature
+                .parameters
+                .iter()
+                .map(|parameter| parameter.declared_type.canonical_type())
+                .collect::<Vec<_>>(),
+            definition
+                .signature
+                .parameters
+                .iter()
+                .map(|parameter| parameter.declared_type.canonical_type())
+                .collect::<Vec<_>>(),
             "effective definition and published product must agree on declaration-canonical parameter types"
         );
-        assert_eq!(public_signature.declared_return.canonical_type(), definition.signature.declared_return.canonical_type());
+        assert_eq!(
+            public_signature.declared_return.canonical_type(),
+            definition.signature.declared_return.canonical_type()
+        );
         let implementation_parameter_set = implementation_parameters.iter().copied().collect::<HashSet<_>>();
         assert!(
             !signature_contains_impl_parameter(&update.snapshot.store, public_signature, &implementation_parameter_set),
@@ -677,23 +698,32 @@ impl<A, B, C, **Fields: RecordFields> Triple<B, C, A, **Fields> {
     let owner = DeclarationId::new(module, "Triple".into());
     let callable = CallableId::new(
         owner.clone(),
-        Selector::method(
-            "inspect",
-            vec![phalcom_common::selector::SelectorSlot::Positional; 8],
-        )
-        .unwrap(),
+        Selector::method("inspect", vec![phalcom_common::selector::SelectorSlot::Positional; 8]).unwrap(),
         DispatchSide::Class,
     );
     let definition = update.snapshot.callable_definitions.get(&callable).expect("nested-shape covering definition");
     let context = definition.inherent_body_context.as_ref().expect("covering body context");
-    let implementation_parameters = context.generic_signature.as_ref().expect("impl generic signature").parameters.iter().copied().collect::<HashSet<_>>();
+    let implementation_parameters = context
+        .generic_signature
+        .as_ref()
+        .expect("impl generic signature")
+        .parameters
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
     let public_signature = update.snapshot.callable_signatures.get(&callable).expect("published signature");
     assert!(
         !signature_contains_impl_parameter(&update.snapshot.store, public_signature, &implementation_parameters),
         "nested signature, constraints, or rows leaked an impl parameter: {public_signature:#?}"
     );
 
-    let declaration_parameters = update.snapshot.declarations.generic_signature(&owner).expect("declaration signature").parameters.clone();
+    let declaration_parameters = update
+        .snapshot
+        .declarations
+        .generic_signature(&owner)
+        .expect("declaration signature")
+        .parameters
+        .clone();
     let [x, y, z, rows] = declaration_parameters.as_ref() else {
         panic!("Triple should publish three type parameters and one RecordFields parameter: {declaration_parameters:?}");
     };
@@ -708,7 +738,10 @@ impl<A, B, C, **Fields: RecordFields> Triple<B, C, A, **Fields> {
         visited_lambdas: HashSet::new(),
     };
     assert!(
-        public_generics.constraints.iter().any(|constraint| declaration_parameter_graph.contains_constraint(constraint)),
+        public_generics
+            .constraints
+            .iter()
+            .any(|constraint| declaration_parameter_graph.contains_constraint(constraint)),
         "the public callable constraints should retain the declaration-relative applied argument"
     );
     let mut store = update.snapshot.store.as_ref().clone();
@@ -726,7 +759,10 @@ impl<A, B, C, **Fields: RecordFields> Triple<B, C, A, **Fields> {
         visited_lambdas: HashSet::new(),
     };
     assert!(
-        body_generics.constraints.iter().any(|constraint| implementation_parameter_graph.contains_constraint(constraint)),
+        body_generics
+            .constraints
+            .iter()
+            .any(|constraint| implementation_parameter_graph.contains_constraint(constraint)),
         "the body-relative callable constraints should restore the impl parameter coordinate"
     );
     let expected_public_parameters = vec![
@@ -755,7 +791,10 @@ impl<A, B, C, **Fields: RecordFields> Triple<B, C, A, **Fields> {
         }
     }
     assert_eq!(body_signature.parameters.len(), 8);
-    assert_eq!(body_signature.declared_return.canonical_type(), body_signature.parameters[7].declared_type.canonical_type());
+    assert_eq!(
+        body_signature.declared_return.canonical_type(),
+        body_signature.parameters[7].declared_type.canonical_type()
+    );
     let implementation_parameters = context.generic_signature.as_ref().expect("impl generic signature").parameters.as_ref();
     let expected_body_parameters = vec![
         vec![implementation_parameters[0]],

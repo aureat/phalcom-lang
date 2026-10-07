@@ -3,9 +3,7 @@
 use super::context::{CallCapture, CheckingContext};
 use super::expected::{ExpectationOrigin, ExpectedType};
 use super::expression::analyze_expression;
-use super::inference::{
-    ConstraintOrigin, InferenceLabeledTypePackElement, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm,
-};
+use super::inference::{ConstraintOrigin, InferenceLabeledTypePackElement, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm};
 use super::row_inference::{CombinedInferenceFailure, GenericApplicationSession, term_has_row_variables};
 use crate::checker::analysis::AnalysisStatus;
 use crate::checker::causal::CausalInvalidity;
@@ -14,13 +12,12 @@ use crate::checker::typed_expr::TypedExpression;
 use crate::data_semantics::{DataConstructorParameterContribution, DataConstructorTemplate, DataShape};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{
-    CallableParameter, CallableParameterContract, CallableSemanticKind, CallableSignature, DispatchSignatureSpecialization,
-    RestValueContractKnowledge,
+    CallableParameter, CallableParameterContract, CallableSemanticKind, CallableSignature, DispatchSignatureSpecialization, RestValueContractKnowledge,
 };
 use crate::identity::{CallableId, ExplanationId};
 use crate::types::evidence::DynamicReason;
 use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason, join_type_knowledge};
-use crate::types::id::{RecordRowId, ScopedTypeId, StaticDomainId, TypeId, TypeLambdaId, TypeParameterId};
+use crate::types::id::{KindId, RecordRowId, ScopedTypeId, StaticDomainId, TypeId, TypeLambdaId, TypeParameterId};
 use crate::types::instantiation::TypeMaterializationError;
 use crate::types::parameter::{GenericConstraint, GenericSignature, TypeParameterOwner, TypeTerm};
 use crate::types::row::RecordRowFormationError;
@@ -1006,61 +1003,64 @@ fn debug_assert_call_result_coherent(result: &CallCheckResult) {
     }
 }
 
-fn term_contains_any_infer_var(term: &InferenceTerm) -> bool {
-    match term {
-        InferenceTerm::Var(_) => true,
-        InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => false,
-        InferenceTerm::TypePack(items) => items.iter().any(term_contains_any_infer_var),
-        InferenceTerm::LabeledTypePack(items) => items.iter().any(|item| term_contains_any_infer_var(&item.term)),
-        InferenceTerm::CompleteTypePack { positionals, labeled } => {
-            term_contains_any_infer_var(positionals) || term_contains_any_infer_var(labeled)
-        }
-        InferenceTerm::TypePackConcat(items) => items.iter().any(term_contains_any_infer_var),
-        InferenceTerm::LabeledTypePackConcat(items) => items.iter().any(term_contains_any_infer_var),
-        InferenceTerm::Applied { origin, arguments } => {
-            term_contains_any_infer_var(origin)
-                || arguments.iter().any(|arg| match arg {
-                    crate::checker::inference::InferenceStaticArgument::Term(t) => term_contains_any_infer_var(t),
-                    _ => false,
-                })
-        }
-        InferenceTerm::Tuple(elements) => elements.iter().any(|elem| term_contains_any_infer_var(&elem.term)),
-        InferenceTerm::TupleFromPacks { positionals, labeled } => {
-            term_contains_any_infer_var(positionals) || term_contains_any_infer_var(labeled)
-        }
-        InferenceTerm::PackFromPacks { positionals, labeled } => {
-            term_contains_any_infer_var(positionals) || term_contains_any_infer_var(labeled)
-        }
-        InferenceTerm::Record(fields) => fields.fields.iter().any(|field| term_contains_any_infer_var(&field.term)),
-        InferenceTerm::Callable(callable) => {
-            callable.parameters.iter().any(|p| term_contains_any_infer_var(&p.term)) || term_contains_any_infer_var(&callable.return_type)
-        }
-        InferenceTerm::CallableFromPacks { positionals, labeled, return_type } => {
-            term_contains_any_infer_var(positionals) || term_contains_any_infer_var(labeled) || term_contains_any_infer_var(return_type)
-        }
-        InferenceTerm::Union(members) => members.iter().any(term_contains_any_infer_var),
-        _ => false,
+fn lane_kind(mode: RestMode) -> KindId {
+    match mode {
+        RestMode::Positional => KindId::TYPE_PACK,
+        RestMode::Labeled => KindId::LABELED_TYPE_PACK,
+        RestMode::Complete => KindId::COMPLETE_TYPE_PACK,
+        RestMode::None => KindId::TYPE,
     }
 }
 
-fn apply_concrete_lane_conformance<'a>(
+fn lane_argument_term(
+    ctx: &mut CheckingContext<'_>,
+    typed: &TypedExpression,
+    context: crate::checker::inference::InferenceContextId,
+    session: &std::rc::Rc<std::cell::RefCell<crate::checker::inference::InferenceCoordinator>>,
+) -> Option<InferenceTerm> {
+    if let Some(result) = typed.symbolic_result.as_ref().filter(|result| result.context == context) {
+        return Some(session.borrow().term_for_expected(&result.term));
+    }
+    if let Some(ty) = typed.knowledge.ty() {
+        return Some(session.borrow().type_id_to_inference(ty, &std::collections::HashMap::new(), ctx.store));
+    }
+    match &typed.knowledge {
+        TypeKnowledge::Unknown(reason) => {
+            ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnknownType(reason.clone())));
+        }
+        TypeKnowledge::Dynamic(reason) => ctx.record_call_status(AnalysisStatus::DynamicBoundary(reason.clone())),
+        TypeKnowledge::Known(_) => ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnknownType(
+            UnknownReason::InferenceBlocked,
+        ))),
+    }
+    None
+}
+
+fn apply_structural_lane_conformance<'a>(
     ctx: &mut CheckingContext<'_>,
     lane_args: &[(usize, ApplicationArgument<'a>, TypedExpression)],
-    lane_id: TypeId,
+    expected: &InferenceTerm,
     mode: RestMode,
     call_range: SourceRange,
     origin: ConstraintOrigin,
+    context: crate::checker::inference::InferenceContextId,
     session: &std::rc::Rc<std::cell::RefCell<crate::checker::inference::InferenceCoordinator>>,
 ) {
-    match mode {
-        RestMode::Positional => {
-            let Ok(expected_pos) = ctx.store.project_positionals(lane_id) else { return; };
-            let TypeData::TypePack(expected_elems) = ctx.store.get(expected_pos).clone() else { return; };
-            if lane_args.len() != expected_elems.len() {
+    let (positionals, labeled) = match (mode, expected) {
+        (RestMode::Positional, InferenceTerm::TypePack(elements)) => (Some(elements.as_ref()), None),
+        (RestMode::Labeled, InferenceTerm::LabeledTypePack(elements)) => (None, Some(elements.as_ref())),
+        (RestMode::Complete, InferenceTerm::CompleteTypePack { positionals, labeled }) => {
+            let (InferenceTerm::TypePack(pos), InferenceTerm::LabeledTypePack(lab)) = (&**positionals, &**labeled) else {
+                ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+                return;
+            };
+            if lane_args.iter().filter(|(_, arg, _)| arg.label().is_none()).count() != pos.len()
+                || lane_args.iter().filter(|(_, arg, _)| arg.label().is_some()).count() != lab.len()
+            {
                 let diagnostic = SemanticDiagnostic::error_in(
                     ctx.current_module.clone(),
                     DiagnosticCode::CallShapeMismatch,
-                    format!("rest lane expects {} arguments, found {}", expected_elems.len(), lane_args.len()),
+                    "complete rest lane shape mismatch",
                     call_range,
                 );
                 if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
@@ -1068,109 +1068,70 @@ fn apply_concrete_lane_conformance<'a>(
                 }
                 return;
             }
-            for (idx, (_, _, typed)) in lane_args.iter().enumerate() {
-                if let Some(arg_ty) = typed.knowledge.ty() {
-                    let expected_elem = expected_elems[idx];
-                    session.borrow_mut().add_constraint(
-                        InferenceRelation::Subtype(InferenceTerm::Canonical(arg_ty), InferenceTerm::Canonical(expected_elem)),
-                        origin.clone(),
-                        None,
-                    );
-                }
-            }
+            apply_structural_lane_conformance(
+                ctx,
+                &lane_args.iter().filter(|(_, arg, _)| arg.label().is_none()).cloned().collect::<Vec<_>>(),
+                &InferenceTerm::TypePack(pos.clone()),
+                RestMode::Positional,
+                call_range,
+                origin.clone(),
+                context,
+                session,
+            );
+            apply_structural_lane_conformance(
+                ctx,
+                &lane_args.iter().filter(|(_, arg, _)| arg.label().is_some()).cloned().collect::<Vec<_>>(),
+                &InferenceTerm::LabeledTypePack(lab.clone()),
+                RestMode::Labeled,
+                call_range,
+                origin,
+                context,
+                session,
+            );
+            return;
         }
-        RestMode::Labeled => {
-            let Ok(expected_lab) = ctx.store.project_labeled(lane_id) else { return; };
-            let TypeData::LabeledTypePack(expected_elems) = ctx.store.get(expected_lab).clone() else { return; };
-            if lane_args.len() != expected_elems.len() {
-                let diagnostic = SemanticDiagnostic::error_in(
-                    ctx.current_module.clone(),
-                    DiagnosticCode::CallShapeMismatch,
-                    format!("labeled rest lane expects {} arguments, found {}", expected_elems.len(), lane_args.len()),
-                    call_range,
-                );
-                if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
-                    ctx.record_call_status(AnalysisStatus::Invalid(cause));
-                }
-                return;
-            }
-            for (idx, (_, arg, typed)) in lane_args.iter().enumerate() {
-                let expected = &expected_elems[idx];
-                if arg.label().as_deref() != Some(expected.label.as_ref()) {
-                    let diagnostic = SemanticDiagnostic::error_in(
-                        ctx.current_module.clone(),
-                        DiagnosticCode::CallShapeMismatch,
-                        format!("labeled rest lane expected `{}`, found `{}`", expected.label, arg.label().unwrap_or("_")),
-                        call_range,
-                    );
-                    if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
-                        ctx.record_call_status(AnalysisStatus::Invalid(cause));
-                    }
-                    continue;
-                }
-                if let Some(arg_ty) = typed.knowledge.ty() {
-                    session.borrow_mut().add_constraint(
-                        InferenceRelation::Subtype(InferenceTerm::Canonical(arg_ty), InferenceTerm::Canonical(expected.element)),
-                        origin.clone(),
-                        None,
-                    );
-                }
-            }
+        _ => {
+            ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+            return;
         }
-        RestMode::Complete => {
-            let Ok(expected_pos) = ctx.store.project_positionals(lane_id) else { return; };
-            let Ok(expected_lab) = ctx.store.project_labeled(lane_id) else { return; };
-            let TypeData::TypePack(pos_elems) = ctx.store.get(expected_pos).clone() else { return; };
-            let TypeData::LabeledTypePack(lab_elems) = ctx.store.get(expected_lab).clone() else { return; };
+    };
 
-            let pos_args: Vec<_> = lane_args.iter().filter(|(_, arg, _)| arg.label().is_none()).cloned().collect();
-            let lab_args: Vec<_> = lane_args.iter().filter(|(_, arg, _)| arg.label().is_some()).cloned().collect();
-
-            if pos_args.len() != pos_elems.len() || lab_args.len() != lab_elems.len() {
+    if positionals.is_some_and(|expected| expected.len() != lane_args.len()) || labeled.is_some_and(|expected| expected.len() != lane_args.len()) {
+        let diagnostic = SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::CallShapeMismatch,
+            "rest lane arity mismatch",
+            call_range,
+        );
+        if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
+            ctx.record_call_status(AnalysisStatus::Invalid(cause));
+        }
+        return;
+    }
+    for (index, (_, argument, typed)) in lane_args.iter().enumerate() {
+        let expected_term = if let Some(expected) = positionals {
+            expected[index].clone()
+        } else {
+            let expected = &labeled.expect("labeled lane selected")[index];
+            if argument.label().as_deref() != Some(expected.label.as_ref()) {
                 let diagnostic = SemanticDiagnostic::error_in(
                     ctx.current_module.clone(),
                     DiagnosticCode::CallShapeMismatch,
-                    format!("complete rest lane shape mismatch: expected {} positionals and {} labeled, found {} and {}", pos_elems.len(), lab_elems.len(), pos_args.len(), lab_args.len()),
+                    format!("labeled rest lane expected `{}`, found `{}`", expected.label, argument.label().unwrap_or("_")),
                     call_range,
                 );
                 if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
                     ctx.record_call_status(AnalysisStatus::Invalid(cause));
                 }
-                return;
+                continue;
             }
-            for (idx, (_, _, typed)) in pos_args.iter().enumerate() {
-                if let Some(arg_ty) = typed.knowledge.ty() {
-                    session.borrow_mut().add_constraint(
-                        InferenceRelation::Subtype(InferenceTerm::Canonical(arg_ty), InferenceTerm::Canonical(pos_elems[idx])),
-                        origin.clone(),
-                        None,
-                    );
-                }
-            }
-            for (idx, (_, arg, typed)) in lab_args.iter().enumerate() {
-                let expected = &lab_elems[idx];
-                if arg.label().as_deref() != Some(expected.label.as_ref()) {
-                    let diagnostic = SemanticDiagnostic::error_in(
-                        ctx.current_module.clone(),
-                        DiagnosticCode::CallShapeMismatch,
-                        format!("complete rest labeled mismatch: expected `{}`, found `{}`", expected.label, arg.label().unwrap_or("_")),
-                        call_range,
-                    );
-                    if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
-                        ctx.record_call_status(AnalysisStatus::Invalid(cause));
-                    }
-                    continue;
-                }
-                if let Some(arg_ty) = typed.knowledge.ty() {
-                    session.borrow_mut().add_constraint(
-                        InferenceRelation::Subtype(InferenceTerm::Canonical(arg_ty), InferenceTerm::Canonical(expected.element)),
-                        origin.clone(),
-                        None,
-                    );
-                }
-            }
+            expected.term.clone()
+        };
+        if let Some(actual_term) = lane_argument_term(ctx, typed, context, session) {
+            session
+                .borrow_mut()
+                .add_constraint(InferenceRelation::Subtype(actual_term, expected_term), origin.clone(), None);
         }
-        RestMode::None => unreachable!(),
     }
 }
 
@@ -1183,8 +1144,12 @@ fn check_concrete_lane_conformance_non_generic<'a>(
 ) {
     match mode {
         RestMode::Positional => {
-            let Ok(expected_pos) = ctx.store.project_positionals(lane_id) else { return; };
-            let TypeData::TypePack(expected_elems) = ctx.store.get(expected_pos).clone() else { return; };
+            let Ok(expected_pos) = ctx.store.project_positionals(lane_id) else {
+                return;
+            };
+            let TypeData::TypePack(expected_elems) = ctx.store.get(expected_pos).clone() else {
+                return;
+            };
             if lane_args.len() != expected_elems.len() {
                 let diagnostic = SemanticDiagnostic::error_in(
                     ctx.current_module.clone(),
@@ -1209,8 +1174,12 @@ fn check_concrete_lane_conformance_non_generic<'a>(
             }
         }
         RestMode::Labeled => {
-            let Ok(expected_lab) = ctx.store.project_labeled(lane_id) else { return; };
-            let TypeData::LabeledTypePack(expected_elems) = ctx.store.get(expected_lab).clone() else { return; };
+            let Ok(expected_lab) = ctx.store.project_labeled(lane_id) else {
+                return;
+            };
+            let TypeData::LabeledTypePack(expected_elems) = ctx.store.get(expected_lab).clone() else {
+                return;
+            };
             if lane_args.len() != expected_elems.len() {
                 let diagnostic = SemanticDiagnostic::error_in(
                     ctx.current_module.clone(),
@@ -1247,10 +1216,18 @@ fn check_concrete_lane_conformance_non_generic<'a>(
             }
         }
         RestMode::Complete => {
-            let Ok(expected_pos) = ctx.store.project_positionals(lane_id) else { return; };
-            let Ok(expected_lab) = ctx.store.project_labeled(lane_id) else { return; };
-            let TypeData::TypePack(pos_elems) = ctx.store.get(expected_pos).clone() else { return; };
-            let TypeData::LabeledTypePack(lab_elems) = ctx.store.get(expected_lab).clone() else { return; };
+            let Ok(expected_pos) = ctx.store.project_positionals(lane_id) else {
+                return;
+            };
+            let Ok(expected_lab) = ctx.store.project_labeled(lane_id) else {
+                return;
+            };
+            let TypeData::TypePack(pos_elems) = ctx.store.get(expected_pos).clone() else {
+                return;
+            };
+            let TypeData::LabeledTypePack(lab_elems) = ctx.store.get(expected_lab).clone() else {
+                return;
+            };
 
             let pos_args: Vec<_> = lane_args.iter().filter(|(_, arg, _)| arg.label().is_none()).cloned().collect();
             let lab_args: Vec<_> = lane_args.iter().filter(|(_, arg, _)| arg.label().is_some()).cloned().collect();
@@ -1259,7 +1236,13 @@ fn check_concrete_lane_conformance_non_generic<'a>(
                 let diagnostic = SemanticDiagnostic::error_in(
                     ctx.current_module.clone(),
                     DiagnosticCode::CallShapeMismatch,
-                    format!("complete rest lane shape mismatch: expected {} positionals and {} labeled, found {} and {}", pos_elems.len(), lab_elems.len(), pos_args.len(), lab_args.len()),
+                    format!(
+                        "complete rest lane shape mismatch: expected {} positionals and {} labeled, found {} and {}",
+                        pos_elems.len(),
+                        lab_elems.len(),
+                        pos_args.len(),
+                        lab_args.len()
+                    ),
                     call_range,
                 );
                 if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
@@ -1283,7 +1266,11 @@ fn check_concrete_lane_conformance_non_generic<'a>(
                     let diagnostic = SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
                         DiagnosticCode::CallShapeMismatch,
-                        format!("complete rest labeled mismatch: expected `{}`, found `{}`", expected.label, arg.label().unwrap_or("_")),
+                        format!(
+                            "complete rest labeled mismatch: expected `{}`, found `{}`",
+                            expected.label,
+                            arg.label().unwrap_or("_")
+                        ),
                         call_range,
                     );
                     if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
@@ -1399,11 +1386,18 @@ fn apply_non_generic_callable(
 
     if let Some(plan) = &plan {
         for (param_idx, parameter) in target.signature.parameters.iter().enumerate() {
-            if let CallableParameterContract::Rest { mode, contract: RestValueContractKnowledge::Lane(lane_id) } = &parameter.contract {
+            if let CallableParameterContract::Rest {
+                mode,
+                contract: RestValueContractKnowledge::Lane(lane_id),
+            } = &parameter.contract
+            {
                 let lane_args: Vec<_> = analyzed_arguments
                     .iter()
                     .filter(|(arg_idx, _, _)| {
-                        plan.bindings.iter().find(|b| b.argument_index == *arg_idx).map_or(false, |b| b.parameter_index == param_idx)
+                        plan.bindings
+                            .iter()
+                            .find(|b| b.argument_index == *arg_idx)
+                            .map_or(false, |b| b.parameter_index == param_idx)
                     })
                     .cloned()
                     .collect();
@@ -1834,8 +1828,7 @@ fn apply_generic_callable_in_context(
         }
     }
 
-    let mut lane_args_by_param: Vec<Vec<(usize, ApplicationArgument<'_>, TypedExpression)>> =
-        vec![Vec::new(); signature.parameters.len()];
+    let mut lane_args_by_param: Vec<Vec<(usize, ApplicationArgument<'_>, TypedExpression)>> = vec![Vec::new(); signature.parameters.len()];
 
     for (argument_index, argument) in args.iter().copied().enumerate() {
         let Some(role) = argument_roles.get(argument_index).cloned().flatten() else {
@@ -1951,6 +1944,12 @@ fn apply_generic_callable_in_context(
                         continue;
                     }
                     RestValueContractKnowledge::Element(_) => {}
+                    RestValueContractKnowledge::Invalid(reason) => {
+                        let typed = analyze_application_argument(ctx, argument, &ExpectedType::None);
+                        record_generic_argument_capture(ctx, &typed);
+                        ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnknownType(reason.clone())));
+                        continue;
+                    }
                 }
             }
         }
@@ -2119,76 +2118,70 @@ fn apply_generic_callable_in_context(
 
     if target.data_constructor_shape.is_none() {
         for (param_idx, parameter) in signature.parameters.iter().enumerate() {
-            if let CallableParameterContract::Rest { mode, contract: RestValueContractKnowledge::Lane(lane_id) } = &parameter.contract {
+            if let CallableParameterContract::Rest {
+                mode,
+                contract: RestValueContractKnowledge::Lane(lane_id),
+            } = &parameter.contract
+            {
                 let lane_args = &lane_args_by_param[param_idx];
                 let lane_param_term = session_handle.borrow().type_id_to_inference(*lane_id, &var_map, ctx.store);
                 let origin = ConstraintOrigin::RestLane {
                     call: call_id,
                     parameter_index: param_idx as u16,
                 };
-                if term_contains_any_infer_var(&lane_param_term) {
+                let whole_lane_variable =
+                    matches!(&lane_param_term, InferenceTerm::Var(variable) if session_handle.borrow().variable_has_kind(*variable, lane_kind(*mode)));
+                if whole_lane_variable {
                     let captured_lane_term = match mode {
                         RestMode::Positional => {
                             let mut pos_terms = Vec::with_capacity(lane_args.len());
+                            let mut ready = true;
                             for (_, _, typed) in lane_args {
-                                let term = typed
-                                    .symbolic_result
-                                    .as_ref()
-                                    .filter(|result| result.context == context)
-                                    .map(|result| session_handle.borrow().term_for_expected(&result.term))
-                                    .or_else(|| {
-                                        let ty = typed.knowledge.ty()?;
-                                        Some(session_handle.borrow().type_id_to_inference(ty, &std::collections::HashMap::new(), ctx.store))
-                                    })
-                                    .unwrap_or_else(|| InferenceTerm::Canonical(ctx.store.unit()));
-                                pos_terms.push(term);
+                                if let Some(term) = lane_argument_term(ctx, typed, context, &session_handle) {
+                                    pos_terms.push(term);
+                                } else {
+                                    ready = false;
+                                }
                             }
-                            InferenceTerm::TypePack(pos_terms.into_boxed_slice())
+                            ready.then(|| InferenceTerm::TypePack(pos_terms.into_boxed_slice()))
                         }
                         RestMode::Labeled => {
                             let mut lab_terms = Vec::with_capacity(lane_args.len());
+                            let mut ready = true;
                             for (_, arg, typed) in lane_args {
-                                let term = typed
-                                    .symbolic_result
-                                    .as_ref()
-                                    .filter(|result| result.context == context)
-                                    .map(|result| session_handle.borrow().term_for_expected(&result.term))
-                                    .or_else(|| {
-                                        let ty = typed.knowledge.ty()?;
-                                        Some(session_handle.borrow().type_id_to_inference(ty, &std::collections::HashMap::new(), ctx.store))
-                                    })
-                                    .unwrap_or_else(|| InferenceTerm::Canonical(ctx.store.unit()));
-                                let label = arg.label().unwrap_or("").into();
-                                lab_terms.push(InferenceLabeledTypePackElement { label, term });
+                                if let Some(term) = lane_argument_term(ctx, typed, context, &session_handle) {
+                                    let label = arg.label().unwrap_or("").into();
+                                    lab_terms.push(InferenceLabeledTypePackElement { label, term });
+                                } else {
+                                    ready = false;
+                                }
                             }
-                            InferenceTerm::LabeledTypePack(lab_terms.into_boxed_slice())
+                            ready.then(|| InferenceTerm::LabeledTypePack(lab_terms.into_boxed_slice()))
                         }
                         RestMode::Complete => {
                             let mut pos_terms = Vec::new();
                             let mut lab_terms = Vec::new();
+                            let mut ready = true;
                             for (_, arg, typed) in lane_args {
-                                let term = typed
-                                    .symbolic_result
-                                    .as_ref()
-                                    .filter(|result| result.context == context)
-                                    .map(|result| session_handle.borrow().term_for_expected(&result.term))
-                                    .or_else(|| {
-                                        let ty = typed.knowledge.ty()?;
-                                        Some(session_handle.borrow().type_id_to_inference(ty, &std::collections::HashMap::new(), ctx.store))
-                                    })
-                                    .unwrap_or_else(|| InferenceTerm::Canonical(ctx.store.unit()));
-                                if let Some(label) = arg.label() {
-                                    lab_terms.push(InferenceLabeledTypePackElement { label: label.into(), term });
+                                if let Some(term) = lane_argument_term(ctx, typed, context, &session_handle) {
+                                    if let Some(label) = arg.label() {
+                                        lab_terms.push(InferenceLabeledTypePackElement { label: label.into(), term });
+                                    } else {
+                                        pos_terms.push(term);
+                                    }
                                 } else {
-                                    pos_terms.push(term);
+                                    ready = false;
                                 }
                             }
-                            InferenceTerm::CompleteTypePack {
+                            ready.then(|| InferenceTerm::CompleteTypePack {
                                 positionals: Box::new(InferenceTerm::TypePack(pos_terms.into_boxed_slice())),
                                 labeled: Box::new(InferenceTerm::LabeledTypePack(lab_terms.into_boxed_slice())),
-                            }
+                            })
                         }
                         RestMode::None => unreachable!(),
+                    };
+                    let Some(captured_lane_term) = captured_lane_term else {
+                        continue;
                     };
                     let mut session = session_handle.borrow_mut();
                     if lane_args.is_empty() {
@@ -2211,21 +2204,13 @@ fn apply_generic_callable_in_context(
                     } else {
                         for (_, _, typed) in lane_args {
                             let explanation = typed.expression_id.and_then(|id| ctx.explanation_for_expression(id));
-                            session.record_required_premise(
-                                &lane_param_term,
-                                origin.clone(),
-                                &typed.knowledge,
-                                explanation,
-                            );
+                            session.record_required_premise(&lane_param_term, origin.clone(), &typed.knowledge, explanation);
                         }
                     }
-                    session.add_constraint(
-                        InferenceRelation::Equivalent(captured_lane_term, lane_param_term),
-                        origin,
-                        None,
-                    );
+                    session.add_constraint(InferenceRelation::Equivalent(captured_lane_term, lane_param_term), origin, None);
                 } else {
-                    apply_concrete_lane_conformance(ctx, lane_args, *lane_id, *mode, call_range, origin, &session_handle);
+                    let expected = lane_param_term.clone();
+                    apply_structural_lane_conformance(ctx, lane_args, &expected, *mode, call_range, origin, context, &session_handle);
                 }
             }
         }
@@ -3376,23 +3361,19 @@ fn type_term_contains_any_parameter(store: &TypeStore, term: &TypeTerm, paramete
 }
 
 fn callable_signature_mentions_parameters(ctx: &CheckingContext<'_>, target: &CallableApplicationTarget, parameters: &[TypeParameterId]) -> bool {
-    target
+    target.signature.parameters.iter().any(|parameter| match &parameter.contract {
+        CallableParameterContract::Fixed(ty) => ty.ty().is_some_and(|ty| type_contains_any_parameter(ctx.store, ty, parameters)),
+        CallableParameterContract::Rest { contract, .. } => match contract {
+            RestValueContractKnowledge::Element(ty) => ty.ty().is_some_and(|ty| type_contains_any_parameter(ctx.store, ty, parameters)),
+            RestValueContractKnowledge::Lane(lane_id) => type_contains_any_parameter(ctx.store, *lane_id, parameters),
+            RestValueContractKnowledge::Unconstrained => false,
+            RestValueContractKnowledge::Invalid(_) => false,
+        },
+    }) || target
         .signature
-        .parameters
-        .iter()
-        .any(|parameter| match &parameter.contract {
-            CallableParameterContract::Fixed(ty) => ty.ty().is_some_and(|ty| type_contains_any_parameter(ctx.store, ty, parameters)),
-            CallableParameterContract::Rest { contract, .. } => match contract {
-                RestValueContractKnowledge::Element(ty) => ty.ty().is_some_and(|ty| type_contains_any_parameter(ctx.store, ty, parameters)),
-                RestValueContractKnowledge::Lane(lane_id) => type_contains_any_parameter(ctx.store, *lane_id, parameters),
-                RestValueContractKnowledge::Unconstrained => false,
-            },
-        })
-        || target
-            .signature
-            .return_type
-            .ty()
-            .is_some_and(|ty| type_contains_any_parameter(ctx.store, ty, parameters))
+        .return_type
+        .ty()
+        .is_some_and(|ty| type_contains_any_parameter(ctx.store, ty, parameters))
         || target.signature.generics.as_ref().is_some_and(|signature| {
             signature.constraints.iter().any(|constraint| match constraint {
                 GenericConstraint::Subtype { lower, upper } => {

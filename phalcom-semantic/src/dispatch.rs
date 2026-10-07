@@ -36,10 +36,7 @@ use phalcom_ast::ast::RestMode;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CallableParameterContract {
     Fixed(TypeKnowledge),
-    Rest {
-        mode: RestMode,
-        contract: RestValueContractKnowledge,
-    },
+    Rest { mode: RestMode, contract: RestValueContractKnowledge },
 }
 
 /// The value contract governing a rest parameter's lane or elements in dispatch signatures.
@@ -48,6 +45,7 @@ pub enum RestValueContractKnowledge {
     Unconstrained,
     Element(TypeKnowledge),
     Lane(TypeId),
+    Invalid(crate::types::evidence::UnknownReason),
 }
 
 impl CallableParameterContract {
@@ -61,7 +59,14 @@ impl CallableParameterContract {
     pub fn ty(&self) -> TypeKnowledge {
         match self {
             Self::Fixed(ty) => ty.clone(),
-            Self::Rest { contract: RestValueContractKnowledge::Element(ty), .. } => ty.clone(),
+            Self::Rest {
+                contract: RestValueContractKnowledge::Element(ty),
+                ..
+            } => ty.clone(),
+            Self::Rest {
+                contract: RestValueContractKnowledge::Invalid(reason),
+                ..
+            } => TypeKnowledge::Unknown(reason.clone()),
             Self::Rest { .. } => TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
         }
     }

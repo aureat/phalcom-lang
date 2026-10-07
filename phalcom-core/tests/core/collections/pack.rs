@@ -67,12 +67,7 @@ fn pack_root_preserves_lanes_and_order() {
     let val3 = vm.alloc_string_value("hello".into());
     let val4 = Value::bool(true);
 
-    let pack_val = finish_pack_value(
-        &mut vm,
-        vec![val1, val2],
-        vec![(sym_a, val3), (sym_b, val4)],
-    )
-    .expect("finish_pack root");
+    let pack_val = finish_pack_value(&mut vm, vec![val1, val2], vec![(sym_a, val3), (sym_b, val4)]).expect("finish_pack root");
 
     assert!(!pack_val.is_empty_pack());
     assert_eq!(pack_val.class(&vm), vm.universe.classes.pack_class);
@@ -122,12 +117,7 @@ fn pack_slice_and_composition() {
     let ly = vm.alloc_string_value("vy".into());
     let lz = vm.alloc_string_value("vz".into());
 
-    let root_val = finish_pack_value(
-        &mut vm,
-        vec![p0, p1, p2],
-        vec![(sym_x, lx), (sym_y, ly), (sym_z, lz)],
-    )
-    .expect("finish_pack root");
+    let root_val = finish_pack_value(&mut vm, vec![p0, p1, p2], vec![(sym_x, lx), (sym_y, ly), (sym_z, lz)]).expect("finish_pack root");
 
     let root_ref = root_val.as_obj().expect("root obj");
 
@@ -204,15 +194,13 @@ fn pack_semantic_same_equality() {
 
     // Slice of larger root that matches p1
     let sym_b = vm.interner.intern("b");
-    let p3_root = finish_pack_value(
-        &mut vm,
-        vec![Value::int(0), val_pos],
-        vec![(sym_a, val_lab), (sym_b, Value::int(99))],
-    )
-    .expect("p3_root");
+    let p3_root = finish_pack_value(&mut vm, vec![Value::int(0), val_pos], vec![(sym_a, val_lab), (sym_b, Value::int(99))]).expect("p3_root");
 
     let p3_slice = finish_pack_slice_value(&mut vm, p3_root, 1, 1, 0, 1).expect("p3_slice");
-    assert!(vm.semantic_same(p1, p3_slice), "slice and root with same visible elements must be semantic_same");
+    assert!(
+        vm.semantic_same(p1, p3_slice),
+        "slice and root with same visible elements must be semantic_same"
+    );
 
     // Empty packs are semantic_same
     assert!(vm.semantic_same(Value::empty_pack(), Value::empty_pack()));

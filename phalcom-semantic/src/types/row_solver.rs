@@ -126,13 +126,30 @@ impl RecordRowSolution<TypeId> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RecordRowFailure<V = TypeId> {
-    OccursCheckFailed { var: RecordRowVarId, term: RecordRowTerm<V> },
-    LacksViolation { field: FieldKey, row: RecordRowTerm<V> },
-    IncompatibleFields { field: FieldKey, expected: TypeId, actual: TypeId },
-    MissingField { field: FieldKey },
-    ExtraField { field: FieldKey },
+    OccursCheckFailed {
+        var: RecordRowVarId,
+        term: RecordRowTerm<V>,
+    },
+    LacksViolation {
+        field: FieldKey,
+        row: RecordRowTerm<V>,
+    },
+    IncompatibleFields {
+        field: FieldKey,
+        expected: TypeId,
+        actual: TypeId,
+    },
+    MissingField {
+        field: FieldKey,
+    },
+    ExtraField {
+        field: FieldKey,
+    },
     DuplicateField(FieldKey),
-    RigidTailMismatch { expected: RecordRowTermTail<V>, actual: RecordRowTermTail<V> },
+    RigidTailMismatch {
+        expected: RecordRowTermTail<V>,
+        actual: RecordRowTermTail<V>,
+    },
     KindMismatch,
 }
 
@@ -533,7 +550,11 @@ impl<V: Clone + Eq> RecordRowSolver<V> {
                 if term.fields.is_empty() && matches!(term.tail, RecordRowTermTail::Closed) {
                     Ok(())
                 } else {
-                    let field = term.fields.first().map(|field| field.key.clone()).unwrap_or_else(|| FieldKey::symbol("<open-tail>"));
+                    let field = term
+                        .fields
+                        .first()
+                        .map(|field| field.key.clone())
+                        .unwrap_or_else(|| FieldKey::symbol("<open-tail>"));
                     Err(ControlFailure::Rejected(RecordRowFailure::ExtraField { field }))
                 }
             }

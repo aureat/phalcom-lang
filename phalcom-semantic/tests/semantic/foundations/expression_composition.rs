@@ -2,9 +2,9 @@ use crate::semantic::support::Fixture;
 use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::checker::causal::CausalInvalidity;
 use phalcom_semantic::diagnostic::DiagnosticCode;
+use phalcom_semantic::field_key::FieldKey;
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::{EvidenceStatus, TypeKnowledge, UnknownReason};
-use phalcom_semantic::field_key::FieldKey;
 use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowTail};
 use phalcom_semantic::types::store::TypeData;
 
@@ -245,7 +245,12 @@ class Probe {
     assert_eq!(literal_row.tail, RecordRowTail::Closed);
     assert_eq!(
         literal_row.fields.iter().map(|field| field.key.clone()).collect::<Vec<_>>(),
-        vec![FieldKey::symbol("token"), FieldKey::string("name"), FieldKey::int(42.into()), FieldKey::bool(true)]
+        vec![
+            FieldKey::symbol("token"),
+            FieldKey::string("name"),
+            FieldKey::int(42.into()),
+            FieldKey::bool(true)
+        ]
     );
 
     let dynamic_ty = fixture.binding(run, "dynamic").current.ty().expect("dynamic Record type");
@@ -436,7 +441,13 @@ class Probe {
     let TypeData::Record(row_id) = fixture.analysis.snapshot.store.get(result) else {
         panic!("expected Record result");
     };
-    let values = fixture.analysis.snapshot.store.record_row(*row_id).find_field(&phalcom_semantic::field_key::FieldKey::symbol("values")).expect("values field");
+    let values = fixture
+        .analysis
+        .snapshot
+        .store
+        .record_row(*row_id)
+        .find_field(&phalcom_semantic::field_key::FieldKey::symbol("values"))
+        .expect("values field");
     assert_eq!(fixture.analysis.snapshot.store.format_type(values), "List<Int>");
 }
 
@@ -460,7 +471,13 @@ class Probe {
     };
     let row = fixture.analysis.snapshot.store.record_row(*row_id);
     assert!(matches!(row.tail, RecordRowTail::Parameter(_)));
-    assert_eq!(row.fields.iter().map(|field| field.key.as_symbol().expect("symbol row field")).collect::<Vec<_>>(), vec!["extra", "known"]);
+    assert_eq!(
+        row.fields
+            .iter()
+            .map(|field| field.key.as_symbol().expect("symbol row field"))
+            .collect::<Vec<_>>(),
+        vec!["extra", "known"]
+    );
 }
 
 #[test]

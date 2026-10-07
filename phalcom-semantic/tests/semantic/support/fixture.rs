@@ -654,7 +654,11 @@ impl Fixture {
                 assert_eq!(row.tail, RecordRowTail::Closed);
                 assert_eq!(row.fields.len(), expected_fields.len());
                 for (name, expected) in expected_fields {
-                    let field = row.fields.iter().find(|field| field.key.as_symbol() == Some(name)).expect("missing record field");
+                    let field = row
+                        .fields
+                        .iter()
+                        .find(|field| field.key.as_symbol() == Some(name))
+                        .expect("missing record field");
                     self.assert_type_expectation(field.ty, expected);
                 }
             }

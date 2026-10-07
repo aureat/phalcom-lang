@@ -10,7 +10,9 @@ pub mod view;
 pub use anonymous::{RuntimeAnonymousProductDescriptor, RuntimeAnonymousProductDescriptorId, RuntimeAnonymousProductDescriptorRegistry};
 pub use layout::{ProductComponentLayout, ProductComponentSpec, ProductLayout, ProductLayoutId, ProductLayoutSpec, ProductSlotRepr};
 pub use registry::ProductLayoutRegistry;
-pub use shape::{AnonymousProductKind, PackProductShape, ProductShape, ProductShapeId, ProductShapeRegistry, RecordProductShape, RecordProductShapeError, TupleProductShape};
+pub use shape::{
+    AnonymousProductKind, PackProductShape, ProductShape, ProductShapeId, ProductShapeRegistry, RecordProductShape, RecordProductShapeError, TupleProductShape,
+};
 pub use storage::ProductStorage;
 pub use view::{PackView, RecordView, TupleView};
 
@@ -70,14 +72,18 @@ pub(crate) fn value_to_field_key(vm: &VM, value: Value) -> Result<FieldKey, Runt
     if let Some(boolean) = value.as_bool() {
         return Ok(FieldKey::bool(boolean));
     }
-    Err(RuntimeError::RecordFieldKeyType { found: runtime_key_type_name(vm, value) })
+    Err(RuntimeError::RecordFieldKeyType {
+        found: runtime_key_type_name(vm, value),
+    })
 }
 
 pub(crate) fn validate_field_key_value(vm: &VM, value: Value) -> Result<(), RuntimeError> {
     if runtime_key_kind(vm, value).is_some() {
         Ok(())
     } else {
-        Err(RuntimeError::RecordFieldKeyType { found: runtime_key_type_name(vm, value) })
+        Err(RuntimeError::RecordFieldKeyType {
+            found: runtime_key_type_name(vm, value),
+        })
     }
 }
 
@@ -95,7 +101,9 @@ pub(crate) fn field_key_to_value(vm: &mut VM, key: &FieldKey) -> Value {
 /// runtime value as a String, BigInt, or FieldKey.
 pub(crate) fn compare_field_key_to_value(vm: &VM, key: &FieldKey, value: Value) -> Result<Ordering, RuntimeError> {
     let Some(kind) = runtime_key_kind(vm, value) else {
-        return Err(RuntimeError::RecordFieldKeyType { found: runtime_key_type_name(vm, value) });
+        return Err(RuntimeError::RecordFieldKeyType {
+            found: runtime_key_type_name(vm, value),
+        });
     };
     match key.kind().cmp(&kind) {
         Ordering::Equal => {}
@@ -104,12 +112,18 @@ pub(crate) fn compare_field_key_to_value(vm: &VM, key: &FieldKey, value: Value) 
     match (key, value.symbol_value(), value.as_int(), value.as_bool(), value.as_obj()) {
         (FieldKey::Symbol(expected), Some(actual), _, _, _) => Ok(expected.as_ref().cmp(vm.resolve_symbol(actual))),
         (FieldKey::String(expected), _, _, _, Some(id)) => {
-            let actual = vm.heap.as_string(id).ok_or_else(|| RuntimeError::Internal("runtime Record key kind changed during lookup".into()))?;
+            let actual = vm
+                .heap
+                .as_string(id)
+                .ok_or_else(|| RuntimeError::Internal("runtime Record key kind changed during lookup".into()))?;
             Ok(expected.as_ref().cmp(actual.as_str()))
         }
         (FieldKey::Int(expected), _, Some(actual), _, _) => Ok(compare_static_int_to_i64(expected, actual)),
         (FieldKey::Int(expected), _, _, _, Some(id)) => {
-            let actual = vm.heap.as_large_int(id).ok_or_else(|| RuntimeError::Internal("runtime Record key kind changed during lookup".into()))?;
+            let actual = vm
+                .heap
+                .as_large_int(id)
+                .ok_or_else(|| RuntimeError::Internal("runtime Record key kind changed during lookup".into()))?;
             Ok(compare_static_int_to_bigint(expected, actual))
         }
         (FieldKey::Bool(expected), _, _, Some(actual), _) => Ok(expected.cmp(&actual)),
@@ -286,11 +300,7 @@ pub(crate) fn finish_record(vm: &mut VM, fields: Vec<(FieldKey, Value)>) -> Resu
 ///
 /// Both lanes empty normalizes directly to immediate `EmptyPack`.
 /// Otherwise, allocates an immutable root Pack object with distinct `AnonymousProductKind::Pack` descriptor.
-pub(crate) fn finish_pack(
-    vm: &mut VM,
-    mut positionals: Vec<Value>,
-    labeled: Vec<(Symbol, Value)>,
-) -> Result<Value, ProductBuildError> {
+pub(crate) fn finish_pack(vm: &mut VM, mut positionals: Vec<Value>, labeled: Vec<(Symbol, Value)>) -> Result<Value, ProductBuildError> {
     unique(&labeled)?;
     if positionals.is_empty() && labeled.is_empty() {
         return Ok(Value::empty_pack());
@@ -322,9 +332,7 @@ pub(crate) fn finish_pack(
         .get(layout_id)
         .ok_or(ProductBuildError::Storage("missing registered layout"))?;
     let storage = ProductStorage::from_values(layout_id, layout, &positionals).map_err(ProductBuildError::Storage)?;
-    let descriptor = vm
-        .anonymous_product_descriptors
-        .register(AnonymousProductKind::Pack, shape_id, layout_id, None);
+    let descriptor = vm.anonymous_product_descriptors.register(AnonymousProductKind::Pack, shape_id, layout_id, None);
     Ok(Value::obj(vm.heap.alloc_pack_root(descriptor, storage, pos_len, lab_len)))
 }
 
@@ -367,26 +375,12 @@ pub(crate) fn finish_pack_slice(
     let new_pos_start = base_pos_start + pos_offset;
     let new_lab_start = base_lab_start + lab_offset;
 
-    Ok(Value::obj(vm.heap.alloc_pack_slice(
-        root_ref,
-        new_pos_start,
-        pos_len,
-        new_lab_start,
-        lab_len,
-    )))
+    Ok(Value::obj(vm.heap.alloc_pack_slice(root_ref, new_pos_start, pos_len, new_lab_start, lab_len)))
 }
 
 /// Public VM-facing Pack slice construction adapter.
-pub fn finish_pack_slice_value(
-    vm: &mut VM,
-    pack_val: Value,
-    pos_offset: u32,
-    pos_len: u32,
-    lab_offset: u32,
-    lab_len: u32,
-) -> PhResult<Value> {
-    finish_pack_slice(vm, pack_val, pos_offset, pos_len, lab_offset, lab_len)
-        .map_err(|error| runtime_error(vm, "Pack slice", error).into())
+pub fn finish_pack_slice_value(vm: &mut VM, pack_val: Value, pos_offset: u32, pos_len: u32, lab_offset: u32, lab_len: u32) -> PhResult<Value> {
+    finish_pack_slice(vm, pack_val, pos_offset, pos_len, lab_offset, lab_len).map_err(|error| runtime_error(vm, "Pack slice", error).into())
 }
 
 fn materialize_exact_type(vm: &mut VM, recipe: RuntimeTypeRecipe) -> Result<RuntimeTypeRef, ProductBuildError> {
@@ -555,9 +549,9 @@ mod tests {
                     type_recipe: crate::typing::RuntimeTypeRecipe::Closed(crate::typing::RuntimeTypeRef::Overlay(crate::typing::RuntimeOverlayTypeId(0))),
                 };
                 let empty_record_spec = AnonymousProductConstructionLoweringSpec {
-            kind: AnonymousProductConstructionKind::Record {
-                logical_keys: Box::new([]),
-                source_to_logical: Box::new([]),
+                    kind: AnonymousProductConstructionKind::Record {
+                        logical_keys: Box::new([]),
+                        source_to_logical: Box::new([]),
                     },
                     layout: super::layout::ProductLayoutSpec::new(Vec::new()),
                     type_recipe: crate::typing::RuntimeTypeRecipe::Closed(crate::typing::RuntimeTypeRef::Overlay(crate::typing::RuntimeOverlayTypeId(0))),
@@ -695,10 +689,7 @@ mod tests {
         let mut vm = VM::new_kernel();
         let spec = AnonymousProductConstructionLoweringSpec {
             kind: AnonymousProductConstructionKind::Record {
-                logical_keys: Box::new([
-                    FieldKey::symbol("a"),
-                    FieldKey::symbol("z"),
-                ]),
+                logical_keys: Box::new([FieldKey::symbol("a"), FieldKey::symbol("z")]),
                 source_to_logical: Box::new([1, 0]),
             },
             layout: super::layout::ProductLayoutSpec::new(vec![
@@ -760,18 +751,11 @@ mod tests {
         let mut vm = VM::new_kernel();
         let symbol_key = FieldKey::symbol("same");
         let string_key = FieldKey::string("same");
-        let value = finish_record(
-            &mut vm,
-            vec![(string_key.clone(), Value::int(2)), (symbol_key.clone(), Value::int(1))],
-        )
-        .expect("heterogeneous record");
+        let value = finish_record(&mut vm, vec![(string_key.clone(), Value::int(2)), (symbol_key.clone(), Value::int(1))]).expect("heterogeneous record");
         let view = vm.record_view(value.as_obj().expect("record object")).expect("record view");
         assert_eq!(view.get(&symbol_key), Some(Value::int(1)));
         assert_eq!(view.get(&string_key), Some(Value::int(2)));
         assert_ne!(view.logical_keys()[0], view.logical_keys()[1]);
-        assert_eq!(
-            view.logical_keys(),
-            &[FieldKey::symbol("same"), FieldKey::string("same")]
-        );
+        assert_eq!(view.logical_keys(), &[FieldKey::symbol("same"), FieldKey::string("same")]);
     }
 }

@@ -295,6 +295,7 @@ pub(crate) fn specialize_witness_signature(
                     *lane_id = crate::types::environment::TypeView::new(*lane_id, environment.clone()).materialize(store);
                 }
                 crate::signature::RestValueContract::Unconstrained => {}
+                crate::signature::RestValueContract::Invalid(_) => {}
             },
         }
     }
@@ -1329,6 +1330,89 @@ fn witness_signature_return_type(signature: &CallableSemanticSignature) -> Resul
     witness_fact_type(&signature.declared_return)
 }
 
+fn witness_parameter_contract(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    required: &crate::signature::ParameterContract,
+    candidate: &crate::signature::ParameterContract,
+    alpha: &TypeSubstitution,
+    budget: &mut QueryBudget,
+    cancel: &CancellationToken,
+) -> Result<(), WitnessCompatibility> {
+    use crate::signature::{ParameterContract, RestValueContract};
+    let (
+        ParameterContract::Rest {
+            mode: required_mode,
+            contract: required,
+        },
+        ParameterContract::Rest {
+            mode: candidate_mode,
+            contract: candidate,
+        },
+    ) = (required, candidate)
+    else {
+        return match (required, candidate) {
+            (ParameterContract::Fixed(required), ParameterContract::Fixed(candidate)) => {
+                let required = witness_fact_type(required)?;
+                let candidate = alpha.apply(store, witness_fact_type(candidate)?);
+                witness_relation_result(check_subtype_bounded(store, hierarchy, required, candidate, budget, cancel))
+            }
+            _ => Err(WitnessCompatibility::Incompatible(WitnessMismatch {
+                reason: "witness parameter contract category differs".into(),
+            })),
+        };
+    };
+    if required_mode != candidate_mode {
+        return Err(WitnessCompatibility::Incompatible(WitnessMismatch {
+            reason: "witness parameter rest mode differs".into(),
+        }));
+    }
+    match (required, candidate) {
+        (RestValueContract::Unconstrained, RestValueContract::Unconstrained) => Ok(()),
+        (RestValueContract::Element(required), RestValueContract::Element(candidate)) => {
+            let required = witness_fact_type(required)?;
+            let candidate = alpha.apply(store, witness_fact_type(candidate)?);
+            witness_relation_result(check_subtype_bounded(store, hierarchy, required, candidate, budget, cancel))
+        }
+        (RestValueContract::Lane(required), RestValueContract::Lane(candidate)) => {
+            let candidate = alpha.apply(store, *candidate);
+            let (required_pos, candidate_pos) = match required_mode {
+                phalcom_ast::ast::RestMode::Positional => (*required, candidate),
+                phalcom_ast::ast::RestMode::Labeled | phalcom_ast::ast::RestMode::Complete => (
+                    store
+                        .project_positionals(*required)
+                        .map_err(|_| WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint))?,
+                    store
+                        .project_positionals(candidate)
+                        .map_err(|_| WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint))?,
+                ),
+                phalcom_ast::ast::RestMode::None => {
+                    return Err(WitnessCompatibility::Incompatible(WitnessMismatch {
+                        reason: "invalid rest mode".into(),
+                    }));
+                }
+            };
+            let (crate::types::store::TypeData::TypePack(required), crate::types::store::TypeData::TypePack(candidate)) =
+                (store.get(required_pos).clone(), store.get(candidate_pos).clone())
+            else {
+                return Err(WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint));
+            };
+            if required.len() != candidate.len() {
+                return Err(WitnessCompatibility::Incompatible(WitnessMismatch {
+                    reason: "witness lane arity differs".into(),
+                }));
+            }
+            for (&required, &candidate) in required.iter().zip(candidate.iter()) {
+                witness_relation_result(check_subtype_bounded(store, hierarchy, required, candidate, budget, cancel))?;
+            }
+            Ok(())
+        }
+        _ => Err(WitnessCompatibility::Incompatible(WitnessMismatch {
+            reason: "witness rest contract category differs".into(),
+        })),
+    }
+}
+
 fn witness_relation_result(outcome: RelationOutcome) -> Result<(), WitnessCompatibility> {
     match outcome {
         RelationOutcome::Proven { .. } => Ok(()),
@@ -1611,29 +1695,15 @@ pub fn check_witness_compatibility_with_visibility(
     let cancel = CancellationToken::default();
     let abstract_trait = crate::traits::TraitRef::new(required.requirement.owner.clone(), Box::<[TypeId]>::default());
     for (required_parameter, candidate_parameter) in required.signature.parameters.iter().zip(candidate.parameters.iter()) {
-        if required_parameter.rest != candidate_parameter.rest {
-            return WitnessCompatibility::Incompatible(WitnessMismatch {
-                reason: "witness parameter rest role differs".into(),
-            });
-        }
-        let required_type = match witness_fact_type(&required_parameter.declared_type) {
-            Ok(ty) => ty,
-            Err(result) => return result,
-        };
-        let candidate_type = match witness_fact_type(&candidate_parameter.declared_type) {
-            Ok(ty) => ty,
-            Err(result) => return result,
-        };
-        let candidate_type = alpha.apply(store, candidate_type);
-        let required_type = match normalize_witness_type(store, required_type, &abstract_trait, &mut budget, &cancel) {
-            Ok(result) => result,
-            Err(result) => return result,
-        };
-        let candidate_type = match normalize_witness_type(store, candidate_type, &abstract_trait, &mut budget, &cancel) {
-            Ok(result) => result,
-            Err(result) => return result,
-        };
-        if let Err(result) = witness_relation_result(check_subtype_bounded(store, hierarchy, required_type, candidate_type, &mut budget, &cancel)) {
+        if let Err(result) = witness_parameter_contract(
+            store,
+            hierarchy,
+            &required_parameter.contract,
+            &candidate_parameter.contract,
+            &alpha,
+            &mut budget,
+            &cancel,
+        ) {
             return result;
         }
     }
@@ -3946,6 +4016,7 @@ fn specialize_signature_instance_self(
                     }
                 }
                 crate::signature::RestValueContract::Unconstrained => {}
+                crate::signature::RestValueContract::Invalid(_) => {}
             },
         }
     }
@@ -5532,6 +5603,7 @@ pub fn apply_covering_to_signature(store: &mut TypeStore, subst: &TypeSubstituti
                     *lane_id = subst.apply(store, *lane_id);
                 }
                 crate::signature::RestValueContract::Unconstrained => {}
+                crate::signature::RestValueContract::Invalid(_) => {}
             },
         }
         new_params.push(param);
@@ -5608,6 +5680,7 @@ pub(crate) fn apply_covering_instantiation_to_signature(
                     *lane_id = materialize_type(store, *lane_id, instantiation, RowMaterializationMode::PreserveUnboundStableTail)?;
                 }
                 crate::signature::RestValueContract::Unconstrained => {}
+                crate::signature::RestValueContract::Invalid(_) => {}
             },
         }
         parameters.push(parameter);

@@ -57,12 +57,7 @@ fn rooted_pack_root_keeps_children_alive() {
     let labeled = alloc_instance(&mut vm);
     let label = vm.interner.intern("pack_gc_label");
 
-    let pack = phalcom_core::product::finish_pack_value(
-        &mut vm,
-        vec![Value::obj(positional)],
-        vec![(label, Value::obj(labeled))],
-    )
-    .expect("finish_pack");
+    let pack = phalcom_core::product::finish_pack_value(&mut vm, vec![Value::obj(positional)], vec![(label, Value::obj(labeled))]).expect("finish_pack");
 
     let pack_ref = pack.as_obj().expect("pack obj");
     vm.push_root_for_test(pack);
@@ -88,18 +83,13 @@ fn rooted_pack_slice_keeps_root_and_children_alive() {
     let lab0 = alloc_instance(&mut vm);
     let label = vm.interner.intern("slice_gc_label");
 
-    let root_val = phalcom_core::product::finish_pack_value(
-        &mut vm,
-        vec![Value::obj(pos0), Value::obj(pos1)],
-        vec![(label, Value::obj(lab0))],
-    )
-    .expect("finish_pack root");
+    let root_val =
+        phalcom_core::product::finish_pack_value(&mut vm, vec![Value::obj(pos0), Value::obj(pos1)], vec![(label, Value::obj(lab0))]).expect("finish_pack root");
 
     let root_ref = root_val.as_obj().expect("root obj");
 
     // Create a slice that only visibly includes pos1 (offset 1, len 1)
-    let slice_val = phalcom_core::product::finish_pack_slice_value(&mut vm, root_val, 1, 1, 0, 0)
-        .expect("finish_pack_slice");
+    let slice_val = phalcom_core::product::finish_pack_slice_value(&mut vm, root_val, 1, 1, 0, 0).expect("finish_pack_slice");
     let slice_ref = slice_val.as_obj().expect("slice obj");
 
     // Root only the slice! Do NOT root root_val.
@@ -122,4 +112,3 @@ fn rooted_pack_slice_keeps_root_and_children_alive() {
     assert!(vm.heap.try_get(pos1).is_none(), "pos1 must be collected");
     assert!(vm.heap.try_get(lab0).is_none(), "lab0 must be collected");
 }
-

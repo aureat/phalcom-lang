@@ -3981,11 +3981,7 @@ impl SemanticWorkspaceSession {
                                     cancel,
                                     active_constants: Vec::new(),
                                 };
-                                driver.project_annotations(
-                                    QueryKey::CallableSignature(callable_id.clone()),
-                                    module_id,
-                                    annotations.iter().copied(),
-                                )
+                                driver.project_annotations(QueryKey::CallableSignature(callable_id.clone()), module_id, annotations.iter().copied())
                             };
                             match projection {
                                 crate::static_constant_demand::StaticDemandOutcome::Ready(projections) => break Some(projections),
@@ -7089,10 +7085,8 @@ impl SemanticWorkspaceSession {
         // narrower computed-key edge origin separately so a mixed formation
         // cycle is diagnosed causally, including when an unchanged producer is
         // reused from the previous revision.
-        let mut constant_record_key_dependencies: BTreeMap<
-            crate::static_constant::StaticConstantId,
-            BTreeSet<crate::static_constant::StaticConstantId>,
-        > = BTreeMap::new();
+        let mut constant_record_key_dependencies: BTreeMap<crate::static_constant::StaticConstantId, BTreeSet<crate::static_constant::StaticConstantId>> =
+            BTreeMap::new();
 
         for (id, decl) in &constant_declarations {
             let key = crate::db::QueryKey::StaticConstant(id.clone());
@@ -9453,14 +9447,8 @@ fn publish_type_member_owner(
     source: &crate::source::ParsedModuleUnit,
     diagnostics: &mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
 ) -> Result<bool, QueryOutcome<()>> {
-    let (product, owner_diagnostics) = crate::checker::type_member_declaration::build_type_member_declaration(
-        store,
-        &id.owner,
-        definition,
-        declarations,
-        resolver,
-        module,
-    );
+    let (product, owner_diagnostics) =
+        crate::checker::type_member_declaration::build_type_member_declaration(store, &id.owner, definition, declarations, resolver, module);
     diagnostics.entry(module.clone()).or_default().extend(owner_diagnostics);
     let Some(product) = product else { return Ok(false) };
     match query_type_member_declaration(db, Some(source), Arc::new(product)) {
@@ -9583,7 +9571,19 @@ fn service_type_member_demands(
         let Some(source) = sources.get(module) else {
             return Ok(TypeMemberDemandService::NoProgress);
         };
-        if !publish_type_member_owner(db, store, resolver, surfaces, members, declarations, &id, module, definition, source, diagnostics)? {
+        if !publish_type_member_owner(
+            db,
+            store,
+            resolver,
+            surfaces,
+            members,
+            declarations,
+            &id,
+            module,
+            definition,
+            source,
+            diagnostics,
+        )? {
             return Ok(TypeMemberDemandService::NoProgress);
         }
         pending.remove(&id);
@@ -9722,10 +9722,7 @@ fn compute_module_fingerprint(unit: &ParsedModuleUnit) -> u64 {
 fn callable_type_annotations(member: &phalcom_ast::ast::ClassMember) -> Vec<&phalcom_ast::ast::TypeAnnotation> {
     use phalcom_ast::ast::{ClassMember, IndexAccessor};
 
-    fn add_parameter<'a>(
-        annotations: &mut Vec<&'a phalcom_ast::ast::TypeAnnotation>,
-        parameter: &'a phalcom_ast::ast::ParameterDef,
-    ) {
+    fn add_parameter<'a>(annotations: &mut Vec<&'a phalcom_ast::ast::TypeAnnotation>, parameter: &'a phalcom_ast::ast::ParameterDef) {
         if let Some(annotation) = parameter.type_annotation() {
             annotations.push(annotation);
         } else if let Some(lane) = parameter.rest_lane_annotation() {

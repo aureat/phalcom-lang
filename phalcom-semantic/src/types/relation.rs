@@ -1303,8 +1303,8 @@ pub fn lookup_unordered_field(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::evidence::EvidenceOrigin;
     use crate::field_key::FieldKey;
+    use crate::types::evidence::EvidenceOrigin;
     use crate::types::id::KindId;
     use crate::types::store::TupleTypeElement;
     use phalcom_modules::identity::ModuleId;

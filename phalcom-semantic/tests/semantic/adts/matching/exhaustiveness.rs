@@ -136,11 +136,7 @@ impl<T, E> Result<T, E> {
 
     let slots = [SelectorSlot::Label("ok".into()), SelectorSlot::Label("err".into())];
     let contextual = case.match_in_callable("Result", Selector::method("match", slots.clone()).expect("match selector"), 0);
-    let qualified = case.match_in_callable(
-        "Result",
-        Selector::method("matchQualified", slots).expect("matchQualified selector"),
-        0,
-    );
+    let qualified = case.match_in_callable("Result", Selector::method("matchQualified", slots).expect("matchQualified selector"), 0);
 
     contextual.assert_exhaustive();
     qualified.assert_exhaustive();
@@ -163,14 +159,12 @@ impl<T, E> Result<T, E> {
     );
     let chained_direct = case.match_in_callable(
         "Result",
-        Selector::method("directChainedConstrainedOption", [SelectorSlot::Positional])
-            .expect("directChainedConstrainedOption selector"),
+        Selector::method("directChainedConstrainedOption", [SelectorSlot::Positional]).expect("directChainedConstrainedOption selector"),
         0,
     );
     let reverse_direct = case.match_in_callable(
         "Result",
-        Selector::method("reverseConstrainedOption", [SelectorSlot::Positional])
-            .expect("reverseConstrainedOption selector"),
+        Selector::method("reverseConstrainedOption", [SelectorSlot::Positional]).expect("reverseConstrainedOption selector"),
         0,
     );
     let direct_ty = match direct.resolution().initial_space {
@@ -233,10 +227,7 @@ impl<T, E> Result<T, E> {
         0,
         &[case.variant_id("Option", Selector::method("Some", [SelectorSlot::Positional]).expect("Some selector"))],
     );
-    transpose_inner.assert_arm_candidate_variants(
-        1,
-        &[case.variant_id("Option", Selector::getter("None").expect("None selector"))],
-    );
+    transpose_inner.assert_arm_candidate_variants(1, &[case.variant_id("Option", Selector::getter("None").expect("None selector"))]);
 }
 
 #[test]

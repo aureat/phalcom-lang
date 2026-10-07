@@ -456,10 +456,15 @@ impl GenericEvidenceEnvironment {
             let TypeTerm::Canonical(parameter_ty) = term else { continue };
             let TypeData::Parameter(parameter) = store.get(*parameter_ty) else { continue };
             let parameter = *parameter;
-            let endpoints: Vec<_> = self.concrete_refinement(store, term).map(|ty| vec![ty]).unwrap_or_else(|| self.equivalent_terms(term).into_iter().filter_map(|endpoint| {
-                let TypeTerm::Canonical(endpoint_ty) = endpoint else { return None };
-                (!matches!(store.get(endpoint_ty), TypeData::Parameter(_))).then_some(endpoint_ty)
-            }).collect());
+            let endpoints: Vec<_> = self.concrete_refinement(store, term).map(|ty| vec![ty]).unwrap_or_else(|| {
+                self.equivalent_terms(term)
+                    .into_iter()
+                    .filter_map(|endpoint| {
+                        let TypeTerm::Canonical(endpoint_ty) = endpoint else { return None };
+                        (!matches!(store.get(endpoint_ty), TypeData::Parameter(_))).then_some(endpoint_ty)
+                    })
+                    .collect()
+            });
             match endpoints.as_slice() {
                 [endpoint] if self.are_equivalent(term, &TypeTerm::Canonical(*endpoint)).is_proven() => {
                     substitution.bind(parameter, *endpoint);
@@ -484,7 +489,9 @@ impl GenericEvidenceEnvironment {
                 return GenericTypeRefinement::Unavailable(Outcome::Recursive);
             }
             let next = substitution.apply(store, refined);
-            if next == refined { break; }
+            if next == refined {
+                break;
+            }
             refined = next;
         }
         match crate::types::projection::normalize_type(store, refined, context) {
@@ -498,10 +505,18 @@ impl GenericEvidenceEnvironment {
     /// Projection callers must first establish their qualifying conformance.
     pub(crate) fn concrete_refinement(&self, store: &TypeStore, term: &TypeTerm) -> Option<TypeId> {
         use crate::types::store::TypeData;
-        let endpoints: Vec<_> = self.equivalent_terms(term).into_iter().filter_map(|endpoint| {
-            let TypeTerm::Canonical(ty) = endpoint else { return None };
-            (!matches!(store.get(ty), TypeData::Parameter(_) | TypeData::AssociatedProjection(_) | TypeData::TypeMemberProjection(_))).then_some(ty)
-        }).collect();
+        let endpoints: Vec<_> = self
+            .equivalent_terms(term)
+            .into_iter()
+            .filter_map(|endpoint| {
+                let TypeTerm::Canonical(ty) = endpoint else { return None };
+                (!matches!(
+                    store.get(ty),
+                    TypeData::Parameter(_) | TypeData::AssociatedProjection(_) | TypeData::TypeMemberProjection(_)
+                ))
+                .then_some(ty)
+            })
+            .collect();
         match endpoints.as_slice() {
             [ty] if self.are_equivalent(term, &TypeTerm::Canonical(*ty)).is_proven() => Some(*ty),
             _ => None,
@@ -1272,14 +1287,40 @@ mod refinement_tests {
         let projection = store.associated_projection(subject, trait_ref.clone(), crate::traits::AssociatedTypeRequirementId::new(owner, 0));
         let concrete = store.nominal_type(declaration("Concrete"));
         let surfaces = TraitSurfaceTable::new();
-        let constraints = vec![GenericConstraint::Equivalent { left: TypeTerm::Canonical(t), right: TypeTerm::Canonical(projection) }, GenericConstraint::Equivalent { left: TypeTerm::Canonical(t), right: TypeTerm::Canonical(concrete) }, GenericConstraint::Conforms { subject: TypeTerm::Canonical(subject), trait_ref }];
-        let environment = GenericEvidenceEnvironment::try_from_constraints(&constraints, TypeParameterOwner::Declaration(declaration("Owner")), &surfaces).unwrap();
+        let constraints = vec![
+            GenericConstraint::Equivalent {
+                left: TypeTerm::Canonical(t),
+                right: TypeTerm::Canonical(projection),
+            },
+            GenericConstraint::Equivalent {
+                left: TypeTerm::Canonical(t),
+                right: TypeTerm::Canonical(concrete),
+            },
+            GenericConstraint::Conforms {
+                subject: TypeTerm::Canonical(subject),
+                trait_ref,
+            },
+        ];
+        let environment =
+            GenericEvidenceEnvironment::try_from_constraints(&constraints, TypeParameterOwner::Declaration(declaration("Owner")), &surfaces).unwrap();
         let declarations = DeclarationTypeTable::new();
         let hierarchy = crate::types::relation::MapTypeHierarchy::new();
         for ty in [projection, t] {
             let mut budget = QueryBudget::default();
             let cancel = CancellationToken::new();
-            let mut context = ProjectionNormalizationContext::new(ProjectionNormalizationMode::Generic { evidence: &environment, conformance_index: None, witness_plans: None, trait_surfaces: &surfaces, derived_rules: None, declarations: &declarations, hierarchy: &hierarchy }, &mut budget, &cancel);
+            let mut context = ProjectionNormalizationContext::new(
+                ProjectionNormalizationMode::Generic {
+                    evidence: &environment,
+                    conformance_index: None,
+                    witness_plans: None,
+                    trait_surfaces: &surfaces,
+                    derived_rules: None,
+                    declarations: &declarations,
+                    hierarchy: &hierarchy,
+                },
+                &mut budget,
+                &cancel,
+            );
             assert_eq!(environment.refine_type(&mut store, ty, &mut context), GenericTypeRefinement::Refined(concrete));
         }
     }

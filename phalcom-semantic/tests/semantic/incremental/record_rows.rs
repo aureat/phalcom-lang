@@ -266,7 +266,10 @@ fn retained_snapshot_preserves_previous_open_row_denotation() {
         panic!("old parameter must remain a Record")
     };
     assert!(matches!(old_snapshot.store.record_row(*old_row_id).tail, RecordRowTail::Parameter(_)));
-    assert_eq!(old_snapshot.store.record_row(*old_row_id).fields[0].key.as_symbol().expect("symbol row field"), "name");
+    assert_eq!(
+        old_snapshot.store.record_row(*old_row_id).fields[0].key.as_symbol().expect("symbol row field"),
+        "name"
+    );
 }
 
 #[test]

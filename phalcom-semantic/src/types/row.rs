@@ -1,7 +1,7 @@
 //! Canonical record-row domain and representation.
 
-use crate::field_key::FieldKey;
 use super::id::{KindId, TypeId, TypeParameterId};
+use crate::field_key::FieldKey;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StructuralMemberPresence {
@@ -136,17 +136,11 @@ impl RecordRowData {
     }
 
     pub fn find_field(&self, key: &FieldKey) -> Option<TypeId> {
-        self.fields
-            .binary_search_by(|f| f.key.canonical_cmp(key))
-            .ok()
-            .map(|idx| self.fields[idx].ty)
+        self.fields.binary_search_by(|f| f.key.canonical_cmp(key)).ok().map(|idx| self.fields[idx].ty)
     }
 
     pub fn find_field_entry(&self, key: &FieldKey) -> Option<&RecordRowField> {
-        self.fields
-            .binary_search_by(|f| f.key.canonical_cmp(key))
-            .ok()
-            .map(|idx| &self.fields[idx])
+        self.fields.binary_search_by(|f| f.key.canonical_cmp(key)).ok().map(|idx| &self.fields[idx])
     }
 }
 

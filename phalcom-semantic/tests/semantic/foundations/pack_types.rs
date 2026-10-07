@@ -2,9 +2,7 @@ use phalcom_modules::{DeclarationId, ModuleId};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
 use phalcom_semantic::types::relation::{MapTypeHierarchy, check_subtype_bounded};
-use phalcom_semantic::types::store::{
-    AnonymousTupleRemainder, PackTypeElement, TupleTypeElement, TypeData, TypeStore,
-};
+use phalcom_semantic::types::store::{AnonymousTupleRemainder, PackTypeElement, TupleTypeElement, TypeData, TypeStore};
 use phalcom_semantic::types::substitution::TypeSubstitution;
 
 fn decl(name: &str) -> DeclarationId {
@@ -14,7 +12,9 @@ fn decl(name: &str) -> DeclarationId {
 #[test]
 fn empty_pack_is_distinct_proper_type_and_not_unit() {
     let mut store = TypeStore::new();
-    let empty_pack = store.open_pack(Box::new([]), AnonymousTupleRemainder::None, AnonymousTupleRemainder::None).unwrap();
+    let empty_pack = store
+        .open_pack(Box::new([]), AnonymousTupleRemainder::None, AnonymousTupleRemainder::None)
+        .unwrap();
     let unit = store.unit();
 
     assert_ne!(empty_pack, unit, "CV-02: Pack() != Unit");
@@ -31,17 +31,25 @@ fn closed_exact_pack_type_preserves_lanes_and_distinct_from_tuple() {
     let str_ty = store.nominal_type(decl("String"));
 
     // Pack with 1 positional (Int) and 1 labeled (x: String)
-    let pack_ty = store.pack(Box::new([
-        PackTypeElement { label: None, ty: int_ty },
-        PackTypeElement { label: Some("x".into()), ty: str_ty },
-    ])).unwrap();
+    let pack_ty = store
+        .pack(Box::new([
+            PackTypeElement { label: None, ty: int_ty },
+            PackTypeElement {
+                label: Some("x".into()),
+                ty: str_ty,
+            },
+        ]))
+        .unwrap();
 
     assert_eq!(store.kind_of(pack_ty), KindId::TYPE);
 
     // Corresponding Tuple
     let tuple_ty = store.tuple(Box::new([
         TupleTypeElement { label: None, ty: int_ty },
-        TupleTypeElement { label: Some("x".into()), ty: str_ty },
+        TupleTypeElement {
+            label: Some("x".into()),
+            ty: str_ty,
+        },
     ]));
 
     assert_ne!(pack_ty, tuple_ty, "CV-02: Pack != Tuple");
@@ -66,16 +74,32 @@ fn labeled_order_affects_pack_type() {
     let str_ty = store.nominal_type(decl("String"));
 
     // Pack with (x: Int, y: String)
-    let pack1 = store.pack(Box::new([
-        PackTypeElement { label: Some("x".into()), ty: int_ty },
-        PackTypeElement { label: Some("y".into()), ty: str_ty },
-    ])).unwrap();
+    let pack1 = store
+        .pack(Box::new([
+            PackTypeElement {
+                label: Some("x".into()),
+                ty: int_ty,
+            },
+            PackTypeElement {
+                label: Some("y".into()),
+                ty: str_ty,
+            },
+        ]))
+        .unwrap();
 
     // Pack with (y: String, x: Int)
-    let pack2 = store.pack(Box::new([
-        PackTypeElement { label: Some("y".into()), ty: str_ty },
-        PackTypeElement { label: Some("x".into()), ty: int_ty },
-    ])).unwrap();
+    let pack2 = store
+        .pack(Box::new([
+            PackTypeElement {
+                label: Some("y".into()),
+                ty: str_ty,
+            },
+            PackTypeElement {
+                label: Some("x".into()),
+                ty: int_ty,
+            },
+        ]))
+        .unwrap();
 
     assert_ne!(pack1, pack2, "CV-03: Labeled encounter order is semantic in Pack types");
 }
@@ -92,29 +116,43 @@ fn pack_from_packs_symbolic_bridge_and_concrete_normalization() {
 
     // Symbolic PackFromPacks
     let sym_pack = store.pack_from_packs(p_form, l_form).unwrap();
-    assert!(matches!(store.get(sym_pack), TypeData::PackFromPacks { .. }), "CV-10: symbolic lane terms remain PackFromPacks");
+    assert!(
+        matches!(store.get(sym_pack), TypeData::PackFromPacks { .. }),
+        "CV-10: symbolic lane terms remain PackFromPacks"
+    );
     assert_eq!(store.kind_of(sym_pack), KindId::TYPE);
 
     // Concrete substitution makes lanes concrete
     let int_ty = store.nominal_type(decl("Int"));
     let str_ty = store.nominal_type(decl("String"));
     let concrete_pos = store.type_pack(Box::new([int_ty])).unwrap();
-    let concrete_lab = store.labeled_type_pack(Box::new([
-        phalcom_semantic::types::store::LabeledTypePackElement { label: "a".into(), element: str_ty },
-    ])).unwrap();
+    let concrete_lab = store
+        .labeled_type_pack(Box::new([phalcom_semantic::types::store::LabeledTypePackElement {
+            label: "a".into(),
+            element: str_ty,
+        }]))
+        .unwrap();
 
     let mut subst = TypeSubstitution::new();
     subst.bind(p_param, concrete_pos);
     subst.bind(l_param, concrete_lab);
 
     let subst_pack = subst.apply(&mut store, sym_pack);
-    assert!(matches!(store.get(subst_pack), TypeData::Pack(_)), "CV-10: substitution normalizes PackFromPacks to canonical concrete Pack");
+    assert!(
+        matches!(store.get(subst_pack), TypeData::Pack(_)),
+        "CV-10: substitution normalizes PackFromPacks to canonical concrete Pack"
+    );
 
     // Direct formation with the same elements
-    let direct_pack = store.pack(Box::new([
-        PackTypeElement { label: None, ty: int_ty },
-        PackTypeElement { label: Some("a".into()), ty: str_ty },
-    ])).unwrap();
+    let direct_pack = store
+        .pack(Box::new([
+            PackTypeElement { label: None, ty: int_ty },
+            PackTypeElement {
+                label: Some("a".into()),
+                ty: str_ty,
+            },
+        ]))
+        .unwrap();
 
     assert_eq!(subst_pack, direct_pack, "CV-10: normalized Pack matches direct Pack formation");
 }
@@ -136,7 +174,9 @@ fn parameter_contract_derives_canonical_body_pack_types() {
         contract: RestValueContract::Element(elem_fact),
     };
     let body_ty = element_contract.derive_body_type(&mut store);
-    let TypeData::Pack(pack) = store.get(body_ty.canonical_type().unwrap()) else { panic!("expected Pack"); };
+    let TypeData::Pack(pack) = store.get(body_ty.canonical_type().unwrap()) else {
+        panic!("expected Pack");
+    };
     assert_eq!(pack.positional_remainder, AnonymousTupleRemainder::Typed(int_ty));
     assert_eq!(pack.labeled_remainder, AnonymousTupleRemainder::None);
 
@@ -149,9 +189,13 @@ fn parameter_contract_derives_canonical_body_pack_types() {
         contract: RestValueContract::Lane(p_form),
     };
     let lane_body_ty = lane_contract.derive_body_type(&mut store);
-    let TypeData::PackFromPacks { positionals, labeled } = store.get(lane_body_ty.canonical_type().unwrap()) else { panic!("expected PackFromPacks"); };
+    let TypeData::PackFromPacks { positionals, labeled } = store.get(lane_body_ty.canonical_type().unwrap()) else {
+        panic!("expected PackFromPacks");
+    };
     assert_eq!(*positionals, p_form);
-    let TypeData::LabeledTypePack(empty_labeled) = store.get(*labeled) else { panic!("expected empty labeled"); };
+    let TypeData::LabeledTypePack(empty_labeled) = store.get(*labeled) else {
+        panic!("expected empty labeled");
+    };
     assert!(empty_labeled.is_empty());
 
     // *args (unconstrained) derives Pack with Unconstrained positional remainder
@@ -160,6 +204,8 @@ fn parameter_contract_derives_canonical_body_pack_types() {
         contract: RestValueContract::Unconstrained,
     };
     let unconstrained_body_ty = unconstrained_contract.derive_body_type(&mut store);
-    let TypeData::Pack(u_pack) = store.get(unconstrained_body_ty.canonical_type().unwrap()) else { panic!("expected Pack"); };
+    let TypeData::Pack(u_pack) = store.get(unconstrained_body_ty.canonical_type().unwrap()) else {
+        panic!("expected Pack");
+    };
     assert_eq!(u_pack.positional_remainder, AnonymousTupleRemainder::Unconstrained);
 }

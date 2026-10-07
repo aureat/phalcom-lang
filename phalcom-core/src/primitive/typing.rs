@@ -1434,9 +1434,9 @@ fn descriptor_field_key_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
                 .get(node.0 as usize)
                 .ok_or_else(|| RuntimeError::Internal("node not found".into()))?;
             match &entry.form {
-                phalcom_type_meta::type_node::TypeNode::Record(fields) => fields
-                    .get(index)
-                    .map(|field| phalcom_semantic::field_key::FieldKey::symbol(field.name.clone())),
+                phalcom_type_meta::type_node::TypeNode::Record(fields) => {
+                    fields.get(index).map(|field| phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()))
+                }
                 phalcom_type_meta::type_node::TypeNode::OpenRecord(record) => record
                     .fields
                     .get(index)
@@ -1514,11 +1514,15 @@ fn descriptor_fields(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
                 .get(node.0 as usize)
                 .ok_or_else(|| RuntimeError::Internal("node not found".into()))?;
             match &entry.form {
-                phalcom_type_meta::type_node::TypeNode::Record(f) => {
-                    f.iter()
-                        .map(|field| (phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()), RuntimeTypeRef::Base { pool, node: field.ty }))
-                        .collect()
-                }
+                phalcom_type_meta::type_node::TypeNode::Record(f) => f
+                    .iter()
+                    .map(|field| {
+                        (
+                            phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()),
+                            RuntimeTypeRef::Base { pool, node: field.ty },
+                        )
+                    })
+                    .collect(),
                 phalcom_type_meta::type_node::TypeNode::OpenRecord(o) => o
                     .fields
                     .iter()
@@ -2493,10 +2497,7 @@ fn typing_context_record_of(vm: &mut VM, receiver: &Value, args: &[Value]) -> Ph
             if pair.len() == 2 {
                 let key = crate::product::value_to_field_key(vm, pair[0])?;
                 let ty = nominal_handle(vm, context, &pair[1])?;
-                fields.push(RuntimeRecordField {
-                    key,
-                    ty,
-                });
+                fields.push(RuntimeRecordField { key, ty });
             }
         }
     }

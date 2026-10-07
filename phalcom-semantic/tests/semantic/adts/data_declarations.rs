@@ -820,7 +820,12 @@ class Probe {
             .record_row(*row)
             .fields
             .iter()
-            .map(|field| (field.key.as_symbol().expect("symbol row field").to_string(), snapshot.store.format_type(field.ty)))
+            .map(|field| {
+                (
+                    field.key.as_symbol().expect("symbol row field").to_string(),
+                    snapshot.store.format_type(field.ty),
+                )
+            })
             .collect::<Vec<_>>();
         assert_eq!(fields.iter().map(|(label, _)| label.as_str()).collect::<Vec<_>>(), ["age", "name"]);
         assert_eq!(expression.knowledge.status(), Some(EvidenceStatus::Established));
@@ -932,7 +937,10 @@ class Probe {
         Some(phalcom_semantic::types::evidence::EvidenceStatus::Established)
     );
     assert_eq!(
-        row.fields.iter().map(|field| (field.key.as_symbol().expect("symbol row field"), field.ty)).collect::<Vec<_>>(),
+        row.fields
+            .iter()
+            .map(|field| (field.key.as_symbol().expect("symbol row field"), field.ty))
+            .collect::<Vec<_>>(),
         vec![("age", fixture.ty("Int")), ("name", fixture.ty("String"))]
     );
 
@@ -993,7 +1001,15 @@ class Probe {
     let [StaticArgument::RecordRow(row)] = arguments.as_ref() else {
         panic!("constructor must retain one inferred RecordRow, got {arguments:#?}");
     };
-    assert_eq!(fixture.analysis.snapshot.store.record_row(*row).find_field(&phalcom_semantic::field_key::FieldKey::symbol("name")), Some(parameter_ty));
+    assert_eq!(
+        fixture
+            .analysis
+            .snapshot
+            .store
+            .record_row(*row)
+            .find_field(&phalcom_semantic::field_key::FieldKey::symbol("name")),
+        Some(parameter_ty)
+    );
     assert_eq!(constructor.knowledge.status(), Some(EvidenceStatus::Assumed));
     assert_ne!(constructor.knowledge.status(), Some(EvidenceStatus::Established));
 }

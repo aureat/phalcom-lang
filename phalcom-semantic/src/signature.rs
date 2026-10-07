@@ -36,10 +36,7 @@ pub enum ReturnContractValidation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ParameterContract {
     Fixed(DeclaredTypeFact),
-    Rest {
-        mode: RestMode,
-        contract: RestValueContract,
-    },
+    Rest { mode: RestMode, contract: RestValueContract },
 }
 
 /// The value contract governing a rest parameter's lane or elements.
@@ -48,6 +45,10 @@ pub enum RestValueContract {
     Unconstrained,
     Element(DeclaredTypeFact),
     Lane(TypeId),
+    /// A rest annotation was present but its semantic operand could not be
+    /// formed.  Recovery must retain that failure instead of widening the
+    /// callable to an unconstrained rest parameter.
+    Invalid(UnknownReason),
 }
 
 impl ParameterContract {
@@ -61,13 +62,22 @@ impl ParameterContract {
     pub fn declared_type(&self) -> DeclaredTypeFact {
         match self {
             Self::Fixed(fact) => fact.clone(),
-            Self::Rest { contract: RestValueContract::Element(fact), .. } => fact.clone(),
-            Self::Rest { contract: RestValueContract::Unconstrained, .. } => {
-                DeclaredTypeFact::unknown(UnknownReason::UnannotatedDeclaration)
-            }
-            Self::Rest { contract: RestValueContract::Lane(_), .. } => {
-                DeclaredTypeFact::unknown(UnknownReason::NoTypeEvidence)
-            }
+            Self::Rest {
+                contract: RestValueContract::Element(fact),
+                ..
+            } => fact.clone(),
+            Self::Rest {
+                contract: RestValueContract::Unconstrained,
+                ..
+            } => DeclaredTypeFact::unknown(UnknownReason::UnannotatedDeclaration),
+            Self::Rest {
+                contract: RestValueContract::Lane(_),
+                ..
+            } => DeclaredTypeFact::unknown(UnknownReason::NoTypeEvidence),
+            Self::Rest {
+                contract: RestValueContract::Invalid(reason),
+                ..
+            } => DeclaredTypeFact::unknown(reason.clone()),
         }
     }
 
@@ -88,7 +98,13 @@ impl ParameterContract {
                     }
                 }
                 RestValueContract::Element(fact) => {
-                    let elem_ty = fact.canonical_type().unwrap_or_else(|| store.unit());
+                    let Some(elem_ty) = fact.canonical_type() else {
+                        let reason = match &fact.state {
+                            super::declaration_type::DeclaredTypeState::Unknown(reason) => reason.clone(),
+                            _ => UnknownReason::SuppressedByInvalidCause,
+                        };
+                        return DeclaredTypeFact::unknown(reason);
+                    };
                     let (pos_rem, lab_rem) = match mode {
                         RestMode::Positional => (AnonymousTupleRemainder::Typed(elem_ty), AnonymousTupleRemainder::None),
                         RestMode::Labeled => (AnonymousTupleRemainder::None, AnonymousTupleRemainder::Typed(elem_ty)),
@@ -100,33 +116,40 @@ impl ParameterContract {
                         Err(_) => DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause),
                     }
                 }
-                RestValueContract::Lane(lane_id) => {
-                    match mode {
-                        RestMode::Positional => {
-                            let empty_labeled = store.labeled_type_pack(Box::default()).unwrap_or_else(|_| store.unit());
-                            match store.pack_from_packs(*lane_id, empty_labeled) {
-                                Ok(ty) => DeclaredTypeFact::known(TypeTerm::Canonical(ty), DeclaredTypeBasis::DeclarationSemantics),
-                                Err(_) => DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause),
-                            }
+                RestValueContract::Lane(lane_id) => match mode {
+                    RestMode::Positional => {
+                        let Ok(empty_labeled) = store.labeled_type_pack(Box::default()) else {
+                            return DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause);
+                        };
+                        match store.pack_from_packs(*lane_id, empty_labeled) {
+                            Ok(ty) => DeclaredTypeFact::known(TypeTerm::Canonical(ty), DeclaredTypeBasis::DeclarationSemantics),
+                            Err(_) => DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause),
                         }
-                        RestMode::Labeled => {
-                            let empty_pos = store.type_pack(Box::default()).unwrap_or_else(|_| store.unit());
-                            match store.pack_from_packs(empty_pos, *lane_id) {
-                                Ok(ty) => DeclaredTypeFact::known(TypeTerm::Canonical(ty), DeclaredTypeBasis::DeclarationSemantics),
-                                Err(_) => DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause),
-                            }
-                        }
-                        RestMode::Complete => {
-                            let pos = store.project_positionals(*lane_id).unwrap_or_else(|_| store.unit());
-                            let lab = store.project_labeled(*lane_id).unwrap_or_else(|_| store.unit());
-                            match store.pack_from_packs(pos, lab) {
-                                Ok(ty) => DeclaredTypeFact::known(TypeTerm::Canonical(ty), DeclaredTypeBasis::DeclarationSemantics),
-                                Err(_) => DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause),
-                            }
-                        }
-                        RestMode::None => unreachable!(),
                     }
-                }
+                    RestMode::Labeled => {
+                        let Ok(empty_pos) = store.type_pack(Box::default()) else {
+                            return DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause);
+                        };
+                        match store.pack_from_packs(empty_pos, *lane_id) {
+                            Ok(ty) => DeclaredTypeFact::known(TypeTerm::Canonical(ty), DeclaredTypeBasis::DeclarationSemantics),
+                            Err(_) => DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause),
+                        }
+                    }
+                    RestMode::Complete => {
+                        let Ok(pos) = store.project_positionals(*lane_id) else {
+                            return DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause);
+                        };
+                        let Ok(lab) = store.project_labeled(*lane_id) else {
+                            return DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause);
+                        };
+                        match store.pack_from_packs(pos, lab) {
+                            Ok(ty) => DeclaredTypeFact::known(TypeTerm::Canonical(ty), DeclaredTypeBasis::DeclarationSemantics),
+                            Err(_) => DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause),
+                        }
+                    }
+                    RestMode::None => unreachable!(),
+                },
+                RestValueContract::Invalid(reason) => DeclaredTypeFact::unknown(reason.clone()),
             },
         }
     }
@@ -394,22 +417,10 @@ impl CallableSemanticSignature {
             if source.external_label != native.external_label {
                 return Some(format!("parameter {index} label differs"));
             }
-            if source.rest != native.rest {
+            if source.contract.rest_mode() != native.contract.rest_mode() {
                 return Some(format!("parameter {index} rest mode differs"));
             }
-            let parameter_types_match = if source.declared_type.is_unknown()
-                || source.declared_type.is_dynamic()
-                || native.declared_type.is_unknown()
-                || native.declared_type.is_dynamic()
-            {
-                true
-            } else {
-                match (source.declared_type.canonical_type(), native.declared_type.canonical_type(), store) {
-                    (Some(source), Some(native), Some(store)) => canonical_native_type_matches(source, native, store),
-                    _ => source.declared_type.state == native.declared_type.state,
-                }
-            };
-            if !parameter_types_match {
+            if !native_parameter_contract_matches(&source.contract, &native.contract, store) {
                 return Some(format!("parameter {index} type differs"));
             }
         }
@@ -460,6 +471,39 @@ impl CallableSemanticSignature {
             return Some("return type differs".into());
         }
         None
+    }
+}
+
+fn native_parameter_contract_matches(source: &ParameterContract, native: &ParameterContract, store: Option<&crate::types::store::TypeStore>) -> bool {
+    match (source, native) {
+        (ParameterContract::Fixed(source), ParameterContract::Fixed(native)) => native_declared_fact_matches(source, native, store),
+        (
+            ParameterContract::Rest {
+                mode: source_mode,
+                contract: source,
+            },
+            ParameterContract::Rest {
+                mode: native_mode,
+                contract: native,
+            },
+        ) if source_mode == native_mode => match (source, native) {
+            (RestValueContract::Unconstrained, RestValueContract::Unconstrained) => true,
+            (RestValueContract::Element(source), RestValueContract::Element(native)) => native_declared_fact_matches(source, native, store),
+            (RestValueContract::Lane(source), RestValueContract::Lane(native)) => source == native,
+            (RestValueContract::Invalid(source), RestValueContract::Invalid(native)) => source == native,
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn native_declared_fact_matches(source: &DeclaredTypeFact, native: &DeclaredTypeFact, store: Option<&crate::types::store::TypeStore>) -> bool {
+    if source.is_unknown() || source.is_dynamic() || native.is_unknown() || native.is_dynamic() {
+        return true;
+    }
+    match (source.canonical_type(), native.canonical_type(), store) {
+        (Some(source), Some(native), Some(store)) => canonical_native_type_matches(source, native, store),
+        _ => source.state == native.state,
     }
 }
 

@@ -9,6 +9,19 @@
 
 ---
 
+## Audit remediation — 2026-10-07
+
+The post-implementation audit remediation ran inline on local `main` without a
+branch or worktree. Structured generic/concrete lanes now use topology plus
+pointwise relations; unavailable lane evidence is never converted to `Unit`;
+invalid declaration recovery remains explicit; and callable compatibility
+consumers specialize and compare `ParameterContract`.
+
+Fresh focused evidence: `cargo check -p phalcom-semantic` passed,
+`capabilities::rest_contracts` passed 20 tests, and `adts::requirements` passed
+3 tests. The broader audit obligations remain open, so this walkthrough does
+not promote R1/P4 to final completion.
+
 ## 1. Summary of Changes
 
 Implemented whole-lane rest parameter annotations (`*args: *P`, `**args: **P`, `***args: ***P`) and canonical parameter contracts in Telos per `packs-correction.md`. This enables exact generic rest-call inference for `GoalQuery.of` while preserving `*args: T` as an element contract and eliminating TypePack/Pack conflation.

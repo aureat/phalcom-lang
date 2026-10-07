@@ -182,7 +182,13 @@ fn record_typed_remainder_satisfies_compatible_optional_target() {
 
     // { **: Int } <: { a?: Number, ... }
     let source_row = store
-        .record_row_checked(vec![], RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type: field_key_ty, value_type: int }))
+        .record_row_checked(
+            vec![],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+                key_type: field_key_ty,
+                value_type: int,
+            }),
+        )
         .unwrap();
     let source = store.intern_with_kind(TypeData::Record(source_row), phalcom_semantic::types::id::KindId::TYPE);
 
@@ -208,7 +214,13 @@ fn record_typed_remainder_does_not_prove_required_presence() {
 
     // { **: Int } </: { a: Number, ... } because remainder does not prove field presence
     let source_row = store
-        .record_row_checked(vec![], RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type: field_key_ty, value_type: int }))
+        .record_row_checked(
+            vec![],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+                key_type: field_key_ty,
+                value_type: int,
+            }),
+        )
         .unwrap();
     let source = store.intern_with_kind(TypeData::Record(source_row), phalcom_semantic::types::id::KindId::TYPE);
 
@@ -232,7 +244,10 @@ fn record_unconstrained_remainder_does_not_satisfy_typed_optional_target() {
 
     // { ... } </: { a?: Number, ... } because an unconstrained tail cannot prove value type compatibility
     let source_row = store
-        .record_row_checked(vec![], RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: field_key_ty }))
+        .record_row_checked(
+            vec![],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: field_key_ty }),
+        )
         .unwrap();
     let source = store.intern_with_kind(TypeData::Record(source_row), phalcom_semantic::types::id::KindId::TYPE);
 

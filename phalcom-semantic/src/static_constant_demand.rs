@@ -168,14 +168,7 @@ impl StaticConstantDemandDriver<'_> {
                     self.deferred_static_definitions,
                     module,
                 );
-                let checked = crate::checker::static_body::check_static_expression(
-                    context,
-                    site.expression,
-                    None,
-                    &catalog,
-                    &discovery_states,
-                    intrinsics,
-                );
+                let checked = crate::checker::static_body::check_static_expression(context, site.expression, None, &catalog, &discovery_states, intrinsics);
                 match checked {
                     crate::checker::static_body::StaticExpressionCheckOutcome::Ready(checked)
                     | crate::checker::static_body::StaticExpressionCheckOutcome::Invalid(checked) => checked,
@@ -216,14 +209,7 @@ impl StaticConstantDemandDriver<'_> {
                     self.deferred_static_definitions,
                     module,
                 );
-                let checked = crate::checker::static_body::check_static_expression(
-                    context,
-                    site.expression,
-                    None,
-                    &catalog,
-                    &checked_states,
-                    intrinsics,
-                );
+                let checked = crate::checker::static_body::check_static_expression(context, site.expression, None, &catalog, &checked_states, intrinsics);
                 match checked {
                     crate::checker::static_body::StaticExpressionCheckOutcome::Ready(checked)
                     | crate::checker::static_body::StaticExpressionCheckOutcome::Invalid(checked) => Arc::new(checked),
@@ -293,14 +279,7 @@ impl StaticConstantDemandDriver<'_> {
                 self.deferred_static_definitions,
                 id.module(),
             );
-            crate::checker::static_body::check_static_expression(
-                context,
-                initializer,
-                None,
-                &catalog,
-                &discovery_states,
-                intrinsics,
-            )
+            crate::checker::static_body::check_static_expression(context, initializer, None, &catalog, &discovery_states, intrinsics)
         };
         let discovered = match discovered {
             crate::checker::static_body::StaticExpressionCheckOutcome::Ready(checked)
@@ -413,14 +392,7 @@ impl StaticConstantDemandDriver<'_> {
                 self.deferred_static_definitions,
                 id.module(),
             );
-            crate::checker::static_body::check_static_expression(
-                context,
-                initializer,
-                expected_type,
-                &catalog,
-                &binding_states,
-                intrinsics,
-            )
+            crate::checker::static_body::check_static_expression(context, initializer, expected_type, &catalog, &binding_states, intrinsics)
         };
         let expression = match expression_check {
             crate::checker::static_body::StaticExpressionCheckOutcome::Ready(checked)
@@ -429,12 +401,7 @@ impl StaticConstantDemandDriver<'_> {
                 return StaticDemandOutcome::Awaiting(demands);
             }
         };
-        let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(
-            id,
-            initializer,
-            binding.annotation.as_ref(),
-            expected_type,
-        );
+        let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(id, initializer, binding.annotation.as_ref(), expected_type);
         let checked = crate::static_constant::CheckedStaticConstantInitializer {
             id: id.clone(),
             declaration_range: binding.range,
@@ -490,17 +457,12 @@ impl StaticConstantDemandDriver<'_> {
 
         let outcome = {
             let mut budget = self.budget;
-            crate::static_eval::StaticEvaluator::for_constant(
-                &checked,
-                self.values,
-                &mut budget,
-                self.cancel,
-            )
-            .with_static_constants(self.constants)
-            .with_static_definitions(self.definitions)
-            .with_type_store(self.store)
-            .with_semantic_tables(self.store, self.data_semantics, self.enum_semantics)
-            .evaluate()
+            crate::static_eval::StaticEvaluator::for_constant(&checked, self.values, &mut budget, self.cancel)
+                .with_static_constants(self.constants)
+                .with_static_definitions(self.definitions)
+                .with_type_store(self.store)
+                .with_semantic_tables(self.store, self.data_semantics, self.enum_semantics)
+                .evaluate()
         };
         let value = match &outcome {
             crate::static_eval::StaticEvalOutcome::Reduced(value) => Some(*value),
@@ -551,10 +513,11 @@ impl StaticConstantDemandDriver<'_> {
     fn recursive_cycle_outcome(&mut self, id: &StaticConstantId) -> QueryOutcome<Arc<StaticConstantProduct>> {
         let cycle = self.active_constants.iter().cloned().collect::<BTreeSet<_>>();
         match self.publish_recursive_cycle(&cycle) {
-            QueryOutcome::Ready(()) => self.constants.get(id).cloned().map_or_else(
-                || QueryOutcome::Failed(format!("recursive constant cycle omitted {id:?}")),
-                QueryOutcome::Ready,
-            ),
+            QueryOutcome::Ready(()) => self
+                .constants
+                .get(id)
+                .cloned()
+                .map_or_else(|| QueryOutcome::Failed(format!("recursive constant cycle omitted {id:?}")), QueryOutcome::Ready),
             QueryOutcome::Blocked(reason) => QueryOutcome::Blocked(reason),
             QueryOutcome::Cancelled => QueryOutcome::Cancelled,
             QueryOutcome::BudgetExceeded(report) => QueryOutcome::BudgetExceeded(report),
@@ -564,7 +527,11 @@ impl StaticConstantDemandDriver<'_> {
 
     fn publish_recursive_cycle(&mut self, cycle: &BTreeSet<StaticConstantId>) -> QueryOutcome<()> {
         for id in cycle {
-            if self.constants.get(id).is_some_and(|product| matches!(product.outcome, crate::static_eval::StaticEvalOutcome::Recursive)) {
+            if self
+                .constants
+                .get(id)
+                .is_some_and(|product| matches!(product.outcome, crate::static_eval::StaticEvalOutcome::Recursive))
+            {
                 continue;
             }
             let Some(catalog) = self.catalogs.get(id.module()).cloned() else {
@@ -660,7 +627,6 @@ impl StaticConstantDemandDriver<'_> {
         }
         QueryOutcome::Ready(())
     }
-
 }
 
 fn demand_checking_context<'a>(

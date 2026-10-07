@@ -109,6 +109,10 @@ fn hash_parameter_contract(contract: &crate::signature::ParameterContract, hashe
                     2u8.hash(hasher);
                     lane_id.hash(hasher);
                 }
+                crate::signature::RestValueContract::Invalid(reason) => {
+                    3u8.hash(hasher);
+                    reason.hash(hasher);
+                }
             }
         }
     }

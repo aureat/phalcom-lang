@@ -1125,18 +1125,12 @@ impl TypeStore {
         }
         if let AnonymousTupleRemainder::Typed(ty) = positional_remainder {
             if !self.is_proper_type(ty) {
-                return Err(PackFormationError::ElementNotProperType {
-                    ty,
-                    kind: self.kind_of(ty),
-                });
+                return Err(PackFormationError::ElementNotProperType { ty, kind: self.kind_of(ty) });
             }
         }
         if let AnonymousTupleRemainder::Typed(ty) = labeled_remainder {
             if !self.is_proper_type(ty) {
-                return Err(PackFormationError::ElementNotProperType {
-                    ty,
-                    kind: self.kind_of(ty),
-                });
+                return Err(PackFormationError::ElementNotProperType { ty, kind: self.kind_of(ty) });
             }
         }
         Ok(self.intern_with_kind(
@@ -1235,9 +1229,9 @@ impl TypeStore {
             return Ok(ty);
         }
         match self.get(ty).clone() {
-            TypeData::CompleteTypePack { positionals, .. }
-            | TypeData::TupleFromPacks { positionals, .. }
-            | TypeData::PackFromPacks { positionals, .. } => Ok(positionals),
+            TypeData::CompleteTypePack { positionals, .. } | TypeData::TupleFromPacks { positionals, .. } | TypeData::PackFromPacks { positionals, .. } => {
+                Ok(positionals)
+            }
             TypeData::Tuple(tuple) => self.type_pack(
                 tuple
                     .elements
@@ -1279,9 +1273,7 @@ impl TypeStore {
             return Ok(ty);
         }
         match self.get(ty).clone() {
-            TypeData::CompleteTypePack { labeled, .. }
-            | TypeData::TupleFromPacks { labeled, .. }
-            | TypeData::PackFromPacks { labeled, .. } => Ok(labeled),
+            TypeData::CompleteTypePack { labeled, .. } | TypeData::TupleFromPacks { labeled, .. } | TypeData::PackFromPacks { labeled, .. } => Ok(labeled),
             TypeData::Tuple(tuple) => self.labeled_type_pack(
                 tuple
                     .elements
@@ -2160,9 +2152,7 @@ impl TypeStore {
                     || match row.tail {
                         RecordRowTail::Closed => false,
                         RecordRowTail::Parameter(parameter) => parameter == target,
-                        RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type }) => {
-                            self.contains_type_parameter(key_type, target)
-                        }
+                        RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type }) => self.contains_type_parameter(key_type, target),
                         RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }) => {
                             self.contains_type_parameter(key_type, target) || self.contains_type_parameter(value_type, target)
                         }

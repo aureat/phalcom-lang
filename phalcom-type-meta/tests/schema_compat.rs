@@ -1275,22 +1275,29 @@ fn schema_v10_structural_presence_and_remainders_roundtrip_and_validate() {
 #[test]
 fn pack_metadata_roundtrip() {
     use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
-    use phalcom_type_meta::validate::{validate_metadata_bundle, ValidationLimits};
-    use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId};
     use phalcom_type_meta::fingerprint::Fingerprint128;
-    use phalcom_type_meta::type_node::{
-        AnonymousTupleRemainderRef, PackTypeRef, TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
-    };
+    use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId};
     use phalcom_type_meta::scoped_type::{
         ScopedAnonymousTupleRemainderRef, ScopedPackTypeRef, ScopedTupleElementRef, ScopedTypeNode, ScopedTypeNodeEntry, ScopedTypeNodeId,
     };
+    use phalcom_type_meta::type_node::{AnonymousTupleRemainderRef, PackTypeRef, TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId};
+    use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
 
     let limits = ValidationLimits::default();
     let mut bundle = sample_bundle(10, true);
     bundle.kinds = Box::new([
-        KindNodeEntry { node: KindNode::Type, structural_fingerprint: Fingerprint128::ZERO },
-        KindNodeEntry { node: KindNode::TypePack, structural_fingerprint: Fingerprint128::ZERO },
-        KindNodeEntry { node: KindNode::LabeledTypePack, structural_fingerprint: Fingerprint128::ZERO },
+        KindNodeEntry {
+            node: KindNode::Type,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::TypePack,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        KindNodeEntry {
+            node: KindNode::LabeledTypePack,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
     ]);
     bundle.types = Box::new([
         TypeNodeEntry {

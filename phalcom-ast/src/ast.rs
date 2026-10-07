@@ -1469,15 +1469,9 @@ pub struct WhereClauseSyntax {
 #[derive(Debug, Clone)]
 pub enum RecordKeySyntax {
     /// A statically-named symbol key, written as a bare identifier `name` or explicit `#name`.
-    Symbol {
-        name: String,
-        range: SourceRange,
-    },
+    Symbol { name: String, range: SourceRange },
     /// A computed key expression written as `[expr]`.
-    Computed {
-        expr: Box<Expr>,
-        range: SourceRange,
-    },
+    Computed { expr: Box<Expr>, range: SourceRange },
 }
 
 impl PartialEq for RecordKeySyntax {
@@ -1559,15 +1553,9 @@ pub enum AnonymousRecordRemainderSyntax {
     /// `...` -> default FieldKey, unconstrained value
     Unconstrained(SourceRange),
     /// `**: V` -> default FieldKey, value constrained by V
-    TypedValue {
-        value_type: Box<TypeAnnotation>,
-        range: SourceRange,
-    },
+    TypedValue { value_type: Box<TypeAnnotation>, range: SourceRange },
     /// `**[K]: ...` -> key constrained by K, unconstrained value
-    TypedKey {
-        key_type: Box<TypeAnnotation>,
-        range: SourceRange,
-    },
+    TypedKey { key_type: Box<TypeAnnotation>, range: SourceRange },
     /// `**[K]: V` -> key constrained by K, value constrained by V
     Typed {
         key_type: Box<TypeAnnotation>,
@@ -1580,9 +1568,7 @@ impl AnonymousRecordRemainderSyntax {
     pub fn range(&self) -> SourceRange {
         match self {
             Self::Unconstrained(r) => *r,
-            Self::TypedValue { range, .. }
-            | Self::TypedKey { range, .. }
-            | Self::Typed { range, .. } => *range,
+            Self::TypedValue { range, .. } | Self::TypedKey { range, .. } | Self::Typed { range, .. } => *range,
         }
     }
 }

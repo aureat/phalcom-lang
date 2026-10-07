@@ -61,13 +61,7 @@ fn field_key_canonical_ordering_within_kinds() {
     let i_pos_small = FieldKey::int(StaticInt::from(42));
     let i_pos_big = FieldKey::int(StaticInt::new(BigInt::parse_bytes(b"1000000000000000000000000000000000", 10).unwrap()));
 
-    let mut int_keys = vec![
-        i_pos_big.clone(),
-        i_neg_small.clone(),
-        i_zero.clone(),
-        i_pos_small.clone(),
-        i_neg_big.clone(),
-    ];
+    let mut int_keys = vec![i_pos_big.clone(), i_neg_small.clone(), i_zero.clone(), i_pos_small.clone(), i_neg_big.clone()];
     int_keys.sort();
     assert_eq!(int_keys, vec![i_neg_big, i_neg_small, i_zero, i_pos_small, i_pos_big]);
 

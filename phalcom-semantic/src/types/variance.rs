@@ -2,8 +2,8 @@
 
 use super::id::{TypeId, TypeParameterId};
 use super::store::{TypeData, TypeStore};
-use crate::identity::DeclarationId;
 use crate::field_key::FieldKey;
+use crate::identity::DeclarationId;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Variance {

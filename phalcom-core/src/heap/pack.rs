@@ -18,9 +18,7 @@ pub enum PackStorage {
         storage: ProductStorage,
     },
     /// O(1) slice sharing an existing root Pack's backing.
-    Slice {
-        root: ObjRef,
-    },
+    Slice { root: ObjRef },
 }
 
 /// A native immutable first-class Pack object.
@@ -35,12 +33,7 @@ pub struct PackObject {
 
 impl PackObject {
     /// Creates a new root Pack object.
-    pub fn new_root(
-        descriptor: RuntimeAnonymousProductDescriptorId,
-        storage: ProductStorage,
-        positional_len: u32,
-        labeled_len: u32,
-    ) -> Self {
+    pub fn new_root(descriptor: RuntimeAnonymousProductDescriptorId, storage: ProductStorage, positional_len: u32, labeled_len: u32) -> Self {
         Self {
             storage: PackStorage::Root { descriptor, storage },
             positional_start: 0,
@@ -51,13 +44,7 @@ impl PackObject {
     }
 
     /// Creates an O(1) slice of an existing root Pack object.
-    pub fn new_slice(
-        root: ObjRef,
-        positional_start: u32,
-        positional_len: u32,
-        labeled_start: u32,
-        labeled_len: u32,
-    ) -> Self {
+    pub fn new_slice(root: ObjRef, positional_start: u32, positional_len: u32, labeled_start: u32, labeled_len: u32) -> Self {
         Self {
             storage: PackStorage::Slice { root },
             positional_start,

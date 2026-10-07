@@ -834,6 +834,14 @@ impl InferenceSession {
         v
     }
 
+    /// Returns whether `variable` is the unsolved representative of `kind`.
+    /// Lane matching uses this to distinguish a whole-lane target from a
+    /// structured lane that merely contains ordinary generic variables.
+    pub fn variable_has_kind(&self, variable: InferVarId, kind: KindId) -> bool {
+        self.variable_by_representative(variable)
+            .is_some_and(|metadata| metadata.kind == kind && matches!(metadata.state, InferVarState::Unsolved))
+    }
+
     pub fn solved_type_for(&self, solution: &InferenceSolution, variable: InferVarId) -> Option<TypeId> {
         solution.substitutions.get(&self.find_var(variable)).copied()
     }
@@ -1320,9 +1328,9 @@ impl InferenceSession {
                             .copied()
                             .map_or(InferenceRecordTail::Parameter(parameter), InferenceRecordTail::Var),
                         RecordRowTail::Projection(proj) => InferenceRecordTail::Projection(proj),
-                        RecordRowTail::Anonymous(rem) => InferenceRecordTail::Anonymous(Box::new(
-                            rem.map(|ty| self.type_id_to_inference_with_rows(ty, subst, row_subst, store)),
-                        )),
+                        RecordRowTail::Anonymous(rem) => {
+                            InferenceRecordTail::Anonymous(Box::new(rem.map(|ty| self.type_id_to_inference_with_rows(ty, subst, row_subst, store))))
+                        }
                     },
                 })
             }
@@ -1484,9 +1492,9 @@ impl InferenceSession {
                     .copied()
                     .map_or(InferenceRecordTail::Parameter(parameter), InferenceRecordTail::Var),
                 RecordRowTail::Projection(projection) => InferenceRecordTail::Projection(projection),
-                RecordRowTail::Anonymous(rem) => InferenceRecordTail::Anonymous(Box::new(
-                    rem.map(|ty| self.type_id_to_inference_with_rows(ty, subst, row_subst, store)),
-                )),
+                RecordRowTail::Anonymous(rem) => {
+                    InferenceRecordTail::Anonymous(Box::new(rem.map(|ty| self.type_id_to_inference_with_rows(ty, subst, row_subst, store))))
+                }
             },
         }
     }
@@ -1519,9 +1527,9 @@ impl InferenceSession {
                             .copied()
                             .map_or(InferenceRecordTail::Parameter(parameter), InferenceRecordTail::Var),
                         RecordRowTail::Projection(projection) => InferenceRecordTail::Projection(projection),
-                        RecordRowTail::Anonymous(rem) => InferenceRecordTail::Anonymous(Box::new(
-                            rem.map(|ty| self.type_id_to_inference_with_rows(ty, subst, row_subst, store)),
-                        )),
+                        RecordRowTail::Anonymous(rem) => {
+                            InferenceRecordTail::Anonymous(Box::new(rem.map(|ty| self.type_id_to_inference_with_rows(ty, subst, row_subst, store))))
+                        }
                     },
                 })
             }
@@ -1621,11 +1629,9 @@ impl InferenceSession {
                     InferenceRecordTail::Closed => RecordRowTail::Closed,
                     InferenceRecordTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
                     InferenceRecordTail::Projection(proj) => RecordRowTail::Projection(proj),
-                    InferenceRecordTail::Anonymous(rem) => RecordRowTail::Anonymous(
-                        (*rem)
-                            .try_map(|ty| self.materialize_for_expected(&ty, store).ok_or(()))
-                            .ok()?,
-                    ),
+                    InferenceRecordTail::Anonymous(rem) => {
+                        RecordRowTail::Anonymous((*rem).try_map(|ty| self.materialize_for_expected(&ty, store).ok_or(())).ok()?)
+                    }
                     InferenceRecordTail::Var(_) => return None,
                 };
                 store.record_row_type_checked(fields, tail).ok()
@@ -1761,11 +1767,9 @@ impl InferenceSession {
                     InferenceRecordTail::Closed => RecordRowTail::Closed,
                     InferenceRecordTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
                     InferenceRecordTail::Projection(projection) => RecordRowTail::Projection(projection),
-                    InferenceRecordTail::Anonymous(rem) => RecordRowTail::Anonymous(
-                        (*rem)
-                            .try_map(|ty| self.materialize_for_expected(&ty, store).ok_or(()))
-                            .ok()?,
-                    ),
+                    InferenceRecordTail::Anonymous(rem) => {
+                        RecordRowTail::Anonymous((*rem).try_map(|ty| self.materialize_for_expected(&ty, store).ok_or(())).ok()?)
+                    }
                     InferenceRecordTail::Var(_) => return None,
                 };
                 store.record_row_checked(fields, tail).ok().map(crate::types::store::StaticArgument::RecordRow)
@@ -1833,9 +1837,7 @@ impl InferenceSession {
                                 ScopedRecordRowTail::FreeParameter(parameter) => InferenceRecordTail::Parameter(parameter),
                                 ScopedRecordRowTail::Projection(projection) => InferenceRecordTail::Projection(projection),
                                 ScopedRecordRowTail::Anonymous(rem) => {
-                                    InferenceRecordTail::Anonymous(Box::new(
-                                        self.scoped_remainder_to_inference(rem, depth, arguments, store)?,
-                                    ))
+                                    InferenceRecordTail::Anonymous(Box::new(self.scoped_remainder_to_inference(rem, depth, arguments, store)?))
                                 }
                             };
                             Some(InferenceStaticArgument::RecordRow(InferenceRecord {
@@ -5157,7 +5159,9 @@ impl InferenceSession {
                     RecordRowTermTail::Anonymous(rem) => RecordRowTail::Anonymous(rem.try_map(|ty| self.materialize(&ty, store))?),
                     RecordRowTermTail::Var(_) => return Err(InferenceMaterializationFailure::UnsupportedDomain),
                 };
-                store.record_row_type_checked(fields, tail).map_err(|_| InferenceMaterializationFailure::InternalInvariant)
+                store
+                    .record_row_type_checked(fields, tail)
+                    .map_err(|_| InferenceMaterializationFailure::InternalInvariant)
             }
             InferenceTerm::Family(family) => {
                 let members = family
@@ -5289,9 +5293,7 @@ impl InferenceSession {
                     RecordRowTermTail::Closed => RecordRowTail::Closed,
                     RecordRowTermTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
                     RecordRowTermTail::Projection(projection) => RecordRowTail::Projection(projection),
-                    RecordRowTermTail::Anonymous(rem) => RecordRowTail::Anonymous(
-                        rem.try_map(|ty| self.materialize(&ty, store))?,
-                    ),
+                    RecordRowTermTail::Anonymous(rem) => RecordRowTail::Anonymous(rem.try_map(|ty| self.materialize(&ty, store))?),
                     RecordRowTermTail::Var(_) => return Err(InferenceMaterializationFailure::UnsupportedDomain),
                 };
                 store
@@ -6235,7 +6237,10 @@ mod coordinated_row_completion_tests {
         let term = resolved.term_for(local).expect("child root has a normalized solution");
         assert_eq!(term.tail, RecordRowTermTail::Closed);
         assert_eq!(
-            term.fields.iter().map(|field| field.key.as_symbol().expect("symbol fixture key")).collect::<Vec<_>>(),
+            term.fields
+                .iter()
+                .map(|field| field.key.as_symbol().expect("symbol fixture key"))
+                .collect::<Vec<_>>(),
             ["cached", "mapped", "name"]
         );
     }

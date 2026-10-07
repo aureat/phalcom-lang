@@ -4,8 +4,8 @@ use phalcom_semantic::data_semantics::{DataConstructorSignature, DataInfo, DataP
 use phalcom_semantic::enum_semantics::{EnumInfo, EnumSemanticTable};
 use phalcom_semantic::identity::{DataConstructorId, DeclarationId};
 use phalcom_semantic::structural::{OrderedProductForm, StructuralClassification, StructuralClassifier};
-use phalcom_semantic::types::store::{AnonymousTupleRemainder, PackTypeElement, TupleType, TupleTypeElement, TypeData, TypeStore};
 use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
+use phalcom_semantic::types::store::{AnonymousTupleRemainder, PackTypeElement, TupleType, TupleTypeElement, TypeData, TypeStore};
 use std::sync::Arc;
 
 fn data_info(owner: DeclarationId, root_form: phalcom_semantic::types::TypeId, shape: DataShape) -> DataInfo {
@@ -89,10 +89,7 @@ fn classifier_uses_canonical_forms_and_declaration_products() {
         classifier.classify(&types, pair_type),
         StructuralClassification::OrderedProduct(OrderedProductForm::Data { owner: tuple_owner })
     );
-    assert_eq!(
-        classifier.classify(&types, sum_type),
-        StructuralClassification::Sum { owner: sum_owner }
-    );
+    assert_eq!(classifier.classify(&types, sum_type), StructuralClassification::Sum { owner: sum_owner });
     assert_eq!(
         classifier.classify(&types, record_type),
         StructuralClassification::Unsupported,
@@ -119,11 +116,7 @@ fn ordered_descriptor_keeps_lanes_remainders_and_symbolic_pack_terms() {
 
     let pack = types
         .open_pack(
-            vec![
-                PackTypeElement::unlabeled(int_type),
-                PackTypeElement::labeled("name".into(), string_type),
-            ]
-            .into_boxed_slice(),
+            vec![PackTypeElement::unlabeled(int_type), PackTypeElement::labeled("name".into(), string_type)].into_boxed_slice(),
             AnonymousTupleRemainder::Typed(int_type),
             AnonymousTupleRemainder::Unconstrained,
         )
@@ -170,9 +163,6 @@ fn ordered_descriptor_keeps_lanes_remainders_and_symbolic_pack_terms() {
     let labeled = types.parameter_form(labeled_parameter);
     let symbolic_tuple = types.tuple_from_packs(positionals, labeled).unwrap();
     let descriptor = classifier.ordered_product(&mut types, symbolic_tuple).unwrap().unwrap();
-    assert_eq!(
-        descriptor.origin,
-        phalcom_semantic::structural::OrderedProductOrigin::TupleFromPacks
-    );
+    assert_eq!(descriptor.origin, phalcom_semantic::structural::OrderedProductOrigin::TupleFromPacks);
     assert_eq!(descriptor.symbolic_lanes, Some((positionals, labeled)));
 }

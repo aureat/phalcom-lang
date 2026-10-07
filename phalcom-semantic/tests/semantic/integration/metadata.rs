@@ -1377,10 +1377,7 @@ fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainde
     // 2. Anonymous record with unconstrained remainder: { a: Int, b?: String, **... }
     let row_id = store
         .record_row_checked(
-            vec![
-                RecordRowField::symbol_required("a", int_ty),
-                RecordRowField::symbol_optional("b", str_ty),
-            ],
+            vec![RecordRowField::symbol_required("a", int_ty), RecordRowField::symbol_optional("b", str_ty)],
             RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: symbol_key_ty }),
         )
         .unwrap();
@@ -1432,11 +1429,7 @@ fn legacy_record_metadata_fails_closed_for_non_symbol_keys_and_domains() {
 
     let mut store = TypeStore::new();
     let value_type = store.nominal(dummy_decl("Int"));
-    let non_symbol_keys = [
-        FieldKey::string("text"),
-        FieldKey::int(StaticInt::new(BigInt::from(42))),
-        FieldKey::bool(true),
-    ];
+    let non_symbol_keys = [FieldKey::string("text"), FieldKey::int(StaticInt::new(BigInt::from(42))), FieldKey::bool(true)];
 
     for key in non_symbol_keys {
         let row = store
@@ -1458,7 +1451,9 @@ fn legacy_record_metadata_fails_closed_for_non_symbol_keys_and_domains() {
             value_type,
         },
     ] {
-        let row = store.record_row_checked(Vec::new(), RecordRowTail::Anonymous(remainder)).expect("proper key/value types");
+        let row = store
+            .record_row_checked(Vec::new(), RecordRowTail::Anonymous(remainder))
+            .expect("proper key/value types");
         let record = store.intern_with_kind(TypeData::Record(row), KindId::TYPE);
         let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
         assert_eq!(exporter.export_type_form(record), Err(MetadataExportError::NonExportableRecordKeyDomain));
@@ -1499,16 +1494,10 @@ fn structural_member_presence_and_remainder_affect_fingerprints() {
 
     // Record Required vs Optional
     let row_req = store
-        .record_row_checked(
-            vec![RecordRowField::symbol_required("x", int_ty)],
-            RecordRowTail::Closed,
-        )
+        .record_row_checked(vec![RecordRowField::symbol_required("x", int_ty)], RecordRowTail::Closed)
         .unwrap();
     let row_opt = store
-        .record_row_checked(
-            vec![RecordRowField::symbol_optional("x", int_ty)],
-            RecordRowTail::Closed,
-        )
+        .record_row_checked(vec![RecordRowField::symbol_optional("x", int_ty)], RecordRowTail::Closed)
         .unwrap();
 
     let rec_req = store.intern_with_kind(
@@ -1532,10 +1521,7 @@ fn structural_member_presence_and_remainder_affect_fingerprints() {
 
     // Record Closed vs Anonymous Remainder
     let row_closed = store
-        .record_row_checked(
-            vec![RecordRowField::symbol_required("x", int_ty)],
-            RecordRowTail::Closed,
-        )
+        .record_row_checked(vec![RecordRowField::symbol_required("x", int_ty)], RecordRowTail::Closed)
         .unwrap();
     let row_anon = store
         .record_row_checked(

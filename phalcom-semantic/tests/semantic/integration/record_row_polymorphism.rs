@@ -61,7 +61,13 @@ class Probe {
     };
     let row = fixture.analysis.snapshot.store.record_row(*row_id);
     assert_eq!(row.tail, RecordRowTail::Closed);
-    assert_eq!(row.fields.iter().map(|field| field.key.as_symbol().expect("symbol row field")).collect::<Vec<_>>(), vec!["item", "name"]);
+    assert_eq!(
+        row.fields
+            .iter()
+            .map(|field| field.key.as_symbol().expect("symbol row field"))
+            .collect::<Vec<_>>(),
+        vec!["item", "name"]
+    );
     assert!(matches!(call.status, AnalysisStatus::Ready), "{call:#?}");
     fixture.assert_no_diagnostic(DiagnosticCode::GenericInferenceConflict);
 }
@@ -115,7 +121,13 @@ class Probe {
     };
     let row = fixture.analysis.snapshot.store.record_row(*row_id);
     assert_eq!(row.tail, RecordRowTail::Closed);
-    assert_eq!(row.fields.iter().map(|field| field.key.as_symbol().expect("symbol row field")).collect::<Vec<_>>(), vec!["item", "name"]);
+    assert_eq!(
+        row.fields
+            .iter()
+            .map(|field| field.key.as_symbol().expect("symbol row field"))
+            .collect::<Vec<_>>(),
+        vec!["item", "name"]
+    );
     assert_eq!(call.knowledge.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Assumed));
     assert!(matches!(call.status, AnalysisStatus::Ready), "{call:#?}");
 }
@@ -402,7 +414,10 @@ class Probe {
     assert_eq!(
         row.fields
             .iter()
-            .map(|field| (field.key.as_symbol().expect("symbol row field"), fixture.analysis.snapshot.store.format_type(field.ty)))
+            .map(|field| (
+                field.key.as_symbol().expect("symbol row field"),
+                fixture.analysis.snapshot.store.format_type(field.ty)
+            ))
             .collect::<Vec<_>>(),
         vec![("age", "Int".into()), ("id", "Int".into()), ("name", "String".into())]
     );
@@ -434,7 +449,10 @@ class Probe {
     assert_eq!(
         row.fields
             .iter()
-            .map(|field| (field.key.as_symbol().expect("symbol row field"), fixture.analysis.snapshot.store.format_type(field.ty)))
+            .map(|field| (
+                field.key.as_symbol().expect("symbol row field"),
+                fixture.analysis.snapshot.store.format_type(field.ty)
+            ))
             .collect::<Vec<_>>(),
         vec![("age", "Int".into()), ("name", "String".into())]
     );
@@ -553,7 +571,10 @@ class Probe {
         closed_row
             .fields
             .iter()
-            .map(|field| (field.key.as_symbol().expect("symbol row field"), fixture.analysis.snapshot.store.format_type(field.ty)))
+            .map(|field| (
+                field.key.as_symbol().expect("symbol row field"),
+                fixture.analysis.snapshot.store.format_type(field.ty)
+            ))
             .collect::<Vec<_>>(),
         vec![("age", "Int".into()), ("city", "String".into())]
     );
@@ -574,7 +595,10 @@ class Probe {
         rest_row
             .fields
             .iter()
-            .map(|field| (field.key.as_symbol().expect("symbol row field"), fixture.analysis.snapshot.store.format_type(field.ty)))
+            .map(|field| (
+                field.key.as_symbol().expect("symbol row field"),
+                fixture.analysis.snapshot.store.format_type(field.ty)
+            ))
             .collect::<Vec<_>>(),
         vec![("age", "Int".into())]
     );

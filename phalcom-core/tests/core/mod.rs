@@ -25,16 +25,16 @@ mod modules_linking;
 mod modules_package_info;
 #[path = "modules/parity.rs"]
 mod modules_parity;
+#[path = "modules/parse_package.rs"]
+mod modules_parse_package;
 #[path = "modules/project_reflection.rs"]
 mod modules_project_reflection;
 #[path = "modules/reflection.rs"]
 mod modules_reflection;
-#[path = "modules/universe.rs"]
-mod modules_universe;
 #[path = "modules/telogue_project.rs"]
 mod modules_telogue_project;
-#[path = "modules/parse_package.rs"]
-mod modules_parse_package;
+#[path = "modules/universe.rs"]
+mod modules_universe;
 #[path = "native/contracts.rs"]
 mod native_surface_contracts;
 #[path = "object_model/invariants.rs"]
@@ -60,14 +60,12 @@ mod compiler_product_optimization;
 mod compiler_static_const;
 #[path = "collections/contract.rs"]
 mod core_collections;
-#[path = "collections/record_field_keys.rs"]
-mod record_field_keys;
-#[path = "collections/pack.rs"]
-mod core_pack;
 #[path = "collections/outgoing_packs.rs"]
 mod core_outgoing_packs;
 #[path = "collections/outgoing_packs_completion.rs"]
 mod core_outgoing_packs_completion;
+#[path = "collections/pack.rs"]
+mod core_pack;
 #[path = "collections/symbol_selector.rs"]
 mod core_symbol_selector;
 #[path = "execution/binding_init.rs"]
@@ -100,6 +98,8 @@ mod observability_fiber_trace;
 mod observability_super_disassembly;
 #[path = "observability/traceback.rs"]
 mod observability_traceback;
+#[path = "collections/record_field_keys.rs"]
+mod record_field_keys;
 #[path = "repl/immutability.rs"]
 mod repl_immutability;
 #[path = "repl/session.rs"]

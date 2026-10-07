@@ -11,8 +11,8 @@ use super::parameter::{
 use super::row::RecordRowTail;
 use super::store::{CallableParameterType, CallableType, StaticArgument, TypeData, TypeStore};
 use super::type_lambda::{
-    ScopedCallableParameter, ScopedCallableType, ScopedLabeledTypePackElement, ScopedOpenRecord, ScopedPackProjectionLane, ScopedPackRemainder,
-    ScopedPackType, ScopedRecordField, ScopedRecordRow, ScopedRecordRowTail, ScopedRecordTail, ScopedTupleElement, ScopedTypeData, TypeLambdaProvenance,
+    ScopedCallableParameter, ScopedCallableType, ScopedLabeledTypePackElement, ScopedOpenRecord, ScopedPackProjectionLane, ScopedPackRemainder, ScopedPackType,
+    ScopedRecordField, ScopedRecordRow, ScopedRecordRowTail, ScopedRecordTail, ScopedTupleElement, ScopedTypeData, TypeLambdaProvenance,
 };
 use super::type_member::{
     IntrinsicTypeOperation, IntrinsicTypeOwner, ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberSelector, lookup_intrinsic_type_operation,
@@ -20,15 +20,14 @@ use super::type_member::{
 use super::variance::Variance;
 use crate::declarations::{DeclarationSemanticForm, DeclarationTypeTable, IntrinsicTypeApplication};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
-use crate::identity::{DeclarationId, DispatchSide, ModuleId};
-use crate::traits::{AssociatedTypeRequirementId, TraitRef};
-use phalcom_ast::ast::{
-    ExpansionMode, Expr, GenericConstraintSyntax, GenericParameterSyntax, KindSyntax, TypeAnnotation, TypeAnnotationExpr, VarianceSyntax,
-    WhereClauseSyntax,
-};
 use crate::field_key::FieldKey;
+use crate::identity::{DeclarationId, DispatchSide, ModuleId};
 use crate::scalar::StaticInt;
+use crate::traits::{AssociatedTypeRequirementId, TraitRef};
 use num_bigint::BigInt;
+use phalcom_ast::ast::{
+    ExpansionMode, Expr, GenericConstraintSyntax, GenericParameterSyntax, KindSyntax, TypeAnnotation, TypeAnnotationExpr, VarianceSyntax, WhereClauseSyntax,
+};
 use std::collections::BTreeMap;
 
 /// Lexical type-level binding domain. Record-row binders cannot be represented as value type forms.
@@ -1289,7 +1288,9 @@ fn lower_scoped_type_form(
                 scoped_origin,
                 IntrinsicTypeApplication::Pack,
                 VariadicApplicationDomain::Complete,
-            ) && arguments.iter().any(|argument| matches!(argument, phalcom_ast::ast::GenericArgumentSyntax::Remainder(_)))
+            ) && arguments
+                .iter()
+                .any(|argument| matches!(argument, phalcom_ast::ast::GenericArgumentSyntax::Remainder(_)))
             {
                 if arguments.len() != 1 {
                     diagnostics.push(SemanticDiagnostic::error_in(
@@ -1306,23 +1307,9 @@ fn lower_scoped_type_form(
                 let value = match &remainder.remainder {
                     phalcom_ast::ast::AnonymousRemainderSyntax::Unconstrained(_) => ScopedPackRemainder::Unconstrained,
                     phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, range } => {
-                        let constraint = scoped_ready_or_propagate!(lower_scoped_type_form(
-                            store,
-                            declarations,
-                            resolver,
-                            site,
-                            binders,
-                            constraint,
-                            diagnostics,
-                        ));
-                        scoped_ready_or_propagate!(require_scoped_proper(
-                            store,
-                            constraint,
-                            binders,
-                            current_module,
-                            *range,
-                            diagnostics,
-                        ));
+                        let constraint =
+                            scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, constraint, diagnostics,));
+                        scoped_ready_or_propagate!(require_scoped_proper(store, constraint, binders, current_module, *range, diagnostics,));
                         ScopedPackRemainder::Typed(constraint)
                     }
                 };
@@ -1430,9 +1417,7 @@ fn lower_scoped_type_form(
                                     RecordRowTail::Closed => ScopedRecordRowTail::Closed,
                                     RecordRowTail::Parameter(parameter) => ScopedRecordRowTail::FreeParameter(parameter),
                                     RecordRowTail::Projection(projection) => ScopedRecordRowTail::Projection(projection),
-                                    RecordRowTail::Anonymous(remainder) => {
-                                        ScopedRecordRowTail::Anonymous(remainder.map(|ty| intern_scoped_free(store, ty)))
-                                    }
+                                    RecordRowTail::Anonymous(remainder) => ScopedRecordRowTail::Anonymous(remainder.map(|ty| intern_scoped_free(store, ty))),
                                 };
                                 store.arena_mut().intern_scoped(ScopedTypeData::RecordRow(ScopedRecordRow { fields, tail }))
                             }
@@ -1824,11 +1809,7 @@ fn lower_scoped_type_form(
                 } else {
                     super::row::StructuralMemberPresence::Required
                 };
-                scoped_fields.push(ScopedRecordField {
-                    key,
-                    ty,
-                    presence,
-                });
+                scoped_fields.push(ScopedRecordField { key, ty, presence });
             }
             let scoped_fields = scoped_fields.into_boxed_slice();
             let Some(tail) = tail else {
@@ -2903,7 +2884,9 @@ pub fn resolve_type_form(
                 origin_ty,
                 IntrinsicTypeApplication::Pack,
                 VariadicApplicationDomain::Complete,
-            ) && arguments.iter().any(|argument| matches!(argument, phalcom_ast::ast::GenericArgumentSyntax::Remainder(_)))
+            ) && arguments
+                .iter()
+                .any(|argument| matches!(argument, phalcom_ast::ast::GenericArgumentSyntax::Remainder(_)))
             {
                 if arguments.len() != 1 {
                     diagnostics.push(SemanticDiagnostic::error_in(
@@ -3467,9 +3450,7 @@ pub fn resolve_type_form(
                 },
                 Some(phalcom_ast::ast::RecordRowTailSyntax::Anonymous(rem)) => match rem {
                     phalcom_ast::ast::AnonymousRecordRemainderSyntax::Unconstrained(_) => {
-                        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained {
-                            key_type: default_key_type,
-                        })
+                        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type: default_key_type })
                     }
                     phalcom_ast::ast::AnonymousRecordRemainderSyntax::TypedValue { value_type, range } => {
                         let ty = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, value_type, diagnostics));
@@ -3521,7 +3502,10 @@ pub fn resolve_type_form(
                             ));
                             return TypeFormResolution::Invalid(TypeFormationInvalid::ExpectedProperType { actual: store.kind_of(ty) });
                         }
-                        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed { key_type: key_ty, value_type: ty })
+                        RecordRowTail::Anonymous(crate::types::row::AnonymousRecordRemainder::Typed {
+                            key_type: key_ty,
+                            value_type: ty,
+                        })
                     }
                 },
             };

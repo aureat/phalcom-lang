@@ -1,8 +1,5 @@
 use phalcom_ast::{
-    ast::{
-        AnonymousRecordRemainderSyntax, Expr, Pattern, RecordKeySyntax, RecordRowTailSyntax, Statement,
-        TypeAnnotationExpr,
-    },
+    ast::{AnonymousRecordRemainderSyntax, Expr, Pattern, RecordKeySyntax, RecordRowTailSyntax, Statement, TypeAnnotationExpr},
     parse_source,
 };
 
@@ -12,7 +9,9 @@ fn parse_record_type_symbol_and_computed_keys() {
     let program = parse_source(src, 0).expect("record type with mixed keys should parse");
     let Statement::TypeDefinition(alias) = &program.statements[0] else { panic!() };
     let ann = alias.type_form_body().expect("type body");
-    let TypeAnnotationExpr::Record { fields, tail, .. } = &ann.expr else { panic!() };
+    let TypeAnnotationExpr::Record { fields, tail, .. } = &ann.expr else {
+        panic!()
+    };
     assert_eq!(fields.len(), 4);
     assert!(tail.is_none());
 
@@ -50,48 +49,97 @@ fn parse_record_type_tails() {
     // 1. Unconstrained: { ... }
     let p1 = parse_source("type R = { ... }\n", 0).unwrap();
     let Statement::TypeDefinition(a1) = &p1.statements[0] else { panic!() };
-    let TypeAnnotationExpr::Record { tail: Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::Unconstrained(_))), .. } = &a1.type_form_body().unwrap().expr else { panic!() };
+    let TypeAnnotationExpr::Record {
+        tail: Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::Unconstrained(_))),
+        ..
+    } = &a1.type_form_body().unwrap().expr
+    else {
+        panic!()
+    };
 
     // 2. TypedValue: { **: Value }
     let p2 = parse_source("type R = { **: Value }\n", 0).unwrap();
     let Statement::TypeDefinition(a2) = &p2.statements[0] else { panic!() };
-    let TypeAnnotationExpr::Record { tail: Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::TypedValue { value_type, .. })), .. } = &a2.type_form_body().unwrap().expr else { panic!() };
+    let TypeAnnotationExpr::Record {
+        tail: Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::TypedValue { value_type, .. })),
+        ..
+    } = &a2.type_form_body().unwrap().expr
+    else {
+        panic!()
+    };
     assert!(matches!(&value_type.expr, TypeAnnotationExpr::Reference(n) if n.root == "Value"));
 
     // 3. TypedKey: { **[String]: ... }
     let p3 = parse_source("type R = { **[String]: ... }\n", 0).unwrap();
     let Statement::TypeDefinition(a3) = &p3.statements[0] else { panic!() };
-    let TypeAnnotationExpr::Record { tail: Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::TypedKey { key_type, .. })), .. } = &a3.type_form_body().unwrap().expr else { panic!() };
+    let TypeAnnotationExpr::Record {
+        tail: Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::TypedKey { key_type, .. })),
+        ..
+    } = &a3.type_form_body().unwrap().expr
+    else {
+        panic!()
+    };
     assert!(matches!(&key_type.expr, TypeAnnotationExpr::Reference(n) if n.root == "String"));
 
     // 4. Typed: { **[String]: Handler }
     let p4 = parse_source("type R = { **[String]: Handler }\n", 0).unwrap();
     let Statement::TypeDefinition(a4) = &p4.statements[0] else { panic!() };
-    let TypeAnnotationExpr::Record { tail: Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::Typed { key_type, value_type, .. })), .. } = &a4.type_form_body().unwrap().expr else { panic!() };
+    let TypeAnnotationExpr::Record {
+        tail: Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::Typed { key_type, value_type, .. })),
+        ..
+    } = &a4.type_form_body().unwrap().expr
+    else {
+        panic!()
+    };
     assert!(matches!(&key_type.expr, TypeAnnotationExpr::Reference(n) if n.root == "String"));
     assert!(matches!(&value_type.expr, TypeAnnotationExpr::Reference(n) if n.root == "Handler"));
 
     // 5. Typed with Int / FieldKey: { **[Int]: Value }, { **[FieldKey]: Value }
     let p5 = parse_source("type R = { **[Int]: Value }\n", 0).unwrap();
     let Statement::TypeDefinition(a5) = &p5.statements[0] else { panic!() };
-    let TypeAnnotationExpr::Record { tail: Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::Typed { key_type, .. })), .. } = &a5.type_form_body().unwrap().expr else { panic!() };
+    let TypeAnnotationExpr::Record {
+        tail: Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::Typed { key_type, .. })),
+        ..
+    } = &a5.type_form_body().unwrap().expr
+    else {
+        panic!()
+    };
     assert!(matches!(&key_type.expr, TypeAnnotationExpr::Reference(n) if n.root == "Int"));
 
     let p5b = parse_source("type R = { **[FieldKey]: Value }\n", 0).unwrap();
     let Statement::TypeDefinition(a5b) = &p5b.statements[0] else { panic!() };
-    let TypeAnnotationExpr::Record { tail: Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::Typed { key_type, .. })), .. } = &a5b.type_form_body().unwrap().expr else { panic!() };
+    let TypeAnnotationExpr::Record {
+        tail: Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::Typed { key_type, .. })),
+        ..
+    } = &a5b.type_form_body().unwrap().expr
+    else {
+        panic!()
+    };
     assert!(matches!(&key_type.expr, TypeAnnotationExpr::Reference(n) if n.root == "FieldKey"));
 
     // 6. Captured: { **Tail }
     let p6 = parse_source("type R<Tail> = { **Tail }\n", 0).unwrap();
     let Statement::TypeDefinition(a6) = &p6.statements[0] else { panic!() };
-    let TypeAnnotationExpr::Record { tail: Some(RecordRowTailSyntax::Captured(cap)), .. } = &a6.type_form_body().unwrap().expr else { panic!() };
+    let TypeAnnotationExpr::Record {
+        tail: Some(RecordRowTailSyntax::Captured(cap)),
+        ..
+    } = &a6.type_form_body().unwrap().expr
+    else {
+        panic!()
+    };
     assert_eq!(cap.name, "Tail");
 
     // 7. Mixed fields and tail: { x: Int, **[String]: Value }
     let p7 = parse_source("type R = { x: Int, **[String]: Value }\n", 0).unwrap();
     let Statement::TypeDefinition(a7) = &p7.statements[0] else { panic!() };
-    let TypeAnnotationExpr::Record { fields, tail: Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::Typed { .. })), .. } = &a7.type_form_body().unwrap().expr else { panic!() };
+    let TypeAnnotationExpr::Record {
+        fields,
+        tail: Some(RecordRowTailSyntax::Anonymous(AnonymousRecordRemainderSyntax::Typed { .. })),
+        ..
+    } = &a7.type_form_body().unwrap().expr
+    else {
+        panic!()
+    };
     assert_eq!(fields.len(), 1);
 }
 
@@ -100,7 +148,9 @@ fn parse_record_patterns() {
     let src = "let { name, [\"mime\"]: mime, [42]: handler, [true]: enabled, **rest } = val\n";
     let program = parse_source(src, 0).expect("record pattern with mixed keys should parse");
     let Statement::Let(stmt) = &program.statements[0] else { panic!() };
-    let Pattern::Record { entries, rest: Some(rest), .. } = &stmt.pattern else { panic!() };
+    let Pattern::Record { entries, rest: Some(rest), .. } = &stmt.pattern else {
+        panic!()
+    };
     assert_eq!(entries.len(), 4);
 
     // Shorthand symbol entry

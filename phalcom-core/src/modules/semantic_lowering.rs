@@ -714,8 +714,7 @@ fn contains_exact_case_in_row(store: &phalcom_semantic::types::TypeStore, row_id
     row.fields.iter().any(|field| contains_exact_case(store, field.ty))
         || match row.tail {
             phalcom_semantic::types::RecordRowTail::Projection(projection) => contains_exact_case(store, projection),
-            phalcom_semantic::types::RecordRowTail::Closed
-            | phalcom_semantic::types::RecordRowTail::Parameter(_) => false,
+            phalcom_semantic::types::RecordRowTail::Closed | phalcom_semantic::types::RecordRowTail::Parameter(_) => false,
             phalcom_semantic::types::RecordRowTail::Anonymous(phalcom_semantic::types::row::AnonymousRecordRemainder::Unconstrained { key_type }) => {
                 contains_exact_case(store, key_type)
             }

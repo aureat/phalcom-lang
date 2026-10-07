@@ -23,14 +23,17 @@ pub fn pack_raw_labeled_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> 
 pub fn pack_raw_positional_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let view = expect_pack_view(vm, receiver)?;
     let index = expect_index(&args[0])?;
-    view.get_positional(index).ok_or_else(|| RuntimeError::Internal("Pack rawPositionalAt index is out of range".into()).into())
+    view.get_positional(index)
+        .ok_or_else(|| RuntimeError::Internal("Pack rawPositionalAt index is out of range".into()).into())
 }
 
 #[phalcom_native_macros::primitive(Pack, "rawLabelAt(_)", visibility = internal)]
 pub fn pack_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let view = expect_pack_view(vm, receiver)?;
     let index = expect_index(&args[0])?;
-    let sym = view.get_label(index).ok_or_else(|| RuntimeError::Internal("Pack rawLabelAt index is out of range".into()))?;
+    let sym = view
+        .get_label(index)
+        .ok_or_else(|| RuntimeError::Internal("Pack rawLabelAt index is out of range".into()))?;
     Ok(Value::symbol(sym))
 }
 
@@ -38,7 +41,8 @@ pub fn pack_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRes
 pub fn pack_raw_labeled_value_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let view = expect_pack_view(vm, receiver)?;
     let index = expect_index(&args[0])?;
-    view.get_labeled_value(index).ok_or_else(|| RuntimeError::Internal("Pack rawLabeledValueAt index is out of range".into()).into())
+    view.get_labeled_value(index)
+        .ok_or_else(|| RuntimeError::Internal("Pack rawLabeledValueAt index is out of range".into()).into())
 }
 
 #[phalcom_native_macros::primitive(Pack, "rawPositionalRestSlice", visibility = internal)]

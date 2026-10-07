@@ -193,7 +193,10 @@ fn test_record_subtyping_exact_closed_and_explicit_open() {
     let sup_typed_rem_row = store
         .record_row_checked(
             vec![RecordRowField::symbol_required("a", int_ty)],
-            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type: field_key_ty, value_type: str_ty }),
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+                key_type: field_key_ty,
+                value_type: str_ty,
+            }),
         )
         .unwrap();
     let sup_typed_rem = store.intern_with_kind(TypeData::Record(sup_typed_rem_row), KindId::TYPE);

@@ -175,7 +175,11 @@ fn resolve_pattern_with_mode(
                         let remainder_fields: Vec<crate::types::row::RecordRowField> = row
                             .fields
                             .iter()
-                            .filter(|f| !entries.iter().any(|e| e.label().is_some_and(|name| f.key == crate::field_key::FieldKey::symbol(name))))
+                            .filter(|f| {
+                                !entries
+                                    .iter()
+                                    .any(|e| e.label().is_some_and(|name| f.key == crate::field_key::FieldKey::symbol(name)))
+                            })
                             .cloned()
                             .collect();
                         let remainder_row_id = ctx.store.record_row_checked(remainder_fields, row.tail).unwrap_or(row_id);

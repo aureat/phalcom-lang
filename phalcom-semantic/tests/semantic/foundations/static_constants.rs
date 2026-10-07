@@ -95,13 +95,15 @@ fn test_field_signature_projects_a_cold_computed_record_key() {
         update.snapshot.store.record_row(*row).fields[0].key,
         phalcom_semantic::field_key::FieldKey::symbol("token")
     );
-    assert!(session
-        .db()
-        .index()
-        .dependencies_of(&phalcom_semantic::db::QueryKey::FieldSignature(field))
-        .is_some_and(|dependencies| dependencies.iter().any(|edge| {
-            edge.dependency == phalcom_semantic::db::QueryKey::StaticConstant(StaticConstantId::new(test_module(), "Key"))
-        })));
+    assert!(
+        session
+            .db()
+            .index()
+            .dependencies_of(&phalcom_semantic::db::QueryKey::FieldSignature(field))
+            .is_some_and(|dependencies| dependencies
+                .iter()
+                .any(|edge| { edge.dependency == phalcom_semantic::db::QueryKey::StaticConstant(StaticConstantId::new(test_module(), "Key")) }))
+    );
 }
 
 #[test]
@@ -123,14 +125,20 @@ fn test_field_signature_key_edit_matches_cold_surface_and_invalidates_exactly() 
     let TypeData::Record(row) = updated.snapshot.store.get(ty) else {
         panic!("field annotation must remain a Record type")
     };
-    assert_eq!(updated.snapshot.store.record_row(*row).fields[0].key, phalcom_semantic::field_key::FieldKey::symbol("second"));
+    assert_eq!(
+        updated.snapshot.store.record_row(*row).fields[0].key,
+        phalcom_semantic::field_key::FieldKey::symbol("second")
+    );
 
     let surface = updated.snapshot.dispatch.get_surface(&field.owner).expect("declaration surface");
     let surfaced = surface.get_field(DispatchSide::Instance, "_value").expect("surface field");
     let TypeData::Record(surface_row) = updated.snapshot.store.get(surfaced.ty().expect("surface field type")) else {
         panic!("surface field must consume the canonical computed-key signature")
     };
-    assert_eq!(updated.snapshot.store.record_row(*surface_row).fields[0].key, phalcom_semantic::field_key::FieldKey::symbol("second"));
+    assert_eq!(
+        updated.snapshot.store.record_row(*surface_row).fields[0].key,
+        phalcom_semantic::field_key::FieldKey::symbol("second")
+    );
 
     let cold = SemanticWorkspaceSession::new().update(single_module_input(module, source_b, 1));
     assert!(!cold.snapshot.has_errors(), "cold diagnostics: {:?}", cold.snapshot.diagnostics);
@@ -177,12 +185,18 @@ class Box {
             phalcom_semantic::field_key::FieldKey::symbol("token")
         );
     }
-    let dependencies = session.db().index().dependencies_of(&phalcom_semantic::db::QueryKey::CallableSignature(callable.clone()));
-    assert!(dependencies.is_some_and(|dependencies| {
-        dependencies.iter().any(|edge| {
-            edge.dependency == phalcom_semantic::db::QueryKey::StaticConstant(StaticConstantId::new(test_module(), "Key"))
-        })
-    }), "callable owner must depend on the selected constant: {dependencies:?}");
+    let dependencies = session
+        .db()
+        .index()
+        .dependencies_of(&phalcom_semantic::db::QueryKey::CallableSignature(callable.clone()));
+    assert!(
+        dependencies.is_some_and(|dependencies| {
+            dependencies
+                .iter()
+                .any(|edge| edge.dependency == phalcom_semantic::db::QueryKey::StaticConstant(StaticConstantId::new(test_module(), "Key")))
+        }),
+        "callable owner must depend on the selected constant: {dependencies:?}"
+    );
 
     let source_b = source_a.replace("#token", "#second");
     let updated = session.update(single_module_input(module.clone(), &source_b, 2));
@@ -251,9 +265,9 @@ fn test_transitive_constant_formation_cycle_retains_computed_key_cause() {
     let update = session.update(single_module_input(module.clone(), source, 1));
     let diagnostics = update.snapshot.diagnostics.get(&module).expect("cycle diagnostics");
     assert!(
-        diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == DiagnosticCode::StaticConstantCycle && diagnostic.message.contains("computed Record key")
-        }),
+        diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.code == DiagnosticCode::StaticConstantCycle && diagnostic.message.contains("computed Record key") }),
         "the transitive mixed cycle must retain its computed-key formation cause: {diagnostics:?}"
     );
     for name in ["A", "B", "C"] {
@@ -309,7 +323,12 @@ fn test_imported_constant_projects_a_computed_record_key_with_remote_identity() 
         .static_constant(&StaticConstantId::new(consumer.clone(), "Value"))
         .expect("consumer Value constant");
     assert!(value.is_successful());
-    assert!(value.checked.dependencies.contains(&SemanticDependency::StaticConstant(StaticConstantId::new(provider, "Key"))));
+    assert!(
+        value
+            .checked
+            .dependencies
+            .contains(&SemanticDependency::StaticConstant(StaticConstantId::new(provider, "Key")))
+    );
 }
 
 #[test]
@@ -362,7 +381,12 @@ fn test_same_result_key_source_edit_revalidates_its_annotation_consumer() {
         !Arc::ptr_eq(&value1, value2),
         "the annotation owner must revalidate a selected key even when its reduced FieldKey is unchanged"
     );
-    assert!(value2.checked.dependencies.contains(&SemanticDependency::StaticConstant(StaticConstantId::new(module.clone(), "Key"))));
+    assert!(
+        value2
+            .checked
+            .dependencies
+            .contains(&SemanticDependency::StaticConstant(StaticConstantId::new(module.clone(), "Key")))
+    );
 
     let mut cold_session = SemanticWorkspaceSession::new();
     let cold = cold_session.update(single_module_input(
@@ -379,8 +403,7 @@ fn test_same_result_key_source_edit_revalidates_its_annotation_consumer() {
     );
     let incremental_type = value2.checked.result_type.expect("incremental Value type");
     let cold_type = cold_value.checked.result_type.expect("cold Value type");
-    let (TypeData::Record(incremental_row), TypeData::Record(cold_row)) =
-        (update2.snapshot.store.get(incremental_type), cold.snapshot.store.get(cold_type))
+    let (TypeData::Record(incremental_row), TypeData::Record(cold_row)) = (update2.snapshot.store.get(incremental_type), cold.snapshot.store.get(cold_type))
     else {
         panic!("both Value annotations must form Record types")
     };

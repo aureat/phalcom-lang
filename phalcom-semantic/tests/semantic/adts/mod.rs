@@ -11,6 +11,6 @@ pub(crate) mod behavior;
 pub(crate) mod constructors;
 pub(crate) mod matching;
 pub(crate) mod native_core;
-pub(crate) mod support;
 pub(crate) mod structural_reflection;
+pub(crate) mod support;
 pub(crate) mod vertical_gadt;

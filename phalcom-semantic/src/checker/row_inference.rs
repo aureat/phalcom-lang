@@ -80,7 +80,7 @@ fn lift_canonical_row_failure(failure: RecordRowFailure<TypeId>) -> RecordRowFai
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
-        tail: match term.tail.clone() {
+                tail: match term.tail.clone() {
                     RecordRowTermTail::Closed => RecordRowTermTail::Closed,
                     RecordRowTermTail::Parameter(parameter) => RecordRowTermTail::Parameter(parameter),
                     RecordRowTermTail::Projection(projection) => RecordRowTermTail::Projection(projection),
@@ -129,9 +129,7 @@ fn lift_canonical_row_tail(tail: RecordRowTermTail<TypeId>) -> RecordRowTermTail
         RecordRowTermTail::<TypeId>::Parameter(parameter) => RecordRowTermTail::<InferenceTerm>::Parameter(parameter),
         RecordRowTermTail::<TypeId>::Projection(projection) => RecordRowTermTail::<InferenceTerm>::Projection(projection),
         RecordRowTermTail::<TypeId>::Var(variable) => RecordRowTermTail::<InferenceTerm>::Var(variable),
-        RecordRowTermTail::<TypeId>::Anonymous(remainder) => {
-            RecordRowTermTail::<InferenceTerm>::Anonymous(remainder.map(InferenceTerm::Canonical))
-        }
+        RecordRowTermTail::<TypeId>::Anonymous(remainder) => RecordRowTermTail::<InferenceTerm>::Anonymous(remainder.map(InferenceTerm::Canonical)),
     }
 }
 
@@ -475,10 +473,11 @@ fn materialize_query_row_term(
         RecordRowTermTail::Closed => RecordRowTail::Closed,
         RecordRowTermTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
         RecordRowTermTail::Projection(projection) => RecordRowTail::Projection(projection),
-        RecordRowTermTail::Anonymous(remainder) => RecordRowTail::Anonymous(
-            remainder
-                .try_map(|term| session.materialize(&term, store).map_err(|_| CombinedInferenceFailure::UnderconstrainedType(parameter)))?,
-        ),
+        RecordRowTermTail::Anonymous(remainder) => RecordRowTail::Anonymous(remainder.try_map(|term| {
+            session
+                .materialize(&term, store)
+                .map_err(|_| CombinedInferenceFailure::UnderconstrainedType(parameter))
+        })?),
         RecordRowTermTail::Var(variable) => {
             if !visiting.insert(variable) {
                 return Err(CombinedInferenceFailure::RowZonk {
@@ -1047,12 +1046,7 @@ impl GenericApplicationSession {
         proof
     }
 
-    pub fn solve_rows(
-        &mut self,
-        store: &TypeStore,
-        budget: &mut QueryBudget,
-        cancellation: &CancellationToken,
-    ) -> RecordRowSolveResult {
+    pub fn solve_rows(&mut self, store: &TypeStore, budget: &mut QueryBudget, cancellation: &CancellationToken) -> RecordRowSolveResult {
         self.rows.solve_many(&self.row_equations, store, budget, cancellation)
     }
 

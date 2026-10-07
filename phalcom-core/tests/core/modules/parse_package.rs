@@ -10,8 +10,8 @@ fn package_root() -> PathBuf {
 /// The library project compiles from its declared entry.
 #[test]
 fn parse_project_compiles_from_declared_entry() {
-    let compiled = ProgramCompiler::compile_entry_selection(EntrySelection::Project(package_root()))
-        .expect("parse and the modules reachable from parse.main compile");
+    let compiled =
+        ProgramCompiler::compile_entry_selection(EntrySelection::Project(package_root())).expect("parse and the modules reachable from parse.main compile");
     assert_eq!(compiled.entry.path.to_string(), "main");
     for path in [
         "core.source",
@@ -28,9 +28,10 @@ fn parse_project_compiles_from_declared_entry() {
         "run",
     ] {
         assert!(
-            compiled.modules.keys().any(|module| {
-                module.project == compiled.entry.project && module.path.to_string() == path
-            }),
+            compiled
+                .modules
+                .keys()
+                .any(|module| { module.project == compiled.entry.project && module.path.to_string() == path }),
             "reachable parse module {path} must be included in the compiled graph",
         );
     }
@@ -44,11 +45,7 @@ fn discover_fixtures(root: &Path, out: &mut Vec<PathBuf>) {
         let path = entry.path();
         if path.is_dir() {
             discover_fixtures(&path, out);
-        } else if path.extension().is_some_and(|ext| ext == "ph")
-            && path
-                .file_stem()
-                .is_some_and(|stem| stem.to_string_lossy().ends_with("-test"))
-        {
+        } else if path.extension().is_some_and(|ext| ext == "ph") && path.file_stem().is_some_and(|stem| stem.to_string_lossy().ends_with("-test")) {
             out.push(path);
         }
     }
@@ -64,11 +61,7 @@ fn parse_runtime_fixtures_pass() {
     let mut fixtures = Vec::new();
     discover_fixtures(&fixture_root, &mut fixtures);
     fixtures.sort();
-    assert!(
-        !fixtures.is_empty(),
-        "runtime fixture corpus must exist under {}",
-        fixture_root.display()
-    );
+    assert!(!fixtures.is_empty(), "runtime fixture corpus must exist under {}", fixture_root.display());
 
     let binary = PathBuf::from(env!("CARGO_BIN_EXE_phalcom"));
     let workers = fixtures.len().min(4);
@@ -110,11 +103,7 @@ fn parse_runtime_fixtures_pass() {
             fixtures.len(),
             failures.join("\n---\n")
         );
-        assert_eq!(
-            passed.len(),
-            fixtures.len(),
-            "every discovered fixture must report a PASS marker"
-        );
+        assert_eq!(passed.len(), fixtures.len(), "every discovered fixture must report a PASS marker");
     });
 }
 
@@ -134,10 +123,7 @@ fn run_fixture(binary: &Path, fixture: &Path) -> Result<String, String> {
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     if !output.status.success() || !stdout.lines().any(|line| line.starts_with("PASS ")) {
-        Err(format!(
-            "fixture {} failed\nstdout:\n{stdout}\nstderr:\n{stderr}",
-            fixture.display()
-        ))
+        Err(format!("fixture {} failed\nstdout:\n{stdout}\nstderr:\n{stderr}", fixture.display()))
     } else {
         Ok(fixture.display().to_string())
     }

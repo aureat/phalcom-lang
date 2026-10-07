@@ -28,8 +28,8 @@ pub mod effects;
 pub mod enum_requirements;
 pub mod enum_semantics;
 pub mod explain;
-pub mod field_key;
 pub mod export;
+pub mod field_key;
 pub mod generic_evidence;
 pub mod hierarchy_product;
 pub mod identity;
@@ -47,9 +47,9 @@ pub mod presentation;
 pub mod prover;
 pub mod reflection;
 pub mod resolver;
+pub mod scalar;
 pub mod scope;
 pub mod semantic_shard;
-pub mod scalar;
 pub mod session;
 pub mod signature;
 pub mod snapshot;
@@ -166,14 +166,14 @@ pub use static_definition::{
     StaticParameter, resolve_static_definition,
 };
 pub use static_domain::{StaticDomainResolution, StaticValueDomain, is_proper_type, resolve_static_domain, validate_proper_type};
-pub use structural::{
-    OrderedProductEntry, OrderedProductForm, OrderedProductOrigin, OrderedProductStructure, SpecializedVariantStructure, StructuralClassification,
-    StructuralClassifier, SumStructure, SumStructureError,
-};
 pub use static_intrinsic::{
     StaticIntrinsicOperation, StaticIntrinsicRegistry, StaticIntrinsicRegistryError, StaticOperationResolution, StaticOperationResolutionIndex,
 };
 pub use static_key::{StaticKeyProjection, StaticKeyProjectionError, exact_static_key_dependencies, project_checked_static_key};
+pub use structural::{
+    OrderedProductEntry, OrderedProductForm, OrderedProductOrigin, OrderedProductStructure, SpecializedVariantStructure, StructuralClassification,
+    StructuralClassifier, SumStructure, SumStructureError,
+};
 pub use termination::{
     RankingMeasure, TerminationBlockedReason, TerminationCounterevidence, TerminationEvidence, TerminationKnowledge, TerminationRequirement,
     analyze_callable_termination, check_cfg_acyclicity,
@@ -190,6 +190,8 @@ pub use traits::{
 pub use type_alias::{TypeAliasInfo, TypeAliasTable};
 pub use workspace_inputs::*;
 
+pub use field_key::{FieldKey, FieldKeyKind};
+pub use scalar::StaticInt;
 pub use source::ParsedSourceUnit;
 pub use source_index::{CallableSourceAttachment, ModuleSourceIndex, SourceAttachmentError, SourceIndexFingerprints, SourceSemanticIndex};
 pub use source_index::{CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, SourceCallableKind, SourceReceiverKind};
@@ -200,8 +202,6 @@ pub use source_index::{
 pub use source_index::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, OccurrenceView, SemanticOccurrence};
 pub use source_index::{SourceSite, SourceSiteKind};
 pub use stable_identity::*;
-pub use field_key::{FieldKey, FieldKeyKind};
-pub use scalar::StaticInt;
 pub use surface::{DeclarationSurface, MemberVisibility};
 pub use types::{
     Assignability, BlockReason, BudgetKind, BudgetReport, CallableParameterType, CallableType, CancellationToken, ConstraintSet, ContractAssumptionEligibility,

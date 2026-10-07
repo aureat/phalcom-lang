@@ -211,11 +211,7 @@ fn review_ast_selector_projection_is_canonical_for_all_variant_modes() {
 fn review_ast_02_record_and_map_patterns_keep_distinct_discriminants() {
     let range = SourceRange::new(0, 1);
     let record = Pattern::Record {
-        entries: vec![RecordPatternEntry::symbol(
-            "name",
-            Pattern::Wildcard { range },
-            range,
-        )],
+        entries: vec![RecordPatternEntry::symbol("name", Pattern::Wildcard { range }, range)],
         rest: None,
         range,
     };

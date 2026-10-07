@@ -2863,3 +2863,38 @@ Final focused evidence:
 - `capabilities::rest_contracts` (17 tests) passed.
 - Pre-existing `Future` and unsaturated-constructor failures remain classified as D.
 The [TEL-1 whole-lane walkthrough](LANG007.C4.P4/LANG007.C4.P4.R1/LANG007.C4.P4.R1-TEL-1-whole-lane-walkthrough.md) and [handoff](LANG007.C4.P4/LANG007.C4.P4.R1/LANG007.C4.P4.R1-TEL-1-whole-lane-handoff.md) own detailed verification evidence and takeover notes.
+
+### R1 TEL-1 audit remediation — 2026-10-07
+
+The post-implementation audit identified correctness gaps in mixed structural
+lanes, unavailable argument evidence, callable-contract consumers, generic
+override alpha-renaming, recovery semantics, and test coverage. The bounded
+remediation was applied inline on local `main` without a branch or worktree.
+
+Implemented corrections:
+
+1. Whole-lane `Equivalent` is now selected only for an unsolved inference
+   variable of the lane's required kind. Structured lanes use topology checks
+   and pointwise subtype constraints.
+2. Lane capture no longer fabricates `Unit` for unknown or dynamic arguments.
+   Missing evidence records a blocked/dynamic status and leaves the lane
+   unsolved. Invalid declaration recovery is represented by an explicit
+   invalid contract rather than `Unconstrained`.
+3. Body-pack derivation and lane projections propagate failure as unknown
+   facts instead of substituting `Unit`.
+4. Override alpha alignment, trait witness compatibility, trait-dispatch
+   requirement specialization, enum requirements, and native/source contract
+   comparison now consume `ParameterContract`/lane contracts.
+
+Focused evidence acquired after the remediation:
+
+- `RUSTFLAGS='' cargo check -p phalcom-semantic` — passed.
+- `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic capabilities::rest_contracts` — 20 passed.
+- `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic adts::requirements` — 3 passed.
+- `git diff --check` on remediation source/test files — passed.
+
+The repository-wide `cargo fmt --all -- --check` remains blocked by unrelated
+pre-existing formatting drift in other files. The audit's remaining broad
+incremental cold/warm, runtime source-order, unknown/dynamic, trait-witness,
+and full certification obligations are not claimed closed by this focused
+remediation. R1 and P4 remain `IN_PROGRESS / PARTIAL / UNVERIFIED`.

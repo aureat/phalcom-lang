@@ -827,12 +827,7 @@ impl<'vm> Compiler<'vm> {
                 for entry in entries {
                     let label = entry.label().unwrap_or("");
                     let key_sym = Value::symbol(self.vm.interner.intern(label));
-                    let child = self.emit_required_lookup_value(
-                        value_slot,
-                        key_sym,
-                        entry.range,
-                        format!("destructuring record missing field `{}`", label),
-                    )?;
+                    let child = self.emit_required_lookup_value(value_slot, key_sym, entry.range, format!("destructuring record missing field `{}`", label))?;
                     self.compile_pattern_bind_from_slot(&entry.pattern, child, mutable, as_global)?;
                 }
                 if let Some(rest_pattern) = rest {

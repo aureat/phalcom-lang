@@ -8,7 +8,7 @@ completion: PARTIAL
 verification: UNVERIFIED
 recorded_against_revision: 2d306c13da02fb3b85ee362498cf4c0280de3825
 recorded: 2026-10-06
-updated: 2026-10-06
+updated: 2026-10-07
 consolidated_branch: main
 ---
 
@@ -125,6 +125,22 @@ package-only repair scope.
   record's interim documentation walkthrough.
 - [`LANG007.C4.P4.R1-handoff.md`](LANG007.C4.P4.R1-handoff.md) — next-step
   continuation guidance.
+
+## TEL-1 audit remediation — 2026-10-07
+
+The whole-lane audit at `22cf7473` found four high-severity defects and
+additional compatibility, recovery, and test gaps. The semantic remediation
+ran inline on local `main` with no branch or worktree. It corrected structured
+lane matching, removed `Unit` fabrication from lane capture and body
+derivation, introduced explicit invalid rest contracts, and migrated the
+affected callable compatibility and specialization boundaries to
+`ParameterContract`.
+
+Added focused regressions cover mixed generic/concrete lanes, alpha-equivalent
+generic lane overrides, and contravariant concrete lane overrides. The focused
+rest-contract suite now passes 20 tests; enum requirement tests pass 3 tests;
+the semantic crate check passes. Broad audit obligations remain open, so this
+companion remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
 
 ## Local main consolidation — 2026-10-06
 
