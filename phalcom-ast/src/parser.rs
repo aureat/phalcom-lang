@@ -5597,7 +5597,7 @@ impl<'source> Parser<'source> {
             let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
             let local_range = (local_start..self.prev_end).into();
-            let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
+            let annotation = if self.eat(&Token::Colon) { Some(self.parse_parameter_annotation()?) } else { None };
             self.expect(&Token::RParen, &["\")\""])?;
             let param = ParameterDef {
                 name: local_name,
@@ -6026,7 +6026,7 @@ impl<'source> Parser<'source> {
             let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
             let local_range = (local_start..self.prev_end).into();
-            let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
+            let annotation = if self.eat(&Token::Colon) { Some(self.parse_parameter_annotation()?) } else { None };
             self.expect(&Token::RParen, &["\")\""])?;
             let param = ParameterDef {
                 name: local_name,
@@ -6179,7 +6179,7 @@ impl<'source> Parser<'source> {
             self.expect(&Token::Underscore, &["\"_\""])?;
             let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
-            let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
+            let annotation = if self.eat(&Token::Colon) { Some(self.parse_parameter_annotation()?) } else { None };
             self.expect(&Token::RParen, &["\")\""])?;
             let value = ParameterDef {
                 name: local_name,
@@ -6427,6 +6427,24 @@ impl<'source> Parser<'source> {
         Ok(self.extend_selector_name(name))
     }
 
+    fn parse_parameter_annotation(&mut self) -> ParserResult<ParameterAnnotationSyntax> {
+        if let Some(mode) = self.expansion_mode_at_cursor() {
+            let op_start = self.cur_start();
+            self.advance();
+            let operator_range = (op_start..self.prev_end).into();
+            let operand = self.parse_type_annotation()?;
+            let range = (op_start..self.prev_end).into();
+            Ok(ParameterAnnotationSyntax::RestLane(TypePackExpansionSyntax {
+                mode,
+                operator_range,
+                operand,
+                range,
+            }))
+        } else {
+            Ok(ParameterAnnotationSyntax::Type(self.parse_type_annotation()?))
+        }
+    }
+
     /// Parses a parenthesized parameter list. Declaration labels use the
     /// no-colon `external local` form (or just `external` when both names
     /// match). The parser preserves all three rest modes; compiler scope
@@ -6492,7 +6510,7 @@ impl<'source> Parser<'source> {
                         range: start..self.prev_end,
                     });
                 }
-                let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
+                let annotation = if self.eat(&Token::Colon) { Some(self.parse_parameter_annotation()?) } else { None };
                 let range: SourceRange = (start..self.prev_end).into();
                 match rest_mode {
                     RestMode::Positional if positional_rest || complete_rest => {
@@ -6537,7 +6555,7 @@ impl<'source> Parser<'source> {
                         range: start..self.prev_end,
                     });
                 }
-                let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
+                let annotation = if self.eat(&Token::Colon) { Some(self.parse_parameter_annotation()?) } else { None };
                 let range = (start..self.prev_end).into();
                 params.push(ParameterDef {
                     name,
@@ -6575,7 +6593,7 @@ impl<'source> Parser<'source> {
                             range: label_range.start..label_range.end,
                         });
                     }
-                    let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
+                    let annotation = if self.eat(&Token::Colon) { Some(self.parse_parameter_annotation()?) } else { None };
                     params.push(ParameterDef {
                         name: local_ident,
                         name_range,
@@ -6594,7 +6612,7 @@ impl<'source> Parser<'source> {
                 if !first_is_identifier {
                     return Err(self.error_here(strs(&["local parameter name after reserved label"])));
                 }
-                let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
+                let annotation = if self.eat(&Token::Colon) { Some(self.parse_parameter_annotation()?) } else { None };
                 any_labeled = true;
                 let label = Some(first_ident.clone());
                 if labels.insert(first_ident.clone(), label_range).is_some() {

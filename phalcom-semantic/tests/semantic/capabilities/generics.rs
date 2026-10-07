@@ -717,15 +717,15 @@ impl<*Ts> OrderedPredicate<*Ts> {{
     }
 }
 
-/// RED-CAPABILITY: generic rest calls currently leave Goals underconstrained.
-/// Keep the valid-source oracle so the missing call-site Pack inference is visible.
+/// LAW: generic rest calls with whole-lane parameter annotations (*goals: *Goals)
+/// infer exact empty and heterogeneous pack lanes.
 #[test]
 fn generic_pack_query_infers_empty_and_heterogeneous_goal_lanes() {
     use phalcom_semantic::types::store::TypeData;
     let f = Fixture::new(r#"
 data GoalQuery<*Goals> { goals: Pack<*Goals> }
 impl<*Goals> GoalQuery<*Goals> {
-  @class of(*goals: Pack<*Goals>) -> Self { GoalQuery { goals: goals } }
+  @class of(*goals: *Goals) -> Self { GoalQuery { goals: goals } }
 }
 class QueryProbe {
   @class run() {

@@ -32,3 +32,4 @@ mod time;
 mod traits;
 mod type_lambdas;
 mod variance;
+pub(crate) mod rest_contracts;

@@ -3009,3 +3009,33 @@ fn pack_type_unconstrained_remainders_are_retained_and_other_constructors_reject
     assert!(matches!(result, TypeFormResolution::Invalid(_)));
     assert!(diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsupported), "{diagnostics:?}");
 }
+
+#[test]
+fn rest_parameter_lane_projection_and_kind_enforcement() {
+    use crate::semantic::support::Fixture;
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    // 1. Explicit lane *P lowers to Lane(P)
+    let f1 = Fixture::new(r#"
+class C {
+    @class f<*P>(*args: *P) {}
+}
+"#);
+    f1.assert_no_error_diagnostics();
+
+    // 2. Bare *args: P where P: TypePack is rejected with KindExpectedType
+    let f2 = Fixture::new(r#"
+class C {
+    @class f<*P>(*args: P) {}
+}
+"#);
+    assert!(!f2.diagnostics(DiagnosticCode::KindExpectedType).is_empty(), "expected KindExpectedType diagnostic");
+
+    // 3. Concrete tuple lane *args: *(Int, String) projects positionals
+    let f3 = Fixture::new(r#"
+class C {
+    @class f(*args: *(Int, String)) {}
+}
+"#);
+    f3.assert_no_error_diagnostics();
+}

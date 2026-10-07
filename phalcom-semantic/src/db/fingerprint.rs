@@ -90,6 +90,30 @@ fn hash_rest_mode(rest: RestMode, hasher: &mut impl Hasher) {
     }
 }
 
+fn hash_parameter_contract(contract: &crate::signature::ParameterContract, hasher: &mut impl Hasher) {
+    match contract {
+        crate::signature::ParameterContract::Fixed(fact) => {
+            0u8.hash(hasher);
+            fact.hash(hasher);
+        }
+        crate::signature::ParameterContract::Rest { mode, contract } => {
+            1u8.hash(hasher);
+            hash_rest_mode(*mode, hasher);
+            match contract {
+                crate::signature::RestValueContract::Unconstrained => 0u8.hash(hasher),
+                crate::signature::RestValueContract::Element(fact) => {
+                    1u8.hash(hasher);
+                    fact.hash(hasher);
+                }
+                crate::signature::RestValueContract::Lane(lane_id) => {
+                    2u8.hash(hasher);
+                    lane_id.hash(hasher);
+                }
+            }
+        }
+    }
+}
+
 fn hash_source_region(source: &str, range: SourceRange, hasher: &mut impl Hasher) {
     hash_range(range, hasher);
     match source.get(range.start..range.end) {
@@ -125,7 +149,7 @@ fn hash_parameter_source(source: &str, parameter: &ParameterDef, hasher: &mut im
     parameter.name.hash(hasher);
     parameter.label.hash(hasher);
     hash_rest_mode(parameter.rest_mode, hasher);
-    hash_optional_source_region(source, parameter.annotation.as_ref().map(|annotation| annotation.range), hasher);
+    hash_optional_source_region(source, parameter.annotation.as_ref().map(|annotation| annotation.range()), hasher);
 }
 
 fn hash_member_attribute_presence(member: &ClassMember, hasher: &mut impl Hasher) {
@@ -534,6 +558,7 @@ fn hash_callable_semantic_signature(signature: &CallableSemanticSignature, inclu
         parameter.external_label.hash(hasher);
         hash_rest_mode(parameter.rest, hasher);
         parameter.declared_type.hash(hasher);
+        hash_parameter_contract(&parameter.contract, hasher);
         if include_source {
             match &parameter.source {
                 Some(source) => {

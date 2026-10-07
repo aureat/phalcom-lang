@@ -118,3 +118,48 @@ fn pack_from_packs_symbolic_bridge_and_concrete_normalization() {
 
     assert_eq!(subst_pack, direct_pack, "CV-10: normalized Pack matches direct Pack formation");
 }
+
+#[test]
+fn parameter_contract_derives_canonical_body_pack_types() {
+    use phalcom_ast::ast::RestMode;
+    use phalcom_semantic::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
+    use phalcom_semantic::signature::{ParameterContract, RestValueContract};
+    use phalcom_semantic::types::parameter::{GenericParameterMode, TypeParameterOwner, TypeTerm};
+
+    let mut store = TypeStore::new();
+    let int_ty = store.nominal_type(decl("Int"));
+    let elem_fact = DeclaredTypeFact::known(TypeTerm::Canonical(int_ty), DeclaredTypeBasis::DeclarationSemantics);
+
+    // *args: Int derives Pack with Typed(Int) positional remainder
+    let element_contract = ParameterContract::Rest {
+        mode: RestMode::Positional,
+        contract: RestValueContract::Element(elem_fact),
+    };
+    let body_ty = element_contract.derive_body_type(&mut store);
+    let TypeData::Pack(pack) = store.get(body_ty.canonical_type().unwrap()) else { panic!("expected Pack"); };
+    assert_eq!(pack.positional_remainder, AnonymousTupleRemainder::Typed(int_ty));
+    assert_eq!(pack.labeled_remainder, AnonymousTupleRemainder::None);
+
+    // *args: *P derives PackFromPacks(P, EmptyLabeled)
+    let owner = TypeParameterOwner::Declaration(decl("Test"));
+    let p_id = store.intern_type_parameter(TypeParameterData::new(owner, 0, "P", KindId::TYPE_PACK).with_mode(GenericParameterMode::PositionalPack));
+    let p_form = store.parameter_form(p_id);
+    let lane_contract = ParameterContract::Rest {
+        mode: RestMode::Positional,
+        contract: RestValueContract::Lane(p_form),
+    };
+    let lane_body_ty = lane_contract.derive_body_type(&mut store);
+    let TypeData::PackFromPacks { positionals, labeled } = store.get(lane_body_ty.canonical_type().unwrap()) else { panic!("expected PackFromPacks"); };
+    assert_eq!(*positionals, p_form);
+    let TypeData::LabeledTypePack(empty_labeled) = store.get(*labeled) else { panic!("expected empty labeled"); };
+    assert!(empty_labeled.is_empty());
+
+    // *args (unconstrained) derives Pack with Unconstrained positional remainder
+    let unconstrained_contract = ParameterContract::Rest {
+        mode: RestMode::Positional,
+        contract: RestValueContract::Unconstrained,
+    };
+    let unconstrained_body_ty = unconstrained_contract.derive_body_type(&mut store);
+    let TypeData::Pack(u_pack) = store.get(unconstrained_body_ty.canonical_type().unwrap()) else { panic!("expected Pack"); };
+    assert_eq!(u_pack.positional_remainder, AnonymousTupleRemainder::Unconstrained);
+}

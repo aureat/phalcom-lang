@@ -27,6 +27,19 @@ class Test {
     }
   }
 
+  /// Renders an outcome through a value renderer.
+  @class
+  showWith<T>(_ outcome: RunResult<T>, _ render: (T) -> String) -> String {
+    match outcome {
+      RunResult::Ok(value) => {
+        "ok:" + render.call(value)
+      }
+      RunResult::Err(error) => {
+        "err:" + error.describe
+      }
+    }
+  }
+
   /// Renders `actual` and asserts it equals `expected`, throwing with
   /// both renderings on mismatch.
   @class

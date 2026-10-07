@@ -74,17 +74,41 @@ pub(crate) fn validate_class_overrides(ctx: &mut CheckingContext<'_>, class_def:
                 .zip(&inherited.parameters)
                 .zip(candidate_semantic.parameters.iter())
                 .all(|((candidate, inherited), candidate_declaration)| {
-                    // A body-derived parameter fact is not a declaration-owned
-                    // override contract. Only a source/native declaration may
-                    // constrain callers through an inherited signature.
-                    if !candidate_declaration.declared_type.is_known() {
-                        return true;
+                    match (&candidate.contract, &inherited.contract) {
+                        (crate::dispatch::CallableParameterContract::Fixed(_), crate::dispatch::CallableParameterContract::Fixed(_)) => {
+                            if !candidate_declaration.declared_type.is_known() {
+                                return true;
+                            }
+                            let (Some(cand_ty), Some(inh_ty)) = (candidate.ty.ty(), inherited.ty.ty()) else {
+                                return true;
+                            };
+                            ctx.check_knowledge_against_type(&TypeKnowledge::established(inh_ty, EvidenceOrigin::CallableSignature), cand_ty)
+                                .is_proven()
+                        }
+                        (
+                            crate::dispatch::CallableParameterContract::Rest { mode: m1, contract: c },
+                            crate::dispatch::CallableParameterContract::Rest { mode: m2, contract: i },
+                        ) if m1 == m2 => match (c, i) {
+                            (crate::dispatch::RestValueContractKnowledge::Element(_), crate::dispatch::RestValueContractKnowledge::Element(_)) => {
+                                if !candidate_declaration.declared_type.is_known() {
+                                    return true;
+                                }
+                                let (Some(cand_ty), Some(inh_ty)) = (candidate.ty.ty(), inherited.ty.ty()) else {
+                                    return true;
+                                };
+                                ctx.check_knowledge_against_type(&TypeKnowledge::established(inh_ty, EvidenceOrigin::CallableSignature), cand_ty)
+                                    .is_proven()
+                            }
+                            (crate::dispatch::RestValueContractKnowledge::Lane(c_lane), crate::dispatch::RestValueContractKnowledge::Lane(i_lane)) => {
+                                c_lane == i_lane
+                            }
+                            (crate::dispatch::RestValueContractKnowledge::Unconstrained, crate::dispatch::RestValueContractKnowledge::Unconstrained) => {
+                                true
+                            }
+                            _ => false,
+                        },
+                        _ => false,
                     }
-                    let (Some(candidate), Some(inherited)) = (candidate.ty.ty(), inherited.ty.ty()) else {
-                        return true;
-                    };
-                    ctx.check_knowledge_against_type(&TypeKnowledge::established(inherited, EvidenceOrigin::CallableSignature), candidate)
-                        .is_proven()
                 });
         let returns_match = if !candidate_semantic.declared_return.is_known() {
             true
@@ -223,10 +247,11 @@ pub fn build_declared_class_surface(
         match member {
             ClassMember::Field(field) => {
                 let side = member_side(member);
+                let lowered_signature = super::declaration_signature::semantic_field_signature_for_member(ctx, &decl_id, member);
                 let signature = ctx
                     .resolve_field_signature(&decl_id, side, &field.name)
                     .cloned()
-                    .or_else(|| super::declaration_signature::semantic_field_signature_for_member(ctx, &decl_id, member));
+                    .or(lowered_signature);
                 let Some(signature) = signature else { continue };
                 surface.add_field_with_visibility(
                     signature.side,
@@ -237,10 +262,11 @@ pub fn build_declared_class_surface(
             }
             ClassMember::Method(_) | ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Index(_) => {
                 let Some(callable) = super::declaration_signature::callable_id_for_member(&decl_id, member) else { continue };
+                let lowered_signature = super::declaration_signature::semantic_signature_for_member(ctx, &decl_id, member);
                 let signature = ctx
                     .resolve_callable_signature(&callable)
                     .cloned()
-                    .or_else(|| super::declaration_signature::semantic_signature_for_member(ctx, &decl_id, member));
+                    .or(lowered_signature);
                 let Some(signature) = signature else { continue };
                 let side = signature.side;
                 let projection = super::declaration_signature::project_semantic_signature(&signature);

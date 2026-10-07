@@ -2000,9 +2000,10 @@ impl<'a> CheckingContext<'a> {
         fallback_range: SourceRange,
     ) -> BindingDeclarationResult {
         let range = parameter.source.as_ref().map_or(fallback_range, |source| source.range);
+        let body_type_fact = parameter.contract.derive_body_type(self.store);
         self.bind_callable_parameter_with_identity(
             parameter.local_name.to_string(),
-            parameter.declared_type.to_knowledge(),
+            body_type_fact.to_knowledge(),
             range,
             crate::checker::causal::CausalInvalidity::Clean,
             Some(parameter.id.clone()),
@@ -2553,6 +2554,27 @@ impl<'a> CheckingContext<'a> {
         };
         for parameter in &mut signature.parameters {
             parameter.ty = parameter.ty.map_type(|ty| specialize_type(self, ty));
+            parameter.contract = match &parameter.contract {
+                crate::dispatch::CallableParameterContract::Fixed(ty) => {
+                    crate::dispatch::CallableParameterContract::Fixed(ty.map_type(|ty| specialize_type(self, ty)))
+                }
+                crate::dispatch::CallableParameterContract::Rest { mode, contract } => {
+                    crate::dispatch::CallableParameterContract::Rest {
+                        mode: *mode,
+                        contract: match contract {
+                            crate::dispatch::RestValueContractKnowledge::Element(ty) => {
+                                crate::dispatch::RestValueContractKnowledge::Element(ty.map_type(|ty| specialize_type(self, ty)))
+                            }
+                            crate::dispatch::RestValueContractKnowledge::Lane(lane_id) => {
+                                crate::dispatch::RestValueContractKnowledge::Lane(specialize_type(self, *lane_id))
+                            }
+                            crate::dispatch::RestValueContractKnowledge::Unconstrained => {
+                                crate::dispatch::RestValueContractKnowledge::Unconstrained
+                            }
+                        },
+                    }
+                }
+            };
         }
         signature.return_type = signature.return_type.map_type(|ty| specialize_type(self, ty));
         if let Some(mut generics) = signature.generics.take() {
@@ -2578,12 +2600,19 @@ impl<'a> CheckingContext<'a> {
                 crate::types::parameter::TypeTerm::Canonical(ty) => self.store.contains_type_parameter(*ty, parameter),
                 crate::types::parameter::TypeTerm::SelfType(_) | crate::types::parameter::TypeTerm::Infer(_) => false,
             };
+            let parameter_contract_mentions = |contract: &crate::dispatch::CallableParameterContract, p| match contract {
+                crate::dispatch::CallableParameterContract::Fixed(ty) => ty.ty().is_some_and(|ty| self.store.contains_type_parameter(ty, p)),
+                crate::dispatch::CallableParameterContract::Rest { contract, .. } => match contract {
+                    crate::dispatch::RestValueContractKnowledge::Element(ty) => ty.ty().is_some_and(|ty| self.store.contains_type_parameter(ty, p)),
+                    crate::dispatch::RestValueContractKnowledge::Lane(lane_id) => self.store.contains_type_parameter(*lane_id, p),
+                    crate::dispatch::RestValueContractKnowledge::Unconstrained => false,
+                },
+            };
             let remains_in_signature = generics.parameters.iter().copied().any(|parameter| {
                 signature
                     .parameters
                     .iter()
-                    .filter_map(|parameter| parameter.ty.ty())
-                    .any(|ty| self.store.contains_type_parameter(ty, parameter))
+                    .any(|p| parameter_contract_mentions(&p.contract, parameter))
                     || signature.return_type.ty().is_some_and(|ty| self.store.contains_type_parameter(ty, parameter))
                     || generics.constraints.iter().any(|constraint| match constraint {
                         crate::types::parameter::GenericConstraint::Subtype { lower, upper }

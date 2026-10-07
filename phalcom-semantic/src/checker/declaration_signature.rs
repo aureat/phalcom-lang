@@ -7,14 +7,16 @@
 use super::context::CheckingContext;
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
-use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature};
+use crate::dispatch::{CallableParameter, CallableParameterContract, CallableSemanticKind, CallableSignature, RestValueContractKnowledge};
 use crate::identity::{CallableId, CallableOwnerId, CallableParameterId, DeclarationId, DispatchSide, FieldId};
-use crate::signature::{CallableParameterSemantic, CallableSemanticSignature, FieldSemanticSignature};
-use crate::types::annotation::{TypeFormationOutcome, TypeFormationSite, type_level_binding_for_parameter};
+use crate::signature::{CallableParameterSemantic, CallableSemanticSignature, FieldSemanticSignature, ParameterContract, RestValueContract};
+use crate::types::annotation::{TypeFormResolution, TypeFormationOutcome, TypeFormationSite, type_level_binding_for_parameter};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
+use crate::types::id::KindId;
 use crate::types::parameter::{TypeParameterOwner, TypeTerm};
 use phalcom_ast::ast::{
-    BehaviorMember, ClassMember, DelegatedAccessorDef, DelegatedAccessorKind, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef,
+    BehaviorMember, ClassMember, DelegatedAccessorDef, DelegatedAccessorKind, ExpansionMode, GetterDef, IndexMethodDef, MethodDef,
+    ParameterAnnotationSyntax, ParameterDef, RestMode, SetterDef,
 };
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
@@ -262,13 +264,124 @@ fn parameter_fact(
     site: &TypeFormationSite,
     missing: UnknownReason,
 ) -> CallableParameterSemantic {
-    let declared_type = annotation_fact(ctx, resolver, site, parameter.annotation.as_ref(), missing);
-    let mut semantic = CallableParameterSemantic::new(CallableParameterId::new(callable.clone(), index as u32), parameter.name.clone(), declared_type)
-        .with_rest(parameter.rest_mode)
-        .with_source(crate::diagnostic::SemanticSourceSpan::new(ctx.current_module.clone(), parameter.name_range));
+    let contract = if parameter.rest_mode == RestMode::None {
+        let declared = match &parameter.annotation {
+            Some(ParameterAnnotationSyntax::Type(ty)) => annotation_fact(ctx, resolver, site, Some(ty), missing),
+            Some(ParameterAnnotationSyntax::RestLane(lane)) => {
+                ctx.publish_diagnostics(vec![SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::AnnotationUnsupported,
+                    "rest lane annotation is only permitted on rest parameters",
+                    lane.range,
+                )]);
+                DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause)
+            }
+            None => DeclaredTypeFact::unknown(missing),
+        };
+        ParameterContract::Fixed(declared)
+    } else {
+        match &parameter.annotation {
+            None => ParameterContract::Rest {
+                mode: parameter.rest_mode,
+                contract: RestValueContract::Unconstrained,
+            },
+            Some(ParameterAnnotationSyntax::Type(ann)) => {
+                let mut diagnostics = Vec::new();
+                let form = crate::types::annotation::resolve_type_form(ctx.store, ctx.declarations, resolver, site, ann, &mut diagnostics);
+                let declared = match form {
+                    TypeFormResolution::Ready(ty) => {
+                        let kind = ctx.store.kind_of(ty);
+                        if kind != KindId::TYPE {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                ctx.current_module.clone(),
+                                DiagnosticCode::KindExpectedType,
+                                format!("rest element contract requires a proper Type; `{}` has domain {kind:?}", ann.origin_symbol_ref().map(|s| s.root.as_str()).unwrap_or("operand")),
+                                ann.range,
+                            ));
+                            DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause)
+                        } else {
+                            DeclaredTypeFact::known(TypeTerm::Canonical(ty), DeclaredTypeBasis::SourceAnnotation)
+                        }
+                    }
+                    _ => DeclaredTypeFact::unknown(missing),
+                };
+                ctx.publish_diagnostics(diagnostics);
+                ParameterContract::Rest {
+                    mode: parameter.rest_mode,
+                    contract: RestValueContract::Element(declared),
+                }
+            }
+            Some(ParameterAnnotationSyntax::RestLane(lane)) => {
+                let expansion_mode = match lane.mode {
+                    ExpansionMode::Positional => RestMode::Positional,
+                    ExpansionMode::Labeled => RestMode::Labeled,
+                    ExpansionMode::Complete => RestMode::Complete,
+                };
+                if expansion_mode != parameter.rest_mode {
+                    ctx.publish_diagnostics(vec![SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::AnnotationUnsupported,
+                        "rest parameter mode and lane annotation mode do not match",
+                        lane.range,
+                    )]);
+                    ParameterContract::Rest {
+                        mode: parameter.rest_mode,
+                        contract: RestValueContract::Unconstrained,
+                    }
+                } else {
+                    let mut diagnostics = Vec::new();
+                    let form = crate::types::annotation::resolve_type_form(ctx.store, ctx.declarations, resolver, site, &lane.operand, &mut diagnostics);
+                    let lane_id = match form {
+                        TypeFormResolution::Ready(operand_ty) => {
+                            let projected = match parameter.rest_mode {
+                                RestMode::Positional => ctx.store.project_positionals(operand_ty),
+                                RestMode::Labeled => ctx.store.project_labeled(operand_ty),
+                                RestMode::Complete => ctx.store.project_complete(operand_ty),
+                                RestMode::None => unreachable!(),
+                            };
+                            match projected {
+                                Ok(p) => Some(p),
+                                Err(err) => {
+                                    diagnostics.push(SemanticDiagnostic::error_in(
+                                        ctx.current_module.clone(),
+                                        DiagnosticCode::AnnotationUnsupported,
+                                        format!("failed to project {:?}: {err}", parameter.rest_mode),
+                                        lane.range,
+                                    ));
+                                    None
+                                }
+                            }
+                        }
+                        _ => None,
+                    };
+                    ctx.publish_diagnostics(diagnostics);
+                    match lane_id {
+                        Some(lane_ty) => ParameterContract::Rest {
+                            mode: parameter.rest_mode,
+                            contract: RestValueContract::Lane(lane_ty),
+                        },
+                        None => ParameterContract::Rest {
+                            mode: parameter.rest_mode,
+                            contract: RestValueContract::Unconstrained,
+                        },
+                    }
+                }
+            }
+        }
+    };
+
+    let mut semantic = CallableParameterSemantic::new(
+        CallableParameterId::new(callable.clone(), index as u32),
+        parameter.name.clone(),
+        contract.declared_type(),
+    )
+    .with_contract(contract)
+    .with_source(crate::diagnostic::SemanticSourceSpan::new(ctx.current_module.clone(), parameter.name_range));
+
     if let Some(label) = &parameter.label {
         semantic = semantic.with_label(label.clone());
     }
+
     semantic
 }
 
@@ -879,7 +992,19 @@ pub(crate) fn project_semantic_signature(signature: &CallableSemanticSignature) 
         .parameters
         .iter()
         .map(|parameter| {
-            let mut projected = CallableParameter::new(parameter.local_name.to_string(), parameter.declared_type.to_knowledge()).with_rest(parameter.rest);
+            let contract_knowledge = match &parameter.contract {
+                ParameterContract::Fixed(fact) => CallableParameterContract::Fixed(fact.to_knowledge()),
+                ParameterContract::Rest { mode, contract } => CallableParameterContract::Rest {
+                    mode: *mode,
+                    contract: match contract {
+                        RestValueContract::Unconstrained => RestValueContractKnowledge::Unconstrained,
+                        RestValueContract::Element(fact) => RestValueContractKnowledge::Element(fact.to_knowledge()),
+                        RestValueContract::Lane(lane_id) => RestValueContractKnowledge::Lane(*lane_id),
+                    },
+                },
+            };
+            let mut projected = CallableParameter::new(parameter.local_name.to_string(), parameter.declared_type.to_knowledge())
+                .with_contract(contract_knowledge);
             if let Some(label) = &parameter.external_label {
                 projected = projected.with_label(label.to_string());
             }

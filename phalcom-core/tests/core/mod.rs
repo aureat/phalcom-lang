@@ -33,6 +33,8 @@ mod modules_reflection;
 mod modules_universe;
 #[path = "modules/telogue_project.rs"]
 mod modules_telogue_project;
+#[path = "modules/parse_package.rs"]
+mod modules_parse_package;
 #[path = "native/contracts.rs"]
 mod native_surface_contracts;
 #[path = "object_model/invariants.rs"]

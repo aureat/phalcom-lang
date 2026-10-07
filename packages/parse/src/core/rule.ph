@@ -1,6 +1,7 @@
 from .cursor import Cursor
 from .error import ParseError
 from .pair import Pair
+from .parser import Parser
 from .result import ParseResult
 from .span import Span, Spanned
 
@@ -55,7 +56,7 @@ class Rule<S, T> {
   }
 
   /// Runs this rule at `cursor`.
-  run(_ cursor: Cursor<S>) -> ParseResult<S, T> {
+  parse(_ cursor: Cursor<S>) -> ParseResult<S, T> {
     _run.call(cursor)
   }
 
@@ -98,7 +99,7 @@ class Rule<S, T> {
   map<U>(_ transform: (T) -> U) -> Rule<S, U> {
     let inner = self
     return Rule.new |cursor| {
-      let step = inner.run(cursor)
+      let step = inner.parse(cursor)
       match step {
         ParseResult::Success(value, next) => {
           ParseResult<S, U>::Success(transform.call(value), next)
@@ -117,10 +118,10 @@ class Rule<S, T> {
     let inner = self
     let picker = NextPicker<S, T, U>.new(next)
     return Rule.new |cursor| {
-      let step = inner.run(cursor)
+      let step = inner.parse(cursor)
       match step {
         ParseResult::Success(value, rest) => {
-          let after: ParseResult<S, U> = picker.pick(value).run(rest)
+          let after: ParseResult<S, U> = picker.pick(value).parse(rest)
           match after {
             ParseResult::Success(result, tail) => {
               ParseResult<S, U>::Success(result, tail)
@@ -145,10 +146,10 @@ class Rule<S, T> {
   zip<U>(_ other: Rule<S, U>) -> Rule<S, Pair<T, U>> {
     let left = self
     return Rule.new |cursor| {
-      let first = left.run(cursor)
+      let first = left.parse(cursor)
       match first {
         ParseResult::Success(a, rest) => {
-          let second = other.run(rest)
+          let second = other.parse(rest)
           match second {
             ParseResult::Success(b, tail) => {
               ParseResult<S, Pair<T, U>>::Success(Pair<T, U>(first: a, second: b), tail)
@@ -186,7 +187,7 @@ class Rule<S, T> {
   orElse(_ other: Rule<S, T>) -> Rule<S, T> {
     let left = self
     return Rule.new |cursor| {
-      let first = left.run(cursor)
+      let first = left.parse(cursor)
       match first {
         ParseResult::Success(value, next) => {
           ParseResult<S, T>::Success(value, next)
@@ -195,7 +196,7 @@ class Rule<S, T> {
           if committed {
             ParseResult<S, T>::Failure(error, true)
           } else {
-            let second = other.run(cursor)
+            let second = other.parse(cursor)
             match second {
               ParseResult::Success(value, next) => {
                 ParseResult<S, T>::Success(value, next)
@@ -217,7 +218,7 @@ class Rule<S, T> {
   optional -> Rule<S, Option<T>> {
     let inner = self
     return Rule.new |cursor| {
-      let step = inner.run(cursor)
+      let step = inner.parse(cursor)
       match step {
         ParseResult::Success(value, next) => {
           ParseResult<S, Option<T>>::Success(Some(value), next)
@@ -244,7 +245,7 @@ class Rule<S, T> {
       let mut committedFailure: Option<ParseError> = None
       let mut done = false
       while not done {
-        let step = inner.run(current)
+        let step = inner.parse(current)
         match step {
           ParseResult::Success(value, next) => {
             if next.offset == current.offset {
@@ -277,7 +278,7 @@ class Rule<S, T> {
   many1 -> Rule<S, List<T>> {
     let inner = self
     return Rule.new |cursor| {
-      let first = inner.run(cursor)
+      let first = inner.parse(cursor)
       match first {
         ParseResult::Failure(error, committed) => {
           ParseResult<S, List<T>>::Failure(error, committed)
@@ -292,7 +293,7 @@ class Rule<S, T> {
           let mut committedFailure: Option<ParseError> = None
           let mut done = false
           while not done {
-            let step = inner.run(current)
+            let step = inner.parse(current)
             match step {
               ParseResult::Success(value2, next2) => {
                 if next2.offset == current.offset {
@@ -332,7 +333,7 @@ class Rule<S, T> {
       let mut failed = false
       let mut i = 0
       while i < count and not failed {
-        let step = inner.run(current)
+        let step = inner.parse(current)
         match step {
           ParseResult::Success(value, next) => {
             if next.offset == current.offset {
@@ -376,7 +377,7 @@ class Rule<S, T> {
   sepBy1<Sep>(_ sep: Rule<S, Sep>) -> Rule<S, List<T>> {
     let item = self
     return Rule.new |cursor| {
-      let first = item.run(cursor)
+      let first = item.parse(cursor)
       match first {
         ParseResult::Failure(error, committed) => {
           ParseResult<S, List<T>>::Failure(error, committed)
@@ -391,16 +392,16 @@ class Rule<S, T> {
           let mut committedFailure: Option<ParseError> = None
           let mut done = false
           while not done {
-            let sepStep = sep.run(current)
+            let sepStep = sep.parse(current)
             match sepStep {
               ParseResult::Failure(sepError, sepCommitted) => {
-                if sepCommitted {
-                  committedFailure = Some(sepError)
-                }
+                // A separator attempt is an optional trailer: whether it
+                // failed committed or not, the list ends here and the
+                // trailing separator is not consumed.
                 done = true
               }
               ParseResult::Success(_, afterSep) => {
-                let itemStep = item.run(afterSep)
+                let itemStep = item.parse(afterSep)
                 match itemStep {
                   ParseResult::Failure(itemError, itemCommitted) => {
                     if itemCommitted {
@@ -441,7 +442,7 @@ class Rule<S, T> {
   lookAhead -> Rule<S, T> {
     let inner = self
     return Rule.new |cursor| {
-      let step = inner.run(cursor)
+      let step = inner.parse(cursor)
       match step {
         ParseResult::Success(value, _) => {
           ParseResult<S, T>::Success(value, cursor)
@@ -459,7 +460,7 @@ class Rule<S, T> {
   /// longer identifier.
   notFollowedBy<U>(_ other: Rule<S, U>, _ boundary: String) -> Rule<S, Unit> {
     return Rule.new |cursor| {
-      let step = other.run(cursor)
+      let step = other.parse(cursor)
       match step {
         ParseResult::Success(_, _) => {
           ParseResult<S, Unit>::Failure(
@@ -478,7 +479,7 @@ class Rule<S, T> {
   attempt -> Rule<S, T> {
     let inner = self
     return Rule.new |cursor| {
-      let step = inner.run(cursor)
+      let step = inner.parse(cursor)
       match step {
         ParseResult::Success(value, next) => {
           ParseResult<S, T>::Success(value, next)
@@ -494,7 +495,7 @@ class Rule<S, T> {
   cut -> Rule<S, T> {
     let inner = self
     return Rule.new |cursor| {
-      let step = inner.run(cursor)
+      let step = inner.parse(cursor)
       match step {
         ParseResult::Success(value, next) => {
           ParseResult<S, T>::Success(value, next)
@@ -510,7 +511,7 @@ class Rule<S, T> {
   named(_ context: String) -> Rule<S, T> {
     let inner = self
     return Rule.new |cursor| {
-      let step = inner.run(cursor)
+      let step = inner.parse(cursor)
       match step {
         ParseResult::Success(value, next) => {
           ParseResult<S, T>::Success(value, next)
@@ -527,7 +528,7 @@ class Rule<S, T> {
   spanned -> Rule<S, Spanned<T>> {
     let inner = self
     return Rule.new |cursor| {
-      let step = inner.run(cursor)
+      let step = inner.parse(cursor)
       match step {
         ParseResult::Success(value, next) => {
           let span = Span(start: cursor.offset, end: next.offset)
@@ -545,7 +546,7 @@ class Rule<S, T> {
   chainLeft1(_ operator: Rule<S, (T, T) -> T>) -> Rule<S, T> {
     let operand = self
     return Rule.new |cursor| {
-      let first = operand.run(cursor)
+      let first = operand.parse(cursor)
       match first {
         ParseResult::Failure(error, committed) => {
           ParseResult<S, T>::Failure(error, committed)
@@ -556,16 +557,15 @@ class Rule<S, T> {
           let mut failure: Option<ParseError> = None
           let mut done = false
           while not done {
-            let opStep = operator.run(current)
+            let opStep = operator.parse(current)
             match opStep {
               ParseResult::Failure(opError, opCommitted) => {
-                if opCommitted {
-                  failure = Some(opError)
-                }
+                // An operator attempt is an optional trailer: the chain
+                // ends here regardless of its commitment.
                 done = true
               }
               ParseResult::Success(f, afterOp) => {
-                let rhsStep = operand.run(afterOp)
+                let rhsStep = operand.parse(afterOp)
                 match rhsStep {
                   ParseResult::Failure(rhsError, rhsCommitted) => {
                     if rhsCommitted or (afterOp.offset != current.offset) {
@@ -601,7 +601,7 @@ class Rule<S, T> {
   chainRight1(_ operator: Rule<S, (T, T) -> T>) -> Rule<S, T> {
     let operand = self
     return Rule.new |cursor| {
-      let first = operand.run(cursor)
+      let first = operand.parse(cursor)
       match first {
         ParseResult::Failure(error, committed) => {
           ParseResult<S, T>::Failure(error, committed)
@@ -617,19 +617,18 @@ class Rule<S, T> {
           let mut failure: Option<ParseError> = None
           let mut done = false
           while not done {
-            let opStep = operator.run(current)
+            let opStep = operator.parse(current)
             match opStep {
               ParseResult::Failure(opError, opCommitted) => {
-                if opCommitted {
-                  failure = Some(opError)
-                }
+                // An operator attempt is an optional trailer: the chain
+                // ends here regardless of its commitment.
                 done = true
               }
               ParseResult::Success(f, afterOp) => {
-                let rhsStep = operand.run(afterOp)
+                let rhsStep = operand.parse(afterOp)
                 match rhsStep {
                   ParseResult::Failure(rhsError, rhsCommitted) => {
-                    if rhsCommitted {
+                    if rhsCommitted or (afterOp.offset != current.offset) {
                       failure = Some(rhsError)
                     }
                     done = true
@@ -664,6 +663,10 @@ class Rule<S, T> {
       }
     }
   }
+}
+
+impl<S, T> Parser<S> for Rule<S, T> {
+  type Output = T
 }
 
 export Rule

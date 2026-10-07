@@ -3,8 +3,10 @@
 use super::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use super::diagnostic::SemanticSourceSpan;
 use super::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId, ModuleId};
-use super::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge};
+use super::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use super::types::parameter::{GenericSignature, TypeTerm};
+use crate::types::id::TypeId;
+use crate::types::store::{AnonymousTupleRemainder, TypeStore};
 use phalcom_ast::ast::RestMode;
 use phalcom_common::modifier::ImplementationKind;
 use phalcom_common::selector::Selector;
@@ -30,6 +32,106 @@ pub enum ReturnContractValidation {
     DynamicBoundary,
 }
 
+/// Single authoritative caller-facing contract for a callable parameter.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ParameterContract {
+    Fixed(DeclaredTypeFact),
+    Rest {
+        mode: RestMode,
+        contract: RestValueContract,
+    },
+}
+
+/// The value contract governing a rest parameter's lane or elements.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RestValueContract {
+    Unconstrained,
+    Element(DeclaredTypeFact),
+    Lane(TypeId),
+}
+
+impl ParameterContract {
+    pub fn rest_mode(&self) -> RestMode {
+        match self {
+            Self::Fixed(_) => RestMode::None,
+            Self::Rest { mode, .. } => *mode,
+        }
+    }
+
+    pub fn declared_type(&self) -> DeclaredTypeFact {
+        match self {
+            Self::Fixed(fact) => fact.clone(),
+            Self::Rest { contract: RestValueContract::Element(fact), .. } => fact.clone(),
+            Self::Rest { contract: RestValueContract::Unconstrained, .. } => {
+                DeclaredTypeFact::unknown(UnknownReason::UnannotatedDeclaration)
+            }
+            Self::Rest { contract: RestValueContract::Lane(_), .. } => {
+                DeclaredTypeFact::unknown(UnknownReason::NoTypeEvidence)
+            }
+        }
+    }
+
+    pub fn derive_body_type(&self, store: &mut TypeStore) -> DeclaredTypeFact {
+        match self {
+            Self::Fixed(fact) => fact.clone(),
+            Self::Rest { mode, contract } => match contract {
+                RestValueContract::Unconstrained => {
+                    let (pos_rem, lab_rem) = match mode {
+                        RestMode::Positional => (AnonymousTupleRemainder::Unconstrained, AnonymousTupleRemainder::None),
+                        RestMode::Labeled => (AnonymousTupleRemainder::None, AnonymousTupleRemainder::Unconstrained),
+                        RestMode::Complete => (AnonymousTupleRemainder::Unconstrained, AnonymousTupleRemainder::Unconstrained),
+                        RestMode::None => unreachable!(),
+                    };
+                    match store.open_pack(Box::default(), pos_rem, lab_rem) {
+                        Ok(ty) => DeclaredTypeFact::known(TypeTerm::Canonical(ty), DeclaredTypeBasis::DeclarationSemantics),
+                        Err(_) => DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause),
+                    }
+                }
+                RestValueContract::Element(fact) => {
+                    let elem_ty = fact.canonical_type().unwrap_or_else(|| store.unit());
+                    let (pos_rem, lab_rem) = match mode {
+                        RestMode::Positional => (AnonymousTupleRemainder::Typed(elem_ty), AnonymousTupleRemainder::None),
+                        RestMode::Labeled => (AnonymousTupleRemainder::None, AnonymousTupleRemainder::Typed(elem_ty)),
+                        RestMode::Complete => (AnonymousTupleRemainder::Typed(elem_ty), AnonymousTupleRemainder::Typed(elem_ty)),
+                        RestMode::None => unreachable!(),
+                    };
+                    match store.open_pack(Box::default(), pos_rem, lab_rem) {
+                        Ok(ty) => DeclaredTypeFact::known(TypeTerm::Canonical(ty), DeclaredTypeBasis::DeclarationSemantics),
+                        Err(_) => DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause),
+                    }
+                }
+                RestValueContract::Lane(lane_id) => {
+                    match mode {
+                        RestMode::Positional => {
+                            let empty_labeled = store.labeled_type_pack(Box::default()).unwrap_or_else(|_| store.unit());
+                            match store.pack_from_packs(*lane_id, empty_labeled) {
+                                Ok(ty) => DeclaredTypeFact::known(TypeTerm::Canonical(ty), DeclaredTypeBasis::DeclarationSemantics),
+                                Err(_) => DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause),
+                            }
+                        }
+                        RestMode::Labeled => {
+                            let empty_pos = store.type_pack(Box::default()).unwrap_or_else(|_| store.unit());
+                            match store.pack_from_packs(empty_pos, *lane_id) {
+                                Ok(ty) => DeclaredTypeFact::known(TypeTerm::Canonical(ty), DeclaredTypeBasis::DeclarationSemantics),
+                                Err(_) => DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause),
+                            }
+                        }
+                        RestMode::Complete => {
+                            let pos = store.project_positionals(*lane_id).unwrap_or_else(|_| store.unit());
+                            let lab = store.project_labeled(*lane_id).unwrap_or_else(|_| store.unit());
+                            match store.pack_from_packs(pos, lab) {
+                                Ok(ty) => DeclaredTypeFact::known(TypeTerm::Canonical(ty), DeclaredTypeBasis::DeclarationSemantics),
+                                Err(_) => DeclaredTypeFact::unknown(UnknownReason::SuppressedByInvalidCause),
+                            }
+                        }
+                        RestMode::None => unreachable!(),
+                    }
+                }
+            },
+        }
+    }
+}
+
 /// Canonical parameter specification for a callable signature.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallableParameterSemantic {
@@ -38,6 +140,7 @@ pub struct CallableParameterSemantic {
     pub external_label: Option<Box<str>>,
     pub rest: RestMode,
     pub declared_type: DeclaredTypeFact,
+    pub contract: ParameterContract,
     pub source: Option<SemanticSourceSpan>,
 }
 
@@ -48,6 +151,7 @@ impl CallableParameterSemantic {
             local_name: local_name.into(),
             external_label: None,
             rest: RestMode::None,
+            contract: ParameterContract::Fixed(declared_type.clone()),
             declared_type,
             source: None,
         }
@@ -57,6 +161,13 @@ impl CallableParameterSemantic {
         self.id.index
     }
 
+    pub fn with_contract(mut self, contract: ParameterContract) -> Self {
+        self.rest = contract.rest_mode();
+        self.declared_type = contract.declared_type();
+        self.contract = contract;
+        self
+    }
+
     pub fn with_label(mut self, label: impl Into<Box<str>>) -> Self {
         self.external_label = Some(label.into());
         self
@@ -64,6 +175,16 @@ impl CallableParameterSemantic {
 
     pub fn with_rest(mut self, rest: RestMode) -> Self {
         self.rest = rest;
+        if self.contract.rest_mode() != rest {
+            self.contract = if rest == RestMode::None {
+                ParameterContract::Fixed(self.declared_type.clone())
+            } else {
+                ParameterContract::Rest {
+                    mode: rest,
+                    contract: RestValueContract::Element(self.declared_type.clone()),
+                }
+            };
+        }
         self
     }
 

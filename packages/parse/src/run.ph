@@ -10,7 +10,7 @@ class Parse {
   @class
   run<S, T>(_ rule: Rule<S, T>, _ source: S) -> RunResult<T> {
     let cursor = Cursor.new(source, 0)
-    let step = rule.run(cursor)
+    let step = rule.parse(cursor)
     match step {
       ParseResult::Success(value, _) => {
         return RunResult<T>::Ok(value)
@@ -28,7 +28,7 @@ class Parse {
     where S |= Source
   {
     let cursor = Cursor.new(source, 0)
-    let step = rule.run(cursor)
+    let step = rule.parse(cursor)
     match step {
       ParseResult::Success(value, rest) => {
         if rest.atEnd {

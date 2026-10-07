@@ -2495,3 +2495,84 @@ fn c4_static_arguments_carrier() {
     };
     assert!(matches!(&arguments[0], GenericArgumentSyntax::Value(e) if matches!(&**e, Expr::Unary(_))));
 }
+
+#[test]
+fn rest_lane_annotations_parse_contextually_on_parameters() {
+    use phalcom_ast::ast::{ClassMember, ExpansionMode, ParameterAnnotationSyntax, RestMode, Statement};
+
+    let src = r#"class C {
+    @class f1<*P, **K>(*a: *P, **b: **K) {}
+    @class f2<***C>(***c: ***C) {}
+    @class f3(*d: Int) {}
+    @class f4<P>(*e: P) {}
+}
+"#;
+    let prog = parse_source(src, 0).expect("source should parse");
+    let Statement::Class(c) = &prog.statements[0] else { panic!("expected class"); };
+    let ClassMember::Method(m1) = &c.members[0] else { panic!("expected method"); };
+    let ClassMember::Method(m2) = &c.members[1] else { panic!("expected method"); };
+    let ClassMember::Method(m3) = &c.members[2] else { panic!("expected method"); };
+    let ClassMember::Method(m4) = &c.members[3] else { panic!("expected method"); };
+
+    assert_eq!(m1.params.len(), 2);
+    assert_eq!(m2.params.len(), 1);
+    assert_eq!(m3.params.len(), 1);
+    assert_eq!(m4.params.len(), 1);
+
+    // *a: *P
+    assert_eq!(m1.params[0].rest_mode, RestMode::Positional);
+    match &m1.params[0].annotation {
+        Some(ParameterAnnotationSyntax::RestLane(lane)) => {
+            assert_eq!(lane.mode, ExpansionMode::Positional);
+            assert_eq!(lane.operand.origin_symbol_ref().unwrap().root, "P");
+        }
+        other => panic!("expected RestLane, got {other:?}"),
+    }
+
+    // **b: **K
+    assert_eq!(m1.params[1].rest_mode, RestMode::Labeled);
+    match &m1.params[1].annotation {
+        Some(ParameterAnnotationSyntax::RestLane(lane)) => {
+            assert_eq!(lane.mode, ExpansionMode::Labeled);
+            assert_eq!(lane.operand.origin_symbol_ref().unwrap().root, "K");
+        }
+        other => panic!("expected RestLane, got {other:?}"),
+    }
+
+    // ***c: ***C
+    assert_eq!(m2.params[0].rest_mode, RestMode::Complete);
+    match &m2.params[0].annotation {
+        Some(ParameterAnnotationSyntax::RestLane(lane)) => {
+            assert_eq!(lane.mode, ExpansionMode::Complete);
+            assert_eq!(lane.operand.origin_symbol_ref().unwrap().root, "C");
+        }
+        other => panic!("expected RestLane, got {other:?}"),
+    }
+
+    // *d: Int (remains element type)
+    assert_eq!(m3.params[0].rest_mode, RestMode::Positional);
+    match &m3.params[0].annotation {
+        Some(ParameterAnnotationSyntax::Type(ty)) => {
+            assert_eq!(ty.origin_symbol_ref().unwrap().root, "Int");
+        }
+        other => panic!("expected Type, got {other:?}"),
+    }
+
+    // *e: P (remains plain type reference, not rewritten by parser)
+    assert_eq!(m4.params[0].rest_mode, RestMode::Positional);
+    match &m4.params[0].annotation {
+        Some(ParameterAnnotationSyntax::Type(ty)) => {
+            assert_eq!(ty.origin_symbol_ref().unwrap().root, "P");
+        }
+        other => panic!("expected Type, got {other:?}"),
+    }
+}
+
+#[test]
+fn general_type_positions_do_not_parse_bare_lane_expansions() {
+    let src1 = "class C { @class run() { let x: *P = 1 } }\n";
+    assert!(parse_source(src1, 0).is_err());
+
+    let src2 = "class C { @class f() -> *P {} }\n";
+    assert!(parse_source(src2, 0).is_err());
+}

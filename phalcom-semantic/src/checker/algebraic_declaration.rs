@@ -522,7 +522,7 @@ pub fn build_algebraic_semantics_with_static_products(
                         let local_name: Box<str> = param.name.clone().into_boxed_str();
                         let external_label: Option<Box<str>> = param.label.clone().map(String::into_boxed_str);
 
-                        let declared_type = if let Some(ref ann) = param.annotation {
+                        let declared_type = if let Some(ann) = param.type_annotation() {
                             let mut ann_diags = Vec::new();
                             let raw_knowledge = resolve_algebraic_payload_annotation(
                                 store,
@@ -813,7 +813,7 @@ pub fn build_associated_static_domain_declaration_with_static_products(
                         phalcom_ast::ast::CasePayloadSyntax::Singleton => {}
                         phalcom_ast::ast::CasePayloadSyntax::Tuple { parameters, .. } => {
                             for parameter in parameters {
-                                let Some(annotation) = parameter.annotation.as_ref() else {
+                                let Some(annotation) = parameter.type_annotation() else {
                                     valid_case = false;
                                     diagnostics.push(SemanticDiagnostic::error_in(
                                         module_id.clone(),

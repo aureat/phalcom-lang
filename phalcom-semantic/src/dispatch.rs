@@ -32,6 +32,41 @@ pub struct DispatchOwner {
 
 use phalcom_ast::ast::RestMode;
 
+/// Caller-facing parameter contract representation in dispatch signatures.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CallableParameterContract {
+    Fixed(TypeKnowledge),
+    Rest {
+        mode: RestMode,
+        contract: RestValueContractKnowledge,
+    },
+}
+
+/// The value contract governing a rest parameter's lane or elements in dispatch signatures.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RestValueContractKnowledge {
+    Unconstrained,
+    Element(TypeKnowledge),
+    Lane(TypeId),
+}
+
+impl CallableParameterContract {
+    pub fn rest_mode(&self) -> RestMode {
+        match self {
+            Self::Fixed(_) => RestMode::None,
+            Self::Rest { mode, .. } => *mode,
+        }
+    }
+
+    pub fn ty(&self) -> TypeKnowledge {
+        match self {
+            Self::Fixed(ty) => ty.clone(),
+            Self::Rest { contract: RestValueContractKnowledge::Element(ty), .. } => ty.clone(),
+            Self::Rest { .. } => TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
+        }
+    }
+}
+
 /// Parameter in a callable signature.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallableParameter {
@@ -39,6 +74,7 @@ pub struct CallableParameter {
     pub local_name: String,
     pub ty: TypeKnowledge,
     pub rest: RestMode,
+    pub contract: CallableParameterContract,
 }
 
 impl CallableParameter {
@@ -46,9 +82,17 @@ impl CallableParameter {
         Self {
             external_label: None,
             local_name: local_name.into(),
+            contract: CallableParameterContract::Fixed(ty.clone()),
             ty,
             rest: RestMode::None,
         }
+    }
+
+    pub fn with_contract(mut self, contract: CallableParameterContract) -> Self {
+        self.rest = contract.rest_mode();
+        self.ty = contract.ty();
+        self.contract = contract;
+        self
     }
 
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
@@ -58,6 +102,16 @@ impl CallableParameter {
 
     pub fn with_rest(mut self, rest: RestMode) -> Self {
         self.rest = rest;
+        if self.contract.rest_mode() != rest {
+            self.contract = if rest == RestMode::None {
+                CallableParameterContract::Fixed(self.ty.clone())
+            } else {
+                CallableParameterContract::Rest {
+                    mode: rest,
+                    contract: RestValueContractKnowledge::Element(self.ty.clone()),
+                }
+            };
+        }
         self
     }
 

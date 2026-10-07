@@ -1982,6 +1982,36 @@ pub struct FieldDef {
     pub range: SourceRange,
 }
 
+/// Parameter annotation syntax distinguishing ordinary element types from rest lane contracts.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParameterAnnotationSyntax {
+    Type(TypeAnnotation),
+    RestLane(TypePackExpansionSyntax),
+}
+
+impl ParameterAnnotationSyntax {
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Type(ty) => ty.range,
+            Self::RestLane(lane) => lane.range,
+        }
+    }
+
+    pub fn as_type(&self) -> Option<&TypeAnnotation> {
+        match self {
+            Self::Type(ty) => Some(ty),
+            Self::RestLane(_) => None,
+        }
+    }
+
+    pub fn as_rest_lane(&self) -> Option<&TypePackExpansionSyntax> {
+        match self {
+            Self::Type(_) => None,
+            Self::RestLane(lane) => Some(lane),
+        }
+    }
+}
+
 /// A single parameter in a method/constructor parameter list.
 ///
 /// An ordinary positional parameter is a bare identifier; a declaration label
@@ -2004,7 +2034,7 @@ pub struct ParameterDef {
     /// metadata without adding a second parser-side representation.
     pub rest_mode: RestMode,
     /// Explicit type annotation, if provided.
-    pub annotation: Option<TypeAnnotation>,
+    pub annotation: Option<ParameterAnnotationSyntax>,
     /// The parameter's source span.
     pub range: SourceRange,
 }
@@ -2012,6 +2042,14 @@ pub struct ParameterDef {
 impl ParameterDef {
     pub fn is_rest(&self) -> bool {
         self.rest_mode != RestMode::None
+    }
+
+    pub fn type_annotation(&self) -> Option<&TypeAnnotation> {
+        self.annotation.as_ref().and_then(|a| a.as_type())
+    }
+
+    pub fn rest_lane_annotation(&self) -> Option<&TypePackExpansionSyntax> {
+        self.annotation.as_ref().and_then(|a| a.as_rest_lane())
     }
 }
 

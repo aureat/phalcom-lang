@@ -480,6 +480,10 @@ pub enum ConstraintOrigin {
         argument: ExpressionId,
         parameter_index: u16,
     },
+    RestLane {
+        call: ExpressionId,
+        parameter_index: u16,
+    },
     ExpectedResult {
         expression: ExpressionId,
     },
@@ -888,6 +892,7 @@ impl InferenceSession {
             ConstraintOrigin::GenericWhere { .. } => InferenceConstraintRole::DeclarationRestriction,
             ConstraintOrigin::Explicit => InferenceConstraintRole::ExactSemanticSelection,
             ConstraintOrigin::Argument { .. }
+            | ConstraintOrigin::RestLane { .. }
             | ConstraintOrigin::DataExpansionArgument { .. }
             | ConstraintOrigin::BlockParameter { .. }
             | ConstraintOrigin::BlockResult { .. }

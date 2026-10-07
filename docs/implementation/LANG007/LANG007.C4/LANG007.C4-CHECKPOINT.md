@@ -2766,7 +2766,7 @@ verification.
 |---|---|---|---|---|---|
 | R1 A1 shared match equality authority | `09ac903b` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Inherit shared refinement; continue A2 |
 | R1 TEL-1 original declared-entry project compile | `c2d72fed` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Preserve passing graph gate |
-| R1 TEL-1 expanded generic-Pack correctness | `c2d72fed` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Fix positive GoalQuery rest-call inference; classify additional failures |
+| R1 TEL-1 expanded generic-Pack correctness | HEAD | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Whole-lane rest inference (*args: *P) and parameter contracts certified |
 
 A1 consumes canonical equivalence components and typed projection results via
 `GenericEvidenceEnvironment::refine_type`; `apply_ambient_equalities` is absent.
@@ -2842,3 +2842,24 @@ own reproduction details and takeover interfaces. Broad semantic, core,
 workspace, lint, release, and runtime certification remain unrun. R1 and P4 stay
 `IN_PROGRESS / PARTIAL / UNVERIFIED`; next R1 work is I1 absence-invalidation
 certification. P4's primary corrective completion plan remains authoritative.
+
+
+### R1 TEL-1 whole-lane rest parameter inference — 2026-10-07
+
+TEL-1 expanded generic-Pack correctness is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` on main.
+The positive `GoalQuery.of(*goals: *Goals)` rest-call inference was resolved per `packs-correction.md` by:
+1. Introducing contextual AST rest-lane annotations (`*args: *P`, `**args: **P`, `***args: ***P`) without permitting bare expansion in general type positions.
+2. Introducing canonical single-authority `ParameterContract` (`Fixed` vs `Rest { mode, contract: Unconstrained | Element | Lane }`) with derived body Pack types.
+3. Lowering parameter contracts using existing lane projections (`store.project_positionals/labeled/complete`), diagnosing bare type packs in element positions with `KindExpectedType`, and preserving external labels.
+4. Binding callable body parameters using canonical derived Pack types.
+5. Introducing `ConstraintOrigin::RestLane` and whole-lane equivalence unification without a TypePack subtype lattice.
+6. Performing single-pass source-order argument checking in `call.rs` for both generic and non-generic calls, supporting empty/populated lane captures, and applying pointwise conformance for concrete lanes.
+7. Correcting `types/specialization.rs` class-side receiver projection so `TypeData::ClassObject` provides parameter forms to specialize inherent impl member signatures.
+8. Fingerprinting `ParameterContract` in `db/fingerprint.rs` and enforcing contract compatibility in override checks (`declaration.rs`).
+
+Final focused evidence:
+- `parser rest_lane_annotations` passed.
+- `generic_pack_query_infers_empty_and_heterogeneous_goal_lanes` passed (`empty` infers `TypePack[]`, `mixed` infers `TypePack[Int, String]`).
+- `capabilities::rest_contracts` (17 tests) passed.
+- Pre-existing `Future` and unsaturated-constructor failures remain classified as D.
+The [TEL-1 whole-lane walkthrough](LANG007.C4.P4/LANG007.C4.P4.R1/LANG007.C4.P4.R1-TEL-1-whole-lane-walkthrough.md) and [handoff](LANG007.C4.P4/LANG007.C4.P4.R1/LANG007.C4.P4.R1-TEL-1-whole-lane-handoff.md) own detailed verification evidence and takeover notes.

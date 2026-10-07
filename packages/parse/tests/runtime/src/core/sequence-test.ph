@@ -1,8 +1,6 @@
 // test: core-sequence
 // map, zip, then, before over TextSource.
 import parse_tests.support.test as Testing
-from parse.core.pair import Pair
-from parse.core.result import RunResult
 from parse.run import Parse
 from parse.source.text_source import TextSource
 from parse.text import Text
@@ -14,18 +12,12 @@ Testing.Test.expectEqual(
   "ok:7"
 )
 
-let pair = digitValue.zip(digitValue)
-let paired: RunResult<Pair<Int, Int>> = Parse.run(pair, TextSource.new("73"))
+let pair = digitValue.zip(digitValue).map |both| { "\(both.first)/\(both.second)" }
 
-match paired {
-  RunResult::Ok(value) => {
-    Testing.Test.expect(value.first == 7, "zip keeps the left value")
-    Testing.Test.expect(value.second == 3, "zip keeps the right value")
-  }
-  RunResult::Err(error) => {
-    throw Error.new("zip should succeed: " + error.describe)
-  }
-}
+Testing.Test.expectEqual(
+  Testing.Test.show(Parse.run(pair, TextSource.new("73"))),
+  "ok:7/3"
+)
 
 Testing.Test.expectEqual(
   Testing.Test.show(Parse.run(Text.char("-").then(digitValue), TextSource.new("-5"))),

@@ -2006,3 +2006,41 @@ fn pack_map_distinct_constructors_remain_residual_after_subject_selection() {
     assert!(matches!(session.solve(&mut store, &MapTypeHierarchy::new()), InferenceOutcome::Underconstrained(_)));
     assert_eq!(session.residual_obligations().len(), 1, "different maps require normalization, not subject congruence");
 }
+
+#[test]
+fn whole_type_pack_variable_unifies_with_empty_and_concrete_lanes() {
+    let mut store = TypeStore::new();
+    let int_ty = store.nominal_type(test_decl("Int"));
+    let str_ty = store.nominal_type(test_decl("String"));
+    let hier = MapTypeHierarchy::new();
+
+    // 1. Unify with empty lane TypePack([])
+    let mut session = InferenceSession::new();
+    let var_p = session.fresh_variable(KindId::TYPE_PACK);
+    let empty_pack = store.type_pack(Box::default()).unwrap();
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(var_p), InferenceTerm::Canonical(empty_pack)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    let outcome = session.solve(&mut store, &hier);
+    assert!(outcome.is_solved());
+    if let InferenceOutcome::Solved(solution) = outcome {
+        assert_eq!(session.solved_type_for(&solution, var_p), Some(empty_pack));
+    }
+
+    // 2. Unify with heterogeneous lane TypePack([Int, String])
+    let mut session2 = InferenceSession::new();
+    let var_p2 = session2.fresh_variable(KindId::TYPE_PACK);
+    let concrete_p = store.type_pack(vec![int_ty, str_ty].into_boxed_slice()).unwrap();
+    session2.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(var_p2), InferenceTerm::Canonical(concrete_p)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    let outcome2 = session2.solve(&mut store, &hier);
+    assert!(outcome2.is_solved());
+    if let InferenceOutcome::Solved(solution2) = outcome2 {
+        assert_eq!(session2.solved_type_for(&solution2, var_p2), Some(concrete_p));
+    }
+}

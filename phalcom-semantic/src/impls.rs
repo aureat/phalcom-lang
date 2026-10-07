@@ -287,6 +287,16 @@ pub(crate) fn specialize_witness_signature(
     };
     for parameter in &mut signature.parameters {
         materialize_fact(store, &mut parameter.declared_type);
+        match &mut parameter.contract {
+            crate::signature::ParameterContract::Fixed(fact) => materialize_fact(store, fact),
+            crate::signature::ParameterContract::Rest { contract, .. } => match contract {
+                crate::signature::RestValueContract::Element(fact) => materialize_fact(store, fact),
+                crate::signature::RestValueContract::Lane(lane_id) => {
+                    *lane_id = crate::types::environment::TypeView::new(*lane_id, environment.clone()).materialize(store);
+                }
+                crate::signature::RestValueContract::Unconstrained => {}
+            },
+        }
     }
     materialize_fact(store, &mut signature.declared_return);
     if let Some(inferred) = &mut signature.inferred_return {
@@ -3924,6 +3934,20 @@ fn specialize_signature_instance_self(
     };
     for parameter in &mut signature.parameters {
         specialize(store, &mut parameter.declared_type);
+        match &mut parameter.contract {
+            crate::signature::ParameterContract::Fixed(fact) => specialize(store, fact),
+            crate::signature::ParameterContract::Rest { contract, .. } => match contract {
+                crate::signature::RestValueContract::Element(fact) => specialize(store, fact),
+                crate::signature::RestValueContract::Lane(lane_id) => {
+                    let term = crate::types::parameter::TypeTerm::Canonical(*lane_id);
+                    let specialized = crate::types::substitution::specialize_self_type_term(store, declarations, source_target_head, &term);
+                    if let crate::types::parameter::TypeTerm::Canonical(ty) = specialized {
+                        *lane_id = ty;
+                    }
+                }
+                crate::signature::RestValueContract::Unconstrained => {}
+            },
+        }
     }
     specialize(store, &mut signature.declared_return);
     if let Some(inferred) = &mut signature.inferred_return {
@@ -5425,7 +5449,8 @@ pub fn resolve_inherent_impl_target(
             if is_covering_bijection {
                 for (i, arg_ty) in arguments.iter().enumerate() {
                     let decl_param = decl_params[i];
-                    if let Some(impl_parameter) = direct_impl_parameter_in_static_argument(ctx.store, *arg_ty, impl_id)
+                    let direct = direct_impl_parameter_in_static_argument(ctx.store, *arg_ty, impl_id);
+                    if let Some(impl_parameter) = direct
                         && seen_impl_params.insert(impl_parameter)
                     {
                         let declaration_parameter = ctx.store.type_parameter(decl_param);
@@ -5489,6 +5514,26 @@ pub fn apply_covering_to_signature(store: &mut TypeStore, subst: &TypeSubstituti
             let new_ty = subst.apply(store, ty);
             param.declared_type.state = DeclaredTypeState::Known(TypeTerm::Canonical(new_ty));
         }
+        match &mut param.contract {
+            crate::signature::ParameterContract::Fixed(fact) => {
+                if let DeclaredTypeState::Known(TypeTerm::Canonical(ty)) = fact.state {
+                    let new_ty = subst.apply(store, ty);
+                    fact.state = DeclaredTypeState::Known(TypeTerm::Canonical(new_ty));
+                }
+            }
+            crate::signature::ParameterContract::Rest { contract, .. } => match contract {
+                crate::signature::RestValueContract::Element(fact) => {
+                    if let DeclaredTypeState::Known(TypeTerm::Canonical(ty)) = fact.state {
+                        let new_ty = subst.apply(store, ty);
+                        fact.state = DeclaredTypeState::Known(TypeTerm::Canonical(new_ty));
+                    }
+                }
+                crate::signature::RestValueContract::Lane(lane_id) => {
+                    *lane_id = subst.apply(store, *lane_id);
+                }
+                crate::signature::RestValueContract::Unconstrained => {}
+            },
+        }
         new_params.push(param);
     }
     signature.parameters = new_params.into_boxed_slice();
@@ -5544,6 +5589,26 @@ pub(crate) fn apply_covering_instantiation_to_signature(
         if let DeclaredTypeState::Known(TypeTerm::Canonical(ty)) = parameter.declared_type.state {
             let materialized = materialize_type(store, ty, instantiation, RowMaterializationMode::PreserveUnboundStableTail)?;
             parameter.declared_type.state = DeclaredTypeState::Known(TypeTerm::Canonical(materialized));
+        }
+        match &mut parameter.contract {
+            crate::signature::ParameterContract::Fixed(fact) => {
+                if let DeclaredTypeState::Known(TypeTerm::Canonical(ty)) = fact.state {
+                    let materialized = materialize_type(store, ty, instantiation, RowMaterializationMode::PreserveUnboundStableTail)?;
+                    fact.state = DeclaredTypeState::Known(TypeTerm::Canonical(materialized));
+                }
+            }
+            crate::signature::ParameterContract::Rest { contract, .. } => match contract {
+                crate::signature::RestValueContract::Element(fact) => {
+                    if let DeclaredTypeState::Known(TypeTerm::Canonical(ty)) = fact.state {
+                        let materialized = materialize_type(store, ty, instantiation, RowMaterializationMode::PreserveUnboundStableTail)?;
+                        fact.state = DeclaredTypeState::Known(TypeTerm::Canonical(materialized));
+                    }
+                }
+                crate::signature::RestValueContract::Lane(lane_id) => {
+                    *lane_id = materialize_type(store, *lane_id, instantiation, RowMaterializationMode::PreserveUnboundStableTail)?;
+                }
+                crate::signature::RestValueContract::Unconstrained => {}
+            },
         }
         parameters.push(parameter);
     }

@@ -205,9 +205,7 @@ impl TypeReferenceTargetCollector<'_> {
                         ClassMember::Method(method) => {
                             let method_bound = self.generic_parameters(&class_bound, &method.generic_parameters);
                             for parameter in &method.params {
-                                if let Some(annotation) = &parameter.annotation {
-                                    self.annotation(annotation, &method_bound);
-                                }
+                                self.parameter_annotation(parameter, &method_bound);
                             }
                             if let Some(annotation) = &method.return_annotation {
                                 self.annotation(annotation, &method_bound);
@@ -220,9 +218,7 @@ impl TypeReferenceTargetCollector<'_> {
                             }
                         }
                         ClassMember::Setter(setter) => {
-                            if let Some(annotation) = &setter.param.annotation {
-                                self.annotation(annotation, &class_bound);
-                            }
+                            self.parameter_annotation(&setter.param, &class_bound);
                             if let Some(annotation) = &setter.return_annotation {
                                 self.annotation(annotation, &class_bound);
                             }
@@ -235,14 +231,10 @@ impl TypeReferenceTargetCollector<'_> {
                         ClassMember::Index(index) => {
                             let index_bound = self.generic_parameters(&class_bound, &index.generic_parameters);
                             for parameter in &index.params {
-                                if let Some(annotation) = &parameter.annotation {
-                                    self.annotation(annotation, &index_bound);
-                                }
+                                self.parameter_annotation(parameter, &index_bound);
                             }
-                            if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor
-                                && let Some(annotation) = &value.annotation
-                            {
-                                self.annotation(annotation, &index_bound);
+                            if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor {
+                                self.parameter_annotation(value, &index_bound);
                             }
                             if let Some(annotation) = &index.return_annotation {
                                 self.annotation(annotation, &index_bound);
@@ -340,9 +332,7 @@ impl TypeReferenceTargetCollector<'_> {
                         phalcom_ast::ast::BehaviorMember::Method(method) => {
                             let method_bound = self.generic_parameters(&impl_bound, &method.generic_parameters);
                             for parameter in &method.params {
-                                if let Some(annotation) = &parameter.annotation {
-                                    self.annotation(annotation, &method_bound);
-                                }
+                                self.parameter_annotation(parameter, &method_bound);
                             }
                             if let Some(annotation) = &method.return_annotation {
                                 self.annotation(annotation, &method_bound);
@@ -358,9 +348,7 @@ impl TypeReferenceTargetCollector<'_> {
                         }
                         phalcom_ast::ast::BehaviorMember::Setter(setter) => {
                             let setter_bound = self.generic_parameters(&impl_bound, &setter.generic_parameters);
-                            if let Some(annotation) = &setter.param.annotation {
-                                self.annotation(annotation, &setter_bound);
-                            }
+                            self.parameter_annotation(&setter.param, &setter_bound);
                             if let Some(annotation) = &setter.return_annotation {
                                 self.annotation(annotation, &setter_bound);
                             }
@@ -369,14 +357,10 @@ impl TypeReferenceTargetCollector<'_> {
                         phalcom_ast::ast::BehaviorMember::Index(index) => {
                             let index_bound = self.generic_parameters(&impl_bound, &index.generic_parameters);
                             for parameter in &index.params {
-                                if let Some(annotation) = &parameter.annotation {
-                                    self.annotation(annotation, &index_bound);
-                                }
+                                self.parameter_annotation(parameter, &index_bound);
                             }
-                            if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor
-                                && let Some(annotation) = &value.annotation
-                            {
-                                self.annotation(annotation, &index_bound);
+                            if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor {
+                                self.parameter_annotation(value, &index_bound);
                             }
                             if let Some(annotation) = &index.return_annotation {
                                 self.annotation(annotation, &index_bound);
@@ -429,9 +413,7 @@ impl TypeReferenceTargetCollector<'_> {
                 phalcom_ast::ast::BehaviorMember::Method(method) => {
                     let member_bound = self.generic_parameters(bound, &method.generic_parameters);
                     for parameter in &method.params {
-                        if let Some(annotation) = &parameter.annotation {
-                            self.annotation(annotation, &member_bound);
-                        }
+                        self.parameter_annotation(parameter, &member_bound);
                     }
                     if let Some(annotation) = &method.return_annotation {
                         self.annotation(annotation, &member_bound);
@@ -447,9 +429,7 @@ impl TypeReferenceTargetCollector<'_> {
                 }
                 phalcom_ast::ast::BehaviorMember::Setter(setter) => {
                     let member_bound = self.generic_parameters(bound, &setter.generic_parameters);
-                    if let Some(annotation) = &setter.param.annotation {
-                        self.annotation(annotation, &member_bound);
-                    }
+                    self.parameter_annotation(&setter.param, &member_bound);
                     if let Some(annotation) = &setter.return_annotation {
                         self.annotation(annotation, &member_bound);
                     }
@@ -458,14 +438,10 @@ impl TypeReferenceTargetCollector<'_> {
                 phalcom_ast::ast::BehaviorMember::Index(index) => {
                     let member_bound = self.generic_parameters(bound, &index.generic_parameters);
                     for parameter in &index.params {
-                        if let Some(annotation) = &parameter.annotation {
-                            self.annotation(annotation, &member_bound);
-                        }
+                        self.parameter_annotation(parameter, &member_bound);
                     }
-                    if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor
-                        && let Some(annotation) = &value.annotation
-                    {
-                        self.annotation(annotation, &member_bound);
+                    if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor {
+                        self.parameter_annotation(value, &member_bound);
                     }
                     if let Some(annotation) = &index.return_annotation {
                         self.annotation(annotation, &member_bound);
@@ -486,9 +462,7 @@ impl TypeReferenceTargetCollector<'_> {
             match &variant.payload {
                 phalcom_ast::ast::CasePayloadSyntax::Tuple { parameters, .. } => {
                     for parameter in parameters {
-                        if let Some(annotation) = &parameter.annotation {
-                            self.annotation(annotation, &variant_bound);
-                        }
+                        self.parameter_annotation(parameter, &variant_bound);
                     }
                 }
                 phalcom_ast::ast::CasePayloadSyntax::Record { components, .. } => {
@@ -501,6 +475,14 @@ impl TypeReferenceTargetCollector<'_> {
             if let Some(annotation) = &variant.result_annotation {
                 self.annotation(annotation, &variant_bound);
             }
+        }
+    }
+
+    fn parameter_annotation(&mut self, parameter: &phalcom_ast::ast::ParameterDef, bound: &BoundTypeParameters) {
+        if let Some(annotation) = parameter.type_annotation() {
+            self.annotation(annotation, bound);
+        } else if let Some(lane) = parameter.rest_lane_annotation() {
+            self.annotation(&lane.operand, bound);
         }
     }
 
@@ -1743,8 +1725,10 @@ impl SourceScopeBuilder<'_> {
         let scope = self.new_scope(parent, body_range);
         let mut parameter_sites = BTreeMap::new();
         for (index, parameter) in parameters.iter().enumerate() {
-            if let Some(annotation) = &parameter.annotation {
+            if let Some(annotation) = parameter.type_annotation() {
                 self.visit_annotation_projection_targets(annotation);
+            } else if let Some(lane) = parameter.rest_lane_annotation() {
+                self.visit_annotation_projection_targets(&lane.operand);
             }
             let site = self.declare_with_annotation(
                 scope,

@@ -8146,8 +8146,10 @@ fn collect_associated_projection_targets_from_behavior(
     match member {
         phalcom_ast::ast::BehaviorMember::Method(method) => {
             for parameter in &method.params {
-                if let Some(annotation) = &parameter.annotation {
+                if let Some(annotation) = parameter.type_annotation() {
                     collect_associated_projection_targets(annotation, module, surface, targets);
+                } else if let Some(lane) = parameter.rest_lane_annotation() {
+                    collect_associated_projection_targets(&lane.operand, module, surface, targets);
                 }
             }
             if let Some(annotation) = &method.return_annotation {
@@ -8160,8 +8162,10 @@ fn collect_associated_projection_targets_from_behavior(
             }
         }
         phalcom_ast::ast::BehaviorMember::Setter(setter) => {
-            if let Some(annotation) = &setter.param.annotation {
+            if let Some(annotation) = setter.param.type_annotation() {
                 collect_associated_projection_targets(annotation, module, surface, targets);
+            } else if let Some(lane) = setter.param.rest_lane_annotation() {
+                collect_associated_projection_targets(&lane.operand, module, surface, targets);
             }
             if let Some(annotation) = &setter.return_annotation {
                 collect_associated_projection_targets(annotation, module, surface, targets);
@@ -8169,14 +8173,18 @@ fn collect_associated_projection_targets_from_behavior(
         }
         phalcom_ast::ast::BehaviorMember::Index(index) => {
             for parameter in &index.params {
-                if let Some(annotation) = &parameter.annotation {
+                if let Some(annotation) = parameter.type_annotation() {
                     collect_associated_projection_targets(annotation, module, surface, targets);
+                } else if let Some(lane) = parameter.rest_lane_annotation() {
+                    collect_associated_projection_targets(&lane.operand, module, surface, targets);
                 }
             }
-            if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor
-                && let Some(annotation) = &value.annotation
-            {
-                collect_associated_projection_targets(annotation, module, surface, targets);
+            if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor {
+                if let Some(annotation) = value.type_annotation() {
+                    collect_associated_projection_targets(annotation, module, surface, targets);
+                } else if let Some(lane) = value.rest_lane_annotation() {
+                    collect_associated_projection_targets(&lane.operand, module, surface, targets);
+                }
             }
             if let Some(annotation) = &index.return_annotation {
                 collect_associated_projection_targets(annotation, module, surface, targets);
@@ -8450,7 +8458,7 @@ fn static_case_payload_annotations<'a>(definition: &'a phalcom_ast::ast::Algebra
             match &case.payload {
                 phalcom_ast::ast::CasePayloadSyntax::Singleton => Some(Vec::new()),
                 phalcom_ast::ast::CasePayloadSyntax::Tuple { parameters, .. } => {
-                    Some(parameters.iter().map(|parameter| parameter.annotation.as_ref()).collect::<Option<Vec<_>>>()?)
+                    Some(parameters.iter().map(|parameter| parameter.type_annotation()).collect::<Option<Vec<_>>>()?)
                 }
                 phalcom_ast::ast::CasePayloadSyntax::Record { components, .. } => Some(components.iter().map(|component| &component.annotation).collect()),
             }
@@ -9718,8 +9726,10 @@ fn callable_type_annotations(member: &phalcom_ast::ast::ClassMember) -> Vec<&pha
         annotations: &mut Vec<&'a phalcom_ast::ast::TypeAnnotation>,
         parameter: &'a phalcom_ast::ast::ParameterDef,
     ) {
-        if let Some(annotation) = parameter.annotation.as_ref() {
+        if let Some(annotation) = parameter.type_annotation() {
             annotations.push(annotation);
+        } else if let Some(lane) = parameter.rest_lane_annotation() {
+            annotations.push(&lane.operand);
         }
     }
 

@@ -112,7 +112,7 @@ pub fn specialize_receiver_to_owner<C: SpecializationControl>(
     // owner-relative projector symbolic parameter forms so template
     // signatures can still be specialized and later inference can saturate
     // them.  Ordinary applied receivers already arrive with concrete args.
-    if current_args.is_empty() && matches!(store.get(receiver), TypeData::Nominal { .. }) {
+    if current_args.is_empty() && matches!(store.get(receiver), TypeData::Nominal { .. } | TypeData::ClassObject { .. }) {
         let mut index = 0;
         while let Some(parameter) = store.find_type_parameter_id(&super::parameter::TypeParameterOwner::Declaration(receiver_owner.clone()), index) {
             current_args.push(StaticArgument::Term(store.parameter_form(parameter)));
