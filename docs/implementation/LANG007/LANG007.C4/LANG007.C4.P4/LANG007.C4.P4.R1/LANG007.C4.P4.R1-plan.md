@@ -157,11 +157,15 @@ overall; A1 focused completion is not V1 certification.
 
 [`stdlib-random-math.md`](stdlib-random-math.md) is an adjacent design and
 implementation-guidance artifact authored on branch `stdlib-random-math` at
-`3369adf1`. It is outside the R1 issue register and does not change R1's
-`IN_PROGRESS / PARTIAL / UNVERIFIED` state, P4's active corrective plan, or the
-shared C4 next action. No math or random implementation, test evidence, or
-specification ratification is claimed. The current documentation task's
-walkthrough and auditor handoff are linked below:
+`3369adf1`. The initial math implementation was subsequently committed as
+`3ab77b6e` and pushed to the same branch. It is outside the R1 issue register
+and does not change R1's `IN_PROGRESS / PARTIAL / UNVERIFIED` state, P4's active
+corrective plan, or the shared C4 next action. The math slice remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`; the last recorded focused discriminator
+fails on module-qualified constant getter dispatch. No random implementation
+or M1 acceptance is claimed. The task walkthrough, implementation continuation,
+and auditor handoff are linked below:
 
 - [`stdlib-random-math walkthrough`](stdlib-random-math-walkthrough.md)
 - [`stdlib-random-math handoff`](stdlib-random-math-handoff.md)
+- [`stdlib-random-math implementation handoff`](stdlib-random-math-implementation-handoff.md)

@@ -6,7 +6,8 @@ completion: PARTIAL
 verification: UNVERIFIED
 recorded: 2026-10-07
 branch: stdlib-random-math
-implementation_commit: 3369adf1
+guidance_commit: 3369adf1
+implementation_commit: 3ab77b6e
 ---
 
 # stdlib `math` and `random` guidance — walkthrough
@@ -34,9 +35,9 @@ were run because this change contains documentation only. No stdlib code was
 implemented, no specification was ratified, and no runtime or semantic behavior
 was verified. The guide remains proposed, unverified implementation guidance.
 
-This artifact is adjacent to `LANG007.C4.P4.R1`, not a numbered plan in the C4
-checkpoint and not part of P4's FieldKey acceptance objective. The C4, P4, and
-R1 completion and verification states remain unchanged.
+This guidance artifact is adjacent to `LANG007.C4.P4.R1`, not a numbered plan
+in the C4 checkpoint and not part of P4's FieldKey acceptance objective. The
+C4, P4, and R1 completion and verification states remain unchanged.
 
 ## Captured issues
 
@@ -47,3 +48,16 @@ associated-type dispatch or data-method lowering may block source fixtures.
 The guide also lists possible standard-library gaps and architecture risks for
 auditor verification; those are hypotheses, not confirmed implementation
 defects.
+
+## Subsequent math implementation delivery — 2026-10-07
+
+The initial `universe.math` implementation was staged from the separate math
+worktree, committed as `3ab77b6e`, and pushed to `origin/stdlib-random-math`.
+It adds source-authored integer helpers, native binary64 math methods,
+constants, module exports, and an initial cross-module static-constant
+materialization path with regressions. The implementation is partial and
+unverified. The last recorded focused test still fails when module-qualified
+constant getter dispatch attempts to call a Float. See the
+[`stdlib-random-math-implementation-handoff`](stdlib-random-math-implementation-handoff.md)
+for the complete scope and continuation gates. No random APIs have been
+implemented.

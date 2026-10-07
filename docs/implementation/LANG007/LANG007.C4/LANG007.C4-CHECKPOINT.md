@@ -2903,11 +2903,14 @@ remediation. R1 and P4 remain `IN_PROGRESS / PARTIAL / UNVERIFIED`.
 ### Adjacent standard-library guidance — 2026-10-07
 
 The [stdlib `math` and `random` implementation guidance](LANG007.C4.P4/LANG007.C4.P4.R1/stdlib-random-math.md)
-was authored and pushed on `stdlib-random-math` at `3369adf1`. It is an
-adjacent design artifact, not part of C4's bounded acceptance objective or the
-active P4/R1 corrective issue scope. It proposes future package behavior and
-identifies implementation mechanisms and audit questions; none of those
-proposals are implemented or verified by this documentation change.
+was authored at `3369adf1`; a partial `math` implementation followed in
+`3ab77b6e` on remote branch `stdlib-random-math`. This remains adjacent work,
+outside C4's bounded acceptance objective and the active P4/R1 corrective issue
+scope. The code is `IN_PROGRESS / PARTIAL / UNVERIFIED`; the last recorded
+focused math test fails on module-qualified constant getter dispatch. See the
+[implementation handoff](LANG007.C4.P4/LANG007.C4.P4.R1/stdlib-random-math-implementation-handoff.md)
+and [auditor handoff](LANG007.C4.P4/LANG007.C4.P4.R1/stdlib-random-math-handoff.md)
+for exact findings and next gates.
 
 The [R1 walkthrough](LANG007.C4.P4/LANG007.C4.P4.R1/LANG007.C4.P4.R1-walkthrough.md)
 and [R1 handoff](LANG007.C4.P4/LANG007.C4.P4.R1/LANG007.C4.P4.R1-handoff.md)

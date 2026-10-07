@@ -6,7 +6,8 @@ completion: PARTIAL
 verification: UNVERIFIED
 recorded: 2026-10-07
 branch: stdlib-random-math
-implementation_commit: 3369adf1
+guidance_commit: 3369adf1
+implementation_commit: 3ab77b6e
 ---
 
 # stdlib `math` and `random` guidance — audit handoff
@@ -47,8 +48,12 @@ adopting them as an implementation contract:
 
 ## Evidence boundary
 
-Commit `3369adf1` contains documentation only. `git diff --check` passed; no
-tests, builds, implementation, or spec ratification were performed. The guide
-is UNVERIFIED and no incident was reproduced by this task. Keep conclusions
-from the audit separate from the existing C4/P4/R1 lifecycle states and open
-findings.
+Commit `3369adf1` contains documentation only. A partial math implementation
+was subsequently delivered in `3ab77b6e`. The implementation is
+`IN_PROGRESS / PARTIAL / UNVERIFIED`; its last recorded focused discriminator
+fails because module-qualified constant getter dispatch attempts to call the
+resolved Float (`3.141592653589793 does not understand 'call'` at
+`main.ph:4:17`). No tests were run during delivery. Review the
+[`implementation handoff`](stdlib-random-math-implementation-handoff.md) for
+the full code audit, exact ownership risks, and next focused gates. The guide
+remains unverified, and this work does not alter existing C4/P4/R1 statuses.

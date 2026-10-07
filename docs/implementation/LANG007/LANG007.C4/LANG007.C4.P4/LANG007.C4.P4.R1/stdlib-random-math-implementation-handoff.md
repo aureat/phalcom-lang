@@ -1,15 +1,15 @@
 # `universe.math` / `universe.random` — in-progress implementation handoff
 
-**Status:** IN_PROGRESS / PARTIAL / UNVERIFIED. This is a continuation record, **not** a completion walkthrough or a claim that either library is implemented. Prepared from the local worktree at `615f5887` plus uncommitted changes. The latest focused test is **failing** for a known cause described below.
+**Status:** IN_PROGRESS / PARTIAL / UNVERIFIED. This is a continuation record, **not** a completion walkthrough or a claim that either library is complete. Prepared from worktree base `615f5887` and the math implementation committed as `3ab77b6e`. The last recorded focused test is **failing** for a known cause described below; it was not rerun during delivery.
 
 ## Worktree, authority, and instructions
 
 - Work **only** in `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/stdlib-random-math` on local branch `feat/stdlib-random-math`. The earlier local-only delivery constraint is superseded by the user's later explicit instruction to commit and push the work to remote branch `stdlib-random-math`. Do not use subagents: the user asked for inline implementation.
-- Read the user's requirements document in the **main checkout** at `docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4.R1/stdlib-random-math.md`. At worktree creation it was a staged empty file with unstaged content in `main`, so it is **not present in this worktree**. Do not restore, overwrite, or stage that file in the main checkout. The requirements are ~2,655 lines and cover all M1/R1/R2/R3 phases. Also follow `AGENTS.md`, `docs/specs/README.md`, the owning specs, and the relevant implementation-record convention. The existing `LANG007.C4` checkpoint is occupied by an unrelated structural/static P4 plan: do not silently claim this work as that numbered plan or overwrite its active-plan state.
+- Read the user's requirements document at `docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4.R1/stdlib-random-math.md`. It was absent from this worktree at creation, then committed and incorporated from `stdlib-random-math` during delivery. Do not overwrite it. The requirements are ~2,655 lines and cover all M1/R1/R2/R3 phases. Also follow `AGENTS.md`, `docs/specs/README.md`, the owning specs, and the relevant implementation-record convention. The existing `LANG007.C4` checkpoint is occupied by an unrelated structural/static P4 plan: do not silently claim this work as that numbered plan or overwrite its active-plan state.
 - The user explicitly said: **pause and ask approval for important nontrivial decisions**. Already approved decisions: (1) use Rust `f64` methods for binary64 math; (2) four reviewable phases in this one worktree: math, deterministic random, secure random, distributions; (3) add direct `getrandom` dependency for secure randomness; (4) move `FloatMathKernel` into `math/package.ph` and use public methods captured into exact public Families; (5) fix imported `const` generally at the semantic-to-runtime boundary, rather than downgrading math constants to `let`.
 - The worktree started clean. An initial `cargo test -p phalcom-core --test language-corpus --no-run` compiled. A subsequent build temporarily failed for lack of disk space; the user fixed the disk. Do not treat that as a code failure.
 
-## Current changes (uncommitted, worktree only)
+## Math-phase changes committed in `3ab77b6e`
 
 1. `phalcom-core/core/universe/src/math/package.ph`: source-owned `native class FloatMathKernel` declared **in the package**, 23 public class-side native binary64 methods, six typed `const` values, exact Family captures of those methods, and captures of integer methods. Exports constants/functions without exporting `FloatMathKernel` itself. `expose .integer` permits the package's own import; reconsider public exposure only if the general module system provides a legitimate private sibling-import path (do not invent one).
 2. `phalcom-core/core/universe/src/math/integer.ph`: `IntegerMath` class with source-authored Euclidean `gcd`, reduced-product `lcm`, and convergent exact Newton `isqrt`. Corrected the checker issue with `while true` and declared `Int` return by using a terminating `while next < x` followed by `return x`. `isqrt` rejects negatives with `ArgumentError`. Has **not** had full boundary/property coverage yet.
@@ -19,7 +19,7 @@
 6. `phalcom-core/tests/fixtures/language/math/math_foundation.ph` and `.expected`; `phalcom-core/tests/core/language/corpus.rs` adds a focused `math` lane. Before the static constant correction, math `sqrt`/`hypot`/integer calls executed with expected results, but importing `pi`, `tau`, or module-qualified `math.e` returned `None`.
 7. An in-progress **general exported static constant** fix in `phalcom-core/src/modules/static_constant.rs`, `modules/mod.rs`, `modules/linkage.rs`, `modules/materialize.rs`, `vm/bootstrap.rs`, `vm/dispatch.rs`, `vm/send.rs`, `heap/module.rs`, `heap/trace.rs`, `modules/context.rs`, `modules/reflection_cache.rs`, `primitive/reflection.rs`. A regression was added to `tests/core/modules/parity.rs`, with exhaustiveness updates in `tests/core/modules/linking.rs`. This is unfinished; evaluate the design critically before building more on it (see below).
 
-The worktree's changed files were last checked before some of the const edits; run `git status --short` and `git diff` **in the worktree** before further changes. No source files in the original main checkout were modified by this branch.
+No source files in the original main checkout were modified by this branch. Re-check status and diff in this worktree before resuming implementation.
 
 ## Investigations and confirmed contracts
 
@@ -91,3 +91,22 @@ RUSTFLAGS='' cargo run -p phalcom-native-surface-gen -- --root . --check
 ```
 
 After adding native primitives: `RUSTFLAGS='' cargo run -p phalcom-native-surface-gen -- --root .` regenerates the VM-free surface. Note the generated file is large; review its scoped diff before delivery. Prefer focused tests during BUILD; run broader directly affected suites only at a coherent gate. `cargo fmt --all -- --check` is useful at completion; formatting the whole worktree could create unrelated edits, so inspect the diff afterward. Do **not** run workspace release suites by reflex or claim verification unless the command actually finishes successfully. Keep worktree local, respect unrelated main-checkout edits, and ask the user before any new nontrivial decision.
+
+## Explicit delivery — 2026-10-07
+
+The user explicitly requested that all math-worktree changes be staged, tracked,
+committed, and pushed to remote branch `stdlib-random-math`. The complete
+27-file math-phase change set, including this handoff, was committed as
+`3ab77b6e` (`feat: add initial universe math implementation`) and pushed after
+the documentation commits `3369adf1` and `eaf95877`. The local worktree branch
+remains `feat/stdlib-random-math`; its HEAD was rebased onto the requested
+remote branch before push.
+
+No tests or builds were run during delivery. The last recorded focused
+discriminator remains failing: module-qualified `constants.pi` resolves to a
+Float and then module getter dispatch tries to call it, reporting
+`3.141592653589793 does not understand 'call'` at `main.ph:4:17`. Fix and rerun
+the named focused parity and `language-corpus math` gates before treating the
+math slice as focused-tested. Keep this slice `IN_PROGRESS / PARTIAL /
+UNVERIFIED`; deterministic random, secure random, and distributions have not
+been implemented.

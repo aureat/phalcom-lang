@@ -90,3 +90,19 @@ run. No implementation, spec ratification, or behavioral verification is
 claimed. The new guide's proposals remain UNVERIFIED, while R1 and P4 retain
 their existing `IN_PROGRESS / PARTIAL / UNVERIFIED` classifications and open
 findings.
+
+## Subsequent math implementation delivery — 2026-10-07
+
+The separate math worktree changes were later staged and committed as
+`3ab77b6e`, then pushed to `origin/stdlib-random-math`. The implementation
+includes the initial `universe.math` package and integer helpers, native
+floating-point primitives and generated surface rows, general static-constant
+linking/materialization changes, and focused fixtures/regressions. The
+[implementation handoff](stdlib-random-math-implementation-handoff.md) records
+the exact file scope and unresolved behavior.
+
+This follow-on delivery ran no tests. The last recorded focused discriminator
+fails because module-qualified constant getter dispatch attempts to call the
+resolved Float. Therefore the math implementation remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`; this update does not promote the
+documentation walkthrough's earlier documentation-only evidence.

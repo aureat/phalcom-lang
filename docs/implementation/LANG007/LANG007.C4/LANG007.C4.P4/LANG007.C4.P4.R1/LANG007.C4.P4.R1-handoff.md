@@ -33,10 +33,16 @@ completion plan: rebaseline the live owner matrix before production edits.
 ## Adjacent stdlib guidance audit handoff
 
 The user also requested review of the adjacent [`stdlib-random-math.md`](stdlib-random-math.md)
-guide, committed as `3369adf1` on `stdlib-random-math`. This guide is outside
-the R1 issue register and does not supersede the P4 corrective completion plan.
-Treat it as unverified design guidance; no implementation or tests were
-performed for it.
+guide, committed as `3369adf1` on `stdlib-random-math`. A partial math
+implementation was later pushed as `3ab77b6e`. These remain outside the R1 issue
+register and do not supersede the P4 corrective completion plan. The math
+implementation is `IN_PROGRESS / PARTIAL / UNVERIFIED`; no tests were run
+during delivery, and its last recorded focused discriminator fails on
+module-qualified constant getter dispatch.
+
+Read the [math implementation handoff](stdlib-random-math-implementation-handoff.md)
+for the changed-file inventory, exact failing output, invariants, and remaining
+verification gates. Review the code from remote branch `stdlib-random-math`.
 
 Audit these points against the live source and accepted specifications before
 using the guide as an implementation contract:
@@ -60,9 +66,10 @@ associated-type dispatch or data-method lowering may block source fixtures.
 Preserve those as owning-layer issues; do not treat this guide as resolving
 them.
 
-The doc-only delivery ran `git diff --check` and no behavioral tests. Do not
-promote the guide to implemented or verified based on the commit. C4/P4/R1
-statuses and the next action to continue P4 T0 remain unchanged.
+The original doc-only delivery ran `git diff --check`; the subsequent code
+delivery also ran `git diff --check` but no behavioral tests. Do not promote the
+math slice to focused-tested based on commit delivery. C4/P4/R1 statuses and
+the next action to continue P4 T0 remain unchanged.
 
 ## Inherited findings
 
