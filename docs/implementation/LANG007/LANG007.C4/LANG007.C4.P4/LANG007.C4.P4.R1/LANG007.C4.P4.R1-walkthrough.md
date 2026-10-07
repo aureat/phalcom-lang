@@ -7,6 +7,7 @@ completion: PARTIAL
 verification: UNVERIFIED
 recorded_against_revision: 2d306c13da02fb3b85ee362498cf4c0280de3825
 recorded: 2026-10-06
+updated: 2026-10-07
 ---
 
 # LANG007.C4.P4.R1 — Interim walkthrough
@@ -74,3 +75,18 @@ unrun broad gates. R1/P4 remain partial/unverified; I1 is next.
 The subsequent user-directed delivery commits the A2 implementation/tests and
 checkpoint together, then synchronizes these lifecycle records. Delivery does
 not rerun behavioral tests or promote the focused verification classification.
+
+## Adjacent stdlib guidance delivery — 2026-10-07
+
+Added [`stdlib-random-math.md`](stdlib-random-math.md), a design and
+implementation-guidance document for proposed `universe.math` and
+`universe.random` APIs. The related parse/Telos follow-on plan also received
+scope and gate clarifications. Both files were committed on branch
+`stdlib-random-math` at `3369adf1` and pushed to `origin/stdlib-random-math`.
+
+This is documentation-only work outside the R1 issue register and P4/C4
+acceptance. `git diff --check` passed before delivery; no tests or builds were
+run. No implementation, spec ratification, or behavioral verification is
+claimed. The new guide's proposals remain UNVERIFIED, while R1 and P4 retain
+their existing `IN_PROGRESS / PARTIAL / UNVERIFIED` classifications and open
+findings.

@@ -19,7 +19,7 @@ latest_completed_plan: LANG007.C4.P3
 next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-completion-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 4f11cb1a900d76c1d45db108aa8d856ee5940394
-last_updated: 2026-10-06
+last_updated: 2026-10-07
 ---
 
 # LANG007.C4 — Checkpoint Record
@@ -41,7 +41,7 @@ active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007
 active_plan_prepared_against_revision: 4f11cb1a900d76c1d45db108aa8d856ee5940394
 next_action: >
   Rebase the corrective completion plan against the current consolidated tree and complete its T0 live-owner matrix before production edits. Then converge StaticConstant formation to one canonical owner path and implement the bounded exact-owner executor/replay boundary. Preserve T1-T6 as COMPLETE / IMPLEMENTED / FOCUSED_TESTED; P4 remains IN_PROGRESS / PARTIAL / UNVERIFIED. Do not start Record-pattern work until the replacement plan T7.0E gate passes. P10 T6 and while-dependent T9 cases remain outside active P4 scope.
-last_updated: 2026-10-06
+last_updated: 2026-10-07
 ```
 
 This record is the single durable state authority for `LANG007.C4`.
@@ -2898,3 +2898,19 @@ pre-existing formatting drift in other files. The audit's remaining broad
 incremental cold/warm, runtime source-order, unknown/dynamic, trait-witness,
 and full certification obligations are not claimed closed by this focused
 remediation. R1 and P4 remain `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+
+### Adjacent standard-library guidance — 2026-10-07
+
+The [stdlib `math` and `random` implementation guidance](LANG007.C4.P4/LANG007.C4.P4.R1/stdlib-random-math.md)
+was authored and pushed on `stdlib-random-math` at `3369adf1`. It is an
+adjacent design artifact, not part of C4's bounded acceptance objective or the
+active P4/R1 corrective issue scope. It proposes future package behavior and
+identifies implementation mechanisms and audit questions; none of those
+proposals are implemented or verified by this documentation change.
+
+The [R1 walkthrough](LANG007.C4.P4/LANG007.C4.P4.R1/LANG007.C4.P4.R1-walkthrough.md)
+and [R1 handoff](LANG007.C4.P4/LANG007.C4.P4.R1/LANG007.C4.P4.R1-handoff.md)
+record the documentation-only evidence boundary and auditor takeover points.
+This update does not alter the active P4 plan, next action, or any C4/R1
+completion or verification classification.

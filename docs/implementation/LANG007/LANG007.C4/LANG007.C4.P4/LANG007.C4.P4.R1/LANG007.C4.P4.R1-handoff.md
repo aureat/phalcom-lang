@@ -7,7 +7,7 @@ completion: PARTIAL
 verification: UNVERIFIED
 recorded_against_revision: 2d306c13da02fb3b85ee362498cf4c0280de3825
 recorded: 2026-10-06
-updated: 2026-10-06
+updated: 2026-10-07
 consolidated_branch: main
 ---
 
@@ -29,6 +29,40 @@ completion plan: rebaseline the live owner matrix before production edits.
 4. [`LANG007.C4.P4.R1 plan`](LANG007.C4.P4.R1-plan.md) for the companion
    findings and sequencing.
 5. The paired issue audit and plan for the specific finding being continued.
+
+## Adjacent stdlib guidance audit handoff
+
+The user also requested review of the adjacent [`stdlib-random-math.md`](stdlib-random-math.md)
+guide, committed as `3369adf1` on `stdlib-random-math`. This guide is outside
+the R1 issue register and does not supersede the P4 corrective completion plan.
+Treat it as unverified design guidance; no implementation or tests were
+performed for it.
+
+Audit these points against the live source and accepted specifications before
+using the guide as an implementation contract:
+
+1. Method-family capture/export, native bindings, and package layout for the
+   proposed `math` API.
+2. IEEE special cases, numeric accuracy targets, backend choice, and
+   cross-platform determinism.
+3. `Int` semantics, arbitrary-precision behavior, and exact integer algorithms.
+4. Xoshiro256++/SplitMix64 details, seed/replay contract, 64-bit operations,
+   bounded arbitrary-precision sampling, and deterministic consumption order
+   for `choose` and `shuffle`.
+5. `SecureRandom` host capability, entropy-failure behavior, separation from
+   deterministic PRNGs, and isolation from VM hash-hardening state.
+6. Whether the investigation checklist and identified possible standard-library
+   gaps are complete without expanding compiler/runtime scope.
+
+The companion parse/Telos plan update records existing blockers: `and`/`or`
+value-position expressions may produce `Object` instead of `Bool`, and
+associated-type dispatch or data-method lowering may block source fixtures.
+Preserve those as owning-layer issues; do not treat this guide as resolving
+them.
+
+The doc-only delivery ran `git diff --check` and no behavioral tests. Do not
+promote the guide to implemented or verified based on the commit. C4/P4/R1
+statuses and the next action to continue P4 T0 remain unchanged.
 
 ## Inherited findings
 

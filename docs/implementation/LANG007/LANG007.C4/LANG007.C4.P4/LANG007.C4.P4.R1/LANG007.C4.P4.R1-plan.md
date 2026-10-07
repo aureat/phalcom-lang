@@ -152,3 +152,16 @@ the P2 verification worktree already exists identically on main. No checkout
 was reset, deleted, or archived, and no work was discarded. No new behavioral
 tests or remote push ran for this consolidation. R1 remains partial/unverified
 overall; A1 focused completion is not V1 certification.
+
+## Adjacent standard-library guidance — 2026-10-07
+
+[`stdlib-random-math.md`](stdlib-random-math.md) is an adjacent design and
+implementation-guidance artifact authored on branch `stdlib-random-math` at
+`3369adf1`. It is outside the R1 issue register and does not change R1's
+`IN_PROGRESS / PARTIAL / UNVERIFIED` state, P4's active corrective plan, or the
+shared C4 next action. No math or random implementation, test evidence, or
+specification ratification is claimed. The current documentation task's
+walkthrough and auditor handoff are linked below:
+
+- [`stdlib-random-math walkthrough`](stdlib-random-math-walkthrough.md)
+- [`stdlib-random-math handoff`](stdlib-random-math-handoff.md)
