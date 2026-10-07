@@ -1,9 +1,9 @@
 ---
 kind: implementation-plan
 title: "universe.math Corrective Completion — Luna Patch-Grade Implementation Plan"
-status: READY_FOR_IMPLEMENTATION
-completion: PLANNED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: BASELINE_BLOCKED
 repository: aureat/phalcom-lang
 branch: stdlib-random-math
 prepared_against_revision: 9742d085580a98fee8822e1c66026d179ddd772e
@@ -37,9 +37,15 @@ behind:     0
 
 No branch drift was observed from the aggregate audit.
 
-The current implementation is **partial and unverified**. It has the correct language-level API shape, but it exercises an unfinished module/runtime seam for exported `const`, and its package organization must be corrected before the math slice is considered complete.
+The implementation remains **partial**. The exported-static-constant seam,
+hidden-child topology, public math surface, and T9/T10 acceptance are now
+implemented and focused-tested. T11 is recorded. T12 focused gates passed,
+but workspace formatting drift and three unrelated `phalcom-core` library
+failures prevent a clean broad gate. T7/T8 numeric matrices remain open. The
+current T9+ continuation evidence and next action are recorded in the
+walkthrough/handoff.
 
-> **Central implementation ruling:** preserve the public exact-Family API, finish exported-static-constant runtime semantics at the general module boundary, then move implementation owners into hidden `universe.math` children and complete/test the math surface. Do not work around the constant problem by turning constants into runtime `let` bindings, and do not hide kernels by weakening Family semantics.
+> **Central implementation ruling:** preserve the public exact-Family API, keep exported-constant semantics at the general module boundary, and keep implementation owners in hidden `universe.math` children. Do not turn constants into runtime `let` bindings or weaken Family semantics to hide kernels.
 
 ---
 
@@ -3447,25 +3453,25 @@ working together coherently.
 Before handing the slice back:
 
 ```text
-[ ] branch/head recorded
-[ ] worktree clean except intended changes
-[ ] git diff --check PASS
-[ ] formatter check PASS
-[ ] original exported-const reproducer PASS
-[ ] const alias/re-export/GC tests PASS
-[ ] hidden module topology tests PASS
-[ ] math corpus PASS
-[ ] Float kernel tests PASS
-[ ] integer property/boundary tests PASS
-[ ] type rejection tests PASS
-[ ] Family identity tests PASS
-[ ] native surface --check PASS
-[ ] directly affected broader tests PASS
-[ ] generated diff reviewed
-[ ] implementation handoff updated
-[ ] walkthrough updated
-[ ] status remains truthful
-[ ] no random implementation mixed into this patch
+[x] branch/head recorded
+[x] worktree clean except intended changes (after delivery)
+[x] git diff --check PASS
+[ ] formatter check PASS — workspace check reports existing formatting drift outside this continuation's Rust files; touched Rust files pass targeted rustfmt check
+[x] original exported-const reproducer PASS
+[x] const alias/re-export/GC tests PASS
+[x] hidden module topology tests PASS
+[x] math corpus PASS
+[ ] Float kernel tests — broader per-function IEEE/accuracy matrix remains open (T7)
+[ ] integer property/boundary tests — broader arbitrary-size matrix remains open (T8)
+[x] type rejection tests PASS
+[x] Family identity tests PASS
+[x] native surface --check PASS
+[ ] directly affected broader tests — `cargo test -p phalcom-core` has three unrelated library failures; focused math/runtime tests pass
+[x] generated diff reviewed (generator produced no changes)
+[x] implementation handoff updated
+[x] walkthrough updated
+[x] status remains truthful
+[x] no random implementation mixed into this patch
 ```
 
 If all gates pass, the math phase may be marked complete and the next plan may begin `universe.random`.

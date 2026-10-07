@@ -56,6 +56,8 @@ pub struct FormalQueryInputs<'a> {
     pub type_member_declarations:
         Option<&'a BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
     pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
+    /// Checked module value facts used by the ordinary callable body checker.
+    pub module_values: Option<crate::module_bindings::ModuleValueEnvironment<'a>>,
 }
 
 pub struct HierarchyEdgeQueryInputs<'a> {
@@ -3268,6 +3270,7 @@ fn query_callable_body_with_requirement(
                 instance_self_override,
                 trait_surface,
                 conformance_semantics: formal_inputs.and_then(|inputs| inputs.conformance_semantics),
+                has_module_value_environment: formal_inputs.is_some_and(|inputs| inputs.module_values.is_some()),
             },
         ),
         None => crate::db::fingerprint::callable_body_input_fingerprint_with_owner_generics(&callable, body, body_range, store, owner_generic_signature),
@@ -3301,6 +3304,8 @@ fn query_callable_body_with_requirement(
             dispatch,
             trait_surface,
             conformance_semantics: formal_inputs.and_then(|inputs| inputs.conformance_semantics),
+            module_values: formal_inputs.and_then(|inputs| inputs.module_values),
+            linked_module: formal_inputs.and_then(|inputs| inputs.linked.modules.get(&module)),
             module,
             caller_package,
             access_topology: formal_inputs.map(|inputs| inputs.topology),

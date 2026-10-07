@@ -5595,6 +5595,7 @@ impl SemanticWorkspaceSession {
                         associated_families: Some(&associated_surfaces_table),
                         type_member_declarations: Some(&type_member_declarations_table),
                         conformance_semantics: Some(&conformance_semantics),
+                        module_values: None,
                     };
                     let outcome = query_callable_body_with_formal_inputs(
                         &mut self.db,
@@ -5745,6 +5746,7 @@ impl SemanticWorkspaceSession {
                                     associated_families: Some(&associated_surfaces_table),
                                     type_member_declarations: Some(&type_member_declarations_table),
                                     conformance_semantics: Some(&conformance_semantics),
+                                    module_values: None,
                                 };
 
                                 let forced = callable_body_work.contains(&callable_id);
@@ -5921,6 +5923,7 @@ impl SemanticWorkspaceSession {
                                     associated_families: Some(&associated_surfaces_table),
                                     type_member_declarations: Some(&type_member_declarations_table),
                                     conformance_semantics: Some(&conformance_semantics),
+                                    module_values: None,
                                 };
                                 let forced = callable_body_work.contains(&callable);
                                 if forced {
@@ -6124,6 +6127,7 @@ impl SemanticWorkspaceSession {
                                     associated_families: Some(&associated_surfaces_table),
                                     type_member_declarations: Some(&type_member_declarations_table),
                                     conformance_semantics: Some(&conformance_semantics),
+                                    module_values: None,
                                 };
 
                                 let forced = callable_body_work.contains(&callable_id);
@@ -6250,6 +6254,7 @@ impl SemanticWorkspaceSession {
                 associated_families: Some(&associated_surfaces_table),
                 type_member_declarations: Some(&type_member_declarations_table),
                 conformance_semantics: Some(&conformance_semantics),
+                module_values: None,
             };
             let has_declared_return = callable_signatures
                 .get_for_body(&callable)
@@ -6350,6 +6355,7 @@ impl SemanticWorkspaceSession {
                 associated_families: Some(&associated_surfaces_table),
                 type_member_declarations: Some(&type_member_declarations_table),
                 conformance_semantics: Some(&reanalysis_conformance_semantics),
+                module_values: None,
             };
             for callable in &cycle_reanalysis_roots {
                 let Some(unit) = retained_sources.get(callable.module()) else {
@@ -6503,6 +6509,7 @@ impl SemanticWorkspaceSession {
                 associated_families: Some(&associated_surfaces_table),
                 type_member_declarations: Some(&type_member_declarations_table),
                 conformance_semantics: Some(&reanalysis_conformance_semantics),
+                module_values: None,
             };
             for callable in &affected_plan_clients {
                 let Some(unit) = retained_sources.get(callable.module()) else {
@@ -6701,6 +6708,85 @@ impl SemanticWorkspaceSession {
             let analysis = ctx.finalize(callable_id.clone(), body_range, crate::checker::CallableAnalysisStatus::Complete);
             callable_analyses.insert(callable_id, Arc::new(analysis));
         }
+
+        // The top-level checker pass above publishes canonical checked module
+        // bindings. Revalidate declaration bodies against that same value
+        // environment so selective and qualified imports share one semantic
+        // owner and their exact dependencies are recorded on CallableBody.
+        let module_body_signature_snapshot = callable_signatures.clone();
+        let module_body_conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
+            trait_dispatch: &trait_dispatch_index,
+            conformance_index: &conformance_index,
+            witness_plans: &conformance_witness_plans,
+            trait_surfaces: &trait_surfaces,
+            derived_conformance_rules: &derived_conformance_rules,
+            callable_signatures: Some(&module_body_signature_snapshot),
+        };
+        let module_body_inputs = FormalQueryInputs {
+            sources: &retained_sources,
+            source_resolution_input,
+            linked_component_product,
+            linked: &input.linked,
+            topology: semantic_topology.as_ref(),
+            import_products: &input.import_products,
+            hierarchy: &hierarchy,
+            base_resolver: &resolver,
+            declarations: &declarations,
+            type_aliases: &type_aliases,
+            field_signatures: Some(&field_signatures),
+            field_lifecycle: Some(&field_lifecycle),
+            constructor_initializations: Some(&constructor_initializations),
+            callable_signatures: Some(&module_body_signature_snapshot),
+            data_semantics: Some(&data_semantics),
+            enum_semantics: Some(&enum_semantics),
+            associated_families: Some(&associated_surfaces_table),
+            type_member_declarations: Some(&type_member_declarations_table),
+            conformance_semantics: Some(&module_body_conformance_semantics),
+            module_values: Some(crate::module_bindings::ModuleValueEnvironment {
+                bindings: &module_static_bindings,
+                exports: &module_value_exports,
+            }),
+        };
+        let module_body_callables = callable_analyses.keys().cloned().collect::<BTreeSet<_>>();
+        for callable in module_body_callables {
+            let Some(unit) = retained_sources.get(callable.module()) else {
+                continue;
+            };
+            let definition = self
+                .db
+                .product(&QueryKey::CallableDefinition(callable.clone()))
+                .and_then(|product| product.as_callable_definition())
+                .cloned();
+            if callable_signatures.get(&callable).is_none() || source_body_for_callable(&callable, definition.as_deref(), unit).is_none() {
+                continue;
+            }
+            semantic_work_modules.insert(callable.module().clone());
+            diagnostic_work_modules.insert(callable.module().clone());
+            revalidate_downstream_callable_body(
+                &mut self.db,
+                &callable,
+                unit,
+                &module_body_inputs,
+                DownstreamCallableBodyState {
+                    store: Arc::make_mut(&mut self.store),
+                    hierarchy: &hierarchy,
+                    dispatch: &mut dispatch,
+                    callable_signatures: &mut callable_signatures,
+                    callable_analyses: &mut callable_analyses,
+                    callable_dispositions: &mut callable_dispositions,
+                    budget,
+                    cancel,
+                },
+            )?;
+        }
+        let conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
+            trait_dispatch: &trait_dispatch_index,
+            conformance_index: &conformance_index,
+            witness_plans: &conformance_witness_plans,
+            trait_surfaces: &trait_surfaces,
+            derived_conformance_rules: &derived_conformance_rules,
+            callable_signatures: Some(&callable_signatures),
+        };
 
         // Body diagnostics are published from the final analyses, once per
         // rebuilt module. Intermediate inferred-result and conformance-plan
@@ -7058,6 +7144,7 @@ impl SemanticWorkspaceSession {
             associated_families: Some(&associated_surfaces_table),
             type_member_declarations: Some(&type_member_declarations_table),
             conformance_semantics: Some(&conformance_semantics),
+            module_values: None,
         };
         let static_definitions = static_definitions_table
             .iter()
@@ -11686,6 +11773,8 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                             module: module_id.clone(),
                             caller_package: Some(topology.owning_package(module_id)),
                             access_topology: Some(topology),
+                            module_values: None,
+                            linked_module: None,
                         },
                         crate::checker::body::CallableBodyRequest {
                             callable: callable.clone(),

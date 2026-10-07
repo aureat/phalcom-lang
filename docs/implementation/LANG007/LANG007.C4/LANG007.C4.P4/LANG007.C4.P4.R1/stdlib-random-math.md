@@ -231,6 +231,21 @@ Their tests must assert exact `Float` bit patterns, not decimal rendering.
 
 Do not dynamically compute fundamental constants at package initialization.
 
+Cross-module `const` reads retain the source declaration's canonical
+`StaticConstantId`:
+
+```text
+StaticConstantId
+    -> RuntimeStaticConstantRef(owner module, canonical name)
+    -> owner ModuleObject.static_constants
+    -> materialized Value
+```
+
+Selected imports, qualified getters, and re-exports resolve to the same owner
+reference. Module owners trace heap-backed materialized values across GC; a
+constant does not acquire a runtime global slot merely because another module
+imports it.
+
 ---
 
 ## 4.2 Elementary floating-point functions
@@ -363,13 +378,16 @@ Required properties:
 
 Do not blindly call arbitrary platform libc implementations if doing so would introduce uncontrolled OS-dependent results.
 
-The intended contract for v1 should be:
+The v1 backend uses Rust `f64` methods. `sqrt` has the stronger IEEE binary64
+rounding contract of that operation. The other transcendental methods provide
+the supported Rust backend's results; do not claim a blanket 1 ULP bound or
+cross-platform, cross-version last-bit reproducibility for them. Tests should
+freeze special-value/domain behavior and use per-function accuracy bounds only
+where the selected operation documents one.
 
-> Mathematical functions produce high-quality IEEE binary64 results and deterministic behavior under the supported Telos runtime/toolchain contract. Tests establish explicit special-case behavior and a stringent finite-value accuracy bound.
-
-Do **not** promise permanent bit-for-bit identity across all future runtime versions unless the chosen backend actually provides and commits to such an invariant.
-
-A useful target for ordinary finite inputs is approximately ≤ 1 ULP where the chosen implementation supports that guarantee. Where a function/library has a stronger documented contract, preserve it.
+Do **not** promise permanent bit-for-bit identity across all future runtime
+versions unless the chosen backend actually provides and commits to such an
+invariant.
 
 ---
 
@@ -538,7 +556,7 @@ A likely layout:
 ```text
 phalcom-core/core/universe/src/math/
 ├── package.ph
-├── kernel.ph
+├── float_kernel.ph
 └── integer.ph
 ```
 
@@ -547,12 +565,12 @@ Possible responsibilities:
 ```text
 package.ph
     public constants
-    imports internal declarations
+    imports hidden sibling declarations
     family captures
     exports
 
-kernel.ph
-    internal/native FloatMathKernel declaration
+float_kernel.ph
+    native FloatMathKernel declaration and source-authored angle helpers
 
 integer.ph
     source-authored gcd/lcm/isqrt families
@@ -568,6 +586,13 @@ The exact Rust file/module location should follow existing primitive-registratio
 
 Do not create a special architecture just because the package is named `math`.
 
+Both implementation children are registered in the Universe graph but are
+not exposed by `math/package.ph`; only relative imports inside the package may
+reach them. Exact Family capture remains the public callable representation.
+The current `Family.receiver` reflection can reveal the `FloatMathKernel`
+receiver; this is accepted technical debt for this slice, not an opacity
+guarantee.
+
 ---
 
 # 10. Illustrative `math/package.ph`
@@ -577,10 +602,8 @@ Treat syntax details as subject to the exact current package import/export gramm
 ```telos
 @!documentation("Mathematical constants and numerical functions.")
 
-import .kernel.FloatMathKernel
-import .integer.gcd
-import .integer.lcm
-import .integer.isqrt
+from .float_kernel import FloatMathKernel
+from .integer import IntegerMath
 
 const pi: Float = 3.141592653589793
 const tau: Float = 6.283185307179586

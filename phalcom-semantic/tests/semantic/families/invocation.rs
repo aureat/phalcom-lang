@@ -2,12 +2,20 @@ use std::sync::Arc;
 
 use crate::semantic::support::WorkspaceFixture;
 use phalcom_common::selector::{SelectorKind, SelectorSlot};
-use phalcom_modules::identity::ModuleId;
+use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
+use phalcom_modules::interface::InterfaceBuilder;
+use phalcom_modules::linker::ModuleLinker;
+use phalcom_modules::source::ModuleKind;
 use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::checker::{CallableReferenceResolutionKind, FamilyApplicationResolution, FamilyApplicationSelection};
+use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, InvocationTargetId};
+use phalcom_semantic::session::SemanticWorkspaceSession;
+use phalcom_semantic::source::ParsedModuleUnit;
 use phalcom_semantic::types::denotation::SemanticDenotation;
 use phalcom_semantic::types::store::TypeData;
+use phalcom_semantic::workspace::SemanticWorkspaceInput;
+use std::collections::BTreeMap;
 
 #[test]
 fn module_value_exports_preserve_family_type_for_selective_and_qualified_calls() {
@@ -38,6 +46,11 @@ let selective_ok = root(1)
 let qualified_ok = math.square_root(1)
 let selective_wrong = root("wrong")
 let qualified_wrong = math.square_root("wrong")
+
+class Nested {
+  @class selective_wrong() { root("wrong") }
+  @class qualified_wrong() { math.square_root("wrong") }
+}
 "#,
         )
         .entry("client")
@@ -76,11 +89,118 @@ let qualified_wrong = math.square_root("wrong")
         .filter(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ArgumentMismatch)
         .count();
     assert_eq!(
-        argument_mismatches, 2,
-        "both selective and qualified calls must use the Family callable contract"
+        argument_mismatches, 4,
+        "selective and qualified calls in top-level and member bodies must use the Family callable contract"
     );
 }
 
+#[test]
+fn imported_family_member_body_revalidates_when_exported_contract_changes() {
+    let math_source_v1 = r#"
+class Kernel {
+  @class sqrt(_ value: Int) -> Int { value }
+}
+let sqrt = &Kernel.sqrt(_)
+export sqrt
+"#;
+    let math_source_v2 = r#"
+class Kernel {
+  @class sqrt(_ value: String) -> String { value }
+}
+let sqrt = &Kernel.sqrt(_)
+export sqrt
+"#;
+    let client_source = r#"
+from .math import sqrt as root
+class Client {
+  @class run() { root("wrong") }
+}
+"#;
+    let math = incremental_module_id("math");
+    let client = incremental_module_id("client");
+    let mut session = SemanticWorkspaceSession::new();
+
+    let first = session.update(module_value_input(&math, math_source_v1, &client, client_source, 1));
+    let body = CallableId::new(
+        DeclarationId::new(client.clone(), "Client".into()),
+        phalcom_common::selector::Selector::method("run", []).expect("run selector"),
+        DispatchSide::Class,
+    );
+    let body_key = QueryKey::CallableBody(body);
+    assert_eq!(
+        first
+            .snapshot
+            .all_diagnostics()
+            .filter(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ArgumentMismatch)
+            .count(),
+        1,
+        "Int Family contract rejects the string argument in the member body"
+    );
+    assert!(
+        session
+            .db()
+            .index()
+            .dependencies_of(&body_key)
+            .is_some_and(|dependencies| { dependencies.iter().any(|edge| edge.dependency == QueryKey::ModuleStaticBindings(math.clone())) })
+    );
+    let first_revision = first.snapshot.id.revision();
+
+    let second = session.update(module_value_input(&math, math_source_v2, &client, client_source, 2));
+    let second_revision = second.snapshot.id.revision();
+    assert_ne!(first_revision, second_revision);
+    assert_eq!(
+        second
+            .snapshot
+            .all_diagnostics()
+            .filter(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ArgumentMismatch)
+            .count(),
+        0,
+        "the changed String Family contract accepts the same member-body call"
+    );
+    assert_eq!(session.db().query_state(&body_key).and_then(|state| state.revision()), Some(second_revision));
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_result = cold.update(module_value_input(&math, math_source_v2, &client, client_source, 2));
+    assert_eq!(
+        second.snapshot.diagnostics, cold_result.snapshot.diagnostics,
+        "incremental and cold diagnostics agree"
+    );
+}
+
+fn incremental_module_id(name: &str) -> ModuleId {
+    let project = ResolvedProjectId::from_raw(93);
+    let path = ModulePath::from_components(vec![ModuleComponent::from_identifier(name).expect("module name")]);
+    ModuleId::resolved(project, path)
+}
+
+fn module_value_input(math: &ModuleId, math_source: &str, client: &ModuleId, client_source: &str, generation: u64) -> SemanticWorkspaceInput {
+    let sources = [(math.clone(), math_source), (client.clone(), client_source)]
+        .into_iter()
+        .map(|(module, source)| {
+            let parsed = phalcom_ast::parse(source, 0);
+            assert!(parsed.errors.is_empty(), "fixture parse errors: {:#?}", parsed.errors);
+            let program = Arc::new(parsed.program);
+            let interface = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &program).expect("module interface");
+            (
+                module.clone(),
+                Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, Arc::from(source), program)),
+                interface,
+            )
+        })
+        .collect::<Vec<_>>();
+    let interfaces = sources.iter().map(|(module, _, interface)| (module.clone(), interface.clone())).collect();
+    let source_units = sources.into_iter().map(|(module, unit, _)| (module, unit)).collect();
+    let resolved = BTreeMap::from([
+        ((client.clone(), ".math".to_owned()), math.clone()),
+        ((client.clone(), "math".to_owned()), math.clone()),
+    ]);
+    let linked = Arc::new(
+        ModuleLinker::new(Arc::new(phalcom_modules::project::ProjectUniverse::new()), interfaces)
+            .link_component_interfaces_tolerant(client.clone(), &resolved)
+            .program,
+    );
+    SemanticWorkspaceInput::new(linked, source_units, generation)
+}
 #[test]
 fn immediate_family_call_publishes_static_application_resolution() {
     let module = ModuleId::universe_root();

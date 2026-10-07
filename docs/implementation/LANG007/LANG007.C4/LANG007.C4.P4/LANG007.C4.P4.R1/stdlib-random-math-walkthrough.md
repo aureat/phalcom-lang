@@ -54,10 +54,10 @@ defects.
 The initial `universe.math` implementation was staged from the separate math
 worktree, committed as `3ab77b6e`, and pushed to `origin/stdlib-random-math`.
 It adds source-authored integer helpers, native binary64 math methods,
-constants, module exports, and an initial cross-module static-constant
-materialization path with regressions. The implementation is partial and
-unverified. The last recorded focused test still fails when module-qualified
-constant getter dispatch attempts to call a Float. See the
+constants, module exports, and cross-module static-constant materialization.
+Later focused evidence and the T9/T10 continuation are recorded in the
 [`stdlib-random-math-implementation-handoff`](stdlib-random-math-implementation-handoff.md)
-for the complete scope and continuation gates. No random APIs have been
-implemented.
+and the math plan walkthrough/handoff. T9 now covers member-body calls and
+incremental provider changes; T10 generator checks pass with 383 records. M1
+remains partial, and no random APIs have been implemented. C4/P4 acceptance
+remains unchanged.

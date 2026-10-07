@@ -9,7 +9,7 @@
 - Repository: aureat/phalcom-lang
 - Branch: `stdlib-random-math`
 - Starting revision: `9742d085580a98fee8822e1c66026d179ddd772e`
-- Current revision: `9742d085580a98fee8822e1c66026d179ddd772e` plus the uncommitted corrective math worktree
+- Current revision at incident closure: `06e37110` plus the current T9 member-body continuation changes
 
 ## 2. Escalation trigger
 
@@ -137,17 +137,18 @@ call-check authority.
   reject incompatible arguments.
 - The original `math.sqrt(4)` compiler-facing T9 reproducer now passes.
 
-## 16. Remaining boundary
+## 16. Closure and remaining boundary
 
-Declaration member bodies are checked before this top-level binding projection
-is available and therefore still do not receive imported module value facts.
-A temporary nested-body discriminator (`math.sqrt("wrong")` inside a class
-method) produced only the two top-level mismatch diagnostics, rather than the
-required third diagnostic. The temporary assertion was removed so the focused
-regression remains green.
+The approved module-value environment is now threaded through
+`FormalQueryInputs`, `BodyAnalysisContext`, and callable-body revalidation.
+Selective imports seed fresh lexical bindings from canonical `SymbolId`
+facts; qualified module exports resolve through linked public names. Body
+products record linked-name and `ModuleStaticBindings` dependencies.
 
-The next slice must thread the same canonical module-value environment through
-`BodyAnalysisContext` and its callable-body query/revalidation path. This is a
-continuation of the approved semantic-owner design, not a call-checker or
-runtime change. T9 remains partial until that path and the requested
-consumer-invalidation coverage pass.
+Focused semantic coverage now rejects incompatible arguments in top-level and
+class member bodies for selective and qualified calls through a facade
+re-export. An incremental provider-contract change updates the member-body
+diagnostic and matches cold analysis. The compiler-facing T9 Family/type test
+and hidden-child import test pass. The original T9 semantic owner issue is
+resolved; remaining M1 numeric/property coverage and T12 broad verification
+are tracked by the active plan and latest handoff.

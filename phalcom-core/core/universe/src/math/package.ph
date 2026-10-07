@@ -1,4 +1,4 @@
-@!documentation("IEEE binary64 mathematical functions (radians, no implicit Int conversion) and exact Int algorithms.")
+@!documentation("Float-only IEEE binary64 functions and exact arbitrary-precision Int algorithms. Angles use radians except degrees/radians conversions. NaN, infinity, signed-zero, and domain results follow the Rust f64 backend; Int is never implicitly converted to Float.")
 
 from .float_kernel import FloatMathKernel
 from .float_kernel import FloatAngleHelpers

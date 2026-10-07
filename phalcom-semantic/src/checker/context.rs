@@ -984,6 +984,29 @@ impl<'a> CheckingContext<'a> {
         self.module_value_exports = Some(exports);
     }
 
+    /// Seeds selective imports in a callable body's outer scope from the
+    /// canonical linked target while retaining the source binding's identity.
+    pub(crate) fn seed_linked_module_import_values(
+        &mut self,
+        linked_module: &phalcom_modules::linker::LinkedModule,
+        bindings: &BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
+    ) {
+        for (local_name, import_id) in &linked_module.bindings.imports {
+            let Some(phalcom_modules::linker::LinkedReadSpec::Binding(symbol)) = linked_module.linked_reads.get(import_id.0 as usize) else {
+                continue;
+            };
+            let Some(fact) = bindings.get(&symbol.module).and_then(|index| index.get(symbol)) else {
+                continue;
+            };
+            self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::LinkedName(
+                self.current_module.clone(),
+                local_name.to_string(),
+            ));
+            self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(symbol.module.clone()));
+            self.declare_checked_binding(local_name.to_string(), &fact.state);
+        }
+    }
+
     /// Resolves `module_alias.public_name` as an exported *value*, without
     /// treating the module as an object with a synthetic dispatch surface.
     pub(crate) fn resolve_module_export_value(&self, module_alias: &str, public_name: &str) -> Option<ValueSemanticFact> {
