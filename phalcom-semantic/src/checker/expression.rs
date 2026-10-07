@@ -25,7 +25,7 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature, ResolvedDispatch, ResolvedDispatchResult};
 use crate::identity::{DeclarationId, InvocationTargetId};
 use crate::types::annotation::TypeResolver;
-use crate::types::denotation::{AssociatedValueDenotation, BehavioralFamilyDenotation, CapturedBehavioralMember, SemanticDenotation, ValueSemanticFact};
+use crate::types::denotation::{AssociatedValueDenotation, BehavioralFamilyDenotation, CapturedBehavioralMember, SemanticDenotation};
 use crate::types::environment::TypeView;
 use crate::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::family::{FamilyMemberTypeKind, FamilyOperationShape};
@@ -37,7 +37,7 @@ use crate::types::store::{RecordTypeField, TupleTypeElement, TypeData};
 use phalcom_ast::ast::{
     AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, AssociatedNamedMode, BinaryExpr, BinaryOp, CallableReferenceExpr,
     CallableReferenceTarget, ComparisonChainExpr, Expr, GetPropertyExpr, IndexExpr, IsMembershipExpr, ListLiteralElement, MapLiteralEntry, MapLiteralKey,
-    MembershipExpr, MethodCallExpr, PackItem, PackLabel, Pattern, ProductLabel, RecordLiteralEntry, RelationOp, SetIndexExpr, SetLiteralEntry, SetPropertyExpr,
+    MembershipExpr, MethodCallExpr, PackItem, PackLabel, ProductLabel, RecordLiteralEntry, RelationOp, SetIndexExpr, SetLiteralEntry, SetPropertyExpr,
     Statement, SymbolExpr, SymbolLiteralKind, TupleLiteralEntry, UnaryExpr, UnaryOp, UnqualifiedCallExpr,
 };
 use phalcom_common::range::SourceRange;
@@ -789,11 +789,38 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             let before = ctx.flow.clone();
 
             ctx.flow = before.clone();
-            let pattern = &if_let.pattern;
-            let fact = val_typed.fact();
-            let causal = val_typed.causal_invalidity;
+            let (subject, refinement_block) = coverage_subject_for_expression(ctx, &val_typed);
             let then_result = super::control::analyze_executable_region_with_prelude(ctx, &if_let.then_body.body, if_let.then_body.range, expected, |ctx| {
-                bind_pattern(ctx, pattern, fact, causal);
+                let mut engine = crate::checker::coverage::CoverageEngine::new(subject.clone(), ctx.control.clone());
+                if let Some(reason) = refinement_block {
+                    engine.retain_blocked(reason);
+                }
+                let mut bindings = Vec::new();
+                let pattern_res = crate::checker::pattern::resolve_pattern(ctx, &if_let.pattern, &subject, &mut bindings);
+                if let Some(reason) = crate::checker::pattern::blocked_reason_for_resolution(&pattern_res) {
+                    engine.retain_blocked(reason.clone());
+                }
+                let coverage_pat = crate::checker::pattern::coverage_pattern_for_resolution(engine.arena_mut(), &pattern_res);
+                let usefulness = engine.classify_arm(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, ctx.enum_table, coverage_pat);
+                if usefulness == crate::match_semantics::PatternUsefulness::Impossible {
+                    ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
+                        "impossible match pattern: it cannot match any value of the scrutinee type",
+                        if_let.pattern.range(),
+                    ));
+                }
+                for b in bindings.iter() {
+                    ctx.attach_causal_invalidity_to_binding(b.binding, val_typed.causal_invalidity);
+                }
+                ctx.record_pattern_site_resolution(crate::match_semantics::PatternSiteResolution {
+                    kind: crate::match_semantics::PatternSiteKind::IfLet,
+                    range: if_let.pattern.range(),
+                    subject: val_typed.knowledge.clone(),
+                    pattern: pattern_res,
+                    bindings: bindings.into_boxed_slice(),
+                    usefulness,
+                });
             });
 
             ctx.flow = before.clone();
@@ -814,18 +841,48 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             let before = ctx.flow.clone();
 
             let evaluate_step = |step_ctx: &mut CheckingContext<'_>,
-                                 current_header: &FlowState|
+                                 current_header: &FlowState,
+                                 is_real_pass: bool|
              -> (Option<FlowState>, FlowState, Vec<FlowState>, CausalInvalidity) {
                 step_ctx.flow = current_header.clone();
                 let val_typed = analyze_expression(step_ctx, &while_let.value, &ExpectedType::None);
                 let exit_flow = step_ctx.flow.clone();
-                let pattern = &while_let.pattern;
-                let fact = val_typed.fact();
-                let causal = val_typed.causal_invalidity;
+                let (subject, refinement_block) = coverage_subject_for_expression(step_ctx, &val_typed);
 
                 step_ctx.push_loop_frame();
                 let body_res = super::control::analyze_executable_region_with_prelude(step_ctx, &while_let.body, while_let.range, &ExpectedType::None, |ctx| {
-                    bind_pattern(ctx, pattern, fact, causal);
+                    let mut engine = crate::checker::coverage::CoverageEngine::new(subject.clone(), ctx.control.clone());
+                    if let Some(reason) = refinement_block {
+                        engine.retain_blocked(reason);
+                    }
+                    let mut arm_bindings = Vec::new();
+                    let pattern_res = crate::checker::pattern::resolve_pattern(ctx, &while_let.pattern, &subject, &mut arm_bindings);
+                    if let Some(reason) = crate::checker::pattern::blocked_reason_for_resolution(&pattern_res) {
+                        engine.retain_blocked(reason.clone());
+                    }
+                    let coverage_pat = crate::checker::pattern::coverage_pattern_for_resolution(engine.arena_mut(), &pattern_res);
+                    let usefulness = engine.classify_arm(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, ctx.enum_table, coverage_pat);
+                    if is_real_pass && usefulness == crate::match_semantics::PatternUsefulness::Impossible {
+                        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
+                            "impossible match pattern: it cannot match any value of the scrutinee type",
+                            while_let.pattern.range(),
+                        ));
+                    }
+                    for b in arm_bindings.iter() {
+                        ctx.attach_causal_invalidity_to_binding(b.binding, val_typed.causal_invalidity);
+                    }
+                    if is_real_pass {
+                        ctx.record_pattern_site_resolution(crate::match_semantics::PatternSiteResolution {
+                            kind: crate::match_semantics::PatternSiteKind::WhileLet,
+                            range: while_let.pattern.range(),
+                            subject: val_typed.knowledge.clone(),
+                            pattern: pattern_res,
+                            bindings: arm_bindings.into_boxed_slice(),
+                            usefulness,
+                        });
+                    }
                 });
                 let body_flow = step_ctx.flow.clone();
                 let loop_frame = step_ctx.pop_loop_frame();
@@ -845,7 +902,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             };
 
             let fixpoint = match super::loop_analysis::solve_loop_header(ctx, &before, |probe_ctx, current_header| {
-                let (backedge, _exit_flow, breaks, _causal) = evaluate_step(probe_ctx, current_header);
+                let (backedge, _exit_flow, breaks, _causal) = evaluate_step(probe_ctx, current_header, false);
                 super::loop_analysis::LoopStepResult {
                     normal_backedge: backedge,
                     continues: Vec::new(),
@@ -862,7 +919,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             };
 
             // Final real pass at stable header
-            let (_backedge, exit_flow, breaks, causal) = evaluate_step(ctx, &fixpoint.header);
+            let (_backedge, exit_flow, breaks, causal) = evaluate_step(ctx, &fixpoint.header, true);
 
             let mut exit_states = Vec::new();
             if exit_flow.is_reachable() {
@@ -5199,35 +5256,16 @@ fn synthesize_family_subscript(ctx: &mut CheckingContext<'_>, family_type: TypeI
     }
 }
 
-fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSemanticFact, causal_invalidity: crate::checker::causal::CausalInvalidity) {
-    match pattern {
-        Pattern::Name { name, range, .. } => {
-            ctx.bind_pattern_binding_with_causal(name.clone(), fact, *range, causal_invalidity);
-        }
-        Pattern::Tuple { elements, .. } => {
-            for (index, element) in elements.iter().enumerate() {
-                let component = ValueSemanticFact::new(crate::checker::composition::decompose_tuple_component(
-                    ctx.store,
-                    &fact.knowledge,
-                    index,
-                    elements.len(),
-                ));
-                bind_pattern(ctx, element, component, causal_invalidity);
-            }
-        }
-        _ => {}
-    }
-}
-
-pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom_ast::ast::MatchExpr, expected: &ExpectedType) -> TypedExpression {
-    let expr_id = ctx.current_expression_id().unwrap_or_else(|| ctx.alloc_expression_id());
-    let scrutinee_typed = analyze_expression(ctx, &match_expr.value, &ExpectedType::None);
-    let scrutinee_knowledge_block = match &scrutinee_typed.knowledge {
+pub(crate) fn coverage_subject_for_expression(
+    ctx: &mut CheckingContext<'_>,
+    typed: &TypedExpression,
+) -> (crate::checker::coverage::CoverageSubject, Option<crate::types::outcome::BlockReason>) {
+    let knowledge_block = match &typed.knowledge {
         TypeKnowledge::Unknown(reason) => Some(crate::types::outcome::BlockReason::UnknownType(reason.clone())),
         TypeKnowledge::Dynamic(_) => Some(crate::types::outcome::BlockReason::ReflectionBoundary),
         TypeKnowledge::Known(_) => None,
     };
-    let original_ty = scrutinee_typed.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
+    let original_ty = typed.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
     let refinement = {
         let empty_surfaces = crate::traits::TraitSurfaceTable::new();
         let mut budget = ctx.control.budget.borrow_mut();
@@ -5262,18 +5300,25 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
             (original_ty, Some(reason))
         }
     };
-    let refinement_block = refinement_block.or(scrutinee_knowledge_block);
+    let refinement_block = refinement_block.or(knowledge_block);
+    let scrutinee_local_ty = typed.local_type.clone();
+    let scrutinee_subject = crate::checker::coverage::CoverageSubject::from_parts(
+        scrutinee_ty,
+        scrutinee_local_ty.unwrap_or(crate::types::LocalType::Canonical(scrutinee_ty)),
+    );
+    (scrutinee_subject, refinement_block)
+}
+
+pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom_ast::ast::MatchExpr, expected: &ExpectedType) -> TypedExpression {
+    let expr_id = ctx.current_expression_id().unwrap_or_else(|| ctx.alloc_expression_id());
+    let scrutinee_typed = analyze_expression(ctx, &match_expr.value, &ExpectedType::None);
+    let (scrutinee_subject, refinement_block) = coverage_subject_for_expression(ctx, &scrutinee_typed);
     let before_flow = ctx.flow.clone();
     let stable_scrutinee = match match_expr.value.as_ref() {
         Expr::Var { value, .. } => ctx.lookup_binding_info(value).map(|binding| binding.id),
         _ => None,
     };
 
-    let scrutinee_local_ty = scrutinee_typed.local_type.clone();
-    let scrutinee_subject = crate::checker::coverage::CoverageSubject::from_parts(
-        scrutinee_ty,
-        scrutinee_local_ty.clone().unwrap_or(crate::types::LocalType::Canonical(scrutinee_ty)),
-    );
     let mut engine = crate::checker::coverage::CoverageEngine::new(scrutinee_subject.clone(), ctx.control.clone());
     if let Some(reason) = refinement_block {
         engine.retain_blocked(reason);
@@ -5479,7 +5524,7 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
 
     let initial_space = match &exhaustiveness {
         crate::match_semantics::ExhaustivenessResult::Blocked(reason) => crate::match_semantics::PatternSpaceSummary::Blocked(reason.clone()),
-        _ => crate::match_semantics::PatternSpaceSummary::Opaque(scrutinee_ty),
+        _ => crate::match_semantics::PatternSpaceSummary::Opaque(scrutinee_subject.canonical),
     };
     let resolution = crate::match_semantics::MatchResolution {
         expression: expr_id,

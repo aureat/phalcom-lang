@@ -249,7 +249,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["scalar"],
         kind: ModuleKind::Package,
-        children: &["number", "nil", "string", "bool", "symbol"],
+        children: &["number", "nil", "string", "char", "bool", "symbol"],
     },
     UniverseNodeSpec {
         path: &["scalar", "number"],
@@ -263,6 +263,11 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["scalar", "string"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["scalar", "char"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -800,6 +805,9 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "scalar" && m.as_str() == "string" => {
                 include_str!("../../phalcom-core/core/universe/src/scalar/string.ph")
+            }
+            [c, m] if c.as_str() == "scalar" && m.as_str() == "char" => {
+                include_str!("../../phalcom-core/core/universe/src/scalar/char.ph")
             }
             [c, m] if c.as_str() == "scalar" && m.as_str() == "bool" => {
                 include_str!("../../phalcom-core/core/universe/src/scalar/bool.ph")

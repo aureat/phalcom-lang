@@ -358,6 +358,10 @@ pub enum CompilerError {
     #[error("internal: match expression has no formal lowering record")]
     MissingMatchLoweringSemantics(SourceRange),
 
+    /// No formal lowering record for this pattern site.
+    #[error("internal: pattern site has no formal lowering record")]
+    MissingPatternSiteLoweringSemantics(SourceRange),
+
     /// Invalid executable pattern lowering.
     #[error("internal: invalid executable pattern lowering")]
     InvalidExecutablePattern(SourceRange),

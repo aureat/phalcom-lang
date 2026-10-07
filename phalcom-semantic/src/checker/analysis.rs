@@ -493,6 +493,7 @@ pub struct CallableAnalysis {
     pub callable_reference_resolutions: Arc<crate::checker::associated::CallableReferenceResolutionIndex>,
     pub family_applications: Arc<crate::checker::associated::FamilyApplicationResolutionIndex>,
     pub match_resolutions: Arc<crate::match_semantics::MatchResolutionIndex>,
+    pub pattern_site_resolutions: Arc<crate::match_semantics::PatternSiteResolutionIndex>,
     pub flow_graph: Arc<crate::checker::flow::graph::FlowGraph>,
     pub entry_flow: FlowStateSummary,
     pub exits: BodyExitFacts,

@@ -36,6 +36,9 @@ pub enum LoweringSiteKind {
     ConditionalInvoke,
     TraitInvoke,
     TraitRequirementInvoke,
+    IfLetPattern,
+    WhileLetPattern,
+    ForLanePattern,
 }
 
 /// Compiler-facing lowering attachment key.
@@ -418,6 +421,14 @@ pub struct MatchLoweringSpec {
     pub arms: Box<[ExecutableMatchArm]>,
 }
 
+/// Frozen semantic projection for an executable pattern site outside `match`
+/// (`if let`, `while let`, `for` lane).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PatternSiteLoweringSpec {
+    pub pattern: ExecutablePattern,
+    pub bindings: Box<[ExecutableBindingSpec]>,
+}
+
 /// Conditional inherent method invocation lowering specification.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConditionalInvocationSpec {
@@ -549,6 +560,7 @@ pub struct ModuleLoweringSemantics {
     pub family_application_sites: BTreeSet<LoweringSite>,
     pub family_applications: BTreeMap<LoweringSite, FamilyApplicationLoweringSpec>,
     pub matches: BTreeMap<LoweringSite, MatchLoweringSpec>,
+    pub pattern_sites: BTreeMap<LoweringSite, PatternSiteLoweringSpec>,
     pub conditional_invocations: BTreeMap<LoweringSite, ConditionalInvocationSpec>,
     pub trait_invocations: BTreeMap<LoweringSite, TraitInvocationSpec>,
     pub trait_requirement_invocations: BTreeMap<LoweringSite, TraitRequirementInvocationSpec>,
@@ -612,6 +624,7 @@ impl ModuleLoweringSemantics {
             family_application_sites: BTreeSet::new(),
             family_applications: BTreeMap::new(),
             matches: BTreeMap::new(),
+            pattern_sites: BTreeMap::new(),
             conditional_invocations: BTreeMap::new(),
             trait_invocations: BTreeMap::new(),
             trait_requirement_invocations: BTreeMap::new(),
@@ -1144,6 +1157,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
     let mut family_application_sites = BTreeSet::new();
     let mut family_applications = BTreeMap::new();
     let mut matches = BTreeMap::new();
+    let mut pattern_sites = BTreeMap::new();
     let mut conditional_invocations = BTreeMap::new();
     let mut trait_invocations = BTreeMap::new();
     let mut trait_requirement_invocations = BTreeMap::new();
@@ -1517,6 +1531,21 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
             matches.insert(site, spec);
         }
 
+        // 3b. Project standalone executable pattern sites (if let, while let, for lane)
+        for (site_key, site_res) in analysis.pattern_site_resolutions.iter() {
+            let kind = match site_key.kind {
+                phalcom_semantic::match_semantics::PatternSiteKind::IfLet => LoweringSiteKind::IfLetPattern,
+                phalcom_semantic::match_semantics::PatternSiteKind::WhileLet => LoweringSiteKind::WhileLetPattern,
+                phalcom_semantic::match_semantics::PatternSiteKind::ForLane => LoweringSiteKind::ForLanePattern,
+            };
+            let site = LoweringSite::new(source_id.clone(), site_key.range, kind);
+            let spec = project_pattern_site_resolution(site_res, snapshot)?;
+            if pattern_sites.contains_key(&site) {
+                return Err(ProjectionError::AmbiguousLoweringSiteAttachment(site));
+            }
+            pattern_sites.insert(site, spec);
+        }
+
         // 4. Project Conditional Inherent Invocations
         for expression in analysis.expressions.values() {
             if let Some(selection) = &expression.conditional_dispatch {
@@ -1568,6 +1597,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         family_application_sites,
         family_applications,
         matches,
+        pattern_sites,
         conditional_invocations,
         trait_invocations,
         trait_requirement_invocations,
@@ -2477,6 +2507,26 @@ fn project_match_resolution(
     }
 
     Ok(MatchLoweringSpec { arms: arms.into_boxed_slice() })
+}
+
+fn project_pattern_site_resolution(
+    site: &phalcom_semantic::match_semantics::PatternSiteResolution,
+    snapshot: &SemanticSnapshot,
+) -> Result<PatternSiteLoweringSpec, ProjectionError> {
+    let bindings = site
+        .bindings
+        .iter()
+        .map(|b| ExecutableBindingSpec {
+            binding: b.binding,
+            name: b.name.clone(),
+            range: b.source,
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+
+    let pattern = project_pattern_resolution(&site.pattern, &site.bindings, snapshot)?;
+
+    Ok(PatternSiteLoweringSpec { pattern, bindings })
 }
 
 fn project_pattern_resolution(

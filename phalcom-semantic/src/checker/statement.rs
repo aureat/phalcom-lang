@@ -359,20 +359,67 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                     elem_fact,
                     iter_typed.causal_invalidity.join(iteration_causal_invalidity),
                     Some(iteration),
+                    lane.index.as_ref(),
                 ));
             }
             let before = ctx.flow.clone();
 
             let evaluate_step = |step_ctx: &mut CheckingContext<'_>,
-                                 current_header: &FlowState|
+                                 current_header: &FlowState,
+                                 is_real_pass: bool|
              -> (Option<FlowState>, FlowState, Vec<FlowState>, crate::checker::causal::CausalInvalidity) {
                 step_ctx.flow = current_header.clone();
                 let exit_flow = step_ctx.flow.clone();
 
                 step_ctx.push_loop_frame();
                 let body_res = super::control::analyze_executable_region_with_prelude(step_ctx, &for_stmt.body, for_stmt.range, &ExpectedType::None, |ctx| {
-                    for (pat, fact, causal, explanation) in &lane_facts {
-                        bind_pattern(ctx, pat, fact.clone(), *causal, *explanation);
+                    for (pat, fact, causal, explanation, index_binding) in &lane_facts {
+                        if let Some(index) = index_binding {
+                            let int_ty = ctx.core_type(&ctx.core_ids.int.clone()).unwrap_or_else(|| ctx.store.unit());
+                            ctx.bind_pattern_binding_with_causal(
+                                index.name.clone(),
+                                ValueSemanticFact::new(TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax)),
+                                index.range,
+                                crate::checker::causal::CausalInvalidity::Clean,
+                            );
+                        }
+                        let elem_ty = fact.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
+                        let subject = crate::checker::coverage::CoverageSubject::from_parts(
+                            elem_ty,
+                            crate::types::LocalType::Canonical(elem_ty),
+                        );
+                        let mut engine = crate::checker::coverage::CoverageEngine::new(subject.clone(), ctx.control.clone());
+                        let mut arm_bindings = Vec::new();
+                        let pattern_res = crate::checker::pattern::resolve_pattern(ctx, pat, &subject, &mut arm_bindings);
+                        if let Some(reason) = crate::checker::pattern::blocked_reason_for_resolution(&pattern_res) {
+                            engine.retain_blocked(reason.clone());
+                        }
+                        let coverage_pat = crate::checker::pattern::coverage_pattern_for_resolution(engine.arena_mut(), &pattern_res);
+                        let usefulness = engine.classify_arm(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, ctx.enum_table, coverage_pat);
+                        if is_real_pass && usefulness == crate::match_semantics::PatternUsefulness::Impossible {
+                            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                                ctx.current_module.clone(),
+                                crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
+                                "impossible match pattern: it cannot match any value of the target type",
+                                pat.range(),
+                            ));
+                        }
+                        for b in arm_bindings.iter() {
+                            ctx.attach_causal_invalidity_to_binding(b.binding, *causal);
+                            if let Some(exp) = *explanation {
+                                ctx.flow.set_binding_explanation(b.binding, exp);
+                            }
+                        }
+                        if is_real_pass {
+                            ctx.record_pattern_site_resolution(crate::match_semantics::PatternSiteResolution {
+                                kind: crate::match_semantics::PatternSiteKind::ForLane,
+                                range: pat.range(),
+                                subject: fact.knowledge.clone(),
+                                pattern: pattern_res,
+                                bindings: arm_bindings.into_boxed_slice(),
+                                usefulness,
+                            });
+                        }
                     }
                 });
                 let body_flow = step_ctx.flow.clone();
@@ -393,7 +440,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             };
 
             let fixpoint = match super::loop_analysis::solve_loop_header(ctx, &before, |probe_ctx, current_header| {
-                let (backedge, _exit_flow, breaks, _causal) = evaluate_step(probe_ctx, current_header);
+                let (backedge, _exit_flow, breaks, _causal) = evaluate_step(probe_ctx, current_header, false);
                 super::loop_analysis::LoopStepResult {
                     normal_backedge: backedge,
                     continues: Vec::new(),
@@ -408,7 +455,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             };
 
             // Final real pass at stable header
-            let (_backedge, exit_flow, breaks, _causal) = evaluate_step(ctx, &fixpoint.header);
+            let (_backedge, exit_flow, breaks, _causal) = evaluate_step(ctx, &fixpoint.header, true);
 
             let mut exit_states = Vec::new();
             if exit_flow.is_reachable() {
@@ -625,49 +672,5 @@ fn local_list_element(local_type: &LocalType) -> Option<LocalType> {
     match local_type {
         LocalType::Applied { arguments, .. } => arguments.first().cloned(),
         _ => None,
-    }
-}
-
-fn bind_pattern(
-    ctx: &mut CheckingContext<'_>,
-    pattern: &Pattern,
-    fact: ValueSemanticFact,
-    causal_invalidity: crate::checker::causal::CausalInvalidity,
-    explanation: Option<crate::identity::ExplanationId>,
-) {
-    match pattern {
-        Pattern::Name { name, range, .. } => {
-            ctx.bind_pattern_binding_with_causal(name.clone(), fact, *range, causal_invalidity);
-            if let (Some(binding), Some(explanation)) = (ctx.lookup_binding_info(name).map(|info| info.id), explanation) {
-                ctx.flow.set_binding_explanation(binding, explanation);
-            }
-        }
-        Pattern::Tuple { elements, .. } => {
-            for (index, element) in elements.iter().enumerate() {
-                let component = ValueSemanticFact::new(crate::checker::composition::decompose_tuple_component(
-                    ctx.store,
-                    &fact.knowledge,
-                    index,
-                    elements.len(),
-                ));
-                bind_pattern(ctx, element, component, causal_invalidity, explanation);
-            }
-        }
-        Pattern::List { elements, rest, .. } => {
-            let list_origin = ctx.core_type(&ctx.core_ids.list.clone());
-            let element_knowledge = list_origin
-                .map(|origin| crate::checker::composition::decompose_list_element(ctx.store, &fact.knowledge, origin))
-                .unwrap_or_else(|| fact.knowledge.clone());
-            for element in elements {
-                bind_pattern(ctx, element, ValueSemanticFact::new(element_knowledge.clone()), causal_invalidity, explanation);
-            }
-            if let Some(rest) = rest {
-                let rest_knowledge = list_origin
-                    .map(|origin| crate::checker::composition::decompose_list_rest(ctx.store, &fact.knowledge, origin))
-                    .unwrap_or_else(|| fact.knowledge.clone());
-                bind_pattern(ctx, rest, ValueSemanticFact::new(rest_knowledge), causal_invalidity, explanation);
-            }
-        }
-        _ => {}
     }
 }

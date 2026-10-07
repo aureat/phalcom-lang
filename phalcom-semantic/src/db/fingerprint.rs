@@ -1845,6 +1845,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     }
 
     hash_match_resolutions(&analysis.match_resolutions, &mut hasher);
+    hash_pattern_site_resolutions(&analysis.pattern_site_resolutions, &mut hasher);
     hash_iteration_lanes(&analysis.for_iteration_lanes, &mut hasher);
     hash_positional_expansions(&analysis.positional_expansions, &mut hasher);
     hash_known_invalid_positional_expansions(&analysis.known_invalid_positional_expansions, &mut hasher);
@@ -2004,6 +2005,42 @@ fn hash_match_arm_resolution(arm: &crate::match_semantics::MatchArmResolution, h
         crate::match_semantics::PatternUsefulness::Impossible => 2u8.hash(hasher),
     }
     hash_type_knowledge(&arm.branch_result, false, hasher);
+}
+
+fn hash_pattern_site_resolutions(resolutions: &crate::match_semantics::PatternSiteResolutionIndex, hasher: &mut impl Hasher) {
+    resolutions.len().hash(hasher);
+    for (key, resolution) in resolutions.iter() {
+        match key.kind {
+            crate::match_semantics::PatternSiteKind::IfLet => 0u8.hash(hasher),
+            crate::match_semantics::PatternSiteKind::WhileLet => 1u8.hash(hasher),
+            crate::match_semantics::PatternSiteKind::ForLane => 2u8.hash(hasher),
+        }
+        hash_range(key.range, hasher);
+        hash_pattern_site_resolution(resolution, hasher);
+    }
+}
+
+fn hash_pattern_site_resolution(res: &crate::match_semantics::PatternSiteResolution, hasher: &mut impl Hasher) {
+    match res.kind {
+        crate::match_semantics::PatternSiteKind::IfLet => 0u8.hash(hasher),
+        crate::match_semantics::PatternSiteKind::WhileLet => 1u8.hash(hasher),
+        crate::match_semantics::PatternSiteKind::ForLane => 2u8.hash(hasher),
+    }
+    hash_range(res.range, hasher);
+    hash_type_knowledge(&res.subject, false, hasher);
+    hash_pattern_resolution(&res.pattern, hasher);
+    res.bindings.len().hash(hasher);
+    for b in res.bindings.iter() {
+        b.binding.hash(hasher);
+        b.name.hash(hasher);
+        hash_type_knowledge(&b.knowledge, false, hasher);
+        hash_range(b.source, hasher);
+    }
+    match res.usefulness {
+        crate::match_semantics::PatternUsefulness::Useful => 0u8.hash(hasher),
+        crate::match_semantics::PatternUsefulness::Redundant => 1u8.hash(hasher),
+        crate::match_semantics::PatternUsefulness::Impossible => 2u8.hash(hasher),
+    }
 }
 
 fn hash_pattern_resolution(pat: &crate::match_semantics::PatternResolution, hasher: &mut impl Hasher) {

@@ -3641,6 +3641,7 @@ impl<'source> Parser<'source> {
         match self.peek() {
             Token::Char(value) => {
                 let start = self.cur_start();
+                let value = *value;
                 self.advance();
                 let range = (start..self.prev_end).into();
                 Ok(Pattern::Char { value, range })

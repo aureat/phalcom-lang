@@ -14,6 +14,42 @@ use std::collections::BTreeMap;
 /// Index of match expression analysis products within a callable body.
 pub type MatchResolutionIndex = BTreeMap<ExpressionId, MatchResolution>;
 
+/// Kind of executable pattern site outside `match`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PatternSiteKind {
+    IfLet,
+    WhileLet,
+    ForLane,
+}
+
+/// Disambiguated key for a pattern execution site within a callable body.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PatternSiteKey {
+    pub kind: PatternSiteKind,
+    pub range: SourceRange,
+}
+
+impl PatternSiteKey {
+    pub fn new(kind: PatternSiteKind, range: SourceRange) -> Self {
+        Self { kind, range }
+    }
+}
+
+/// Semantic analysis product for an executable pattern site outside `match`
+/// (`if let`, `while let`, `for` lane).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PatternSiteResolution {
+    pub kind: PatternSiteKind,
+    pub range: SourceRange,
+    pub subject: TypeKnowledge,
+    pub pattern: PatternResolution,
+    pub bindings: Box<[PatternBindingResolution]>,
+    pub usefulness: PatternUsefulness,
+}
+
+/// Index of non-match executable pattern site resolutions within a callable body.
+pub type PatternSiteResolutionIndex = BTreeMap<PatternSiteKey, PatternSiteResolution>;
+
 /// Comprehensive semantic analysis product for a `match` expression.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MatchResolution {

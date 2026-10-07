@@ -551,7 +551,7 @@ fn useful_internal(
             Err(reason) => return UsefulnessSearch::Blocked(reason),
             Ok(true) => {}
         }
-        let specialized = specialize_matrix_for_char_value(arena, matrix, value);
+        let specialized = specialize_matrix_for_char_value(arena, matrix, Some(value));
         return match useful_internal(
             declarations,
             store,

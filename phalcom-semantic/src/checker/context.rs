@@ -582,6 +582,7 @@ pub struct CheckingContext<'a> {
     pub callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex,
     pub family_applications: crate::checker::associated::FamilyApplicationResolutionIndex,
     pub match_resolutions: crate::match_semantics::MatchResolutionIndex,
+    pub pattern_site_resolutions: crate::match_semantics::PatternSiteResolutionIndex,
     pub explanations: crate::explain::ExplanationArena,
     expression_owners: Vec<ExpressionId>,
     expression_owned_causes: BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
@@ -709,6 +710,7 @@ impl<'a> CheckingContext<'a> {
             callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex::new(),
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
             match_resolutions: crate::match_semantics::MatchResolutionIndex::new(),
+            pattern_site_resolutions: crate::match_semantics::PatternSiteResolutionIndex::new(),
             explanations: crate::explain::ExplanationArena::new(),
             expression_owners: Vec::new(),
             expression_owned_causes: BTreeMap::new(),
@@ -816,6 +818,7 @@ impl<'a> CheckingContext<'a> {
             callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex::new(),
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
             match_resolutions: crate::match_semantics::MatchResolutionIndex::new(),
+            pattern_site_resolutions: crate::match_semantics::PatternSiteResolutionIndex::new(),
             explanations: crate::explain::ExplanationArena::new(),
             expression_owners: Vec::new(),
             expression_owned_causes: BTreeMap::new(),
@@ -902,6 +905,7 @@ impl<'a> CheckingContext<'a> {
             callable_reference_resolutions: self.callable_reference_resolutions.clone(),
             family_applications: self.family_applications.clone(),
             match_resolutions: self.match_resolutions.clone(),
+            pattern_site_resolutions: self.pattern_site_resolutions.clone(),
             explanations: self.explanations.clone(),
             expression_owners: self.expression_owners.clone(),
             expression_owned_causes: self.expression_owned_causes.clone(),
@@ -2107,6 +2111,15 @@ impl<'a> CheckingContext<'a> {
 
     pub fn bind_pattern_binding(&mut self, name: impl Into<String>, fact: ValueSemanticFact, range: SourceRange) -> BindingDeclarationResult {
         self.bind_pattern_binding_with_causal(name, fact, range, crate::checker::causal::CausalInvalidity::Clean)
+    }
+
+    pub fn attach_causal_invalidity_to_binding(&mut self, binding: BindingId, causal_invalidity: crate::checker::causal::CausalInvalidity) {
+        if causal_invalidity == crate::checker::causal::CausalInvalidity::Clean {
+            return;
+        }
+        if let Some(state) = self.flow.bindings.get_mut(&binding) {
+            state.causal_invalidity = state.causal_invalidity.join(causal_invalidity);
+        }
     }
 
     pub fn lookup_binding_info(&self, name: &str) -> Option<&LocalBindingInfo> {
@@ -3574,6 +3587,7 @@ impl<'a> CheckingContext<'a> {
             callable_reference_resolutions: std::sync::Arc::new(self.callable_reference_resolutions),
             family_applications: std::sync::Arc::new(self.family_applications),
             match_resolutions: std::sync::Arc::new(self.match_resolutions),
+            pattern_site_resolutions: std::sync::Arc::new(self.pattern_site_resolutions),
             flow_graph,
             entry_flow,
             exits,
@@ -3604,6 +3618,11 @@ impl<'a> CheckingContext<'a> {
 
     pub fn record_match_resolution(&mut self, expr_id: ExpressionId, resolution: crate::match_semantics::MatchResolution) {
         self.match_resolutions.insert(expr_id, resolution);
+    }
+
+    pub fn record_pattern_site_resolution(&mut self, resolution: crate::match_semantics::PatternSiteResolution) {
+        let key = crate::match_semantics::PatternSiteKey::new(resolution.kind, resolution.range);
+        self.pattern_site_resolutions.insert(key, resolution);
     }
 
     pub fn record_data_declaration_dependency(&self, decl: &DeclarationId) {

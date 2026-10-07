@@ -33,7 +33,7 @@ pub fn char_utf8_length(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRe
 pub fn char_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let mut encoded = [0u8; 4];
     let text = expect_char(receiver)?.encode_utf8(&mut encoded);
-    Ok(vm.alloc_string_value(text))
+    Ok(vm.alloc_string_value(text.to_string()))
 }
 
 /// Returns whether this scalar is ASCII.
@@ -101,7 +101,7 @@ pub fn char_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
     Char,
     "fromCodePoint(_)",
     params = [Int],
-    returns = Option,
+    returns = "Option<Char>",
     types = "(Int) -> Option<Char>",
     side = class,
     effects = pure
