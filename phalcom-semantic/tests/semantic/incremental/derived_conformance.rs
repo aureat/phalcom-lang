@@ -15,6 +15,54 @@ fn location(path: &std::path::Path) -> SourceLocation {
     }
 }
 
+#[test]
+fn generic_conformance_stable_callable_is_source_owned_and_matches_cold_reconstruction() {
+    use phalcom_semantic::identity::CallableOwnerId;
+    use phalcom_semantic::metadata::stable_identity::{StableIdentityContext, to_stable_callable_with_context};
+    let root = tempfile::tempdir().expect("tempdir");
+    std::fs::write(root.path().join("package.ph"), "").expect("package marker");
+    let path = root.path().join("provider.ph");
+    let source = location(&path);
+    let text = r#"
+trait Value { value -> Int }
+class Box<T> {}
+impl<T> Value for Box<T> { value -> Int { 7 } }
+class Consumer {
+  @class integers(_ box: Box<Int>) -> Int { box.value }
+  @class strings(_ box: Box<String>) -> Int { box.value }
+}
+"#;
+    let mutation = |revision, text: &str| WorkspaceSourceBatchMutation::SetOverlay {
+        source: source.clone(),
+        text: Arc::from(text),
+        revision: SourceRevision(revision),
+        recovered_program: None,
+    };
+    let witnesses = |snapshot: &SemanticSnapshot| {
+        snapshot
+            .callable_signatures
+            .iter()
+            .map(|(callable, _)| callable)
+            .filter(|callable| {
+                matches!(callable.owner, CallableOwnerId::Conformance(_)) && callable.owner.module() == snapshot.module_for_display_path(&path).unwrap()
+            })
+            .map(|callable| to_stable_callable_with_context(callable, &StableIdentityContext::new(&snapshot.module_products.universe)))
+            .collect::<Vec<_>>()
+    };
+    let mut session = SemanticWorkspaceSession::new();
+    let initial = session.apply_module_mutations([mutation(1, text)]).unwrap();
+    assert!(!initial.snapshot.has_errors(), "{:?}", initial.snapshot.diagnostics);
+    let before = witnesses(&initial.snapshot);
+    assert_eq!(before.len(), 1, "both exact Box applications share one source witness");
+    let edited = format!("{text}\n// source-only edit\n");
+    let incremental = session.apply_module_mutations([mutation(2, &edited)]).unwrap();
+    let cold = SemanticWorkspaceSession::new().apply_module_mutations([mutation(2, &edited)]).unwrap();
+    assert!(!incremental.snapshot.has_errors(), "{:?}", incremental.snapshot.diagnostics);
+    assert!(!cold.snapshot.has_errors(), "{:?}", cold.snapshot.diagnostics);
+    assert_eq!(before, witnesses(&incremental.snapshot));
+    assert_eq!(witnesses(&incremental.snapshot), witnesses(&cold.snapshot));
+}
+
 fn callable_id(snapshot: &SemanticSnapshot, module: &phalcom_modules::ModuleId, owner: &str, name: &str, side: DispatchSide) -> CallableId {
     let owner = DeclarationId::new(module.clone(), owner.into());
     snapshot

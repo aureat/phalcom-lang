@@ -41,6 +41,64 @@ fn sample_header(version: u32, record_rows: bool) -> SemanticMetadataHeader {
     }
 }
 
+#[test]
+fn callable_owner_v11_roundtrips_and_v10_declaration_owner_decodes() {
+    use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef, StableDispatchSide, StableImplRef, StableVariantRef};
+    let module = StableModuleRef {
+        project: StableProjectRef::Builtin {
+            namespace: "universe".into(),
+            version: "0.1.0".into(),
+        },
+        path: Box::new([]),
+    };
+    let declaration = StableDeclarationRef {
+        module: module.clone(),
+        path: Box::new(["Box".into()]),
+    };
+    let owners = [
+        StableCallableOwnerRef::Declaration(declaration.clone()),
+        StableCallableOwnerRef::Variant(StableVariantRef {
+            owner: declaration.clone(),
+            selector: "Some(_)".into(),
+        }),
+        StableCallableOwnerRef::Conformance(StableImplRef { module, local_id: 3 }),
+    ];
+    for owner in owners {
+        let callable = StableCallableRef {
+            owner,
+            side: StableDispatchSide::Instance,
+            selector: "foo(_)".into(),
+        };
+        let encoded = serde_json::to_value(&callable).unwrap();
+        assert_eq!(serde_json::from_value::<StableCallableRef>(encoded.clone()).unwrap(), callable);
+        let mut bundle = sample_bundle(TYPE_METADATA_SCHEMA_VERSION, false);
+        bundle.callables = Box::new([phalcom_type_meta::declaration::CallableSemanticRecord {
+            callable: callable.clone(),
+            generic_signature: None,
+            parameters: Box::new([]),
+            return_type: phalcom_type_meta::declaration::PublishedTypeSlot::Known {
+                form: TypeNodeId(0),
+                authority: phalcom_type_meta::declaration::PublishedTypeAuthority::DeclaredAnnotation,
+            },
+            source: None,
+        }]);
+        let json = encode_metadata_json(&bundle).unwrap();
+        assert_eq!(decode_metadata_json(&json, &ValidationLimits::default()).unwrap(), bundle);
+        if let StableCallableOwnerRef::Declaration(_) = &callable.owner {
+            let mut legacy = encoded;
+            legacy["owner"] = serde_json::to_value(&declaration).unwrap();
+            assert_eq!(serde_json::from_value::<StableCallableRef>(legacy.clone()).unwrap(), callable);
+            let mut legacy_bundle = serde_json::to_value(&bundle).unwrap();
+            legacy_bundle["header"]["schema_version"] = serde_json::json!(10);
+            legacy_bundle["callables"][0]["callable"] = legacy;
+            let decoded = decode_metadata_json(&serde_json::to_string(&legacy_bundle).unwrap(), &ValidationLimits::default()).unwrap();
+            assert_eq!(decoded.header.schema_version, 10);
+            assert_eq!(decoded.callables[0].callable, callable);
+        }
+    }
+    assert_eq!(TYPE_METADATA_SCHEMA_VERSION, 11);
+}
+
 fn sample_bundle(version: u32, record_rows: bool) -> SemanticMetadataBundle {
     SemanticMetadataBundle {
         header: sample_header(version, record_rows),
@@ -640,13 +698,13 @@ fn test_unsupported_schema_versions_rejected() {
         }
     );
 
-    // Version 11 (future)
-    let b11 = sample_bundle(11, false);
+    // The first unsupported future version.
+    let b11 = sample_bundle(TYPE_METADATA_SCHEMA_VERSION + 1, false);
     let err11 = validate_metadata_bundle(&b11, &limits).unwrap_err();
     assert_eq!(
         err11,
         MetadataValidationError::UnsupportedSchemaVersion {
-            found: 11,
+            found: TYPE_METADATA_SCHEMA_VERSION + 1,
             minimum: MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION,
             maximum: TYPE_METADATA_SCHEMA_VERSION,
         }

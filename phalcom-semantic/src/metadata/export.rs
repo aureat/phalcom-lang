@@ -136,6 +136,86 @@ fn write_stable_impl_fingerprint(builder: &mut FingerprintBuilder, r#impl: &phal
     builder.write_u32(r#impl.local_id);
 }
 
+fn write_stable_callable_fingerprint(builder: &mut FingerprintBuilder, callable: &phalcom_type_meta::identity::StableCallableRef) {
+    use phalcom_type_meta::identity::StableCallableOwnerRef;
+    match &callable.owner {
+        StableCallableOwnerRef::Declaration(owner) => {
+            builder.write_u8(1);
+            write_stable_declaration_fingerprint(builder, owner);
+        }
+        StableCallableOwnerRef::Variant(owner) => {
+            builder.write_u8(2);
+            write_stable_declaration_fingerprint(builder, &owner.owner);
+            builder.write_str(&owner.selector);
+        }
+        StableCallableOwnerRef::Conformance(owner) => {
+            builder.write_u8(3);
+            write_stable_impl_fingerprint(builder, owner);
+        }
+    }
+    builder.write_u8(match callable.side {
+        phalcom_type_meta::identity::StableDispatchSide::Instance => 1,
+        phalcom_type_meta::identity::StableDispatchSide::Class => 2,
+    });
+    builder.write_str(&callable.selector);
+}
+
+#[cfg(test)]
+mod callable_owner_fingerprint_tests {
+    use super::*;
+    use phalcom_type_meta::identity::{StableCallableOwnerRef, StableCallableRef, StableDispatchSide, StableImplRef, StableVariantRef};
+
+    #[test]
+    fn callable_parameter_owner_fingerprints_do_not_collapse_owner_kinds() {
+        let module = StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
+            path: Box::new([]),
+        };
+        let declaration = StableDeclarationRef {
+            module: module.clone(),
+            path: Box::new(["X".into()]),
+        };
+        let owners = [
+            StableCallableOwnerRef::Declaration(declaration.clone()),
+            StableCallableOwnerRef::Variant(StableVariantRef {
+                owner: declaration.clone(),
+                selector: "A()".into(),
+            }),
+            StableCallableOwnerRef::Variant(StableVariantRef {
+                owner: declaration,
+                selector: "B()".into(),
+            }),
+            StableCallableOwnerRef::Conformance(StableImplRef {
+                module: module.clone(),
+                local_id: 1,
+            }),
+            StableCallableOwnerRef::Conformance(StableImplRef { module, local_id: 2 }),
+        ];
+        let store = TypeStore::new();
+        let exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+        let fingerprints: Vec<_> = owners
+            .into_iter()
+            .map(|owner| {
+                let parameter = StableTypeParameterRef {
+                    owner: StableTypeParameterOwnerRef::Callable(StableCallableRef {
+                        owner,
+                        side: StableDispatchSide::Instance,
+                        selector: "foo()".into(),
+                    }),
+                    index: 0,
+                };
+                let mut builder = FingerprintBuilder::new();
+                exporter.write_stable_parameter_fingerprint(&mut builder, &parameter);
+                builder.finish()
+            })
+            .collect();
+        assert_eq!(fingerprints.iter().collect::<std::collections::HashSet<_>>().len(), fingerprints.len());
+    }
+}
+
 /// Exporter context driving hash-consing and topological node indexing.
 pub struct MetadataExporter<'a> {
     store: &'a TypeStore,
@@ -227,12 +307,7 @@ impl<'a> MetadataExporter<'a> {
             }
             StableTypeParameterOwnerRef::Callable(callable) => {
                 builder.write_u8(2);
-                write_stable_declaration_fingerprint(builder, &callable.owner);
-                builder.write_u8(match callable.side {
-                    phalcom_type_meta::identity::StableDispatchSide::Instance => 1,
-                    phalcom_type_meta::identity::StableDispatchSide::Class => 2,
-                });
-                builder.write_str(&callable.selector);
+                write_stable_callable_fingerprint(builder, callable);
             }
             StableTypeParameterOwnerRef::Impl(r#impl) => {
                 builder.write_u8(3);
@@ -2319,7 +2394,7 @@ impl<'a> MetadataExporter<'a> {
         }
         if let Some(callables) = self.callables {
             for callable in callables.iter().map(|(id, _)| id) {
-                require_project(&callable.declaration_owner().module.project)?;
+                require_project(&callable.owner.module().project)?;
             }
         }
         if let Some(fields) = self.fields {

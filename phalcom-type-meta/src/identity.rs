@@ -45,10 +45,66 @@ pub enum StableDispatchSide {
     Class,
 }
 
+/// Stable exact-case owner, retaining the canonical encoded case selector.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub struct StableVariantRef {
+    pub owner: StableDeclarationRef,
+    pub selector: Box<str>,
+}
+
+/// Source ownership of a callable, independent of exact specialization evidence.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub enum StableCallableOwnerRef {
+    Declaration(StableDeclarationRef),
+    Variant(StableVariantRef),
+    Conformance(StableImplRef),
+}
+
+impl<'de> Deserialize<'de> for StableCallableOwnerRef {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        enum Tagged {
+            Declaration(StableDeclarationRef),
+            Variant(StableVariantRef),
+            Conformance(StableImplRef),
+        }
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Compatible {
+            Tagged(Tagged),
+            Legacy(StableDeclarationRef),
+        }
+        Ok(match Compatible::deserialize(deserializer)? {
+            Compatible::Tagged(Tagged::Declaration(owner)) | Compatible::Legacy(owner) => Self::Declaration(owner),
+            Compatible::Tagged(Tagged::Variant(owner)) => Self::Variant(owner),
+            Compatible::Tagged(Tagged::Conformance(owner)) => Self::Conformance(owner),
+        })
+    }
+}
+
+impl StableCallableOwnerRef {
+    /// Returns only a declaration-owned callable's lexical owner.
+    pub fn try_declaration(&self) -> Option<&StableDeclarationRef> {
+        match self {
+            Self::Declaration(owner) => Some(owner),
+            Self::Variant(_) | Self::Conformance(_) => None,
+        }
+    }
+
+    /// Returns the enclosing nominal declaration, when ownership provides one.
+    pub fn enclosing_declaration(&self) -> Option<&StableDeclarationRef> {
+        match self {
+            Self::Declaration(owner) => Some(owner),
+            Self::Variant(owner) => Some(&owner.owner),
+            Self::Conformance(_) => None,
+        }
+    }
+}
+
 /// Stable callable reference.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub struct StableCallableRef {
-    pub owner: StableDeclarationRef,
+    pub owner: StableCallableOwnerRef,
     pub side: StableDispatchSide,
     pub selector: Box<str>,
 }

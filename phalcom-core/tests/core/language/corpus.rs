@@ -6,6 +6,11 @@
 use super::support;
 
 #[test]
+fn random() {
+    support::check_pass("random");
+}
+
+#[test]
 fn lexical() {
     support::check_pass("lexical");
 }

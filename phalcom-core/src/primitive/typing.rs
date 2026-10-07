@@ -1888,9 +1888,9 @@ fn callable_sig_owner(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
     let (_context, handle) = callable_sig_parts(receiver, vm)?;
     let decl = {
         let rec = inspect::callable_record(&vm.typing_registry, handle).ok_or_else(|| RuntimeError::Message("callable signature not found".into()))?;
-        rec.callable.owner.clone()
+        rec.callable.owner.enclosing_declaration().cloned()
     };
-    if let Some(class_id) = vm.typing_registry.resolve_nominal(&decl) {
+    if let Some(class_id) = decl.as_ref().and_then(|decl| vm.typing_registry.resolve_nominal(decl)) {
         Ok(Value::obj(class_id))
     } else {
         Ok(Value::none())

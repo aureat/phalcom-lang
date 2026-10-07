@@ -682,7 +682,11 @@ fn cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metada
         .callables
         .iter()
         .find(|record| {
-            record.callable.owner.path.last().is_some_and(|name| name.as_ref() == "Api")
+            record
+                .callable
+                .owner
+                .try_declaration()
+                .is_some_and(|owner| owner.path.last().is_some_and(|name| name.as_ref() == "Api"))
                 && record.callable.selector.as_ref() == "value()"
                 && record.callable.side == StableDispatchSide::Class
         })
@@ -1390,7 +1394,7 @@ fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainde
     let record_node_id = exporter.export_type_form(anon_record_ty).unwrap();
     let bundle = exporter.build_bundle(&[]).unwrap();
 
-    assert_eq!(bundle.header.schema_version, 10);
+    assert_eq!(bundle.header.schema_version, phalcom_type_meta::header::TYPE_METADATA_SCHEMA_VERSION);
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
 
     let json = encode_metadata_json(&bundle).unwrap();

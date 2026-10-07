@@ -24,6 +24,36 @@ last_updated: 2026-10-07
 
 # LANG007.C4 — Checkpoint Record
 
+## Random follow-on execution incident (2026-10-07)
+
+The user requested the `LANG007.C4.P4/random/stdlib-random-luna-patch-grade-implementation-plan.md`
+follow-on inline on main. R0 is BLOCKED / NOT_STARTED / UNVERIFIED at revision
+`c4db36bbab312cd41a589a34dad55dfbfd4ed456`: the minimal conformance/associated-type
+syntax probe panics in stable callable projection because a conformance owner
+is requested as a declaration owner. Core baseline checking passed. The incident
+packet is `LANG007.C4.P4/random/stdlib-random-implementation-incident.md`.
+The next random action requires an architectural decision on the bounded stable
+conformance identity prerequisite; the structural/static active-plan state below
+remains authoritative for its existing work.
+
+The subsequent user ruling authorized the stable identity prerequisite. It is
+now IMPLEMENTED / FOCUSED_TESTED: stable callable ownership preserves declaration,
+variant, and conformance identities; schema v11 retains v10 declaration-owner
+decode compatibility; generic parameter fingerprints distinguish owner kinds.
+Projection, noncollision, whole-bundle serialization, generic source-witness and
+cold/incremental parity regressions pass. The unchanged R0 probe now fails later
+with a missing runtime method-generic conformance recipe. Evidence/witness changes
+were explicitly excluded by the ruling, so the next action is consultation on
+that bounded prerequisite. The incident packet above contains exact evidence.
+
+The user subsequently authorized bounded recipe diagnosis. Detailed evidence
+shows the exact proof is present, but inference bindings and the selected
+callable's slot subject use distinct parameter domains. One semantic publication
+correction did not resolve the unchanged probe and was removed. The allowed
+serious correction budget is exhausted; random remains BLOCKED at R0 pending
+guidance on canonical requirement-to-witness binder/proof transport. The incident
+records the hypothesis, attempted correction, and exact failure.
+
 ## Structural Static Upgrade
 
 ## 0. Checkpoint state

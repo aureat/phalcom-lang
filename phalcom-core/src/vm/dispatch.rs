@@ -4150,7 +4150,7 @@ mod tests {
             .call_environment_recipes
             .push(std::sync::Arc::new(crate::typing::RuntimeCallEnvironmentRecipe {
                 callable: phalcom_type_meta::identity::StableCallableRef {
-                    owner: phalcom_type_meta::identity::StableDeclarationRef {
+                    owner: phalcom_type_meta::identity::StableCallableOwnerRef::Declaration(phalcom_type_meta::identity::StableDeclarationRef {
                         module: phalcom_type_meta::identity::StableModuleRef {
                             project: phalcom_type_meta::identity::StableProjectRef::Session {
                                 session_fingerprint: phalcom_type_meta::fingerprint::Fingerprint128::from_u128(0),
@@ -4158,7 +4158,7 @@ mod tests {
                             path: Box::new([]),
                         },
                         path: Box::new([]),
-                    },
+                    }),
                     side: phalcom_type_meta::identity::StableDispatchSide::Instance,
                     selector: "render".into(),
                 },

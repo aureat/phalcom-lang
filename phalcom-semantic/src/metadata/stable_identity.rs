@@ -1,9 +1,12 @@
 //! Conversions from semantic/module identities to durable metadata stable identities.
 
-use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId};
+use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, FieldId};
 use phalcom_modules::{ModuleId, ProjectIdentity, ProjectUniverse};
 use phalcom_type_meta::fingerprint::Fingerprint128;
-use phalcom_type_meta::identity::{StableCallableRef, StableDeclarationRef, StableDispatchSide, StableFieldRef, StableModuleRef, StableProjectRef};
+use phalcom_type_meta::identity::{
+    StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableFieldRef, StableImplRef, StableModuleRef, StableProjectRef,
+    StableVariantRef,
+};
 
 pub struct StableIdentityContext<'a> {
     pub projects: &'a ProjectUniverse,
@@ -63,9 +66,9 @@ pub fn to_stable_declaration_with_context(decl: &DeclarationId, context: &Stable
 
 pub fn to_stable_callable_with_context(callable: &CallableId, context: &StableIdentityContext<'_>) -> StableCallableRef {
     StableCallableRef {
-        owner: to_stable_declaration_with_context(callable.declaration_owner(), context),
+        owner: stabilize_callable_owner(&callable.owner, |module| to_stable_module_with_context(module, context)),
         side: to_stable_dispatch_side(callable.side),
-        selector: callable.selector.to_string().into_boxed_str(),
+        selector: callable.selector.encode().into_boxed_str(),
     }
 }
 
@@ -103,9 +106,9 @@ pub fn to_stable_dispatch_side(side: DispatchSide) -> StableDispatchSide {
 
 pub fn to_stable_callable(callable: &CallableId) -> StableCallableRef {
     StableCallableRef {
-        owner: to_stable_declaration(callable.declaration_owner()),
+        owner: stabilize_callable_owner(&callable.owner, to_stable_module),
         side: to_stable_dispatch_side(callable.side),
-        selector: callable.selector.to_string().into_boxed_str(),
+        selector: callable.selector.encode().into_boxed_str(),
     }
 }
 
@@ -114,6 +117,24 @@ pub fn to_stable_field(field: &FieldId) -> StableFieldRef {
         owner: to_stable_declaration(&field.owner),
         side: to_stable_dispatch_side(field.side),
         name: field.name.clone(),
+    }
+}
+
+fn stabilize_callable_owner(owner: &CallableOwnerId, module: impl Fn(&ModuleId) -> StableModuleRef) -> StableCallableOwnerRef {
+    let declaration = |decl: &DeclarationId| StableDeclarationRef {
+        module: module(&decl.module),
+        path: Box::new([decl.name.clone()]),
+    };
+    match owner {
+        CallableOwnerId::Declaration(decl) => StableCallableOwnerRef::Declaration(declaration(decl)),
+        CallableOwnerId::Variant(variant) => StableCallableOwnerRef::Variant(StableVariantRef {
+            owner: declaration(&variant.owner),
+            selector: variant.selector.encode().into_boxed_str(),
+        }),
+        CallableOwnerId::Conformance(implementation) => StableCallableOwnerRef::Conformance(StableImplRef {
+            module: module(&implementation.module),
+            local_id: implementation.local.0,
+        }),
     }
 }
 
@@ -128,5 +149,49 @@ pub fn to_stable_impl(r#impl: &crate::identity::ImplId) -> phalcom_type_meta::id
     phalcom_type_meta::identity::StableImplRef {
         module: to_stable_module(&r#impl.module),
         local_id: r#impl.local.0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::{ImplId, ImplLocalId, VariantId};
+    use phalcom_common::selector::Selector;
+
+    #[test]
+    fn stable_callable_owners_preserve_all_source_identity_categories() {
+        let module = ModuleId {
+            project: ProjectIdentity::Universe,
+            path: Default::default(),
+        };
+        let declaration = DeclarationId::new(module.clone(), "Box".into());
+        let owners = [
+            CallableOwnerId::Declaration(declaration.clone()),
+            CallableOwnerId::Variant(VariantId::new(declaration.clone(), Selector::getter("A").unwrap())),
+            CallableOwnerId::Variant(VariantId::new(declaration, Selector::getter("B").unwrap())),
+            CallableOwnerId::Conformance(ImplId::new(module.clone(), ImplLocalId(1))),
+            CallableOwnerId::Conformance(ImplId::new(module, ImplLocalId(2))),
+        ];
+        let projects = ProjectUniverse::new();
+        let context = StableIdentityContext::new(&projects);
+        let projected: Vec<_> = owners
+            .into_iter()
+            .map(|owner| {
+                let callable = CallableId {
+                    owner,
+                    side: DispatchSide::Instance,
+                    selector: Selector::getter("foo").unwrap(),
+                };
+                let stable = to_stable_callable(&callable);
+                assert_eq!(stable, to_stable_callable_with_context(&callable, &context));
+                assert_eq!(stable.selector.as_ref(), callable.selector.encode());
+                stable
+            })
+            .collect();
+        assert_eq!(projected.iter().collect::<std::collections::BTreeSet<_>>().len(), projected.len());
+        assert!(projected[0].owner.try_declaration().is_some());
+        assert!(projected[1].owner.try_declaration().is_none());
+        assert!(projected[1].owner.enclosing_declaration().is_some());
+        assert!(projected[3].owner.enclosing_declaration().is_none());
     }
 }

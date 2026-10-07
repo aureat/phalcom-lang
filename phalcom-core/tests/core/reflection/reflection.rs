@@ -244,7 +244,7 @@ fn build_test_bundle() -> SemanticMetadataBundle {
 
     let callable_value = CallableSemanticRecord {
         callable: StableCallableRef {
-            owner: decl_box.clone(),
+            owner: phalcom_type_meta::identity::StableCallableOwnerRef::Declaration(decl_box.clone()),
             side: StableDispatchSide::Instance,
             selector: "value".into(),
         },
