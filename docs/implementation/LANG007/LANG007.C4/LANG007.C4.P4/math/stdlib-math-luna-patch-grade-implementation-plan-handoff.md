@@ -1,8 +1,8 @@
 ---
 kind: implementation-handoff
 plan: stdlib-math-luna-patch-grade-implementation-plan.md
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: BASELINE_BLOCKED
 branch: stdlib-random-math
 date: 2026-10-07
@@ -12,14 +12,16 @@ date: 2026-10-07
 
 ## Current state
 
-Continue on `stdlib-random-math`. T9 through T11 are implemented and focused
-tested; T12 focused gates passed. The whole plan is still partial: T7's
-per-function Float IEEE/accuracy matrix and T8's arbitrary-size integer
-property/boundary matrix have not been completed. Do not start `universe.random`
-or claim M1 completion from this continuation.
+Continue on `stdlib-random-math`. T7 through T11 are implemented and focused
+tested; T12 focused gates passed. The math plan is complete for its bounded
+scope. Do not start `universe.random` from this handoff unless the successor
+random plan is explicitly activated.
 
 The implementation continuation was delivered in commit
 `2c248f93c7047080908453a6d46039eb3a768ccc`.
+The numeric completion's starting revision is `de9b1657`; its delivery anchor
+is the commit titled `test: complete universe math verification`, containing
+this handoff and `phalcom-core/tests/core/audit_probes/math.rs`.
 
 T9's semantic owner is the canonical module-value boundary. Linked exports
 resolve to canonical symbol/binding facts; member-body analysis receives the
@@ -38,23 +40,37 @@ consumer-side type reconstruction.
   changes).
 - `git diff --check` and targeted `rustfmt --check` on changed Rust files:
   PASS.
+- `RUSTFLAGS='' cargo test -p phalcom-core --test core audit_probes::math --
+  --nocapture`: PASS, 11 selected. This covers all 24 Float native descriptors,
+  same-platform host-operation equivalence, six constant bit patterns, IEEE
+  domain/signed-zero/subnormal cases, purity/no-allocation probes, gcd/lcm laws,
+  arbitrary-size isqrt boundaries, negative-input ArgumentError, and numeric
+  limits.
 - Workspace `cargo fmt --all -- --check`: FAIL due to existing formatting
   drift outside this continuation's Rust changes. No broad formatting rewrite
   was applied.
 - `RUSTFLAGS='' cargo test -p phalcom-core`: FAIL, 160 passed / 3 failed in
   unrelated Option-match override, setter-shape, and stack-walk tests. They
   were not modified or repaired here.
+- `RUSTFLAGS='' cargo test -p phalcom-core --test core modules_ -- --nocapture`:
+  54 passed / 6 failed in non-math fixtures (`project_hierarchy`, `builtin_client`,
+  and Telogue generic inference). All linking/parity/math cases passed.
+- `RUSTFLAGS='' cargo test -p phalcom-core --lib native:: -- --nocapture`:
+  PASS, 11 selected, including installed native signatures and source anchors.
 
-## Next work
+## Completed numeric work
 
-1. Implement and test T7's six-constant bit-pattern oracle, IEEE edge cases,
-   per-function accuracy expectations, and purity checks, preserving the
-   documented Rust `f64` accuracy boundary.
-2. Implement T8's `gcd`/`lcm`/`isqrt` property, boundary, negative-input, and
-   resource-limit coverage.
-3. Re-run only the relevant focused tests as those matrices are added. At the
-   eventual final gate, reclassify the three core failures and formatter drift
-   only if their causes or the changed surface have changed.
+1. T7 uses exact same-platform equivalence with the approved Rust `f64`
+   operation for unspecified-precision functions, exact bits for constants and
+   signed-zero cases, and does not claim portable last-bit transcendental
+   results.
+2. T8 uses an independent `num-bigint` oracle for gcd/lcm and invariant checks
+   for isqrt, including 10^100, 10^1000, 200-bit values, signed boundaries,
+   negative validation, and a reduced numeric-bit policy.
+3. The final math gate is complete with the recorded baseline exceptions.
+   Revisit unrelated core/module failures and workspace formatting only in
+   their owning work. The new Float matrix has 617 backend-equivalence cases;
+   the deterministic integer matrix covers 144 operand pairs.
 
 The C4 checkpoint and P4/R1 acceptance state are not changed by this adjacent
 math work. Random, secure random, and distributions remain unimplemented.

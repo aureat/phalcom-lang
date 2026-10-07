@@ -41,14 +41,20 @@ RUSTFLAGS='' cargo test -p phalcom-core --test core exported_static_constant_mat
 
 This failure occurred during the initial exported-constant repair. The runtime getter correction and canonical re-export model are complete. On 2026-10-07, the selected/module read regression and re-export/GC identity regression both passed; the math corpus passed as well.
 
-Be aware the requirements' final example uses `math.tau * radius`; both selective and module-qualified exports must work, as must ordinary `Export.value` reflection. `RuntimeLinkedRead::StaticConstant` keeps its owner module in the variant for GC/dependency reflection. `RuntimeExportRef::StaticConstant` currently stores only `Value`; if this loses canonical export owner identity for re-exports/reflection, solve at the owning materialization boundary after a focused reproducer; request user approval before materially changing ownership/identity.
+The requirements' final example uses `math.tau * radius`; selective and module-qualified exports and `Export.value` reflection are verified. Both `RuntimeLinkedRead::StaticConstant` and `RuntimeExportRef::StaticConstant` retain the canonical `RuntimeStaticConstantRef`. The owning module stores and traces the materialized value; aliases retain source owner/name identity.
 
-## Remaining M1 work
+## Math M1 completion
 
-The exported-static-constant contract is focused-tested. M1 still needs the
-six-constant bit-pattern matrix, broad IEEE edge and per-function accuracy
-coverage, and arbitrary-size integer property/boundary coverage. Do not infer
-release completion from the focused T9/T10 evidence.
+The bounded M1 math scope is complete and focused-tested. The new
+`audit_probes::math` suite passes 11/11 and covers the six-constant bit-pattern
+oracle against both literal and standard-library binary64 bits, every public
+Float operation against its matching same-platform Rust `f64` operation,
+IEEE/domain/signed-zero/subnormal behavior, all 24 pure native descriptors and
+direct no-allocation calls, independent BigInt gcd/lcm laws, arbitrary-size
+isqrt boundaries and invariants through 10^1000, negative `ArgumentError`, and
+numeric-limit enforcement. The accepted accuracy boundary remains: `sqrt` may
+inherit stronger guarantees; unspecified-precision transcendental results have
+no cross-platform last-bit promise.
 
 ## Next implementation phases, after math passes
 
@@ -141,13 +147,17 @@ boundary. The following additional acceptance evidence now passes:
 - Generated native surface regeneration made no file changes; generator
   `--check` passes with 383 records.
 
-T9 through T11 are implemented and focused-tested. The static-constant
+T7 through T11 are implemented and focused-tested. The static-constant
 selected/module regression, the re-export/GC identity regression, hidden-child
 rejection, and the `language-corpus math` test all pass. The four T12 crate
 checks for core, modules, native-meta, and native-surface pass. T12's broad
 core run had 160 passes and three unrelated library failures; workspace format
 checking reports existing drift outside this continuation's Rust files. The
-continuation walkthrough/handoff record exact commands and residuals. M1
-remains PARTIAL because constant bit-pattern, broad IEEE accuracy/edge, and
-full integer algorithm property/boundary coverage have not been established.
-No random implementation has started.
+continuation walkthrough/handoff record exact commands and residuals. M1 math
+is complete. No random implementation has started; random, secure random, and
+distributions remain successor work.
+
+The final wider module cluster ran 60 tests: 54 passed and six non-math fixture
+or Telogue generic-inference failures were classified D relative to this
+test-only continuation. Native source/descriptor tests passed 11/11. The math
+walkthrough owns the exact final ledger and deferred verification.

@@ -2906,11 +2906,13 @@ The [stdlib `math` and `random` implementation guidance](LANG007.C4.P4/LANG007.C
 was authored at `3369adf1`; a partial `math` implementation followed in
 `3ab77b6e` on remote branch `stdlib-random-math`. This remains adjacent work,
 outside C4's bounded acceptance objective and the active P4/R1 corrective issue
-scope. The current branch is `stdlib-random-math` with T9–T11 implemented and
+scope. The current branch is `stdlib-random-math` with T7–T11 implemented and
 focused-tested. T12 focused gates pass, but the broad core library run has
 three unrelated failures and workspace format checking finds existing drift.
-M1 remains `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`; T7/T8 numeric matrices
-remain open. See the
+M1 is `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`. The final numeric suite
+passes 11 tests; the wider module cluster passes 54 and reports 6 baseline
+fixture/generic failures. These and the three core failures/formatting drift
+are recorded in the math walkthrough. See the
 [implementation handoff](LANG007.C4.P4/LANG007.C4.P4.R1/stdlib-random-math-implementation-handoff.md)
 and the math continuation records for exact evidence and next gates. This
 update does not change the C4 or P4 acceptance state.

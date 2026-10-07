@@ -59,5 +59,5 @@ Later focused evidence and the T9/T10 continuation are recorded in the
 [`stdlib-random-math-implementation-handoff`](stdlib-random-math-implementation-handoff.md)
 and the math plan walkthrough/handoff. T9 now covers member-body calls and
 incremental provider changes; T10 generator checks pass with 383 records. M1
-remains partial, and no random APIs have been implemented. C4/P4 acceptance
-remains unchanged.
+math is complete for its bounded scope, and no random APIs have been
+implemented. C4/P4 acceptance remains unchanged.
