@@ -1,0 +1,5 @@
+[project]
+name = "similarity"
+namespace = "similarity"
+version = "0.1.0"
+entry = "similarity.main"
