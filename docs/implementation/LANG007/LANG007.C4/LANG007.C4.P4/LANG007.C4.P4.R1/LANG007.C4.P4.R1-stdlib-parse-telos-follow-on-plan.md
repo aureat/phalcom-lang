@@ -11,6 +11,7 @@ verification: UNVERIFIED
 parent_record: LANG007.C4.P4.R1
 prepared_against_revision: 22cf74739a59fe178c0e3c1bb75c258a14327535
 prepared: 2026-10-07
+updated: 2026-10-07
 ---
 
 # LANG007.C4.P4.R1-STD — Standard Library Text Substrate
@@ -62,8 +63,14 @@ ledger as separate numbered plans. The provisional decomposition is:
 
 The C4 checkpoint has accepted the follow-on and registered P11–P16. P11 is
 active under its own execution plan; P12–P16 remain proposed and must not be
-treated as started. C4 closure will require this follow-on's focused acceptance
-in addition to its existing structural/static gates.
+treated as started. P11's current implementation is committed as `800e1793`
+and remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; its interim
+[walkthrough](../../LANG007.C4.P11-walkthrough.md),
+[handoff](../../LANG007.C4.P11-handoff.md), and
+[INC-6 record](../../LANG007.C4.P11-pattern-coverage-incident.md) track the
+implementation and required verification. C4 closure will require this
+follow-on's focused acceptance in addition to its existing structural/static
+gates.
 
 This follow-on is orthogonal to the current P4 semantic-owner correction. It may
 be planned in parallel with P4, but it must not modify P4's semantic owner,
@@ -555,6 +562,13 @@ RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus 
 
 **Acceptance:** `Char` has distinct class and semantic identity; scalar validity,
 literal parsing, lowering, and affected semantic/runtime targets pass.
+
+**Execution state (2026-10-07):** The numbered P11 execution plan is active and
+supersedes this proposal's S1 as the implementation contract. Its current code
+is committed as `800e1793`; P11 remains partial and unverified because no tests
+or crate checks have run. See the P11 interim walkthrough, handoff, and INC-6
+record linked above. This proposal remains active for P12–P16 and does not mark
+S1 accepted.
 
 ### S2 — Proposed `LANG007.C4.P12`: String–Char bridge and UTF-8 boundaries
 

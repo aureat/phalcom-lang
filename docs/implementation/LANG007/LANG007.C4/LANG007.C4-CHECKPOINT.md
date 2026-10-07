@@ -176,7 +176,7 @@ The intended C4 decomposition is:
 | `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P8` | Incremental durability, metadata, cross-module static products, materialization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P9` | Public ontology migration, tooling, documentation, performance certification, checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
-| `LANG007.C4.P11` | `Char` scalar, character literals, semantic/runtime integration | IN_PROGRESS | PARTIAL | UNVERIFIED | local-only implementation adds scalar/literal/static/runtime/Universe/native seams, generated surface, Char literal parsing/resolution, closed-scalar coverage, and exact runtime lowering; no tests or crate checks run |
+| `LANG007.C4.P11` | `Char` scalar, character literals, semantic/runtime integration | IN_PROGRESS | PARTIAL | UNVERIFIED | implementation committed as `800e1793` on `codex/lang007-c4-p4-r1-stdlib` and pushed; adds scalar/literal/static/runtime/Universe/native seams, generated surface, Char literal parsing/resolution, closed-scalar coverage, and exact runtime lowering; AST lexer/parser cases were added, but no tests or crate checks were run; see interim [walkthrough](LANG007.C4.P11-walkthrough.md) and [handoff](LANG007.C4.P11-handoff.md) |
 | `LANG007.C4.P12` | String–Char bridge, UTF-8 boundaries, iteration, parse.text migration | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P11 |
 | `LANG007.C4.P13` | Typed String hygiene and text-position utilities | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P12 |
 | `LANG007.C4.P14` | Owned immutable homogeneous indexed snapshots | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P11 and iteration laws |
@@ -193,7 +193,10 @@ accepted details are recorded in
 and the normative contract in [`characters.md`](../../../specs/objects/characters.md).
 P11 resumed with parser, semantic coverage, semantic products, and executable
 lowering in scope. No tests or crate checks were run; P11 remains
-`IN_PROGRESS / PARTIAL / UNVERIFIED`.
+`IN_PROGRESS / PARTIAL / UNVERIFIED`. The implementation and current evidence
+are summarized in the interim [walkthrough](LANG007.C4.P11-walkthrough.md);
+the next verification work is recorded in the interim
+[handoff](LANG007.C4.P11-handoff.md).
 
 Dependency direction:
 

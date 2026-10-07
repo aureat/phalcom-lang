@@ -10,6 +10,7 @@ completion: PARTIAL
 verification: UNVERIFIED
 prepared_against_revision: 615f5887
 prepared: 2026-10-07
+updated: 2026-10-07
 ---
 
 # LANG007.C4.P11 — Unicode Char Scalar and Character Literals
@@ -139,3 +140,12 @@ or ownership contract.
   inherited edits and must be reviewed in place, not replaced wholesale.
 - No P11 production implementation or focused verification is established at
   plan start.
+
+## Current execution records
+
+The implementation is committed as `800e179325a4fa0d97e3cd1efa636d09d6fab393`
+on the pushed branch `codex/lang007-c4-p4-r1-stdlib`. P11 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`: AST lexer/parser cases are present, but no
+tests or crate checks have been run. The interim [walkthrough](LANG007.C4.P11-walkthrough.md)
+records the delivered code and evidence; the interim
+[handoff](LANG007.C4.P11-handoff.md) directs the remaining audit and verification.

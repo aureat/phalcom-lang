@@ -5,8 +5,9 @@
 - Program/checkpoint/plan/task: `LANG007.C4.P11.T4`
 - Repository: `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/lang007-c4-p4-r1-stdlib`
 - Branch: `codex/lang007-c4-p4-r1-stdlib`
-- Starting revision: `615f5887`
-- Current revision: `615f5887` with uncommitted implementation changes
+- Plan starting revision: `615f5887`
+- Incident capture revision: `615f5887` plus uncommitted implementation changes
+- Current implementation revision: `800e179325a4fa0d97e3cd1efa636d09d6fab393` (pushed)
 
 ## 2. Escalation trigger
 
@@ -70,10 +71,11 @@ Relevant files: `phalcom-ast/src/parser.rs`, `phalcom-ast/src/ast.rs`,
 
 ## 8. Scoped implementation diff
 
-The current work adds Char tokens/expressions, static scalar values, an
-immediate runtime tag, canonical Universe identity/class, native Char
-operations, and generated native-surface records. It does not change pattern
-parsing, semantic resolution, coverage, or lowering.
+At the time INC-6 was raised, the scoped work added Char tokens/expressions,
+static scalar values, an immediate runtime tag, canonical Universe
+identity/class, native Char operations, and generated native-surface records.
+That incident-time diff did not yet change pattern parsing, semantic
+resolution, coverage, or lowering.
 
 ## 9. Evidence
 
@@ -141,9 +143,27 @@ non-subclassable for matching; exact literals contribute scalar-set coverage;
 all valid Unicode scalar values may prove exhaustiveness. This decision is
 recorded normatively in `docs/specs/objects/characters.md` and in the P11 plan.
 
-Implementation resumes across AST pattern syntax, semantic pattern resolution,
-scalar coverage and witnesses, semantic product fingerprints/tooling, and
-canonical executable pattern lowering. The matcher must compare the runtime
-Char scalar directly. Unknown subject types remain blocked rather than being
-reported impossible. The plan remains `IN_PROGRESS / PARTIAL / UNVERIFIED`
-until implementation and required evidence are complete.
+At decision time implementation resumed across AST pattern syntax, semantic
+pattern resolution, scalar coverage and witnesses, semantic product
+fingerprints/tooling, and canonical executable pattern lowering. The matcher
+must compare the runtime Char scalar directly. Unknown subject types remain
+blocked rather than being reported impossible.
+
+## 17. Implementation progress after decision
+
+The resulting implementation is committed and pushed as
+[`800e1793`](https://github.com/aureat/phalcom-lang/commit/800e179325a4fa0d97e3cd1efa636d09d6fab393)
+on `codex/lang007-c4-p4-r1-stdlib`. It adds Char literal patterns to AST and
+semantic resolution, closed Unicode-scalar coverage and witnesses, semantic
+match products, canonical executable-pattern projection, and direct exact
+runtime matching. It also includes the scalar, static-value, immediate runtime,
+Universe, native surface, and generated-surface implementation recorded in the
+commit.
+
+AST lexer/parser cases were added. No tests or crate checks were run; no
+semantic or core regression test files were added in this implementation
+commit. The implementation therefore remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`, not accepted or behaviorally verified.
+The interim [walkthrough](LANG007.C4.P11-walkthrough.md) records the code state;
+the [handoff](LANG007.C4.P11-handoff.md) identifies the next focused audit and
+verification work.
