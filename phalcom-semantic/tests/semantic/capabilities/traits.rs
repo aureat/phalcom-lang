@@ -11,6 +11,146 @@ use phalcom_semantic::types::parameter::TypeParameterOwner;
 use phalcom_semantic::{TraitRef, TraitRefFormationError, TraitRequirementId, TypeData};
 
 #[test]
+fn source_universe_integer_constants_and_trait_defaults_publish_to_clients() {
+    use phalcom_modules::{
+        ModuleComponent, ModuleId, ModulePath, SourceId, SourceLocation, SourceRevision, UniverseSourceProvider, WorkspaceSourceBatchMutation,
+    };
+    use phalcom_semantic::session::SemanticWorkspaceSession;
+    use std::sync::Arc;
+    let module = ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier("random").unwrap()]));
+    let provider = UniverseSourceProvider::with_test_source_override(
+        module.clone(),
+        Arc::from(
+            r#"
+const WORD_MODULUS: Int = 18446744073709551616
+const WORD_MASK: Int = 18446744073709551615
+trait SourceGenerator {
+  nextU64 -> Int
+  nextBool -> Bool { self.nextU64 > 0 }
+}
+class SourceSequence {
+  @class seed(_ value: Int) -> SourceSequence { SourceSequence.new() }
+  nextU64 -> Int { WORD_MASK }
+}
+impl SourceGenerator for SourceSequence {}
+export SourceGenerator, SourceSequence, WORD_MASK
+"#,
+        ),
+    )
+    .unwrap();
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("package.ph"), "").unwrap();
+    let path = root.path().join("main.ph");
+    let mut session = SemanticWorkspaceSession::with_universe_source_provider(phalcom_semantic::identity::WorkspaceId::from_raw(1), provider);
+    let result = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: SourceLocation {
+                source_id: SourceId(path.to_string_lossy().into()),
+                display_path: path,
+            },
+            text: Arc::from(
+                "from universe.random import SourceGenerator, SourceSequence, WORD_MASK\nlet rng = SourceSequence.seed(0)\nlet result = rng.nextBool\n",
+            ),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        }])
+        .unwrap();
+    assert!(!result.snapshot.has_errors(), "diagnostics: {:#?}", result.snapshot.diagnostics);
+    assert!(result.snapshot.conformance_witness_plans.keys().any(|owner| owner.module == module));
+    assert!(result.snapshot.callable_analyses.values().flat_map(|analysis| analysis.expressions.values()).any(|expression| matches!(expression.trait_dispatch.as_ref(), Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)) if selection.requirement.selector.encode() == "nextBool")), "source Universe default has executable selected evidence");
+    assert!(result.snapshot.static_constants().iter().any(|(id, _)| id.name() == "WORD_MASK"));
+    assert!(
+        result
+            .snapshot
+            .static_constants()
+            .iter()
+            .filter(|(id, _)| id.module() == &module)
+            .all(|(_, product)| product.materialization_descriptor(result.snapshot.static_values()).is_some())
+    );
+}
+
+#[test]
+fn generic_trait_call_publishes_selected_witness_binders_and_checked_proofs() {
+    let source = r#"
+trait Supplies { value -> Int }
+class Input {}
+impl Supplies for Input { value -> Int { 9 } }
+trait Apply { apply<A>(_ input: A) -> Int where A |= Supplies }
+class Worker {}
+impl Apply for Worker { apply<B>(_ input: B) -> Int where B |= Supplies { input.value } }
+class Caller {
+  @class run(_ worker: Worker, _ input: Input) -> Int { worker.apply(input) }
+}
+
+let result = Worker.new().apply(Input.new())
+"#;
+    let fixture = WorkspaceFixture::new().module("main", source).analyze();
+    let snapshot = &fixture.analysis.snapshot;
+    assert!(!snapshot.has_errors(), "{:#?}", snapshot.diagnostics);
+    let mut count = 0;
+    for (_, analysis) in snapshot
+        .callable_analyses
+        .iter()
+        .filter(|(callable, _)| callable.module() == fixture.module("main"))
+    {
+        for expression in analysis.expressions.values() {
+            let Some(specialization) = expression
+                .call_specialization
+                .as_ref()
+                .filter(|specialization| specialization.callable.selector.encode() == "apply(_)")
+            else {
+                continue;
+            };
+            let signature = snapshot.callable_signatures.get(&specialization.callable).expect("selected source signature");
+            let selected = signature.generics.as_ref().unwrap();
+            assert_eq!(specialization.bindings.len(), 1);
+            assert_eq!(specialization.bindings[0].0, selected.parameters[0]);
+            assert!(matches!(selected.owner, TypeParameterOwner::Callable(ref callable) if callable == &specialization.callable));
+            assert_eq!(specialization.conformances.len(), 1);
+            let bound_type = specialization.bindings[0].1;
+            assert_eq!(
+                specialization.conformances[0].callee_conformance.subject,
+                phalcom_semantic::types::parameter::TypeTerm::Canonical(bound_type)
+            );
+            assert!(matches!(
+                specialization.conformances[0].source,
+                phalcom_semantic::checker::analysis::GenericCallConformanceSource::Exact { .. }
+            ));
+            count += 1;
+        }
+    }
+    assert_eq!(count, 2, "top-level and member-body application retain the same canonical binder contract");
+}
+
+#[test]
+fn generic_trait_witness_binding_transport_does_not_bypass_requirement_bounds() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"
+trait Supplies { value -> Int }
+trait Apply { apply<A>(_ input: A) -> Int where A |= Supplies }
+class Worker {}
+impl Apply for Worker { apply<B>(_ input: B) -> Int where B |= Supplies { input.value } }
+class Missing {}
+let rejected = Worker.new().apply(Missing.new())
+"#,
+        )
+        .analyze();
+    assert!(
+        fixture
+            .analysis
+            .snapshot
+            .diagnostics
+            .values()
+            .flat_map(|diagnostics| diagnostics.iter())
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::GenericConstraintUnsatisfied),
+        "missing proof must be rejected before publishing a witness binding: {:?}",
+        fixture.analysis.snapshot.diagnostics
+    );
+}
+
+#[test]
 fn generic_trait_publishes_declaration_owned_header_without_nominal_type_entry() {
     let fixture = WorkspaceFixture::new()
         .module(

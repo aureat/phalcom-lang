@@ -4713,6 +4713,16 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr,
             typed.denotation = fact.denotation;
             return typed;
         }
+        // Nominal declarations are namespace exports, not let-binding facts.
+        // Consume the same linked type-name authority used by selective reads
+        // and retain both the class-object type and its represented type form.
+        if ctx.resolver.resolve_module_alias(&ctx.current_module, module_alias).is_some()
+            && let Some(declaration) = ctx.resolve_type_name_with_path(module_alias, &[get.property.clone()])
+            && let Some(info) = ctx.declaration_info(&declaration)
+        {
+            return TypedExpression::established(info.class_object_type, EvidenceOrigin::DeclarationSemantics, get.range)
+                .with_denotation(SemanticDenotation::TypeForm(info.form));
+        }
     }
     let recv_typed = analyze_expression(ctx, &get.object, &ExpectedType::None);
     let premise = CallPremise::from_typed(ctx, &recv_typed);
@@ -5637,4 +5647,3 @@ fn pattern_common_proof(
         .into_boxed_slice();
     Ok(proof)
 }
-

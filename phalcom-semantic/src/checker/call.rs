@@ -3705,6 +3705,36 @@ fn publish_call_specialization(
         return;
     };
 
+    // Application checks the trait requirement's contract, whose method-local
+    // binders differ from the selected witness's source binders. Witness
+    // compatibility has already established their positional alpha-equivalence.
+    // Publish executable bindings in the selected callable's domain; the exact
+    // conformance proofs above are already instantiated and remain unchanged.
+    if let Some(required) = domains.callable
+        && required.owner != crate::types::parameter::TypeParameterOwner::Callable(callable.clone())
+    {
+        let Some(selected) = ctx.resolve_callable_signature(&callable).and_then(|signature| signature.generics.as_ref()) else {
+            ctx.publish_analysis_incident("selected generic witness has no canonical method signature");
+            return;
+        };
+        if required.parameters.len() != selected.parameters.len() {
+            ctx.publish_analysis_incident("selected witness generic arity differs from its checked requirement");
+            return;
+        }
+        let renamed = required
+            .parameters
+            .iter()
+            .zip(selected.parameters.iter())
+            .filter_map(|(&source, &target)| bindings.get(&source).copied().map(|ty| (source, target, ty)))
+            .collect::<Vec<_>>();
+        for (source, _, _) in &renamed {
+            bindings.remove(source);
+        }
+        for (_, target, ty) in renamed {
+            bindings.insert(target, ty);
+        }
+    }
+
     let bindings = bindings.into_iter().collect::<Vec<_>>().into_boxed_slice();
     ctx.publish_call_specialization(
         expression,

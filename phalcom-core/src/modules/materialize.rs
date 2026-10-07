@@ -63,6 +63,11 @@ fn remap_runtime_indexed_conformance_slots(slots: &mut Box<[(u16, crate::typing:
 
 fn remap_trait_invocation(spec: &mut crate::modules::semantic_lowering::TraitInvocationSpec, pool_id: crate::typing::MetadataPoolId) {
     remap_runtime_bindings(&mut spec.type_bindings, pool_id);
+    if let Some(recipe) = &mut spec.call_environment_recipe {
+        let recipe = Arc::make_mut(recipe);
+        remap_runtime_bindings(&mut recipe.bindings, pool_id);
+        remap_runtime_conformance_slots(&mut recipe.conformance_slots, pool_id);
+    }
 }
 
 fn remap_for_requirement(requirement: &mut crate::modules::semantic_lowering::ForIterationRequirementSpec, pool_id: crate::typing::MetadataPoolId) {

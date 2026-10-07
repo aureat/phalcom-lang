@@ -3431,10 +3431,14 @@ impl<'a> CheckingContext<'a> {
         Some(signature)
     }
 
-    /// Resolves a canonical declaration-owned callable signature while
+    /// Resolves a canonical source callable signature while
     /// recording the signature query as a dependency of the current owner.
     pub(crate) fn resolve_callable_signature(&self, callable: &CallableId) -> Option<&crate::signature::CallableSemanticSignature> {
-        let signature = self.callable_signatures?.get(callable)?;
+        let signature = self.callable_signatures.and_then(|table| table.get(callable)).or_else(|| {
+            self.conformance_semantics
+                .and_then(|view| view.callable_signatures)
+                .and_then(|table| table.get(callable))
+        })?;
         if is_query_owned_module(callable.module()) {
             self.record_semantic_dependency(SemanticDependency::CallableSignature(callable.clone()));
         }

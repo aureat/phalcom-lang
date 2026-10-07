@@ -5,9 +5,163 @@ use phalcom_core::modules::compile::{EntrySelection, ProgramAnalyzer, ProgramCom
 use phalcom_core::value::Value;
 use std::sync::Arc;
 
+#[test]
+fn random_facade_client_has_complete_source_trait_evidence() {
+    let source = "from universe.random import Xoshiro256PlusPlus\nlet rng = Xoshiro256PlusPlus.seed(42)\nlet result = rng.nextBool\n";
+    let mut session = phalcom_core::modules::compile_session::ProgramCompilationSession::standalone().unwrap();
+    let program = session.compile_fixture(std::path::Path::new("random-client.ph"), source).unwrap();
+    let lowering = &program.modules[&program.entry].lowering;
+    assert!(
+        lowering
+            .trait_invocations
+            .values()
+            .any(|spec| spec.selection.requirement.selector.encode() == "nextBool"),
+        "client closure includes source conformance"
+    );
+}
+
+#[test]
+fn random_secure_runtime_contract_is_not_a_generator() {
+    let source = r#"
+from universe.random import SecureRandom, EntropyError
+let secure = SecureRandom.system
+let zero = secure.bytes(0)
+let one = secure.bytes(1)
+let mut caught = false
+try { secure.bytes(-1) } on ArgumentError error { caught = true }
+let result = zero.size + one.size
+"#;
+    let mut session = phalcom_core::modules::compile_session::ProgramCompilationSession::standalone().unwrap();
+    let program = session
+        .compile_fixture(std::path::Path::new("secure-random.ph"), source)
+        .expect("secure source compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("secure source executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "result").unwrap().to_string(&vm), "1");
+    assert_eq!(named(&vm, module, "caught").unwrap().to_string(&vm), "true");
+}
+
+#[test]
+fn random_rejects_secure_conformance_hidden_children_and_wrong_output_types() {
+    for (source, expected) in [
+        ("from universe.random import SecureRandom, Generator\nclass Consumer { @class use<G>(_ generator: G) -> Int where G |= Generator { generator.nextU64 } }\nConsumer.use(SecureRandom.system)", "genericconstraintunsatisfied"),
+        ("import universe.random.xoshiro256pp\n", "moduleexposurerejected"),
+        ("from universe.random import Xoshiro256PlusPlus, Bernoulli\nlet wrong: Int = Bernoulli.new(0.5).sample(using: Xoshiro256PlusPlus.seed(42))", "assignable"),
+        ("from universe.random import Xoshiro256PlusPlus\nXoshiro256PlusPlus.seed(42).nextInt(below: 1.0)", "argument"),
+    ] {
+        let mut session = phalcom_core::modules::compile_session::ProgramCompilationSession::standalone().unwrap();
+        let error = session.compile_fixture(std::path::Path::new("random-negative.ph"), source).expect_err("invalid random client must fail");
+        assert!(error.to_string().to_lowercase().contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn random_sampling_preserves_numeric_policy_without_candidate_overshoot() {
+    let source = r#"
+from universe.random import Generator
+class Script {
+  mut _index: Int
+  @constructor new() { _index = 0 }
+  nextU64 -> Int {
+    _index = _index + 1
+    if _index % 2 == 1 { return 0xffffffffffffffff }
+    17
+  }
+}
+impl Generator for Script {}
+let result = Script.new().nextInt(below: 1 << 69)
+"#;
+    let mut session = phalcom_core::modules::compile_session::ProgramCompilationSession::standalone().unwrap();
+    let program = session.compile_fixture(std::path::Path::new("random-policy.ph"), source).unwrap();
+    let mut vm = vm_support::universe_vm();
+    vm.numeric_policy.max_integer_bits = Some(70);
+    vm.run_compiled(&program).expect("masked first chunk never builds an avoidable 128-bit candidate");
+    let module = vm.module_registry.get(&program.entry).unwrap().object;
+    assert_eq!(named(&vm, module, "result").unwrap().to_string(&vm), "571849066284996100113");
+
+    let mut session = phalcom_core::modules::compile_session::ProgramCompilationSession::standalone().unwrap();
+    let oversized = session.compile_fixture(std::path::Path::new("random-limit.ph"), "from universe.random import Xoshiro256PlusPlus\nlet result = Xoshiro256PlusPlus.seed(42).nextInt(below: 1 << 140)\n").unwrap();
+    vm.numeric_policy.max_integer_bits = Some(128);
+    let error = vm.run_compiled(&oversized).expect_err("oversized bound preserves ordinary numeric failure");
+    assert!(error.to_string().contains("Numeric limit exceeded"), "{error}");
+}
+
 fn named(vm: &phalcom_core::vm::VM, module: phalcom_core::heap::ObjRef, name: &str) -> Option<Value> {
     let symbol = vm.interner.find(name)?;
     vm.heap.module(module).get(symbol)
+}
+
+#[test]
+fn generic_trait_witness_transports_method_binders_exact_and_forwarded_evidence() {
+    let source = r#"
+trait Supplies {
+  value -> Int
+  label -> Int { self.value }
+}
+class Left {}
+class Right {}
+impl Supplies for Left { value -> Int { 3 } }
+impl Supplies for Right { value -> Int { 7 } }
+trait Combine {
+  combine<A, B>(_ left: A, _ right: B) -> Int
+    where A |= Supplies, B |= Supplies
+}
+class Mixer {}
+impl Combine for Mixer {
+  combine<X, Y>(_ left: X, _ right: Y) -> Int
+    where Y |= Supplies, X |= Supplies
+  {
+    let leftValues = List<X>.new()
+    leftValues.append(left)
+    System.gc
+    left.label * 10 + right.label + leftValues.size - 1
+  }
+}
+class Caller {
+  @class exact(_ mixer: Mixer) -> Int { mixer.combine(Left.new(), Right.new()) }
+  @class forwarded<P, Q>(_ mixer: Mixer, _ left: P, _ right: Q) -> Int
+    where P |= Supplies, Q |= Supplies
+  { mixer.combine(left, right) }
+}
+let top = Mixer.new().combine(Left.new(), Right.new())
+let member = Caller.exact(Mixer.new())
+let forwarded = Caller.forwarded(Mixer.new(), Right.new(), Left.new())
+"#;
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("generic trait source analyzes");
+    assert!(!analyzed.semantic.has_errors(), "{:#?}", analyzed.semantic.diagnostics);
+    let program = ProgramCompiler::compile_analyzed(&analyzed).expect("canonical witness specialization compiles");
+    let lowering = &program.modules[&program.entry].lowering;
+    let selections: Vec<_> = lowering
+        .trait_invocations
+        .values()
+        .filter(|spec| spec.selection.signature.selector.encode() == "combine(_,_)")
+        .collect();
+    assert_eq!(selections.len(), 3);
+    for spec in selections {
+        let recipe = spec
+            .call_environment_recipe
+            .as_ref()
+            .expect("selected witness retains method call-entry recipe");
+        assert_eq!(recipe.bindings.len(), 2);
+        assert_eq!(recipe.conformance_slots.len(), 4);
+        let selected = spec.selection.callable.as_ref().expect("source witness");
+        let signature = analyzed.semantic.callable_signatures.get(selected).expect("canonical witness signature");
+        let generic = signature.generics.as_ref().expect("witness method binders");
+        for (parameter, _) in recipe.bindings.iter() {
+            assert_eq!(
+                parameter.owner,
+                phalcom_type_meta::generic::StableTypeParameterOwnerRef::Callable(recipe.callable.clone())
+            );
+        }
+        assert_eq!(generic.parameters.len(), recipe.bindings.len());
+    }
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("exact and forwarded witnesses execute with method evidence");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "top").unwrap().to_string(&vm), "37");
+    assert_eq!(named(&vm, module, "member").unwrap().to_string(&vm), "37");
+    assert_eq!(named(&vm, module, "forwarded").unwrap().to_string(&vm), "73");
 }
 
 #[test]

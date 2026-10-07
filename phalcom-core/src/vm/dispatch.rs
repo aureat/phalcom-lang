@@ -1491,11 +1491,36 @@ impl VM {
         &mut self,
         receiver: Value,
         spec: &crate::modules::semantic_lowering::TraitInvocationSpec,
-    ) -> PhResult<(crate::typing::RuntimeConformanceEnvironmentId, ObjRef)> {
-        let type_environment = self.materialize_type_bindings(&spec.type_bindings)?;
+    ) -> PhResult<(crate::typing::RuntimeConformanceEnvironmentId, ObjRef, crate::typing::RuntimeTypeEnvironmentId)> {
+        let mut bindings = spec.type_bindings.iter().cloned().collect::<std::collections::BTreeMap<_, _>>();
+        if let Some(recipe) = &spec.call_environment_recipe {
+            for (parameter, ty) in recipe.bindings.iter().cloned() {
+                if bindings.insert(parameter, ty).is_some_and(|previous| previous != ty) {
+                    return Err(RuntimeError::Internal("trait owner and method type bindings disagree".into()).into());
+                }
+            }
+        }
+        let type_environment = self.materialize_type_bindings(&bindings.into_iter().collect::<Vec<_>>())?;
         let max_req_slot = spec.requirement_slots.iter().map(|(_, slot)| *slot as usize + 1).max().unwrap_or(0);
         let max_ant_slot = spec.antecedent_slots.iter().map(|(slot, _, _)| *slot as usize + 1).max().unwrap_or(0);
         let mut slots = vec![None; max_req_slot.max(max_ant_slot)];
+        if let Some(recipe) = &spec.call_environment_recipe {
+            let environment = self.materialize_conformance_environment(receiver, recipe)?;
+            for (index, entry) in self
+                .runtime_conformance_environments
+                .get(environment)
+                .ok_or_else(|| RuntimeError::Internal("trait call-entry conformance environment is unavailable".into()))?
+                .slots
+                .iter()
+                .copied()
+                .enumerate()
+            {
+                if index >= slots.len() {
+                    slots.resize(index + 1, None);
+                }
+                slots[index] = entry;
+            }
+        }
 
         for (slot, target, selector) in spec.antecedent_slots.iter() {
             let method = self.trait_method_for_selection(receiver, target, selector)?;
@@ -1524,7 +1549,10 @@ impl VM {
             .runtime_conformance_environments
             .intern(crate::typing::RuntimeConformanceEnvironment::new(slots));
         let method = self.trait_method_for_selection(receiver, &spec.selection.selection, &spec.selection.signature.selector)?;
-        Ok((environment, method))
+        if let Some(recipe) = &spec.call_environment_recipe {
+            self.validate_specialized_call(recipe, method)?;
+        }
+        Ok((environment, method, type_environment))
     }
 
     fn invoke_trait_selected(&mut self, callable: &Callable, selection_index: u16, arity: u8) -> PhResult<()> {
@@ -1535,9 +1563,8 @@ impl VM {
             .checked_sub(arity as usize + 1)
             .ok_or(RuntimeError::Internal("trait invocation stack underflow".into()))?;
         let receiver = self.stack[receiver_idx];
-        let (conformance_environment, method) = self.materialize_trait_environment(receiver, &spec)?;
+        let (conformance_environment, method, type_environment) = self.materialize_trait_environment(receiver, &spec)?;
         let selector = self.interner.intern(&spec.selection.signature.selector.encode());
-        let type_environment = self.materialize_type_bindings(&spec.type_bindings)?;
         let layout = self.invocation_layout_for_selector(selector, arity as usize)?;
         self.call_method_with_selector_as_and_environments(
             &receiver,
@@ -3083,7 +3110,7 @@ impl VM {
                 Bytecode::MakeTraitBoundMethod(target_idx) => {
                     let invocation = callable.chunk.executable_semantics.trait_invocation(target_idx).clone();
                     let receiver = self.pop()?;
-                    let (conformance_environment, method) = self.materialize_trait_environment(receiver, &invocation)?;
+                    let (conformance_environment, method, _) = self.materialize_trait_environment(receiver, &invocation)?;
                     let bound_ref = self.heap.alloc(Object::BoundMethod(crate::heap::BoundMethodObject {
                         method,
                         receiver,

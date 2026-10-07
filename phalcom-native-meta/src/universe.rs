@@ -70,6 +70,8 @@ pub enum UniverseKey {
     TimeZone,
     /// Source-owned floating-point mathematical kernels.
     FloatMathKernel,
+    /// Source-owned OS secure random-byte capability.
+    SecureRandom,
     Message,
     Attribute,
 
@@ -394,6 +396,7 @@ impl UniverseKey {
             Self::SystemWallClock => &["time", "timestamp"],
             Self::TimeZone => &["time", "timezone"],
             Self::FloatMathKernel => &["math", "float_kernel"],
+            Self::SecureRandom => &["random", "secure"],
             Self::Message => &["reflection", "message"],
             Self::Attribute => &["reflection", "attribute"],
             Self::Error | Self::MessageNotUnderstood | Self::CannotYieldAcrossNativeFrame | Self::UseAfterCloseError => &["errors", "error"],
@@ -462,6 +465,7 @@ impl UniverseKey {
             Self::SystemWallClock => "SystemWallClock",
             Self::TimeZone => "TimeZone",
             Self::FloatMathKernel => "FloatMathKernel",
+            Self::SecureRandom => "SecureRandom",
             Self::Message => "Message",
             Self::Attribute => "Attribute",
             Self::Error => "Error",
@@ -535,6 +539,7 @@ impl UniverseKey {
             "SystemWallClock" => Some(Self::SystemWallClock),
             "TimeZone" => Some(Self::TimeZone),
             "FloatMathKernel" => Some(Self::FloatMathKernel),
+            "SecureRandom" => Some(Self::SecureRandom),
             "Message" => Some(Self::Message),
             "Attribute" => Some(Self::Attribute),
             "Error" => Some(Self::Error),

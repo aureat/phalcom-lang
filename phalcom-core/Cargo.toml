@@ -74,6 +74,7 @@ opcode-histogram = []
 benchmarks = ["dep:criterion"]
 
 [dependencies]
+getrandom = "0.3.3"
 phalcom-ast = { path = "../phalcom-ast" }
 phalcom-common = { path = "../phalcom-common" }
 #phalcom-type-syntax = { path = "../phalcom-type-syntax" }

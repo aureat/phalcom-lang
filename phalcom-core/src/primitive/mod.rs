@@ -20,6 +20,7 @@ pub mod number;
 pub mod object;
 pub mod option;
 pub mod pack;
+pub mod random;
 pub mod range;
 pub mod record;
 pub mod reflection;

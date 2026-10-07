@@ -11,6 +11,11 @@ fn random() {
 }
 
 #[test]
+fn random_syntax() {
+    support::check_pass("random-syntax");
+}
+
+#[test]
 fn lexical() {
     support::check_pass("lexical");
 }

@@ -454,6 +454,9 @@ pub struct TraitInvocationSpec {
     /// These are projected from semantic evidence; the VM never reconstructs
     /// them from the receiver or from the selected method's class.
     pub type_bindings: Box<[(phalcom_type_meta::StableTypeParameterRef, RuntimeTypeRecipe)]>,
+    /// Method-local type arguments and checked conformance obligations for this
+    /// call edge. Kept separate from the selected impl's owner environment.
+    pub call_environment_recipe: Option<Arc<RuntimeCallEnvironmentRecipe>>,
 }
 
 pub type RuntimeTraitEnvironmentKey = (SourceRange, ImplId, phalcom_semantic::traits::TraitRequirementId);
@@ -1220,18 +1223,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         }
     }
 
-    let mut requirement_slots = BTreeMap::new();
-    for (_, surface) in snapshot.trait_surfaces.iter() {
-        for (requirement, _) in surface.iter() {
-            requirement_slots.entry(requirement.clone()).or_insert(0u16);
-        }
-    }
-    let requirement_order = requirement_slots.keys().cloned().collect::<Vec<_>>();
-    for (slot, requirement) in requirement_order.into_iter().enumerate() {
-        if let Ok(slot) = u16::try_from(slot) {
-            requirement_slots.insert(requirement, slot);
-        }
-    }
+    let requirement_slots = trait_default_requirement_slots(snapshot)?;
 
     for (callable_id, analysis) in snapshot.callable_analyses.iter() {
         if callable_id.owner.module() != module {
@@ -1432,25 +1424,39 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                     let Some(&raw_slot) = requirement_slots.get(&selection.requirement) else {
                         return Err(ProjectionError::MissingTraitRequirementSlot(selection.requirement.clone()));
                     };
-                    let callee_generic_evidence_len = snapshot
-                        .trait_headers
-                        .get(&selection.requirement.owner)
-                        .and_then(|h| h.generic_signature.as_ref())
-                        .and_then(|sig| {
-                            phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
-                                &sig.constraints,
-                                sig.owner.clone(),
-                                &snapshot.trait_surfaces,
-                            )
-                            .ok()
-                        })
-                        .map_or(0, |env| env.len() as u16);
+                    let call_environment_recipe = runtime_call_environment_recipes.get(&expression.range).cloned();
+                    let callee_generic_evidence_len = if let Some(recipe) = &call_environment_recipe {
+                        u16::try_from(recipe.conformance_slots.len()).map_err(|_| ProjectionError::SlotOverflow(recipe.conformance_slots.len()))?
+                    } else {
+                        snapshot
+                            .trait_headers
+                            .get(&selection.requirement.owner)
+                            .and_then(|h| h.generic_signature.as_ref())
+                            .and_then(|sig| {
+                                phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+                                    &sig.constraints,
+                                    sig.owner.clone(),
+                                    &snapshot.trait_surfaces,
+                                )
+                                .ok()
+                            })
+                            .map_or(0, |env| env.len() as u16)
+                    };
                     let requirement_slot = callee_generic_evidence_len + raw_slot;
                     let req_slots = requirement_slots
                         .iter()
+                        .filter(|(requirement, _)| requirement.owner == selection.requirement.owner)
                         .map(|(requirement, slot)| (requirement.clone(), callee_generic_evidence_len + *slot))
                         .collect();
-                    let antecedent_slots = project_antecedent_slots(&selection.evidence, snapshot)?;
+                    // A checked call-entry recipe already supplies the complete
+                    // selected callable generic prefix (owner and method bounds).
+                    // Project trait-header antecedents only for unspecialized
+                    // edges, so they cannot overwrite method-local proof slots.
+                    let antecedent_slots = if call_environment_recipe.is_some() {
+                        Box::new([])
+                    } else {
+                        project_antecedent_slots(&selection.evidence, snapshot)?
+                    };
                     let site = LoweringSite::new(source_id.clone(), expression.range, LoweringSiteKind::TraitInvoke);
                     trait_invocations.insert(
                         site,
@@ -1460,6 +1466,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                             requirement_slots: req_slots,
                             antecedent_slots,
                             type_bindings: Box::new([]),
+                            call_environment_recipe,
                         },
                     );
                 }
@@ -1717,6 +1724,7 @@ fn project_for_iteration_requirement(
                 let requirement_slot = callee_generic_evidence_len + raw_slot;
                 let req_slots = requirement_slots
                     .iter()
+                    .filter(|(id, _)| id.owner == requirement.owner)
                     .map(|(id, slot)| (id.clone(), callee_generic_evidence_len + *slot))
                     .collect();
                 let antecedent_slots = project_antecedent_slots(evidence, snapshot)?;
@@ -1726,6 +1734,7 @@ fn project_for_iteration_requirement(
                     requirement_slots: req_slots,
                     antecedent_slots,
                     type_bindings: Box::new([]),
+                    call_environment_recipe: None,
                 }))
             }
             phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived) => {
@@ -1779,6 +1788,7 @@ fn project_for_iteration_requirement(
                 let requirement_slot = callee_generic_evidence_len + raw_slot;
                 let req_slots = requirement_slots
                     .iter()
+                    .filter(|(id, _)| id.owner == requirement.owner)
                     .map(|(id, slot)| (id.clone(), callee_generic_evidence_len + *slot))
                     .collect();
                 let antecedent_slots = project_antecedent_slots(evidence, snapshot)?;
@@ -1788,6 +1798,7 @@ fn project_for_iteration_requirement(
                     requirement_slots: req_slots,
                     antecedent_slots,
                     type_bindings: Box::new([]),
+                    call_environment_recipe: None,
                 }))
             }
         },
@@ -3040,21 +3051,26 @@ fn project_antecedent_slots(
     }
 }
 
+/// Default bodies and their callers may be compiled in different import
+/// closures. Requirement slots must depend only on the owning trait surface,
+/// never on unrelated traits present in the surrounding snapshot.
+pub(crate) fn trait_default_requirement_slots(
+    snapshot: &SemanticSnapshot,
+) -> Result<BTreeMap<phalcom_semantic::traits::TraitRequirementId, u16>, ProjectionError> {
+    let mut slots = BTreeMap::new();
+    for (_, surface) in snapshot.trait_surfaces.iter() {
+        for (slot, (requirement, _)) in surface.iter().enumerate() {
+            slots.insert(requirement.clone(), u16::try_from(slot).map_err(|_| ProjectionError::SlotOverflow(slot))?);
+        }
+    }
+    Ok(slots)
+}
+
 fn project_trait_invocation_spec(
     selection: &phalcom_semantic::trait_dispatch::TraitDispatchSelection,
     snapshot: &SemanticSnapshot,
 ) -> Result<TraitInvocationSpec, ProjectionError> {
-    let mut default_requirement_slots = BTreeMap::new();
-    for (_, surface) in snapshot.trait_surfaces.iter() {
-        for (requirement, _) in surface.iter() {
-            default_requirement_slots.entry(requirement.clone()).or_insert(0u16);
-        }
-    }
-    let requirement_order = default_requirement_slots.keys().cloned().collect::<Vec<_>>();
-    for (slot, requirement) in requirement_order.into_iter().enumerate() {
-        let slot = u16::try_from(slot).map_err(|_| ProjectionError::SlotOverflow(slot))?;
-        default_requirement_slots.insert(requirement, slot);
-    }
+    let default_requirement_slots = trait_default_requirement_slots(snapshot)?;
     let Some(&raw_slot) = default_requirement_slots.get(&selection.requirement) else {
         return Err(ProjectionError::MissingTraitRequirementSlot(selection.requirement.clone()));
     };
@@ -3070,6 +3086,7 @@ fn project_trait_invocation_spec(
     let requirement_slot = callee_generic_evidence_len + raw_slot;
     let requirement_slots = default_requirement_slots
         .into_iter()
+        .filter(|(req, _)| req.owner == selection.requirement.owner)
         .map(|(req, slot)| (req, callee_generic_evidence_len + slot))
         .collect();
     let antecedent_slots = project_antecedent_slots(&selection.evidence, snapshot)?;
@@ -3079,6 +3096,7 @@ fn project_trait_invocation_spec(
         requirement_slots,
         antecedent_slots,
         type_bindings: Box::new([]),
+        call_environment_recipe: None,
     })
 }
 

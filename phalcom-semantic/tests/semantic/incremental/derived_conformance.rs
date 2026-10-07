@@ -16,6 +16,79 @@ fn location(path: &std::path::Path) -> SourceLocation {
 }
 
 #[test]
+fn generic_witness_call_bindings_and_proofs_match_cold_after_source_edit() {
+    use phalcom_semantic::metadata::stable_identity::{StableIdentityContext, to_stable_callable_with_context};
+    let root = tempfile::tempdir().expect("tempdir");
+    std::fs::write(root.path().join("package.ph"), "").unwrap();
+    let path = root.path().join("provider.ph");
+    let source = location(&path);
+    let text = r#"
+trait Supplies { value -> Int }
+class Input {}
+impl Supplies for Input { value -> Int { 9 } }
+trait Apply { apply<A>(_ input: A) -> Int where A |= Supplies }
+class Worker {}
+impl Apply for Worker { apply<B>(_ input: B) -> Int where B |= Supplies { input.value } }
+class Caller { @class run(_ worker: Worker, _ input: Input) -> Int { worker.apply(input) } }
+let result = Worker.new().apply(Input.new())
+"#;
+    let mutation = |revision, text: &str| WorkspaceSourceBatchMutation::SetOverlay {
+        source: source.clone(),
+        text: Arc::from(text),
+        revision: SourceRevision(revision),
+        recovered_program: None,
+    };
+    let facts = |snapshot: &SemanticSnapshot| {
+        let context = StableIdentityContext::new(&snapshot.module_products.universe);
+        let mut facts = Vec::new();
+        for (_, analysis) in snapshot
+            .callable_analyses
+            .iter()
+            .filter(|(callable, _)| callable.module() == snapshot.module_for_display_path(&path).unwrap())
+        {
+            for expression in analysis.expressions.values() {
+                let Some(specialization) = expression
+                    .call_specialization
+                    .as_ref()
+                    .filter(|specialization| specialization.callable.selector.encode() == "apply(_)")
+                else {
+                    continue;
+                };
+                let generics = snapshot.callable_signatures.get(&specialization.callable).unwrap().generics.as_ref().unwrap();
+                assert_eq!(specialization.bindings[0].0, generics.parameters[0]);
+                assert_eq!(
+                    specialization.conformances[0].callee_conformance.subject,
+                    phalcom_semantic::types::parameter::TypeTerm::Canonical(specialization.bindings[0].1)
+                );
+                let phalcom_semantic::checker::analysis::GenericCallConformanceSource::Exact { evidence } = &specialization.conformances[0].source else {
+                    panic!("exact Input proof")
+                };
+                let witness = evidence
+                    .requirements
+                    .values()
+                    .filter_map(phalcom_semantic::trait_dispatch::selected_callable)
+                    .map(|callable| to_stable_callable_with_context(&callable, &context))
+                    .collect::<Vec<_>>();
+                facts.push((to_stable_callable_with_context(&specialization.callable, &context), witness));
+            }
+        }
+        facts.sort();
+        facts
+    };
+    let mut session = SemanticWorkspaceSession::new();
+    let initial = session.apply_module_mutations([mutation(1, text)]).unwrap();
+    assert!(!initial.snapshot.has_errors(), "{:?}", initial.snapshot.diagnostics);
+    assert_eq!(facts(&initial.snapshot).len(), 2);
+    let edited = format!("{text}\n// unrelated source edit\n");
+    let incremental = session.apply_module_mutations([mutation(2, &edited)]).unwrap();
+    let cold = SemanticWorkspaceSession::new().apply_module_mutations([mutation(2, &edited)]).unwrap();
+    assert!(!incremental.snapshot.has_errors(), "{:?}", incremental.snapshot.diagnostics);
+    assert!(!cold.snapshot.has_errors(), "{:?}", cold.snapshot.diagnostics);
+    assert_eq!(facts(&incremental.snapshot).len(), 2);
+    assert_eq!(facts(&incremental.snapshot), facts(&cold.snapshot));
+}
+
+#[test]
 fn generic_conformance_stable_callable_is_source_owned_and_matches_cold_reconstruction() {
     use phalcom_semantic::identity::CallableOwnerId;
     use phalcom_semantic::metadata::stable_identity::{StableIdentityContext, to_stable_callable_with_context};

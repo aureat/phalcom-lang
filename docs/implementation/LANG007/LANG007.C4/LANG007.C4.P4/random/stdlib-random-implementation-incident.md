@@ -1,6 +1,90 @@
 # Random R0 implementation incident
 
-Status: BLOCKED / NOT_STARTED / UNVERIFIED
+Current state: stable-owner and method-generic recipe prerequisites are
+IMPLEMENTED / FOCUSED_TESTED. The original R0 syntax probe passes. The API slice
+and canonical Universe fixes are present; the plan is IN_PROGRESS / PARTIAL /
+FOCUSED_TESTED at the user-directed delivery stop. Performance, metadata acceptance
+and remaining broad gates are pending. The completion handoff owns the next steps;
+earlier entries below record the investigation history.
+
+## Recipe repair outcome (2026-10-08)
+
+The user explicitly renewed investigation and fix authority, requiring a sound,
+clean general trait implementation. Main advanced independently to `800474d8`;
+the stable owner repair was already committed as `fbf057ea`. Subsequent delivery
+was explicitly requested on main; its commit includes this incident and handoff.
+
+Instrumentation proved why the earlier correction was inert:
+`CheckingContext.callable_signatures` was absent for top-level application,
+while `conformance_semantics.callable_signatures` already held the canonical
+selected witness. `resolve_callable_signature` now uses those existing canonical
+inputs and records the normal signature dependency.
+
+After requirement checking discharges the bounds, publication translates the
+alpha-equivalent requirement method binders positionally to the selected source
+callable's binders. The exact/forwarded proof products remain unchanged. This
+fixed recipe compilation. Execution then proved a second transport omission:
+`InvokeTraitSelected` ignored the already-projected call-entry recipe, entering
+the witness with only trait/default evidence.
+
+`TraitInvocationSpec` now retains that existing recipe. Pool remapping includes
+its type roots and nested proof recipes. Lowering offsets abstract trait slots
+after the selected callable's generic prefix and uses that complete prefix
+instead of independently reconstructing trait-header antecedents. VM entry
+merges checked owner/method type bindings, materializes the existing conformance
+recipe, and enters the selected method with both environments. No new opcode,
+trait discovery, runtime proof inference, identity scheme, or witness selection
+was introduced. Existing method identity validation applies to the recipe.
+
+Completed gates:
+
+- `RUSTFLAGS='' cargo check -p phalcom-core`: PASS.
+- Original `--test language-corpus random -- --nocapture`: PASS, 1 selected,
+  unchanged `random_syntax.ph` and expected result.
+- `--test core language::traits -- --nocapture`: PASS, 16 selected.
+- Semantic `generic_trait_call_publishes_selected`: PASS, 1 selected.
+- Semantic `generic_trait_witness_binding_transport`: PASS, 1 selected;
+  missing conformance is still rejected before publication.
+- Semantic `generic_witness_call_bindings_and_proofs`: PASS, 1 selected;
+  source-only edits preserve cold/incremental publication parity.
+- New core witness regression: PASS; two binders with renamed/reordered bounds,
+  top-level and member-body exact calls, forwarded generic proofs, nested defaults,
+  typed `List<X>` allocation, and forced GC.
+- Scoped Rust formatting and `git diff --check`: PASS.
+
+Semantic trait suite: 39 PASS / 4 FAIL before the additional negative test. A
+predecessor-behavior comparison temporarily removed both semantic correction
+sites, retained the new tests, and reproduced all four existing failures plus
+the expected new binder regression failure. The four baseline cases are:
+`exact_projection_integration_normalizes_parameter_and_return_witness_contracts`,
+`normalized_associated_projection_rejects_incompatible_witness` (both
+RecursiveFixpoint), `trait_default_replays_external_nominal_callable_dependencies`,
+and `trait_defaults_reject_unknown_members_storage_and_super_without_concrete_capabilities`
+(both pre-existing Universe DeclarationShell dependencies).
+
+## Subsequent random continuation gates and resolution
+
+A source slice reached the canonical Universe gates and exposed:
+
+1. Private field authority: a conformance method cannot acquire target private
+   fields. Plan pseudocode for xoshiro must use an ordinary class-owned
+   `nextU64` and inherent-witness conformance, per `objects/traits.md:253-257`.
+2. `const WORD_MASK: Int = (1 << 64) - 1` failed static evaluation because the
+   current intrinsic allowlist does not include shift. The owning static-value
+   contract accepts exact large integer literals, so the production constants use
+   `18446744073709551616` and `18446744073709551615`; their descriptors are
+   materialized and tested. No mutable runtime constant was introduced.
+3. Qualified `random.Xoshiro256PlusPlus` was initially treated as a module value;
+   the checker now resolves qualified exported class declarations through the
+   canonical type-name path, preserving class-object/type-form denotation.
+4. Trait default slots were initially numbered across all snapshot traits. The
+   lowering helper now numbers each trait surface locally, making canonical
+   bootstrap and smaller client import closures agree. The client and full
+   random corpus both pass.
+
+The deterministic source modules, typed distributions, secure source capability,
+OS `getrandom` primitive, Universe identity, effect metadata, generated native
+surface, and focused acceptance corpus are retained and tested.
 
 ## Consultation ruling and prerequisite execution
 

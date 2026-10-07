@@ -19,12 +19,56 @@ latest_completed_plan: LANG007.C4.P3
 next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-completion-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 4f11cb1a900d76c1d45db108aa8d856ee5940394
-last_updated: 2026-10-07
+last_updated: 2026-10-08
 ---
 
 # LANG007.C4 — Checkpoint Record
 
-## Random follow-on execution incident (2026-10-07)
+## Random follow-on prerequisite state (2026-10-08)
+
+The stable owner prerequisite is delivered in `fbf057ea`. The subsequent
+method-generic trait recipe repair is IMPLEMENTED / FOCUSED_TESTED on main,
+starting at `800474d8`, and the unchanged original random syntax probe passes.
+The compiler carries the existing checked call-entry recipe into selected trait
+invocations; semantic publication translates alpha-equivalent method binders to
+the selected source callable. Witness selection and exact proof facts are
+unchanged. Exact and forwarded proofs, two independent binders, typed allocation,
+forced GC, invalid-bound rejection, and cold/incremental parity pass. Core trait
+regressions pass 16/16. Four semantic trait failures reproduce with the recipe
+semantic changes temporarily removed and are baseline issues.
+
+The current handoff is `LANG007.C4.P4/random/stdlib-random-completion-handoff.md`.
+The deterministic random source slice and secure native boundary are now
+IMPLEMENTED / FOCUSED_TESTED. Canonical immutable 64-bit constants use exact
+literal materialization because the static evaluator's current intrinsic set
+does not include shift; no runtime mutable substitute was introduced. Qualified
+class exports are resolved through the canonical type-name path. Trait default
+slot numbering is local to each owning trait surface, so bootstrap and client
+import closures agree. SecureRandom has one OS-byte-fill primitive and no
+Generator conformance or deterministic fallback.
+
+Random plan lifecycle at the user-directed delivery stop: IN_PROGRESS / PARTIAL /
+FOCUSED_TESTED. Source API implementation is present, but plan acceptance is not
+complete. Latest gate: `RUSTFLAGS='' cargo test -p phalcom-core --test core random_ -- --nocapture`
+PASS, 4 selected, including negative conformance/import/type checks and a 70-bit
+NumericPolicy bound without avoidable 128-bit candidate assembly. Oversized bounds
+retain normal numeric-limit failure. Corpus random/syntax PASS 2/2; secure native
+success/error-lifting PASS 2/2; core trait suite PASS 18/18; four crate checks and
+native surface `--check` PASS. Semantic trait lane is 41 PASS / 4 confirmed
+baseline failures. Workspace format checking reports existing drift.
+
+Remaining next steps: measured performance/allocation/GC checkpoint; dedicated
+native-effect/source-identity and deterministic-effect assertions; remaining
+resource cases (notably secure byte allocation); directly affected provider,
+native verification, numeric and full corpus gates; broad core optional gate;
+final scoped review and truthful promotion of plan state. Retained compilation
+sessions also expose a stale-snapshot failure when an unchanged Universe field
+dependency is not validated at the new revision. Keep fixture isolation until
+that general dependency-validation incident is resolved; do not call it fixed.
+
+This companion state does not promote the structural/static C4 active plan.
+
+### Historical incident and consultations
 
 The user requested the `LANG007.C4.P4/random/stdlib-random-luna-patch-grade-implementation-plan.md`
 follow-on inline on main. R0 is BLOCKED / NOT_STARTED / UNVERIFIED at revision

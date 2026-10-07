@@ -1046,18 +1046,8 @@ impl ProgramCompiler {
         }
         let mut call_conformance_slots =
             BTreeMap::<(ModuleId, SourceRange, phalcom_semantic::identity::CallableId), Vec<crate::typing::RuntimeConformanceSlotRecipe>>::new();
-        let mut default_requirement_slots = BTreeMap::new();
-        for (_, surface) in analyzed.semantic.trait_surfaces.iter() {
-            for (requirement, _) in surface.iter() {
-                default_requirement_slots.entry(requirement.clone()).or_insert(0u16);
-            }
-        }
-        for (slot, requirement) in default_requirement_slots.keys().cloned().collect::<Vec<_>>().into_iter().enumerate() {
-            default_requirement_slots.insert(
-                requirement,
-                u16::try_from(slot).map_err(|_| ProgramCompileError::GenericEvidenceLayout("trait requirement slot capacity exceeded".into()))?,
-            );
-        }
+        let default_requirement_slots = super::semantic_lowering::trait_default_requirement_slots(&analyzed.semantic)
+            .map_err(|error| ProgramCompileError::GenericEvidenceLayout(error.to_string()))?;
 
         for (callable, analysis) in analyzed.semantic.callable_analyses.iter() {
             if !analyzed.runtime_modules.contains(callable.owner.module()) {

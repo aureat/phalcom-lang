@@ -93,6 +93,36 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["random"],
         kind: ModuleKind::Package,
+        children: &["generator", "xoshiro256pp", "distribution", "uniform_int", "bernoulli", "secure"],
+    },
+    UniverseNodeSpec {
+        path: &["random", "generator"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["random", "xoshiro256pp"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["random", "distribution"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["random", "uniform_int"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["random", "bernoulli"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["random", "secure"],
+        kind: ModuleKind::Module,
         children: &[],
     },
     UniverseNodeSpec {
@@ -734,6 +764,12 @@ impl UniverseSourceProvider {
                 include_str!("../../phalcom-core/core/universe/src/math/integer.ph")
             }
             [c] if c.as_str() == "random" => include_str!("../../phalcom-core/core/universe/src/random/package.ph"),
+            [c, m] if c.as_str() == "random" && m.as_str() == "generator" => include_str!("../../phalcom-core/core/universe/src/random/generator.ph"),
+            [c, m] if c.as_str() == "random" && m.as_str() == "xoshiro256pp" => include_str!("../../phalcom-core/core/universe/src/random/xoshiro256pp.ph"),
+            [c, m] if c.as_str() == "random" && m.as_str() == "distribution" => include_str!("../../phalcom-core/core/universe/src/random/distribution.ph"),
+            [c, m] if c.as_str() == "random" && m.as_str() == "uniform_int" => include_str!("../../phalcom-core/core/universe/src/random/uniform_int.ph"),
+            [c, m] if c.as_str() == "random" && m.as_str() == "bernoulli" => include_str!("../../phalcom-core/core/universe/src/random/bernoulli.ph"),
+            [c, m] if c.as_str() == "random" && m.as_str() == "secure" => include_str!("../../phalcom-core/core/universe/src/random/secure.ph"),
             [c] if c.as_str() == "time" => include_str!("../../phalcom-core/core/universe/src/time/package.ph"),
             [c, m] if c.as_str() == "time" && m.as_str() == "clock" => {
                 include_str!("../../phalcom-core/core/universe/src/time/clock.ph")
