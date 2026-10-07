@@ -6581,6 +6581,127 @@ impl SemanticWorkspaceSession {
             callable_analyses.insert(callable_id, Arc::new(analysis));
         }
 
+        // Module value exports are linker-owned public-name projections. Their
+        // value facts live in the canonical source binding index and must be
+        // available to ordinary top-level checking just like local bindings.
+        let module_value_exports = input
+            .linked
+            .modules
+            .iter()
+            .flat_map(|(module, linked_module)| {
+                linked_module.interface.exports.iter().filter_map(move |(name, export)| match &export.target {
+                    LinkedExportTarget::Binding(symbol) => Some(((module.clone(), name.to_string()), symbol.clone())),
+                    LinkedExportTarget::Module(_) => None,
+                })
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        // The first ordinary pass establishes local module binding facts. Seed
+        // a second pass from those canonical facts so imported values retain
+        // their exact structural type and denotation during normal checking.
+        let mut module_static_bindings = self
+            .semantic_structure_shards
+            .iter()
+            .filter_map(|(module_id, shard)| {
+                let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
+                let main_callable = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
+                let analysis = callable_analyses.get(&main_callable)?;
+                Some((
+                    module_id.clone(),
+                    Arc::new(crate::module_bindings::ModuleStaticBindingIndex::from_module_analysis(
+                        module_id,
+                        &shard.source.program,
+                        analysis,
+                    )),
+                ))
+            })
+            .collect::<BTreeMap<_, _>>();
+        for (module_id, linked_module) in &input.linked.modules {
+            let imported_facts = linked_module
+                .bindings
+                .imports
+                .iter()
+                .filter_map(|(local_name, import_id)| {
+                    let phalcom_modules::linker::LinkedReadSpec::Binding(symbol) = linked_module.linked_reads.get(import_id.0 as usize)? else {
+                        return None;
+                    };
+                    let fact = module_static_bindings.get(&symbol.module)?.get(symbol)?.clone();
+                    Some((local_name.to_string(), fact))
+                })
+                .collect::<Vec<_>>();
+            if let Some(bindings) = module_static_bindings.get_mut(module_id) {
+                for (local_name, fact) in imported_facts {
+                    Arc::make_mut(bindings).insert_imported_binding(&local_name, fact);
+                }
+            }
+        }
+        for (module_id, bindings) in module_static_bindings.clone() {
+            let bindings = match crate::db::query::query_module_static_bindings(&mut self.db, bindings) {
+                QueryOutcome::Ready(product) => product,
+                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            };
+            module_static_bindings.insert(module_id, bindings);
+        }
+
+        for (module_id, shard) in &self.semantic_structure_shards {
+            if !semantic_work_modules.contains(module_id) {
+                continue;
+            }
+            let parsed_unit = &shard.source;
+            let mut ctx = CheckingContext::new_with_dispatch_ref(
+                Arc::make_mut(&mut self.store),
+                &hierarchy,
+                &resolver,
+                &declarations,
+                &dispatch,
+                module_id.clone(),
+            );
+            ctx.set_caller_package(semantic_topology.owning_package(module_id));
+            ctx.set_access_topology(semantic_topology.as_ref());
+            ctx.attach_module_value_exports(&module_static_bindings, &module_value_exports);
+            ctx.attach_field_signatures(&field_signatures);
+            ctx.attach_field_lifecycle(&field_lifecycle);
+            ctx.attach_enum_semantics(&enum_semantics);
+            ctx.attach_data_semantics(&data_semantics);
+            ctx.attach_associated_families(&associated_surfaces_table);
+            ctx.attach_conformance_semantics(&conformance_semantics);
+
+            if let Some(linked_module) = input.linked.modules.get(module_id) {
+                for (local_name, import_id) in &linked_module.bindings.imports {
+                    let Some(phalcom_modules::linker::LinkedReadSpec::Binding(symbol)) = linked_module.linked_reads.get(import_id.0 as usize) else {
+                        continue;
+                    };
+                    let Some(fact) = module_static_bindings.get(&symbol.module).and_then(|bindings| bindings.get(symbol)) else {
+                        continue;
+                    };
+                    ctx.declare_checked_binding(local_name.to_string(), &fact.state);
+                }
+            }
+
+            for stmt in &parsed_unit.program.statements {
+                match stmt {
+                    Statement::Class(class_def) => {
+                        let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                        if !blocked_declarations.contains(&decl_id) {
+                            check_class_field_initializers(&mut ctx, class_def);
+                        }
+                    }
+                    _ => {
+                        check_statement(&mut ctx, stmt);
+                    }
+                }
+            }
+
+            let body_range = parsed_unit.program.preamble.range;
+            let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
+            let callable_id = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
+            let analysis = ctx.finalize(callable_id.clone(), body_range, crate::checker::CallableAnalysisStatus::Complete);
+            callable_analyses.insert(callable_id, Arc::new(analysis));
+        }
+
         // Body diagnostics are published from the final analyses, once per
         // rebuilt module. Intermediate inferred-result and conformance-plan
         // refreshes may replace those analyses, so accumulating diagnostics
@@ -6870,7 +6991,7 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        let mut module_static_bindings = self
+        module_static_bindings = self
             .semantic_structure_shards
             .iter()
             .filter_map(|(module_id, shard)| {

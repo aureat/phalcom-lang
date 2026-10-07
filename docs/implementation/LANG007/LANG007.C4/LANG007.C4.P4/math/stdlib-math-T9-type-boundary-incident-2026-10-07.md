@@ -116,9 +116,38 @@ cross-module Family application. A math-specific check, implicit conversion,
 or runtime rejection would violate the plan's semantic-authority and
 no-workaround rules.
 
-## 14. Decision requested
+## 14. Architectural decision received
 
-Should typed exact Family calls across module exports enforce their captured
-source callable signature in the canonical semantic call checker, and if so,
-which existing Family/call-lowering owner should carry that fact without
-introducing a second source of callable type authority?
+The approved owner is the semantic module-value boundary, not the callable
+checker. A `PublicExport(module, name)` resolves to its canonical
+`LinkedExportTarget::Binding(SymbolId)`, whose `ModuleBindingFact` supplies the
+unchanged `BindingState` (both `TypeKnowledge` and denotation). Existing
+`synthesize_family_value_call -> apply_resolved_callable` remains the sole
+call-check authority.
+
+## 15. Implemented focused slice
+
+- Top-level semantic analysis now performs a second, canonical-binding pass.
+  Selective imports seed fresh local bindings from the source `BindingState`.
+- Qualified module value access now resolves a linked public export to the
+  canonical binding fact before normal Family/callable application. It does
+  not add synthetic module methods or change ordinary dispatch.
+- The focused semantic regression proves the source export, a selective alias,
+  a qualified alias, and a one-hop re-export all retain `TypeData::Family` and
+  reject incompatible arguments.
+- The original `math.sqrt(4)` compiler-facing T9 reproducer now passes.
+
+## 16. Remaining boundary
+
+Declaration member bodies are checked before this top-level binding projection
+is available and therefore still do not receive imported module value facts.
+A temporary nested-body discriminator (`math.sqrt("wrong")` inside a class
+method) produced only the two top-level mismatch diagnostics, rather than the
+required third diagnostic. The temporary assertion was removed so the focused
+regression remains green.
+
+The next slice must thread the same canonical module-value environment through
+`BodyAnalysisContext` and its callable-body query/revalidation path. This is a
+continuation of the approved semantic-owner design, not a call-checker or
+runtime change. T9 remains partial until that path and the requested
+consumer-invalidation coverage pass.

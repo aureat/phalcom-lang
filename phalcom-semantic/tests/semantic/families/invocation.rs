@@ -1,11 +1,85 @@
 use std::sync::Arc;
 
+use crate::semantic::support::WorkspaceFixture;
 use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::checker::{CallableReferenceResolutionKind, FamilyApplicationResolution, FamilyApplicationSelection};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, InvocationTargetId};
 use phalcom_semantic::types::denotation::SemanticDenotation;
+use phalcom_semantic::types::store::TypeData;
+
+#[test]
+fn module_value_exports_preserve_family_type_for_selective_and_qualified_calls() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "math",
+            r#"
+class Kernel {
+  @class sqrt(_ value: Int) -> Int { value }
+}
+let sqrt = &Kernel.sqrt(_)
+export sqrt
+"#,
+        )
+        .module(
+            "facade",
+            r#"
+from .math import sqrt as square_root
+export square_root
+"#,
+        )
+        .module(
+            "client",
+            r#"
+from .facade import square_root as root
+import .facade as math
+let selective_ok = root(1)
+let qualified_ok = math.square_root(1)
+let selective_wrong = root("wrong")
+let qualified_wrong = math.square_root("wrong")
+"#,
+        )
+        .entry("client")
+        .analyze();
+
+    let math_symbol = phalcom_modules::linker::SymbolId {
+        module: fixture.module("math").clone(),
+        name: "sqrt".into(),
+    };
+    let math_fact = fixture
+        .analysis
+        .snapshot
+        .module_static_binding(&math_symbol)
+        .expect("canonical exported math binding");
+    let math_type = math_fact.state.current.ty().expect("exported Family type");
+    assert!(matches!(fixture.analysis.snapshot.store.get(math_type), TypeData::Family(_)));
+
+    let client_main = CallableId::new(
+        DeclarationId::new(fixture.module("client").clone(), "<main>".into()),
+        phalcom_common::selector::Selector::getter("<main>").expect("main selector"),
+        DispatchSide::Instance,
+    );
+    let client = fixture.analysis.snapshot.callable_analyses.get(&client_main).expect("client analysis");
+    let imported = client
+        .bindings
+        .values()
+        .find(|binding| binding.name == "root")
+        .expect("selective import binding");
+    let imported_type = imported.current.ty().expect("imported Family type");
+    assert!(matches!(fixture.analysis.snapshot.store.get(imported_type), TypeData::Family(_)));
+
+    let argument_mismatches = fixture
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .filter(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ArgumentMismatch)
+        .count();
+    assert_eq!(
+        argument_mismatches, 2,
+        "both selective and qualified calls must use the Family callable contract"
+    );
+}
 
 #[test]
 fn immediate_family_call_publishes_static_application_resolution() {

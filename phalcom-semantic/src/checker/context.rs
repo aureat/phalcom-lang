@@ -547,6 +547,12 @@ pub struct CheckingContext<'a> {
     pub current_module: ModuleId,
     pub caller_package: Option<ModuleId>,
     pub access_topology: Option<&'a phalcom_modules::topology::ModuleTopology>,
+    /// Checked module value facts available to this body. These facts retain
+    /// canonical source `SymbolId`s even when reached through an import alias.
+    module_value_bindings: Option<&'a BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>>,
+    /// Linked public value exports keyed by the exporting module and public
+    /// spelling. This is deliberately separate from ordinary object dispatch.
+    module_value_exports: Option<&'a BTreeMap<(ModuleId, String), phalcom_modules::linker::SymbolId>>,
     pub current_class: Option<DeclarationId>,
     pub current_side: DispatchSide,
     pub current_callable: Option<CallableId>,
@@ -679,6 +685,8 @@ impl<'a> CheckingContext<'a> {
             current_module,
             caller_package: None,
             access_topology: None,
+            module_value_bindings: None,
+            module_value_exports: None,
             current_class: None,
             current_side: DispatchSide::Instance,
             current_callable: None,
@@ -786,6 +794,8 @@ impl<'a> CheckingContext<'a> {
             current_module,
             caller_package: None,
             access_topology: None,
+            module_value_bindings: None,
+            module_value_exports: None,
             current_class: None,
             current_side: DispatchSide::Instance,
             current_callable: None,
@@ -872,6 +882,8 @@ impl<'a> CheckingContext<'a> {
             current_module: self.current_module.clone(),
             caller_package: self.caller_package.clone(),
             access_topology: self.access_topology,
+            module_value_bindings: self.module_value_bindings,
+            module_value_exports: self.module_value_exports,
             current_class: self.current_class.clone(),
             current_side: self.current_side,
             current_callable: self.current_callable.clone(),
@@ -960,6 +972,35 @@ impl<'a> CheckingContext<'a> {
         self.access_topology = Some(topology);
     }
 
+    /// Attaches canonical checked value facts for module imports and qualified
+    /// module exports. The linker owns public-name resolution; the binding
+    /// index owns the exported value's type and denotation.
+    pub(crate) fn attach_module_value_exports(
+        &mut self,
+        bindings: &'a BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
+        exports: &'a BTreeMap<(ModuleId, String), phalcom_modules::linker::SymbolId>,
+    ) {
+        self.module_value_bindings = Some(bindings);
+        self.module_value_exports = Some(exports);
+    }
+
+    /// Resolves `module_alias.public_name` as an exported *value*, without
+    /// treating the module as an object with a synthetic dispatch surface.
+    pub(crate) fn resolve_module_export_value(&self, module_alias: &str, public_name: &str) -> Option<ValueSemanticFact> {
+        self.record_semantic_dependency(SemanticDependency::LinkedName(self.current_module.clone(), module_alias.to_owned()));
+        let module = self.resolver.resolve_module_alias(&self.current_module, module_alias)?;
+        let exports = self.module_value_exports?;
+        let symbol = exports.get(&(module.clone(), public_name.to_owned()))?;
+        let bindings = self.module_value_bindings?;
+        let fact = bindings.get(&symbol.module)?.get(symbol)?;
+        self.record_semantic_dependency(SemanticDependency::PublicExport(module, public_name.to_owned()));
+        self.record_semantic_dependency(SemanticDependency::ModuleStaticBindings(symbol.module.clone()));
+        Some(ValueSemanticFact {
+            knowledge: fact.state.current.clone(),
+            denotation: fact.state.denotation.clone(),
+        })
+    }
+
     /// Projects the current checker scope into the shared access relation.
     pub fn access_context(&self) -> AccessContext {
         AccessContext::with_provenance(
@@ -1014,6 +1055,8 @@ impl<'a> CheckingContext<'a> {
 
         probe.caller_package = self.caller_package.clone();
         probe.access_topology = self.access_topology;
+        probe.module_value_bindings = self.module_value_bindings;
+        probe.module_value_exports = self.module_value_exports;
         probe.current_class = self.current_class.clone();
         probe.current_side = self.current_side;
         probe.current_callable = self.current_callable.clone();
