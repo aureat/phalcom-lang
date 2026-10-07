@@ -54,5 +54,6 @@ property/boundary matrix remain open, and M1 remains partial.
 
 ## Delivery state
 
-The requested work is committed and pushed on `stdlib-random-math`; see the
-paired handoff for the resulting revision and the exact continuation point.
+The implementation continuation was committed and pushed on
+`stdlib-random-math` as `2c248f93c7047080908453a6d46039eb3a768ccc`. The paired
+handoff records the exact continuation point.

@@ -18,6 +18,9 @@ per-function Float IEEE/accuracy matrix and T8's arbitrary-size integer
 property/boundary matrix have not been completed. Do not start `universe.random`
 or claim M1 completion from this continuation.
 
+The implementation continuation was delivered in commit
+`2c248f93c7047080908453a6d46039eb3a768ccc`.
+
 T9's semantic owner is the canonical module-value boundary. Linked exports
 resolve to canonical symbol/binding facts; member-body analysis receives the
 same checked values and records precise module static-binding dependencies.
