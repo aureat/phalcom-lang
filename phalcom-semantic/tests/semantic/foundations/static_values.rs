@@ -11,6 +11,7 @@ fn static_value_store_preserves_exact_primitives_and_snapshot_lineage() {
     let float_ty = types.nominal_type(universe_declaration(phalcom_native_meta::UniverseKey::Float));
     let string_ty = types.nominal_type(universe_declaration(phalcom_native_meta::UniverseKey::String));
     let symbol_ty = types.nominal_type(universe_declaration(phalcom_native_meta::UniverseKey::Symbol));
+    let char_ty = types.nominal_type(universe_declaration(phalcom_native_meta::UniverseKey::Char));
 
     let mut values = StaticValueStore::new();
     let unit = values.intern_unit();
@@ -95,6 +96,22 @@ fn static_value_store_preserves_exact_primitives_and_snapshot_lineage() {
     assert_eq!(
         values.domain_of(symbol_a, &types).unwrap(),
         phalcom_semantic::static_domain::StaticValueDomain::ValueType(symbol_ty)
+    );
+
+    let char_a = values.intern_char('a');
+    let char_a2 = values.intern_char('a');
+    let char_b = values.intern_char('b');
+    assert_eq!(char_a, char_a2);
+    assert_ne!(char_a, char_b);
+    assert!(values.semantic_eq(char_a, char_a2).unwrap());
+    assert!(!values.semantic_eq(char_a, char_b).unwrap());
+    assert_eq!(values.semantic_hash(char_a).unwrap(), values.semantic_hash(char_a2).unwrap());
+    assert_eq!(values.content_fingerprint(char_a).unwrap(), values.content_fingerprint(char_a2).unwrap());
+    assert_ne!(values.content_fingerprint(char_a).unwrap(), values.content_fingerprint(char_b).unwrap());
+    assert!(matches!(values.get(char_a), Ok(StaticValueData::Char('a'))));
+    assert_eq!(
+        values.domain_of(char_a, &types).unwrap(),
+        phalcom_semantic::static_domain::StaticValueDomain::ValueType(char_ty)
     );
 
     let proper = values.intern_type(int_ty, &types).unwrap();

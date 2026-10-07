@@ -32,6 +32,57 @@ use phalcom_ast::{
 fn character_literal_parses_as_an_expression() {
     let parsed = parse_source("'é'", 0).expect("character literal should parse");
     assert_eq!(parsed.statements.len(), 1);
+    match &parsed.statements[0] {
+        Statement::Expr { expr, .. } => match expr {
+            Expr::Char { value, range } => {
+                assert_eq!(*value, 'é');
+                assert_eq!((range.start, range.end), (0, 4));
+            }
+            _ => panic!("expected Expr::Char, got {expr:?}"),
+        },
+        other => panic!("expected Statement::Expr, got {other:?}"),
+    }
+}
+
+#[test]
+fn character_literal_parses_in_patterns() {
+    use phalcom_ast::ast::Pattern;
+
+    // Match expression pattern
+    let parsed = parse_source("match c { 'a' => 1 _ => 2 }", 0).expect("match should parse");
+    match &parsed.statements[0] {
+        Statement::Expr { expr: Expr::Match(match_expr), .. } => {
+            assert_eq!(match_expr.arms.len(), 2);
+            assert!(matches!(match_expr.arms[0].pattern, Pattern::Char { value: 'a', .. }));
+            assert!(matches!(match_expr.arms[1].pattern, Pattern::Wildcard { .. }));
+        }
+        other => panic!("expected match expr, got {other:?}"),
+    }
+
+    // if let pattern
+    let parsed = parse_source("if let 'a' = c { 1 }", 0).expect("if let should parse");
+    match &parsed.statements[0] {
+        Statement::Expr { expr: Expr::IfLet(if_let), .. } => {
+            assert!(matches!(if_let.pattern, Pattern::Char { value: 'a', .. }));
+        }
+        other => panic!("expected if let, got {other:?}"),
+    }
+
+    // Or-pattern with characters
+    let parsed = parse_source("match c { 'a' | 'b' => 1 _ => 2 }", 0).expect("or-pattern should parse");
+    match &parsed.statements[0] {
+        Statement::Expr { expr: Expr::Match(match_expr), .. } => {
+            match &match_expr.arms[0].pattern {
+                Pattern::Or { alternatives, .. } => {
+                    assert_eq!(alternatives.len(), 2);
+                    assert!(matches!(alternatives[0], Pattern::Char { value: 'a', .. }));
+                    assert!(matches!(alternatives[1], Pattern::Char { value: 'b', .. }));
+                }
+                other => panic!("expected or pattern, got {other:?}"),
+            }
+        }
+        other => panic!("expected match expr, got {other:?}"),
+    }
 }
 
 fn source_slice(source: &str, range: phalcom_common::range::SourceRange) -> &str {

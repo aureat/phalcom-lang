@@ -54,14 +54,121 @@ fn string_and_number_literals() {
 }
 
 #[test]
-fn character_literal_is_a_single_scalar_token() {
-    let mut lexer = Lexer::new("'é'");
-    let first = lexer.next().expect("character literal should produce a token");
-    assert!(first.is_ok(), "character literal should lex: {first:?}");
+fn character_literal_valid_scalar_matrix() {
+    let cases = [
+        ("'a'", 'a', 3),
+        ("'é'", 'é', 4),
+        ("'中'", '中', 5),
+        ("'🙂'", '🙂', 6),
+        ("'\\n'", '\n', 4),
+        ("'\\r'", '\r', 4),
+        ("'\\t'", '\t', 4),
+        ("'\\\\'", '\\', 4),
+        ("'\\''", '\'', 4),
+        ("'\\u{0}'", '\u{0}', 7),
+        ("'\\u{41}'", 'A', 8),
+        ("'\\u{D7FF}'", '\u{D7FF}', 10),
+        ("'\\u{E000}'", '\u{E000}', 10),
+        ("'\\u{10FFFF}'", '\u{10FFFF}', 12),
+    ];
+    for (src, expected_char, expected_len) in cases {
+        let mut lexer = Lexer::new(src);
+        let (start, token, end) = lexer.next().expect("should produce token").expect("should lex valid char");
+        assert_eq!(token, Token::Char(expected_char), "failed for {src}");
+        assert_eq!((start, end), (0, expected_len), "failed span for {src}");
+    }
+}
+
+
+#[test]
+fn character_literal_invalid_matrix() {
+    use phalcom_ast::token::LexicalError;
+
+    // Empty
+    assert!(matches!(
+        Lexer::new("''").next().unwrap(),
+        Err(LexicalError::InvalidCharacterLiteral(range)) if range == (0..2)
+    ));
+    // Multiple characters
+    assert!(matches!(
+        Lexer::new("'ab'").next().unwrap(),
+        Err(LexicalError::InvalidCharacterLiteral(range)) if range == (0..4)
+    ));
+    // e + U+0301 (combining mark)
+    assert!(matches!(
+        Lexer::new("'e\u{0301}'").next().unwrap(),
+        Err(LexicalError::InvalidCharacterLiteral(range)) if range == (0..5)
+    ));
+    // Raw LF
+    assert!(matches!(
+        Lexer::new("'\n'").next().unwrap(),
+        Err(LexicalError::RawNewlineInCharacterLiteral(range)) if range == (1..2)
+    ));
+    // Raw CR
+    assert!(matches!(
+        Lexer::new("'\r'").next().unwrap(),
+        Err(LexicalError::RawNewlineInCharacterLiteral(range)) if range == (1..2)
+    ));
+    // Raw CRLF
+    assert!(matches!(
+        Lexer::new("'\r\n'").next().unwrap(),
+        Err(LexicalError::RawNewlineInCharacterLiteral(range)) if range == (1..3)
+    ));
+    // Invalid escape \q
+    assert!(matches!(
+        Lexer::new("'\\q'").next().unwrap(),
+        Err(LexicalError::InvalidCharacterEscape(range)) if range == (1..3)
+    ));
+    // Malformed \u
+    assert!(matches!(
+        Lexer::new("'\\u'").next().unwrap(),
+        Err(LexicalError::InvalidCharacterEscape(range)) if range == (1..3)
+    ));
+    // Empty \u{}
+    assert!(matches!(
+        Lexer::new("'\\u{}'").next().unwrap(),
+        Err(LexicalError::InvalidCharacterEscape(range)) if range == (1..5)
+    ));
+    // Non-hex \u{XYZ}
+    assert!(matches!(
+        Lexer::new("'\\u{XYZ}'").next().unwrap(),
+        Err(LexicalError::InvalidCharacterEscape(range)) if range == (1..8)
+    ));
+    // Overflow > 6 hex digits \u{1234567}
+    assert!(matches!(
+        Lexer::new("'\\u{1234567}'").next().unwrap(),
+        Err(LexicalError::InvalidCharacterEscape(range)) if range == (1..12)
+    ));
+    // Surrogate \u{D800}
+    assert!(matches!(
+        Lexer::new("'\\u{D800}'").next().unwrap(),
+        Err(LexicalError::InvalidCharacterEscape(range)) if range == (1..9)
+    ));
+    // Surrogate \u{DFFF}
+    assert!(matches!(
+        Lexer::new("'\\u{DFFF}'").next().unwrap(),
+        Err(LexicalError::InvalidCharacterEscape(range)) if range == (1..9)
+    ));
+    // Value > U+10FFFF \u{110000}
+    assert!(matches!(
+        Lexer::new("'\\u{110000}'").next().unwrap(),
+        Err(LexicalError::InvalidCharacterEscape(range)) if range == (1..11)
+    ));
+    // Unterminated quote
+    assert!(matches!(
+        Lexer::new("'a").next().unwrap(),
+        Err(LexicalError::UnterminatedCharacterLiteral(range)) if range == (0..2)
+    ));
+    // Unterminated \u{...}
+    assert!(matches!(
+        Lexer::new("'\\u{41'").next().unwrap(),
+        Err(LexicalError::InvalidCharacterEscape(range)) if range == (1..6)
+    ));
 }
 
 #[test]
 fn keywords_and_operators() {
+
     insta::assert_debug_snapshot!(tokens("if a and b or not c { self } else { super }"));
 }
 

@@ -1260,4 +1260,26 @@ mod tests {
             ExhaustivenessResult::Blocked(BlockReason::UnknownType(UnknownReason::InferenceCancelled))
         ));
     }
+
+    #[test]
+    fn first_missing_scalar_boundary_tests() {
+        let mut set = BTreeSet::new();
+        assert_eq!(first_missing_scalar(&set), Some('\0'));
+
+        for cp in 0..0xD7FF {
+            set.insert(char::from_u32(cp).unwrap());
+        }
+        assert_eq!(first_missing_scalar(&set), Some('\u{D7FF}'));
+
+        set.insert('\u{D7FF}');
+        assert_eq!(first_missing_scalar(&set), Some('\u{E000}'));
+
+        for cp in 0xE000..0x10FFFF {
+            set.insert(char::from_u32(cp).unwrap());
+        }
+        assert_eq!(first_missing_scalar(&set), Some('\u{10FFFF}'));
+
+        set.insert('\u{10FFFF}');
+        assert_eq!(first_missing_scalar(&set), None);
+    }
 }

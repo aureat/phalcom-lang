@@ -634,3 +634,64 @@ class Eval {
             .any(|diagnostic| diagnostic.code == DiagnosticCode::MatchPatternContradictory)
     );
 }
+
+#[test]
+fn char_match_exact_and_wildcard_is_exhaustive() {
+    let case = analyze_adt(
+        r#"
+class Test {
+    run(_ c: Char) {
+        match c {
+            'a' => 1
+            _ => 2
+        }
+    }
+}
+"#,
+    );
+    let handle = case.only_match();
+    handle.assert_exhaustive();
+    handle.arm(0).assert_usefulness(PatternUsefulness::Useful);
+    handle.arm(1).assert_usefulness(PatternUsefulness::Useful);
+}
+
+#[test]
+fn char_match_duplicate_arm_is_redundant() {
+    let case = analyze_adt(
+        r#"
+class Test {
+    run(_ c: Char) {
+        match c {
+            'a' => 1
+            'a' => 2
+            _ => 3
+        }
+    }
+}
+"#,
+    );
+    let handle = case.only_match();
+    handle.assert_exhaustive();
+    handle.arm(0).assert_usefulness(PatternUsefulness::Useful);
+    handle.arm(1).assert_usefulness(PatternUsefulness::Redundant);
+    assert_eq!(case.diagnostics_for(DiagnosticCode::MatchArmRedundant).len(), 1);
+}
+
+#[test]
+fn char_match_against_int_scrutinee_is_impossible() {
+    let case = analyze_adt(
+        r#"
+class Test {
+    run(_ n: Int) {
+        match n {
+            'a' => 1
+            _ => 2
+        }
+    }
+}
+"#,
+    );
+    let handle = case.only_match();
+    handle.arm(0).assert_usefulness(PatternUsefulness::Impossible);
+    assert_eq!(case.diagnostics_for(DiagnosticCode::MatchPatternImpossible).len(), 1);
+}
