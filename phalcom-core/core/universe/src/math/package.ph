@@ -1,8 +1,12 @@
 @!documentation("Float-only IEEE binary64 functions and exact arbitrary-precision Int algorithms. Angles use radians except degrees/radians conversions. NaN, infinity, signed-zero, and domain results follow the Rust f64 backend; Int is never implicitly converted to Float.")
 
+expose .special
+
 from .float_kernel import FloatMathKernel
 from .float_kernel import FloatAngleHelpers
+from .numerical_errors import NumericalRangeError, NumericalEvaluationError
 from .integer import IntegerMath
+from .reduction import FloatReduction
 
 const pi: Float = 3.141592653589793
 const tau: Float = 6.283185307179586
@@ -38,6 +42,13 @@ let hypot = &FloatMathKernel.hypot(_, _)
 let degrees = &FloatAngleHelpers.degrees(_)
 let radians = &FloatAngleHelpers.radians(_)
 
+let logSumExp = &FloatReduction.logSumExp(_)
+
+let factorial = &IntegerMath.factorial(_)
+let choose = &IntegerMath.choose(_, _)
+let fallingFactorial = &IntegerMath.fallingFactorial(_, _)
+let risingFactorial = &IntegerMath.risingFactorial(_, _)
+
 let gcd = &IntegerMath.gcd(_, _)
 let lcm = &IntegerMath.lcm(_, _)
 let isqrt = &IntegerMath.isqrt(_)
@@ -47,5 +58,6 @@ export (
   sqrt, cbrt, exp, exp2, expm1, ln, ln1p, log, log2, log10,
   sin, cos, tan, asin, acos, atan, atan2,
   degrees, radians, sinh, cosh, tanh, asinh, acosh, atanh, hypot,
-  gcd, lcm, isqrt
+  gcd, lcm, isqrt, logSumExp, factorial, choose, fallingFactorial, risingFactorial,
+  NumericalRangeError, NumericalEvaluationError
 )

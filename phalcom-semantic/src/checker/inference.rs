@@ -5346,8 +5346,10 @@ impl InferenceSession {
         })
     }
 
-    /// Extracts materialized projections from constraints and var_terms, normalizes them via
-    /// the provided normalizer closure, and unifies the normalized types.
+    /// Normalizes materialized projections in deferred variable terms and constraints.
+    /// A constraint rewrite counts as progress even without a new substitution.
+    /// Ordinary propagation must retry rewritten relations to discharge or
+    /// re-establish their residual obligations and retain failure provenance.
     pub fn extract_and_normalize_projections<F>(&mut self, store: &mut TypeStore, mut normalizer: F) -> Result<bool, InferenceFailureReason>
     where
         F: FnMut(&mut TypeStore, TypeId) -> Option<TypeId>,
@@ -5392,14 +5394,12 @@ impl InferenceSession {
                         }
                     }
                     if let Some(nl) = new_left {
-                        let effect = self.unify_terms(&nl, right, store)?;
-                        progress |= effect.is_changed();
                         *left = nl;
+                        progress = true;
                     }
                     if let Some(nr) = new_right {
-                        let effect = self.unify_terms(left, &nr, store)?;
-                        progress |= effect.is_changed();
                         *right = nr;
+                        progress = true;
                     }
                 }
                 InferenceRelation::Subtype(sub, sup) => {
@@ -5667,10 +5667,13 @@ impl DerefMut for InferenceCoordinator {
 mod tests {
     use super::{
         ConstraintOrigin, InferenceCallable, InferenceCallableParameter, InferenceFailureReason, InferenceOutcome, InferenceRecord, InferenceRelation,
-        InferenceSession, InferenceTerm,
+        InferenceSession, InferenceTerm, InferenceTraitRef,
     };
+    use crate::checker::context::CheckerControl;
     use crate::identity::{DeclarationId, InferVarId};
+    use crate::traits::AssociatedTypeRequirementId;
     use crate::types::id::{KindId, RigidTypeVariableId};
+    use crate::types::relation::MapTypeHierarchy;
     use crate::types::store::TypeStore;
     use phalcom_modules::identity::ModuleId;
 
@@ -5693,6 +5696,93 @@ mod tests {
             outcome,
             InferenceOutcome::InternalFailure(InferenceFailureReason::MissingVariableMetadata { .. })
         ));
+    }
+
+    #[test]
+    fn normalization_rewrite_counts_as_progress_before_residual_retry() {
+        let mut store = TypeStore::new();
+        let subject = store.nominal(test_decl("Subject"));
+        let float = store.nominal(test_decl("Float"));
+        let iterable = test_decl("Iterable");
+        let projection = InferenceTerm::AssociatedProjection {
+            subject: Box::new(InferenceTerm::Canonical(subject)),
+            trait_ref: InferenceTraitRef {
+                declaration: iterable.clone(),
+                arguments: Box::new([]),
+            },
+            requirement: AssociatedTypeRequirementId::new(iterable, 0),
+        };
+        let projection_ty = InferenceSession::new()
+            .materialize(&projection, &mut store)
+            .expect("associated projection should materialize");
+        let mut session = InferenceSession::new();
+        session.add_constraint(
+            InferenceRelation::Equivalent(projection, InferenceTerm::Canonical(float)),
+            ConstraintOrigin::Explicit,
+            None,
+        );
+        let control = CheckerControl::default();
+        let hierarchy = MapTypeHierarchy::new();
+
+        session
+            .propagate_with_control(&mut store, &hierarchy, &control)
+            .expect("symbolic projection should defer as a residual");
+        assert_eq!(session.residual_obligations().len(), 1);
+
+        let progress = session
+            .extract_and_normalize_projections(&mut store, |_, ty| (ty == projection_ty).then_some(float))
+            .expect("projection normalization should succeed");
+        assert!(progress, "rewriting a constraint must request canonical retry");
+        assert_eq!(session.residual_obligations().len(), 1, "normalization alone is not proof");
+        assert!(matches!(session.finish_root(), InferenceOutcome::Underconstrained(_)));
+
+        session
+            .propagate_with_control(&mut store, &hierarchy, &control)
+            .expect("canonical retry should prove the normalized equality");
+        assert!(session.residual_obligations().is_empty());
+        assert!(session.finish_root().is_solved());
+    }
+
+    #[test]
+    fn normalized_projection_conflict_is_adjudicated_on_canonical_retry() {
+        for projection_on_left in [true, false] {
+            let mut store = TypeStore::new();
+            let subject = store.nominal(test_decl("Subject"));
+            let float = store.nominal(test_decl("Float"));
+            let int = store.nominal(test_decl("Int"));
+            let iterable = test_decl("Iterable");
+            let projection = InferenceTerm::AssociatedProjection {
+                subject: Box::new(InferenceTerm::Canonical(subject)),
+                trait_ref: InferenceTraitRef {
+                    declaration: iterable.clone(),
+                    arguments: Box::new([]),
+                },
+                requirement: AssociatedTypeRequirementId::new(iterable, 0),
+            };
+            let mut session = InferenceSession::new();
+            let projection_ty = session.materialize(&projection, &mut store).expect("materialized projection");
+            let relation = if projection_on_left {
+                InferenceRelation::Equivalent(projection, InferenceTerm::Canonical(float))
+            } else {
+                InferenceRelation::Equivalent(InferenceTerm::Canonical(float), projection)
+            };
+            session.add_constraint(relation, ConstraintOrigin::Explicit, None);
+            let control = CheckerControl::default();
+            let hierarchy = MapTypeHierarchy::new();
+            session.propagate_with_control(&mut store, &hierarchy, &control).expect("projection defers");
+            assert!(
+                session
+                    .extract_and_normalize_projections(&mut store, |_, ty| (ty == projection_ty).then_some(int))
+                    .expect("normalization rewrites without adjudicating")
+            );
+            assert_eq!(session.residual_obligations().len(), 1);
+            let outcome = session.propagate_with_control(&mut store, &hierarchy, &control).expect_err("Int is not Float");
+            assert!(matches!(
+                *outcome,
+                InferenceOutcome::Conflicting(ref conflict)
+                    if conflict.constraint_index == Some(0) && conflict.origin == Some(ConstraintOrigin::Explicit)
+            ));
+        }
     }
 
     #[test]
