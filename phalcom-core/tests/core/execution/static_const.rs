@@ -94,7 +94,7 @@ let mut z = Zero
     let val_z = get_module_global(&vm, mod_obj, "z");
 
     let p_bits = val_p.as_float().expect("float p").to_bits();
-    let expected_pi = 3.141592653589793f64.to_bits();
+    let expected_pi = std::f64::consts::PI.to_bits();
     assert_eq!(p_bits, expected_pi, "exact bits of Pi must be preserved");
 
     let z_bits = val_z.as_float().expect("float z").to_bits();

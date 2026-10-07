@@ -315,7 +315,8 @@ class Fixed {
 
             let mut actual_own = slots
                 .iter()
-                .filter_map(|(symbol, slot)| (*slot >= prefix).then(|| (*slot, vm.resolve_symbol(*symbol).to_owned())))
+                .filter(|&(_, slot)| *slot >= prefix)
+                .map(|(symbol, slot)| (*slot, vm.resolve_symbol(*symbol).to_owned()))
                 .collect::<Vec<_>>();
             actual_own.sort_by_key(|(slot, _)| *slot);
             assert_eq!(

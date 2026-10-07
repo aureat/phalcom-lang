@@ -75,7 +75,7 @@ fn parse_runtime_fixtures_pass() {
                 scope.spawn(move || {
                     chunk
                         .into_iter()
-                        .map(|fixture| run_fixture(&binary, &fixture))
+                        .map(|fixture| run_fixture(binary, &fixture))
                         .collect::<Vec<Result<String, String>>>()
                 })
             })

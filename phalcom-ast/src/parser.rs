@@ -1592,7 +1592,7 @@ impl<'source> Parser<'source> {
             if matches!(next_tok, Some(Token::Let | Token::Const | Token::Return | Token::While | Token::For)) {
                 return Err(SyntaxError {
                     kind: SyntaxErrorKind::Message("stale '= {' syntax: static definition block bodies do not use '='".to_string()),
-                    range: (self.cur_start()..self.tokens.get(self.pos + 1).map_or(self.prev_end, |l| l.end)).into(),
+                    range: self.cur_start()..self.tokens.get(self.pos + 1).map_or(self.prev_end, |l| l.end),
                 });
             }
         }
@@ -7018,34 +7018,34 @@ impl<'source> Parser<'source> {
     }
 
     pub(crate) fn token_starts_expression(token: &Token) -> bool {
-        match token {
+        matches!(
+            token,
             Token::If
-            | Token::While
-            | Token::True
-            | Token::False
-            | Token::Int { .. }
-            | Token::Float(_)
-            | Token::String(_)
-            | Token::StringInterp(_)
-            | Token::Hash
-            | Token::QuotedSymbol(_)
-            | Token::Identifier(_)
-            | Token::SelfKw
-            | Token::Class
-            | Token::Super
-            | Token::LBracket
-            | Token::LParen
-            | Token::SetLBrace
-            | Token::Pipe
-            | Token::Plus
-            | Token::Minus
-            | Token::Not
-            | Token::Tilde
-            | Token::Ampersand
-            | Token::DotDotDot
-            | Token::LBrace => true,
-            _ => false,
-        }
+                | Token::While
+                | Token::True
+                | Token::False
+                | Token::Int { .. }
+                | Token::Float(_)
+                | Token::String(_)
+                | Token::StringInterp(_)
+                | Token::Hash
+                | Token::QuotedSymbol(_)
+                | Token::Identifier(_)
+                | Token::SelfKw
+                | Token::Class
+                | Token::Super
+                | Token::LBracket
+                | Token::LParen
+                | Token::SetLBrace
+                | Token::Pipe
+                | Token::Plus
+                | Token::Minus
+                | Token::Not
+                | Token::Tilde
+                | Token::Ampersand
+                | Token::DotDotDot
+                | Token::LBrace
+        )
     }
 
     /// Determines endpoint presence from grammar, not whitespace.

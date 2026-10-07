@@ -1650,7 +1650,7 @@ impl<'a> MetadataExporter<'a> {
                         GenericParameterMode::CompletePack => GenericParameterModeRef::CompletePack,
                     })
                     .collect();
-                let body = self.export_scoped_type_with_binders(lam_data.body, &[lam_data.parameter_kinds.clone()])?;
+                let body = self.export_scoped_type_with_binders(lam_data.body, std::slice::from_ref(&lam_data.parameter_kinds))?;
                 TypeNode::TypeLambda(TypeLambdaRef {
                     parameter_kinds: p_kinds.into_boxed_slice(),
                     parameter_modes: Some(p_modes.into_boxed_slice()),

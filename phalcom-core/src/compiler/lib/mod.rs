@@ -769,6 +769,7 @@ impl<'vm> Compiler<'vm> {
         }
     }
 
+    #[allow(deprecated)]
     pub(crate) fn compile_statement_with_pop_control(&mut self, statement: Statement, emit_pop: bool) -> Result<(), CompilerError> {
         match statement {
             Statement::Expr { expr, range } => {

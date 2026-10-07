@@ -442,6 +442,7 @@ impl OccurrenceBuilder<'_> {
         }
     }
 
+    #[allow(deprecated)]
     fn statement(&mut self, statement: &Statement) {
         match statement {
             Statement::Class(class) => {

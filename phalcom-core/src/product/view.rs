@@ -97,7 +97,7 @@ impl<'a> RecordView<'a> {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.shape.map_or(true, super::RecordProductShape::is_empty)
+        self.shape.is_none_or(super::RecordProductShape::is_empty)
     }
 
     pub fn logical_keys(&self) -> &[FieldKey] {

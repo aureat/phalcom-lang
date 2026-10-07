@@ -881,7 +881,7 @@ impl StaticValueStore {
                 if lab_a.len() != lab_b.len() {
                     return Ok(false);
                 }
-                for ((sa, va), (sb, vb)) in lab_a.into_iter().zip(lab_b.into_iter()) {
+                for ((sa, va), (sb, vb)) in lab_a.into_iter().zip(lab_b) {
                     let text_a = self.get_symbol(sa).ok_or(StaticValueStoreError::UnknownValue(sa.0))?;
                     let text_b = self.get_symbol(sb).ok_or(StaticValueStoreError::UnknownValue(sb.0))?;
                     if text_a != text_b || !self.semantic_eq(va, vb)? {

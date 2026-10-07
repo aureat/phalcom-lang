@@ -42,6 +42,7 @@ pub struct ModuleSemanticStructureShard {
 
 impl ModuleSemanticStructureShard {
     /// Extracts source-local declaration structure once for one parsed module.
+    #[allow(deprecated)]
     pub fn from_source(source: Arc<ParsedModuleUnit>) -> Arc<Self> {
         let mut declarations = Vec::new();
         let mut aliases = Vec::new();

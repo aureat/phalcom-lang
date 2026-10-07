@@ -298,7 +298,8 @@ pub fn build_algebraic_semantics_with_static_products(
         };
 
         AlgebraicRepresentation::Product(Arc::new(data_info))
-    } else if let Some(sum_shape) = def.sum_shape() {
+    } else {
+        let sum_shape = def.sum_shape()?;
         let default_result_type = if generic_params.is_empty() {
             root_form
         } else {
@@ -679,8 +680,6 @@ pub fn build_algebraic_semantics_with_static_products(
             enum_info: Arc::new(enum_info),
             variants: Arc::from(variant_infos.into_boxed_slice()),
         }))
-    } else {
-        return None;
     };
 
     let static_data = if def.phase == AlgebraicPhase::TypeOnly {
@@ -1018,9 +1017,7 @@ fn register_static_declaration(
             .filter_map(|variant| {
                 let mut kinds = Vec::new();
                 for field in variant.fields.iter() {
-                    let Some(kind) = static_payload_kind(store, field.declared_type.canonical_type(), diagnostics, module_id, def.range) else {
-                        return None;
-                    };
+                    let kind = static_payload_kind(store, field.declared_type.canonical_type(), diagnostics, module_id, def.range)?;
                     kinds.push(kind);
                 }
                 Some(store.intern_static_constructor(domain, owner.clone(), variant.id.selector.encode(), kinds.into_boxed_slice()))

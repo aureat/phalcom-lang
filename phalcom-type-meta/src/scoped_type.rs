@@ -12,17 +12,12 @@ use crate::type_node::StructuralMemberPresenceRef;
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub struct ScopedTypeNodeId(pub u32);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub enum ScopedAnonymousTupleRemainderRef {
+    #[default]
     None,
     Unconstrained,
     Typed(ScopedTypeNodeId),
-}
-
-impl Default for ScopedAnonymousTupleRemainderRef {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]

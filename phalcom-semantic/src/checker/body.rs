@@ -18,12 +18,14 @@ use phalcom_ast::ast::Statement;
 use phalcom_common::range::SourceRange;
 use std::sync::Arc;
 
+#[allow(deprecated)]
 fn stmt_range(stmt: &Statement) -> SourceRange {
     match stmt {
         Statement::Class(c) => c.range,
         Statement::Data(d) => d.range,
         Statement::Trait(t) => t.range,
-        Statement::TypeAlias(t) | Statement::TypeDefinition(t) => t.range,
+        Statement::TypeDefinition(t) => t.range,
+        Statement::TypeAlias(t) => t.range,
         Statement::Let(l) => l.range,
         Statement::Return(r) => r.range,
         Statement::Expr { range, .. } => *range,

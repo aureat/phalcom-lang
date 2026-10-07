@@ -821,7 +821,8 @@ impl TypeStore {
         self.static_constructors
             .iter()
             .enumerate()
-            .filter_map(|(index, constructor)| (constructor.domain == domain).then(|| AlgebraicStaticConstructorId::from_index(index)))
+            .filter(|(_, constructor)| constructor.domain == domain)
+            .map(|(index, _)| AlgebraicStaticConstructorId::from_index(index))
             .collect()
     }
 

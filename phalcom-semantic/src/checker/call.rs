@@ -1113,7 +1113,7 @@ fn apply_structural_lane_conformance<'a>(
             expected[index].clone()
         } else {
             let expected = &labeled.expect("labeled lane selected")[index];
-            if argument.label().as_deref() != Some(expected.label.as_ref()) {
+            if argument.label() != Some(expected.label.as_ref()) {
                 let diagnostic = SemanticDiagnostic::error_in(
                     ctx.current_module.clone(),
                     DiagnosticCode::CallShapeMismatch,
@@ -1194,7 +1194,7 @@ fn check_concrete_lane_conformance_non_generic<'a>(
             }
             for (idx, (_, arg, typed)) in lane_args.iter().enumerate() {
                 let expected = &expected_elems[idx];
-                if arg.label().as_deref() != Some(expected.label.as_ref()) {
+                if arg.label() != Some(expected.label.as_ref()) {
                     let diagnostic = SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
                         DiagnosticCode::CallShapeMismatch,
@@ -1262,7 +1262,7 @@ fn check_concrete_lane_conformance_non_generic<'a>(
             }
             for (idx, (_, arg, typed)) in lab_args.iter().enumerate() {
                 let expected = &lab_elems[idx];
-                if arg.label().as_deref() != Some(expected.label.as_ref()) {
+                if arg.label() != Some(expected.label.as_ref()) {
                     let diagnostic = SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
                         DiagnosticCode::CallShapeMismatch,
@@ -1397,7 +1397,7 @@ fn apply_non_generic_callable(
                         plan.bindings
                             .iter()
                             .find(|b| b.argument_index == *arg_idx)
-                            .map_or(false, |b| b.parameter_index == param_idx)
+                            .is_some_and(|b| b.parameter_index == param_idx)
                     })
                     .cloned()
                     .collect();

@@ -76,11 +76,11 @@ pub(crate) enum CanonicalUniverseBuildError {
     /// A semantic match product lacks the proof required for executable lowering.
     #[error("canonical Universe semantic product is not executable: match in {module} ({callable:?}) at {range:?} is {reason}")]
     NonExecutableMatch {
-        module: ModuleId,
-        callable: CallableId,
+        module: Box<ModuleId>,
+        callable: Box<CallableId>,
         expression: ExpressionId,
         range: SourceRange,
-        reason: String,
+        reason: Box<str>,
     },
     /// Canonical semantic-to-runtime projection or compilation failed.
     #[error("canonical Universe compilation failed: {0}")]
@@ -273,11 +273,11 @@ fn ensure_executable_match_coverage(snapshot: &SemanticSnapshot) -> Result<(), C
     failures.sort_by(|left, right| (&left.0, &left.1, left.3.start, left.3.end, &left.4).cmp(&(&right.0, &right.1, right.3.start, right.3.end, &right.4)));
     if let Some((module, callable, expression, range, reason)) = failures.into_iter().next() {
         return Err(CanonicalUniverseBuildError::NonExecutableMatch {
-            module,
-            callable,
+            module: Box::new(module),
+            callable: Box::new(callable),
             expression,
             range,
-            reason,
+            reason: reason.into_boxed_str(),
         });
     }
 

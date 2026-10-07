@@ -1315,18 +1315,17 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
     };
     let params = constructor_parameters(ctx, &product, attr_range)?;
     let generated_selector = product.factory.selector.clone();
-    if let Some(products) = ctx.constructor_initializations {
-        for (_, existing) in products.iter().filter(|(_, existing)| {
+    if let Some(existing) = ctx.constructor_initializations.and_then(|products| {
+        products.iter().find(|(_, existing)| {
             existing.origin == ConstructorOrigin::Source
                 && existing.factory.try_declaration_owner() == ctx.constructor_owner.as_ref()
                 && existing.factory.selector == generated_selector
-        }) {
-            let _ = existing;
-            return Err(CompilerError::Message(format!(
-                "attr.accessor_collision: `@construct` on class `{}` collides with a hand-written constructor of the same canonical selector",
-                class.name
-            )));
-        }
+        })
+    }) {
+        return Err(CompilerError::Message(format!(
+            "attr.accessor_collision: `@construct` on class `{}` collides with a hand-written constructor of the same canonical selector",
+            class.name
+        )));
     }
     register_constructor_product(ctx, attr_range, product)?;
 
@@ -3059,6 +3058,7 @@ fn self_send0(method: &str, range: SourceRange) -> Expr {
 /// so the invariant weave — the only place in this module that needs a
 /// statement's span rather than an expression's — reads it out of whichever
 /// variant carries one.
+#[allow(deprecated)]
 fn statement_range(stmt: &Statement) -> SourceRange {
     match stmt {
         Statement::Class(c) => c.range,

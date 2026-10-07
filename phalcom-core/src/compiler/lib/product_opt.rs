@@ -563,6 +563,7 @@ impl<'a> ProductPlanner<'a> {
         }
     }
 
+    #[allow(deprecated)]
     pub fn visit_statement(&mut self, stmt: &Statement) {
         match stmt {
             Statement::Let(binding) => {

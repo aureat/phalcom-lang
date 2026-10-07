@@ -59,7 +59,7 @@ fn static_pack_storage_slicing_and_equality() {
     // Repeated alternating lane slices stay descriptors over the original
     // backing instead of building a chain or copying the visible elements.
     let positionals = vec![int_one; 1024];
-    let labels = (0..1024).map(|index| (values.intern_symbol_id(&format!("field_{index}")), int_two)).collect();
+    let labels = (0..1024).map(|index| (values.intern_symbol_id(format!("field_{index}")), int_two)).collect();
     let large_root = values.intern_pack(positionals, labels).expect("large root pack");
     let StaticValueData::Pack(large_root_id) = values.get(large_root).unwrap() else {
         panic!("expected large root Pack");

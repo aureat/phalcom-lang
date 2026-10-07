@@ -40,7 +40,7 @@ fn alias_summary(snapshot: &SemanticSnapshot, declaration: &DeclarationId) -> (S
                         .statements
                         .iter()
                         .filter_map(|statement| {
-                            if let phalcom_ast::ast::Statement::TypeAlias(alias) | phalcom_ast::ast::Statement::TypeDefinition(alias) = statement {
+                            if let phalcom_ast::ast::Statement::TypeDefinition(alias) = statement {
                                 Some((alias.name.as_str(), format!("{:?}", alias.type_form_body().map(|b| &b.expr))))
                             } else {
                                 None
@@ -512,7 +512,7 @@ export Consumer
     );
     assert!(updated_record_source.program.statements.iter().any(|statement| matches!(
         statement,
-        (phalcom_ast::ast::Statement::TypeAlias(alias) | phalcom_ast::ast::Statement::TypeDefinition(alias)) if alias.name.as_str() == "EmptyRecord"
+        phalcom_ast::ast::Statement::TypeDefinition(alias) if alias.name.as_str() == "EmptyRecord"
     )));
     let mut cold_store = (*cold.snapshot.store).clone();
     let cold_empty_record = cold_store.record(Box::new([]));

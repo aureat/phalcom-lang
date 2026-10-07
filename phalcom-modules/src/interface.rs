@@ -186,6 +186,7 @@ pub struct InterfaceBuilder;
 
 impl InterfaceBuilder {
     /// Builds an `UnlinkedModuleInterface` from a parsed `Program`.
+    #[allow(deprecated)]
     pub fn build(id: ModuleId, kind: ModuleKind, program: &Program) -> Result<UnlinkedModuleInterface, InterfaceError> {
         let metadata = ModuleMetadata::from_ast(&program.preamble.metadata, kind)?;
         let mut declarations = BTreeMap::new();

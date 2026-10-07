@@ -103,7 +103,7 @@ impl RecordRowSolution<TypeId> {
         visiting: &mut HashSet<RecordRowVarId>,
     ) -> Result<RecordRowId, RecordRowZonkError> {
         let mut fields = term.fields.to_vec();
-        let tail = match term.tail.clone() {
+        let tail = match term.tail {
             RecordRowTermTail::Closed => RecordRowTail::Closed,
             RecordRowTermTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
             RecordRowTermTail::Projection(proj) => RecordRowTail::Projection(proj),

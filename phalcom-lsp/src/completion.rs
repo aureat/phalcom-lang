@@ -223,6 +223,7 @@ fn is_type_data_symbol(db: &phalcom_semantic::SemanticSnapshot, symbol: &phalcom
 
 /// Detects an AST-authored generic kind position so completion can stay in the
 /// type-level namespace rather than mixing in runtime lexical values.
+#[allow(deprecated)]
 pub(crate) fn is_generic_kind_position(program: &Program, offset: usize) -> bool {
     fn parameters_match(parameters: &[GenericParameterSyntax], offset: usize) -> bool {
         parameters.iter().filter_map(|parameter| parameter.kind.as_ref()).any(|kind| {

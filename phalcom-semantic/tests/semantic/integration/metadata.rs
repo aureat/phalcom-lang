@@ -641,7 +641,6 @@ fn cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metada
                 bindings: ModuleBindingLayout {
                     local_globals: client_globals,
                     imports: BTreeMap::from([("Api".into(), ImportBindingId(0))]),
-                    ..ModuleBindingLayout::default()
                 },
                 linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
                     module: api_module.clone(),

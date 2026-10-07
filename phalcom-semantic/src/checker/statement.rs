@@ -35,7 +35,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                     .as_ref()
                     .is_some_and(|annotation| !crate::static_key::type_record_key_expressions(annotation, 0).is_empty());
             let (declared_k, annotation_invalidity) = (!defer_computed_record_key_annotation)
-                .then(|| binding.annotation.as_ref())
+                .then_some(binding.annotation.as_ref())
                 .flatten()
                 .map(|annotation| {
                     let resolver = ctx.resolver.clone();

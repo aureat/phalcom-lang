@@ -411,10 +411,8 @@ let record_b_payload_matches = record_b.payload == 42
     )
     .expect("ergonomic data-constructor references should execute as canonical capabilities");
 
-    for name in ["tuple_same"] {
-        let symbol = vm.interner.find(name).expect("result symbol");
-        assert_eq!(vm.heap.module(module).get(symbol), Some(Value::bool(true)));
-    }
+    let symbol = vm.interner.find("tuple_same").expect("result symbol");
+    assert_eq!(vm.heap.module(module).get(symbol), Some(Value::bool(true)));
     for name in [
         "record_a_name_matches",
         "record_a_payload_matches",

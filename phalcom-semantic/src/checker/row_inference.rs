@@ -80,7 +80,7 @@ fn lift_canonical_row_failure(failure: RecordRowFailure<TypeId>) -> RecordRowFai
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
-                tail: match term.tail.clone() {
+                tail: match term.tail {
                     RecordRowTermTail::Closed => RecordRowTermTail::Closed,
                     RecordRowTermTail::Parameter(parameter) => RecordRowTermTail::Parameter(parameter),
                     RecordRowTermTail::Projection(projection) => RecordRowTermTail::Projection(projection),
@@ -818,7 +818,7 @@ impl GenericApplicationSession {
             RecordRowTail::Projection(proj) => RecordRowTermTail::Projection(proj),
             RecordRowTail::Anonymous(rem) => RecordRowTermTail::Anonymous(rem),
         };
-        let actual_tail = lift_canonical_row_tail(actual_tail_canonical.clone());
+        let actual_tail = lift_canonical_row_tail(actual_tail_canonical);
         match formal.tail.clone() {
             InferenceRecordTail::Closed => {}
             InferenceRecordTail::Parameter(parameter) => {

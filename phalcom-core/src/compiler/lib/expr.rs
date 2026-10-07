@@ -2409,7 +2409,7 @@ impl<'vm> Compiler<'vm> {
                 self.emit(Bytecode::GetLocalChecked(slot as u16, name_idx), range);
             }
             None => {
-                let is_mutable = self.functions.last().and_then(|f| f.locals.get(slot)).map_or(true, |l| l.is_mutable);
+                let is_mutable = self.functions.last().and_then(|f| f.locals.get(slot)).is_none_or(|l| l.is_mutable);
                 if is_mutable {
                     let name_idx = self.add_constant(Value::symbol(name_sym), range)?;
                     self.emit(Bytecode::GetLocalChecked(slot as u16, name_idx), range);

@@ -236,7 +236,7 @@ fn rest_contract_accepts(
             if candidate.len() != inherited.len() {
                 return false;
             }
-            return inherited
+            inherited
                 .iter()
                 .zip(candidate.iter())
                 .all(|((inherited_label, inherited), (candidate_label, candidate))| {
@@ -244,7 +244,7 @@ fn rest_contract_accepts(
                         && ctx
                             .check_knowledge_against_type(&TypeKnowledge::established(*inherited, EvidenceOrigin::CallableSignature), *candidate)
                             .is_proven()
-                });
+                })
         }
         _ => false,
     }

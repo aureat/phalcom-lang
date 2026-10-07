@@ -20,6 +20,17 @@ use tracing::{Level, debug, span};
 
 use super::VM;
 
+#[derive(Clone, Copy)]
+struct ConditionalInvocation {
+    arity: u8,
+    selector: u16,
+    declaring_module: u16,
+    declaring_name: u16,
+    class_side: bool,
+    fallback_method: u16,
+    call_environment_recipe: u16,
+}
+
 impl VM {
     fn pack_builder_error(&self, error: crate::heap::PackBuilderError) -> RuntimeError {
         match error {
@@ -106,18 +117,16 @@ impl VM {
     /// Executes the conditional call edge carried by one `InvokeConditional`
     /// instruction. Kept as a single private seam so direct bytecode dispatch
     /// can be tested independently from the interpreter's surrounding loop.
-    fn invoke_conditional_at(
-        &mut self,
-        callable: &Callable,
-        ip: usize,
-        arity: u8,
-        selector: u16,
-        declaring_module: u16,
-        declaring_name: u16,
-        class_side: bool,
-        fallback_method: u16,
-        call_environment_recipe: u16,
-    ) -> PhResult<()> {
+    fn invoke_conditional_at(&mut self, callable: &Callable, ip: usize, invocation: ConditionalInvocation) -> PhResult<()> {
+        let ConditionalInvocation {
+            arity,
+            selector,
+            declaring_module,
+            declaring_name,
+            class_side,
+            fallback_method,
+            call_environment_recipe,
+        } = invocation;
         let arity = arity as usize;
         let receiver_idx = self
             .stack
@@ -2830,15 +2839,17 @@ impl VM {
                     call_environment_recipe,
                 } => {
                     self.invoke_conditional_at(
-                        &callable,
+                        callable,
                         ip,
-                        arity,
-                        selector,
-                        declaring_module,
-                        declaring_name,
-                        class_side,
-                        fallback_method,
-                        call_environment_recipe,
+                        ConditionalInvocation {
+                            arity,
+                            selector,
+                            declaring_module,
+                            declaring_name,
+                            class_side,
+                            fallback_method,
+                            call_environment_recipe,
+                        },
                     )?;
                 }
                 Bytecode::BilateralPreferReflected(selector_idx) => {
@@ -4039,7 +4050,7 @@ impl VM {
 
 #[cfg(test)]
 mod tests {
-    use super::VM;
+    use super::{ConditionalInvocation, VM};
     use crate::callable::Callable;
     use crate::chunk::Chunk;
     use crate::compiler::lib::UnitKind;
@@ -4165,8 +4176,20 @@ mod tests {
         };
 
         vm.stack.push(receiver);
-        vm.invoke_conditional_at(&callable, 0, 0, selector_index, module_index, declaring_name_index, false, fallback_index, 0)
-            .expect("direct conditional override should activate");
+        vm.invoke_conditional_at(
+            &callable,
+            0,
+            ConditionalInvocation {
+                arity: 0,
+                selector: selector_index,
+                declaring_module: module_index,
+                declaring_name: declaring_name_index,
+                class_side: false,
+                fallback_method: fallback_index,
+                call_environment_recipe: 0,
+            },
+        )
+        .expect("direct conditional override should activate");
 
         assert_eq!(vm.frames.len(), 1, "override body should be entered");
         assert_eq!(

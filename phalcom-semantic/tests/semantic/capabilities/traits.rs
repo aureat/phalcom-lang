@@ -2008,7 +2008,7 @@ class Caller {
         generic_signature
             .generics
             .as_ref()
-            .is_some_and(|generics| generics.parameters.contains(&generic_result_parameter))
+            .is_some_and(|generics| generics.parameters.contains(generic_result_parameter))
     );
 
     let item_signature = fixture

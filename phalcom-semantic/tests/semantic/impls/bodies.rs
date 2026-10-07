@@ -765,7 +765,7 @@ impl<A, B, C, **Fields: RecordFields> Triple<B, C, A, **Fields> {
             .any(|constraint| implementation_parameter_graph.contains_constraint(constraint)),
         "the body-relative callable constraints should restore the impl parameter coordinate"
     );
-    let expected_public_parameters = vec![
+    let expected_public_parameters = [
         vec![*z],
         vec![*z, *x],
         vec![*z],
@@ -796,7 +796,7 @@ impl<A, B, C, **Fields: RecordFields> Triple<B, C, A, **Fields> {
         body_signature.parameters[7].declared_type.canonical_type()
     );
     let implementation_parameters = context.generic_signature.as_ref().expect("impl generic signature").parameters.as_ref();
-    let expected_body_parameters = vec![
+    let expected_body_parameters = [
         vec![implementation_parameters[0]],
         vec![implementation_parameters[0], implementation_parameters[1]],
         vec![implementation_parameters[0]],

@@ -523,6 +523,7 @@ mod tests {
     use crate::modules::semantic_lowering::{AnonymousProductConstructionKind, AnonymousProductConstructionLoweringSpec};
     use crate::value::Value;
     use crate::vm::VM;
+    use phalcom_semantic::FieldKey;
 
     #[test]
     fn empty_tuple_and_record_keep_distinct_immediate_values_without_heap_allocation() {

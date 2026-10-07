@@ -244,7 +244,7 @@ type OrdinaryEnumCase = UnresolvedEnum::Some
     for member in [entries, fields, value] {
         let target = SemanticTargetId::TypeMember(member.clone());
         let source = scopes.type_member_sources.get(&member).expect("authored type-member source");
-        assert_eq!(references.definitions[&target].as_ref(), &[source.declaration_site.clone()]);
+        assert_eq!(references.definitions[&target].as_ref(), std::slice::from_ref(&source.declaration_site));
         assert_eq!(references.semantic_references[&target].len(), 1, "one exact projection use for {member:?}");
     }
 }

@@ -24,29 +24,19 @@ pub struct SelfTypeRef {
     pub role: SelfRoleRef,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub enum StructuralMemberPresenceRef {
+    #[default]
     Required,
     Optional,
 }
 
-impl Default for StructuralMemberPresenceRef {
-    fn default() -> Self {
-        Self::Required
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub enum AnonymousTupleRemainderRef {
+    #[default]
     None,
     Unconstrained,
     Typed(TypeNodeId),
-}
-
-impl Default for AnonymousTupleRemainderRef {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]

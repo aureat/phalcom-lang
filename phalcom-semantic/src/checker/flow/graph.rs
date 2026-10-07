@@ -170,6 +170,7 @@ struct CfgBuilder {
 }
 
 impl CfgBuilder {
+    #[allow(deprecated)]
     fn build_statements(&mut self, statements: &[Statement], mut incoming: Vec<FlowNodeId>) -> Vec<FlowNodeId> {
         for (idx, stmt) in statements.iter().enumerate() {
             if incoming.is_empty() {
@@ -258,6 +259,7 @@ impl CfgBuilder {
                 Statement::Expr { expr, range } => {
                     incoming = self.build_expression_flow(expr, *range, idx, incoming);
                 }
+                #[allow(deprecated)]
                 Statement::Class(_)
                 | Statement::Data(_)
                 | Statement::Trait(_)
@@ -494,12 +496,14 @@ fn has_labeled_arg(args: &[PackItem], label_name: &str) -> bool {
     })
 }
 
+#[allow(deprecated)]
 fn stmt_range(stmt: &Statement) -> SourceRange {
     match stmt {
         Statement::Class(c) => c.range,
         Statement::Data(d) => d.range,
         Statement::Trait(t) => t.range,
-        Statement::TypeAlias(t) | Statement::TypeDefinition(t) => t.range,
+        Statement::TypeDefinition(t) => t.range,
+        Statement::TypeAlias(t) => t.range,
         Statement::Let(l) => l.range,
         Statement::Return(r) => r.range,
         Statement::Expr { range, .. } => *range,

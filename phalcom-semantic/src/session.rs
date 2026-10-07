@@ -959,6 +959,7 @@ impl SemanticWorkspaceSession {
         self.update_with_budget_and_cancel_and_delta(input, budget, cancel, None)
     }
 
+    #[allow(deprecated)]
     fn update_with_budget_and_cancel_and_delta(
         &mut self,
         input: SemanticWorkspaceInput,
@@ -6412,7 +6413,6 @@ impl SemanticWorkspaceSession {
         // The first witness plans are provisional for body analysis. Once
         // canonical callable results stabilize, replace their derived
         // requirement projections before publishing the final semantic view.
-        drop(conformance_semantics);
         let _ = publish_conformance_witness_plans(
             &mut self.db,
             Arc::make_mut(&mut self.store),
@@ -7036,7 +7036,7 @@ impl SemanticWorkspaceSession {
                                 .as_ref()
                                 .is_some_and(|annotation| !crate::static_key::type_record_key_expressions(annotation, 0).is_empty());
                             let expected_type = (!has_computed_record_keys)
-                                .then(|| binding.annotation.as_ref())
+                                .then_some(binding.annotation.as_ref())
                                 .flatten()
                                 .and_then(|annotation| {
                                     let mut annotation_diagnostics = Vec::new();
@@ -9364,15 +9364,15 @@ fn build_source_associated_surfaces(
                     class_def
                         .associated_type_data
                         .iter()
-                        .filter_map(|definition| associated_static_domain_shell(&owner, definition, module_id)),
+                        .filter_map(|definition| associated_static_domain_shell(owner, definition, module_id)),
                 );
                 let mut behavior_bases = class_def
                     .members
                     .iter()
-                    .filter_map(|member| crate::checker::declaration_signature::callable_id_for_member(&owner, member))
+                    .filter_map(|member| crate::checker::declaration_signature::callable_id_for_member(owner, member))
                     .map(|callable| callable.selector.base)
                     .collect::<HashSet<_>>();
-                let (impl_static_shells, impl_behavior_bases) = impl_shells.get(&owner).cloned().unwrap_or_default();
+                let (impl_static_shells, impl_behavior_bases) = impl_shells.get(owner).cloned().unwrap_or_default();
                 shells.extend(impl_static_shells);
                 behavior_bases.extend(impl_behavior_bases);
                 let base = Arc::new(crate::associated::AssociatedSurface::new(owner.clone()));
@@ -9381,7 +9381,7 @@ fn build_source_associated_surfaces(
                 (surface, diagnostics)
             }
             Statement::Data(data_def) => {
-                let (static_shells, behavior_bases) = impl_shells.get(&owner).cloned().unwrap_or_default();
+                let (static_shells, behavior_bases) = impl_shells.get(owner).cloned().unwrap_or_default();
                 let (base, base_diagnostics) = if data_def.is_sum() {
                     let variants = data_def
                         .cases()
@@ -9398,7 +9398,7 @@ fn build_source_associated_surfaces(
                         Some(SemanticSourceSpan::new(module_id.clone(), data_def.range)),
                     )
                 } else {
-                    (crate::associated::build_data_associated_surface(&owner), Arc::from([]))
+                    (crate::associated::build_data_associated_surface(owner), Arc::from([]))
                 };
                 let (surface, diagnostics) =
                     crate::associated::extend_associated_surface_with_shells(owner, base, &static_shells, &behavior_bases, &HashSet::new(), module_id);
@@ -9660,8 +9660,8 @@ fn initializer_signature_for_factory(factory: &CallableSemanticSignature, initia
         source: None,
         implementation: factory.implementation,
         native_id: None,
-        effects: factory.effects.clone(),
-        raises: factory.raises.clone(),
+        effects: factory.effects,
+        raises: factory.raises,
         flow: factory.flow,
         lifecycle: factory.lifecycle,
     }
@@ -11200,7 +11200,7 @@ fn retract_stale_unseeded_callable_result_cycles(
             QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
             QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
         }
-        let _ = dispatch.update_callable_return_type(&callable, signature.published_return_knowledge());
+        let _ = dispatch.update_callable_return_type(callable, signature.published_return_knowledge());
     }
 
     Ok((withheld, reanalysis_roots))

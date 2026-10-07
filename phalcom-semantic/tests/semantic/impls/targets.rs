@@ -39,17 +39,29 @@ fn setup_resolver_and_decls(store: &mut TypeStore, declarations: &mut Declaratio
     resolver
 }
 
+struct StructuralFamilySpec<'a> {
+    family_name: &'a str,
+    family_owner: IntrinsicTypeApplication,
+    parameter_name: &'a str,
+    parameter_kind: KindId,
+    parameter_mode: GenericParameterMode,
+    kind_name: &'a str,
+}
+
 fn register_structural_family(
     store: &mut TypeStore,
     declarations: &mut DeclarationTypeTable,
     resolver: &mut SimpleTypeResolver,
-    family_name: &str,
-    family_owner: phalcom_semantic::declarations::IntrinsicTypeApplication,
-    parameter_name: &str,
-    parameter_kind: KindId,
-    parameter_mode: GenericParameterMode,
-    kind_name: &str,
+    spec: StructuralFamilySpec<'_>,
 ) -> DeclarationId {
+    let StructuralFamilySpec {
+        family_name,
+        family_owner,
+        parameter_name,
+        parameter_kind,
+        parameter_mode,
+        kind_name,
+    } = spec;
     let family = match family_name {
         "Tuple" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Tuple),
         "Record" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Record),
@@ -79,12 +91,14 @@ fn register_tuple_family(store: &mut TypeStore, declarations: &mut DeclarationTy
         store,
         declarations,
         resolver,
-        "Tuple",
-        IntrinsicTypeApplication::Tuple,
-        "Es",
-        KindId::COMPLETE_TYPE_PACK,
-        GenericParameterMode::CompletePack,
-        "CompleteTypePack",
+        StructuralFamilySpec {
+            family_name: "Tuple",
+            family_owner: IntrinsicTypeApplication::Tuple,
+            parameter_name: "Es",
+            parameter_kind: KindId::COMPLETE_TYPE_PACK,
+            parameter_mode: GenericParameterMode::CompletePack,
+            kind_name: "CompleteTypePack",
+        },
     )
 }
 
@@ -93,12 +107,14 @@ fn register_record_family(store: &mut TypeStore, declarations: &mut DeclarationT
         store,
         declarations,
         resolver,
-        "Record",
-        IntrinsicTypeApplication::Record,
-        "Fs",
-        KindId::RECORD_ROW,
-        GenericParameterMode::LabeledPack,
-        "RecordFields",
+        StructuralFamilySpec {
+            family_name: "Record",
+            family_owner: IntrinsicTypeApplication::Record,
+            parameter_name: "Fs",
+            parameter_kind: KindId::RECORD_ROW,
+            parameter_mode: GenericParameterMode::LabeledPack,
+            kind_name: "RecordFields",
+        },
     )
 }
 
@@ -676,7 +692,8 @@ fn tuple_structural_impls_use_canonical_owner_and_equivalent_spellings() {
     assert_eq!(repeated_target.declaration(), &tuple_decl);
     assert!(matches!(repeated_target.applicability, InherentImplApplicability::Conditional(_)));
 
-    for (impl_index, source) in [(2, "impl Tuple<***(Int, String)> {}\n")] {
+    {
+        let (impl_index, source) = (2, "impl Tuple<***(Int, String)> {}\n");
         let parsed = phalcom_ast::parse(source, 0);
         assert!(parsed.errors.is_empty(), "parse errors for {source:?}: {:?}", parsed.errors);
         let phalcom_ast::ast::Statement::Impl(impl_stmt) = &parsed.program.statements[0] else {
@@ -753,7 +770,8 @@ fn record_structural_impls_use_canonical_owner_and_equivalent_spellings() {
     assert_eq!(generic_target.declaration(), &record_decl);
     assert!(matches!(generic_target.applicability, InherentImplApplicability::Conditional(_)));
 
-    for (impl_index, source) in [(2, "impl Record<**{ name: String }> {}\n")] {
+    {
+        let (impl_index, source) = (2, "impl Record<**{ name: String }> {}\n");
         let parsed = phalcom_ast::parse(source, 0);
         assert!(parsed.errors.is_empty(), "parse errors for {source:?}: {:?}", parsed.errors);
         let phalcom_ast::ast::Statement::Impl(impl_stmt) = &parsed.program.statements[0] else {

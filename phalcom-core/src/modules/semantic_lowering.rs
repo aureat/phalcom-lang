@@ -787,7 +787,7 @@ fn build_data_construction_spec(
             *slot = u32::try_from(logical_index).map_err(|_| ProjectionError::SlotOverflow(logical_index))?;
         }
     }
-    if component_to_logical.iter().any(|slot| *slot == u32::MAX) {
+    if component_to_logical.contains(&u32::MAX) {
         return Err(ProjectionError::SymbolicDataProductShape {
             constructor: constructor.clone(),
         });
@@ -2040,6 +2040,7 @@ fn collect_anonymous_product_pack(items: &[phalcom_ast::ast::PackItem], out: &mu
     }
 }
 
+#[allow(deprecated)]
 fn collect_anonymous_product_statements(statements: &[phalcom_ast::ast::Statement], out: &mut Vec<AnonymousProductSource>) {
     use phalcom_ast::ast::{ClassMember, MemberBody, Statement};
     for statement in statements {
@@ -2856,10 +2857,12 @@ fn nominal_declaration_of_type(ty: TypeId, store: &TypeStore) -> Option<Declarat
     }
 }
 
+type ProjectedAntecedentSlot = (u16, phalcom_semantic::impls::RequirementSelectionTemplate, phalcom_common::selector::Selector);
+
 fn project_antecedent_slots(
     evidence: &phalcom_semantic::generic_evidence::GenericConformanceEvidence,
     snapshot: &SemanticSnapshot,
-) -> Result<Box<[(u16, phalcom_semantic::impls::RequirementSelectionTemplate, phalcom_common::selector::Selector)]>, ProjectionError> {
+) -> Result<Box<[ProjectedAntecedentSlot]>, ProjectionError> {
     match evidence {
         phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived) => {
             let nested_signature = match &derived.origin {
@@ -2960,7 +2963,7 @@ fn project_antecedent_slots(
                             .conformance_index
                             .iter()
                             .find(|(_, contrib)| {
-                                &contrib.trait_ref.declaration == &trait_ref.declaration
+                                contrib.trait_ref.declaration == trait_ref.declaration
                                     && subject_decl.as_ref().is_some_and(|decl| contrib.target.declaration() == decl)
                             })
                             .and_then(|(impl_id, _)| snapshot.conformance_witness_plans.get(impl_id));
@@ -3207,7 +3210,7 @@ mod tests {
         let field_row = store
             .record_row_checked(
                 vec![RecordRowField {
-                    name: "payload".into(),
+                    key: phalcom_semantic::FieldKey::symbol("payload"),
                     ty: exact_case,
                     presence: StructuralMemberPresence::Required,
                 }],

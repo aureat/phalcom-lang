@@ -470,11 +470,10 @@ fn reflection_cannot_bypass_private_visibility() {
 
 #[test]
 fn primitive_and_intrinsic_metadata_are_universe_only() {
-    for attribute in ["primitive"] {
-        let source = format!("class C {{ @{attribute} foo() {{ 1 }} }}\n");
-        let err = run_source(&source).expect_err("metadata attributes must be rejected outside Universe");
-        assert!(err.contains("attr.universe_only"), "unexpected error for @{attribute}: {err}");
-    }
+    let attribute = "primitive";
+    let source = format!("class C {{ @{attribute} foo() {{ 1 }} }}\n");
+    let err = run_source(&source).expect_err("metadata attributes must be rejected outside Universe");
+    assert!(err.contains("attr.universe_only"), "unexpected error for @{attribute}: {err}");
 }
 
 #[test]

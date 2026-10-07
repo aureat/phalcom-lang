@@ -122,7 +122,7 @@ data Expr<T> {
         expr_info
             .variants
             .iter()
-            .any(|variant| snapshot.enum_semantics.variant_info(variant).unwrap().case_environment.bindings.len() > 0)
+            .any(|variant| !snapshot.enum_semantics.variant_info(variant).unwrap().case_environment.bindings.is_empty())
     );
     let expr_type = types.apply_type_form(expr_info.root_form, &[int]).expect("specialized Expr");
     let expr = classifier.sum(&mut types, expr_type).unwrap().expect("GADT Sum structure");

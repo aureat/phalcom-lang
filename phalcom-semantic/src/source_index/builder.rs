@@ -192,6 +192,7 @@ impl TypeReferenceTargetCollector<'_> {
         next
     }
 
+    #[allow(deprecated)]
     fn statement(&mut self, statement: &Statement, bound: &BoundTypeParameters) {
         match statement {
             Statement::Class(class) => {
@@ -289,6 +290,7 @@ impl TypeReferenceTargetCollector<'_> {
                     }
                 }
             }
+            #[allow(deprecated)]
             Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) => {
                 let alias_bound = self.generic_parameters(bound, &alias.generic_parameters());
                 self.where_clause(alias.where_clause.as_ref(), &alias_bound);
@@ -672,6 +674,7 @@ fn type_member_subject_owner(annotation: &TypeAnnotation, module: &ModuleId, res
 }
 
 /// Builds the compiler-owned lexical source index for one parsed module.
+#[allow(deprecated)]
 pub fn build_source_scope_index(module: ModuleId, program: &Program, context: &SourceIndexContext) -> SourceScopeIndex {
     let mut builder = SourceScopeBuilder {
         index: SourceScopeIndex::new(module.clone(), statements_range(&program.statements)),
@@ -1017,10 +1020,12 @@ impl SourceScopeBuilder<'_> {
         }
     }
 
+    #[allow(deprecated)]
     fn visit_statements(&mut self, scope: SourceScopeId, statements: &[Statement], top_level: bool) {
         for (statement_index, statement) in statements.iter().enumerate() {
             match statement {
                 Statement::Class(class) => self.visit_class(scope, class),
+                #[allow(deprecated)]
                 Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) => self.visit_type_alias(scope, alias),
                 Statement::Data(data_def) => {
                     if data_def.phase == phalcom_ast::ast::AlgebraicPhase::TypeOnly {
@@ -2105,6 +2110,7 @@ fn statements_range(statements: &[Statement]) -> SourceRange {
         .unwrap_or_default()
 }
 
+#[allow(deprecated)]
 fn statement_range(statement: &Statement) -> SourceRange {
     match statement {
         Statement::Class(class) => class.range,
@@ -2117,7 +2123,8 @@ fn statement_range(statement: &Statement) -> SourceRange {
         Statement::Break { range } | Statement::Continue { range } => *range,
         Statement::Throw { range, .. } => *range,
         Statement::Export(export_decl) => export_decl.range,
-        Statement::TypeAlias(type_alias) | Statement::TypeDefinition(type_alias) => type_alias.range,
+        Statement::TypeDefinition(type_alias) => type_alias.range,
+        Statement::TypeAlias(type_alias) => type_alias.range,
         Statement::Impl(impl_def) => impl_def.range,
     }
 }

@@ -70,6 +70,7 @@ impl CanonicalUniverseSemanticBaseline {
     }
 
     /// Builds a baseline for the given provider.
+    #[allow(deprecated)]
     pub fn build_with_provider(provider: phalcom_modules::UniverseSourceProvider) -> Self {
         let mut store = TypeStore::new();
 

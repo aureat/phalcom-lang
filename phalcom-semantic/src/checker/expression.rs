@@ -1618,7 +1618,7 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
                 let Some(AssociatedMemberId::StaticDomain(id)) = family.members.first() else {
                     return TypedExpression::unknown(UnknownReason::UncheckedExpression);
                 };
-                let arguments = owner.supplied_arguments.iter().copied().collect::<Vec<_>>().into_boxed_slice();
+                let arguments = owner.supplied_arguments.to_vec().into_boxed_slice();
                 let domain = ctx.store.associated_static_domain(id.clone(), arguments);
                 if let Some(expression) = ctx.current_expression_id() {
                     ctx.record_associated_resolution(
@@ -1723,9 +1723,7 @@ fn resolve_static_domain_case(
         ));
         return None;
     };
-    let Some(domain_data) = ctx.store.static_domain(domain).cloned() else {
-        return None;
-    };
+    let domain_data = ctx.store.static_domain(domain).cloned()?;
     let (identity, lookup_owner) = match &domain_data {
         crate::types::store::StaticDomainData::Nominal { declaration } => {
             (crate::identity::StaticDomainDeclarationId::Nominal(declaration.clone()), declaration.clone())
@@ -1736,9 +1734,7 @@ fn resolve_static_domain_case(
         ),
         crate::types::store::StaticDomainData::ConstInt => return None,
     };
-    let Some(catalog) = ctx.resolver.resolve_static_case_catalog(&identity) else {
-        return None;
-    };
+    let catalog = ctx.resolver.resolve_static_case_catalog(&identity)?;
     let selector = phalcom_common::selector::Selector::getter(&member.base).ok()?;
     let selection = crate::static_case::select_static_case(&catalog, &selector);
     let Some(case) = selection.ok() else {
@@ -1768,9 +1764,7 @@ fn resolve_static_domain_case(
         ));
         return None;
     }
-    let Some(term) = crate::static_case::materialize_static_singleton(ctx.store, domain, case) else {
-        return None;
-    };
+    let term = crate::static_case::materialize_static_singleton(ctx.store, domain, case)?;
     let case = case.id.clone();
     if let Some(expression) = ctx.current_expression_id() {
         ctx.record_associated_resolution(

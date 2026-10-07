@@ -2417,12 +2417,11 @@ fn resolve_associated_type_projection(
         source_type_member_owner(store, declarations, subject_ty).filter(|owner| resolver.resolve_associated_type_member(owner, &selector).is_some());
     let contextual_self = matches!(subject.expr, TypeAnnotationExpr::SelfType { .. });
     let mut matching_traits = Vec::new();
-    if contextual_self {
-        if let Some(context) = site.associated_type_context.as_ref()
-            && let Some(requirement) = context.associated_types.get(name)
-        {
-            matching_traits.push((context.trait_ref.clone(), requirement.clone()));
-        }
+    if contextual_self
+        && let Some(context) = site.associated_type_context.as_ref()
+        && let Some(requirement) = context.associated_types.get(name)
+    {
+        matching_traits.push((context.trait_ref.clone(), requirement.clone()));
     }
     if let Some(evidence) = site.generic_evidence.as_ref() {
         let subject_term = TypeTerm::Canonical(subject_ty);
@@ -2707,7 +2706,7 @@ pub fn resolve_type_form(
                 if arguments.is_empty() {
                     let row = match store.record_row_checked(Vec::new(), RecordRowTail::Closed) {
                         Ok(row) => row,
-                        Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                        Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
                     };
                     return TypeFormResolution::Ready(store.record_type(row));
                 }
@@ -2752,7 +2751,7 @@ pub fn resolve_type_form(
                 if let Some(parameter) = row_parameter {
                     let row = match store.record_row_checked(Vec::new(), RecordRowTail::Parameter(parameter)) {
                         Ok(row) => row,
-                        Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                        Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
                     };
                     return TypeFormResolution::Ready(store.record_type(row));
                 }
@@ -2813,7 +2812,7 @@ pub fn resolve_type_form(
                     let row = if arguments.len() == fixed_count {
                         match store.record_row_checked(Vec::new(), RecordRowTail::Closed) {
                             Ok(row) => row,
-                            Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                            Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
                         }
                     } else {
                         let phalcom_ast::ast::GenericArgumentSyntax::Expansion(expansion) = &arguments[fixed_count] else {
@@ -2847,7 +2846,7 @@ pub fn resolve_type_form(
                         if let Some(parameter) = row_parameter {
                             match store.record_row_checked(Vec::new(), RecordRowTail::Parameter(parameter)) {
                                 Ok(row) => row,
-                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
                             }
                         } else {
                             let operand = type_form_ready_or_return!(resolve_type_form(store, declarations, resolver, site, &expansion.operand, diagnostics,));
@@ -2925,7 +2924,7 @@ pub fn resolve_type_form(
                 };
                 return match store.open_pack(Box::new([]), positional_remainder, labeled_remainder) {
                     Ok(pack) => TypeFormResolution::Ready(pack),
-                    Err(error) => TypeFormResolution::InternalFailure(error.to_string().into()),
+                    Err(error) => TypeFormResolution::InternalFailure(error.to_string()),
                 };
             }
 
@@ -3072,11 +3071,11 @@ pub fn resolve_type_form(
                             Contribution::Complete(pack) => {
                                 let positionals = match store.project_positionals(pack) {
                                     Ok(positionals) => positionals,
-                                    Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                                    Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
                                 };
                                 let labeled = match store.project_labeled(pack) {
                                     Ok(labeled) => labeled,
-                                    Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                                    Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
                                 };
                                 positional_segments.push(positionals);
                                 labeled_segments.push(labeled);
@@ -3085,11 +3084,11 @@ pub fn resolve_type_form(
                     }
                     let positionals = match store.type_pack_concat(&positional_segments) {
                         Ok(pack) => pack,
-                        Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                        Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
                     };
                     let labeled = match store.labeled_type_pack_concat(&labeled_segments) {
                         Ok(pack) => pack,
-                        Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                        Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
                     };
                     for domain in domains {
                         match domain {
@@ -3097,7 +3096,7 @@ pub fn resolve_type_form(
                             VariadicApplicationDomain::Labeled => canonical_arguments.push(labeled),
                             VariadicApplicationDomain::Complete => match store.complete_type_pack(positionals, labeled) {
                                 Ok(pack) => canonical_arguments.push(pack),
-                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
                             },
                             VariadicApplicationDomain::RecordFields => {
                                 return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
@@ -3123,7 +3122,7 @@ pub fn resolve_type_form(
                         };
                         return match store.tuple_from_packs(positionals, labeled) {
                             Ok(tuple) => TypeFormResolution::Ready(tuple),
-                            Err(error) => TypeFormResolution::InternalFailure(error.to_string().into()),
+                            Err(error) => TypeFormResolution::InternalFailure(error.to_string()),
                         };
                     }
                     if intrinsic_application_has_type_domain(
@@ -3145,7 +3144,7 @@ pub fn resolve_type_form(
                         };
                         return match store.pack_from_packs(positionals, labeled) {
                             Ok(pack) => TypeFormResolution::Ready(pack),
-                            Err(error) => TypeFormResolution::InternalFailure(error.to_string().into()),
+                            Err(error) => TypeFormResolution::InternalFailure(error.to_string()),
                         };
                     }
                     return match store.apply_type_form(origin_ty, &canonical_arguments) {
@@ -3345,7 +3344,7 @@ pub fn resolve_type_form(
                                 .into_boxed_slice(),
                             ) {
                                 Ok(pack) => labeled_segments.push(pack),
-                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
                             }
                         } else {
                             if labeled_phase {
@@ -3359,7 +3358,7 @@ pub fn resolve_type_form(
                             }
                             match store.type_pack(vec![ty].into_boxed_slice()) {
                                 Ok(pack) => positional_segments.push(pack),
-                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
                             }
                         }
                     }
@@ -3411,15 +3410,15 @@ pub fn resolve_type_form(
             }
             let positionals = match store.type_pack_concat(&positional_segments) {
                 Ok(pack) => pack,
-                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
             };
             let labeled = match store.labeled_type_pack_concat(&labeled_segments) {
                 Ok(pack) => pack,
-                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
             };
             match store.tuple_from_packs(positionals, labeled) {
                 Ok(tuple) => TypeFormResolution::Ready(tuple),
-                Err(error) => TypeFormResolution::InternalFailure(error.to_string().into()),
+                Err(error) => TypeFormResolution::InternalFailure(error.to_string()),
             }
         }
         TypeAnnotationExpr::Record { fields, tail, range: _ } => {
@@ -3660,7 +3659,7 @@ pub fn resolve_type_form(
                                 .into_boxed_slice(),
                             ) {
                                 Ok(pack) => labeled_segments.push(pack),
-                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
                             }
                         } else {
                             if labeled_phase {
@@ -3674,7 +3673,7 @@ pub fn resolve_type_form(
                             }
                             match store.type_pack(vec![ty].into_boxed_slice()) {
                                 Ok(pack) => positional_segments.push(pack),
-                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                                Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
                             }
                         }
                     }
@@ -3760,15 +3759,15 @@ pub fn resolve_type_form(
 
             let positionals = match store.type_pack_concat(&positional_segments) {
                 Ok(pack) => pack,
-                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
             };
             let labeled = match store.labeled_type_pack_concat(&labeled_segments) {
                 Ok(pack) => pack,
-                Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+                Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
             };
             match store.callable_from_packs(positionals, labeled, return_type) {
                 Ok(callable) => TypeFormResolution::Ready(callable),
-                Err(error) => TypeFormResolution::InternalFailure(error.to_string().into()),
+                Err(error) => TypeFormResolution::InternalFailure(error.to_string()),
             }
         }
         TypeAnnotationExpr::Union { members, .. } => {
@@ -3909,7 +3908,7 @@ fn resolve_type_member_projection(
     let (subject_ty, projection_subject, intrinsic_owner) = if let Some(parameter) = row_parameter {
         let row = match store.record_row_checked(Vec::new(), RecordRowTail::Parameter(parameter)) {
             Ok(row) => row,
-            Err(error) => return TypeFormResolution::InternalFailure(error.to_string().into()),
+            Err(error) => return TypeFormResolution::InternalFailure(error.to_string()),
         };
         (
             None,

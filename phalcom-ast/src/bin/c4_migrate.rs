@@ -54,7 +54,7 @@ fn find_ph_files(dir: &Path, files: &mut Vec<PathBuf>) {
                 if name != "target" && name != ".git" && name != "node_modules" && name != "docs" {
                     find_ph_files(&path, files);
                 }
-            } else if path.extension().map_or(false, |ext| ext == "ph") {
+            } else if path.extension().is_some_and(|ext| ext == "ph") {
                 files.push(path);
             }
         }
@@ -702,7 +702,7 @@ fn plan_file_edits(content: &str) -> Result<Vec<Edit>, String> {
 }
 
 fn apply_edits(content: &str, mut edits: Vec<Edit>) -> String {
-    edits.sort_by(|a, b| b.start.cmp(&a.start));
+    edits.sort_by_key(|edit| std::cmp::Reverse(edit.start));
     let mut result = content.to_string();
     for edit in edits {
         result.replace_range(edit.start..edit.end, &edit.replacement);

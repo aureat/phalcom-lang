@@ -109,14 +109,14 @@ pub enum MetadataValidationError {
     },
     #[error("static-domain case payload arity mismatch for {declaration:?}::{case}: expected {expected}, found {actual}")]
     StaticDomainCaseArityMismatch {
-        declaration: StableStaticDomainDeclarationRef,
+        declaration: Box<StableStaticDomainDeclarationRef>,
         case: Box<str>,
         expected: usize,
         actual: usize,
     },
     #[error("static-domain case payload kind mismatch for {declaration:?}::{case} at index {index}: expected kind {expected_kind}, found kind {actual_kind}")]
     StaticDomainCaseKindMismatch {
-        declaration: StableStaticDomainDeclarationRef,
+        declaration: Box<StableStaticDomainDeclarationRef>,
         case: Box<str>,
         index: usize,
         expected_kind: u32,
@@ -407,24 +407,22 @@ fn validate_static_argument_row(
             return Err(MetadataValidationError::RecordTailKindMismatch { actual_kind: parameter.kind.0 });
         }
     }
-    if let Some(remainder) = &row.remainder {
-        if let AnonymousRecordRemainderRef::Typed(ty) = remainder {
-            let index = ty.0 as usize;
-            if index >= bundle.types.len() {
-                return Err(MetadataValidationError::InvalidTypeIndex {
-                    index: ty.0,
-                    total: bundle.types.len(),
-                });
-            }
-            if before_type_node.is_some_and(|before| ty.0 >= before) {
-                return Err(MetadataValidationError::TopologicalOrderViolation {
-                    index: before_type_node.unwrap_or_default(),
-                    target: ty.0,
-                });
-            }
-            if !matches!(bundle.kinds[bundle.types[index].kind.0 as usize].node, KindNode::Type) {
-                return Err(MetadataValidationError::Malformed("record-row remainder type must have kind Type".to_string()));
-            }
+    if let Some(AnonymousRecordRemainderRef::Typed(ty)) = &row.remainder {
+        let index = ty.0 as usize;
+        if index >= bundle.types.len() {
+            return Err(MetadataValidationError::InvalidTypeIndex {
+                index: ty.0,
+                total: bundle.types.len(),
+            });
+        }
+        if before_type_node.is_some_and(|before| ty.0 >= before) {
+            return Err(MetadataValidationError::TopologicalOrderViolation {
+                index: before_type_node.unwrap_or_default(),
+                target: ty.0,
+            });
+        }
+        if !matches!(bundle.kinds[bundle.types[index].kind.0 as usize].node, KindNode::Type) {
+            return Err(MetadataValidationError::Malformed("record-row remainder type must have kind Type".to_string()));
         }
     }
     Ok(())
@@ -684,11 +682,11 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
             validate_schema_v4_feature_floor(bundle)?;
             validate_pre_v5_static_domain_floor(bundle)?;
         }
-        5 | 6 | 7 => {
+        5..=7 => {
             validate_schema_v5_feature_floor(bundle)?;
             validate_pre_v8_catalog_floor(bundle)?;
         }
-        8 | 9 | 10 => validate_schema_v5_feature_floor(bundle)?,
+        8..=10 => validate_schema_v5_feature_floor(bundle)?,
         _ => unreachable!("version range checked above"),
     }
 
@@ -701,8 +699,8 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
         return Err(MetadataValidationError::RecordRowFeatureRequired);
     }
 
-    if bundle.header.schema_version < 10 {
-        if bundle.types.iter().any(|entry| {
+    if bundle.header.schema_version < 10
+        && (bundle.types.iter().any(|entry| {
             matches!(entry.form, TypeNode::OpenTuple(_) | TypeNode::AnonymousRecord(_))
                 || match &entry.form {
                     TypeNode::Tuple(elements) => elements.iter().any(|el| el.presence == StructuralMemberPresenceRef::Optional),
@@ -725,11 +723,11 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     }
                     _ => false,
                 }
-        }) {
-            return Err(MetadataValidationError::Malformed(
-                "schema before v10 cannot contain structural member presence, open tuples, or anonymous remainders".to_string(),
-            ));
-        }
+        }))
+    {
+        return Err(MetadataValidationError::Malformed(
+            "schema before v10 cannot contain structural member presence, open tuples, or anonymous remainders".to_string(),
+        ));
     }
 
     if bundle.kinds.len() > limits.max_kind_nodes {
@@ -856,7 +854,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         }
                     }
                     crate::kind::StaticDomainRef::Associated { declaration, .. } => {
-                        if &static_data.constructor.declaration != &declaration.owner {
+                        if static_data.constructor.declaration != declaration.owner {
                             return Err(MetadataValidationError::Malformed(
                                 "static-data constructor owner does not match its associated domain owner".to_string(),
                             ));
@@ -878,7 +876,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         })?;
                         if case.parameter_kinds.len() != static_data.arguments.len() {
                             return Err(MetadataValidationError::StaticDomainCaseArityMismatch {
-                                declaration: declaration.clone(),
+                                declaration: Box::new(declaration.clone()),
                                 case: case.name.clone(),
                                 expected: case.parameter_kinds.len(),
                                 actual: static_data.arguments.len(),
@@ -888,7 +886,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                             let actual_kind = argument_matches_kind(argument, expected_kind, bundle)?;
                             if actual_kind != Some(expected_kind) {
                                 return Err(MetadataValidationError::StaticDomainCaseKindMismatch {
-                                    declaration: declaration.clone(),
+                                    declaration: Box::new(declaration.clone()),
                                     case: case.name.clone(),
                                     index,
                                     expected_kind: expected_kind.0,

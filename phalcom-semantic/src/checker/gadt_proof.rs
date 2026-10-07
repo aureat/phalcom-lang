@@ -1320,8 +1320,10 @@ mod local_outcome_tests {
             ),
             LocalCaseProof::Blocked(BlockReason::BudgetExceeded(_))
         ));
-        let mut budget = QueryBudget::default();
-        budget.max_type_depth = 0;
+        let budget = QueryBudget {
+            max_type_depth: 0,
+            ..QueryBudget::default()
+        };
         assert!(matches!(
             solve_local_case_proof_against_local(
                 &mut store,

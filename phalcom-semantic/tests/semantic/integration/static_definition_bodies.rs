@@ -903,7 +903,7 @@ fn imported_static_body_alias_retains_canonical_const_identity() {
         name: "base".into(),
     };
 
-    assert_eq!(read.static_constant_reads.as_ref(), &[target.clone()]);
+    assert_eq!(read.static_constant_reads.as_ref(), std::slice::from_ref(&target));
     let consumer_bindings = snapshot.module_static_bindings.get(&modules.consumer).expect("consumer binding handoff");
     assert_eq!(
         consumer_bindings

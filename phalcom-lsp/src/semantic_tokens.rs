@@ -632,6 +632,7 @@ struct DeclNameOverride {
 /// Expression traversal follows child expressions so collection literals
 /// receive the same syntax roles whether they appear at statement roots or
 /// nested under calls, operators, and control-flow expressions.
+#[allow(deprecated)]
 fn collect_decl_names(statements: &[Statement], out: &mut Vec<DeclNameOverride>) {
     for statement in statements {
         match statement {

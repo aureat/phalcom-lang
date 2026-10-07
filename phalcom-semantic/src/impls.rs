@@ -1094,9 +1094,7 @@ pub(crate) fn project_inferred_trait_default_signature(
     declarations: &DeclarationTypeTable,
     hierarchy: &dyn TypeHierarchy,
 ) -> Option<CallableSemanticSignature> {
-    if canonical_signature.inferred_return.is_none() {
-        return None;
-    }
+    canonical_signature.inferred_return.as_ref()?;
     let crate::trait_dispatch::TraitDispatchSelection { requirement, evidence, .. } = selection;
     let surface = trait_surfaces.get(&requirement.owner)?;
     let source_member = surface.get(requirement)?;
@@ -2079,7 +2077,7 @@ pub fn build_conformance_witness_plan(
         } else if let Some((component, specialized_type)) = data_candidates.get(requirement)
             && inherent_candidates
                 .get(requirement)
-                .map_or(true, |c| &c.owner != contribution.target.declaration())
+                .is_none_or(|c| &c.owner != contribution.target.declaration())
         {
             requirements.insert(
                 requirement.clone(),

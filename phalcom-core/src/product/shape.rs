@@ -141,14 +141,11 @@ impl RecordProductShape {
         self.logical_keys.get(logical)
     }
 
-    pub fn lookup_logical_index_by<F>(&self, mut compare: F) -> Option<u32>
+    pub fn lookup_logical_index_by<F>(&self, compare: F) -> Option<u32>
     where
         F: FnMut(&FieldKey) -> Ordering,
     {
-        self.logical_keys
-            .binary_search_by(|key| compare(key))
-            .ok()
-            .and_then(|index| u32::try_from(index).ok())
+        self.logical_keys.binary_search_by(compare).ok().and_then(|index| u32::try_from(index).ok())
     }
 }
 
