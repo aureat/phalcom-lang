@@ -110,3 +110,42 @@ the named focused parity and `language-corpus math` gates before treating the
 math slice as focused-tested. Keep this slice `IN_PROGRESS / PARTIAL /
 UNVERIFIED`; deterministic random, secure random, and distributions have not
 been implemented.
+
+## Corrective math plan T0 baseline — 2026-10-07
+
+The supplied corrective math plan was executed from `stdlib-random-math` at
+`9742d085580a98fee8822e1c66026d179ddd772e`, matching its prepared revision.
+The only pre-existing working-tree entries were the supplied, untracked audit
+and implementation-plan documents under `LANG007.C4.P4/math/`.
+
+- `git diff --check`: PASS.
+- `RUSTFLAGS='' cargo check -p phalcom-core`: PASS.
+- `RUSTFLAGS='' cargo test -p phalcom-core --test core exported_static_constant_materializes_for_selected_and_module_reads -- --nocapture`: FAIL, 1 selected. `constants.pi` materialized as `3.141592653589793`, then module getter dispatch attempted `call` and raised `does not understand 'call'` at `main.ph:4:17`.
+- `RUSTFLAGS='' cargo test -p phalcom-core --test language-corpus math -- --nocapture`: FAIL, 1 selected. `math.e` materialized as `2.718281828459045`, then module getter dispatch attempted `call` at `<root>.ph:9:14`.
+
+The planned failure is reproduced. The runtime identity repair remains required
+before changing the math package structure.
+
+## Corrective math execution update — 2026-10-07
+
+The supplied math plan's runtime and facade slices have since advanced in the
+same uncommitted worktree:
+
+- RuntimeStaticConstantRef now projects canonical static-constant identity into
+  VM materialization; owner modules retain and trace the materialized values.
+- Selected imports, module getters, re-exports, reflection, and linked reads
+  resolve that canonical reference. Focused getter and re-export/GC tests pass.
+- FloatMathKernel and source-authored angle helpers now live in the hidden
+  universe.math.float_kernel child; IntegerMath remains hidden in
+  universe.math.integer. External imports of either child are rejected.
+- The public facade adds log(_,base), degrees, and radians; the focused math
+  corpus, including finite, special-value, and large-integer fixtures, passes.
+
+T9 type-boundary acceptance is BLOCKED: a package source containing
+math.sqrt(4) compiles instead of yielding a semantic Float-vs-Int mismatch.
+The exact Family shape is verified, so this is a canonical semantic
+call-checking decision, not a native math dispatch repair. See
+stdlib-math-T9-type-boundary-incident-2026-10-07.md in the math record folder.
+
+Do not proceed to final generated-surface/documentation/delivery gates or add
+a math-specific coercion/runtime guard until that decision is made.

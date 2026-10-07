@@ -2426,7 +2426,7 @@ impl VM {
                             .get_by_slot(binding.slot as usize)
                             .ok_or_else(|| RuntimeError::Internal(format!("linked binding slot {} is not materialized", binding.slot)))
                             .map(|value| self.surface_absence(value))?,
-                        crate::modules::RuntimeLinkedRead::StaticConstant { value, .. } => value,
+                        crate::modules::RuntimeLinkedRead::StaticConstant(reference) => self.resolve_static_constant(reference)?,
                     };
                     self.stack.push(value);
                 }

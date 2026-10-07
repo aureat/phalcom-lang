@@ -184,12 +184,9 @@ impl ModuleExecutionContext {
                                 };
                                 (RuntimeLinkedRead::Binding(binding), LinkedReadSpec::Binding(symbol_id.clone()), Some(symbol_id))
                             }
-                            RuntimeExportRef::StaticConstant(value) => {
-                                let target_module_id = vm.heap.module(target_obj).id.clone();
-                                (RuntimeLinkedRead::StaticConstant { module: target_obj, value }, LinkedReadSpec::Binding(SymbolId {
-                                    module: target_module_id,
-                                    name: item.name.clone().into_boxed_str(),
-                                }), None)
+                            RuntimeExportRef::StaticConstant(reference) => {
+                                let symbol_id = vm.runtime_static_constant_symbol(reference)?;
+                                (RuntimeLinkedRead::StaticConstant(reference), LinkedReadSpec::Binding(symbol_id.clone()), Some(symbol_id))
                             }
                             RuntimeExportRef::Module(module) => {
                                 let target_module_id = vm.heap.module(module).id.clone();

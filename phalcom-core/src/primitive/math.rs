@@ -1,4 +1,4 @@
-//! Binary64 mathematical kernels declared in `universe.math`.
+//! Binary64 mathematical kernels declared in `universe.math.float_kernel`.
 
 use crate::error::{PhResult, RuntimeError};
 use crate::value::Value;
@@ -45,6 +45,15 @@ pub fn math_ln(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Valu
 /// Binary64 ln(1+x) near zero.
 #[phalcom_native_macros::primitive(FloatMathKernel, "ln1p(_)", params = [Float], returns = Float, types = "(Float) -> Float", side = class, effects = pure)]
 pub fn math_ln1p(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> { unary(args, f64::ln_1p) }
+
+/// Binary64 logarithm with an explicit base.
+#[phalcom_native_macros::primitive(
+    FloatMathKernel, "log(_,base)", params = [Float, base: Float], returns = Float,
+    types = "(Float, base: Float) -> Float", side = class, effects = pure
+)]
+pub fn math_log(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    Ok(Value::float(float_argument(&args[0])?.log(float_argument(&args[1])?)))
+}
 
 /// Binary64 base-two logarithm.
 #[phalcom_native_macros::primitive(FloatMathKernel, "log2(_)", params = [Float], returns = Float, types = "(Float) -> Float", side = class, effects = pure)]

@@ -244,7 +244,7 @@ pub fn module_dependencies(vm: &mut VM, receiver: &Value, _args: &[Value]) -> Ph
     for read in reads {
         let dep_mod_ref = match read {
             crate::modules::RuntimeLinkedRead::Binding(b) => b.module,
-            crate::modules::RuntimeLinkedRead::StaticConstant { module, .. } => module,
+            crate::modules::RuntimeLinkedRead::StaticConstant(reference) => reference.module,
             crate::modules::RuntimeLinkedRead::Module(obj) => obj,
         };
         let dep_obj = vm
@@ -1026,7 +1026,7 @@ pub fn export_table_get(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
             let val = vm.heap.module(b.module).globals.get(b.slot as usize).copied().unwrap_or(Value::nil());
             Ok(val.wrap_some()?)
         }
-        Some(RuntimeExportRef::StaticConstant(value)) => Ok(value.wrap_some()?),
+        Some(RuntimeExportRef::StaticConstant(reference)) => Ok(vm.resolve_static_constant(reference)?.wrap_some()?),
         Some(RuntimeExportRef::Module(mod_obj)) => Ok(Value::obj(mod_obj).wrap_some()?),
         None => Ok(Value::none()),
     }
@@ -1079,7 +1079,7 @@ pub fn export_value(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
             let val = vm.heap.module(b.module).globals.get(b.slot as usize).copied().unwrap_or(Value::nil());
             Ok(val)
         }
-        Some(RuntimeExportRef::StaticConstant(value)) => Ok(value),
+        Some(RuntimeExportRef::StaticConstant(reference)) => vm.resolve_static_constant(reference),
         Some(RuntimeExportRef::Module(mod_obj)) => Ok(Value::obj(mod_obj)),
         None => Err(RuntimeError::Internal(format!("Export '{}' not found in module exports", vm.interner.lookup(name))).into()),
     }

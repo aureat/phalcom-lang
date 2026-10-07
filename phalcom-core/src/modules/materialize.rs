@@ -133,7 +133,8 @@ impl VM {
                 phalcom_modules::LinkedExportTarget::Binding(symbol) => {
                     let constant = self.static_constant_spec(&symbol.module, symbol.name.as_ref());
                     if let Some(spec) = constant {
-                        exports.insert(public_sym, RuntimeExportRef::StaticConstant(self.materialize_static_constant(&spec)?));
+                        let reference = self.ensure_static_constant_materialized(&spec)?;
+                        exports.insert(public_sym, RuntimeExportRef::StaticConstant(reference));
                         continue;
                     }
                     let target_mod_obj = self
@@ -205,34 +206,31 @@ impl VM {
                 LinkedReadSpec::Binding(symbol_id) => {
                     let constant = self.static_constant_spec(&symbol_id.module, symbol_id.name.as_ref());
                     if let Some(spec) = constant {
-                        let target = self.module_registry.get(&symbol_id.module).expect("static constant owner registered").object;
-                        materialized_reads.push(RuntimeLinkedRead::StaticConstant {
-                            module: target,
-                            value: self.materialize_static_constant(&spec)?,
-                        });
-                        continue;
-                    }
-                    let target_obj = self
-                        .module_registry
-                        .get(&symbol_id.module)
-                        .ok_or_else(|| RuntimeError::Internal(format!("linked read target module {} not registered", symbol_id.module)))?
-                        .object;
-                    let sym = self.interner.intern(&symbol_id.name);
-                    let slot = match self.heap.module(target_obj).slot_of(sym) {
-                        Some(slot) => slot,
-                        None => self.heap.module_mut(target_obj).declare(sym)?,
-                    };
-                    if symbol_id.module.project.is_universe() {
-                        let declaration = phalcom_modules::DeclarationId::new(symbol_id.module.clone(), symbol_id.name.clone());
-                        if let Some(class_id) = self.resolve_universe_declaration_class(&declaration) {
-                            self.heap.module_mut(target_obj).set_global(slot, crate::value::Value::obj(class_id))?;
+                        RuntimeLinkedRead::StaticConstant(self.ensure_static_constant_materialized(&spec)?)
+                    } else {
+                        let target_obj = self
+                            .module_registry
+                            .get(&symbol_id.module)
+                            .ok_or_else(|| RuntimeError::Internal(format!("linked read target module {} not registered", symbol_id.module)))?
+                            .object;
+                        let sym = self.interner.intern(&symbol_id.name);
+                        let slot = match self.heap.module(target_obj).slot_of(sym) {
+                            Some(slot) => slot,
+                            None => self.heap.module_mut(target_obj).declare(sym)?,
+                        };
+                        if symbol_id.module.project.is_universe() {
+                            let declaration = phalcom_modules::DeclarationId::new(symbol_id.module.clone(), symbol_id.name.clone());
+                            if let Some(class_id) = self.resolve_universe_declaration_class(&declaration) {
+                                self.heap.module_mut(target_obj).set_global(slot, crate::value::Value::obj(class_id))?;
+                            }
                         }
+                        RuntimeLinkedRead::Binding(BindingRef {
+                            module: target_obj,
+                            slot: u16::try_from(slot).map_err(|_| {
+                                RuntimeError::Internal(format!("linked binding slot overflow in {}::{}", symbol_id.module, symbol_id.name))
+                            })?,
+                        })
                     }
-                    RuntimeLinkedRead::Binding(BindingRef {
-                        module: target_obj,
-                        slot: u16::try_from(slot)
-                            .map_err(|_| RuntimeError::Internal(format!("linked binding slot overflow in {}::{}", symbol_id.module, symbol_id.name)))?,
-                    })
                 }
             };
             materialized_reads.push(runtime_read);

@@ -387,7 +387,7 @@ impl UniverseKey {
             Self::SystemClock => &["time", "clock"],
             Self::SystemWallClock => &["time", "timestamp"],
             Self::TimeZone => &["time", "timezone"],
-            Self::FloatMathKernel => &["math"],
+            Self::FloatMathKernel => &["math", "float_kernel"],
             Self::Message => &["reflection", "message"],
             Self::Attribute => &["reflection", "attribute"],
             Self::Error | Self::MessageNotUnderstood | Self::CannotYieldAcrossNativeFrame | Self::UseAfterCloseError => &["errors", "error"],
