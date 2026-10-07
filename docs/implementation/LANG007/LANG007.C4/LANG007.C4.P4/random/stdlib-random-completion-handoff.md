@@ -1,75 +1,112 @@
-# Random delivery handoff
+# `universe.random` completion continuation handoff
 
-Plan state: IN_PROGRESS / PARTIAL / FOCUSED_TESTED.
-Branch: `main`; starting HEAD `800474d8`; stable-owner prerequisite `fbf057ea`.
-The user requested commit/push at this checkpoint. The delivery commit contains
-this handoff and the source patch; find it with `git log --oneline --grep='random'`.
-No subagents were used. The random source API is present; plan acceptance is
-still incomplete.
+Plan state: IN_PROGRESS / PARTIAL / FOCUSED_TESTED. The source-authored random
+API is committed in `b87e0cec`; continuation started on `main` at `ad1db231`. The user subsequently requested
+lifecycle updates and commit/push of the entire current tree, including existing
+COLL006, slotmap, and math-document relocation work. Those additional changes
+are included as requested without claiming verification by this random task.
 
-## Incident and established repair
+## Established implementation
 
-The original R0 probe exposed incomplete stable callable ownership projection.
-Schema v11 now preserves declaration, variant and source impl owners. A subsequent
-method-generic call failed because inference retained requirement binders while
-execution expected witness binders; selected trait invocation also dropped its
-call-entry recipe. Both are repaired and regression-tested. A later bootstrap/
-client mismatch required trait-local default slot numbering. Qualified module
-class exports now retain canonical class-object/type-form denotation.
+The public deterministic API is source-authored: explicit mutable
+`Xoshiro256PlusPlus` state, SplitMix64 seeding, xoshiro256++ transition,
+sampling helpers, typed `UniformInt`/`Bernoulli` distributions, and collection
+helpers. `SecureRandom` remains a distinct capability with one narrow OS-byte
+fill native operation and source-owned allocation/error lifting. Stable
+callable ownership, generic trait recipe transport, and trait-local slot
+numbering were repaired at their general owning boundaries before the source
+API landed. See the implementation plan and incident packet for the invariants.
 
-The earlier constant blocker was an unsupported static shift, not unsafe LargeInt
-materialization. Named constants now use exact literal values. Xoshiro's private
-state stays in its class-owned `nextU64`; ordinary inherent-witness conformance
-supplies Generator. The trait retains all source-authored derived defaults.
+## Continuation changes and evidence
 
-## Last completed step
+- Public source docs clarify deterministic replay and explicitly warn that
+  Xoshiro is not cryptographically secure.
+- The random corpus fixture checks the seed-42 sequence across forced GC.
+- A secure byte-count regression confirms an unrepresentable count fails at
+  `Bytes.new` before invoking host fill. It does not establish safe handling of
+  very large counts that fit the immediate integer range.
+- The native census test checks a single canonical `SecureRandom.rawFill(_)`
+  source anchor, one descriptor, exact mutation/nondeterminism/blocking
+  metadata, and no native deterministic Generator methods.
+- The builtin provider test checks the facade's public exports and all six
+  child source modules.
+- Manual self-checking benchmark programs cover `nextU64`, `nextFloat`, small
+  and 128-bit bounded integers, 1 KiB bytes, 100/10,000-element shuffle, and a
+  source MINSTD baseline. They are in `benchmarks/random/`.
 
-`RUSTFLAGS='' cargo test -p phalcom-core --test core random_ -- --nocapture`
-passed 4/4 after correcting test diagnostic-text matching. It covers facade
-evidence, secure public behavior, secure nonconformance/hidden traversal/wrong
-types, and numeric-policy sampling without candidate overshoot.
+Focused checks completed during this continuation:
 
-Previously passed: random/syntax corpus 2/2, core traits 18/18, secure native
-success and injected host-failure/error-lifting 2/2, semantic binder/proof and
-cold/incremental regressions, four crate checks, native surface check (400 rows),
-and diff hygiene.
+- Core canonical secure-native owner/effect assertion: PASS 1/1.
+- Secure random unrepresentable byte count: PASS 1/1.
+- Random language corpus, including forced-GC fixture: PASS 2/2.
+- Numeric-policy sampling: PASS 1/1.
+- Builtin random provider: PASS 1/1.
+- Native surface generated check: PASS, 400 primitive declarations.
+- Scoped Rust formatting check and `git diff --check`: PASS.
 
-## Remaining next steps
+Previously completed evidence remains: core random lane PASS 4/4, core trait
+suite PASS 18/18, secure native unit tests PASS 2/2, four crate checks, and
+semantic binder/proof plus cold/incremental regressions. These are inherited
+from the earlier delivery record, not rerun during this continuation.
 
-1. Measure the plan's nextU64/nextFloat/bounded Int/128-bit/bytes/shuffle workloads,
-   including allocation/GC evidence and source MINSTD comparison.
-2. Add focused effect/native-source identity assertions and remaining byte
-   allocation/resource acceptance. Native declaration already carries mutation,
-   nondeterminism and blocking; assertions are still needed.
-3. Run provider/module, native-source verification, numeric-resource and full
-   corpus gates. Run or explicitly defer optional broad core. Review the final
-   scoped diff and promote lifecycle only when required evidence is acquired.
-4. Investigate retained-session field-dependency validation if it blocks broader
-   corpus evidence. A stale-snapshot fallback is recorded in the incident; the
-   independent syntax lane is fixture isolation, not an incremental fix.
+## Architect decisions and blocker repairs (2026-10-08)
 
-## Preserve
+The user renewed fix authority in the architect role. Work remains inline on
+main without subagents. R11's source mutation-effect presentation deferral
+stands; native metadata and canonical source identity retain their obligations.
 
-- No default/global RNG or implicit seed; standard frozen SplitMix64/xoshiro256++.
-- No reservoirs; high-bit bool, top-53 float, masked-first-word arbitrary Int,
-  big-endian bytes, descending Fisher–Yates, zero-consumption special cases.
-- SecureRandom never conforms to Generator or falls back; source owns allocation
-  and EntropyError lifting; getrandom 0.3.3 only fills existing bytes.
-- No compiler conformance inference or fabricated callable owner identity.
+R21 is resolved at the general owner boundary. `VM.max_byte_buffer_len` defaults
+to 64 MiB and may be configured by the embedder independently of numeric
+budgets. `Bytes.new` checks the limit before a fallible backing reservation,
+then zeroes and publishes the fixed-length buffer. Policy rejection and host
+reservation failure have distinct controlled runtime errors. Ordinary source
+and secure/deterministic random helpers share the boundary. This does not claim
+a total VM memory budget or recovery from OS process termination. Small limit,
+zero/exact boundary, huge representable index, capacity overflow, and the public
+secure caller have focused PASS evidence. No giant allocation was attempted.
 
-Main files: `phalcom-core/core/universe/src/random/`, `primitive/random.rs`,
-`phalcom-modules/src/builtin.rs`, native-meta/surface, checker call/context/
-expression, and core semantic lowering/materialization/dispatch.
+Release startup was blocked by semantic expression-owner stack mutation inside
+a debug assertion. Moving the pop outside the assertion preserves the same
+canonical ownership in both build profiles. An optimized build and the original
+syntax fixture now PASS; the fixture printed `1` (13.17 s, 619,413,504-byte peak
+RSS before the subsequent idle-polling repair).
 
-Four semantic trait failures and workspace formatting drift are baseline; see
-walkthrough/incident. Do not spend random acceptance work repairing them.
+Retained compilation now uses a fallible semantic publication API and cannot
+silently compile last-known-good fixture source after an update failure. The
+general session repairs schedule exact surface member prerequisites, revalidate
+consumed effective definitions, preserve constructor body/factory signature
+correspondence, and retain witness body/access facts through accepted source
+coordinates. Seed changes, import removal, and restoration pass current-source
+and cold parity checks. The expanded actual-fixture regression FAILS at `session.rs:6169`: accepted
+inherent callable must have a canonical signature. The simple four-step sequence
+passed before expansion; retained actual-fixture acceptance remains blocked.
 
-First commands:
+A stopped million-word release run spent virtually all sampled main-thread time
+in idle OS polling. The reactor now skips OS polling only when its canonical
+registration table has no active source, while always draining worker ingress.
+Active polling, executor waits, rooting, and scheduling remain unchanged.
 
-```sh
-git status --short
-RUSTFLAGS='' cargo test -p phalcom-core --test language-corpus random -- --nocapture
-RUSTFLAGS='' cargo test -p phalcom-core --test core random_ -- --nocapture
-RUSTFLAGS='' cargo test -p phalcom-core --lib secure_random -- --nocapture
-RUSTFLAGS='' cargo run -p phalcom-native-surface-gen -- --root . --check
-```
+## Verification and remaining gates
+
+The affected incremental suite completed: 208 PASS / 36 FAIL / 4 ignored.
+All 36 failures reproduced with the session repair removed, including the three
+large reuse cases (205.16 seconds). They are Category D baseline failures; the
+walkthrough retains exact identities. No broad PASS is claimed.
+
+Final focused core-lib selection: 20 PASS / 1 FAIL / 147 filtered, 28.74 seconds.
+All 16 reactor tests, the direct Bytes boundary test, and three existing retained
+session tests passed. The new expanded retained random fixture regression failed
+at the inherent-callable signature invariant above. Do not weaken that invariant.
+
+The user requested delivery at this point. The final optimized CLI rebuild,
+renewed workload timings, allocation/GC measurements, fresh random corpus/core
+trait gates, full corpus, broad core/release certification, and cross-platform
+execution remain incomplete. The prior optimized binary passed syntax startup;
+the million-word run was interrupted at 225.51 seconds, before idle reactor
+repair. No completed random workload throughput is available.
+Keep IN_PROGRESS / PARTIAL / FOCUSED_TESTED. Next action: diagnose retained
+inherent-signature publication, rerun the exact retained regression, then resume
+remaining R20/R21 and plan acceptance gates.
+
+Delivery hygiene: scoped Rust formatting and `git diff --check` PASS. The nested
+expression-owner unit regression PASS 1/1. No broad test PASS is claimed.

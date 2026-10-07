@@ -229,8 +229,12 @@ impl Reactor {
     /// Polls cross-thread completion ingress and poller events non-blockingly into internal buffers.
     /// Safe to call from safepoints without allocating Phalcom objects.
     pub fn poll_ingress_safepoint(&mut self, max_batch: usize) {
-        // Non-blocking poll of the OS poller
-        if let Ok(ready_events) = self.poller.poll(Some(Duration::ZERO)) {
+        // With no live external source, OS readiness cannot make progress.
+        // Avoid a syscall on every bytecode back-edge for pure computation.
+        // Always drain worker ingress below, including stale completions.
+        if self.registry.has_active()
+            && let Ok(ready_events) = self.poller.poll(Some(Duration::ZERO))
+        {
             self.pending_poll_events.extend(ready_events);
         }
 
@@ -419,6 +423,43 @@ mod tests {
         let due = queue.pop_due(now + Duration::from_millis(60));
         assert_eq!(due, vec![token1]);
         assert!(queue.is_empty());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn active_readiness_is_serviced_at_safepoints() {
+        let mut reactor = Reactor::new(1);
+        let target = ObjRef::from_opaque_u64(43);
+        let (mut tx, mut rx) = mio::unix::pipe::new().unwrap();
+        reactor.register_pollable(&mut rx, target, PollInterest::Readable).unwrap();
+        tx.write_all(b"ready").unwrap();
+        let start = Instant::now();
+        let mut events = Vec::new();
+        while events.is_empty() && start.elapsed() < Duration::from_secs(2) {
+            reactor.poll_ingress_safepoint(1);
+            events = reactor.drain_completions(1);
+        }
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].target, target);
+    }
+
+    #[test]
+    fn idle_safepoint_still_drains_cancelled_worker_ingress() {
+        let mut reactor = Reactor::new(1);
+        let token = reactor.registry.allocate(ObjRef::from_opaque_u64(42), ReactorSource::Worker);
+        reactor.registry.cancel(token);
+        assert_eq!(reactor.active_count(), 0);
+        reactor
+            .completion_sender()
+            .send(WorkerCompletion {
+                token,
+                outcome: WorkerOutcome::Success(WorkerResult::Int(7)),
+            })
+            .unwrap();
+        reactor.poll_ingress_safepoint(1);
+        assert_eq!(reactor.pending_worker_completions.len(), 1);
+        assert!(reactor.drain_completions(1).is_empty(), "cancelled completion must remain stale");
+        assert!(!reactor.has_pending_progress());
     }
 
     #[test]

@@ -466,6 +466,9 @@ pub struct VM {
     pub strict_resources: bool,
     /// Phase-1 reactor managing timers, worker pool, and external completions.
     pub reactor: crate::reactor::Reactor,
+    /// Maximum octets in a single source-requested `Bytes.new` allocation.
+    /// Separate from numeric budgets; embedders may lower or raise this limit.
+    pub max_byte_buffer_len: usize,
     /// Numeric budget/resource policy.
     pub numeric_policy: crate::value::NumericPolicy,
     /// Runtime ADT registry for enums and variants.

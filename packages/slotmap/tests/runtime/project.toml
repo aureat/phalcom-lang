@@ -1,0 +1,9 @@
+[project]
+name = "slotmap-runtime-tests"
+namespace = "slotmap_tests"
+version = "0.0.0"
+source = "src"
+entry = "slotmap_tests.main"
+
+[dependencies]
+slotmap = { path = "../.." }

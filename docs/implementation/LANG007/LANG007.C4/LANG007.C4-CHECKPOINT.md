@@ -57,14 +57,37 @@ success/error-lifting PASS 2/2; core trait suite PASS 18/18; four crate checks a
 native surface `--check` PASS. Semantic trait lane is 41 PASS / 4 confirmed
 baseline failures. Workspace format checking reports existing drift.
 
-Remaining next steps: measured performance/allocation/GC checkpoint; dedicated
-native-effect/source-identity and deterministic-effect assertions; remaining
-resource cases (notably secure byte allocation); directly affected provider,
-native verification, numeric and full corpus gates; broad core optional gate;
-final scoped review and truthful promotion of plan state. Retained compilation
-sessions also expose a stale-snapshot failure when an unchanged Universe field
-dependency is not validated at the new revision. Keep fixture isolation until
-that general dependency-validation incident is resolved; do not call it fixed.
+
+## Architect delivery checkpoint (2026-10-08)
+
+Status remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED. R11 source-effect deferral
+stands. R21 is resolved through a general configurable 64 MiB Bytes.new limit
+and fallible backing reservation, independent of numeric budgets. Owner and
+public secure-caller regressions pass. Release expression-owner stack repair
+passed optimized syntax startup. Reactor idle-poll repair passed all 16 reactor
+tests. Final core-lib selection: 20 PASS / 1 FAIL / 147 filtered, 28.74 seconds.
+Retained publication repair remains PARTIAL: expanded actual-fixture replacement
+fails at `phalcom-semantic/src/session.rs:6169`, where an accepted inherent
+callable lacks a canonical signature. Preserve the failing regression and the
+invariant. The earlier simple four-step retained sequence passed.
+
+Completed incremental lane: 208 PASS / 36 FAIL / 4 ignored. All 36 failures
+reproduce on predecessor behavior: 33 smaller exact tests plus three large reuse
+cases (0 PASS / 3 FAIL, 205.16 seconds). These are Category D baseline failures.
+Exact identities are retained in the walkthrough. No assertions were weakened.
+
+Remaining tasks: finish canonical retained inherent-signature publication, rerun
+exact regression and affected acceptance gates, rebuild final release CLI,
+complete R20 throughput/allocation/GC evidence, full corpus classification, broad
+core and cross-platform gates. The million-word benchmark was interrupted at
+225.51 seconds before reactor repair; no workload throughput is claimed.
+
+Scoped Rust formatting and diff hygiene PASS; expression-owner regression PASS 1/1.
+
+The user requested lifecycle updates, commit/push of everything, and an inline
+handoff at this checkpoint. Existing COLL006, slotmap, and math-document
+relocations are included under that instruction without additional behavioral
+verification. Delivery does not promote completion or verification status.
 
 This companion state does not promote the structural/static C4 active plan.
 

@@ -89,3 +89,34 @@ fn reflection_leaf_interfaces_export_their_public_native_declarations() {
         }
     }
 }
+
+#[test]
+fn universe_random_provider_registers_facade_and_source_modules() {
+    let provider = UniverseSourceProvider::new();
+    let random_path = ModulePath::from_components(vec![phalcom_modules::ModuleComponent::from_identifier("random").unwrap()]);
+    let random = ModuleId::universe(random_path);
+    assert!(provider.contains(&random.path));
+    let interface = provider.load_interface(&random).expect("random facade interface loads");
+    assert!(interface.kind.is_package_like());
+    for export in [
+        "Generator",
+        "Xoshiro256PlusPlus",
+        "Distribution",
+        "UniformInt",
+        "Bernoulli",
+        "SecureRandom",
+        "EntropyError",
+    ] {
+        assert!(interface.exports.contains_key(export), "random facade exports {export}");
+    }
+
+    for child in ["generator", "xoshiro256pp", "distribution", "uniform_int", "bernoulli", "secure"] {
+        let child_path = ModulePath::from_components(vec![
+            phalcom_modules::ModuleComponent::from_identifier("random").unwrap(),
+            phalcom_modules::ModuleComponent::from_identifier(child).unwrap(),
+        ]);
+        let child_id = ModuleId::universe(child_path);
+        assert!(provider.contains(&child_id.path), "random child {child_id} exists");
+        assert!(!provider.source_text(&child_id).expect("random child source loads").is_empty());
+    }
+}

@@ -250,6 +250,9 @@ pub enum ProgramCompileError {
     /// Semantic type checking errors.
     #[error("semantic error:\n{0}")]
     Semantic(ProgramSemanticDiagnostics),
+    /// Semantic update failed without publishing a current executable snapshot.
+    #[error("semantic update failed: {0}")]
+    SemanticUpdate(String),
     /// Generic I/O error.
     #[error("io error: {0}")]
     Io(String),
@@ -1730,7 +1733,6 @@ impl ProgramCompiler {
             }
             modules.insert(id.clone(), compile_module(id.clone(), linked_module, source, source_text, Arc::new(lowering)));
         }
-
 
         Ok(CompiledProgram {
             project_universe: analyzed.project_universe.clone(),

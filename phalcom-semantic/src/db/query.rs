@@ -2736,7 +2736,7 @@ pub fn query_field_signature_with_inputs(
     QueryOutcome::Ready(signature)
 }
 
-fn declaration_signature_id_for_body(db: &SemanticDb, callable: &CallableId, unit: &ParsedModuleUnit) -> Option<CallableId> {
+pub(crate) fn declaration_signature_id_for_body(db: &SemanticDb, callable: &CallableId, unit: &ParsedModuleUnit) -> Option<CallableId> {
     if db
         .product(&QueryKey::CallableDefinition(callable.clone()))
         .and_then(|product| product.as_callable_definition())

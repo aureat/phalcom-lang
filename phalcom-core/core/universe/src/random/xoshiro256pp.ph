@@ -7,9 +7,12 @@ const MUL1: Int = 0xBF58476D1CE4E5B9
 const MUL2: Int = 0x94D049BB133111EB
 
 /// Reproducible xoshiro256++ with increment-before-mix SplitMix64 seeding.
-/// This generator is not cryptographically secure. Do not use it for secrets,
-/// authentication tokens, keys, or security-sensitive nonces.
-/// Shared use across fibers assigns the stream according to call ordering.
+/// Its algorithm, seed expansion, and stream are fixed for replay. This
+/// generator is deterministic and not cryptographically secure. Do not use it
+/// for secrets, authentication tokens, cryptographic keys, or security-
+/// sensitive nonces. Shared use across fibers assigns the stream according to
+/// call ordering; use separate explicitly seeded instances for independent,
+/// reproducible workflows.
 class Xoshiro256PlusPlus {
   mut _s0: Int
   mut _s1: Int

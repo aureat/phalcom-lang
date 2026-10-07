@@ -116,6 +116,54 @@ fn canonical_source_census_matches_descriptors_and_relations() {
 }
 
 #[test]
+fn secure_random_native_owner_effects_and_source_declaration_are_canonical() {
+    use phalcom_core::native::source::NativeMemberKey;
+    use phalcom_native_meta::primitive::{EffectSpec, NativeEffect};
+    use phalcom_native_meta::{NativeDispatch, UniverseKey};
+
+    let source = NativeSourceIndex::build().expect("canonical universe source must parse");
+    let key = NativeMemberKey {
+        owner: UniverseKey::SecureRandom,
+        side: NativeDispatch::Instance,
+        selector: "rawFill(_)".to_owned(),
+    };
+    let anchor = source.members.get(&key).expect("SecureRandom.rawFill has one canonical native source anchor");
+    assert_eq!(anchor.class_name, "SecureRandom");
+    assert_eq!(anchor.module.path.to_string(), "random.secure");
+    assert!(anchor.is_declaration);
+    assert!(anchor.typed);
+
+    let rows: Vec<_> = source
+        .census
+        .members
+        .iter()
+        .filter(|member| member.owner == Some(UniverseKey::SecureRandom) && member.selector == "rawFill(_)")
+        .collect();
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].native);
+
+    let descriptors: Vec<_> = PRIMITIVES
+        .iter()
+        .filter(|descriptor| descriptor.surface.key.owner == UniverseKey::SecureRandom && descriptor.surface.key.selector == "rawFill(_)")
+        .collect();
+    assert_eq!(descriptors.len(), 1);
+    let EffectSpec::Known(effects) = descriptors[0].surface.effects else {
+        panic!("SecureRandom.rawFill must publish explicit effects");
+    };
+    assert_eq!(effects, [NativeEffect::Mutation, NativeEffect::Nondeterminism, NativeEffect::Blocking]);
+
+    assert!(
+        PRIMITIVES.iter().all(|descriptor| {
+            !matches!(
+                descriptor.surface.key.selector,
+                "nextU64" | "nextBool" | "nextFloat" | "nextInt(below:)" | "nextInt(from:below:)"
+            )
+        }),
+        "deterministic generator methods remain source-authored"
+    );
+}
+
+#[test]
 fn physical_universe_corpus_matches_catalog() {
     fn collect(root: &Path, current: &Path, files: &mut BTreeSet<String>) {
         for entry in std::fs::read_dir(current).expect("read canonical universe source") {

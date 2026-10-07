@@ -2,10 +2,163 @@
 
 Current state: stable-owner and method-generic recipe prerequisites are
 IMPLEMENTED / FOCUSED_TESTED. The original R0 syntax probe passes. The API slice
-and canonical Universe fixes are present; the plan is IN_PROGRESS / PARTIAL /
-FOCUSED_TESTED at the user-directed delivery stop. Performance, metadata acceptance
-and remaining broad gates are pending. The completion handoff owns the next steps;
-earlier entries below record the investigation history.
+and canonical Universe fixes are present; the plan remains IN_PROGRESS / PARTIAL /
+FOCUSED_TESTED. Native source identity/effect metadata, provider registration,
+numeric-policy sampling, the random corpus, and unrepresentable byte-count
+rejection have focused PASS evidence. The user deferred source mutation-effect
+presentation; representable byte-allocation safety still needs an owner-layer
+decision. Release
+performance, full corpus, broad core, and cross-platform gates remain incomplete.
+The completion handoff owns the next steps; earlier entries below record the
+investigation history.
+
+## Architect delivery checkpoint (2026-10-08)
+
+Status remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED. R11 source-effect deferral
+stands. R21 is resolved through a general configurable 64 MiB Bytes.new limit
+and fallible backing reservation, independent of numeric budgets. Owner and
+public secure-caller regressions pass. Release expression-owner stack repair
+passed optimized syntax startup. Reactor idle-poll repair passed all 16 reactor
+tests. Final core-lib selection: 20 PASS / 1 FAIL / 147 filtered, 28.74 seconds.
+Retained publication repair remains PARTIAL: expanded actual-fixture replacement
+fails at `phalcom-semantic/src/session.rs:6169`, where an accepted inherent
+callable lacks a canonical signature. Preserve the failing regression and the
+invariant. The earlier simple four-step retained sequence passed.
+
+Completed incremental lane: 208 PASS / 36 FAIL / 4 ignored. All 36 failures
+reproduce on predecessor behavior: 33 smaller exact tests plus three large reuse
+cases (0 PASS / 3 FAIL, 205.16 seconds). These are Category D baseline failures.
+Exact identities are retained in the walkthrough. No assertions were weakened.
+
+Remaining tasks: finish canonical retained inherent-signature publication, rerun
+exact regression and affected acceptance gates, rebuild final release CLI,
+complete R20 throughput/allocation/GC evidence, full corpus classification, broad
+core and cross-platform gates. The million-word benchmark was interrupted at
+225.51 seconds before reactor repair; no workload throughput is claimed.
+
+The user requested lifecycle updates, commit/push of everything, and an inline
+handoff at this checkpoint. Existing COLL006, slotmap, and math-document
+relocations are included under that instruction without additional behavioral
+verification. Delivery does not promote completion or verification status.
+
+## Architect blocker repair (2026-10-08)
+
+The user renewed general fix authority with the architect role, inline on main,
+without subagents. R21 is authorized at its owning Bytes/VM boundary: a
+configurable per-construction limit, default 64 MiB, independent of numeric
+budgets; fallible backing reservation; controlled limit/allocation errors before
+secure host fill. Fixed-length zero-filled storage and canonical native source
+identity remain unchanged. The plan and VM specification record this amendment.
+The small configured boundary and public secure caller have focused PASS
+results; no giant allocation was attempted. R11's prior deferral stands.
+
+Release-bootstrap diagnosis found `pop_expression_owner` putting the stack
+mutation inside `debug_assert_eq!`. Optimized builds omitted the mutation, so
+later checked operations could attach to a nested expression instead of their
+actual owner. Move the pop outside the assertion; retain the LIFO check and add
+a nested-owner regression. Prediction: canonical associated invocation products
+will again attach to the correct expression and release Universe bootstrap will
+succeed. Release build PASS and original syntax fixture PASS (`1`), 13.17 seconds
+whole-process time, 619,413,504 bytes peak RSS. No compiler fallback is introduced.
+
+Retained-session diagnosis reproduced stale source on a seed-only replacement.
+Using the existing fallible semantic mutation API exposed unvalidated effective
+callable definitions; subsequent exact diagnostics exposed constructor-body vs
+factory-signature identity, retained witness body/access facts, and omitted
+primary member prerequisites when reopening a declaration surface. The session
+repairs use canonical definition tables, accepted source coordinates, existing
+constructor correspondence, and exact owner signature worklists. The first
+four-step replacement/cold-parity regression passes; the expanded actual-fixture
+regression and owning incremental gates are pending.
+
+The first million-word release benchmark was interrupted after 225.51 seconds
+without completion (15.55 seconds user CPU, 19.04 seconds system CPU). A one-second
+sample put 859/871 main-thread samples in reactor polling, with no active source
+registrations. This is incomplete throughput evidence. The general reactor now
+skips the OS poll only when its registration table has no active source, while
+always draining completion ingress. Active polling and executor waits retain
+their existing behavior. Reactor gates and renewed measurements are pending.
+
+## R11 and R21 acceptance blockers (2026-10-08)
+
+Continuing the completion plan exposed two repository-wide premises that the
+random implementation cannot safely repair with a local workaround.
+
+### Source mutation effects
+
+**Observed:** the accepted plan requires source-authored `Xoshiro256PlusPlus`
+state mutation to appear in ordinary source effect inference. The owning
+`phalcom-semantic/src/effects/infer.rs::infer_intraprocedural_effects` initializes
+`current_effects` to `EffectSet::EMPTY`, checks only expression status/opacity,
+and returns that empty set for every ready callable. It does not inspect
+`ExpressionAnalysis.binding_write`, field writes, or call dependencies. The
+snapshot retains callable analyses, but `infer_interprocedural_effects_scc` has
+no production caller that publishes a source effect product. Therefore this
+repository cannot currently provide the planned deterministic mutation-effect
+assertion. Native effect metadata is separately verifiable and is covered by a
+new focused source/native identity test.
+
+**Causal assessment:** source effect inference/publication is a general semantic
+gap, not a random-specific declaration omission. A random-only effect table or
+manual annotation would create a second source of truth and misrepresent the
+semantic authority.
+
+**Requested decision:** identify/authorize the owning general source-effect
+inference and publication seam, or amend R11 to defer deterministic source
+effect presentation until that general capability exists. No random-specific
+effect workaround is permitted.
+
+**User ruling (2026-10-08):** defer deterministic source effect presentation
+until general source effect inference/publication exists. The random plan's
+R11.1 acceptance criterion is amended; native effect metadata and canonical
+source-identity checks remain required and are covered.
+
+### Large `SecureRandom.bytes` allocation
+
+**Observed:** a focused probe of
+`SecureRandom.system.bytes(10 ** 100)` returns the controlled
+`Bytes.new` index error `Expected a non-negative integer index, got object`
+before host fill. This covers counts not representable as immediate host
+indices. However, `phalcom-core/src/primitive/bytes.rs::bytes_class_new` calls
+`expect_index` and then `BytesObject::new_zeroed`; the latter uses
+`vec![0u8; len]` without consulting a byte-allocation limit or using a fallible
+reservation path. `NumericPolicy.max_numeric_allocation_bytes` applies to
+numeric objects, not byte buffers. A very large count that still fits the
+immediate integer range can therefore reach an allocation that may abort on
+memory pressure.
+
+**Causal assessment:** the R21 plan premise that the existing `Bytes.new`
+boundary enforces allocation feasibility is false in the live tree. Adding a
+random-specific cap or allocating an intermediate vector would violate the
+plan. A safe repair needs an owning general `Bytes` allocation/resource
+contract and host-failure behavior.
+
+**Requested decision:** authorize/amend a bounded general `Bytes.new` resource
+limit/fallible-allocation contract for the random caller to consume, or accept
+that only unrepresentable host-index counts are currently guaranteed to fail.
+No large representable allocation was attempted.
+
+### Release benchmark bootstrap
+
+**Observed:** `RUSTFLAGS='' cargo build --release -p phalcom-core --bin phalcom`
+completed. Running either the new `next_u64.ph` benchmark or the existing small
+random syntax fixture with `target/release/phalcom` fails before entry-source
+analysis, twice, while compiling `universe:callable.function`:
+
+```text
+associated family invocation lowering is not implemented until associated
+semantic resolution lands
+```
+
+The failed release startup took 13.62–14.71 seconds and peaked at roughly
+608–628 MiB RSS. The existing debug CLI successfully ran the same small syntax
+fixture and printed its expected `1`, but debug timing is not performance
+evidence. No random workload timing or allocation measurement was acquired.
+
+**Classification:** unrelated to the random source changes; a broad optimized
+Universe-bootstrap failure. Do not repair it as part of random acceptance.
+The R20 performance checkpoint remains unverified until a release CLI can
+bootstrap this source closure.
 
 ## Recipe repair outcome (2026-10-08)
 
@@ -232,3 +385,6 @@ expected compiler/runtime consumers and regression gate. Then resume R0.
 
 Remaining random work and all final acceptance gates are unexecuted. Existing
 unrelated staged/untracked user files were preserved. No commits were made.
+
+Delivery hygiene: scoped Rust formatting and `git diff --check` PASS. The nested
+expression-owner unit regression PASS 1/1. No broad test PASS is claimed.

@@ -1577,7 +1577,8 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn pop_expression_owner(&mut self, id: ExpressionId) -> Option<crate::identity::DiagnosticCauseId> {
-        debug_assert_eq!(self.expression_owners.pop(), Some(id));
+        let owner = self.expression_owners.pop();
+        debug_assert_eq!(owner, Some(id));
         self.expression_owned_causes.remove(&id)
     }
 
@@ -4109,6 +4110,24 @@ mod tests {
         resolver.track_deferred_static_definition(declaration.clone());
         assert!(resolver.resolve_alias_form(&declaration).is_none());
         assert_eq!(*demands.borrow(), BTreeSet::from([crate::db::QueryKey::StaticDefinition(declaration)]));
+    }
+
+    #[test]
+    fn expression_owner_stack_unwinds_in_all_build_profiles() {
+        let module = ModuleId::universe_root();
+        let mut store = TypeStore::new();
+        let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
+        let resolver = SimpleTypeResolver::new();
+        let hierarchy = MapTypeHierarchy::new();
+        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module);
+        let outer = ctx.alloc_expression_id();
+        let inner = ctx.alloc_expression_id();
+        ctx.push_expression_owner(outer);
+        ctx.push_expression_owner(inner);
+        ctx.pop_expression_owner(inner);
+        assert_eq!(ctx.current_expression_id(), Some(outer));
+        ctx.pop_expression_owner(outer);
+        assert_eq!(ctx.current_expression_id(), None);
     }
 
     #[test]
