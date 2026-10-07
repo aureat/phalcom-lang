@@ -25,6 +25,8 @@ pub const MAIN_MODULE_NAME: &str = "main";
 pub enum RuntimeExportRef {
     /// Live binding slot in an exporting module.
     Binding(BindingRef),
+    /// Frozen value of a statically evaluated export; no runtime global slot.
+    StaticConstant(Value),
     /// Re-exported module or submodule object.
     Module(ObjRef),
 }

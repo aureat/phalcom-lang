@@ -601,6 +601,7 @@ impl CoreClasses {
             UniverseKey::SystemClock => panic!("source-owned Universe class SystemClock has no primordial class slot"),
             UniverseKey::SystemWallClock => panic!("source-owned Universe class SystemWallClock has no primordial class slot"),
             UniverseKey::TimeZone => panic!("source-owned Universe class TimeZone has no primordial class slot"),
+            UniverseKey::FloatMathKernel => panic!("source-owned Universe class FloatMathKernel has no primordial class slot"),
             UniverseKey::Message => self.message_class,
             UniverseKey::Attribute => self.attribute_class,
             UniverseKey::Error => self.error_class,

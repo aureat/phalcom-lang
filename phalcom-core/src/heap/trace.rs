@@ -140,12 +140,17 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
             for export in module.exports.values() {
                 match export {
                     crate::heap::RuntimeExportRef::Binding(b) => push(b.module),
+                    crate::heap::RuntimeExportRef::StaticConstant(value) => trace_value(*value, push),
                     crate::heap::RuntimeExportRef::Module(obj) => push(*obj),
                 }
             }
             for read in &module.linked_reads {
                 match read {
                     crate::modules::RuntimeLinkedRead::Binding(b) => push(b.module),
+                    crate::modules::RuntimeLinkedRead::StaticConstant { module, value } => {
+                        push(*module);
+                        trace_value(*value, push);
+                    }
                     crate::modules::RuntimeLinkedRead::Module(obj) => push(*obj),
                 }
             }

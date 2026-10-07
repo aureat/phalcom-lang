@@ -17,6 +17,7 @@ pub mod reflection_cache;
 pub mod reflection_metadata;
 pub mod registry;
 pub mod semantic_lowering;
+mod static_constant;
 
 pub use artifact::{ClassBlueprint, EnumBlueprint, ModuleMaterializationPlan, RuntimeDeclarationBlueprint, VariantBlueprint};
 pub(crate) use canonical_universe::{CanonicalUniverseProgram, canonical_universe_program};

@@ -252,7 +252,7 @@ impl ReflectionCache {
         for name in &names {
             let export_ref = module_obj.exports.get(name).expect("export exists");
             let kind_sym = match export_ref {
-                RuntimeExportRef::Binding(_) => binding_sym,
+                RuntimeExportRef::Binding(_) | RuntimeExportRef::StaticConstant(_) => binding_sym,
                 RuntimeExportRef::Module(_) => module_sym,
             };
             export_kinds.push((*name, kind_sym));

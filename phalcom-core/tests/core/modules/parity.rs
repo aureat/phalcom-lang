@@ -27,6 +27,37 @@ fn write_parity_package(root: &Path) {
 }
 
 #[test]
+fn exported_static_constant_materializes_for_selected_and_module_reads() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("package.ph"), "expose .main\nexpose .constants\n").unwrap();
+    fs::write(temp.path().join("constants.ph"), "const pi: Float = 3.141592653589793\nexport pi\n").unwrap();
+    fs::write(
+        temp.path().join("main.ph"),
+        "from .constants import pi\nimport .constants as constants\nlet selected = pi\nlet qualified = constants.pi\n",
+    )
+    .unwrap();
+
+    let program = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(EntrySelection::Package(temp.path().to_path_buf()))
+        .expect("static constant imports must compile");
+    let mut vm = phalcom_core::vm::VM::new();
+    vm.run_compiled(&program).expect("static constant imports must run");
+    let entry = vm.module_registry.get(&program.entry).unwrap().object;
+    let module = vm.heap.module(entry);
+    for name in ["selected", "qualified"] {
+        let symbol = vm.interner.find(name).unwrap();
+        let value = module.get(symbol).unwrap();
+        assert_eq!(value.as_float().unwrap().to_bits(), std::f64::consts::PI.to_bits(), "{name}");
+    }
+    let constants = program
+        .modules
+        .keys()
+        .find(|id| id.path.components().last().is_some_and(|part| part.as_str() == "constants"))
+        .unwrap();
+    let constants_obj = vm.module_registry.get(constants).unwrap().object;
+    assert!(vm.heap.module(constants_obj).name_to_slot.keys().all(|name| vm.resolve_symbol(*name) != "pi"));
+}
+
+#[test]
 fn strict_compiler_and_workspace_publish_identical_module_products() {
     let temp = TempDir::new().unwrap();
     write_parity_package(temp.path());

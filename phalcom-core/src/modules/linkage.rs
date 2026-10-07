@@ -20,6 +20,8 @@ pub enum RuntimeLinkedRead {
     Module(ObjRef),
     /// Live source binding slot.
     Binding(BindingRef),
+    /// Frozen static constant from its canonical source declaration.
+    StaticConstant { module: ObjRef, value: crate::value::Value },
 }
 
 /// Top-level binding kind visible to the compiler.

@@ -131,6 +131,11 @@ impl VM {
             let public_sym = self.interner.intern(exported_name);
             match &linked_export.target {
                 phalcom_modules::LinkedExportTarget::Binding(symbol) => {
+                    let constant = self.static_constant_spec(&symbol.module, symbol.name.as_ref());
+                    if let Some(spec) = constant {
+                        exports.insert(public_sym, RuntimeExportRef::StaticConstant(self.materialize_static_constant(&spec)?));
+                        continue;
+                    }
                     let target_mod_obj = self
                         .module_registry
                         .get(&symbol.module)
@@ -198,6 +203,15 @@ impl VM {
                     RuntimeLinkedRead::Module(target_obj)
                 }
                 LinkedReadSpec::Binding(symbol_id) => {
+                    let constant = self.static_constant_spec(&symbol_id.module, symbol_id.name.as_ref());
+                    if let Some(spec) = constant {
+                        let target = self.module_registry.get(&symbol_id.module).expect("static constant owner registered").object;
+                        materialized_reads.push(RuntimeLinkedRead::StaticConstant {
+                            module: target,
+                            value: self.materialize_static_constant(&spec)?,
+                        });
+                        continue;
+                    }
                     let target_obj = self
                         .module_registry
                         .get(&symbol_id.module)
