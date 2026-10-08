@@ -16,24 +16,17 @@ class Container {
     );
 
     let callable = fixture.callable("Container", "test", phalcom_semantic::DispatchSide::Class);
-    let binding = callable
-        .bindings
-        .values()
-        .find(|binding| binding.name == "value")
-        .expect("value binding");
+    let binding = callable.bindings.values().find(|binding| binding.name == "value").expect("value binding");
     let value_type = binding
         .declared_type()
         .unwrap_or_else(|| panic!("declared type missing; diagnostics={:?}", fixture.analysis.snapshot.diagnostics));
-    let (_, arguments) = fixture
-        .analysis
-        .snapshot
-        .store
-        .applied_nominal_parts(value_type)
-        .expect("Sized application");
+    let (_, arguments) = fixture.analysis.snapshot.store.applied_nominal_parts(value_type).expect("Sized application");
 
     assert_eq!(arguments.len(), 2);
     assert_eq!(arguments[0], fixture.ty("Int"));
-    assert!(matches!(fixture.analysis.snapshot.store.get(arguments[1]), phalcom_semantic::types::store::TypeData::ConstInt(value) if value.to_bigint() == 3.into()));
+    assert!(
+        matches!(fixture.analysis.snapshot.store.get(arguments[1]), phalcom_semantic::types::store::TypeData::ConstInt(value) if value.to_bigint() == 3.into())
+    );
     assert!(matches!(
         fixture.analysis.snapshot.store.get_kind(fixture.analysis.snapshot.store.kind_of(arguments[1])),
         KindData::StaticDomain(_)
@@ -76,9 +69,16 @@ class Sized<T: Type, N: Int> {}
         .generic_signature(&sized)
         .unwrap_or_else(|| panic!("Sized signature missing; diagnostics={:?}", fixture.analysis.snapshot.diagnostics));
     assert_eq!(signature.parameters.len(), 2);
-    assert_eq!(fixture.analysis.snapshot.store.type_parameter(signature.parameters[0]).kind, phalcom_semantic::types::id::KindId::TYPE);
+    assert_eq!(
+        fixture.analysis.snapshot.store.type_parameter(signature.parameters[0]).kind,
+        phalcom_semantic::types::id::KindId::TYPE
+    );
     assert!(matches!(
-        fixture.analysis.snapshot.store.get_kind(fixture.analysis.snapshot.store.type_parameter(signature.parameters[1]).kind),
+        fixture
+            .analysis
+            .snapshot
+            .store
+            .get_kind(fixture.analysis.snapshot.store.type_parameter(signature.parameters[1]).kind),
         KindData::StaticDomain(_)
     ));
 }
@@ -119,7 +119,10 @@ class Container<N: Int> {
     let callable = fixture.callable("Container", "test", phalcom_semantic::DispatchSide::Instance);
     let source_type = fixture.binding(callable, "source").current.ty().expect("source type");
     let (_, arguments) = fixture.analysis.snapshot.store.applied_nominal_parts(source_type).expect("Sized application");
-    assert!(matches!(fixture.analysis.snapshot.store.get(arguments[1]), phalcom_semantic::types::store::TypeData::Parameter(_)));
+    assert!(matches!(
+        fixture.analysis.snapshot.store.get(arguments[1]),
+        phalcom_semantic::types::store::TypeData::Parameter(_)
+    ));
 }
 
 #[test]
@@ -140,7 +143,9 @@ class Container {
     for (name, expected) in [("first", "100000000000000000000"), ("second", "-100000000000000000000")] {
         let ty = fixture.binding(callable, name).current.ty().expect("parameter type");
         let (_, arguments) = fixture.analysis.snapshot.store.applied_nominal_parts(ty).expect("Sized application");
-        assert!(matches!(fixture.analysis.snapshot.store.get(arguments[1]), phalcom_semantic::types::store::TypeData::ConstInt(value) if value.to_string() == expected));
+        assert!(
+            matches!(fixture.analysis.snapshot.store.get(arguments[1]), phalcom_semantic::types::store::TypeData::ConstInt(value) if value.to_string() == expected)
+        );
     }
 }
 
@@ -172,6 +177,118 @@ class Container {
     for resolution in callable.sequence_literals.values() {
         assert_eq!(resolution.family, phalcom_semantic::checker::SequenceLiteralFamily::Vector);
         assert_eq!(resolution.result_type, first);
-        assert!(matches!(fixture.analysis.snapshot.store.get(resolution.extent.expect("extent")), phalcom_semantic::types::store::TypeData::ConstInt(value) if value.to_bigint() == 3.into()));
+        assert!(
+            matches!(fixture.analysis.snapshot.store.get(resolution.extent.expect("extent")), phalcom_semantic::types::store::TypeData::ConstInt(value) if value.to_bigint() == 3.into())
+        );
+    }
+}
+
+#[test]
+fn vector_invalid_literals_never_publish_construction_products() {
+    for source in [
+        "let value = <Int, 2>[1]",
+        "let value: Vector<Int, 2> = <Int, 1>[1]",
+        "let value: Vector<_, 2> = <Int, 1>[1]",
+        "let value: Vector<Int, _> = <String, 1>[\"wrong\"]",
+        "let value: Vector<_, 2> = <Int, _>[1]",
+        "let value: Vector<String, 1> = <Int, 1>[1]",
+        "let value = <Int, 1>[\"wrong\"]",
+        "let value: Vector<Int, 1> = [\"wrong\"]",
+        "let value = <_, _>[]",
+        "let value = <Int, String>[1]",
+        "let value: Array<Int> = <Int, 1>[1]",
+        "let value: List<Int> = <Int, 1>[1]",
+    ] {
+        let fixture = Fixture::new_allowing_internal_incidents(&format!("class Container {{ @class test() {{ {source} }} }}\n"));
+        assert!(
+            fixture
+                .analysis
+                .snapshot
+                .diagnostics
+                .values()
+                .flat_map(|items| items.iter())
+                .any(|d| d.severity == phalcom_semantic::diagnostic::DiagnosticSeverity::Error),
+            "expected rejection: {source}"
+        );
+        let callable = fixture.callable("Container", "test", phalcom_semantic::DispatchSide::Class);
+        assert!(
+            callable.sequence_literals.is_empty(),
+            "invalid executable product: {source}: {:?}",
+            callable.sequence_literals
+        );
+    }
+}
+
+#[test]
+fn vector_runtime_sized_spreads_never_publish_construction_products() {
+    for source_type in ["Array<Int>", "List<Int>"] {
+        let fixture = Fixture::new_allowing_internal_incidents(&format!(
+            "class Container {{ @class test(_ source: {source_type}) {{ let value = <Int, _>[*source] }} }}\n"
+        ));
+        assert!(
+            fixture
+                .analysis
+                .snapshot
+                .diagnostics
+                .values()
+                .flat_map(|items| items.iter())
+                .any(|d| d.severity == phalcom_semantic::diagnostic::DiagnosticSeverity::Error),
+            "expected rejection: {source_type}"
+        );
+        let callable = fixture.callable("Container", "test", phalcom_semantic::DispatchSide::Class);
+        assert!(callable.sequence_literals.is_empty());
+    }
+}
+
+#[test]
+fn sequence_explanations_consume_the_checked_family() {
+    use phalcom_semantic::checker::SequenceLiteralFamily;
+    use phalcom_semantic::explain::{CollectionKind, ExplanationStep};
+    let fixture = Fixture::new("class Container { @class test() { let a = <Int>[1]; let v = <Int, 1>[1]; let l = [1] } }\n");
+    fixture.assert_no_error_diagnostics();
+    let callable = fixture.callable("Container", "test", phalcom_semantic::DispatchSide::Class);
+    assert_eq!(callable.sequence_literals.len(), 3);
+    for (id, resolution) in callable.sequence_literals.iter() {
+        let expression = &callable.expressions[id];
+        let node = callable.explanations.get(expression.explanation.expect("explanation")).expect("node");
+        let expected = match resolution.family {
+            SequenceLiteralFamily::List => CollectionKind::List,
+            SequenceLiteralFamily::Array => CollectionKind::Array,
+            SequenceLiteralFamily::Vector => CollectionKind::Vector,
+        };
+        assert!(matches!(&node.step, ExplanationStep::CollectionSynthesis { kind, element_types, result, .. }
+            if *kind == expected && element_types.as_ref() == [resolution.element_type] && *result == resolution.result_type));
+    }
+}
+
+#[test]
+fn vector_symbolic_identity_spread_publishes_canonical_proof() {
+    let fixture = Fixture::new("class Copier<N: Int> { @class copy(_ source: Vector<Int, N>) -> Vector<Int, N> { <Int, N>[*source] } }\n");
+    fixture.assert_no_error_diagnostics();
+    let callable = fixture.callable("Copier", "copy", phalcom_semantic::DispatchSide::Class);
+    let resolution = callable.sequence_literals.values().next().expect("checked copy");
+    assert!(
+        matches!(resolution.construction, phalcom_semantic::checker::SequenceConstructionPlan::VectorIdentitySpread { extent, .. }
+        if Some(extent) == resolution.extent)
+    );
+}
+
+#[test]
+fn vector_symbolic_identity_spread_rejects_different_binders_and_arithmetic() {
+    for literal in ["<Int, M>[*source]", "<Int, N>[0, *source]", "<Int, N>[*(), *source]"] {
+        let fixture = Fixture::new_allowing_internal_incidents(&format!(
+            "class Copier<N: Int, M: Int> {{ @class copy(_ source: Vector<Int, N>) {{ let value = {literal} }} }}\n"
+        ));
+        assert!(
+            fixture
+                .analysis
+                .snapshot
+                .diagnostics
+                .values()
+                .flat_map(|items| items.iter())
+                .any(|d| d.severity == phalcom_semantic::diagnostic::DiagnosticSeverity::Error)
+        );
+        let callable = fixture.callable("Copier", "copy", phalcom_semantic::DispatchSide::Class);
+        assert!(callable.sequence_literals.is_empty(), "{literal}");
     }
 }

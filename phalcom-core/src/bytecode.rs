@@ -130,6 +130,7 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "VectorExpandExactPositionals",
     "FinishVectorLiteral",
     "BeginVectorLiteral",
+    "CopyVector",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -523,9 +524,14 @@ pub enum Bytecode {
     BuildArray(u16),
     /// Builds immutable Vector storage from exactly `n` operands.
     BuildVector(u16),
+    /// Copies native immutable storage under a checked extent identity proof.
+    CopyVector,
     /// Appends native Vector or closed product positional storage to a private
     /// dense builder, checking the semantically projected expected count.
-    VectorExpandExactPositionals { vector: bool, expected: u32 },
+    VectorExpandExactPositionals {
+        vector: bool,
+        expected: u32,
+    },
     /// Finalizes immutable Vector storage, checking its proved dimension.
     FinishVectorLiteral(u32),
     /// Allocates a VM-private dense Vector construction buffer.
@@ -803,7 +809,7 @@ pub enum Bytecode {
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 126;
+    pub const VARIANTS: usize = 127;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -936,6 +942,7 @@ impl Bytecode {
             Bytecode::ArrayLiteralAppend => 119,
             Bytecode::FinishArrayLiteral => 120,
             Bytecode::ArrayTryExpandTuplePositionals => 121,
+            Bytecode::CopyVector => 126,
             Bytecode::BuildVector(..) => 122,
             Bytecode::VectorExpandExactPositionals { .. } => 123,
             Bytecode::FinishVectorLiteral(..) => 124,

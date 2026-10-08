@@ -189,7 +189,7 @@ native class Bytes is Collection {
 
   /// Copies the bytes into a list of integers.
   toList {
-    let out = []
+    let out: List<Int> = []
     for b in self {
       out.append(b)
     }

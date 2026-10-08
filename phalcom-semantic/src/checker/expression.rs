@@ -36,9 +36,9 @@ use crate::types::row::{RecordRowFormationError, RecordRowTail};
 use crate::types::store::{RecordTypeField, TupleTypeElement, TypeData};
 use phalcom_ast::ast::{
     AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, AssociatedNamedMode, BinaryExpr, BinaryOp, CallableReferenceExpr,
-    CallableReferenceTarget, ComparisonChainExpr, Expr, GetPropertyExpr, IndexExpr, IsMembershipExpr, BracketLiteralElement, MapLiteralEntry, MapLiteralKey,
-    MembershipExpr, MethodCallExpr, PackItem, PackLabel, ProductLabel, RecordLiteralEntry, RelationOp, SetIndexExpr, SetLiteralEntry, SetPropertyExpr,
-    Statement, SymbolExpr, SymbolLiteralKind, TupleLiteralEntry, UnaryExpr, UnaryOp, UnqualifiedCallExpr,
+    CallableReferenceTarget, ComparisonChainExpr, Expr, GetPropertyExpr, IndexExpr, IsMembershipExpr, MapLiteralEntry, MapLiteralKey, MembershipExpr,
+    MethodCallExpr, PackItem, PackLabel, ProductLabel, RecordLiteralEntry, RelationOp, SetIndexExpr, SetLiteralEntry, SetPropertyExpr, Statement, SymbolExpr,
+    SymbolLiteralKind, TupleLiteralEntry, UnaryExpr, UnaryOp, UnqualifiedCallExpr,
 };
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorSlot};
@@ -112,11 +112,21 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
                     },
                     None => crate::explain::ExplanationStep::UnresolvedCall { call: expr_id, return_ty: ty },
                 },
-                Expr::BracketLiteral(_) => crate::explain::ExplanationStep::CollectionSynthesis {
-                    expression: expr_id,
-                    kind: crate::explain::CollectionKind::List,
-                    element_types: Box::new([]),
-                    result: ty,
+                Expr::BracketLiteral(_) => match ctx.sequence_literals.get(&expr_id) {
+                    Some(resolution) => crate::explain::ExplanationStep::CollectionSynthesis {
+                        expression: expr_id,
+                        kind: match resolution.family {
+                            super::analysis::SequenceLiteralFamily::List => crate::explain::CollectionKind::List,
+                            super::analysis::SequenceLiteralFamily::Array => crate::explain::CollectionKind::Array,
+                            super::analysis::SequenceLiteralFamily::Vector => crate::explain::CollectionKind::Vector,
+                        },
+                        element_types: Box::new([resolution.element_type]),
+                        result: resolution.result_type,
+                    },
+                    None => crate::explain::ExplanationStep::ExpressionResult {
+                        expression: expr_id,
+                        knowledge: typed.knowledge.clone(),
+                    },
                 },
                 Expr::SetLiteral(_) => crate::explain::ExplanationStep::CollectionSynthesis {
                     expression: expr_id,
@@ -2529,259 +2539,6 @@ fn synthesize_symbol_expr(ctx: &mut CheckingContext<'_>, s: &SymbolExpr) -> Type
 
 fn synthesize_bracket_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::ast::BracketLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     super::sequence_literal::synthesize(ctx, list, expected)
-}
-
-#[allow(dead_code)]
-fn legacy_synthesize_bracket_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::ast::BracketLiteralExpr, expected: &ExpectedType) -> TypedExpression {
-    let (family, collection_decl, explicit_elem_expected, local_inf) = if let Some(head) = &list.head {
-        if head.arguments.len() == 1 {
-            let arg = &head.arguments[0];
-            match arg {
-                phalcom_ast::ast::GenericArgumentSyntax::Single(ann) => {
-                    let parent_resolver = ctx.resolver.clone();
-                    let (knowledge, _) = ctx.resolve_type_annotation(&parent_resolver, ann);
-                    let expected_el = knowledge.ty().map_or(ExpectedType::None, |ty| {
-                        ExpectedType::proper_from(ty, ExpectationOrigin::ExplicitCheck)
-                    });
-                    (
-                        crate::checker::analysis::SequenceLiteralFamily::Array,
-                        ctx.core_ids.array.clone(),
-                        expected_el,
-                        None,
-                    )
-                }
-                phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { range } => {
-                    let (context, frame) = ctx.create_inference_context();
-                    ctx.push_inference_frame(context, frame);
-                    let session_rc = ctx.inference_session(context).unwrap();
-                    let var = session_rc.borrow_mut().fresh_variable_in_frame(frame, KindId::TYPE);
-                    let term = crate::checker::inference::InferenceTerm::Var(var);
-                    let expected_el = ExpectedType::inference_from(context, term.clone(), ExpectationOrigin::ExplicitCheck);
-                    (
-                        crate::checker::analysis::SequenceLiteralFamily::Array,
-                        ctx.core_ids.array.clone(),
-                        expected_el,
-                        Some((context, frame, term, *range)),
-                    )
-                }
-                _ => {
-                    ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-                        ctx.current_module.clone(),
-                        DiagnosticCode::KindExpectedType,
-                        "bracket literal generic head requires a single type argument or inference hole",
-                        head.range,
-                    ));
-                    (
-                        crate::checker::analysis::SequenceLiteralFamily::Array,
-                        ctx.core_ids.array.clone(),
-                        ExpectedType::None,
-                        None,
-                    )
-                }
-            }
-        } else if head.arguments.len() == 2 {
-            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-                ctx.current_module.clone(),
-                DiagnosticCode::KindExpectedType,
-                "two-argument bracket literal head is reserved for Vector<T, N> (COLL006.C1.P3)",
-                head.range,
-            ));
-            (
-                crate::checker::analysis::SequenceLiteralFamily::Array,
-                ctx.core_ids.array.clone(),
-                ExpectedType::None,
-                None,
-            )
-        } else {
-            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-                ctx.current_module.clone(),
-                DiagnosticCode::ApplicationTooManyArguments,
-                "bracket literal head accepts 1 argument for Array<T> or 2 for Vector<T, N>",
-                head.range,
-            ));
-            (
-                crate::checker::analysis::SequenceLiteralFamily::Array,
-                ctx.core_ids.array.clone(),
-                ExpectedType::None,
-                None,
-            )
-        }
-    } else {
-        // Contextual expected type
-        let is_expected_array = if let Some(ty) = expected.ty() {
-            is_applied_core_collection(ctx.store, ty, &ctx.core_ids.array, 1)
-        } else if let ExpectedType::Inference { .. } = expected {
-            crate::checker::expected::inference_origin_matches(ctx.store, expected, &ctx.core_ids.array)
-        } else {
-            false
-        };
-
-        if is_expected_array {
-            let expected_elem = expected.collection_element_type(ctx.store, &ctx.core_ids.array);
-            (
-                crate::checker::analysis::SequenceLiteralFamily::Array,
-                ctx.core_ids.array.clone(),
-                expected_elem,
-                None,
-            )
-        } else {
-            let expected_elem = expected.collection_element_type(ctx.store, &ctx.core_ids.list);
-            (
-                crate::checker::analysis::SequenceLiteralFamily::List,
-                ctx.core_ids.list.clone(),
-                expected_elem,
-                None,
-            )
-        }
-    };
-
-    let collection_form = {
-        let kind = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
-        Some(ctx.store.nominal_form(collection_decl.clone(), kind))
-    };
-
-    let mut contributions = Vec::new();
-    let mut operands = Vec::new();
-
-    for el in &list.elements {
-        match el {
-            BracketLiteralElement::Element { expr, .. } => {
-                let typed = analyze_expression(ctx, expr, &explicit_elem_expected);
-                contributions.push(typed.knowledge.clone());
-                operands.push(typed);
-            }
-            BracketLiteralElement::Expansion { expr, range } => {
-                let typed = analyze_expression(ctx, expr, &ExpectedType::None);
-                let projected = if let TypeKnowledge::Known(evidence) = &typed.knowledge {
-                    let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(ctx, typed.expression_id, evidence.ty(), *range);
-                    if let Some(resolution) = resolution {
-                        ctx.positional_expansions.insert(resolution.source_expression, resolution.clone());
-                        TypeKnowledge::established(resolution.item_type, EvidenceOrigin::ContextualDerivation)
-                    } else {
-                        crate::checker::iteration::record_known_invalid_positional_expansion(ctx, typed.expression_id, evidence.ty(), *range);
-                        collection_form
-                            .map(|form| crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 0))
-                            .unwrap_or(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause))
-                    }
-                } else {
-                    collection_form
-                        .map(|form| crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 0))
-                        .unwrap_or(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause))
-                };
-                contributions.push(projected);
-                operands.push(typed);
-            }
-        }
-    }
-
-    let explicit_solved_elem_ty = if let Some((inf_ctx, inf_frame, term, hole_range)) = local_inf {
-        let outcome = if let Some(session) = ctx.inference_session(inf_ctx) {
-            ctx.solve_inference_in_frame(&mut session.borrow_mut(), inf_frame)
-        } else {
-            crate::checker::inference::InferenceOutcome::Cancelled
-        };
-        let solved_ty = if outcome.is_solved() {
-            if let Some(session) = ctx.inference_session(inf_ctx) {
-                session.borrow().materialize(&term, ctx.store).ok()
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        ctx.pop_inference_frame(inf_ctx, inf_frame);
-        ctx.finish_inference_context(inf_ctx);
-        if solved_ty.is_none() {
-            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-                ctx.current_module.clone(),
-                DiagnosticCode::GenericInferenceUnderconstrained,
-                "inference hole `_` could not be solved; insufficient type evidence from sequence elements",
-                hole_range,
-            ));
-        }
-        solved_ty
-    } else {
-        explicit_elem_expected.ty()
-    };
-
-    let knowledge = if list.elements.is_empty() {
-        if let Some(elem_ty) = explicit_solved_elem_ty {
-            if let Some(form) = collection_form {
-                ctx.store.apply_type_form(form, &[elem_ty])
-                    .map(|ty| TypeKnowledge::assumed(ty, EvidenceOrigin::ContextualDerivation))
-                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause))
-            } else {
-                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
-            }
-        } else if let Some(expected_ty) = expected.ty() {
-            if is_applied_core_collection(ctx.store, expected_ty, &collection_decl, 1) {
-                TypeKnowledge::assumed(expected_ty, EvidenceOrigin::ContextualDerivation)
-            } else {
-                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
-            }
-        } else {
-            TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
-        }
-    } else if let Some(elem_ty) = explicit_solved_elem_ty {
-        if let Some(form) = collection_form {
-            ctx.store.apply_type_form(form, &[elem_ty])
-                .map(|ty| TypeKnowledge::established(ty, EvidenceOrigin::Syntax))
-                .unwrap_or(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause))
-        } else {
-            TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)
-        }
-    } else if let Some(form) = collection_form {
-        crate::types::evidence::compose_required_knowledge(contributions, EvidenceOrigin::Syntax, |types| {
-            if types.is_empty() {
-                return Err(UnknownReason::NoTypeEvidence);
-            }
-            let element = ctx.store.union(types);
-            ctx.store.apply_type_form(form, &[element]).map_err(|_| UnknownReason::UncheckedExpression)
-        })
-    } else {
-        TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)
-    };
-    let mut result = TypedExpression::new(match knowledge {
-        TypeKnowledge::Known(_) => knowledge.with_range(list.range),
-        other => other,
-    });
-    crate::checker::composition::propagate_required_dependencies(&mut result, &operands);
-    result.local_type = localize_composite_result(ctx, &result.knowledge, &operands);
-
-    if let Some(expr_id) = ctx.current_expression_id() {
-        let (result_type, element_type) = if let TypeKnowledge::Known(evidence) = &result.knowledge {
-            let res_ty = evidence.ty();
-            let elem_ty = crate::checker::expected::canonical_collection_arguments(ctx.store, res_ty, &collection_decl, 1)
-                .and_then(|args| args.first().copied())
-                .unwrap_or(res_ty);
-            (res_ty, elem_ty)
-        } else {
-            let elem_ty = explicit_solved_elem_ty.unwrap_or_else(|| ctx.store.never());
-            let res_ty = collection_form.and_then(|form| ctx.store.apply_type_form(form, &[elem_ty]).ok()).unwrap_or(elem_ty);
-            (res_ty, elem_ty)
-        };
-        let dynamic = list.elements.iter().any(|element| matches!(element, BracketLiteralElement::Expansion { .. }));
-        let construction = if dynamic {
-            crate::checker::analysis::SequenceConstructionPlan::Expanded
-        } else {
-            crate::checker::analysis::SequenceConstructionPlan::Fixed {
-                element_count: list.elements.len() as u32,
-            }
-        };
-        let resolution = crate::checker::analysis::SequenceLiteralResolution {
-            source_expression: expr_id,
-            source_range: list.range,
-            family,
-            result_type,
-            element_type,
-            extent: None,
-            construction,
-            exact_expansions: std::collections::BTreeMap::new(),
-        };
-        ctx.sequence_literals.insert(expr_id, resolution);
-    }
-
-    result
 }
 
 fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast::SetLiteralExpr, expected: &ExpectedType) -> TypedExpression {

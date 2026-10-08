@@ -217,7 +217,9 @@ impl VM {
             }
             return Ok(());
         }
-        Err(RuntimeError::Internal("positional expansion target is not a pack builder, List, or Array builder".into()))
+        Err(RuntimeError::Internal(
+            "positional expansion target is not a pack builder, List, or Array builder".into(),
+        ))
     }
 
     fn try_append_tuple_positionals(&mut self, source: Value, target: Value) -> Result<bool, RuntimeError> {
@@ -3639,9 +3641,7 @@ impl VM {
                         }
                     }
                 }
-                Bytecode::PackTryExpandTuplePositionals
-                | Bytecode::ListTryExpandTuplePositionals
-                | Bytecode::ArrayTryExpandTuplePositionals => {
+                Bytecode::PackTryExpandTuplePositionals | Bytecode::ListTryExpandTuplePositionals | Bytecode::ArrayTryExpandTuplePositionals => {
                     let target = self.pop()?;
                     let source = self.pop()?;
                     if self.try_append_tuple_positionals(source, target)? {
@@ -4045,23 +4045,40 @@ impl VM {
                 Bytecode::VectorExpandExactPositionals { vector, expected } => {
                     let source = self.pop()?;
                     let builder = self.pop()?;
-                    let id = builder.as_obj().ok_or_else(|| RuntimeError::Internal("Vector builder is not an object".into()))?;
+                    let id = builder
+                        .as_obj()
+                        .ok_or_else(|| RuntimeError::Internal("Vector builder is not an object".into()))?;
                     let values = if vector {
-                        let source_id = source.as_obj().ok_or_else(|| RuntimeError::Internal("exact Vector spread is not an object".into()))?;
-                        self.heap.as_vector(source_id).ok_or_else(|| RuntimeError::Internal("exact Vector spread has incorrect native storage".into()))?.elements().to_vec()
+                        let source_id = source
+                            .as_obj()
+                            .ok_or_else(|| RuntimeError::Internal("exact Vector spread is not an object".into()))?;
+                        self.heap
+                            .as_vector(source_id)
+                            .ok_or_else(|| RuntimeError::Internal("exact Vector spread has incorrect native storage".into()))?
+                            .elements()
+                            .to_vec()
                     } else {
-                        self.positional_lane(source).ok_or_else(|| RuntimeError::NonIterableStarOperand { found: source.type_name() })?
+                        self.positional_lane(source)
+                            .ok_or_else(|| RuntimeError::NonIterableStarOperand { found: source.type_name() })?
                     };
                     if values.len() != expected as usize || self.heap.as_array_literal_builder(id).is_none() {
                         return Err(RuntimeError::Internal("proved Vector spread cardinality differs from runtime storage".into()).into());
                     }
-                    for value in values { self.heap.array_literal_builder_mut(id).push(value); }
+                    for value in values {
+                        self.heap.array_literal_builder_mut(id).push(value);
+                    }
                     self.stack.push(builder);
                 }
                 Bytecode::FinishVectorLiteral(expected) => {
                     let builder = self.pop()?;
-                    let id = builder.as_obj().ok_or_else(|| RuntimeError::Internal("Vector builder is not an object".into()))?;
-                    if self.heap.as_array_literal_builder(id).is_none_or(|builder| builder.elements().len() != expected as usize) {
+                    let id = builder
+                        .as_obj()
+                        .ok_or_else(|| RuntimeError::Internal("Vector builder is not an object".into()))?;
+                    if self
+                        .heap
+                        .as_array_literal_builder(id)
+                        .is_none_or(|builder| builder.elements().len() != expected as usize)
+                    {
                         return Err(RuntimeError::Internal("proved Vector extent differs from constructed storage".into()).into());
                     }
                     let elements = self.heap.array_literal_builder_mut(id).take_elements();
@@ -4128,9 +4145,25 @@ impl VM {
                     let array = self.heap.alloc_array(elements);
                     self.stack.push(Value::obj(array));
                 }
+                Bytecode::CopyVector => {
+                    let source = self.pop()?;
+                    let source_id = source
+                        .as_obj()
+                        .ok_or_else(|| RuntimeError::Internal("proved Vector identity source is not an object".into()))?;
+                    let elements = self
+                        .heap
+                        .as_vector(source_id)
+                        .ok_or_else(|| RuntimeError::Internal("proved Vector identity source has incorrect native storage".into()))?
+                        .elements()
+                        .to_vec();
+                    let vector = self.heap.alloc_vector(elements);
+                    self.stack.push(Value::obj(vector));
+                }
                 Bytecode::BuildVector(count) => {
                     let mut elements = Vec::with_capacity(count as usize);
-                    for _ in 0..count { elements.push(self.pop()?); }
+                    for _ in 0..count {
+                        elements.push(self.pop()?);
+                    }
                     elements.reverse();
                     let vector = self.heap.alloc_vector(elements);
                     self.stack.push(Value::obj(vector));

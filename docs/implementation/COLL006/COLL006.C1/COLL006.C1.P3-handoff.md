@@ -10,94 +10,41 @@ verification: FOCUSED_TESTED
 
 # COLL006.C1.P3 continuation handoff
 
-## Start here
+## Current state — 2026-10-08 continuation
 
-P3 is incomplete. This is a user-requested stop/commit/push checkpoint, with the runtime test command aborted during compilation.
+P3 remains incomplete. Work continues on `feat/telos-collection-upgrade` in `.worktrees/telos-collections-upgrade`, from delivered anchor `e3dfe492`. This continuation is uncommitted unless a later delivery record says otherwise. An unrelated modified `collections/bytes.ph` existed at takeover and was preserved.
 
-- Branch: `feat/telos-collection-upgrade` (singular), based on P2 `5fee70c9`.
-- Worktree: `.worktrees/telos-collections-upgrade`.
-- Delivery revision: the commit containing this handoff; retrieve with `git log -1`.
-- Preserve other worktrees/main work. Work **inline without subagents**, per the user's latest instruction.
-- Must read: `AGENTS.md`, implementation-record convention, this handoff, P3 walkthrough, P3 implementation plan, and the supplied P3 requirements analysis. The checkpoint is the single state authority.
+The current user authorized diagnostic/advisory delegation, superseding the previous delivery's inline-only restriction. One read-only agent diagnosed symbolic construction, layout, Array API typing, and inference-owned publication. Implementation stayed in the primary agent.
 
-First command after status/diff inspection:
+Read the checkpoint, current plan, requirements analysis, P2 walkthrough, and P3 walkthrough. The checkpoint is the single durable state authority. Earlier aborted-runtime statements in the walkthrough are historical; the continuation evidence supersedes them.
 
-```sh
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_vector
-```
+## Established interfaces
 
-It has never completed. Avoid treating the current runtime/source integration as established merely because source checking compiled.
+- Shared exact `phalcom_type_meta::StaticInt`; `TypeData::ConstInt`, metadata schema 12, canonical heterogeneous static applications remain inherited.
+- `checker/sequence_literal.rs` is the sole bracket checker. The inactive legacy implementation was removed.
+- Ordinary elements use `check_typed_expr`; concrete contextual contracts and fixed slots in partial contextual contracts are validated before construction publication.
+- Explanation `CollectionKind` now includes Array and Vector and consumes checked sequence resolution, including element/result identity.
+- `SequenceConstructionPlan::VectorIdentitySpread { source_range, extent }` is the adopted semantic proof for a literal containing exactly one native Vector spread with identical canonical symbolic extent. Projection preserves it in the existing construction field.
+- Compiler checks proof extent, storage lane, and exact source site; `Bytecode::CopyVector` copies immutable native storage. No runtime N interpretation, new solver, or optional-count fallback exists. Concrete `BuildVector` and builder cardinality checks remain intact.
+- Additional zero-contribution expressions are deliberately excluded from the symbolic identity lane; they cannot be silently dropped. General symbolic arithmetic remains unsupported.
+- Native Vector storage is immutable and traced; source iteration, equality/hash and Array/List conversions execute. Private Array builder finalization still moves storage.
 
-## Established focused evidence
+## Verification and corrected oracle
 
-P1/P2 remain completed prerequisites. The final completed COLL006 semantic filter selected **22 tests, all passed**, including seven new P3 tests. Exact static generic formation, signed huge integer identity, symbolic binders, partial holes, and all eight positive Vector literal/context combinations have evidence.
+Current evidence is in the checkpoint continuation ledger and walkthrough. The first completed inherited Vector suite exposed an unsupported `Object <= 40` assertion. Predecessor `5fee70c9` already had a 48-byte inline FamilyObject payload. The adviser approved preserving representation and replacing that absolute oracle with a Vector payload bound against the predecessor's existing FamilyObject requirement. The test now inspects actual direct bytecode too.
 
-`cargo check -p phalcom-core --all-targets` passed before the final runtime test file was added. The later runtime test invocation was aborted while compiling core. The latest patch is not runtime-certified.
+Runtime coverage now includes exact spreads, API/conversions, immutable selectors, nested storage and iterator ownership through GC, Map/Set structural keys and cross-family inequality, symbolic generic copying into distinct storage, and tampered exact-spread/final-extent rejection with no published result. Final command outcomes belong in the checkpoint ledger.
 
-Exact-integer prerequisite metadata/scalar/reflection evidence is in the walkthrough. Broader metadata and reflection failures were classified as suspected unrelated by bounded inspection; they were not compared against a clean predecessor.
+## Remaining work in priority order
 
-## Interface map
+1. Centralize negative concrete Vector extent formation. The requirements authorize a canonical nominal well-formedness rule, not duplicated literal/compiler checks. Review `TypeStore::apply_static_form_with_arena` and scoped applications in `types/annotation.rs`; symbolic N remains valid. Raw interning is not a fallible validation boundary.
+2. Close general inference-owned publication. Fixed-slot conflicts now reject before publication, but a candidate depending on a later failed/underconstrained/cancelled inference owner needs centralized transactional cleanup at context finalization. Do not add statement-only rollback or prematurely solve an outer frame. Adviser diagnosis is recorded in the checkpoint.
+3. Correct Array homogeneous APIs. Existing `at` returns bare T in bounds and None out of bounds; neither `-> T` nor `-> Option<T>` alone preserves that behavior. Adviser recommends `T | None`, guarded private T reads that throw out of bounds, typed replacement parameters, and `get -> Option<T>`. Validate union support before changing signatures. Native artifact regeneration follows authored signature changes.
+4. Complete Vector metadata/reflection/import-export, cold/incremental changes of N/exactness, and native surface coverage.
+5. Extend runtime evidence for source-once/effect order, exceptions/suspension during construction, deep mutable-content hash policy, zero/large extent boundaries, and tampered/missing symbolic proof rejection as required by P3.
+6. Finish remaining wrong-kind/arity/scoped formation and contextual generic/return/nested semantic matrix. Array/List runtime-sized spread rejection is covered; general Iterable rejection still needs explicit coverage.
+7. Reconcile all final gates and lifecycle records before closing P3. Workspace release tests/clippy remain P9 scope.
 
-| Concern | Current owner / interface |
-| --- | --- |
-| Exact scalar | `phalcom-type-meta/src/scalar.rs`: `StaticInt::Small(i64)` / `Large(Arc<BigInt>)`; semantics re-exports the same type |
-| Canonical integer term | `TypeData::ConstInt(StaticInt)`, `TypeStore::const_int(impl Into<StaticInt>)`; small callers remain valid |
-| Durable format | Metadata schema 12; exact decimal serialization, legacy numeric decoding |
-| Static value generic argument | `types/annotation.rs::resolve_static_generic_value`; current support is integer literals and unary-negative integer literals |
-| Generic holes | `checker/annotation_elaboration.rs`; parameter kinds are required, missing slot fails closed |
-| Source domain kind | `resolve_kind_syntax` intrinsic Int bootstrap and contextual `static_domain_kind_of_form` |
-| Active sequence checker | `checker/sequence_literal.rs::synthesize`, called by `expression.rs::synthesize_bracket_literal` |
-| Old checker | `legacy_synthesize_bracket_literal` remains inactive in `expression.rs`; remove after regression validation |
-| Semantic construction | `SequenceLiteralResolution` plus `exact_expansions: BTreeMap<SourceRange, SequenceExpansionResolution>` |
-| Exact spread lanes | `TuplePositionals { extent: TypeId }` / `VectorStorage { extent: TypeId }` |
-| Compiler projection | `SequenceLiteralLoweringSpec`: canonical extent/lane plus `expected_extent: Option<u32>` and exact count map |
-| Vector runtime | `heap/vector.rs::VectorObject`, immutable boxed Value slots; no mutable accessor |
-| Identity/bootstrap | `UniverseKey::Vector`, `CoreDeclarationIds.vector`, `CoreClasses.vector_class`, provider `collections.vector`, source package expose |
-| Read floor/source | `primitive/vector.rs` rawLength/rawAt; `collections/vector.ph` typed reads, Iterator/Iterable, equality/hash/render/conversions |
-| Bytecode | `BuildVector(u16)`, `BeginVectorLiteral`, `VectorExpandExactPositionals { vector, expected: u32 }`, `FinishVectorLiteral(u32)` |
-| Private builder | Existing `ArrayLiteralBuilderObject` Vec reused privately; `take_elements` moves storage into Array/Vector via in-place heap replacement |
-| Native artifact | Generator completed with 406 primitive records; run artifact `--check` after authored signature changes |
+## Boundaries
 
-## Invariants to inherit
-
-- Vector remains an ordinary heterogeneous canonical applied type, with exact Int N.
-- Holes stay solver-local. No Dynamic fallback or unsolved durable variables.
-- Exact cardinality and the runtime expansion lane describe the same storage operation.
-- General Iterable, List, and Array cardinality is runtime-unknown for Vector inference.
-- Vector is a separate immutable native object. The builder is private, with traced initialized values.
-- Compiler requires checked Vector resolution; context-free explicit Vector heads fail closed.
-- Bare runtime brackets remain List during P3. Const sequence materialization and default cutover belong to P4.
-- Mutable descendants do not automatically acquire deep hash stability; global Map/Set policy has not been redesigned.
-
-## Remaining tasks, in execution order
-
-1. **Runtime/bootstrap discriminator.** Finish `core_vector`. Diagnose source/constructor/native/semantic boundary failures from the actual result. Also run `core_array` because builder finalization and shared literal checking changed.
-2. **Formation correctness.** Add the central nonnegative concrete N validation. Add wrong-kind/arity tests, nested/aliased and scoped generic application cases. Shared argument elaboration currently covers fixed canonical applications and partial annotations; pack-prefix/scoped/static-evaluation paths need review where P3 requires them.
-3. **Symbolic construction contract.** Semantic identity can retain N and a lone exact symbolic spread, but lowering rejects nonconcrete counts. Decide and implement the bounded proof-preserving symbolic equality path using canonical facilities, or record an explicit authorized limitation. Do not add Vector-only reification or a second arithmetic solver.
-4. **Publication and diagnostics.** Cover extent mismatch, empty underconstraint, element mismatch, runtime-unknown spreads, family conflict, and no checked product after failed inference/checks. Outer expected-type constraints are applied after synthesis; verify this cannot leave invalid executable products. Fix explanations that still label bracket literals List.
-5. **P2 corrective work.** `array.ph` still has Dynamic/untyped element APIs. Correct homogeneous public replacement/read signatures with sound bounds behavior. Array move-finalization is implemented but needs regression evidence, including frozen guard and failure cleanup.
-6. **Runtime invariants.** Add actual disassembly assertions (one current test only creates a Bytecode value), native/checked extent inconsistency tests, no mutation/resize, zero/large dimension boundaries, cross-family inequality, stable nested Vector keys, iterator owner GC, nested GC, evaluation/spread allocation and throw/suspend cases where supported.
-7. **Metadata and incremental gates.** Prove Vector parameter domains and exact N identity across metadata/import/export, reflection, cold analysis, and incremental edits that change N or exactness.
-8. **Cleanup/closure.** Remove inactive legacy synthesis. Finish scoped formatting/lint/native artifact validation, workspace all-targets check at the named gate, and final lifecycle records. Do not broaden into unrelated baseline repair.
-
-## Commands and gate order
-
-Run Cargo commands serially:
-
-```sh
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_vector
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_array
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic coll006
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::exact_static_int
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::static_domain_inference
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo run -p phalcom-native-surface-gen -- --root . --check
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo check --workspace --all-targets
-```
-
-Add the directly relevant metadata/incremental/GC selectors after implementing their coverage. Confirm selected test counts. Broad release tests and clippy certification belong at the specified checkpoint gate, not after every edit.
-
-## Record status
-
-P3: `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`, paused by request. P3 must remain partial until runtime, negative typing/cardinality, durability/incremental, and corrective acceptance requirements are satisfied.
-
-The supplied requirements analysis retains its original Markdown hard-break trailing spaces. Later Vector edits have not completed formatting/lint checks. Document actual delivery checks separately from behavior verification.
+Bare brackets still default to List. P4 must not begin const materialization/default cutover. Do not redesign exact static identity, inference ownership, native storage, or concrete cardinality checks. Preserve unrelated edits and existing baseline failure records. Do not infer release certification from focused tests or a clean tree.

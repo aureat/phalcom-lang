@@ -112,7 +112,7 @@ The initial three static-generic probes failed before the formation corrections.
 
 Formatting of the exact-integer prerequisite passed scoped checking earlier. A workspace format check reported existing formatting outside that slice. The later Vector additions have not completed scoped formatting/lint validation.
 
-## Remaining acceptance gaps
+## Remaining acceptance gaps at prior delivery (superseded by continuation below)
 
 1. Run and diagnose the incomplete runtime suite; source Universe bootstrap/native registration and execution are unverified.
 2. Centralize negative concrete Vector extent validation across formation, inference materialization, substitution, and imported metadata publication as applicable.
@@ -131,3 +131,26 @@ Plan: `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
 Checkpoint and program remain partial. Focused semantic evidence does not certify runtime Vector behavior. Residual broad failures are described in checkpoint §14 and have no clean-predecessor confirmation.
 
 P4 remains the owner of canonical static sequences, const Array/Vector materialization, bare-bracket default migration, and the decision/spec cutover. Resume P3 before proceeding to P4.
+
+
+## 2026-10-08 continuation outcome
+
+P3 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. This continuation resumed from `e3dfe492` and preserves the unrelated pre-existing Bytes edit. No commit/push was requested for this continuation.
+
+Implemented:
+
+- Ordinary collection elements now use canonical checked-expression validation. Concrete surrounding contracts and fixed slots of partial surrounding contracts are validated before executable sequence products are published.
+- Added negative/nonpublication matrix for extent mismatches, wrong element/static domain, empty underconstraint, Array/List runtime-sized spreads, explicit family conflicts, and explicit-head/contextual conflicts (including partial annotation fixed slots).
+- Removed the inactive legacy bracket implementation. Explanation products now consume checked family, element, and result identities, with Array/Vector kinds.
+- Adopted adviser clarification for lone symbolic Vector identity spreads. Semantic `VectorIdentitySpread` carries source range and canonical extent; compiler verifies that proof and emits `CopyVector`; VM copies native immutable dense storage. Concrete extent/count checks are unchanged. Additional zero-position operands and symbolic arithmetic remain rejected by this bounded lane.
+- Replaced the unsupported new Object-size oracle after adviser-confirmed predecessor layout evidence. No runtime representation was changed. The direct-lowering test now inspects actual instructions.
+- Added runtime tests for immutable selectors, nested Vector and iterator ownership through GC, Map/Set key laws, cross-family inequality, generic symbolic copying into distinct storage, and defensive spread/finalization count mismatches with no published result.
+
+Consultations and clarifications are recorded in the checkpoint. The read-only adviser also diagnosed remaining inference-context publication cleanup and sound Array API typing; those are follow-up work, not implemented claims.
+
+Final continuation validation is recorded in the checkpoint ledger. Scoped Rust formatting passed for the eight formatted Rust files; unrelated inherited formatting in two sections of `checker/expression.rs` was preserved rather than reformatted. Diff whitespace checking passed. No broad workspace test/clippy or release certification was attempted.
+
+Remaining priority work: canonical negative extent validation including scoped/publication paths; general inference-context transaction cleanup; homogeneous Array API typing; Vector metadata/reflection/import-export and cold/incremental evidence; wider negative/contextual and runtime effect/failure edge cases. P4 remains deferred until P3 acceptance is actually closed.
+
+
+Completed continuation results: collection semantics **27 passed**; final Vector runtime suite **8 passed**; Array runtime suite **10 passed**; native surface artifact **current at 406 records**; workspace all-targets check **passed**. The checkpoint ledger records command details and evidence limits.

@@ -492,6 +492,12 @@ pub enum SequenceConstructionPlan {
         element_count: u32,
     },
     Expanded,
+    /// A lone native Vector spread with canonically identical symbolic extent.
+    /// This proof authorizes copying storage without interpreting a runtime N.
+    VectorIdentitySpread {
+        source_range: SourceRange,
+        extent: TypeId,
+    },
 }
 
 /// Checked semantic resolution product for a bracket literal (COLL006.C1.P1).

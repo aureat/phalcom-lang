@@ -12,7 +12,7 @@ verification: FOCUSED_TESTED
 
 Goal: implement the bounded P3 requirements in `COLL006.C1.P3-requirements-analysis.md` against `5fee70c9`. Work proceeds inline on `feat/telos-collection-upgrade` in the existing collections worktree.
 
-Paused at the user's request. P3 is partial; the walkthrough and handoff list implemented substeps, completed evidence, and remaining acceptance gaps.
+Resumed at the user's request. P3 is partial; the walkthrough and handoff list implemented substeps, completed evidence, and remaining acceptance gaps.
 
 ## Fixed contract
 
@@ -28,8 +28,8 @@ Paused at the user's request. P3 is partial; the walkthrough and handoff list im
 - [x] T1: exact integer representation and durable metadata prerequisite. Owner: shared `phalcom-type-meta::StaticInt`, re-exported by semantics. Preserve normalization, full-width fingerprints, and metadata/reflection identity.
 - [ ] T2: complete and partial generic argument formation; intrinsic static-domain bootstrap. Positive concrete, signed/huge, symbolic, and mixed-hole tests pass. Wrong-kind/arity and wider scoped/static argument paths remain.
 - [ ] T3: source Vector identity, native metadata projection, nonnegative concrete extent formation.
-- [ ] T4: semantic Vector literals and cardinality; exact Tuple/Vector expansions; solved-only publication and family-correct explanations. Positive identity matrix passes; negative, symbolic lowering, publication, and explanation closure remain.
-- [ ] T5: checked lowering projection and direct bytecode; immutable heap storage, native read floor, source API, GC tracing and class integration. Initial code exists; runtime test command was aborted during compilation.
+- [ ] T4: semantic Vector literals and cardinality; exact Tuple/Vector expansions; solved-only publication and family-correct explanations. Positive identity matrix and targeted negative/nonpublication cases pass; bounded symbolic identity copying and family explanations are implemented. General inference-owner publication and wider negative coverage remain.
+- [ ] T5: checked lowering projection and direct bytecode; immutable heap storage, native read floor, source API, GC tracing and class integration. Concrete and bounded symbolic construction execute; direct bytecode, immutable/nested storage, GC ownership, keys, and defensive cardinality coverage added. Remaining runtime edge cases stay open.
 - [ ] T6: Array homogeneous mutation typing and move-based builder finalization corrections.
 - [ ] T7: focused positive/negative semantic, compiler, runtime, metadata, GC, and incremental verification. Run Cargo commands serially.
 - [ ] T8: scoped diff review, checkpoint reconciliation, walkthrough, P4 handoff.
@@ -43,3 +43,11 @@ G2: `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_a
 G3: focused metadata/reflection, GC, and incremental tests for changed contracts; `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check --workspace --all-targets`.
 
 Record actual command outcomes and baseline failures in the checkpoint. Workspace release test/clippy certification remains P9 scope.
+
+## Adopted continuation clarification
+
+T4/T5 support a lone symbolic Vector identity spread through a semantic `VectorIdentitySpread` proof carrying source site and canonical extent. Compiler consumes the proof and emits native immutable-storage copying. Numeric construction and runtime cardinality checks remain unchanged; symbolic arithmetic and additional zero-contribution operands are not admitted by this lane. See checkpoint consultation record.
+
+## Proposed T4 publication supplement
+
+[Inference-owned sequence publication plan](COLL006.C1.P3-inference-publication-plan.md) specifies staged checker-local products, final owner acceptance, contextual provenance, deferred child readiness, probe isolation, and focused acceptance coverage. Prepared for the user's analysis/planning request; it is `PROPOSED / NOT_STARTED / UNVERIFIED`, not a completed implementation or a promotion of P3 status. Implementation must establish its T1 discriminator before changing publication behavior.

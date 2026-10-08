@@ -19,7 +19,7 @@ It combines the language-level homogeneous-sequence literal upgrade with the run
 
 This record is the **single durable shared state authority** for all numbered plans belonging to `COLL006.C1`.
 
-P1 and P2 are complete. P3 is paused with partial implementation and focused semantic evidence; its runtime and full acceptance gates remain open.
+P1 and P2 are complete. P3 is active with partial implementation and focused semantic/runtime evidence; its full acceptance gates remain open.
 
 ---
 
@@ -825,10 +825,46 @@ The implementer cannot self-waive a triggered consultation.
 ## 18. Active plan and next action
 
 ```text
-active plan:           COLL006.C1.P3 (paused at user-requested delivery)
+active plan:           COLL006.C1.P3 (active continuation)
 latest completed plan: COLL006.C1.P2
-blockers:              incomplete runtime gate and acceptance gaps in §14 / P3 handoff
-next action:           resume P3 inline; run core_vector first, then close typing, cardinality, runtime, and verification gaps
+blockers:              remaining formation, Array typing, publication ownership, and durability acceptance gaps
+next action:           centralize negative extent formation, close inference-owned publication and Array typing, then durability/incremental gates
 ```
 
 Read `COLL006.C1.P3-implementation-plan.md`, `COLL006.C1.P3-walkthrough.md`, and `COLL006.C1.P3-handoff.md`. Continue on `feat/telos-collection-upgrade` in the collections worktree. Bare brackets still default to List; const sequences and default migration remain P4.
+
+
+### P3 continuation consultation — symbolic identity construction (2026-10-08)
+
+Trigger: semantic analysis accepts canonical symbolic extent identity, while compiler projection requires concrete u32 counts (cross-layer contract clarification).
+Adviser decision: adopt a semantic `VectorIdentitySpread` construction proof only for a literal containing exactly one native Vector-storage spread with the same canonical result extent. Compiler consumes that proof and emits a dedicated immutable-storage copy operation. No runtime interpretation of N, second solver, optional-count fallback, or symbolic arithmetic is authorized. All concrete checks remain intact. Zero-position additional operands remain outside this bounded path so effects cannot be dropped.
+Plan amendment: T4/T5 include this bounded identity proof and execution lane. Focused evidence must cover generic execution, distinct storage, binder mismatch, runtime-sized rejection, and unchanged concrete checks.
+
+Layout consultation: predecessor 5fee70c9 already contains inline `FamilyObject` with a 48-byte payload on the 64-bit host; Vector's boxed slice payload is 16 bytes. The newly added absolute `Object <= 40` test oracle is incompatible with the predecessor. Preserve representation and verify no Vector-driven enum growth using the existing largest payload rather than an unsupported absolute limit.
+
+
+### P3 continuation publication diagnosis
+
+Ordinary element mismatches previously passed because synthesis propagated expectations without checking them. Elements now use the existing checked-expression path. Explicit heads also no longer erase canonical surrounding contracts or fixed slots in partial surrounding contracts; these relations must be proved before sequence publication.
+
+The adviser identified a remaining general lifecycle gap: a candidate depending on a subsequently failed/underconstrained/cancelled enclosing inference context can outlive that context. Full closure requires transactional ownership of dependent construction products at inference-context finalization. Do not prematurely solve an outer frame, add a second solver, or add statement-only rollback. Fixed-slot regressions are covered in this continuation; general context-owned cleanup remains an explicit P3 acceptance gap.
+
+Planning follow-up (2026-10-08): [proposed P3 T4 publication supplement](COLL006.C1.P3-inference-publication-plan.md) formulates checker-local staging and owner receipts, contextual provenance surviving provisional canonicalization, owned deferred child/row readiness, probe isolation, and extraction ordering. This is an analysis/planning artifact only (`PROPOSED / NOT_STARTED / UNVERIFIED`); no new implementation or behavioral verification is claimed. P3 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. The first implementation step is to establish the late generic-constraint nonpublication discriminator and valid controls specified in the supplement.
+
+
+### P3 continuation verification ledger (2026-10-08)
+
+These completed results supersede the earlier aborted-runtime snapshot; P3 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
+
+| Gate | Command/scope | Completed result | Evidence limit |
+|---|---|---|---|
+| G1 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic coll006` | 27 passed | Five new test functions include table-driven negative/nonpublication cases, family explanations, and symbolic identity proof/rejections; general inference-context transaction cleanup remains open |
+| G2 Vector | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_vector` | 8 passed | Final combined run includes direct bytecode, concrete/symbolic construction, API/hash/conversions, immutable/nested GC/iterator ownership, Map/Set keys, defensive cardinality failure/nonpublication |
+| G2 Array | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_array` | 10 passed | Shared checker/builder regression gate; later contextual validation additionally covered by the final semantic collection gate |
+| Native artifact | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo run -p phalcom-native-surface-gen -- --root . --check` | Passed, 406 records current | No authored native signatures changed in this continuation |
+| Integration build | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check --workspace --all-targets` | Passed | Compile evidence, not workspace behavioral certification |
+| Formatting/diff | Scoped rustfmt check on eight formatted Rust files; `git diff --check` | Passed | Two unrelated inherited formatting sections in `checker/expression.rs` intentionally preserved |
+
+Initial runtime failures were diagnosed and closed: unsupported pre-existing-layout oracle (adviser clarification), fixture recompilation after binding installation, missing generic constructor evidence, and an incorrect Map mutation selector. No production representation or accepted semantic oracle was weakened. Existing broader metadata/reflection baseline records remain inherited and un-recertified.
+
+Deferred deliberately: full workspace tests/clippy/release certification (P9), broader metadata/reflection reruns without new coverage, and the remaining formation/Array API/inference-publication/incremental acceptance work listed in the current handoff. No commit or push performed in this continuation.

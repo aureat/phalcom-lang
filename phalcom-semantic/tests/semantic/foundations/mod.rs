@@ -9,6 +9,7 @@ mod causal;
 mod coll006_c1_p1_contextual_literals;
 mod coll006_c1_p2_array;
 mod coll006_c1_p3_static_generics;
+mod coll006_c1_p3_publication;
 mod declarations;
 mod diagnostic_presentation;
 mod diagnostics;
