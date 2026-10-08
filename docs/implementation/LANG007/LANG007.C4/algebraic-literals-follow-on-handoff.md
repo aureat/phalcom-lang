@@ -16,10 +16,8 @@ created: 2026-10-08
 - Branch: `feat/complex-math`
 - Remote: `origin/feat/complex-math`
 - Starting published revision: `43a4f466`
-- Delivery anchor: the commit containing this handoff, whose subject is
-  `feat: checkpoint algebraic literal and Quaternion foundations`.
-- Find that commit with `git log --oneline -5`; the commit hash is also reported
-  inline after the requested push. Delivery publishes partial implementation.
+- Delivery anchor: `f36f84fa` (`feat: checkpoint algebraic literal and Quaternion foundations`),
+  pushed to `origin/feat/complex-math`. Delivery publishes partial implementation.
 - Main worktree is clean and must remain untouched.
 
 `LANG007.C4.P3` is already COMPLETE / IMPLEMENTED / FOCUSED_TESTED for the

@@ -14,6 +14,8 @@ This record covers the user-directed algebraic-literals follow-on performed in
 the `feat/complex-math` worktree. It is separate from `LANG007.C4.P3`, whose
 Pack and call/rest work remains complete.
 
+Delivered at `f36f84fa` on `origin/feat/complex-math`.
+
 ## 1. Objective and outcome
 
 The intended objective was to implement the proposal in

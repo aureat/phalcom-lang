@@ -27,7 +27,8 @@ last_updated: 2026-10-08
 ## Algebraic-literals follow-on stop state (2026-10-08)
 
 User-directed follow-on in `.worktrees/complex-math`, branch
-`feat/complex-math`, starting at `43a4f466`:
+`feat/complex-math`, delivered partially at `f36f84fa` from starting revision
+`43a4f466` and pushed to `origin/feat/complex-math`:
 `BLOCKED / PARTIAL / FOCUSED_TESTED`. The user requested an implementation stop,
 durable handoff, commit, and push. C4's primary active plan metadata remains P4.
 The completed `LANG007.C4.P3` Pack plan is unchanged. Phase 3 of `cliteral.md`
