@@ -11,8 +11,8 @@ verification: FOCUSED_TESTED
 # Complex Numbers Implementation Plan
 
 Execution: inline using the executing-plans workflow. The user prohibits
-subagents and requires approval of significant choices. Commit/push are outside
-the current authorization.
+subagents and requires approval of significant choices. Commit/push were
+authorized after focused completion; implementation commit `a72d1f79` is published.
 
 Goal: generic Complex data and arithmetic, with the approved principal-branch
 Float elementary surface.

@@ -17,7 +17,8 @@ The public owners are `universe.numbers` and `universe.math.complex`.
 
 Work is inline in `.worktrees/complex-math`, branch `feat/complex-math`,
 starting at `ad1db231`. The user prohibits subagents and requires approval
-before significant decisions. No commit or push has been requested.
+before significant decisions. After focused completion, the user authorized
+commit/push; the implementation is published as `a72d1f79` on `origin/feat/complex-math`.
 
 ## Decision ledger
 
@@ -117,6 +118,7 @@ These failures occur before runtime typing/data interning and do not block D5.
 The new row identity fixture uses runtime `let` bindings and passes. Existing
 fixtures remain pending their owning binding/static-constant work; this suite
 is not claimed green and unchanged failures have not been rerun.
+The next repair task is captured in `deferred-data-fixtures-handoff.md`.
 
 ## D6 focused evidence
 
@@ -198,8 +200,10 @@ indexed by `docs/specs/README.md`. The value specification records D9 Int
 exactness. Adaptation/license notices remain beside the source kernels.
 
 The walkthrough and handoff record stable interfaces, amendments and exact
-verification. All changes remain uncommitted in the isolated worktree for user
-review. No active implementation task remains in this checkpoint.
+verification. Implementation commit `a72d1f79` is published on
+`origin/feat/complex-math`; the isolated worktree is retained for review.
+No active Complex implementation task remains. The separate brief
+`deferred-data-fixtures-handoff.md` directs repair of the four recorded fixtures.
 Workspace build/test/clippy, broad crate suites and release certification were
 deliberately deferred. Four unrelated data fixture failures remain in the ledger
 above; this checkpoint does not claim the owning broad data suite is green.

@@ -9,9 +9,10 @@ arithmetic, Float division/magnitude/phase/polar conversion, integer powers,
 and the principal-branch elementary facade at `universe.math.complex`.
 The normative contract is `docs/specs/complex-numbers.md`.
 
-Work remains uncommitted in `.worktrees/complex-math`, branch `feat/complex-math`,
-based on `ad1db231`. Execution was inline; the user prohibited subagents and
-approved significant decisions. Commit and push were not requested.
+Implementation commit `a72d1f79` is published on `origin/feat/complex-math`, based
+on `ad1db231`. The isolated `.worktrees/complex-math` worktree is retained.
+Execution was inline; the user prohibited subagents and approved significant
+decisions, then authorized commit/push after focused completion.
 
 ## Architecture and files
 
@@ -104,6 +105,6 @@ CHECKPOINT.md. The broad data suite is not claimed green.
 
 ## Takeover
 
-No active task remains in this checkpoint. Review and integrate the isolated
-patch when requested. The handoff identifies the established interfaces and
-deferred issues so future work can consume them without repeating diagnosis.
+No active Complex task remains in this checkpoint. The completion handoff
+identifies established interfaces. `deferred-data-fixtures-handoff.md` directs
+the separate repair of the four recorded fixture failures.

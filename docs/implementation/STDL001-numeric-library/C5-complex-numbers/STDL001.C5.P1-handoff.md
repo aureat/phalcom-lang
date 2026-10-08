@@ -5,9 +5,10 @@ State: COMPLETE / IMPLEMENTED / FOCUSED_TESTED. CHECKPOINT.md is authoritative.
 ## Repository anchor
 
 Worktree `.worktrees/complex-math`, branch `feat/complex-math`, base `ad1db231`.
-All checkpoint changes are uncommitted. Preserve unrelated main-worktree work.
+Implementation commit `a72d1f79` is published on `origin/feat/complex-math`.
+Preserve unrelated main-worktree work.
 The user prohibits subagents and requires approval for significant choices.
-D1–D9 are approved. Commit and push need an explicit request.
+D1–D9 are approved. Commit/push were authorized after focused completion.
 
 ## Established surface
 
@@ -56,8 +57,9 @@ FOCUSED_TESTED must not be promoted to RELEASE_COMPLETE without completed gates.
 
 ## Next action
 
-No implementation task remains in this checkpoint. Review/integration is next
-when the user requests it. Begin with `git status --short` and the scoped diff;
+No Complex implementation task remains in this checkpoint. The brief
+`deferred-data-fixtures-handoff.md` directs the four-fixture repair follow-up.
+Begin with `git status --short` and the scoped diff;
 read CHECKPOINT.md, the normative Complex specification and the walkthrough.
 Use the completed focused evidence unless source changes create a new concern.
 
