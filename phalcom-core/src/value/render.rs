@@ -100,6 +100,21 @@ impl Value {
                     format!("{lower}{sep}{upper}")
                 }
                 Object::Record(_) => "<record>".to_string(),
+                Object::Instance(inst) => {
+                    let class_name = &vm.heap.class(inst.class).name;
+                    if class_name == "Substring" && inst.slots.len() >= 3 {
+                        if let (Some(s_id), Some(start), Some(end)) = (inst.slots[0].as_obj(), inst.slots[1].as_int(), inst.slots[2].as_int()) {
+                            if let Object::Str(s) = vm.heap.get(s_id) {
+                                let start = start as usize;
+                                let end = end as usize;
+                                if start <= end && end <= s.as_str().len() && s.as_str().is_char_boundary(start) && s.as_str().is_char_boundary(end) {
+                                    return s.as_str()[start..end].to_string();
+                                }
+                            }
+                        }
+                    }
+                    self.to_debug(vm)
+                }
                 _ => self.to_debug(vm),
             };
         }

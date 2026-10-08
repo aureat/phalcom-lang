@@ -20,7 +20,7 @@ class Substring {
       throw SliceError.new("Substring: slice out of bounds")
     }
     if not string.isCharBoundary(start) or not string.isCharBoundary(end) {
-      throw SliceError.new("Substring: boundaries must fall on character boundaries")
+      throw SliceError.new("Substring: boundaries must fall on char boundary")
     }
     _string = string
     _start = start
@@ -715,6 +715,31 @@ class Split {
   source -> Substring { _source }
   pattern -> Dynamic { _pattern }
 
+  /// Collects all split segments into a List.
+  toList -> List<Dynamic> {
+    let mut list = List<Dynamic>.new()
+    let mut it = self.iterator
+    while let Option::Some(item) = it.next {
+      list.append(item)
+    }
+    list
+  }
+
+  /// Number of segments in this split sequence.
+  size -> Int {
+    let mut count = 0
+    let mut it = self.iterator
+    while let Option::Some(_) = it.next {
+      count = count + 1
+    }
+    count
+  }
+
+  /// Accesses a split segment by zero-based index.
+  [_ index: Int] -> Substring {
+    self.toList[index]
+  }
+
   iterator -> SplitIterator {
     SplitIterator.new(self)
   }
@@ -798,6 +823,31 @@ class SplitWhitespace {
   }
 
   source -> Substring { _source }
+
+  /// Collects all words into a List.
+  toList -> List<Dynamic> {
+    let mut list = List<Dynamic>.new()
+    let mut it = self.iterator
+    while let Option::Some(item) = it.next {
+      list.append(item)
+    }
+    list
+  }
+
+  /// Number of words in this split sequence.
+  size -> Int {
+    let mut count = 0
+    let mut it = self.iterator
+    while let Option::Some(_) = it.next {
+      count = count + 1
+    }
+    count
+  }
+
+  /// Accesses a word by zero-based index.
+  [_ index: Int] -> Substring {
+    self.toList[index]
+  }
 
   iterator -> SplitWhitespaceIterator {
     SplitWhitespaceIterator.new(self)
@@ -886,6 +936,31 @@ class Lines {
 
   source -> Substring { _source }
   keepingTerminators -> Bool { _keepTerminators }
+
+  /// Collects all lines into a List.
+  toList -> List<Dynamic> {
+    let mut list = List<Dynamic>.new()
+    let mut it = self.iterator
+    while let Option::Some(item) = it.next {
+      list.append(item)
+    }
+    list
+  }
+
+  /// Number of lines in this sequence.
+  size -> Int {
+    let mut count = 0
+    let mut it = self.iterator
+    while let Option::Some(_) = it.next {
+      count = count + 1
+    }
+    count
+  }
+
+  /// Accesses a line by zero-based index.
+  [_ index: Int] -> Substring {
+    self.toList[index]
+  }
 
   iterator -> LinesIterator {
     LinesIterator.new(self)
