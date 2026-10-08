@@ -253,3 +253,17 @@ pub fn string_uppercase(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
     let s = expect_string(vm, receiver)?;
     Ok(vm.alloc_string_value(s.to_uppercase()))
 }
+
+/// Signature: `String::rawEquals(_)` — tests string content equality.
+#[phalcom_native_macros::primitive(
+    String,
+    "rawEquals(_)",
+    params = [Object],
+    returns = Bool,
+    types = "(Object) -> Bool",
+    effects = pure,
+    visibility = internal
+)]
+pub fn string_raw_equals(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    Ok(Value::bool(receiver.value_eq(&args[0], &vm.heap)))
+}

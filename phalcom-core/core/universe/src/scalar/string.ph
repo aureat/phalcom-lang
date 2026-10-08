@@ -6,6 +6,7 @@
 
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 from universe.scalar.string_index import StringIndex
+from universe.text.substring import Substring
 
 /// Immutable UTF-8 text string.
 ///
@@ -25,10 +26,19 @@ native class String is Object {
   internal native rawByteCount -> Int
   internal native rawByteAt(_ index: Int) -> Option<Int>
   internal native rawSlice(_ start: Int, _ end: Int) -> String
+  internal native rawEquals(_ other: Object) -> Bool
   native isCharBoundary(_ byteOffset: Int) -> Bool
   native decodeCharAt(_ byteOffset: Int) -> Option<Char>
   native lowercase() -> String
   native uppercase() -> String
+
+  /// Equality comparison supporting String and Substring operands.
+  ==(_ other: Dynamic) -> Bool {
+    if other.is(Substring) {
+      return other == self
+    }
+    rawEquals(other)
+  }
 
   /// Returns the string itself as its string representation.
   toString { self }
@@ -114,6 +124,29 @@ native class String is Object {
         return opt.unwrap
       }
       throw IndexError.new("StringIndex is not a valid character boundary")
+    } else if index.is(Range) {
+      let lower = index.rawLower
+      let upper = index.rawUpper
+      let len = rawByteCount
+      let s = if lower.isSome {
+        let v = lower.unwrapOr(0)
+        if v.is(StringIndex) { v.offset } else { v }
+      } else { 0 }
+      let e = if upper.isSome {
+        let v = upper.unwrapOr(len)
+        let base = if v.is(StringIndex) { v.offset } else { v }
+        if index.rawUpperInclusive {
+          let opt = decodeCharAt(base)
+          if opt.isSome {
+            base + opt.unwrap.utf8Length
+          } else {
+            base + 1
+          }
+        } else {
+          base
+        }
+      } else { len }
+      return Substring.new(self, s, e)
     } else {
       throw ArgumentError.new("String subscript requires StringIndex or Range")
     }
@@ -228,12 +261,12 @@ native class String is Object {
   /// Indicates whether the string contains zero bytes.
   isEmpty { rawByteCount == 0 }
 
-  /// Extracts a substring by half-open byte range `[start, end)`.
-  ///
-  /// @param start Starting byte offset (inclusive).
-  /// @param end Ending byte offset (exclusive).
-  /// @returns Sliced substring.
-  slice(_ start, _ end) { rawSlice(start, end) }
+  /// Extracts a non-allocating Substring view by half-open byte or index range `[start, end)`.
+  slice(_ start, _ end) -> Substring {
+    let s = if start.is(StringIndex) { start.offset } else { start }
+    let e = if end.is(StringIndex) { end.offset } else { end }
+    Substring.new(self, s, e)
+  }
 
   /// Determines the number of bytes in the UTF-8 code point starting at byte offset `i`.
   ///

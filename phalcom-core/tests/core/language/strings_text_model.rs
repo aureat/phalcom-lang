@@ -60,3 +60,36 @@ let charUpper = 'z'.simpleUppercase
     assert_eq!(slot(&vm, module, "charLower").and_then(|v| v.as_char()), Some('a'));
     assert_eq!(slot(&vm, module, "charUpper").and_then(|v| v.as_char()), Some('Z'));
 }
+
+#[test]
+fn substring_slicing() {
+    let source = r#"
+let text = "hello world"
+let sub = text.slice(0, 5)
+let subByteCount = sub.byteCount
+let subCharCount = sub.charCount
+let subStr = sub.toString
+let subFirst = sub.first
+let subLast = sub.last
+let subEq = sub == "hello"
+let strEq = "hello" == sub
+
+let subSlice = sub.slice(1, 4)
+let subSliceStr = subSlice.toString
+
+let rangeSub = text[6..11]
+let rangeSubStr = rangeSub.toString
+"#;
+
+    let (vm, module) = run_inline(source).expect("substring_slicing executes");
+
+    assert_eq!(slot(&vm, module, "subByteCount").and_then(|v| v.as_int()), Some(5));
+    assert_eq!(slot(&vm, module, "subCharCount").and_then(|v| v.as_int()), Some(5));
+    assert_eq!(slot(&vm, module, "subStr").map(|v| v.to_string(&vm)), Some("hello".to_string()));
+    assert_eq!(slot(&vm, module, "subFirst").and_then(|v| v.unwrap_some()).and_then(|v| v.as_char()), Some('h'));
+    assert_eq!(slot(&vm, module, "subLast").and_then(|v| v.unwrap_some()).and_then(|v| v.as_char()), Some('o'));
+    assert_eq!(slot(&vm, module, "subEq").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(slot(&vm, module, "strEq").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(slot(&vm, module, "subSliceStr").map(|v| v.to_string(&vm)), Some("ell".to_string()));
+    assert_eq!(slot(&vm, module, "rangeSubStr").map(|v| v.to_string(&vm)), Some("world".to_string()));
+}

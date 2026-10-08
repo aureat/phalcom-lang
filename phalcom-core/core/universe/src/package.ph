@@ -47,6 +47,7 @@ import .io
 import .fs
 import .path
 import .text
+from .text import Substring
 import .regex
 import .json
 import .math
@@ -59,6 +60,7 @@ import .testing
 export object
 export scalar
 export StringIndex
+export Substring
 export errors
 export (
   ArgumentError,
