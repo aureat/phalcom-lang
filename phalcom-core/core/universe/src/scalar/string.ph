@@ -6,7 +6,12 @@
 
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 from universe.scalar.string_index import StringIndex
-from universe.text.substring import Substring
+from universe.text.substring import (
+  Substring,
+  Split,
+  SplitWhitespace,
+  Lines
+)
 
 /// Immutable UTF-8 text string.
 ///
@@ -619,38 +624,81 @@ native class String is Object {
     Some(slice(0, rawByteCount - len))
   }
 
-  /// Splits the string around occurrences of `delimiter`.
-  ///
-  /// Returns a list of substrings separated by the delimiter.
-  ///
-  /// @param delimiter Non-empty string separator.
-  /// @returns List of sliced string components.
-  split(_ delimiter) -> List<String> {
-    if not delimiter.is(String) {
-      throw ArgumentError.new("split: delimiter must be a String")
-    }
-    if delimiter.isEmpty {
-      throw ArgumentError.new("split: delimiter must be non-empty")
-    }
+  /// Splits this string around matches of `pattern` into a lazy sequence of Substrings.
+  split(_ pattern) -> Split {
+    Split.new(asSubstring, pattern)
+  }
 
-    let mut result = List<String>.new()
-    let mut prev = 0
-    let mut i = indexOf(delimiter)
-    while i != -1 {
-      result.rawPush(rawSlice(prev, i))
-      prev = i + delimiter.rawByteCount
+  /// Splits this string around the first match of `separator` into a pair of Substrings.
+  splitOnce(_ separator) -> Option<(Substring, Substring)> {
+    let opt = separator.findIn(asSubstring, 0)
+    if opt.isSome {
+      let pair = opt.unwrap
+      let s = pair.rawAt(0)
+      let e = pair.rawAt(1)
+      let left = slice(0, s)
+      let right = slice(e, rawByteCount)
+      return Some((left, right))
+    }
+    return None
+  }
 
-      // Search for next occurrence after this delimiter
-      let mut rest = rawSlice(prev, rawByteCount)
-      let mut nextIdx = rest.indexOf(delimiter)
-      if nextIdx == -1 {
-        i = -1
+  /// Splits this string into words separated by Unicode whitespace.
+  splitWhitespace() -> SplitWhitespace {
+    SplitWhitespace.new(asSubstring)
+  }
+
+  /// Yields a lazy sequence of lines separated by newline terminators.
+  lines() -> Lines {
+    Lines.new(asSubstring, false)
+  }
+
+  /// Yields a lazy sequence of lines, optionally retaining terminators.
+  lines(keepingTerminators keep: Bool) -> Lines {
+    Lines.new(asSubstring, keep)
+  }
+
+  /// Replaces the first occurrence of `pattern` with `replacement`.
+  replaceFirst(_ pattern, with replacement: String) -> String {
+    let opt = pattern.findIn(asSubstring, 0)
+    if opt.isSome {
+      let pair = opt.unwrap
+      let s = pair.rawAt(0)
+      let e = pair.rawAt(1)
+      return slice(0, s).toString + replacement + slice(e, rawByteCount).toString
+    }
+    return self
+  }
+
+  /// Replaces all occurrences of `pattern` with `replacement`.
+  replaceAll(_ pattern, with replacement: String) -> String {
+    let mut out = ""
+    let mut cursor = 0
+    let total = rawByteCount
+    while cursor <= total {
+      let opt = pattern.findIn(asSubstring, cursor)
+      if opt.isSome {
+        let pair = opt.unwrap
+        let s = pair.rawAt(0)
+        let e = pair.rawAt(1)
+        if s == e {
+          if cursor < total {
+            out = out + slice(cursor, cursor + 1).toString + replacement
+            cursor = cursor + 1
+          } else {
+            out = out + replacement
+            break
+          }
+        } else {
+          out = out + slice(cursor, s).toString + replacement
+          cursor = e
+        }
       } else {
-        i = prev + nextIdx
+        out = out + slice(cursor, total).toString
+        break
       }
     }
-    result.rawPush(rawSlice(prev, rawByteCount))
-    return result
+    return out
   }
 
   /// Replaces all occurrences of `needle` with `to`.

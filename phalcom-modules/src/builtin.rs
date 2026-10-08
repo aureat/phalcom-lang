@@ -63,7 +63,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["text"],
         kind: ModuleKind::Package,
-        children: &["substring", "traits", "patterns"],
+        children: &["substring", "traits", "patterns", "split", "lines"],
     },
     UniverseNodeSpec {
         path: &["text", "substring"],
@@ -77,6 +77,16 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["text", "patterns"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["text", "split"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["text", "lines"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -802,6 +812,12 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "text" && m.as_str() == "patterns" => {
                 include_str!("../../phalcom-core/core/universe/src/text/patterns.ph")
+            }
+            [c, m] if c.as_str() == "text" && m.as_str() == "split" => {
+                include_str!("../../phalcom-core/core/universe/src/text/split.ph")
+            }
+            [c, m] if c.as_str() == "text" && m.as_str() == "lines" => {
+                include_str!("../../phalcom-core/core/universe/src/text/lines.ph")
             }
             [c] if c.as_str() == "regex" => include_str!("../../phalcom-core/core/universe/src/regex/package.ph"),
             [c] if c.as_str() == "json" => include_str!("../../phalcom-core/core/universe/src/json/package.ph"),

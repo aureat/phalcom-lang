@@ -235,4 +235,82 @@ let rangeStr = match rangeOpt {
     assert_eq!(slot(&vm, module, "rangeStr").map(|v| v.to_string(&vm)), Some("world".to_string()));
 }
 
+#[test]
+fn lazy_splitting_and_lines() {
+    let source = r#"
+from universe.text import Substring, Split, SplitWhitespace, Lines
+
+let csv = "a,,b,c"
+let mut parts = []
+for p in csv.split(',') {
+  parts.append(p.toString)
+}
+
+let kv = "key=value=extra"
+let kvSplit = kv.splitOnce('=')
+let kStr = if kvSplit.isSome { kvSplit.unwrap.first.unwrap.toString } else { "" }
+let vStr = if kvSplit.isSome { kvSplit.unwrap.last.unwrap.toString } else { "" }
+
+let ws = "  foo   bar \n baz  "
+let mut words = []
+for w in ws.splitWhitespace() {
+  words.append(w.toString)
+}
+
+let multiline = "first\r\nsecond\nthird\rlast"
+let mut lineList = []
+for l in multiline.lines() {
+  lineList.append(l.toString)
+}
+
+let mut linesWithTerms = []
+for l in multiline.lines(keepingTerminators: true) {
+  linesWithTerms.append(l.toString)
+}
+
+let replaced1 = "foo bar foo".replaceFirst("foo", with: "baz")
+let replacedAll = "foo bar foo".replaceAll("foo", with: "baz")
+"#;
+
+    let (vm, module) = run_standalone(source).expect("lazy_splitting_and_lines executes");
+
+    let parts_val = slot(&vm, module, "parts").expect("parts slot");
+    let parts_list = vm.heap.list(parts_val.as_obj().expect("parts list"));
+    assert_eq!(parts_list.len(), 4);
+    assert_eq!(parts_list.get(0).unwrap().to_string(&vm), "a");
+    assert_eq!(parts_list.get(1).unwrap().to_string(&vm), "");
+    assert_eq!(parts_list.get(2).unwrap().to_string(&vm), "b");
+    assert_eq!(parts_list.get(3).unwrap().to_string(&vm), "c");
+
+    assert_eq!(slot(&vm, module, "kStr").map(|v| v.to_string(&vm)), Some("key".to_string()));
+    assert_eq!(slot(&vm, module, "vStr").map(|v| v.to_string(&vm)), Some("value=extra".to_string()));
+
+    let words_val = slot(&vm, module, "words").expect("words slot");
+    let words_list = vm.heap.list(words_val.as_obj().expect("words list"));
+    assert_eq!(words_list.len(), 3);
+    assert_eq!(words_list.get(0).unwrap().to_string(&vm), "foo");
+    assert_eq!(words_list.get(1).unwrap().to_string(&vm), "bar");
+    assert_eq!(words_list.get(2).unwrap().to_string(&vm), "baz");
+
+    let lines_val = slot(&vm, module, "lineList").expect("lineList slot");
+    let lines_list = vm.heap.list(lines_val.as_obj().expect("lines list"));
+    assert_eq!(lines_list.len(), 4);
+    assert_eq!(lines_list.get(0).unwrap().to_string(&vm), "first");
+    assert_eq!(lines_list.get(1).unwrap().to_string(&vm), "second");
+    assert_eq!(lines_list.get(2).unwrap().to_string(&vm), "third");
+    assert_eq!(lines_list.get(3).unwrap().to_string(&vm), "last");
+
+    let terms_val = slot(&vm, module, "linesWithTerms").expect("linesWithTerms slot");
+    let terms_list = vm.heap.list(terms_val.as_obj().expect("linesWithTerms list"));
+    assert_eq!(terms_list.len(), 4);
+    assert_eq!(terms_list.get(0).unwrap().to_string(&vm), "first\r\n");
+    assert_eq!(terms_list.get(1).unwrap().to_string(&vm), "second\n");
+    assert_eq!(terms_list.get(2).unwrap().to_string(&vm), "third\r");
+    assert_eq!(terms_list.get(3).unwrap().to_string(&vm), "last");
+
+    assert_eq!(slot(&vm, module, "replaced1").map(|v| v.to_string(&vm)), Some("baz bar foo".to_string()));
+    assert_eq!(slot(&vm, module, "replacedAll").map(|v| v.to_string(&vm)), Some("baz bar baz".to_string()));
+}
+
+
 

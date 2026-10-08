@@ -3,6 +3,8 @@
 expose .substring
 expose .traits
 expose .patterns
+expose .split
+expose .lines
 
 from .substring import (
   Substring,
@@ -13,6 +15,16 @@ from .substring import (
 )
 from .traits import Text
 from .patterns import TextPattern
+from .split import (
+  Split,
+  SplitIterator,
+  SplitWhitespace,
+  SplitWhitespaceIterator
+)
+from .lines import (
+  Lines,
+  LinesIterator
+)
 
 export (
   Substring,
@@ -21,5 +33,11 @@ export (
   SubstringBytes,
   SubstringByteIterator,
   Text,
-  TextPattern
+  TextPattern,
+  Split,
+  SplitIterator,
+  SplitWhitespace,
+  SplitWhitespaceIterator,
+  Lines,
+  LinesIterator
 )

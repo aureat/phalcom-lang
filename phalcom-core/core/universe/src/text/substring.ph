@@ -397,6 +397,83 @@ class Substring {
     Some(slice(0, byteCount - len))
   }
 
+  /// Replaces the first occurrence of `pattern` with `replacement`.
+  replaceFirst(_ pattern, with replacement: String) -> String {
+    let opt = pattern.findIn(self, 0)
+    if opt.isSome {
+      let pair = opt.unwrap
+      let s = pair.rawAt(0)
+      let e = pair.rawAt(1)
+      return slice(0, s).toString + replacement + slice(e, byteCount).toString
+    }
+    return toString
+  }
+
+  /// Replaces all occurrences of `pattern` with `replacement`.
+  replaceAll(_ pattern, with replacement: String) -> String {
+    let mut out = ""
+    let mut cursor = 0
+    let total = byteCount
+    while cursor <= total {
+      let opt = pattern.findIn(self, cursor)
+      if opt.isSome {
+        let pair = opt.unwrap
+        let s = pair.rawAt(0)
+        let e = pair.rawAt(1)
+        if s == e {
+          if cursor < total {
+            out = out + slice(cursor, cursor + 1).toString + replacement
+            cursor = cursor + 1
+          } else {
+            out = out + replacement
+            break
+          }
+        } else {
+          out = out + slice(cursor, s).toString + replacement
+          cursor = e
+        }
+      } else {
+        out = out + slice(cursor, total).toString
+        break
+      }
+    }
+    return out
+  }
+
+  /// Splits this substring around matches of `pattern` into a lazy sequence of Substrings.
+  split(_ pattern) -> Split {
+    Split.new(self, pattern)
+  }
+
+  /// Splits this substring around the first match of `separator` into a pair of Substrings.
+  splitOnce(_ separator) -> Option<(Substring, Substring)> {
+    let opt = separator.findIn(self, 0)
+    if opt.isSome {
+      let pair = opt.unwrap
+      let s = pair.rawAt(0)
+      let e = pair.rawAt(1)
+      let left = self.slice(0, s)
+      let right = self.slice(e, self.byteCount)
+      return Some((left, right))
+    }
+    return None
+  }
+
+  /// Splits this substring into words separated by Unicode whitespace.
+  splitWhitespace() -> SplitWhitespace {
+    SplitWhitespace.new(self)
+  }
+
+  /// Yields a lazy sequence of lines separated by newline terminators.
+  lines() -> Lines {
+    Lines.new(self, false)
+  }
+
+  /// Yields a lazy sequence of lines, optionally retaining terminators.
+  lines(keepingTerminators keep: Bool) -> Lines {
+    Lines.new(self, keep)
+  }
+
   /// Subscript operator for Substring.
   [_ index] {
     if index.is(StringIndex) {
@@ -619,4 +696,281 @@ impl CanonicalIterable for SubstringBytes {
   iterator -> SubstringByteIterator { SubstringByteIterator.new(self) }
 }
 
-export Substring, SubstringChars, SubstringCharIterator, SubstringBytes, SubstringByteIterator
+/// A lazy sequence that yields Substring components separated by a pattern.
+class Split {
+  _source: Substring
+  _pattern: Dynamic
+
+  @constructor
+  new(_ source: Substring, _ pattern: Dynamic) {
+    _source = source
+    _pattern = pattern
+  }
+
+  @class
+  call(_ source: Substring, _ pattern: Dynamic) -> Split {
+    Split.new(source, pattern)
+  }
+
+  source -> Substring { _source }
+  pattern -> Dynamic { _pattern }
+
+  iterator -> SplitIterator {
+    SplitIterator.new(self)
+  }
+}
+
+/// An iterator over pattern-separated Substring chunks.
+class SplitIterator {
+  _source: Substring
+  _pattern: Dynamic
+  mut _cursor: Int
+  mut _done: Bool
+
+  @constructor
+  new(_ split: Split) {
+    _source = split.source
+    _pattern = split.pattern
+    _cursor = 0
+    _done = false
+  }
+
+  next -> Option<Substring> {
+    if _done {
+      return None
+    }
+    let total = _source.byteCount
+    if _cursor > total {
+      _done = true
+      return None
+    }
+    let opt = _pattern.findIn(_source, _cursor)
+    if opt.isSome {
+      let pair = opt.unwrap
+      let mStart = pair.rawAt(0)
+      let mEnd = pair.rawAt(1)
+      if mStart == mEnd {
+        let chunk = _source.slice(_cursor, mStart)
+        if _cursor < total {
+          let optCh = _source.decodeCharAt(_cursor)
+          let step = if optCh.isSome { optCh.unwrap.utf8Length } else { 1 }
+          _cursor = _cursor + step
+        } else {
+          _cursor = total + 1
+        }
+        return Some(chunk)
+      }
+      let chunk = _source.slice(_cursor, mStart)
+      _cursor = mEnd
+      return Some(chunk)
+    } else {
+      let chunk = _source.slice(_cursor, total)
+      _cursor = total + 1
+      return Some(chunk)
+    }
+  }
+
+  iterator -> SplitIterator { self }
+}
+
+impl CanonicalIterator for SplitIterator {
+  type Item = Substring
+}
+
+impl CanonicalIterable for Split {
+  type Item = Substring
+  type Iterator = SplitIterator
+  iterator -> SplitIterator { SplitIterator.new(self) }
+}
+
+/// A lazy sequence that yields non-empty words separated by Unicode whitespace.
+class SplitWhitespace {
+  _source: Substring
+
+  @constructor
+  new(_ source: Substring) {
+    _source = source
+  }
+
+  @class
+  call(_ source: Substring) -> SplitWhitespace {
+    SplitWhitespace.new(source)
+  }
+
+  source -> Substring { _source }
+
+  iterator -> SplitWhitespaceIterator {
+    SplitWhitespaceIterator.new(self)
+  }
+}
+
+/// An iterator yielding non-empty words separated by Unicode whitespace.
+class SplitWhitespaceIterator {
+  _source: Substring
+  mut _cursor: Int
+
+  @constructor
+  new(_ split: SplitWhitespace) {
+    _source = split.source
+    _cursor = 0
+  }
+
+  next -> Option<Substring> {
+    let total = _source.byteCount
+    while _cursor < total {
+      let optCh = _source.decodeCharAt(_cursor)
+      if optCh.isSome {
+        let ch = optCh.unwrap
+        if ch.isWhitespace {
+          _cursor = _cursor + ch.utf8Length
+        } else {
+          break
+        }
+      } else {
+        break
+      }
+    }
+    if _cursor >= total {
+      return None
+    }
+    let wordStart = _cursor
+    while _cursor < total {
+      let optCh = _source.decodeCharAt(_cursor)
+      if optCh.isSome {
+        let ch = optCh.unwrap
+        if ch.isWhitespace {
+          break
+        }
+        _cursor = _cursor + ch.utf8Length
+      } else {
+        _cursor = _cursor + 1
+      }
+    }
+    let wordEnd = _cursor
+    return Some(_source.slice(wordStart, wordEnd))
+  }
+
+  iterator -> SplitWhitespaceIterator { self }
+}
+
+impl CanonicalIterator for SplitWhitespaceIterator {
+  type Item = Substring
+}
+
+impl CanonicalIterable for SplitWhitespace {
+  type Item = Substring
+  type Iterator = SplitWhitespaceIterator
+  iterator -> SplitWhitespaceIterator { SplitWhitespaceIterator.new(self) }
+}
+
+/// A lazy sequence that yields lines separated by newline terminators (\r\n, \n, or \r).
+class Lines {
+  _source: Substring
+  _keepTerminators: Bool
+
+  @constructor
+  new(_ source: Substring, _ keepingTerminators: Bool) {
+    _source = source
+    _keepTerminators = keepingTerminators
+  }
+
+  @class
+  call(_ source: Substring) -> Lines {
+    Lines.new(source, false)
+  }
+
+  @class
+  call(_ source: Substring, keepingTerminators keep: Bool) -> Lines {
+    Lines.new(source, keep)
+  }
+
+  source -> Substring { _source }
+  keepingTerminators -> Bool { _keepTerminators }
+
+  iterator -> LinesIterator {
+    LinesIterator.new(self)
+  }
+}
+
+/// An iterator over lines separated by newline terminators.
+class LinesIterator {
+  _source: Substring
+  _keep: Bool
+  mut _cursor: Int
+  mut _done: Bool
+
+  @constructor
+  new(_ lines: Lines) {
+    _source = lines.source
+    _keep = lines.keepingTerminators
+    _cursor = 0
+    _done = false
+  }
+
+  next -> Option<Substring> {
+    if _done {
+      return None
+    }
+    let total = _source.byteCount
+    if _cursor >= total {
+      _done = true
+      return None
+    }
+    let mut i = _cursor
+    while i < total {
+      let bOpt = _source.rawByteAt(i)
+      if bOpt.isSome {
+        let b = bOpt.unwrap
+        if b == 10 {
+          let lineEnd = if _keep { i + 1 } else { i }
+          let chunk = _source.slice(_cursor, lineEnd)
+          _cursor = i + 1
+          return Some(chunk)
+        }
+        if b == 13 {
+          if i + 1 < total and _source.rawByteAt(i + 1) == Some(10) {
+            let lineEnd = if _keep { i + 2 } else { i }
+            let chunk = _source.slice(_cursor, lineEnd)
+            _cursor = i + 2
+            return Some(chunk)
+          } else {
+            let lineEnd = if _keep { i + 1 } else { i }
+            let chunk = _source.slice(_cursor, lineEnd)
+            _cursor = i + 1
+            return Some(chunk)
+          }
+        }
+      }
+      i = i + 1
+    }
+    let chunk = _source.slice(_cursor, total)
+    _cursor = total
+    return Some(chunk)
+  }
+
+  iterator -> LinesIterator { self }
+}
+
+impl CanonicalIterator for LinesIterator {
+  type Item = Substring
+}
+
+impl CanonicalIterable for Lines {
+  type Item = Substring
+  type Iterator = LinesIterator
+  iterator -> LinesIterator { LinesIterator.new(self) }
+}
+
+export (
+  Substring,
+  SubstringChars,
+  SubstringCharIterator,
+  SubstringBytes,
+  SubstringByteIterator,
+  Split,
+  SplitIterator,
+  SplitWhitespace,
+  SplitWhitespaceIterator,
+  Lines,
+  LinesIterator
+)

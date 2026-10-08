@@ -50,7 +50,10 @@ import .text
 from .text import (
   Substring,
   Text,
-  TextPattern
+  TextPattern,
+  Split,
+  SplitWhitespace,
+  Lines
 )
 import .regex
 import .json
@@ -67,6 +70,9 @@ export StringIndex
 export Substring
 export Text
 export TextPattern
+export Split
+export SplitWhitespace
+export Lines
 export errors
 export (
   ArgumentError,
