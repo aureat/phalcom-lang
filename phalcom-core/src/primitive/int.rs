@@ -318,3 +318,38 @@ pub fn int_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult
 pub fn int_class_new_default(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     int_class_new(vm, receiver, &[])
 }
+
+#[phalcom_native_macros::primitive(Int, "rawToStringRadix(_)", visibility = internal)]
+pub fn int_raw_to_string_radix(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let big = expect_int_big(receiver, vm)?;
+    let radix_big = expect_int_big(&args[0], vm)?;
+    let Some(radix) = radix_big.to_u32() else {
+        return Err(RuntimeError::ArgumentError("radix out of range".to_string()).into());
+    };
+    if radix < 2 || radix > 36 {
+        return Err(RuntimeError::ArgumentError("radix must be in 2..=36".to_string()).into());
+    }
+    let s = big.to_str_radix(radix);
+    Ok(vm.alloc_string_value(s))
+}
+
+#[phalcom_native_macros::primitive(Int, "rawParse(_,_)", side = class, visibility = internal)]
+pub fn int_class_raw_parse(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let s_ref = match args[0].as_obj() {
+        Some(r) => r,
+        None => return Ok(Value::none()),
+    };
+    let radix_big = expect_int_big(&args[1], vm)?;
+    let Some(radix) = radix_big.to_u32() else {
+        return Ok(Value::none());
+    };
+    if radix < 2 || radix > 36 {
+        return Ok(Value::none());
+    }
+    let s_owned = vm.heap.string(s_ref).as_str().trim().to_string();
+    match BigInt::parse_bytes(s_owned.as_bytes(), radix) {
+        Some(b) => Ok(normalize_bigint(b, &mut vm.heap).wrap_some().unwrap()),
+        None => Ok(Value::none()),
+    }
+}
+

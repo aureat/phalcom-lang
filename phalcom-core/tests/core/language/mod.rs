@@ -73,3 +73,5 @@ mod record_patterns;
 mod record_spread;
 #[path = "traits.rs"]
 mod traits;
+#[path = "strings_text_model.rs"]
+mod strings_text_model;

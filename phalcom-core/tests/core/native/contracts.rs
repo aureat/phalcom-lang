@@ -66,8 +66,12 @@ fn unit_alias_is_not_a_runtime_class_catalog_entry() {
 #[test]
 fn string_raw_byte_at_publishes_bare_int_or_none_contract() {
     let raw_byte_at = string_native_record("rawByteAt(_)");
-    assert_eq!(raw_byte_at.returns(), &TypeExprSpec::Universe(UniverseKey::Int));
-    assert_eq!(raw_byte_at.callable().return_type, &TypeExprSpec::Universe(UniverseKey::Int));
+    let expected = TypeExprSpec::Applied {
+        origin: &TypeExprSpec::Universe(UniverseKey::Option),
+        arguments: &[TypeExprSpec::Universe(UniverseKey::Int)],
+    };
+    assert_eq!(raw_byte_at.returns(), &expected);
+    assert_eq!(raw_byte_at.callable().return_type, &expected);
 }
 
 #[test]
@@ -76,7 +80,7 @@ fn string_raw_byte_at_runtime_returns_int_or_none() {
     let string = vm.alloc_string_value("A".to_owned());
 
     let in_range = string_raw_byte_at(&mut vm, &string, &[Value::int(0)]).expect("String.rawByteAt(0)");
-    assert_eq!(in_range.as_int(), Some(65));
+    assert_eq!(in_range.unwrap_some().and_then(|v| v.as_int()), Some(65));
 
     let out_of_range = string_raw_byte_at(&mut vm, &string, &[Value::int(1)]).expect("String.rawByteAt(1)");
     assert!(out_of_range.is_none(), "out-of-range byte access must return None, got {out_of_range:?}");

@@ -24,6 +24,7 @@ expose .testing
 
 import .object
 import .scalar
+from .scalar import StringIndex
 import .errors
 from .errors import (
   ArgumentError,
@@ -46,6 +47,23 @@ import .io
 import .fs
 import .path
 import .text
+from .text import (
+  Substring,
+  Text,
+  TextPattern,
+  Split,
+  SplitWhitespace,
+  Lines,
+  TextWriter,
+  StringBuilder,
+  TextCursor,
+  SourceLocation,
+  LineMap,
+  Utf8Error,
+  IntParseError,
+  FloatParseError,
+  BoolParseError
+)
 import .regex
 import .json
 import .math
@@ -57,6 +75,22 @@ import .testing
 
 export object
 export scalar
+export StringIndex
+export Substring
+export Text
+export TextPattern
+export Split
+export SplitWhitespace
+export Lines
+export TextWriter
+export StringBuilder
+export TextCursor
+export SourceLocation
+export LineMap
+export Utf8Error
+export IntParseError
+export FloatParseError
+export BoolParseError
 export errors
 export (
   ArgumentError,

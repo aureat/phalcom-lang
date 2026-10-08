@@ -225,3 +225,137 @@ pub fn string_decode_char_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> P
     let ch = s[offset..].chars().next().expect("valid non-EOF char boundary");
     Ok(Value::char(ch).wrap_some().unwrap())
 }
+
+/// Signature: `String::lowercase()` — converts the string to lowercase using default Unicode case mapping.
+#[phalcom_native_macros::primitive(
+    String,
+    "lowercase()",
+    params = [],
+    returns = String,
+    types = "() -> String",
+    effects = pure
+)]
+pub fn string_lowercase(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let s = expect_string(vm, receiver)?;
+    Ok(vm.alloc_string_value(s.to_lowercase()))
+}
+
+/// Signature: `String::uppercase()` — converts the string to uppercase using default Unicode case mapping.
+#[phalcom_native_macros::primitive(
+    String,
+    "uppercase()",
+    params = [],
+    returns = String,
+    types = "() -> String",
+    effects = pure
+)]
+pub fn string_uppercase(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let s = expect_string(vm, receiver)?;
+    Ok(vm.alloc_string_value(s.to_uppercase()))
+}
+
+/// Signature: `String::rawEquals(_)` — tests string content equality.
+#[phalcom_native_macros::primitive(
+    String,
+    "rawEquals(_)",
+    params = [Object],
+    returns = Bool,
+    types = "(Object) -> Bool",
+    effects = pure,
+    visibility = internal
+)]
+pub fn string_raw_equals(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    Ok(Value::bool(receiver.value_eq(&args[0], &vm.heap)))
+}
+
+/// Signature: `String::rawFindSlice(_,_,_)` — searches for substring within byte bounds.
+#[phalcom_native_macros::primitive(
+    String,
+    "rawFindSlice(_,_,_)",
+    params = [String, Int, Int],
+    returns = "Option<Int>",
+    types = "(String, Int, Int) -> Option<Int>",
+    effects = pure,
+    visibility = internal
+)]
+pub fn string_raw_find_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let s = expect_string(vm, receiver)?;
+    let needle = expect_string(vm, &args[0])?;
+    let start_big = crate::primitive::int::expect_int_big(&args[1], vm)?;
+    let end_big = crate::primitive::int::expect_int_big(&args[2], vm)?;
+    let Some(start) = start_big.to_usize() else {
+        return Ok(Value::none());
+    };
+    let Some(end) = end_big.to_usize() else {
+        return Ok(Value::none());
+    };
+    if start > end || end > s.len() {
+        return Ok(Value::none());
+    }
+    if !s.is_char_boundary(start) || !s.is_char_boundary(end) {
+        return Ok(Value::none());
+    }
+    let slice = &s[start..end];
+    match slice.find(needle.as_str()) {
+        Some(offset) => Ok(Value::int(offset as i64).wrap_some().unwrap()),
+        None => Ok(Value::none()),
+    }
+}
+
+/// Signature: `String.class::rawJoin(_)` — joins a list of strings into one without intermediate allocations.
+#[phalcom_native_macros::primitive(String, "rawJoin(_)", side = class, visibility = internal)]
+pub fn string_class_raw_join(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let list_ref = match args[0].as_obj() {
+        Some(r) => r,
+        None => return Err(RuntimeError::Type { expected: "List", found: args[0].type_name() }.into()),
+    };
+    let elements = vm.heap.list(list_ref).elements().to_vec();
+    let mut total_len = 0;
+    for elem in &elements {
+        if let Some(s_ref) = elem.as_obj() {
+            total_len += vm.heap.string(s_ref).as_str().len();
+        }
+    }
+    let mut res = String::with_capacity(total_len);
+    for elem in &elements {
+        if let Some(s_ref) = elem.as_obj() {
+            res.push_str(vm.heap.string(s_ref).as_str());
+        }
+    }
+    Ok(vm.alloc_string_value(res))
+}
+
+/// Signature: `String::rawRFindSlice(_,_,_)` — searches backwards for substring within byte bounds.
+#[phalcom_native_macros::primitive(
+    String,
+    "rawRFindSlice(_,_,_)",
+    params = [String, Int, Int],
+    returns = "Option<Int>",
+    types = "(String, Int, Int) -> Option<Int>",
+    effects = pure,
+    visibility = internal
+)]
+pub fn string_raw_rfind_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let s = expect_string(vm, receiver)?;
+    let needle = expect_string(vm, &args[0])?;
+    let start_big = crate::primitive::int::expect_int_big(&args[1], vm)?;
+    let end_big = crate::primitive::int::expect_int_big(&args[2], vm)?;
+    let Some(start) = start_big.to_usize() else {
+        return Ok(Value::none());
+    };
+    let Some(end) = end_big.to_usize() else {
+        return Ok(Value::none());
+    };
+    if start > end || end > s.len() {
+        return Ok(Value::none());
+    }
+    if !s.is_char_boundary(start) || !s.is_char_boundary(end) {
+        return Ok(Value::none());
+    }
+    let slice = &s[start..end];
+    match slice.rfind(needle.as_str()) {
+        Some(offset) => Ok(Value::int(offset as i64).wrap_some().unwrap()),
+        None => Ok(Value::none()),
+    }
+}
+

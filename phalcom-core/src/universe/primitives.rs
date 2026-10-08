@@ -10,8 +10,8 @@ use crate::primitive::bytes::{
 };
 use crate::primitive::char::{
     char_code_point, char_from_code_point, char_hash, char_is_ascii, char_is_ascii_alphanumeric, char_is_ascii_alphabetic, char_is_ascii_digit,
-    char_is_ascii_hex_digit, char_is_ascii_lowercase, char_is_ascii_uppercase, char_is_control, char_is_whitespace, char_to_string,
-    char_utf8_length,
+    char_is_ascii_hex_digit, char_is_ascii_lowercase, char_is_ascii_uppercase, char_is_control, char_is_whitespace, char_simple_lowercase,
+    char_simple_uppercase, char_to_string, char_utf8_length,
 };
 use crate::primitive::class::{behavior_extract_shape, behavior_methods, behavior_name, class_add, class_new_, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
@@ -28,7 +28,8 @@ use crate::primitive::float::{
     float_to_int_exact, float_truncated,
 };
 use crate::primitive::int::{
-    int_and, int_bit_at, int_bit_count, int_bit_length, int_class_new, int_not, int_or, int_shl, int_shr, int_trailing_zeros, int_xor,
+    int_and, int_bit_at, int_bit_count, int_bit_length, int_class_new, int_class_raw_parse, int_not, int_or, int_raw_to_string_radix, int_shl, int_shr,
+    int_trailing_zeros, int_xor,
 };
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_replace_slice, list_to_string};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
@@ -36,8 +37,8 @@ use crate::primitive::method::{method_bind, method_class_new, method_holder, met
 use crate::primitive::method_family::{method_family_bind, method_family_method_for_shape, method_family_selectors, method_family_size};
 use crate::primitive::module::{module_class_new, module_does_not_understand};
 use crate::primitive::number::{
-    number_add, number_class_new, number_compare, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod,
-    number_mul, number_negate, number_pow, number_sub, number_to_string, number_unary_plus,
+    float_class_raw_parse, number_add, number_class_new, number_compare, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt,
+    number_mod, number_mul, number_negate, number_pow, number_sub, number_to_string, number_unary_plus,
 };
 use crate::primitive::object::{
     message_args, message_labels, message_name, message_selector, object_class, object_does_not_understand, object_eq, object_hash, object_invariant_enter,
@@ -61,7 +62,10 @@ use crate::primitive::reflection::*;
 use crate::primitive::selector::*;
 use crate::primitive::selector_pattern::*;
 use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
-use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_at, string_raw_byte_count, string_raw_slice};
+use crate::primitive::string::{
+    string_add, string_class_new, string_class_raw_join, string_hash, string_lowercase, string_raw_byte_at, string_raw_byte_count, string_raw_equals,
+    string_raw_find_slice, string_raw_rfind_slice, string_raw_slice, string_uppercase,
+};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_is_selector, symbol_is_selector_pattern, symbol_tostring};
 use crate::primitive::system::{
     system_class_new, system_class_print, system_gc, system_next_scheduled_internal, system_raw_write, system_report_unhandled_scheduled_failures,
@@ -198,10 +202,13 @@ impl Universe {
         primitive!(vm, int_cls, "trailingZeros", SignatureKind::Getter, int_trailing_zeros);
         primitive_static!(vm, int_cls, "new", SignatureKind::Method(0), int_class_new);
         primitive_static!(vm, int_cls, "new", SignatureKind::Method(1), int_class_new);
+        primitive_internal!(vm, int_cls, "rawToStringRadix", SignatureKind::Method(1), int_raw_to_string_radix);
+        primitive_static_internal!(vm, int_cls, "rawParse", SignatureKind::Method(2), int_class_raw_parse);
 
         let float_cls = vm.universe.classes.float_class;
         primitive_static!(vm, float_cls, "new", SignatureKind::Method(0), float_class_new);
         primitive_static!(vm, float_cls, "new", SignatureKind::Method(1), float_class_new);
+        primitive_static_internal!(vm, float_cls, "rawParse", SignatureKind::Method(1), float_class_raw_parse);
         // Float protocol primitives (float-semantics spec):
         // `abs`/`sign` work on any finite-or-not receiver;
         // `floor`/`ceil`/`truncated`/`rounded`/`toIntExact` require finite.
@@ -231,6 +238,12 @@ impl Universe {
         primitive_internal!(vm, string_cls, "rawByteCount", SignatureKind::Getter, string_raw_byte_count);
         primitive_internal!(vm, string_cls, "rawByteAt", SignatureKind::Method(1), string_raw_byte_at);
         primitive_internal!(vm, string_cls, "rawSlice", SignatureKind::Method(2), string_raw_slice);
+        primitive_internal!(vm, string_cls, "rawEquals", SignatureKind::Method(1), string_raw_equals);
+        primitive_internal!(vm, string_cls, "rawFindSlice", SignatureKind::Method(3), string_raw_find_slice);
+        primitive_internal!(vm, string_cls, "rawRFindSlice", SignatureKind::Method(3), string_raw_rfind_slice);
+        primitive_static_internal!(vm, string_cls, "rawJoin", SignatureKind::Method(1), string_class_raw_join);
+        primitive!(vm, string_cls, "lowercase", SignatureKind::Method(0), string_lowercase);
+        primitive!(vm, string_cls, "uppercase", SignatureKind::Method(0), string_uppercase);
 
         let char_cls = vm.universe.classes.char_class;
         primitive!(vm, char_cls, "codePoint", SignatureKind::Getter, char_code_point);
@@ -246,6 +259,8 @@ impl Universe {
         primitive!(vm, char_cls, "isWhitespace", SignatureKind::Getter, char_is_whitespace);
         primitive!(vm, char_cls, "isControl", SignatureKind::Getter, char_is_control);
         primitive!(vm, char_cls, "hash", SignatureKind::Getter, char_hash);
+        primitive!(vm, char_cls, "simpleLowercase", SignatureKind::Getter, char_simple_lowercase);
+        primitive!(vm, char_cls, "simpleUppercase", SignatureKind::Getter, char_simple_uppercase);
         primitive_static!(vm, char_cls, "fromCodePoint", SignatureKind::Method(1), char_from_code_point);
 
         let bool_cls = vm.universe.classes.bool_class;
