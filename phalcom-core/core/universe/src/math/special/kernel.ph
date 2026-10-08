@@ -364,12 +364,13 @@ class SpecialKernel {
   regularizedBetaComplement(_ a: Float, _ b: Float, _ x: Float) -> Float { F.exp(SpecialKernel.logRegularizedBetaComplement(a, b, x)) }
 
   @class
-  logErfc(_ x: Float) -> Float {
-    if x.isNaN { ArgumentError.new("logErfc requires a non-NaN value").raise() }
-    if x == 0.0 { return 0.0 }
-    if x == 1.0 / 0.0 { return -1.0 / 0.0 }
-    if x == -1.0 / 0.0 { return 0.6931471805599453 }
-    if x.abs <= 0.5 {
+  erf(_ x: Float) -> Float {
+    if x.isNaN { ArgumentError.new("erf requires a non-NaN value").raise() }
+    if x == 0.0 { return x }
+    if x == 1.0 / 0.0 { return 1.0 }
+    if x == -1.0 / 0.0 { return -1.0 }
+    if x < 0.0 { return -SpecialKernel.erf(-x) }
+    if x <= 0.5 {
       let square = x * x
       let mut term = 1.0
       let mut sum = 1.0
@@ -382,7 +383,20 @@ class SpecialKernel {
         if next.abs <= sum.abs * 0.0000000000000002 { break }
         n = n + 1
       }
-      return F.ln1p(-1.1283791670955126 * x * sum)
+      return 1.1283791670955126 * x * sum
+    }
+    if x > 28.0 { return 1.0 }
+    return 1.0 - SpecialKernel.erfc(x)
+  }
+
+  @class
+  logErfc(_ x: Float) -> Float {
+    if x.isNaN { ArgumentError.new("logErfc requires a non-NaN value").raise() }
+    if x == 0.0 { return 0.0 }
+    if x == 1.0 / 0.0 { return -1.0 / 0.0 }
+    if x == -1.0 / 0.0 { return 0.6931471805599453 }
+    if x.abs <= 0.5 {
+      return F.ln1p(-SpecialKernel.erf(x))
     }
     let square = x * x
     if square.isInfinite {

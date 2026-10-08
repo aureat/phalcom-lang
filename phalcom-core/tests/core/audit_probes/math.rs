@@ -723,13 +723,17 @@ fn probability_helpers_preserve_distinct_error_categories() {
 #[test]
 fn special_functions_reject_invalid_domains_and_unrepresentable_log_results() {
     for (expression, class) in [
-        ("special.logGamma(0.0)", "ArgumentError"),
-        ("special.regularizedGammaP(2.0, -1.0)", "ArgumentError"),
-        ("special.regularizedBeta(2.0, 3.0, 1.1)", "ArgumentError"),
-        ("special.inverseNormal(0.0 / 0.0)", "ArgumentError"),
-        ("special.logRegularizedGammaQ(1000001.0, 1.0)", "NumericalRangeError"),
+        ("special.Gamma.log(0.0)", "ArgumentError"),
+        ("special.Gamma.p(2.0, -1.0)", "ArgumentError"),
+        ("special.Beta.regularized(1.1, 2.0, 3.0)", "ArgumentError"),
+        ("special.Normal.quantile(0.0 / 0.0)", "ArgumentError"),
+        ("special.Normal.survival(0.0 / 0.0)", "ArgumentError"),
+        ("special.Normal.logSurvival(0.0 / 0.0)", "ArgumentError"),
+        ("special.erf(0.0 / 0.0)", "ArgumentError"),
+        ("special.Gamma.logQ(1000001.0, 1.0)", "NumericalRangeError"),
         ("special.logErfc(1.0e308)", "NumericalRangeError"),
         ("special.logChoose(9007199254740992, 1)", "NumericalRangeError"),
+        ("special.Combinatorics.logChoose(9007199254740992, 1)", "NumericalRangeError"),
     ] {
         let (_temp, program) = compile_package(&format!("import universe.math.special as special\n{expression}\n"));
         let mut vm = VM::new();
@@ -739,4 +743,95 @@ fn special_functions_reject_invalid_domains_and_unrepresentable_log_results() {
         };
         assert_eq!(vm.heap.class(error.class(&vm)).name, class, "{expression}");
     }
+}
+
+#[test]
+fn special_function_families_public_facade_and_imports() {
+    let source = r#"
+from universe.math.special import (
+  Gamma,
+  Beta,
+  Normal,
+  Combinatorics,
+  erf,
+  erfc,
+  logErfc,
+  logFactorial,
+  logChoose,
+  NumericalRangeError,
+  NumericalEvaluationError
+)
+
+let gammaLog = Gamma.log(1.0)
+let gammaP = Gamma.p(1.0, 1.0)
+let gammaQ = Gamma.q(1.0, 1.0)
+let gammaLogP = Gamma.logP(1.0, 1.0)
+let gammaLogQ = Gamma.logQ(1.0, 1.0)
+let gammaInvP = Gamma.inverseP(1.0, 0.5)
+
+let betaLog = Beta.log(1.0, 1.0)
+let betaReg = Beta.regularized(0.5, 1.0, 1.0)
+let betaComp = Beta.complement(0.5, 1.0, 1.0)
+let betaLogReg = Beta.logRegularized(0.5, 1.0, 1.0)
+let betaLogComp = Beta.logComplement(0.5, 1.0, 1.0)
+let betaInv = Beta.inverse(0.5, 1.0, 1.0)
+
+let normalQuantile = Normal.quantile(0.5)
+let normalCdf = Normal.cdf(0.0)
+let normalSurvival = Normal.survival(0.0)
+let normalLogCdf = Normal.logCdf(0.0)
+let normalLogSurvival = Normal.logSurvival(0.0)
+
+let erfZero = erf(0.0)
+let erfOne = erf(1.0)
+let erfNegOne = erf(-1.0)
+let erfcZero = erfc(0.0)
+let logErfcZero = logErfc(0.0)
+
+let combLogFact = Combinatorics.logFactorial(5)
+let combLogChoose = Combinatorics.logChoose(5, 2)
+let flatLogFact = logFactorial(5)
+let flatLogChoose = logChoose(5, 2)
+"#;
+
+    let (_temp, program) = compile_package(source);
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("special function structured facade executes");
+    let module = vm.module_registry.get(&program.entry).unwrap().object;
+
+    assert_eq!(read_global(&vm, module, "gammaLog").as_float().unwrap(), 0.0);
+    let p_val = read_global(&vm, module, "gammaP").as_float().unwrap();
+    let q_val = read_global(&vm, module, "gammaQ").as_float().unwrap();
+    assert!((p_val + q_val - 1.0).abs() < 1e-15);
+    assert!((read_global(&vm, module, "gammaLogQ").as_float().unwrap() - -1.0).abs() < 1e-14);
+    let inv_p = read_global(&vm, module, "gammaInvP").as_float().unwrap();
+    assert!((inv_p - 2.0_f64.ln()).abs() < 1e-12);
+
+    assert!(read_global(&vm, module, "betaLog").as_float().unwrap().abs() < 1e-14);
+    assert!((read_global(&vm, module, "betaReg").as_float().unwrap() - 0.5).abs() < 1e-14);
+    assert!((read_global(&vm, module, "betaComp").as_float().unwrap() - 0.5).abs() < 1e-14);
+    assert!((read_global(&vm, module, "betaLogReg").as_float().unwrap() - -2.0_f64.ln()).abs() < 1e-14);
+    assert!((read_global(&vm, module, "betaLogComp").as_float().unwrap() - -2.0_f64.ln()).abs() < 1e-14);
+    assert!((read_global(&vm, module, "betaInv").as_float().unwrap() - 0.5).abs() < 1e-10);
+
+    assert_eq!(read_global(&vm, module, "normalQuantile").as_float().unwrap(), 0.0);
+    assert_eq!(read_global(&vm, module, "normalCdf").as_float().unwrap(), 0.5);
+    assert_eq!(read_global(&vm, module, "normalSurvival").as_float().unwrap(), 0.5);
+    assert!((read_global(&vm, module, "normalLogCdf").as_float().unwrap() - -2.0_f64.ln()).abs() < 1e-15);
+    assert!((read_global(&vm, module, "normalLogSurvival").as_float().unwrap() - -2.0_f64.ln()).abs() < 1e-15);
+
+    assert_eq!(read_global(&vm, module, "erfZero").as_float().unwrap(), 0.0);
+    let erf_one = read_global(&vm, module, "erfOne").as_float().unwrap();
+    let erf_neg_one = read_global(&vm, module, "erfNegOne").as_float().unwrap();
+    assert!((erf_one + erf_neg_one).abs() < 1e-15, "erf must be odd");
+    assert!((erf_one - 0.8427007929497149).abs() < 1e-12);
+    assert_eq!(read_global(&vm, module, "erfcZero").as_float().unwrap(), 1.0);
+    assert_eq!(read_global(&vm, module, "logErfcZero").as_float().unwrap(), 0.0);
+
+    let expected_fact5 = 120.0_f64.ln();
+    let expected_choose5_2 = 10.0_f64.ln();
+    assert!((read_global(&vm, module, "combLogFact").as_float().unwrap() - expected_fact5).abs() < 1e-14);
+    assert!((read_global(&vm, module, "flatLogFact").as_float().unwrap() - expected_fact5).abs() < 1e-14);
+    assert!((read_global(&vm, module, "combLogChoose").as_float().unwrap() - expected_choose5_2).abs() < 1e-14);
+    assert!((read_global(&vm, module, "flatLogChoose").as_float().unwrap() - expected_choose5_2).abs() < 1e-14);
 }
