@@ -7,6 +7,15 @@ fn slot(vm: &phalcom_core::vm::VM, module: phalcom_core::heap::ObjRef, name: &st
     vm.heap.module(module).get(vm.interner.find(name)?)
 }
 
+fn run_standalone(source: &str) -> Result<(phalcom_core::vm::VM, phalcom_core::heap::ObjRef), Box<dyn std::error::Error>> {
+    let mut session = phalcom_core::modules::compile_session::ProgramCompilationSession::standalone()?;
+    let program = session.compile_fixture(std::path::Path::new("text_test.ph"), source)?;
+    let mut vm = super::vm_support::universe_vm();
+    vm.run_compiled(&program)?;
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    Ok((vm, module))
+}
+
 #[test]
 fn string_index_and_counts() {
     let source = r#"
@@ -93,3 +102,57 @@ let rangeSubStr = rangeSub.toString
     assert_eq!(slot(&vm, module, "subSliceStr").map(|v| v.to_string(&vm)), Some("ell".to_string()));
     assert_eq!(slot(&vm, module, "rangeSubStr").map(|v| v.to_string(&vm)), Some("world".to_string()));
 }
+
+#[test]
+fn text_pattern_matching() {
+    let source = r#"
+from universe.text import Text, TextPattern, Substring
+
+class Measure {
+  @class
+  count<T>(_ t: T) -> Int where T |= Text {
+    t.byteCount
+  }
+
+  @class
+  asSub<T>(_ t: T) -> Substring where T |= Text {
+    t.asSubstring
+  }
+}
+
+let str = "hello world"
+let sub = str.slice(0, 5)
+
+let strLen = Measure.count(str)
+let subLen = Measure.count(sub)
+let strSubStr = Measure.asSub(str).toString
+
+let matchChar = 'o'.findIn(str.asSubstring, 0)
+let matchCharSecond = 'o'.findIn(str.asSubstring, 5)
+let matchStr = "world".findIn(str.asSubstring, 0)
+let matchSub = str.slice(6, 11).findIn(str.asSubstring, 0)
+let matchNotFound = "world".findIn(sub, 0)
+"#;
+
+    let (vm, module) = run_standalone(source).expect("text_pattern_matching executes");
+
+    assert_eq!(slot(&vm, module, "strLen").and_then(|v| v.as_int()), Some(11));
+    assert_eq!(slot(&vm, module, "subLen").and_then(|v| v.as_int()), Some(5));
+    assert_eq!(slot(&vm, module, "strSubStr").map(|v| v.to_string(&vm)), Some("hello world".to_string()));
+
+    let mc = slot(&vm, module, "matchChar").and_then(|v| v.unwrap_some()).expect("found char match");
+    assert_eq!(mc.to_string(&vm), "(4, 5)");
+
+    let mc2 = slot(&vm, module, "matchCharSecond").and_then(|v| v.unwrap_some()).expect("found second char match");
+    assert_eq!(mc2.to_string(&vm), "(7, 8)");
+
+    let ms = slot(&vm, module, "matchStr").and_then(|v| v.unwrap_some()).expect("found str match");
+    assert_eq!(ms.to_string(&vm), "(6, 11)");
+
+    let msub = slot(&vm, module, "matchSub").and_then(|v| v.unwrap_some()).expect("found sub match");
+    assert_eq!(msub.to_string(&vm), "(6, 11)");
+
+    let mnf = slot(&vm, module, "matchNotFound").expect("matchNotFound slot");
+    assert!(mnf.is_none());
+}
+

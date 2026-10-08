@@ -120,6 +120,40 @@ class Substring {
     _string.rawByteAt(_start + index)
   }
 
+  /// Decodes and returns the Unicode scalar value at relative byte offset `offset`.
+  decodeCharAt(_ offset: Int) -> Option<Char> {
+    if offset < 0 or _start + offset >= _end {
+      return None
+    }
+    _string.decodeCharAt(_start + offset)
+  }
+
+  /// Determines whether the relative byte offset is a UTF-8 character boundary.
+  isCharBoundary(_ offset: Int) -> Bool {
+    if offset < 0 or offset > byteCount {
+      return false
+    }
+    _string.isCharBoundary(_start + offset)
+  }
+
+  /// Returns this substring view.
+  asSubstring -> Substring { self }
+
+  /// Searches for the first occurrence of this substring in `source` from the beginning.
+  findIn(_ source: Substring) -> Option<(Int, Int)> {
+    self.findIn(source, 0)
+  }
+
+  /// Searches for the first occurrence of this substring in `source` at or after byte offset `offset`.
+  findIn(_ source: Substring, _ offset: Int) -> Option<(Int, Int)> {
+    self.toString.findIn(source, offset)
+  }
+
+  /// Searches for the first occurrence of this substring in `source` at or after byte offset `from`.
+  findIn(_ source: Substring, from offset: Int) -> Option<(Int, Int)> {
+    self.findIn(source, offset)
+  }
+
   /// Subscript operator for Substring.
   [_ index] {
     if index.is(StringIndex) {

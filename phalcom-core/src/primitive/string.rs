@@ -267,3 +267,72 @@ pub fn string_uppercase(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 pub fn string_raw_equals(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     Ok(Value::bool(receiver.value_eq(&args[0], &vm.heap)))
 }
+
+/// Signature: `String::rawFindSlice(_,_,_)` — searches for substring within byte bounds.
+#[phalcom_native_macros::primitive(
+    String,
+    "rawFindSlice(_,_,_)",
+    params = [String, Int, Int],
+    returns = "Option<Int>",
+    types = "(String, Int, Int) -> Option<Int>",
+    effects = pure,
+    visibility = internal
+)]
+pub fn string_raw_find_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let s = expect_string(vm, receiver)?;
+    let needle = expect_string(vm, &args[0])?;
+    let start_big = crate::primitive::int::expect_int_big(&args[1], vm)?;
+    let end_big = crate::primitive::int::expect_int_big(&args[2], vm)?;
+    let Some(start) = start_big.to_usize() else {
+        return Ok(Value::none());
+    };
+    let Some(end) = end_big.to_usize() else {
+        return Ok(Value::none());
+    };
+    if start > end || end > s.len() {
+        return Ok(Value::none());
+    }
+    if !s.is_char_boundary(start) || !s.is_char_boundary(end) {
+        return Ok(Value::none());
+    }
+    let slice = &s[start..end];
+    match slice.find(needle.as_str()) {
+        Some(offset) => Ok(Value::int(offset as i64).wrap_some().unwrap()),
+        None => Ok(Value::none()),
+    }
+}
+
+/// Signature: `String::rawRFindSlice(_,_,_)` — searches backwards for substring within byte bounds.
+#[phalcom_native_macros::primitive(
+    String,
+    "rawRFindSlice(_,_,_)",
+    params = [String, Int, Int],
+    returns = "Option<Int>",
+    types = "(String, Int, Int) -> Option<Int>",
+    effects = pure,
+    visibility = internal
+)]
+pub fn string_raw_rfind_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let s = expect_string(vm, receiver)?;
+    let needle = expect_string(vm, &args[0])?;
+    let start_big = crate::primitive::int::expect_int_big(&args[1], vm)?;
+    let end_big = crate::primitive::int::expect_int_big(&args[2], vm)?;
+    let Some(start) = start_big.to_usize() else {
+        return Ok(Value::none());
+    };
+    let Some(end) = end_big.to_usize() else {
+        return Ok(Value::none());
+    };
+    if start > end || end > s.len() {
+        return Ok(Value::none());
+    }
+    if !s.is_char_boundary(start) || !s.is_char_boundary(end) {
+        return Ok(Value::none());
+    }
+    let slice = &s[start..end];
+    match slice.rfind(needle.as_str()) {
+        Some(offset) => Ok(Value::int(offset as i64).wrap_some().unwrap()),
+        None => Ok(Value::none()),
+    }
+}
+

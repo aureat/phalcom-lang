@@ -27,6 +27,8 @@ native class String is Object {
   internal native rawByteAt(_ index: Int) -> Option<Int>
   internal native rawSlice(_ start: Int, _ end: Int) -> String
   internal native rawEquals(_ other: Object) -> Bool
+  internal native rawFindSlice(_ needle: String, _ start: Int, _ end: Int) -> Option<Int>
+  internal native rawRFindSlice(_ needle: String, _ start: Int, _ end: Int) -> Option<Int>
   native isCharBoundary(_ byteOffset: Int) -> Bool
   native decodeCharAt(_ byteOffset: Int) -> Option<Char>
   native lowercase() -> String
@@ -259,13 +261,51 @@ native class String is Object {
   }
 
   /// Indicates whether the string contains zero bytes.
-  isEmpty { rawByteCount == 0 }
+  isEmpty -> Bool { rawByteCount == 0 }
 
   /// Extracts a non-allocating Substring view by half-open byte or index range `[start, end)`.
   slice(_ start, _ end) -> Substring {
     let s = if start.is(StringIndex) { start.offset } else { start }
     let e = if end.is(StringIndex) { end.offset } else { end }
     Substring.new(self, s, e)
+  }
+
+  /// Produces a zero-copy Substring view spanning the entire string.
+  asSubstring -> Substring {
+    Substring.new(self, 0, rawByteCount)
+  }
+
+  /// Searches for the first occurrence of this string in `source` from the beginning.
+  findIn(_ source: Substring) -> Option<(Int, Int)> {
+    self.findIn(source, 0)
+  }
+
+  /// Searches for the first occurrence of this string in `source` at or after byte offset `offset`.
+  findIn(_ source: Substring, _ offset: Int) -> Option<(Int, Int)> {
+    let patLen = rawByteCount
+    let srcLen = source.byteCount
+    if patLen == 0 {
+      if offset >= 0 and offset <= srcLen {
+        return Some((offset, offset))
+      }
+      return None
+    }
+    if offset < 0 or offset + patLen > srcLen {
+      return None
+    }
+    let optOffset = source.string.rawFindSlice(self, source.startOffset + offset, source.endOffset)
+    match optOffset {
+      Option::Some(matchRel) => {
+        let start = offset + matchRel
+        Some((start, start + patLen))
+      }
+      _ => None
+    }
+  }
+
+  /// Searches for the first occurrence of this string in `source` at or after byte offset `from`.
+  findIn(_ source: Substring, from offset: Int) -> Option<(Int, Int)> {
+    self.findIn(source, offset)
   }
 
   /// Determines the number of bytes in the UTF-8 code point starting at byte offset `i`.
@@ -526,6 +566,9 @@ native class String is Object {
   /// Returns a byte-level sequence view of this string.
   bytes { StringByteSequence.new(self) }
 
+  /// Returns an iterable byte-level sequence view of this string as UTF-8 bytes.
+  utf8 -> StringByteSequence { StringByteSequence.new(self) }
+
   /// Returns a character sequence view yielding `Char` Unicode scalar values.
   chars -> StringChars { StringChars.new(self) }
 
@@ -763,3 +806,12 @@ impl CanonicalIterable for StringCodePointSequence {
   type Iterator = StringCodePointIterator
   iterator -> StringCodePointIterator { StringCodePointIterator.new(self) }
 }
+
+export (
+  StringChars,
+  StringCharIterator,
+  StringByteSequence,
+  StringByteIterator,
+  StringCodePointSequence,
+  StringCodePointIterator
+)

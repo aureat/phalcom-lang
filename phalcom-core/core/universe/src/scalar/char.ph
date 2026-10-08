@@ -1,5 +1,7 @@
 @!documentation("A Unicode scalar value, distinct from Int and String.")
 
+from universe.text.substring import Substring
+
 @sealed
 native class Char is Object {
   native codePoint -> Int
@@ -31,5 +33,39 @@ native class Char is Object {
     if cp == 0 { return "'\\0'" }
     if cp < 32 { return "'\\u{" + cp.toString + "}'" }
     return "'" + toString + "'"
+  }
+
+  /// Searches for the first occurrence of this character in `source` from the beginning.
+  findIn(_ source: Substring) -> Option<(Int, Int)> {
+    self.findIn(source, 0)
+  }
+
+  /// Searches for the first occurrence of this character in `source` at or after byte offset `offset`.
+  findIn(_ source: Substring, _ offset: Int) -> Option<(Int, Int)> {
+    if offset < 0 or offset >= source.byteCount {
+      return None
+    }
+    let mut i = offset
+    let srcLen = source.byteCount
+    while i < srcLen {
+      let optCh = source.decodeCharAt(i)
+      match optCh {
+        Option::Some(ch) => {
+          if ch == self {
+            return Some((i, i + ch.utf8Length))
+          }
+          i = i + ch.utf8Length
+        }
+        _ => {
+          i = i + 1
+        }
+      }
+    }
+    return None
+  }
+
+  /// Searches for the first occurrence of this character in `source` at or after byte offset `from`.
+  findIn(_ source: Substring, from offset: Int) -> Option<(Int, Int)> {
+    self.findIn(source, offset)
   }
 }
