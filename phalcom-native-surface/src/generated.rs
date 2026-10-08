@@ -1,7 +1,7 @@
 #![doc = r" Generated canonical native surface records."]
 #[doc = r" Number of authored `#[primitive]` declarations scanned by the surface"]
 #[doc = r" generator."]
-pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 400usize;
+pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 404usize;
 use crate::{NativeMemberKind, NativeReturnShape, NativeSurfaceRecord};
 use phalcom_native_meta::*;
 pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
@@ -3495,6 +3495,53 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             key: PrimitiveKey {
                 owner: UniverseKey::String,
                 side: NativeDispatch::Instance,
+                selector: "lowercase()",
+            },
+            visibility: NativeVisibility::Public,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String),
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String),
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Signature: `String::lowercase()` — converts the string to lowercase using default Unicode case mapping."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("String"),
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::String,
+                side: NativeDispatch::Instance,
                 selector: "rawByteAt(_)",
             },
             visibility: NativeVisibility::Internal,
@@ -3637,6 +3684,53 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             intrinsic: None,
             trust: NativeTrust::Ordinary,
             docs: Some(" Signature: `String::rawSlice(_,_)` — extract a substring by byte range `[start, end)`."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("String"),
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::String,
+                side: NativeDispatch::Instance,
+                selector: "uppercase()",
+            },
+            visibility: NativeVisibility::Public,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String),
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String),
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Signature: `String::uppercase()` — converts the string to uppercase using default Unicode case mapping."),
             conceptual: None,
         },
         kind: NativeMemberKind::Method,
@@ -4253,6 +4347,100 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         kind: NativeMemberKind::Getter,
         abi: PrimitiveAbi::Value,
         return_shape: NativeReturnShape::Instance("Bool"),
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Char,
+                side: NativeDispatch::Instance,
+                selector: "simpleLowercase",
+            },
+            visibility: NativeVisibility::Public,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Char),
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Char),
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Returns the simple Unicode lowercase mapping for this scalar."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Getter,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("Char"),
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Char,
+                side: NativeDispatch::Instance,
+                selector: "simpleUppercase",
+            },
+            visibility: NativeVisibility::Public,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Char),
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Char),
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Returns the simple Unicode uppercase mapping for this scalar."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Getter,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("Char"),
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {
@@ -10414,7 +10602,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             intrinsic: None,
             trust: NativeTrust::Ordinary,
             docs: Some(
-                " Signature: `Bytes.class::new(_)` — allocates a zero-filled buffer.\n\n The allocate floor primitive (PDR-0011 ruling 3). Zero-filled birth is\n `bytes.md` law 4: no constructor exposes uninitialized memory.\n\n # Errors\n\n Returns [`RuntimeError::Type`] if the length is not a non-negative\n integer `Number`.",
+                " Signature: `Bytes.class::new(_)` — allocates a zero-filled buffer.\n\n The allocate floor primitive (PDR-0011 ruling 3). Zero-filled birth is\n `bytes.md` law 4: no constructor exposes uninitialized memory.\n\n # Errors\n\n Returns [`RuntimeError::Type`] if the length is not a non-negative\n integer `Number`, [`RuntimeError::ByteBufferLimit`] above the VM's\n per-buffer limit, or [`RuntimeError::ByteBufferAllocation`] when the host\n cannot reserve the backing storage. The limit is checked before allocation.",
             ),
             conceptual: None,
         },

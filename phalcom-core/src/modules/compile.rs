@@ -489,7 +489,7 @@ impl ProgramAnalyzer {
                 for node in provider
                     .nodes()
                     .iter()
-                    .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", "string"] | ["option", "unit"]))
+                    .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", ..] | ["text", ..] | ["option", "unit"]))
                 {
                     let path = ModulePath::from_components(
                         node.path
@@ -573,7 +573,7 @@ impl ProgramAnalyzer {
         for node in universe_provider
             .nodes()
             .iter()
-            .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", "string"] | ["option", "unit"]))
+            .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", ..] | ["text", ..] | ["option", "unit"]))
         {
             let path = ModulePath::from_components(
                 node.path

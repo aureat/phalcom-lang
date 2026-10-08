@@ -10,8 +10,8 @@ use crate::primitive::bytes::{
 };
 use crate::primitive::char::{
     char_code_point, char_from_code_point, char_hash, char_is_ascii, char_is_ascii_alphanumeric, char_is_ascii_alphabetic, char_is_ascii_digit,
-    char_is_ascii_hex_digit, char_is_ascii_lowercase, char_is_ascii_uppercase, char_is_control, char_is_whitespace, char_to_string,
-    char_utf8_length,
+    char_is_ascii_hex_digit, char_is_ascii_lowercase, char_is_ascii_uppercase, char_is_control, char_is_whitespace, char_simple_lowercase,
+    char_simple_uppercase, char_to_string, char_utf8_length,
 };
 use crate::primitive::class::{behavior_extract_shape, behavior_methods, behavior_name, class_add, class_new_, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
@@ -61,7 +61,9 @@ use crate::primitive::reflection::*;
 use crate::primitive::selector::*;
 use crate::primitive::selector_pattern::*;
 use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
-use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_at, string_raw_byte_count, string_raw_slice};
+use crate::primitive::string::{
+    string_add, string_class_new, string_hash, string_lowercase, string_raw_byte_at, string_raw_byte_count, string_raw_slice, string_uppercase,
+};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_is_selector, symbol_is_selector_pattern, symbol_tostring};
 use crate::primitive::system::{
     system_class_new, system_class_print, system_gc, system_next_scheduled_internal, system_raw_write, system_report_unhandled_scheduled_failures,
@@ -231,6 +233,8 @@ impl Universe {
         primitive_internal!(vm, string_cls, "rawByteCount", SignatureKind::Getter, string_raw_byte_count);
         primitive_internal!(vm, string_cls, "rawByteAt", SignatureKind::Method(1), string_raw_byte_at);
         primitive_internal!(vm, string_cls, "rawSlice", SignatureKind::Method(2), string_raw_slice);
+        primitive!(vm, string_cls, "lowercase", SignatureKind::Method(0), string_lowercase);
+        primitive!(vm, string_cls, "uppercase", SignatureKind::Method(0), string_uppercase);
 
         let char_cls = vm.universe.classes.char_class;
         primitive!(vm, char_cls, "codePoint", SignatureKind::Getter, char_code_point);
@@ -246,6 +250,8 @@ impl Universe {
         primitive!(vm, char_cls, "isWhitespace", SignatureKind::Getter, char_is_whitespace);
         primitive!(vm, char_cls, "isControl", SignatureKind::Getter, char_is_control);
         primitive!(vm, char_cls, "hash", SignatureKind::Getter, char_hash);
+        primitive!(vm, char_cls, "simpleLowercase", SignatureKind::Getter, char_simple_lowercase);
+        primitive!(vm, char_cls, "simpleUppercase", SignatureKind::Getter, char_simple_uppercase);
         primitive_static!(vm, char_cls, "fromCodePoint", SignatureKind::Method(1), char_from_code_point);
 
         let bool_cls = vm.universe.classes.bool_class;

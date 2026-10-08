@@ -5,6 +5,7 @@
 //! and Unicode scalar decoding.
 
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+from universe.scalar.string_index import StringIndex
 
 /// Immutable UTF-8 text string.
 ///
@@ -26,12 +27,203 @@ native class String is Object {
   internal native rawSlice(_ start: Int, _ end: Int) -> String
   native isCharBoundary(_ byteOffset: Int) -> Bool
   native decodeCharAt(_ byteOffset: Int) -> Option<Char>
+  native lowercase() -> String
+  native uppercase() -> String
 
   /// Returns the string itself as its string representation.
   toString { self }
 
   /// Length of the UTF-8 encoded string in bytes.
   size { rawByteCount }
+
+  /// Length of the UTF-8 encoded string in bytes (O(1)).
+  byteCount -> Int { rawByteCount }
+
+  /// Number of Unicode scalar values in the string (O(n)).
+  charCount -> Int {
+    let mut count = 0
+    let mut it = chars.iterator
+    while let Option::Some(_) = it.next {
+      count = count + 1
+    }
+    return count
+  }
+
+  /// Logical start position of the string.
+  startIndex -> StringIndex { StringIndex(0) }
+
+  /// Logical end position of the string.
+  endIndex -> StringIndex { StringIndex(rawByteCount) }
+
+  /// The first Unicode scalar character in the string, or None if empty.
+  first -> Option<Char> {
+    if rawByteCount == 0 { return None }
+    decodeCharAt(0)
+  }
+
+  /// The last Unicode scalar character in the string, or None if empty.
+  last -> Option<Char> {
+    if rawByteCount == 0 { return None }
+    let mut i = rawByteCount - 1
+    while i > 0 and not isCharBoundary(i) {
+      i = i - 1
+    }
+    decodeCharAt(i)
+  }
+
+  /// Advances a string index to the next Unicode scalar boundary.
+  index(after index: StringIndex) -> Option<StringIndex> {
+    if not index.is(StringIndex) {
+      throw ArgumentError.new("index(after:): index must be a StringIndex")
+    }
+    let offset = index.offset
+    if offset < 0 or offset >= rawByteCount {
+      return None
+    }
+    match decodeCharAt(offset) {
+      Option::Some(ch) => Some(StringIndex(offset + ch.utf8Length))
+      _ => None
+    }
+  }
+
+  /// Retreats a string index to the previous Unicode scalar boundary.
+  index(before index: StringIndex) -> Option<StringIndex> {
+    if not index.is(StringIndex) {
+      throw ArgumentError.new("index(before:): index must be a StringIndex")
+    }
+    let offset = index.offset
+    if offset <= 0 or offset > rawByteCount {
+      return None
+    }
+    let mut prev = offset - 1
+    while prev > 0 and not isCharBoundary(prev) {
+      prev = prev - 1
+    }
+    Some(StringIndex(prev))
+  }
+
+  /// Subscript operator for String.
+  [_ index] {
+    if index.is(StringIndex) {
+      let offset = index.offset
+      if offset < 0 or offset >= rawByteCount {
+        throw IndexError.new("StringIndex out of range")
+      }
+      let opt = decodeCharAt(offset)
+      if opt.isSome {
+        return opt.unwrap
+      }
+      throw IndexError.new("StringIndex is not a valid character boundary")
+    } else {
+      throw ArgumentError.new("String subscript requires StringIndex or Range")
+    }
+  }
+
+  /// Reports whether this string contains only ASCII characters.
+  isAscii -> Bool {
+    let mut i = 0
+    let len = rawByteCount
+    while i < len {
+      match rawByteAt(i) {
+        Option::Some(b) => {
+          if b >= 128 { return false }
+        }
+        _ => { return false }
+      }
+      i = i + 1
+    }
+    return true
+  }
+
+  /// Repeats this string `count` times.
+  repeat(_ count: Int) -> String {
+    self * count
+  }
+
+  /// Pads the start of this string with `with` character up to `width`.
+  padStart(_ width: Int) -> String {
+    padStart(width, with: ' ')
+  }
+
+  padStart(_ width: Int, with fill) -> String {
+    let currentLen = charCount
+    if currentLen >= width { return self }
+    let fillChar = if fill.is(Char) { fill.toString } else { fill.toString }
+    let padCount = width - currentLen
+    let mut pad = ""
+    let mut i = 0
+    while i < padCount {
+      pad = pad + fillChar
+      i = i + 1
+    }
+    return pad + self
+  }
+
+  /// Pads the end of this string with `with` character up to `width`.
+  padEnd(_ width: Int) -> String {
+    padEnd(width, with: ' ')
+  }
+
+  padEnd(_ width: Int, with fill) -> String {
+    let currentLen = charCount
+    if currentLen >= width { return self }
+    let fillChar = if fill.is(Char) { fill.toString } else { fill.toString }
+    let padCount = width - currentLen
+    let mut pad = ""
+    let mut i = 0
+    while i < padCount {
+      pad = pad + fillChar
+      i = i + 1
+    }
+    return self + pad
+  }
+
+  /// Canonical Telos source representation of this string literal.
+  repr -> String {
+    let mut out = "\""
+    let mut i = 0
+    let len = rawByteCount
+    while i < len {
+      match rawByteAt(i) {
+        Option::Some(b) => {
+          if b == 34 {
+            out = out + "\\\""
+          } else if b == 92 {
+            out = out + "\\\\"
+          } else if b == 10 {
+            out = out + "\\n"
+          } else if b == 13 {
+            out = out + "\\r"
+          } else if b == 9 {
+            out = out + "\\t"
+          } else if b == 0 {
+            out = out + "\\0"
+          } else if isCharBoundary(i) {
+            match decodeCharAt(i) {
+              Option::Some(ch) => {
+                let code = ch.codePoint
+                if code < 32 {
+                  out = out + "\\u{" + code.toString + "}"
+                } else {
+                  out = out + ch.toString
+                }
+              }
+              _ => {
+                out = out + rawSlice(i, i + 1)
+              }
+            }
+          }
+        }
+        _ => {}
+      }
+      match decodeCharAt(i) {
+        Option::Some(ch) => { i = i + ch.utf8Length }
+        _ => { i = i + 1 }
+      }
+    }
+    out = out + "\""
+    return out
+  }
 
   /// Indicates whether the string contains zero bytes.
   isEmpty { rawByteCount == 0 }

@@ -24,6 +24,7 @@ expose .testing
 
 import .object
 import .scalar
+from .scalar import StringIndex
 import .errors
 from .errors import (
   ArgumentError,
@@ -57,6 +58,7 @@ import .testing
 
 export object
 export scalar
+export StringIndex
 export errors
 export (
   ArgumentError,

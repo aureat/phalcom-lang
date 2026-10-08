@@ -225,3 +225,31 @@ pub fn string_decode_char_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> P
     let ch = s[offset..].chars().next().expect("valid non-EOF char boundary");
     Ok(Value::char(ch).wrap_some().unwrap())
 }
+
+/// Signature: `String::lowercase()` — converts the string to lowercase using default Unicode case mapping.
+#[phalcom_native_macros::primitive(
+    String,
+    "lowercase()",
+    params = [],
+    returns = String,
+    types = "() -> String",
+    effects = pure
+)]
+pub fn string_lowercase(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let s = expect_string(vm, receiver)?;
+    Ok(vm.alloc_string_value(s.to_lowercase()))
+}
+
+/// Signature: `String::uppercase()` — converts the string to uppercase using default Unicode case mapping.
+#[phalcom_native_macros::primitive(
+    String,
+    "uppercase()",
+    params = [],
+    returns = String,
+    types = "() -> String",
+    effects = pure
+)]
+pub fn string_uppercase(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let s = expect_string(vm, receiver)?;
+    Ok(vm.alloc_string_value(s.to_uppercase()))
+}
