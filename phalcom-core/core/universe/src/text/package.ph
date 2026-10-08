@@ -5,6 +5,8 @@ expose .traits
 expose .patterns
 expose .split
 expose .lines
+expose .writer
+expose .builder
 
 from .substring import (
   Substring,
@@ -25,6 +27,8 @@ from .lines import (
   Lines,
   LinesIterator
 )
+from .writer import TextWriter
+from .builder import StringBuilder
 
 export (
   Substring,
@@ -39,5 +43,7 @@ export (
   SplitWhitespace,
   SplitWhitespaceIterator,
   Lines,
-  LinesIterator
+  LinesIterator,
+  TextWriter,
+  StringBuilder
 )

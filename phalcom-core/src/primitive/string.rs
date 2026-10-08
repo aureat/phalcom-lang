@@ -302,6 +302,29 @@ pub fn string_raw_find_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> P
     }
 }
 
+/// Signature: `String.class::rawJoin(_)` — joins a list of strings into one without intermediate allocations.
+#[phalcom_native_macros::primitive(String, "rawJoin(_)", side = class, visibility = internal)]
+pub fn string_class_raw_join(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let list_ref = match args[0].as_obj() {
+        Some(r) => r,
+        None => return Err(RuntimeError::Type { expected: "List", found: args[0].type_name() }.into()),
+    };
+    let elements = vm.heap.list(list_ref).elements().to_vec();
+    let mut total_len = 0;
+    for elem in &elements {
+        if let Some(s_ref) = elem.as_obj() {
+            total_len += vm.heap.string(s_ref).as_str().len();
+        }
+    }
+    let mut res = String::with_capacity(total_len);
+    for elem in &elements {
+        if let Some(s_ref) = elem.as_obj() {
+            res.push_str(vm.heap.string(s_ref).as_str());
+        }
+    }
+    Ok(vm.alloc_string_value(res))
+}
+
 /// Signature: `String::rawRFindSlice(_,_,_)` — searches backwards for substring within byte bounds.
 #[phalcom_native_macros::primitive(
     String,

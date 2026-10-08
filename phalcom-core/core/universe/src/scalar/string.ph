@@ -28,6 +28,9 @@ native class String is Object {
   @class
   native new(_ value: Dynamic) -> String
 
+  @class
+  internal native rawJoin(_ list: List<Dynamic>) -> String
+
   internal native rawByteCount -> Int
   internal native rawByteAt(_ index: Int) -> Option<Int>
   internal native rawSlice(_ start: Int, _ end: Int) -> String

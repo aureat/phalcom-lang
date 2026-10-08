@@ -53,7 +53,9 @@ from .text import (
   TextPattern,
   Split,
   SplitWhitespace,
-  Lines
+  Lines,
+  TextWriter,
+  StringBuilder
 )
 import .regex
 import .json
@@ -73,6 +75,8 @@ export TextPattern
 export Split
 export SplitWhitespace
 export Lines
+export TextWriter
+export StringBuilder
 export errors
 export (
   ArgumentError,

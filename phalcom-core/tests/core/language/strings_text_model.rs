@@ -312,5 +312,61 @@ let replacedAll = "foo bar foo".replaceAll("foo", with: "baz")
     assert_eq!(slot(&vm, module, "replacedAll").map(|v| v.to_string(&vm)), Some("baz bar baz".to_string()));
 }
 
+#[test]
+fn string_builder_and_writer() {
+    let source = r#"
+from universe.text import StringBuilder, TextWriter, Substring
+
+let sb = StringBuilder.new()
+let emptyBefore = sb.isEmpty
+let countBefore = sb.byteCount
+
+sb.append("hello")
+sb.append(' ')
+let worldStr = "world and more"
+let sub = worldStr.slice(0, 5)
+sb.append(sub)
+sb.appendLine("!")
+
+let countAfter = sb.byteCount
+let emptyAfter = sb.isEmpty
+let built = sb.toString
+
+class StreamLogger {
+  @class
+  log<W>(_ writer: W, _ msg: String) where W |= TextWriter {
+    writer.write(msg)
+  }
+}
+
+let writerSb = StringBuilder.new()
+StreamLogger.log(writerSb, "streaming message")
+let writerResult = writerSb.toString
+
+let joined = ["apple", "banana", "cherry"].join(", ")
+
+sb.clear()
+let clearedCount = sb.byteCount
+let clearedEmpty = sb.isEmpty
+let clearedStr = sb.toString
+"#;
+
+    let (vm, module) = run_standalone(source).expect("string_builder_and_writer executes");
+
+    assert_eq!(slot(&vm, module, "emptyBefore").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(slot(&vm, module, "countBefore").and_then(|v| v.as_int()), Some(0));
+    assert_eq!(slot(&vm, module, "emptyAfter").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(slot(&vm, module, "countAfter").and_then(|v| v.as_int()), Some(13));
+    assert_eq!(slot(&vm, module, "built").map(|v| v.to_string(&vm)), Some("hello world!\n".to_string()));
+
+    assert_eq!(slot(&vm, module, "writerResult").map(|v| v.to_string(&vm)), Some("streaming message".to_string()));
+    assert_eq!(slot(&vm, module, "joined").map(|v| v.to_string(&vm)), Some("apple, banana, cherry".to_string()));
+
+    assert_eq!(slot(&vm, module, "clearedCount").and_then(|v| v.as_int()), Some(0));
+    assert_eq!(slot(&vm, module, "clearedEmpty").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(slot(&vm, module, "clearedStr").map(|v| v.to_string(&vm)), Some("".to_string()));
+}
+
+
 
 

@@ -1,3 +1,5 @@
+from universe.text.builder import StringBuilder
+
 /// Iterator and iterable collection protocols.
 trait Iterator {
   type Item
@@ -220,18 +222,18 @@ trait Iterable
     let mut it = self.iterator
     let mut step = it.next
     if step.isNone { return "" }
+    let mut sb = StringBuilder.new()
     let mut first = true
-    let mut result = ""
     while step.isSome {
-      let mut val = step.match(some: |v| { v }, none: || { None })
+      let val = step.match(some: |v| { v }, none: || { None })
       if not first {
-        result = result + sep
+        sb.append(sep)
       }
       first = false
-      result = result + val.toString
+      sb.append(val.toString)
       step = it.next
     }
-    return result
+    return sb.toString
   }
 
   group(by block) {

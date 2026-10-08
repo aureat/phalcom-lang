@@ -62,7 +62,7 @@ use crate::primitive::selector::*;
 use crate::primitive::selector_pattern::*;
 use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
 use crate::primitive::string::{
-    string_add, string_class_new, string_hash, string_lowercase, string_raw_byte_at, string_raw_byte_count, string_raw_equals,
+    string_add, string_class_new, string_class_raw_join, string_hash, string_lowercase, string_raw_byte_at, string_raw_byte_count, string_raw_equals,
     string_raw_find_slice, string_raw_rfind_slice, string_raw_slice, string_uppercase,
 };
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_is_selector, symbol_is_selector_pattern, symbol_tostring};
@@ -237,6 +237,7 @@ impl Universe {
         primitive_internal!(vm, string_cls, "rawEquals", SignatureKind::Method(1), string_raw_equals);
         primitive_internal!(vm, string_cls, "rawFindSlice", SignatureKind::Method(3), string_raw_find_slice);
         primitive_internal!(vm, string_cls, "rawRFindSlice", SignatureKind::Method(3), string_raw_rfind_slice);
+        primitive_static_internal!(vm, string_cls, "rawJoin", SignatureKind::Method(1), string_class_raw_join);
         primitive!(vm, string_cls, "lowercase", SignatureKind::Method(0), string_lowercase);
         primitive!(vm, string_cls, "uppercase", SignatureKind::Method(0), string_uppercase);
 
