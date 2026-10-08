@@ -7,6 +7,8 @@ expose .split
 expose .lines
 expose .writer
 expose .builder
+expose .cursor
+expose .line_map
 
 from .substring import (
   Substring,
@@ -29,6 +31,11 @@ from .lines import (
 )
 from .writer import TextWriter
 from .builder import StringBuilder
+from .cursor import TextCursor
+from .line_map import (
+  SourceLocation,
+  LineMap
+)
 
 export (
   Substring,
@@ -45,5 +52,8 @@ export (
   Lines,
   LinesIterator,
   TextWriter,
-  StringBuilder
+  StringBuilder,
+  TextCursor,
+  SourceLocation,
+  LineMap
 )

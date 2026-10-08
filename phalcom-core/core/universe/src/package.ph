@@ -55,7 +55,10 @@ from .text import (
   SplitWhitespace,
   Lines,
   TextWriter,
-  StringBuilder
+  StringBuilder,
+  TextCursor,
+  SourceLocation,
+  LineMap
 )
 import .regex
 import .json
@@ -77,6 +80,9 @@ export SplitWhitespace
 export Lines
 export TextWriter
 export StringBuilder
+export TextCursor
+export SourceLocation
+export LineMap
 export errors
 export (
   ArgumentError,

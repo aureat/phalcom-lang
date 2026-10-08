@@ -367,6 +367,62 @@ let clearedStr = sb.toString
     assert_eq!(slot(&vm, module, "clearedStr").map(|v| v.to_string(&vm)), Some("".to_string()));
 }
 
+#[test]
+fn text_cursor_and_line_map() {
+    let source = r#"
+from universe.text import TextCursor, LineMap, SourceLocation, Substring
+from universe.scalar import StringIndex
+
+let input = "let x = 42"
+let cursor = TextCursor.new(input)
+let peekBefore = cursor.peek()
+let isAtEndBefore = cursor.isAtEnd
+
+let consumedLet = cursor.consume("let ")
+let peekAfterLet = cursor.peek()
+let remAfterLet = cursor.remaining.toString
+
+let cp = cursor.checkpoint()
+let consumedWrong = cursor.consume("wrong")
+cursor.restore(cp)
+
+let consumedX = cursor.consume("x")
+let nextChar = cursor.next()
+let remEnd = cursor.remaining.toString
+
+let sourceText = "hello\nworld\r\nphalcom"
+let lineMap = LineMap.new(sourceText)
+
+let loc1 = lineMap.location(of: StringIndex(0))
+let loc2 = lineMap.location(of: StringIndex(6))
+let loc3 = lineMap.location(of: StringIndex(13))
+let loc1Str = loc1.toString
+let loc2Str = loc2.toString
+let loc3Str = loc3.toString
+let loc1Line = loc1.line
+let loc1Col = loc1.column
+"#;
+
+    let (vm, module) = run_standalone(source).expect("text_cursor_and_line_map executes");
+
+    assert_eq!(slot(&vm, module, "peekBefore").and_then(|v| v.unwrap_some()).and_then(|v| v.as_char()), Some('l'));
+    assert_eq!(slot(&vm, module, "isAtEndBefore").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(slot(&vm, module, "consumedLet").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(slot(&vm, module, "peekAfterLet").and_then(|v| v.unwrap_some()).and_then(|v| v.as_char()), Some('x'));
+    assert_eq!(slot(&vm, module, "remAfterLet").map(|v| v.to_string(&vm)), Some("x = 42".to_string()));
+    assert_eq!(slot(&vm, module, "consumedWrong").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(slot(&vm, module, "consumedX").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(slot(&vm, module, "nextChar").and_then(|v| v.unwrap_some()).and_then(|v| v.as_char()), Some(' '));
+    assert_eq!(slot(&vm, module, "remEnd").map(|v| v.to_string(&vm)), Some("= 42".to_string()));
+
+    assert_eq!(slot(&vm, module, "loc1Line").and_then(|v| v.as_int()), Some(1));
+    assert_eq!(slot(&vm, module, "loc1Col").and_then(|v| v.as_int()), Some(1));
+    assert_eq!(slot(&vm, module, "loc1Str").map(|v| v.to_string(&vm)), Some("1:1".to_string()));
+    assert_eq!(slot(&vm, module, "loc2Str").map(|v| v.to_string(&vm)), Some("2:1".to_string()));
+    assert_eq!(slot(&vm, module, "loc3Str").map(|v| v.to_string(&vm)), Some("3:1".to_string()));
+}
+
+
 
 
 
