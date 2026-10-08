@@ -460,7 +460,7 @@ fn data_record_evaluates_arguments_in_source_order() {
     let (vm, module) = run_inline(
         r#"
 data Pair { first: Int, second: Int }
-let n = 0
+let mut n = 0
 let next = || { n = n + 1; n }
 let p = Pair { second: next(), first: next() }
 let first = p.first
@@ -706,7 +706,7 @@ data User {
   name: String
 }
 
-let order = 0
+let mut order = 0
 
 let get_id = || {
   order = order + 1
@@ -718,7 +718,7 @@ let fail_name = || {
   throw Error.new("fail")
 }
 
-let threw = false
+let mut threw = false
 try {
   let u = User { name: fail_name(), id: get_id() }
 } catch e {
@@ -897,8 +897,8 @@ class Factory {
   }
 }
 
-const int_record: MyRecord<**{ payload: Int }> = Factory.make_record(value: 42)
-const string_record: MyRecord<**{ payload: String }> = Factory.make_record(value: "text")
+let int_record: MyRecord<**{ payload: Int }> = Factory.make_record(value: 42)
+let string_record: MyRecord<**{ payload: String }> = Factory.make_record(value: "text")
 let same_class = int_record.class === string_record.class
 "#,
     )
@@ -930,9 +930,9 @@ class Factory {
   }
 }
 
-const int_row: PhantomRow<**{ payload: Int }> = Factory.make(value: 1)
-const string_row: PhantomRow<**{ payload: String }> = Factory.make(value: "text")
-const int_row_again: PhantomRow<**{ payload: Int }> = Factory.make(value: 2)
+let int_row: PhantomRow<**{ payload: Int }> = Factory.make(value: 1)
+let string_row: PhantomRow<**{ payload: String }> = Factory.make(value: "text")
+let int_row_again: PhantomRow<**{ payload: Int }> = Factory.make(value: 2)
 let same_class = int_row.class === string_row.class
 "#,
     )

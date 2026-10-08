@@ -1,5 +1,11 @@
 # Handoff: four deferred data-fixture failures
 
+State: RESOLVED. The follow-up reproduced all four failures, corrected the eight
+fixture declarations and preserved every assertion. All four exact selectors
+and the complete `language::data_e2e` gate passed (32/32). See
+`deferred-data-fixtures-walkthrough.md` and CHECKPOINT.md for closure evidence.
+The instructions below describe the original repair task.
+
 ## Anchor and scope
 
 Continue from Complex implementation commit `a72d1f79`, published on

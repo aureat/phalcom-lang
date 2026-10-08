@@ -47,18 +47,19 @@ Builtin provider: four passed. Scalar Int exactness and reentrant receiver/captu
 regressions passed with observed red/green evidence. Scoped Rust format and diff
 checks passed. Exact commands and inherited D4/D5 evidence are in the walkthrough.
 
-The broad data suite was not green: four unrelated pre-runtime fixtures remain
-deferred after the patch's fifth failure was corrected. Two fixtures mutate
-immutable lets; two lack static-const lowering projections. Names and commands
-are in CHECKPOINT.md. Leave these to their owning work.
+At P1 closure, four unrelated pre-runtime fixtures were deferred after the
+patch's fifth failure was corrected. The subsequent fixture-only follow-up
+resolved all four: each exact selector passed, followed by the complete
+`language::data_e2e` gate (32/32). CHECKPOINT.md and
+`deferred-data-fixtures-walkthrough.md` record the closure evidence.
 
 Workspace build/test/clippy and release certification have not been run.
 FOCUSED_TESTED must not be promoted to RELEASE_COMPLETE without completed gates.
 
 ## Next action
 
-No Complex implementation task remains in this checkpoint. The brief
-`deferred-data-fixtures-handoff.md` directs the four-fixture repair follow-up.
+No Complex implementation task remains in this checkpoint. The four-fixture
+repair follow-up is also complete; its original handoff is marked resolved.
 Begin with `git status --short` and the scoped diff;
 read CHECKPOINT.md, the normative Complex specification and the walkthrough.
 Use the completed focused evidence unless source changes create a new concern.

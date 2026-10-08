@@ -98,13 +98,14 @@ Workspace build/test/clippy and release certification were deliberately deferred
 No global correctly-rounded or performance guarantee was measured.
 
 The earlier data subsystem run had 27 passes and five failures. The patch's
-layout guard failure was corrected and verified. Four unrelated pre-runtime
-fixtures remain deferred: two mutate immutable `let` bindings and two lack
-static-const lowering projections. Their names and owning follow-up are in
-CHECKPOINT.md. The broad data suite is not claimed green.
+layout guard failure was corrected and verified. At P1 closure, four unrelated
+pre-runtime fixtures were deferred: two mutated immutable `let` bindings and two
+lacked static-const lowering projections. The subsequent fixture-only follow-up
+resolved all four and passed the complete `language::data_e2e` gate (32/32).
+CHECKPOINT.md and `deferred-data-fixtures-walkthrough.md` record that evidence.
 
 ## Takeover
 
 No active Complex task remains in this checkpoint. The completion handoff
-identifies established interfaces. `deferred-data-fixtures-handoff.md` directs
-the separate repair of the four recorded fixture failures.
+identifies established interfaces. The separate four-fixture repair is complete;
+`deferred-data-fixtures-handoff.md` is marked resolved.

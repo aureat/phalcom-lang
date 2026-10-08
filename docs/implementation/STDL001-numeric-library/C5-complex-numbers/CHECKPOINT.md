@@ -100,25 +100,43 @@ These results establish D4's focused correction, not completed Complex acceptanc
 Commands use `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core`, the
 `--lib typing::identity::tests` or named `--test core` filters, and `-- --nocapture`.
 
-## Deferred fixture failures
+## Deferred fixture failures: resolved follow-up
 
-The owning `language::data_e2e` suite was run once: 27 passed and five failed.
-One failure was the patch's overly strict physical-layout guard, now corrected
-and covered by the passing direct-first Bool discriminator. Four failures are
+An earlier owning `language::data_e2e` run had 27 passes and five failures.
+One failure was the patch's overly strict physical-layout guard, corrected
+and covered by the passing direct-first Bool discriminator. Four failures were
 classified D (unrelated pre-runtime fixtures):
 
 - `data_record_evaluates_arguments_in_source_order` and
-  `data_source_order_with_exception_proves_evaluation_semantics` mutate immutable
+  `data_source_order_with_exception_proves_evaluation_semantics` mutated immutable
   `let` bindings; current semantics require `let mut`.
 - `p4_empty_layout_row_specializations_keep_exact_identity_through_generic_callable`
   and `p4_shape_generic_construction_through_generic_callable_keeps_behavior_class_identity`
-  use static `const` declarations whose successful lowering projections are absent.
+  used static `const` declarations whose successful lowering projections were absent.
 
-These failures occur before runtime typing/data interning and do not block D5.
-The new row identity fixture uses runtime `let` bindings and passes. Existing
-fixtures remain pending their owning binding/static-constant work; this suite
-is not claimed green and unchanged failures have not been rerun.
-The next repair task is captured in `deferred-data-fixtures-handoff.md`.
+These failures occurred before runtime typing/data interning and did not block D5.
+The user authorized the fixture follow-up by continuing the published handoff
+at `0076ad54`. Each failure reproduced individually before editing.
+
+The follow-up changes only eight source declarations in `data_e2e.rs`: `n`,
+`order` and `threw` use `let mut`; the five typed Factory results use runtime
+`let`. The row tests exercise generic runtime construction and descriptor
+identity, as confirmed by their assertions and the predecessor's T5 runtime
+specialization records. Static evaluation does not execute arbitrary runtime
+methods. Every existing assertion is preserved; no production path changes.
+
+All four exact selectors passed after correction. The handoff's acceptance gate
+also passed:
+
+```sh
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core language::data_e2e -- --nocapture --test-threads=1
+# PASS: 32 selected tests, zero failures
+```
+
+Scoped `rustfmt --check --config skip_children=true` and `git diff --check` pass.
+The four-fixture follow-up is COMPLETE / IMPLEMENTED / FOCUSED_TESTED, with no
+remaining failure in this gate. `deferred-data-fixtures-walkthrough.md` records
+the causes, preserved assertions and verification; its handoff is marked resolved.
 
 ## D6 focused evidence
 
@@ -202,8 +220,7 @@ exactness. Adaptation/license notices remain beside the source kernels.
 The walkthrough and handoff record stable interfaces, amendments and exact
 verification. Implementation commit `a72d1f79` is published on
 `origin/feat/complex-math`; the isolated worktree is retained for review.
-No active Complex implementation task remains. The separate brief
-`deferred-data-fixtures-handoff.md` directs repair of the four recorded fixtures.
+No active Complex implementation task remains. The separate four-fixture
+follow-up is complete; `deferred-data-fixtures-walkthrough.md` records its closure.
 Workspace build/test/clippy, broad crate suites and release certification were
-deliberately deferred. Four unrelated data fixture failures remain in the ledger
-above; this checkpoint does not claim the owning broad data suite is green.
+deliberately deferred. The owning `language::data_e2e` gate is now green (32/32).
