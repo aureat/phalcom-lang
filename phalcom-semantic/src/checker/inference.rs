@@ -176,7 +176,7 @@ pub enum InferencePackProjectionLane {
 pub struct InferenceContextId(pub(crate) u32);
 
 /// Application frame inside one query-local inference context.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InferenceFrameId(pub u32);
 
 #[derive(Clone, Debug)]

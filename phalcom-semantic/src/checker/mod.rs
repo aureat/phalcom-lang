@@ -29,6 +29,7 @@ pub mod pattern;
 pub mod result;
 pub mod row_inference;
 pub(crate) mod sequence_literal;
+pub(crate) mod sequence_publication;
 pub mod statement;
 pub mod static_body;
 pub mod type_member_declaration;
