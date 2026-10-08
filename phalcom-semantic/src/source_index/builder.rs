@@ -2021,6 +2021,7 @@ impl SourceScopeBuilder<'_> {
             }
             Expr::Int { .. }
             | Expr::Float { .. }
+            | Expr::Imaginary { .. }
             | Expr::String { .. }
             | Expr::Char { .. }
             | Expr::Boolean { .. }

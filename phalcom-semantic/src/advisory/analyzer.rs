@@ -144,6 +144,7 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
     match expr {
         Expr::Int { .. } => literal(context, context.builtins.int.clone(), range),
         Expr::Float { .. } => literal(context, context.builtins.float.clone(), range),
+        Expr::Imaginary { .. } => unknown_at(context, range),
         Expr::String { .. } => literal(context, context.builtins.string.clone(), range),
         Expr::Char { .. } => literal(context, context.builtins.char_.clone(), range),
         Expr::Boolean { value, .. } => {

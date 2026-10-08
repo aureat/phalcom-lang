@@ -77,7 +77,7 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
         TypeKnowledge::Known(_) => {
             let ty = typed.knowledge.ty().expect("known expression has type");
             match expr {
-                Expr::Int { .. } | Expr::Float { .. } | Expr::String { .. } | Expr::Char { .. } | Expr::Boolean { .. } => {
+                Expr::Int { .. } | Expr::Float { .. } | Expr::Imaginary { .. } | Expr::String { .. } | Expr::Char { .. } | Expr::Boolean { .. } => {
                     crate::explain::ExplanationStep::Literal { expression: expr_id, ty }
                 }
                 Expr::Var { value, .. } => match ctx.lookup_binding_info(value) {
@@ -214,6 +214,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
             }
         }
+        Expr::Imaginary { .. } => TypedExpression::unknown(UnknownReason::UncheckedExpression),
         Expr::String { range, .. } => {
             let string_decl = ctx.core_ids.string.clone();
             if let Some(ty) = ctx.core_type(&string_decl) {

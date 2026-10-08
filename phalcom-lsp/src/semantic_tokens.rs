@@ -197,7 +197,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
 
         Token::Identifier(_) | Token::FieldIdentifier(_) => Some(Variable),
 
-        Token::Int { .. } | Token::Float(_) => Some(Number),
+        Token::Int { .. } | Token::Float(_) | Token::Imaginary { .. } => Some(Number),
 
         Token::Hash | Token::QuotedSymbol(_) => Some(Selector),
 
@@ -989,6 +989,7 @@ fn collect_decl_names_in_expr(expr: &Expr, out: &mut Vec<DeclNameOverride>) {
         }
         Expr::Int { .. }
         | Expr::Float { .. }
+        | Expr::Imaginary { .. }
         | Expr::String { .. }
         | Expr::Char { .. }
         | Expr::Boolean { .. }

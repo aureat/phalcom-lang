@@ -2058,6 +2058,7 @@ fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<A
         }
         Expr::Int { .. }
         | Expr::Float { .. }
+        | Expr::Imaginary { .. }
         | Expr::String { .. }
         | Expr::Char { .. }
         | Expr::Boolean { .. }

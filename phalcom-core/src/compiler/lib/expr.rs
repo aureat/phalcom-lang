@@ -1094,6 +1094,11 @@ impl<'vm> Compiler<'vm> {
                 let idx = self.add_constant(Value::float(value), range)?;
                 self.emit(Bytecode::Constant(idx), range);
             }
+            Expr::Imaginary { range, .. } => {
+                return Err(CompilerError::Message(format!(
+                    "imaginary literal lowering requires semantic algebra realization ({range:?})"
+                )));
+            }
             Expr::String { value, range } => {
                 let string_obj = self.vm.alloc_string_value(value);
                 let idx = self.add_constant(string_obj, range)?;

@@ -84,7 +84,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["numbers"],
         kind: ModuleKind::Package,
-        children: &["capabilities", "complex", "float_complex"],
+        children: &["capabilities", "algebra", "complex", "quaternion", "float_complex"],
     },
     UniverseNodeSpec {
         path: &["numbers", "capabilities"],
@@ -93,6 +93,16 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["numbers", "complex"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["numbers", "algebra"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["numbers", "quaternion"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -812,8 +822,14 @@ impl UniverseSourceProvider {
             [c, m] if c.as_str() == "numbers" && m.as_str() == "capabilities" => {
                 include_str!("../../phalcom-core/core/universe/src/numbers/capabilities.ph")
             }
+            [c, m] if c.as_str() == "numbers" && m.as_str() == "algebra" => {
+                include_str!("../../phalcom-core/core/universe/src/numbers/algebra.ph")
+            }
             [c, m] if c.as_str() == "numbers" && m.as_str() == "complex" => {
                 include_str!("../../phalcom-core/core/universe/src/numbers/complex.ph")
+            }
+            [c, m] if c.as_str() == "numbers" && m.as_str() == "quaternion" => {
+                include_str!("../../phalcom-core/core/universe/src/numbers/quaternion.ph")
             }
             [c, m] if c.as_str() == "numbers" && m.as_str() == "float_complex" => {
                 include_str!("../../phalcom-core/core/universe/src/numbers/float_complex.ph")

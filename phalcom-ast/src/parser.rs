@@ -9142,6 +9142,10 @@ impl<'source> Parser<'source> {
                 self.advance();
                 Ok(Expr::Float { value, range })
             }
+            Token::Imaginary { coefficient, axis } => {
+                self.advance();
+                Ok(Expr::Imaginary { coefficient, axis, range })
+            }
             Token::Char(value) => {
                 self.advance();
                 Ok(Expr::Char { value, range })

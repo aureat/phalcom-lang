@@ -45,6 +45,26 @@ fn character_literal_parses_as_an_expression() {
 }
 
 #[test]
+fn imaginary_literal_parses_without_desugaring_to_a_name() {
+    let parsed = parse_source("-2i + 3j", 0).expect("imaginary literals should parse");
+    match &parsed.statements[0] {
+        Statement::Expr {
+            expr: Expr::Binary(binary), ..
+        } => {
+            assert!(matches!(binary.left.as_ref(), Expr::Unary(_)));
+            assert!(matches!(
+                binary.right.as_ref(),
+                Expr::Imaginary {
+                    axis: phalcom_ast::ast::ImaginaryAxis::J,
+                    ..
+                }
+            ));
+        }
+        other => panic!("expected binary imaginary expression, got {other:?}"),
+    }
+}
+
+#[test]
 fn character_literal_parses_in_patterns() {
     use phalcom_ast::ast::Pattern;
 

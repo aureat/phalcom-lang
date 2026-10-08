@@ -210,6 +210,17 @@ Scoped Rust formatting passes for all 19 touched/new Rust files with
 `rustfmt --check --config skip_children=true`; `git diff --check` passes.
 The scoped diff was reviewed. No VM diagnostic instrumentation remains.
 
+## Related follow-on state
+
+The separate user-directed contextual algebraic-literals follow-on is recorded
+under `LANG007.C4` in the Complex worktree. It adds no changes to the accepted
+`STDL001.C5.P1` Complex contract. Its current state is
+`BLOCKED / PARTIAL / FOCUSED_TESTED`: AST suffix support and source-owned basis/
+Quaternion foundations are present, while contextual realization and native
+literal execution remain unfinished. The generic `Quaternion<T>.complexPart`
+probe exposes a `Complex<Dynamic>` versus `Complex<Int>` runtime identity
+mismatch; see the LANG007 walkthrough, handoff, and generic-reification incident.
+
 ## Delivery and next action
 
 `STDL001.C5.P1` is COMPLETE / IMPLEMENTED / FOCUSED_TESTED.

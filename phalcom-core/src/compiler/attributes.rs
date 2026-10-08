@@ -164,6 +164,7 @@ fn is_pure_expr(expr: &Expr) -> bool {
     match expr {
         Expr::Int { .. }
         | Expr::Float { .. }
+        | Expr::Imaginary { .. }
         | Expr::String { .. }
         | Expr::Char { .. }
         | Expr::Boolean { .. }
