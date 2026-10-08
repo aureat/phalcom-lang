@@ -6,6 +6,7 @@
 
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 from universe.scalar.string_index import StringIndex
+from universe.text.errors import Utf8Error
 from universe.text.substring import (
   Substring,
   Split,
@@ -30,6 +31,24 @@ native class String is Object {
 
   @class
   internal native rawJoin(_ list: List<Dynamic>) -> String
+
+  /// Converts valid UTF-8 bytes into a String, returning Error(Utf8Error) if invalid.
+  @class
+  fromUtf8(_ source) -> Result<String, Utf8Error> {
+    let b = if source.is(Bytes) { source } else { Bytes.fromList(source) }
+    let s = b.rawUtf8
+    if s == None {
+      return Result::Error(Utf8Error.new(0, None))
+    }
+    Result::Ok(s)
+  }
+
+  /// Converts UTF-8 bytes lossily into a String, replacing invalid sequences with U+FFFD.
+  @class
+  fromUtf8Lossy(_ source) -> String {
+    let b = if source.is(Bytes) { source } else { Bytes.fromList(source) }
+    b.rawUtf8Lossy
+  }
 
   internal native rawByteCount -> Int
   internal native rawByteAt(_ index: Int) -> Option<Int>

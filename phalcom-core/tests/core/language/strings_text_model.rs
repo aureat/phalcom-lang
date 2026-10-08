@@ -422,6 +422,72 @@ let loc1Col = loc1.column
     assert_eq!(slot(&vm, module, "loc3Str").map(|v| v.to_string(&vm)), Some("3:1".to_string()));
 }
 
+#[test]
+fn parsing_and_formatting() {
+    let source = r#"
+from universe.text import Substring, Utf8Error, IntParseError, FloatParseError, BoolParseError
+
+let validBytes = Bytes.fromString("hello")
+let validStrRes = String.fromUtf8(validBytes)
+let validStr = validStrRes.unwrap
+
+let invalidBytes = Bytes.new(2)
+invalidBytes[0] = 255
+invalidBytes[1] = 255
+let invalidRes = String.fromUtf8(invalidBytes)
+let isInvalidErr = invalidRes.isErr
+let lossyStr = String.fromUtf8Lossy(invalidBytes)
+
+let parsedInt = Int.parse("123").unwrap
+let parsedHex = Int.parse("ff", radix: 16).unwrap
+let parsedBin = Int.parse("1101", radix: 2).unwrap
+let invalidInt = Int.parse("not_a_number")
+let isInvalidIntErr = invalidInt.isErr
+
+let parsedFloat = Float.parse("1.25").unwrap
+let invalidFloat = Float.parse("abc")
+let isInvalidFloatErr = invalidFloat.isErr
+
+let parsedTrue = Bool.parse("true").unwrap
+let parsedFalse = Bool.parse("false").unwrap
+let invalidBool = Bool.parse("yes")
+let isInvalidBoolErr = invalidBool.isErr
+
+let hexFormatted = 255.toString(radix: 16)
+let binFormatted = 255.toString(radix: 2)
+
+let charLower = 'A'.simpleLowercase
+let charUpper = 'z'.simpleUppercase
+let charRepr = '\n'.repr
+"#;
+
+    let (vm, module) = run_standalone(source).expect("parsing_and_formatting executes");
+
+    assert_eq!(slot(&vm, module, "validStr").map(|v| v.to_string(&vm)), Some("hello".to_string()));
+    assert_eq!(slot(&vm, module, "isInvalidErr").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(slot(&vm, module, "lossyStr").map(|v| v.to_string(&vm)), Some("\u{FFFD}\u{FFFD}".to_string()));
+
+    assert_eq!(slot(&vm, module, "parsedInt").and_then(|v| v.as_int()), Some(123));
+    assert_eq!(slot(&vm, module, "parsedHex").and_then(|v| v.as_int()), Some(255));
+    assert_eq!(slot(&vm, module, "parsedBin").and_then(|v| v.as_int()), Some(13));
+    assert_eq!(slot(&vm, module, "isInvalidIntErr").and_then(|v| v.as_bool()), Some(true));
+
+    assert_eq!(slot(&vm, module, "parsedFloat").and_then(|v| v.as_float()), Some(1.25));
+    assert_eq!(slot(&vm, module, "isInvalidFloatErr").and_then(|v| v.as_bool()), Some(true));
+
+    assert_eq!(slot(&vm, module, "parsedTrue").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(slot(&vm, module, "parsedFalse").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(slot(&vm, module, "isInvalidBoolErr").and_then(|v| v.as_bool()), Some(true));
+
+    assert_eq!(slot(&vm, module, "hexFormatted").map(|v| v.to_string(&vm)), Some("ff".to_string()));
+    assert_eq!(slot(&vm, module, "binFormatted").map(|v| v.to_string(&vm)), Some("11111111".to_string()));
+
+    assert_eq!(slot(&vm, module, "charLower").and_then(|v| v.as_char()), Some('a'));
+    assert_eq!(slot(&vm, module, "charUpper").and_then(|v| v.as_char()), Some('Z'));
+    assert_eq!(slot(&vm, module, "charRepr").map(|v| v.to_string(&vm)), Some("'\\n'".to_string()));
+}
+
+
 
 
 

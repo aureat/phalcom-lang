@@ -28,7 +28,8 @@ use crate::primitive::float::{
     float_to_int_exact, float_truncated,
 };
 use crate::primitive::int::{
-    int_and, int_bit_at, int_bit_count, int_bit_length, int_class_new, int_not, int_or, int_shl, int_shr, int_trailing_zeros, int_xor,
+    int_and, int_bit_at, int_bit_count, int_bit_length, int_class_new, int_class_raw_parse, int_not, int_or, int_raw_to_string_radix, int_shl, int_shr,
+    int_trailing_zeros, int_xor,
 };
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_replace_slice, list_to_string};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
@@ -36,8 +37,8 @@ use crate::primitive::method::{method_bind, method_class_new, method_holder, met
 use crate::primitive::method_family::{method_family_bind, method_family_method_for_shape, method_family_selectors, method_family_size};
 use crate::primitive::module::{module_class_new, module_does_not_understand};
 use crate::primitive::number::{
-    number_add, number_class_new, number_compare, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod,
-    number_mul, number_negate, number_pow, number_sub, number_to_string, number_unary_plus,
+    float_class_raw_parse, number_add, number_class_new, number_compare, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt,
+    number_mod, number_mul, number_negate, number_pow, number_sub, number_to_string, number_unary_plus,
 };
 use crate::primitive::object::{
     message_args, message_labels, message_name, message_selector, object_class, object_does_not_understand, object_eq, object_hash, object_invariant_enter,
@@ -201,10 +202,13 @@ impl Universe {
         primitive!(vm, int_cls, "trailingZeros", SignatureKind::Getter, int_trailing_zeros);
         primitive_static!(vm, int_cls, "new", SignatureKind::Method(0), int_class_new);
         primitive_static!(vm, int_cls, "new", SignatureKind::Method(1), int_class_new);
+        primitive_internal!(vm, int_cls, "rawToStringRadix", SignatureKind::Method(1), int_raw_to_string_radix);
+        primitive_static_internal!(vm, int_cls, "rawParse", SignatureKind::Method(2), int_class_raw_parse);
 
         let float_cls = vm.universe.classes.float_class;
         primitive_static!(vm, float_cls, "new", SignatureKind::Method(0), float_class_new);
         primitive_static!(vm, float_cls, "new", SignatureKind::Method(1), float_class_new);
+        primitive_static_internal!(vm, float_cls, "rawParse", SignatureKind::Method(1), float_class_raw_parse);
         // Float protocol primitives (float-semantics spec):
         // `abs`/`sign` work on any finite-or-not receiver;
         // `floor`/`ceil`/`truncated`/`rounded`/`toIntExact` require finite.

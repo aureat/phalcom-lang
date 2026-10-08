@@ -58,7 +58,11 @@ from .text import (
   StringBuilder,
   TextCursor,
   SourceLocation,
-  LineMap
+  LineMap,
+  Utf8Error,
+  IntParseError,
+  FloatParseError,
+  BoolParseError
 )
 import .regex
 import .json
@@ -83,6 +87,10 @@ export StringBuilder
 export TextCursor
 export SourceLocation
 export LineMap
+export Utf8Error
+export IntParseError
+export FloatParseError
+export BoolParseError
 export errors
 export (
   ArgumentError,

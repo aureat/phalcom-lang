@@ -849,3 +849,16 @@ pub fn number_negate(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 pub fn number_unary_plus(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Ok(*receiver)
 }
+
+#[phalcom_native_macros::primitive(Float, "rawParse(_)", side = class, visibility = internal)]
+pub fn float_class_raw_parse(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let s_ref = match args[0].as_obj() {
+        Some(r) => r,
+        None => return Ok(Value::none()),
+    };
+    let s = vm.heap.string(s_ref).as_str().trim();
+    match s.parse::<f64>() {
+        Ok(v) => Ok(Value::float(v).wrap_some().unwrap()),
+        Err(_) => Ok(Value::none()),
+    }
+}
