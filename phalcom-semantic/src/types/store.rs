@@ -12,6 +12,7 @@ use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena};
 use super::type_member::{ProjectionSubject, TypeLevelProjection, TypeMemberDeclarationId, TypeMemberSelector};
 use super::variance::Variance;
 use crate::identity::{AssociatedStaticDomainDeclarationId, DeclarationId, VariantId};
+use crate::scalar::StaticInt;
 use crate::traits::{AssociatedTypeRequirementId, TraitRef};
 use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
@@ -264,7 +265,7 @@ pub enum TypeData {
     ///
     /// `ConstInt(n)` has kind `KindData::StaticDomain(CONST_INT_DOMAIN_ID)` and
     /// must never be accepted by `ProperTypeId`-guarded APIs.
-    ConstInt(i64),
+    ConstInt(StaticInt),
     /// Canonical structural static algebraic data term (static term, not a proper type).
     ///
     /// Represents one constructor application within a nominal `type data` static
@@ -559,7 +560,7 @@ impl TypeStore {
             .iter()
             .map(|argument| match argument {
                 super::type_member::TypeMemberArgument::Const(super::type_member::ConstTerm::Int(value)) => {
-                    super::type_member::TypeMemberArgument::Type(self.const_int(*value))
+                    super::type_member::TypeMemberArgument::Type(self.const_int(value.clone()))
                 }
                 other => other.clone(),
             })
@@ -689,6 +690,10 @@ impl TypeStore {
     }
 
     pub fn intern_with_kind(&mut self, data: TypeData, kind: KindId) -> TypeId {
+        let data = match data {
+            TypeData::ConstInt(value) => TypeData::ConstInt(value.normalized()),
+            other => other,
+        };
         // Kind is part of a canonical type form's identity. This matters for a
         // persistent store: the same declaration or parameter payload can acquire a
         // different kind in a later semantic revision, and the old TypeId must retain
@@ -827,9 +832,9 @@ impl TypeStore {
     }
 
     /// Forms a canonical compile-time integer term.
-    pub fn const_int(&mut self, value: i64) -> TypeId {
+    pub fn const_int(&mut self, value: impl Into<StaticInt>) -> TypeId {
         let kind = self.static_domain_kind(self.const_int_domain);
-        self.intern_with_kind(TypeData::ConstInt(value), kind)
+        self.intern_with_kind(TypeData::ConstInt(value.into()), kind)
     }
 
     /// Forms and validates a canonical type-data constructor/case term.

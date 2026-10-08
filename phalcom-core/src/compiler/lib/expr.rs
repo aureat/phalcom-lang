@@ -1402,13 +1402,18 @@ impl<'vm> Compiler<'vm> {
                 self.emit(Bytecode::FinishSetLiteral, set_expr.range);
             }
             Expr::BracketLiteral(list_expr) => {
-                let family = if let Some(lowering) = self.lowering() {
+                let checked_spec = if let Some(lowering) = self.lowering() {
                     let spec = lowering
                         .sequence_literals
                         .get(&list_expr.range)
                         .cloned()
                         .ok_or(CompilerError::MissingSequenceLiteralLowering(list_expr.range))?;
+                    Some(spec)
+                } else { None };
+                let family = if let Some(spec) = &checked_spec {
                     spec.family
+                } else if list_expr.head.as_ref().is_some_and(|head| head.arguments.len() == 2) {
+                    return Err(CompilerError::MissingSequenceLiteralLowering(list_expr.range));
                 } else if list_expr.head.is_some() {
                     phalcom_semantic::checker::SequenceLiteralFamily::Array
                 } else {
@@ -1500,7 +1505,53 @@ impl<'vm> Compiler<'vm> {
                         self.release_pack_scratch_from(array_slot, 1, list_expr.range);
                     }
                     phalcom_semantic::checker::SequenceLiteralFamily::Vector => {
-                        return Err(CompilerError::Message("Vector literal lowering is reserved for P3".to_string()));
+                        let spec = checked_spec.ok_or(CompilerError::MissingSequenceLiteralLowering(list_expr.range))?;
+                        let expected_extent = spec.expected_extent.ok_or_else(|| CompilerError::Message(
+                            "Vector construction requires a concrete host-addressable checked extent".into()
+                        ))?;
+                        if let phalcom_semantic::checker::SequenceConstructionPlan::Fixed { element_count } = spec.construction {
+                            if element_count != expected_extent || element_count as usize != list_expr.elements.len() {
+                                return Err(CompilerError::Message("checked Vector extent and operand count disagree".into()));
+                            }
+                            if let Ok(count) = u16::try_from(element_count) {
+                                for element in list_expr.elements {
+                                    let BracketLiteralElement::Element { expr, .. } = element else {
+                                        return Err(CompilerError::Message("fixed Vector construction contains expansion".into()));
+                                    };
+                                    self.compile_expr(expr)?;
+                                }
+                                self.emit(Bytecode::BuildVector(count), list_expr.range);
+                                return Ok(());
+                            }
+                        }
+                        let builder_slot = self.reserve_pack_scratch("$vector_literal_builder", list_expr.range)?;
+                        self.emit(Bytecode::BeginVectorLiteral, list_expr.range);
+                        self.emit(Bytecode::SetLocal(builder_slot), list_expr.range);
+                        self.emit(Bytecode::Pop, list_expr.range);
+                        for element in list_expr.elements {
+                            self.emit(Bytecode::GetLocal(builder_slot), list_expr.range);
+                            match element {
+                                BracketLiteralElement::Element { expr, range } => {
+                                    self.compile_expr(expr)?;
+                                    self.emit(Bytecode::ArrayLiteralAppend, range);
+                                }
+                                BracketLiteralElement::Expansion { expr, range } => {
+                                    let expansion = spec.exact_expansions.get(&range).ok_or(CompilerError::MissingSequenceLiteralLowering(range))?;
+                                    let expected = *spec.exact_expansion_counts.get(&range).ok_or_else(|| CompilerError::Message(
+                                        "exact Vector spread requires a concrete host-addressable cardinality".into()
+                                    ))?;
+                                    self.compile_expr(expr)?;
+                                    self.emit(Bytecode::VectorExpandExactPositionals {
+                                        vector: matches!(expansion, phalcom_semantic::checker::SequenceExpansionResolution::VectorStorage { .. }),
+                                        expected,
+                                    }, range);
+                                }
+                            }
+                            self.emit(Bytecode::Pop, list_expr.range);
+                        }
+                        self.emit(Bytecode::GetLocal(builder_slot), list_expr.range);
+                        self.emit(Bytecode::FinishVectorLiteral(expected_extent), list_expr.range);
+                        self.release_pack_scratch_from(builder_slot, 1, list_expr.range);
                     }
                 }
             }

@@ -384,6 +384,12 @@ impl DeclarationTypeTable {
 pub fn lower_kind_spec(store: &mut TypeStore, spec: &KindSpec) -> KindId {
     match spec {
         KindSpec::Type => KindId::TYPE,
+        KindSpec::StaticDomain { form } => match form {
+            phalcom_native_meta::types::TypeExprSpec::Universe(phalcom_native_meta::universe::UniverseKey::Int) => {
+                store.static_domain_kind(store.const_int_domain())
+            }
+            _ => panic!("unsupported native static-domain metadata: {form:?}"),
+        },
         KindSpec::Arrow { parameters, result } => {
             let param_kinds: Vec<KindId> = parameters.iter().map(|p| lower_kind_spec(store, p)).collect();
             let res_kind = lower_kind_spec(store, result);

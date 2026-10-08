@@ -75,6 +75,8 @@ pub enum Object {
     List(ListObject),
     /// A native fixed-extent array ([`ArrayObject`]).
     Array(ArrayObject),
+    /// An intrinsically immutable dimensioned sequence.
+    Vector(super::VectorObject),
     /// A compiler-owned dynamic Array literal builder. Boxed to preserve arena slot size.
     ArrayLiteralBuilder(Box<ArrayLiteralBuilderObject>),
     /// A cooperative fiber — the sole concurrency primitive

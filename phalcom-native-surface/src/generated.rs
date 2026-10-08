@@ -1,7 +1,7 @@
 #![doc = r" Generated canonical native surface records."]
 #[doc = r" Number of authored `#[primitive]` declarations scanned by the surface"]
 #[doc = r" generator."]
-pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 404usize;
+pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 406usize;
 use crate::{NativeMemberKind, NativeReturnShape, NativeSurfaceRecord};
 use phalcom_native_meta::*;
 pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
@@ -8197,6 +8197,102 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         kind: NativeMemberKind::Getter,
         abi: PrimitiveAbi::Value,
         return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Vector,
+                side: NativeDispatch::Instance,
+                selector: "rawAt(_)",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(
+                " Reads one existing element. Out-of-range access fails rather than returning\n an absence sentinel as a value of the generic element type.",
+            ),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Vector,
+                side: NativeDispatch::Instance,
+                selector: "rawLength",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Returns the immutable Vector payload length."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Getter,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("Int"),
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {

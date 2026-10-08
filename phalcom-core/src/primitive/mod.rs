@@ -35,6 +35,7 @@ pub mod system;
 pub mod time;
 pub mod tuple;
 pub mod typing;
+pub mod vector;
 
 #[non_exhaustive]
 pub struct Sig;

@@ -277,6 +277,22 @@ impl Heap {
         }
     }
 
+    /// Borrows immutable Vector storage. Panics only for an invalid internal handle.
+    pub fn vector(&self, id: ObjRef) -> &super::VectorObject {
+        match self.get(id) {
+            Object::Vector(vector) => vector,
+            _ => panic!("ObjRef {id:?} is not a VectorObject"),
+        }
+    }
+
+    /// Returns immutable Vector storage when the handle has the expected kind.
+    pub fn as_vector(&self, id: ObjRef) -> Option<&super::VectorObject> {
+        match self.objects.get(id) {
+            Some(Object::Vector(vector)) => Some(vector),
+            _ => None,
+        }
+    }
+
     pub fn array_literal_builder(&self, id: ObjRef) -> &ArrayLiteralBuilderObject {
         match self.get(id) {
             Object::ArrayLiteralBuilder(builder) => builder,

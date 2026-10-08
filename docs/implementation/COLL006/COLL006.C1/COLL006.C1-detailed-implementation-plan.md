@@ -5,9 +5,9 @@ program: COLL006
 checkpoint: COLL006.C1
 kind: patch-grade-implementation-plan
 title: "Extended Collections Foundation and First-Generation Collection Family"
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 prepared_against_repository: aureat/phalcom-lang
 prepared_against_branch: main
 prepared_against_revision: ad1db231f5d866650e7ab169c377f28ffa602de9
@@ -22,6 +22,8 @@ source_records:
 # COLL006.C1 — Detailed Patch-Grade Implementation Plan
 
 ## 0. Purpose and authority
+
+Current execution: P1/P2 are complete; P3 is partial and paused at a user-requested delivery. This document retains the original intended architecture and acceptance obligations. The checkpoint and P3 walkthrough/handoff own current state and executed evidence.
 
 This plan converts the accepted `COLL006.C1` lifecycle architecture into an executable implementation sequence grounded in the live Telos/Phalcom repository at:
 

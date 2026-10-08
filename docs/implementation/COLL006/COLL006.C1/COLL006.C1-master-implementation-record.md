@@ -4,9 +4,9 @@ category: COLL
 program: COLL006
 checkpoint: COLL006.C1
 kind: master-implementation-record
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 state_authority: COLL006.C1-CHECKPOINT.md
 requires:
   - LANG007.C4.P3
@@ -18,7 +18,7 @@ requires:
 >
 > **State authority:** this file is **not** the checkpoint state authority. `COLL006.C1-CHECKPOINT.md` remains the single durable source of truth for plan state, implemented invariants, verification evidence, amendments, deferred failures, and next action.
 >
-> **Implementation status:** no COLL006.C1 implementation is claimed by this record.
+> **Implementation status:** P1 and P2 are complete; P3 is partial. This document retains the original architecture requirements. Consult the checkpoint and P3 handoff for live progress and verification.
 >
 > **Repository baseline inspected during architectural preparation:** `main` at `800474d8a9f2e1e12f422bf3132729c4e69012d4`.
 >
@@ -2302,24 +2302,16 @@ checkpoint truth
 
 # 39. Immediate next action
 
-The next artifact to author is:
+Current next action is to resume the partially implemented P3:
 
 ```text
-COLL006.C1.P1 — Contextual Sequence Literal and Inference Foundation
+COLL006.C1.P3 — Immutable dimensioned Vector
 ```
 
-That plan should be patch-grade and executable, but narrowly limited to:
+Read the P3 walkthrough and handoff before further implementation. First finish the aborted runtime discriminator:
 
-```text
-neutralizing ListLiteral ownership
-adding explicit literal heads
-adding inference holes
-supporting initializer-driven partial annotations
-publishing checked sequence-literal resolution
-preserving current bare-literal behavior during P1
+```sh
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_vector
 ```
 
-P1 must not prematurely implement the repository-wide default cutover.
-
-The cutover belongs to P4 after Array, Vector, and static sequence support exist and have focused evidence.
-
+P1/P2 are completed prerequisites. P3 still needs runtime evidence, central negative extent validation, symbolic construction/lowering closure, Array typing corrections, semantic publication/diagnostic cleanup, and remaining durability/incremental/GC tests. The cutover belongs to P4 after stable Array, Vector, and static sequence support exists.

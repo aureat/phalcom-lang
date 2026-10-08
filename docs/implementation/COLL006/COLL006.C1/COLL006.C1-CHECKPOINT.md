@@ -19,7 +19,7 @@ It combines the language-level homogeneous-sequence literal upgrade with the run
 
 This record is the **single durable shared state authority** for all numbered plans belonging to `COLL006.C1`.
 
-Publishing this checkpoint record claims **no implementation, no completed plan, and no verification evidence**.
+P1 and P2 are complete. P3 is paused with partial implementation and focused semantic evidence; its runtime and full acceptance gates remain open.
 
 ---
 
@@ -287,7 +287,7 @@ RangeMap<K,V>
 
 ---
 
-## 4. Current repository grounding
+## 4. Historical pre-P1 repository grounding
 
 Baseline inspected while defining C1:
 
@@ -296,7 +296,7 @@ branch: main
 revision: 800474d8a9f2e1e12f422bf3132729c4e69012d4
 ```
 
-The following are established current-repository facts and must be verified again by each plan when mechanically relevant:
+The following facts describe the historical preparation revision. Current takeover interfaces are recorded below and in the latest plan handoff.
 
 1. The AST currently has `Expr::ListLiteral` / `ListLiteralExpr`.
 2. The semantic checker currently synthesizes bracket literals through `synthesize_list_literal` and canonical `List`.
@@ -321,15 +321,15 @@ These facts are repository grounding, not permanent architecture if later approv
 
 ---
 
-## 5. Proposed numbered plans ledger
+## 5. Numbered plans ledger
 
-No numbered plan has yet been published. The following ledger defines the intended C1 decomposition and may be mechanically adjusted when each plan is authored, but changes to architectural ownership or acceptance scope require checkpoint amendment.
+The ledger records current C1 execution state. Proposed successor plans retain the original decomposition.
 
 | Plan | Scope | Status | Completion | Verification | Intended outcome |
 |---|---|---|---|---|---|
 | `COLL006.C1.P1` | Neutral bracket-literal AST/semantic architecture; `<...>[...]`; `_` inference holes; inference-bearing partial binding annotations | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Establish semantic authority and solver foundation without changing bare-literal defaults |
 | `COLL006.C1.P2` | `Array<T>` runtime/native representation, explicit/contextual Array literals, direct lowering, iteration, GC | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Complete runtime fixed-after-construction homogeneous sequence |
-| `COLL006.C1.P3` | `Vector<T,N>` runtime/native representation, static extent inference/cardinality proof, constructors, equality/hash, direct lowering | PROPOSED | NOT_STARTED | UNVERIFIED | Complete immutable dimensioned sequence |
+| `COLL006.C1.P3` | `Vector<T,N>` runtime/native representation, static extent inference/cardinality proof, constructors, equality/hash, direct lowering | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Exact static-generic foundation and initial Vector slices; runtime verification and acceptance closure remain open |
 | `COLL006.C1.P4` | Static homogeneous sequence model; const Vector; const Array; materialization; repository-wide bracket-default cutover/migration | PROPOSED | NOT_STARTED | UNVERIFIED | Make runtime bare brackets Array and const bare brackets Vector atomically |
 | `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | PROPOSED | NOT_STARTED | UNVERIFIED | Complete contiguous view/bounded-construction family |
 | `COLL006.C1.P6` | Reusable ordered-hash backing; preserve Map/Set; add `MutableBag`, `IndexedDict`, `OrderedSet` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete mutable ordered/hash-indexed family without duplicating re-entry logic |
@@ -522,7 +522,7 @@ V1 must not expose native `Value` storage as a stable public ABI. Later numeric 
 
 ## 9. Stable interface / takeover map
 
-No COLL006-specific implementation interface exists yet.
+P1 and P2 established the interfaces described in their handoffs. The following table is the historical preparation map. P3 adds `checker/sequence_literal.rs`, shared `phalcom_type_meta::StaticInt`, `Object::Vector`, and checked extent/expansion lowering; see `COLL006.C1.P3-handoff.md` for the current takeover map and limitations.
 
 The first plans inherit these current repository authorities:
 
@@ -608,7 +608,7 @@ These are designed correctness dimensions. They do not imply that every test run
 
 ## 12. Verification execution doctrine
 
-No verification has been run for COLL006.C1 yet.
+Completed focused evidence is recorded in §13. P3 runtime verification remains incomplete.
 
 Numbered plans should use the repository verification ladder:
 
@@ -638,25 +638,37 @@ Expected policy:
 | Gate | Scope | Evidence | Result | Proves |
 |---|---|---|---|---|
 | `COLL006.C1.P1.G7` | Syntax, inference holes, evaluation phase, sequence resolution, lowering | `cargo check --workspace --all-targets`, focused parser/semantic tests | `FOCUSED_TESTED` | Proves neutral syntax, inference holes, sequence literal publication and lowering fail-closed boundary |
+| `COLL006.C1.P3.G1` | Static generic formation and Vector semantic identity | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic coll006` | 22 passed | Includes 7 new P3 tests; proves concrete/symbolic/large static arguments, partial holes, eight Vector literal/context combinations, and retained P1/P2 compatibility |
+| `COLL006.C1.P3.G2` | Initial core compile gate | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --all-targets` | Passed before adding the final runtime test file | Compile evidence for initial runtime/lowering slice; does not prove execution |
+| `COLL006.C1.P3.G3` | Vector runtime gate | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_vector` | INCOMPLETE: user-aborted during compilation | No runtime result or selected-test count was obtained |
 
 ---
 
 ## 14. Deferred / baseline issue ledger
 
-No C1-specific baseline failure is yet recorded.
+### COLL006.C1.D1 — Broader metadata failure during exact-integer prerequisite
 
-Future plans must add entries here rather than silently repairing unrelated failures.
+- Observed: `structural_member_presence_and_remainder_affect_fingerprints` returned `NonExportableRecordKeyDomain`; the metadata filter reported 32 passed and 1 failed.
+- Classification: D suspected unrelated by scoped inspection; no clean-predecessor reproduction was performed.
+- Active acceptance: the focused exact-integer tests passed; this remains a residual broad-suite failure rather than certification evidence.
+- Reproduction: `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic integration::metadata`.
+- Revisit: owning metadata work or P3/P9 broader certification if required.
 
-Required format:
+### COLL006.C1.D2 — Broader reflection failures during exact-integer prerequisite
 
-```text
-ID:
-Observed:
-Classification: unrelated | baseline | unclear-but-nonblocking
-Why it does not block active acceptance:
-Reproduction:
-When to revisit:
-```
+- Observed: reflection filter reported 25 passed and 4 failed: Universe math package exposure drift and module/package/project fixture `NotCallable` diagnostics.
+- Classification: D suspected unrelated by scoped inspection; no clean-predecessor reproduction was performed.
+- Active acceptance: the exact-integer reflection regression passed. These broad failures do not establish a Vector defect or a passing broad gate.
+- Reproduction: `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core reflection`.
+- Revisit: owning reflection/module work or broader certification.
+
+### COLL006.C1.D3 — Partial P3 acceptance gaps
+
+- Runtime gate was aborted during compilation; execution, native bootstrap, equality/hash, conversions, GC, and exact spread execution are unverified.
+- Concrete negative Vector extent formation is not yet rejected centrally.
+- Symbolic extent is retained semantically, but current bytecode projection requires concrete `u32` counts; symbolic exact-spread construction has no completed runtime lowering contract.
+- Array public mutation/read homogeneity correction, family-correct explanations, removal of inactive legacy synthesis, and full negative/metadata/incremental test coverage remain open.
+- Revisit immediately on P3 continuation; do not begin P4 cutover until P3 is stable.
 
 ---
 
@@ -714,6 +726,22 @@ expected Vector<T,N>      -> contextual Vector
 **Architectural consequence:** all C1 records/plans/tests use `OrderedSet`; `SetList` is not introduced as an alias.  
 **Plan amendment:** P6 vocabulary requirement.  
 **Additional tests:** none beyond OrderedSet invariant/equality coverage.
+
+### COLL006.C1.A5 — Exact static integer representation
+
+Decision inherited from the user-authorized P3 requirements analysis: canonical static integer identity preserves exact Telos Int values. Implemented scalar owner is `phalcom-type-meta::StaticInt`, re-exported by semantics. `TypeData::ConstInt`, type-member arguments, metadata schema 12, and fingerprints use the shared scalar. Type identity remains `TypeId`.
+
+Evidence: exact-integer foundation, metadata/schema, and reflection tests recorded in the P3 walkthrough. Resource/count conversion remains separate from semantic identity.
+
+### COLL006.C1.A6 — Heterogeneous static generic formation
+
+Decision inherited from the analysis: complete and partial applications elaborate values in the destination parameter domain, and inference holes use that domain. Intrinsic Int bootstrap and `KindSpec::StaticDomain` project source-owned declarations. Tests prove Int terms, symbolic binders, partial holes, and large signed integers. The current value elaborator supports integer literals and unary-negative integer literals; general checked static expression evaluation remains a follow-up.
+
+### COLL006.C1.A8 — Exact spread and lowering product extension
+
+Decision inherited from the analysis: checked sequence products retain canonical extent and exact tuple-positional/Vector-storage lanes. Runtime-sized iterable spreads cannot establish Vector cardinality. Initial projection and bytecodes are implemented with concrete checked `u32` counts and runtime cardinality assertions. Runtime and symbolic-lowering verification remain open.
+
+These entries record adopted requirements and partial implementation, not a claim that the P3 acceptance objective is complete.
 
 ---
 
@@ -797,19 +825,10 @@ The implementer cannot self-waive a triggered consultation.
 ## 18. Active plan and next action
 
 ```text
-active plan:           none
+active plan:           COLL006.C1.P3 (paused at user-requested delivery)
 latest completed plan: COLL006.C1.P2
-blockers:              none recorded
-next action:           author and execute COLL006.C1.P3 (Vector<T, N>)
+blockers:              incomplete runtime gate and acceptance gaps in §14 / P3 handoff
+next action:           resume P3 inline; run core_vector first, then close typing, cardinality, runtime, and verification gaps
 ```
 
-`COLL006.C1.P1` should be a patch-grade plan for:
-
-1. neutralizing the existing `ListLiteral` AST/checker/compiler naming/ownership while preserving current behavior;
-2. parsing `<T>[...]` / `<T,N>[...]`;
-3. adding `_` inference-hole syntax and solver integration;
-4. supporting inference-bearing collection annotations such as `Array<_>` / `Vector<Int,_>` in inference-producing binding contexts;
-5. publishing checked sequence-literal resolution architecture;
-6. leaving the repository-wide bare-bracket default cutover for P4.
-
-At P1 start, the implementer must update this checkpoint ledger before substantial implementation. At P1 completion, the implementer must update this record and produce the required walkthrough and handoff.
+Read `COLL006.C1.P3-implementation-plan.md`, `COLL006.C1.P3-walkthrough.md`, and `COLL006.C1.P3-handoff.md`. Continue on `feat/telos-collection-upgrade` in the collections worktree. Bare brackets still default to List; const sequences and default migration remain P4.

@@ -579,6 +579,11 @@ pub struct ModuleLoweringSemantics {
 pub struct SequenceLiteralLoweringSpec {
     pub family: phalcom_semantic::checker::SequenceLiteralFamily,
     pub construction: phalcom_semantic::checker::SequenceConstructionPlan,
+    pub extent: Option<TypeId>,
+    pub exact_expansions: std::collections::BTreeMap<SourceRange, phalcom_semantic::checker::SequenceExpansionResolution>,
+    /// Checked host encoding of canonical extent for construction bytecodes.
+    pub expected_extent: Option<u32>,
+    pub exact_expansion_counts: BTreeMap<SourceRange, u32>,
 }
 
 pub(crate) fn attach_runtime_trait_environments(lowering: &mut ModuleLoweringSemantics, environments: &RuntimeTraitEnvironmentBindings) {
@@ -1421,6 +1426,22 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                 SequenceLiteralLoweringSpec {
                     family: literal.family,
                     construction: literal.construction,
+                    extent: literal.extent,
+                    exact_expansions: literal.exact_expansions.clone(),
+                    expected_extent: literal.extent.and_then(|extent| match snapshot.store.get(extent) {
+                        TypeData::ConstInt(value) => u32::try_from(value.to_bigint()).ok(),
+                        _ => None,
+                    }),
+                    exact_expansion_counts: literal.exact_expansions.iter().filter_map(|(range, expansion)| {
+                        let extent = match expansion {
+                            phalcom_semantic::checker::SequenceExpansionResolution::TuplePositionals { extent }
+                            | phalcom_semantic::checker::SequenceExpansionResolution::VectorStorage { extent } => *extent,
+                        };
+                        match snapshot.store.get(extent) {
+                            TypeData::ConstInt(value) => u32::try_from(value.to_bigint()).ok().map(|count| (*range, count)),
+                            _ => None,
+                        }
+                    }).collect(),
                 },
             );
         }

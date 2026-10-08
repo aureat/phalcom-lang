@@ -504,6 +504,17 @@ pub struct SequenceLiteralResolution {
     pub element_type: TypeId,
     pub extent: Option<TypeId>,
     pub construction: SequenceConstructionPlan,
+    /// Intrinsic positional execution lanes whose cardinality is proved.
+    pub exact_expansions: BTreeMap<SourceRange, SequenceExpansionResolution>,
+}
+
+/// Proof-preserving positional spread for dimensioned sequence construction.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum SequenceExpansionResolution {
+    /// Closed product positional lane; labeled entries are excluded.
+    TuplePositionals { extent: TypeId },
+    /// Native immutable Vector storage, independent from virtual iteration.
+    VectorStorage { extent: TypeId },
 }
 
 pub type SequenceLiteralResolutionIndex = BTreeMap<ExpressionId, SequenceLiteralResolution>;

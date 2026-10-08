@@ -2528,6 +2528,11 @@ fn synthesize_symbol_expr(ctx: &mut CheckingContext<'_>, s: &SymbolExpr) -> Type
 }
 
 fn synthesize_bracket_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::ast::BracketLiteralExpr, expected: &ExpectedType) -> TypedExpression {
+    super::sequence_literal::synthesize(ctx, list, expected)
+}
+
+#[allow(dead_code)]
+fn legacy_synthesize_bracket_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::ast::BracketLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let (family, collection_decl, explicit_elem_expected, local_inf) = if let Some(head) = &list.head {
         if head.arguments.len() == 1 {
             let arg = &head.arguments[0];
@@ -2771,6 +2776,7 @@ fn synthesize_bracket_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast:
             element_type,
             extent: None,
             construction,
+            exact_expansions: std::collections::BTreeMap::new(),
         };
         ctx.sequence_literals.insert(expr_id, resolution);
     }

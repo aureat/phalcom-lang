@@ -28,6 +28,7 @@ pub(crate) mod loop_analysis;
 pub mod pattern;
 pub mod result;
 pub mod row_inference;
+pub(crate) mod sequence_literal;
 pub mod statement;
 pub mod static_body;
 pub mod type_member_declaration;
@@ -36,7 +37,7 @@ pub mod typed_expr;
 pub use analysis::{
     AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex,
     FlowStateSummary, ForIterationLaneResolution, ForIterationLaneResolutionIndex, ForIterationRequirementResolution,
-    SequenceConstructionPlan, SequenceLiteralFamily, SequenceLiteralResolution, SequenceLiteralResolutionIndex,
+    SequenceConstructionPlan, SequenceExpansionResolution, SequenceLiteralFamily, SequenceLiteralResolution, SequenceLiteralResolutionIndex,
 };
 pub use annotation_elaboration::{
     AnnotationElaboration, InferenceHoleOrigin, annotation_contains_inference_hole, elaborate_annotation,

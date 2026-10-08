@@ -56,9 +56,11 @@ mod trace;
 mod tuple;
 pub mod typing;
 mod upvalue;
+mod vector;
 
 pub use adt::AdtCaseObject;
 pub use array::{ArrayLiteralBuilderObject, ArrayMutationError, ArrayObject};
+pub use vector::VectorObject;
 pub use associated::AssociatedFamilyObject;
 pub use block::BlockObject;
 pub use bytes::BytesObject;
@@ -263,6 +265,11 @@ impl Heap {
         self.insert(Object::Array(ArrayObject::from_vec(elements)))
     }
 
+    /// Allocates immutable Vector storage after checked construction.
+    pub fn alloc_vector(&mut self, elements: Vec<crate::value::Value>) -> ObjRef {
+        self.insert(Object::Vector(VectorObject::new(elements.into_boxed_slice())))
+    }
+
     /// Allocates a compiler-owned dynamic Array literal builder.
     pub(crate) fn alloc_array_literal_builder(&mut self) -> ObjRef {
         self.insert(Object::ArrayLiteralBuilder(Box::new(ArrayLiteralBuilderObject::new())))
@@ -411,6 +418,7 @@ impl Heap {
             Some(Object::Upvalue(_)) => "Upvalue",
             Some(Object::List(_)) => "List",
             Some(Object::Array(_)) => "Array",
+            Some(Object::Vector(_)) => "Vector",
             Some(Object::ArrayLiteralBuilder(_)) => "ArrayLiteralBuilder",
             Some(Object::Fiber(_)) => "Fiber",
             Some(Object::Map(_)) => "Map",

@@ -5,12 +5,10 @@
 //! durable canonical products.
 
 use crate::checker::context::CheckingContext;
-use crate::checker::expected::ExpectedType;
-use crate::checker::expression::analyze_expression;
 use crate::checker::inference::{InferenceContextId, InferenceFrameId, InferenceStaticArgument, InferenceTerm};
-use crate::diagnostic::SemanticDiagnostic;
+use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::identity::InferVarId;
-use crate::types::annotation::{TypeFormationSite, TypeResolver};
+use crate::types::annotation::{TypeFormationSite, TypeResolver, resolve_static_generic_value};
 use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::kind::KindData;
 use phalcom_ast::ast::{GenericArgumentSyntax, TypeAnnotation, TypeAnnotationExpr};
@@ -165,7 +163,12 @@ fn elaborate_annotation_inner(
                     .as_ref()
                     .and_then(|sig| sig.parameter_kinds.get(idx).copied())
                     .or_else(|| arrow_param_kinds.as_ref().and_then(|p| p.get(idx).copied()))
-                    .unwrap_or(KindId::TYPE);
+                    .ok_or_else(|| vec![SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::ApplicationTooManyArguments,
+                        "generic argument has no corresponding parameter",
+                        arg.range(),
+                    )])?;
 
                 match arg {
                     GenericArgumentSyntax::InferenceHole { range } => {
@@ -191,12 +194,10 @@ fn elaborate_annotation_inner(
                         }
                     }
                     GenericArgumentSyntax::Value(expr) => {
-                        let typed = analyze_expression(ctx, expr, &ExpectedType::None);
-                        if let Some(ty) = typed.knowledge.ty() {
-                            static_args.push(InferenceStaticArgument::Term(InferenceTerm::Canonical(ty)));
-                        } else {
-                            return Err(Vec::new());
-                        }
+                        let mut diagnostics = Vec::new();
+                        let value = resolve_static_generic_value(ctx.store, param_kind, expr, arg.range(), &mut diagnostics, &ctx.current_module);
+                        let ty = value.into_ready().ok_or(diagnostics)?;
+                        static_args.push(InferenceStaticArgument::Term(InferenceTerm::Canonical(ty)));
                     }
                     GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) => {
                         return Err(Vec::new());

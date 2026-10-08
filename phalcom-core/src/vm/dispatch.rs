@@ -4017,7 +4017,7 @@ impl VM {
                     }
                 }
                 Bytecode::FinishMapLiteral => {}
-                Bytecode::BeginArrayLiteral => self.stack.push(Value::obj(self.heap.alloc_array_literal_builder())),
+                Bytecode::BeginArrayLiteral | Bytecode::BeginVectorLiteral => self.stack.push(Value::obj(self.heap.alloc_array_literal_builder())),
                 Bytecode::ArrayLiteralAppend => {
                     let value = self.pop()?;
                     let builder = self.pop()?;
@@ -4035,12 +4035,38 @@ impl VM {
                     let Some(id) = builder.as_obj() else {
                         return Err(RuntimeError::Internal("Array literal builder is not an object".to_string()).into());
                     };
-                    let array_obj = match self.heap.as_array_literal_builder(id) {
-                        Some(b) => b.clone().finish(),
-                        None => return Err(RuntimeError::Internal("Array literal builder is not an ArrayLiteralBuilder".to_string()).into()),
+                    if self.heap.as_array_literal_builder(id).is_none() {
+                        return Err(RuntimeError::Internal("Array literal builder is not an ArrayLiteralBuilder".to_string()).into());
+                    }
+                    let elements = self.heap.array_literal_builder_mut(id).take_elements();
+                    *self.heap.get_mut(id) = Object::Array(crate::heap::ArrayObject::from_vec(elements));
+                    self.stack.push(builder);
+                }
+                Bytecode::VectorExpandExactPositionals { vector, expected } => {
+                    let source = self.pop()?;
+                    let builder = self.pop()?;
+                    let id = builder.as_obj().ok_or_else(|| RuntimeError::Internal("Vector builder is not an object".into()))?;
+                    let values = if vector {
+                        let source_id = source.as_obj().ok_or_else(|| RuntimeError::Internal("exact Vector spread is not an object".into()))?;
+                        self.heap.as_vector(source_id).ok_or_else(|| RuntimeError::Internal("exact Vector spread has incorrect native storage".into()))?.elements().to_vec()
+                    } else {
+                        self.positional_lane(source).ok_or_else(|| RuntimeError::NonIterableStarOperand { found: source.type_name() })?
                     };
-                    let array = self.heap.alloc(Object::Array(array_obj));
-                    self.stack.push(Value::obj(array));
+                    if values.len() != expected as usize || self.heap.as_array_literal_builder(id).is_none() {
+                        return Err(RuntimeError::Internal("proved Vector spread cardinality differs from runtime storage".into()).into());
+                    }
+                    for value in values { self.heap.array_literal_builder_mut(id).push(value); }
+                    self.stack.push(builder);
+                }
+                Bytecode::FinishVectorLiteral(expected) => {
+                    let builder = self.pop()?;
+                    let id = builder.as_obj().ok_or_else(|| RuntimeError::Internal("Vector builder is not an object".into()))?;
+                    if self.heap.as_array_literal_builder(id).is_none_or(|builder| builder.elements().len() != expected as usize) {
+                        return Err(RuntimeError::Internal("proved Vector extent differs from constructed storage".into()).into());
+                    }
+                    let elements = self.heap.array_literal_builder_mut(id).take_elements();
+                    *self.heap.get_mut(id) = Object::Vector(crate::heap::VectorObject::new(elements.into_boxed_slice()));
+                    self.stack.push(builder);
                 }
                 Bytecode::BeginListLiteral => self.stack.push(Value::obj(self.heap.alloc_list(Vec::new()))),
                 Bytecode::ListLiteralAppend => {
@@ -4101,6 +4127,13 @@ impl VM {
                     elements.reverse();
                     let array = self.heap.alloc_array(elements);
                     self.stack.push(Value::obj(array));
+                }
+                Bytecode::BuildVector(count) => {
+                    let mut elements = Vec::with_capacity(count as usize);
+                    for _ in 0..count { elements.push(self.pop()?); }
+                    elements.reverse();
+                    let vector = self.heap.alloc_vector(elements);
+                    self.stack.push(Value::obj(vector));
                 }
                 Bytecode::BuildList(count) => {
                     let mut elements = Vec::with_capacity(count as usize);

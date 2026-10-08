@@ -550,7 +550,17 @@ pub fn resolve_kind_syntax(store: &mut TypeStore, kind: &KindSyntax) -> KindReso
         KindSyntax::TypePack(_) => KindResolution::Ready(KindId::TYPE_PACK),
         KindSyntax::LabeledTypePack(_) => KindResolution::Ready(KindId::LABELED_TYPE_PACK),
         KindSyntax::CompleteTypePack(_) => KindResolution::Ready(KindId::COMPLETE_TYPE_PACK),
-        KindSyntax::StaticDomain { .. } => KindResolution::Invalid(TypeFormationInvalid::InvalidKindSyntax),
+        KindSyntax::StaticDomain { form, .. } => {
+            // The canonical Universe bootstrap has no declaration resolver yet,
+            // so intrinsic static domains must be recognized from their source
+            // spelling at this boundary. Ordinary contextual resolution below
+            // remains responsible for user-defined and associated domains.
+            if matches!(&form.expr, TypeAnnotationExpr::Reference(reference) if reference.root == "Int" && reference.members.is_empty()) {
+                KindResolution::Ready(store.static_domain_kind(store.const_int_domain()))
+            } else {
+                KindResolution::Invalid(TypeFormationInvalid::InvalidKindSyntax)
+            }
+        }
         KindSyntax::Grouped { inner, .. } => resolve_kind_syntax(store, inner),
         KindSyntax::Arrow { parameter, result, .. } => {
             let p_kind = match resolve_kind_syntax(store, parameter) {
@@ -579,6 +589,53 @@ pub fn resolve_kind_syntax(store: &mut TypeStore, kind: &KindSyntax) -> KindReso
         }
         KindSyntax::Invalid { .. } => KindResolution::Invalid(TypeFormationInvalid::InvalidKindSyntax),
     }
+}
+
+/// Resolves a value-shaped generic argument in the parameter's declared static
+/// domain. The returned `TypeId` is the canonical static term, not the
+/// ordinary expression type of the source expression.
+pub fn resolve_static_generic_value(
+    store: &mut TypeStore,
+    expected_kind: KindId,
+    expression: &Expr,
+    range: phalcom_common::range::SourceRange,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+    current_module: &ModuleId,
+) -> TypeFormResolution {
+    let is_const_int_domain = matches!(
+        store.get_kind(expected_kind),
+        KindData::StaticDomain(domain) if *domain == store.const_int_domain()
+    );
+    if !is_const_int_domain {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            current_module.clone(),
+            DiagnosticCode::ApplicationArgumentKindMismatch,
+            "generic value argument requires a supported static domain",
+            range,
+        ));
+        return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+    }
+
+    let value = match expression {
+        Expr::Int { digits, radix, .. } => BigInt::parse_bytes(digits.as_bytes(), *radix),
+        Expr::Unary(unary) if matches!(unary.op, phalcom_ast::ast::UnaryOp::Minus) => {
+            match &unary.expr {
+                Expr::Int { digits, radix, .. } => BigInt::parse_bytes(digits.as_bytes(), *radix).map(|value| -value),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    let Some(value) = value else {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            current_module.clone(),
+            DiagnosticCode::ApplicationArgumentKindMismatch,
+            "static Int generic arguments must be integer literals",
+            range,
+        ));
+        return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+    };
+    TypeFormResolution::Ready(store.const_int(StaticInt::new(value)))
 }
 
 /// Lowers an AST variance marker into semantic [`Variance`].
@@ -622,7 +679,7 @@ pub(crate) fn resolve_contextual_kind_syntax(
                 TypeFormResolution::BudgetExceeded(report) => return KindResolution::BudgetExceeded(report),
                 TypeFormResolution::InternalFailure(failure) => return KindResolution::InternalFailure(failure),
             };
-            let kind = store.kind_of(ty);
+            let kind = static_domain_kind_of_form(store, ty);
             if matches!(store.get_kind(kind), KindData::StaticDomain(_)) {
                 KindResolution::Ready(kind)
             } else {
@@ -3189,24 +3246,44 @@ pub fn resolve_type_form(
                 }
             }
 
+            let parameter_kinds = match store.get_kind(store.kind_of(origin_ty)) {
+                KindData::Arrow { parameters, .. } => parameters.clone(),
+                _ => Box::new([]),
+            };
             let mut arg_tys = Vec::with_capacity(arguments.len());
-            for arg in arguments {
-                let phalcom_ast::ast::GenericArgumentSyntax::Single(arg) = arg else {
-                    let message = match arg {
-                        phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {
-                            "`_` requires an inference-producing context; this declaration requires a complete generic argument"
-                        }
-                        _ => "type-pack expansion is not available in generic applications yet",
-                    };
-                    diagnostics.push(SemanticDiagnostic::error_in(
-                        current_module.clone(),
-                        DiagnosticCode::AnnotationUnsupported,
-                        message,
-                        arg.range(),
-                    ));
-                    return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+            for (index, arg) in arguments.iter().enumerate() {
+                let arg_res = match arg {
+                    phalcom_ast::ast::GenericArgumentSyntax::Single(arg) => {
+                        resolve_type_form(store, declarations, resolver, site, arg, diagnostics)
+                    }
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(expression) => {
+                        let Some(expected_kind) = parameter_kinds.get(index).copied() else {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::ApplicationTooManyArguments,
+                                "generic argument has no corresponding parameter",
+                                arg.range(),
+                            ));
+                            return TypeFormResolution::Invalid(TypeFormationInvalid::TooManyTypeArguments);
+                        };
+                        resolve_static_generic_value(store, expected_kind, expression, arg.range(), diagnostics, current_module)
+                    }
+                    _ => {
+                        let message = match arg {
+                            phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {
+                                "`_` requires an inference-producing context; this declaration requires a complete generic argument"
+                            }
+                            _ => "type-pack expansion is not available in generic applications yet",
+                        };
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::AnnotationUnsupported,
+                            message,
+                            arg.range(),
+                        ));
+                        return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
+                    }
                 };
-                let arg_res = resolve_type_form(store, declarations, resolver, site, arg, diagnostics);
                 match arg_res {
                     TypeFormResolution::Ready(ty) => arg_tys.push(StaticArgument::Term(ty)),
                     TypeFormResolution::Dynamic => arg_tys.push(StaticArgument::DynamicType),

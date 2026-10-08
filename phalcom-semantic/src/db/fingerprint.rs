@@ -1137,6 +1137,7 @@ fn hash_sequence_literals(literals: &crate::checker::analysis::SequenceLiteralRe
         literal.element_type.hash(hasher);
         literal.extent.hash(hasher);
         literal.construction.hash(hasher);
+        literal.exact_expansions.hash(hasher);
     }
 }
 

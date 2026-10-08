@@ -1103,7 +1103,7 @@ fn test_symbolic_projection_survives_generic_substitution() {
         TypeLevelProjection {
             subject: ProjectionSubject::Type(sym_tuple),
             selector: TypeMemberSelector::Subscript,
-            arguments: Box::new([TypeMemberArgument::Const(ConstTerm::Int(0))]),
+            arguments: Box::new([TypeMemberArgument::Const(ConstTerm::Int(phalcom_semantic::StaticInt::from(0)))]),
             source_declaration: None,
         },
         KindId::TYPE,

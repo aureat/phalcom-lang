@@ -650,6 +650,10 @@ impl Universe {
         primitive_internal!(vm, array_cls, "rawSet", SignatureKind::Method(2), array_raw_set);
         primitive!(vm, array_cls, "toString", SignatureKind::Getter, array_to_string);
 
+        let vector_cls = vm.universe.classes.vector_class;
+        primitive_internal!(vm, vector_cls, "rawLength", SignatureKind::Getter, crate::primitive::vector::vector_raw_length);
+        primitive_internal!(vm, vector_cls, "rawAt", SignatureKind::Method(1), crate::primitive::vector::vector_raw_at);
+
         // Kernel `Bytes` (PDR-0011 ruling 3, U-BYTES): implementation
         // ordinary selectors. Bulk no-user-code operations are native
         // under the container bulk-op posture; every block-taking selector

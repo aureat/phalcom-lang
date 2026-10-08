@@ -126,6 +126,10 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "ArrayLiteralAppend",
     "FinishArrayLiteral",
     "ArrayTryExpandTuplePositionals",
+    "BuildVector",
+    "VectorExpandExactPositionals",
+    "FinishVectorLiteral",
+    "BeginVectorLiteral",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -517,6 +521,15 @@ pub enum Bytecode {
     InvokeCompilerInternal(u8, u16),
     /// Builds an Array from the top `n` stack items.
     BuildArray(u16),
+    /// Builds immutable Vector storage from exactly `n` operands.
+    BuildVector(u16),
+    /// Appends native Vector or closed product positional storage to a private
+    /// dense builder, checking the semantically projected expected count.
+    VectorExpandExactPositionals { vector: bool, expected: u32 },
+    /// Finalizes immutable Vector storage, checking its proved dimension.
+    FinishVectorLiteral(u32),
+    /// Allocates a VM-private dense Vector construction buffer.
+    BeginVectorLiteral,
     /// Allocates the compiler-owned native Array builder used by a spread-containing Array literal.
     BeginArrayLiteral,
     /// Appends one value to a compiler-owned Array literal builder.
@@ -790,7 +803,7 @@ pub enum Bytecode {
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 122;
+    pub const VARIANTS: usize = 126;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -923,6 +936,10 @@ impl Bytecode {
             Bytecode::ArrayLiteralAppend => 119,
             Bytecode::FinishArrayLiteral => 120,
             Bytecode::ArrayTryExpandTuplePositionals => 121,
+            Bytecode::BuildVector(..) => 122,
+            Bytecode::VectorExpandExactPositionals { .. } => 123,
+            Bytecode::FinishVectorLiteral(..) => 124,
+            Bytecode::BeginVectorLiteral => 125,
         }
     }
 

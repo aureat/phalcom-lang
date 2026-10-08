@@ -102,6 +102,11 @@ impl ArrayLiteralBuilderObject {
     pub fn finish(self) -> ArrayObject {
         ArrayObject::from_vec(self.elements)
     }
+
+    /// Transfers initialized values exactly once at private finalization.
+    pub(crate) fn take_elements(&mut self) -> Vec<Value> {
+        std::mem::take(&mut self.elements)
+    }
 }
 
 impl Default for ArrayLiteralBuilderObject {

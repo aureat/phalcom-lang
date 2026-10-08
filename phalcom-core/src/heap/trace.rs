@@ -202,6 +202,11 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
                 trace_value(*element, push);
             }
         }
+        Object::Vector(vector) => {
+            for element in vector.elements() {
+                trace_value(*element, push);
+            }
+        }
         Object::ArrayLiteralBuilder(builder) => {
             for element in builder.elements() {
                 trace_value(*element, push);

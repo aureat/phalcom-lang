@@ -151,7 +151,7 @@ fn integer_type_member_arguments_use_canonical_const_int_terms() {
     let [phalcom_semantic::types::type_member::TypeMemberArgument::Type(argument)] = projection_data.arguments.as_ref() else {
         panic!("integer subscript argument should be represented by a canonical type term");
     };
-    assert!(matches!(env.store.get(*argument), TypeData::ConstInt(3)));
+    assert!(matches!(env.store.get(*argument), TypeData::ConstInt(phalcom_semantic::StaticInt::Small(3))));
     assert!(diags.is_empty());
 }
 

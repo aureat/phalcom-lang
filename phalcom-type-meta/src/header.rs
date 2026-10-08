@@ -4,12 +4,14 @@ use crate::fingerprint::Fingerprint128;
 use serde::{Deserialize, Serialize};
 
 pub const MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION: u32 = 1;
+/// Schema v12 encodes exact static integers as normalized decimal strings.
+/// Legacy numeric integer terms remain readable.
 /// Schema v11 preserves declaration, variant, and conformance callable ownership.
 /// Legacy declaration-shaped callable owners remain readable.
 /// Schema v10 adds structural member presence and anonymous Tuple/Record remainders;
 /// v9 adds scoped heterogeneous `RecordFields` arguments; v8 adds a
 /// typed static-domain catalog and v7 retains selected source member identity.
-pub const TYPE_METADATA_SCHEMA_VERSION: u32 = 11;
+pub const TYPE_METADATA_SCHEMA_VERSION: u32 = 12;
 pub const SEMANTIC_MODEL_VERSION: u32 = 1;
 pub const NATIVE_SURFACE_SCHEMA_VERSION: u32 = 1;
 

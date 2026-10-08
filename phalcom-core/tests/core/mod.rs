@@ -62,6 +62,8 @@ mod compiler_static_const;
 mod core_collections;
 #[path = "collections/array.rs"]
 mod core_array;
+#[path = "collections/vector.rs"]
+mod core_vector;
 #[path = "collections/outgoing_packs.rs"]
 mod core_outgoing_packs;
 #[path = "collections/outgoing_packs_completion.rs"]

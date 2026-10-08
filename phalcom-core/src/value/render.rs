@@ -67,6 +67,7 @@ impl Value {
                     format!("Array([{}])", parts.join(", "))
                 }
                 Object::ArrayLiteralBuilder(_) => "<array-builder>".to_string(),
+                Object::Vector(vector) => format!("Vector({:?})", vector.elements()),
                 // The `.ph` `Bytes#toString` (bytes.md §4) is the surface
                 // spelling; this is the same debug form for the raw-render
                 // path (echo of a receiver with no user override yet).
@@ -196,6 +197,7 @@ impl Value {
                 Object::BoundMethod(_) => "<bound method>".to_string(),
                 Object::List(_) => "<list>".to_string(),
                 Object::Array(_) => "<array>".to_string(),
+                Object::Vector(_) => "<vector>".to_string(),
                 Object::ArrayLiteralBuilder(_) => "<array-builder>".to_string(),
                 Object::Bytes(_) => "<bytes>".to_string(),
                 Object::Fiber(_) => "<fiber>".to_string(),

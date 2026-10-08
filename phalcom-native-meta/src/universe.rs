@@ -49,6 +49,7 @@ pub enum UniverseKey {
     Collection,
     List,
     Array,
+    Vector,
     Map,
     Set,
     Tuple,
@@ -228,6 +229,10 @@ pub const UNIVERSE_CLASS_RELATIONS: &[UniverseClassRelationSpec] = &[
         superclass: Some(UniverseKey::Collection),
     },
     UniverseClassRelationSpec {
+        class: UniverseKey::Vector,
+        superclass: Some(UniverseKey::Collection),
+    },
+    UniverseClassRelationSpec {
         class: UniverseKey::Map,
         superclass: Some(UniverseKey::Collection),
     },
@@ -387,6 +392,7 @@ impl UniverseKey {
             Self::Collection => &["collections", "collection"],
             Self::List => &["collections", "list"],
             Self::Array => &["collections", "array"],
+            Self::Vector => &["collections", "vector"],
             Self::Map => &["collections", "map"],
             Self::Set => &["collections", "set"],
             Self::Tuple => &["collections", "tuple"],
@@ -456,6 +462,7 @@ impl UniverseKey {
             Self::Collection => "Collection",
             Self::List => "List",
             Self::Array => "Array",
+            Self::Vector => "Vector",
             Self::Map => "Map",
             Self::Set => "Set",
             Self::Tuple => "Tuple",
@@ -531,6 +538,7 @@ impl UniverseKey {
             "Collection" => Some(Self::Collection),
             "List" => Some(Self::List),
             "Array" => Some(Self::Array),
+            "Vector" => Some(Self::Vector),
             "Map" => Some(Self::Map),
             "Set" => Some(Self::Set),
             "Tuple" => Some(Self::Tuple),
@@ -814,6 +822,13 @@ pub const UNIVERSE_BINDINGS: &[UniverseBindingSpec] = &[
         prelude: true,
     },
     UniverseBindingSpec {
+        key: UniverseKey::Vector,
+        name: "Vector",
+        kind: UniverseBindingKind::Class,
+        exported: true,
+        prelude: true,
+    },
+    UniverseBindingSpec {
         key: UniverseKey::Map,
         name: "Map",
         kind: UniverseBindingKind::Class,
@@ -1046,7 +1061,7 @@ pub const UNIVERSE_BINDINGS: &[UniverseBindingSpec] = &[
     },
 ];
 
-use crate::types::{KindSpec, TypeParameterDeclSpec, UniverseTypeFormSpec};
+use crate::types::{KindSpec, TypeExprSpec, TypeParameterDeclSpec, UniverseTypeFormSpec};
 
 pub const UNIVERSE_TYPE_FORMS: &[UniverseTypeFormSpec] = &[
     UniverseTypeFormSpec {
@@ -1061,6 +1076,16 @@ pub const UNIVERSE_TYPE_FORMS: &[UniverseTypeFormSpec] = &[
         parameters: &[TypeParameterDeclSpec {
             name: "T",
             kind: KindSpec::Type,
+        }],
+    },
+    UniverseTypeFormSpec {
+        owner: UniverseKey::Vector,
+        parameters: &[TypeParameterDeclSpec {
+            name: "T",
+            kind: KindSpec::Type,
+        }, TypeParameterDeclSpec {
+            name: "N",
+            kind: KindSpec::StaticDomain { form: &TypeExprSpec::Universe(UniverseKey::Int) },
         }],
     },
     UniverseTypeFormSpec {

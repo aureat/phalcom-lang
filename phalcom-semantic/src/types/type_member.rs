@@ -1,6 +1,7 @@
 //! Canonical type-member signatures, selectors, and compiler-intrinsic operations.
 
 use crate::identity::DeclarationId;
+use crate::scalar::StaticInt;
 use crate::types::id::{KindId, TypeId};
 use crate::types::store::TypeStore;
 use phalcom_ast::ast::TypeMemberSelectorSyntax;
@@ -223,7 +224,7 @@ pub fn validate_type_member_arguments(
         let actual = match argument {
             TypeMemberArgument::Type(ty) => store.kind_of(*ty),
             TypeMemberArgument::Const(ConstTerm::Int(value)) => {
-                let integer = store.const_int(*value);
+                let integer = store.const_int(value.clone());
                 store.kind_of(integer)
             }
             TypeMemberArgument::RecordRow(_) => KindId::RECORD_ROW,
@@ -286,7 +287,7 @@ pub fn lookup_intrinsic_type_operation(owner: IntrinsicTypeOwner, selector: &Typ
 /// A constant value passed as a type-member argument.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ConstTerm {
-    Int(i64),
+    Int(StaticInt),
 }
 
 /// The subject of a generalized type-level projection.
