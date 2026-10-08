@@ -11,15 +11,13 @@ COLL006 is defined but implementation has not started.
 
 | Checkpoint | State | Active plan | Next action |
 |---|---|---|---|
-| `COLL006.C1` | `PROPOSED / NOT_STARTED / UNVERIFIED` | none | author `COLL006.C1.P1` for contextual bracket-literal and inference-hole foundation |
+| `COLL006.C1` | `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` | none | author and execute `COLL006.C1.P2` for `Array<T>` runtime/native implementation |
 
 ## Current program truth
 
-- The C1 acceptance objective and target collection ontology are defined.
-- No COLL006 runtime/compiler implementation is claimed by these records.
-- No COLL006 verification gate has run.
-- No numbered C1 implementation plan has yet been published.
-- `COLL006.C1-CHECKPOINT.md` is the canonical shared state document for C1 once these records are adopted.
+- `COLL006.C1.P1` is complete: neutral bracket literals, explicit heads `<...>[...]`, inference holes `_`, partial annotation elaboration, and sequence lowering foundation are implemented.
+- Bare bracket default remains `List<T>` during P1/P2/P3; P4 owns the atomic cutover to `Array<T>` runtime and `Vector<T, N>` static defaults.
+- `COLL006.C1-CHECKPOINT.md` is the canonical shared state document for C1.
 
 ## Ratified target semantics
 

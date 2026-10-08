@@ -759,10 +759,10 @@ impl OccurrenceBuilder<'_> {
                     }
                 }
             }
-            Expr::ListLiteral(list) => {
+            Expr::BracketLiteral(list) => {
                 for element in &list.elements {
                     match element {
-                        phalcom_ast::ast::ListLiteralElement::Element { expr, .. } | phalcom_ast::ast::ListLiteralElement::Expansion { expr, .. } => {
+                        phalcom_ast::ast::BracketLiteralElement::Element { expr, .. } | phalcom_ast::ast::BracketLiteralElement::Expansion { expr, .. } => {
                             self.expr(expr, OccurrenceRole::Read)
                         }
                     }

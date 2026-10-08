@@ -114,7 +114,11 @@ pub fn analyze_static_expression(
     binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
     intrinsics: &StaticIntrinsicRegistry,
 ) -> crate::static_constant::CheckedStaticExpression {
-    analyze_static_expression_with_demands(context, initializer, expected_type, catalog, binding_states, intrinsics).0
+    let expected = match expected_type {
+        Some(ty) => ExpectedType::proper_from(ty, ExpectationOrigin::DeclarationContract),
+        None => ExpectedType::None,
+    };
+    analyze_static_expression_with_demands(context, initializer, expected, catalog, binding_states, intrinsics).0
 }
 
 /// Result of checking a static expression against the current semantic world.
@@ -140,7 +144,22 @@ pub fn check_static_expression(
     binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
     intrinsics: &StaticIntrinsicRegistry,
 ) -> StaticExpressionCheckOutcome {
-    let (checked, demands) = analyze_static_expression_with_demands(context, initializer, expected_type, catalog, binding_states, intrinsics);
+    let expected = match expected_type {
+        Some(ty) => ExpectedType::proper_from(ty, ExpectationOrigin::DeclarationContract),
+        None => ExpectedType::None,
+    };
+    check_static_expression_with_expected(context, initializer, expected, catalog, binding_states, intrinsics)
+}
+
+pub fn check_static_expression_with_expected(
+    context: CheckingContext<'_>,
+    initializer: &Expr,
+    expected: ExpectedType,
+    catalog: &crate::module_bindings::ModuleStaticBindingCatalog,
+    binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
+    intrinsics: &StaticIntrinsicRegistry,
+) -> StaticExpressionCheckOutcome {
+    let (checked, demands) = analyze_static_expression_with_demands(context, initializer, expected, catalog, binding_states, intrinsics);
     if !demands.is_empty() {
         return StaticExpressionCheckOutcome::Awaiting(demands);
     }
@@ -154,11 +173,12 @@ pub fn check_static_expression(
 fn analyze_static_expression_with_demands(
     mut context: CheckingContext<'_>,
     initializer: &Expr,
-    expected_type: Option<crate::types::id::TypeId>,
+    expected: ExpectedType,
     catalog: &crate::module_bindings::ModuleStaticBindingCatalog,
     binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
     intrinsics: &StaticIntrinsicRegistry,
 ) -> (crate::static_constant::CheckedStaticExpression, BTreeSet<QueryKey>) {
+    context.phase = crate::checker::context::EvaluationPhase::Static;
     let diagnostic_start = context.diagnostics.len();
     let existing_expressions = context.expressions.keys().copied().collect::<BTreeSet<_>>();
     let expression_start = context.next_local_expr_id;
@@ -189,10 +209,6 @@ fn analyze_static_expression_with_demands(
     }
     let first_body_binding = context.next_binding_id;
 
-    let expected = match expected_type {
-        Some(ty) => ExpectedType::proper_from(ty, ExpectationOrigin::DeclarationContract),
-        None => ExpectedType::None,
-    };
     let typed_result = analyze_expression(&mut context, initializer, &expected);
     context.sync_expression_outcome(&typed_result);
 
@@ -242,6 +258,12 @@ fn analyze_static_expression_with_demands(
         .filter(|(expression, _)| expressions.contains_key(expression))
         .map(|(expr, res)| (*expr, res.clone()))
         .collect();
+    let sequence_literals: crate::checker::analysis::SequenceLiteralResolutionIndex = context
+        .sequence_literals
+        .iter()
+        .filter(|(expression, _)| expressions.contains_key(expression))
+        .map(|(expr, res)| (*expr, res.clone()))
+        .collect();
 
     let mut bindings: BindingAnalysisIndex = context.binding_history.clone();
     bindings.extend(context.flow.bindings.clone());
@@ -270,6 +292,22 @@ fn analyze_static_expression_with_demands(
     dependencies.sort();
     dependencies.dedup();
 
+    let solved_expected_type = if let ExpectedType::Inference { context: inf_ctx, ref term, .. } = expected {
+        if let Some(session) = context.inference_session(inf_ctx) {
+            let frame = context.current_inference_frame(inf_ctx).unwrap_or(crate::checker::inference::InferenceFrameId(0));
+            let outcome = context.solve_inference_in_frame(&mut session.borrow_mut(), frame);
+            if outcome.is_solved() {
+                session.borrow().materialize(term, context.store).ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        expected.ty()
+    };
+
     let diagnostics = Arc::from(context.diagnostics[diagnostic_start..].to_vec().into_boxed_slice());
     let checked = crate::static_constant::CheckedStaticExpression {
         root: initializer.clone(),
@@ -279,11 +317,12 @@ fn analyze_static_expression_with_demands(
         static_applications: Arc::from(static_applications),
         static_constructions: Arc::new(static_constructions),
         associated_resolutions: Arc::new(associated_resolutions),
+        sequence_literals: Arc::new(sequence_literals),
         local_slots: Arc::new(local_slots),
         static_constant_bindings: Arc::new(stable_bindings),
         static_constant_reads: static_constant_reads.into(),
         dependencies: dependencies.into(),
-        result_type: expected_type.or_else(|| typed_result.knowledge.ty()),
+        result_type: solved_expected_type.or_else(|| typed_result.knowledge.ty()),
         diagnostics,
     };
     (checked, context.semantic_query_demands_snapshot())
@@ -297,6 +336,7 @@ fn analyze_static_body_inner(
     module_binding_fingerprint: Option<crate::db::key::ProductFingerprint>,
     intrinsics: &StaticIntrinsicRegistry,
 ) -> CheckedStaticBody {
+    context.phase = crate::checker::context::EvaluationPhase::Static;
     let diagnostic_start = context.diagnostics.len();
     let existing_expressions = context.expressions.keys().copied().collect::<BTreeSet<_>>();
     let expression_start = context.next_local_expr_id;
@@ -515,6 +555,11 @@ fn analyze_static_body_inner(
         .into_iter()
         .filter(|(expression, _)| expressions.contains_key(expression))
         .collect();
+    let sequence_literals: crate::checker::analysis::SequenceLiteralResolutionIndex = context
+        .sequence_literals
+        .into_iter()
+        .filter(|(expression, _)| expressions.contains_key(expression))
+        .collect();
 
     let mut bindings: BindingAnalysisIndex = context.binding_history.clone();
     bindings.extend(context.flow.bindings.clone());
@@ -541,6 +586,7 @@ fn analyze_static_body_inner(
         static_applications: Arc::from(static_applications),
         static_constructions: Arc::new(static_constructions),
         associated_resolutions: Arc::new(associated_resolutions),
+        sequence_literals: Arc::new(sequence_literals),
         parameter_bindings: Arc::new(parameter_bindings),
         kinded_parameters: Arc::new(kinded_parameters),
         local_slots: Arc::new(local_slots),

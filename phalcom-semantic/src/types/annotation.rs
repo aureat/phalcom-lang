@@ -1562,6 +1562,15 @@ fn lower_scoped_type_form(
                             ));
                             return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
                         }
+                        phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { range } => {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "`_` requires an inference-producing context; this declaration requires a complete generic argument",
+                                *range,
+                            ));
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                        }
                     }
                 }
                 let positionals = store
@@ -1624,10 +1633,16 @@ fn lower_scoped_type_form(
             let mut scoped_arguments = Vec::with_capacity(arguments.len());
             for argument in arguments {
                 let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = argument else {
+                    let message = match argument {
+                        phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {
+                            "`_` requires an inference-producing context; this declaration requires a complete generic argument"
+                        }
+                        _ => "type-pack expansion is not available in this scoped type form",
+                    };
                     diagnostics.push(SemanticDiagnostic::error_in(
                         current_module.clone(),
                         DiagnosticCode::AnnotationUnsupported,
-                        "type-pack expansion is not available in this scoped type form",
+                        message,
                         argument.range(),
                     ));
                     return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
@@ -2797,10 +2812,16 @@ pub fn resolve_type_form(
                     let mut static_arguments = Vec::with_capacity(arguments.len());
                     for argument in arguments.iter().take(fixed_count) {
                         let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = argument else {
+                            let message = match argument {
+                                phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {
+                                    "`_` requires an inference-producing context; this declaration requires a complete generic argument"
+                                }
+                                _ => "fixed generic parameters require single type arguments before a pack expansion",
+                            };
                             diagnostics.push(SemanticDiagnostic::error_in(
                                 current_module.clone(),
                                 DiagnosticCode::AnnotationUnsupported,
-                                "fixed generic parameters require single type arguments before a pack expansion",
+                                message,
                                 argument.range(),
                             ));
                             return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
@@ -2993,6 +3014,15 @@ pub fn resolve_type_form(
                             ));
                             return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
                         }
+                        phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { range } => {
+                            diagnostics.push(SemanticDiagnostic::error_in(
+                                current_module.clone(),
+                                DiagnosticCode::AnnotationUnsupported,
+                                "`_` requires an inference-producing context; this declaration requires a complete generic argument",
+                                *range,
+                            ));
+                            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                        }
                     };
                     let operand = ready_or_return!(resolve_type_form(store, declarations, resolver, site, operand, diagnostics));
                     let projected = match mode {
@@ -3162,10 +3192,16 @@ pub fn resolve_type_form(
             let mut arg_tys = Vec::with_capacity(arguments.len());
             for arg in arguments {
                 let phalcom_ast::ast::GenericArgumentSyntax::Single(arg) = arg else {
+                    let message = match arg {
+                        phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {
+                            "`_` requires an inference-producing context; this declaration requires a complete generic argument"
+                        }
+                        _ => "type-pack expansion is not available in generic applications yet",
+                    };
                     diagnostics.push(SemanticDiagnostic::error_in(
                         current_module.clone(),
                         DiagnosticCode::AnnotationUnsupported,
-                        "type-pack expansion is not available in generic applications yet",
+                        message,
                         arg.range(),
                     ));
                     return TypeFormResolution::Invalid(TypeFormationInvalid::Syntax);
@@ -4172,10 +4208,16 @@ fn resolve_trait_ref_for_conformance(
             let mut type_arguments = Vec::with_capacity(arguments.len());
             for argument in arguments {
                 let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = argument else {
+                    let message = match argument {
+                        phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {
+                            "`_` is not valid in conformance bounds; conformance bounds require a complete generic argument"
+                        }
+                        _ => "type-pack expansion is not available in conformance bounds",
+                    };
                     diagnostics.push(SemanticDiagnostic::error_in(
                         current_module.clone(),
                         DiagnosticCode::AnnotationUnsupported,
-                        "type-pack expansion is not available in conformance bounds",
+                        message,
                         argument.range(),
                     ));
                     return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);

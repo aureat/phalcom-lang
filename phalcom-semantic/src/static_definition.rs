@@ -147,6 +147,7 @@ pub struct CheckedStaticBody {
     pub static_constructions: Arc<BTreeMap<ExpressionId, CheckedStaticConstruction>>,
     /// Ordinary associated-resolution facts for expressions owned by this body.
     pub associated_resolutions: Arc<crate::checker::associated::AssociatedResolutionIndex>,
+    pub sequence_literals: Arc<crate::checker::analysis::SequenceLiteralResolutionIndex>,
     pub parameter_bindings: Arc<BTreeMap<u32, BindingId>>,
     pub kinded_parameters: Arc<BTreeMap<u32, TypeParameterId>>,
     pub local_slots: Arc<BTreeMap<BindingId, u32>>,

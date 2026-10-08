@@ -930,7 +930,9 @@ impl<'a> StaticEvaluator<'a> {
                                         }
                                         _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
                                     },
-                                    GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) => {
+                                    GenericArgumentSyntax::Expansion(_)
+                                    | GenericArgumentSyntax::Remainder(_)
+                                    | GenericArgumentSyntax::InferenceHole { .. } => {
                                         return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                                     }
                                 }
@@ -948,7 +950,9 @@ impl<'a> StaticEvaluator<'a> {
                                         Expr::TypeForm(annotation) => annotation.as_ref(),
                                         _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
                                     },
-                                    GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) => {
+                                    GenericArgumentSyntax::Expansion(_)
+                                    | GenericArgumentSyntax::Remainder(_)
+                                    | GenericArgumentSyntax::InferenceHole { .. } => {
                                         return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                                     }
                                 };

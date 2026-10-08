@@ -4,9 +4,9 @@ category: COLL
 program: COLL006
 checkpoint: COLL006.C1
 kind: checkpoint-record
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 requires:
   - LANG007.C4.P3
 ---
@@ -327,7 +327,7 @@ No numbered plan has yet been published. The following ledger defines the intend
 
 | Plan | Scope | Status | Completion | Verification | Intended outcome |
 |---|---|---|---|---|---|
-| `COLL006.C1.P1` | Neutral bracket-literal AST/semantic architecture; `<...>[...]`; `_` inference holes; inference-bearing partial binding annotations | PROPOSED | NOT_STARTED | UNVERIFIED | Establish semantic authority and solver foundation without changing bare-literal defaults |
+| `COLL006.C1.P1` | Neutral bracket-literal AST/semantic architecture; `<...>[...]`; `_` inference holes; inference-bearing partial binding annotations | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Establish semantic authority and solver foundation without changing bare-literal defaults |
 | `COLL006.C1.P2` | `Array<T>` runtime/native representation, explicit/contextual Array literals, direct lowering, iteration, GC | PROPOSED | NOT_STARTED | UNVERIFIED | Complete runtime fixed-after-construction homogeneous sequence |
 | `COLL006.C1.P3` | `Vector<T,N>` runtime/native representation, static extent inference/cardinality proof, constructors, equality/hash, direct lowering | PROPOSED | NOT_STARTED | UNVERIFIED | Complete immutable dimensioned sequence |
 | `COLL006.C1.P4` | Static homogeneous sequence model; const Vector; const Array; materialization; repository-wide bracket-default cutover/migration | PROPOSED | NOT_STARTED | UNVERIFIED | Make runtime bare brackets Array and const bare brackets Vector atomically |
@@ -635,11 +635,9 @@ Expected policy:
 
 ## 13. Verification ledger
 
-No COLL006.C1 gate has executed.
-
 | Gate | Scope | Evidence | Result | Proves |
 |---|---|---|---|---|
-| — | — | — | `UNVERIFIED` | No implementation verification claimed |
+| `COLL006.C1.P1.G7` | Syntax, inference holes, evaluation phase, sequence resolution, lowering | `cargo check --workspace --all-targets`, focused parser/semantic tests | `FOCUSED_TESTED` | Proves neutral syntax, inference holes, sequence literal publication and lowering fail-closed boundary |
 
 ---
 
@@ -800,9 +798,9 @@ The implementer cannot self-waive a triggered consultation.
 
 ```text
 active plan:           none
-latest completed plan: none
+latest completed plan: COLL006.C1.P1
 blockers:              none recorded
-next action:           author COLL006.C1.P1
+next action:           author and execute COLL006.C1.P2 (Array<T>)
 ```
 
 `COLL006.C1.P1` should be a patch-grade plan for:

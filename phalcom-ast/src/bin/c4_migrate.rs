@@ -210,10 +210,10 @@ fn collect_bindings_from_expr(expr: &Expr, lets: &mut Vec<LetBinding>) {
                 }
             }
         }
-        Expr::ListLiteral(list) => {
+        Expr::BracketLiteral(list) => {
             for element in &list.elements {
                 match element {
-                    ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => {
+                    BracketLiteralElement::Element { expr, .. } | BracketLiteralElement::Expansion { expr, .. } => {
                         collect_bindings_from_expr(expr, lets);
                     }
                 }
@@ -479,10 +479,10 @@ fn collect_assigned_fields(expr: &Expr, fields: &mut Vec<String>) {
                 }
             }
         }
-        Expr::ListLiteral(list) => {
+        Expr::BracketLiteral(list) => {
             for element in &list.elements {
                 match element {
-                    ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => {
+                    BracketLiteralElement::Element { expr, .. } | BracketLiteralElement::Expansion { expr, .. } => {
                         collect_assigned_fields(expr, fields);
                     }
                 }

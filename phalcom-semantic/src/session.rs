@@ -8183,7 +8183,8 @@ fn collect_alias_dependencies(
                             collect_alias_dependencies(constraint.as_ref(), module, resolver, aliases, dependencies);
                         }
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_)
+                    | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -8326,7 +8327,8 @@ fn collect_associated_projection_targets(
                             collect_associated_projection_targets(constraint.as_ref(), module, surface, targets);
                         }
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_)
+                    | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -8498,7 +8500,8 @@ fn collect_type_annotation_declarations(
                             collect_type_annotation_declarations(constraint.as_ref(), module, resolver, dependencies);
                         }
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_)
+                    | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -8882,7 +8885,8 @@ fn collect_static_case_signature_dependencies(
                             collect_static_case_signature_dependencies(constraint.as_ref(), module, resolver, catalogs, dependencies);
                         }
                     }
-                    GenericArgumentSyntax::Value(_) => {}
+                    GenericArgumentSyntax::Value(_)
+                    | GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -9280,7 +9284,8 @@ fn collect_source_member_projection_dependencies(
                             collect_source_member_projection_dependencies(constraint.as_ref(), module, resolver, members, dependencies);
                         }
                     }
-                    GenericArgumentSyntax::Value(_) => {}
+                    GenericArgumentSyntax::Value(_)
+                    | GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }

@@ -36,6 +36,7 @@ fn mock_callable(id: CallableId, expressions: BTreeMap<ExpressionId, ExpressionA
         for_iteration_lanes: Arc::new(BTreeMap::new()),
         positional_expansions: Arc::new(BTreeMap::new()),
         known_invalid_positional_expansions: Arc::new(BTreeMap::new()),
+        sequence_literals: Arc::new(BTreeMap::new()),
         associated_resolutions: Arc::new(BTreeMap::new()),
         callable_reference_resolutions: Arc::new(BTreeMap::new()),
         family_applications: Arc::new(BTreeMap::new()),

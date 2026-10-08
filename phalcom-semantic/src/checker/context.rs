@@ -538,6 +538,14 @@ pub struct FlowProbeResult<T> {
     pub flow: FlowState,
 }
 
+/// Scoped evaluation phase fact distinguishing runtime execution from static evaluation (COLL006.C1.P1).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum EvaluationPhase {
+    #[default]
+    Runtime,
+    Static,
+}
+
 /// The active context during semantic type checking.
 pub struct CheckingContext<'a> {
     pub store: &'a mut TypeStore,
@@ -547,6 +555,7 @@ pub struct CheckingContext<'a> {
     pub current_module: ModuleId,
     pub caller_package: Option<ModuleId>,
     pub access_topology: Option<&'a phalcom_modules::topology::ModuleTopology>,
+    pub phase: EvaluationPhase,
     /// Checked module value facts available to this body. These facts retain
     /// canonical source `SymbolId`s even when reached through an import alias.
     module_value_bindings: Option<&'a BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>>,
@@ -584,6 +593,7 @@ pub struct CheckingContext<'a> {
     pub for_iteration_lanes: crate::checker::analysis::ForIterationLaneResolutionIndex,
     pub positional_expansions: crate::checker::analysis::PositionalExpansionIterationResolutionIndex,
     pub known_invalid_positional_expansions: crate::checker::analysis::KnownInvalidPositionalExpansionIndex,
+    pub sequence_literals: crate::checker::analysis::SequenceLiteralResolutionIndex,
     pub associated_resolutions: crate::checker::associated::AssociatedResolutionIndex,
     pub callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex,
     pub family_applications: crate::checker::associated::FamilyApplicationResolutionIndex,
@@ -686,6 +696,7 @@ impl<'a> CheckingContext<'a> {
             current_module,
             caller_package: None,
             access_topology: None,
+            phase: EvaluationPhase::Runtime,
             module_value_bindings: None,
             module_value_exports: None,
             current_class: None,
@@ -714,6 +725,7 @@ impl<'a> CheckingContext<'a> {
             for_iteration_lanes: BTreeMap::new(),
             positional_expansions: BTreeMap::new(),
             known_invalid_positional_expansions: BTreeMap::new(),
+            sequence_literals: BTreeMap::new(),
             associated_resolutions: crate::checker::associated::AssociatedResolutionIndex::new(),
             callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex::new(),
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
@@ -796,6 +808,7 @@ impl<'a> CheckingContext<'a> {
             current_module,
             caller_package: None,
             access_topology: None,
+            phase: EvaluationPhase::Runtime,
             module_value_bindings: None,
             module_value_exports: None,
             current_class: None,
@@ -824,6 +837,7 @@ impl<'a> CheckingContext<'a> {
             for_iteration_lanes: BTreeMap::new(),
             positional_expansions: BTreeMap::new(),
             known_invalid_positional_expansions: BTreeMap::new(),
+            sequence_literals: BTreeMap::new(),
             associated_resolutions: crate::checker::associated::AssociatedResolutionIndex::new(),
             callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex::new(),
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
@@ -885,6 +899,7 @@ impl<'a> CheckingContext<'a> {
             current_module: self.current_module.clone(),
             caller_package: self.caller_package.clone(),
             access_topology: self.access_topology,
+            phase: self.phase,
             module_value_bindings: self.module_value_bindings,
             module_value_exports: self.module_value_exports,
             current_class: self.current_class.clone(),
@@ -913,6 +928,7 @@ impl<'a> CheckingContext<'a> {
             for_iteration_lanes: self.for_iteration_lanes.clone(),
             positional_expansions: self.positional_expansions.clone(),
             known_invalid_positional_expansions: self.known_invalid_positional_expansions.clone(),
+            sequence_literals: self.sequence_literals.clone(),
             associated_resolutions: self.associated_resolutions.clone(),
             callable_reference_resolutions: self.callable_reference_resolutions.clone(),
             family_applications: self.family_applications.clone(),
@@ -1641,6 +1657,22 @@ impl<'a> CheckingContext<'a> {
         let knowledge = crate::types::annotation::resolve_type_annotation(self.store, self.declarations, resolver, &site, annotation, &mut diagnostics);
         let causal_invalidity = self.publish_diagnostics(diagnostics);
         (knowledge, causal_invalidity)
+    }
+
+    /// Elaborates one source annotation, supporting inference holes in authorized
+    /// initializer contexts (COLL006.C1.P1).
+    pub fn elaborate_type_annotation(
+        &mut self,
+        resolver: &dyn TypeResolver,
+        annotation: &phalcom_ast::ast::TypeAnnotation,
+    ) -> (Option<crate::checker::annotation_elaboration::AnnotationElaboration>, crate::checker::causal::CausalInvalidity) {
+        match crate::checker::annotation_elaboration::elaborate_annotation(self, resolver, annotation) {
+            Ok(elaboration) => (Some(elaboration), crate::checker::causal::CausalInvalidity::Clean),
+            Err(diagnostics) => {
+                let causal = self.publish_diagnostics(diagnostics);
+                (None, causal)
+            }
+        }
     }
 
     /// Resolves one expression type form without enforcing proper `Type` kind.
@@ -3651,6 +3683,7 @@ impl<'a> CheckingContext<'a> {
             for_iteration_lanes: std::sync::Arc::new(self.for_iteration_lanes),
             positional_expansions: std::sync::Arc::new(self.positional_expansions),
             known_invalid_positional_expansions: std::sync::Arc::new(self.known_invalid_positional_expansions),
+            sequence_literals: std::sync::Arc::new(self.sequence_literals),
             bindings: {
                 let mut bindings = self.binding_history;
                 bindings.extend(self.flow.bindings);

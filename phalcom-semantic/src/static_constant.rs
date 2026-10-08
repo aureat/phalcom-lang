@@ -59,6 +59,7 @@ pub struct CheckedStaticExpression {
     pub static_applications: Arc<[CheckedStaticApplication]>,
     pub static_constructions: Arc<BTreeMap<ExpressionId, CheckedStaticConstruction>>,
     pub associated_resolutions: Arc<AssociatedResolutionIndex>,
+    pub sequence_literals: Arc<crate::checker::analysis::SequenceLiteralResolutionIndex>,
     pub local_slots: Arc<BTreeMap<BindingId, u32>>,
     pub static_constant_bindings: Arc<BTreeMap<BindingId, SymbolId>>,
     pub static_constant_reads: Arc<[SymbolId]>,

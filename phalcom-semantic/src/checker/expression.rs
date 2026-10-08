@@ -36,7 +36,7 @@ use crate::types::row::{RecordRowFormationError, RecordRowTail};
 use crate::types::store::{RecordTypeField, TupleTypeElement, TypeData};
 use phalcom_ast::ast::{
     AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, AssociatedNamedMode, BinaryExpr, BinaryOp, CallableReferenceExpr,
-    CallableReferenceTarget, ComparisonChainExpr, Expr, GetPropertyExpr, IndexExpr, IsMembershipExpr, ListLiteralElement, MapLiteralEntry, MapLiteralKey,
+    CallableReferenceTarget, ComparisonChainExpr, Expr, GetPropertyExpr, IndexExpr, IsMembershipExpr, BracketLiteralElement, MapLiteralEntry, MapLiteralKey,
     MembershipExpr, MethodCallExpr, PackItem, PackLabel, ProductLabel, RecordLiteralEntry, RelationOp, SetIndexExpr, SetLiteralEntry, SetPropertyExpr,
     Statement, SymbolExpr, SymbolLiteralKind, TupleLiteralEntry, UnaryExpr, UnaryOp, UnqualifiedCallExpr,
 };
@@ -73,6 +73,19 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
         typed.explanation_parents.push(requirement_id);
     }
 
+    if let ExpectedType::Inference { context, term, .. } = expected {
+        if let Some(actual_ty) = typed.knowledge.ty() {
+            if let Some(session) = ctx.inference_session(*context) {
+                let actual_term = crate::checker::inference::InferenceTerm::Canonical(actual_ty);
+                session.borrow_mut().add_constraint(
+                    crate::checker::inference::InferenceRelation::Subtype(actual_term, term.clone()),
+                    crate::checker::inference::ConstraintOrigin::Explicit,
+                    None,
+                );
+            }
+        }
+    }
+
     let step = match &typed.knowledge {
         TypeKnowledge::Known(_) => {
             let ty = typed.knowledge.ty().expect("known expression has type");
@@ -99,7 +112,7 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
                     },
                     None => crate::explain::ExplanationStep::UnresolvedCall { call: expr_id, return_ty: ty },
                 },
-                Expr::ListLiteral(_) => crate::explain::ExplanationStep::CollectionSynthesis {
+                Expr::BracketLiteral(_) => crate::explain::ExplanationStep::CollectionSynthesis {
                     expression: expr_id,
                     kind: crate::explain::CollectionKind::List,
                     element_types: Box::new([]),
@@ -534,7 +547,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         }
 
         // --- 4. Collections and Product Types (with Bidirectional Propagation) ---
-        Expr::ListLiteral(list) => synthesize_list_literal(ctx, list, expected),
+        Expr::BracketLiteral(list) => synthesize_bracket_literal(ctx, list, expected),
         Expr::SetLiteral(set) => synthesize_set_literal(ctx, set, expected),
         Expr::MapLiteral(map) => synthesize_map_literal(ctx, map, expected),
         Expr::TupleLiteral(tup) => synthesize_tuple_literal(ctx, tup, expected),
@@ -1563,7 +1576,9 @@ fn analyze_checked_static_application(ctx: &mut CheckingContext<'_>, annotation:
                             return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
                         }
                     },
-                    GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) => {
+                    GenericArgumentSyntax::Expansion(_)
+                    | GenericArgumentSyntax::Remainder(_)
+                    | GenericArgumentSyntax::InferenceHole { .. } => {
                         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                             ctx.current_module.clone(),
                             DiagnosticCode::ApplicationArgumentKindMismatch,
@@ -1608,7 +1623,9 @@ fn static_application_argument_type_form(argument: &phalcom_ast::ast::GenericArg
             Expr::TypeForm(annotation) => Some((**annotation).clone()),
             _ => None,
         },
-        phalcom_ast::ast::GenericArgumentSyntax::Expansion(_) | phalcom_ast::ast::GenericArgumentSyntax::Remainder(_) => None,
+        phalcom_ast::ast::GenericArgumentSyntax::Expansion(_)
+        | phalcom_ast::ast::GenericArgumentSyntax::Remainder(_)
+        | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => None,
     }
 }
 
@@ -2510,7 +2527,7 @@ fn synthesize_symbol_expr(ctx: &mut CheckingContext<'_>, s: &SymbolExpr) -> Type
     }
 }
 
-fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::ast::ListLiteralExpr, expected: &ExpectedType) -> TypedExpression {
+fn synthesize_bracket_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::ast::BracketLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let list_decl = ctx.core_ids.list.clone();
     let expected_elem = expected.collection_element_type(ctx.store, &list_decl);
     let list_form = {
@@ -2523,12 +2540,12 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
 
     for el in &list.elements {
         match el {
-            ListLiteralElement::Element { expr, .. } => {
+            BracketLiteralElement::Element { expr, .. } => {
                 let typed = analyze_expression(ctx, expr, &expected_elem);
                 contributions.push(typed.knowledge.clone());
                 operands.push(typed);
             }
-            ListLiteralElement::Expansion { expr, range } => {
+            BracketLiteralElement::Expansion { expr, range } => {
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
                 let projected = if let TypeKnowledge::Known(evidence) = &typed.knowledge {
                     let (resolution, _) = crate::checker::iteration::resolve_positional_expansion(ctx, typed.expression_id, evidence.ty(), *range);
@@ -2579,6 +2596,32 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
     });
     crate::checker::composition::propagate_required_dependencies(&mut result, &operands);
     result.local_type = localize_composite_result(ctx, &result.knowledge, &operands);
+
+    if let (Some(expr_id), TypeKnowledge::Known(evidence)) = (ctx.current_expression_id(), &result.knowledge) {
+        let result_type = evidence.ty();
+        let element_type = crate::checker::expected::canonical_collection_arguments(ctx.store, result_type, &list_decl, 1)
+            .and_then(|args| args.first().copied())
+            .unwrap_or(result_type);
+        let dynamic = list.elements.iter().any(|element| matches!(element, BracketLiteralElement::Expansion { .. }));
+        let construction = if dynamic {
+            crate::checker::analysis::SequenceConstructionPlan::Expanded
+        } else {
+            crate::checker::analysis::SequenceConstructionPlan::Fixed {
+                element_count: list.elements.len() as u32,
+            }
+        };
+        let resolution = crate::checker::analysis::SequenceLiteralResolution {
+            source_expression: expr_id,
+            source_range: list.range,
+            family: crate::checker::analysis::SequenceLiteralFamily::List,
+            result_type,
+            element_type,
+            extent: None,
+            construction,
+        };
+        ctx.sequence_literals.insert(expr_id, resolution);
+    }
+
     result
 }
 

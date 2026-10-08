@@ -5,7 +5,7 @@ use crate::method::{SignatureKind, encode_selector, make_signature};
 use crate::modules::semantic_lowering::{AssociatedLoweringSpec, LoweringSiteKind};
 use crate::value::Value;
 use phalcom_ast::ast::{
-    BinaryOp, BlockExpr, ClosureParameters, Expr, InvocationAuthority, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr,
+    BinaryOp, BlockExpr, BracketLiteralElement, ClosureParameters, Expr, InvocationAuthority, MapLiteralEntry, MapLiteralKey, MethodCallExpr,
     NormalizedSelectorSpec, PackItem, PackLabel, ProductLabel, RecordLiteralEntry, SelectorSpecSyntax, SetLiteralEntry, Statement, SymbolLiteralKind,
     TupleLiteralEntry, UnaryOp,
 };
@@ -1388,47 +1388,63 @@ impl<'vm> Compiler<'vm> {
                 }
                 self.emit(Bytecode::FinishSetLiteral, set_expr.range);
             }
-            Expr::ListLiteral(list_expr) => {
-                let list_expr = *list_expr;
-                let dynamic = list_expr.elements.iter().any(|element| matches!(element, ListLiteralElement::Expansion { .. }));
-                if !dynamic {
-                    let count = list_expr.elements.len();
-                    if count > u16::MAX as usize {
-                        return Err(CompilerError::Message("List literal elements exceed maximum count".to_string()));
-                    }
-                    for element in list_expr.elements {
-                        let ListLiteralElement::Element { expr, .. } = element else {
-                            unreachable!("static List literal cannot contain expansion");
-                        };
-                        self.compile_expr(expr)?;
-                    }
-                    self.emit(Bytecode::BuildList(count as u16), list_expr.range);
-                    return Ok(());
-                }
+            Expr::BracketLiteral(list_expr) => {
+                let spec = self
+                    .lowering()
+                    .and_then(|l| l.sequence_literals.get(&list_expr.range))
+                    .cloned()
+                    .ok_or(CompilerError::MissingSequenceLiteralLowering(list_expr.range))?;
 
-                let list_slot = self.reserve_pack_scratch("$list_literal_builder", list_expr.range)?;
-                self.emit(Bytecode::BeginListLiteral, list_expr.range);
-                self.emit(Bytecode::SetLocal(list_slot), list_expr.range);
-                self.emit(Bytecode::Pop, list_expr.range);
-                let target = PositionalExpansionTarget::ListLiteral { list_slot };
-                for element in list_expr.elements {
-                    let range = match &element {
-                        ListLiteralElement::Element { range, .. } | ListLiteralElement::Expansion { range, .. } => *range,
-                    };
-                    match element {
-                        ListLiteralElement::Element { expr, .. } => {
-                            self.emit_positional_target_before_value(target, range);
-                            self.compile_expr(expr)?;
-                            self.emit_positional_target_append(target, range);
+                let list_expr = *list_expr;
+                match spec.family {
+                    phalcom_semantic::checker::SequenceLiteralFamily::List => {
+                        let dynamic = list_expr.elements.iter().any(|element| matches!(element, BracketLiteralElement::Expansion { .. }));
+                        if !dynamic {
+                            let count = list_expr.elements.len();
+                            if count > u16::MAX as usize {
+                                return Err(CompilerError::Message("List literal elements exceed maximum count".to_string()));
+                            }
+                            for element in list_expr.elements {
+                                let BracketLiteralElement::Element { expr, .. } = element else {
+                                    unreachable!("static List literal cannot contain expansion");
+                                };
+                                self.compile_expr(expr)?;
+                            }
+                            self.emit(Bytecode::BuildList(count as u16), list_expr.range);
+                            return Ok(());
                         }
-                        ListLiteralElement::Expansion { expr, range } => {
-                            self.compile_positional_expansion(target, expr, range)?;
+
+                        let list_slot = self.reserve_pack_scratch("$list_literal_builder", list_expr.range)?;
+                        self.emit(Bytecode::BeginListLiteral, list_expr.range);
+                        self.emit(Bytecode::SetLocal(list_slot), list_expr.range);
+                        self.emit(Bytecode::Pop, list_expr.range);
+                        let target = PositionalExpansionTarget::ListLiteral { list_slot };
+                        for element in list_expr.elements {
+                            let range = match &element {
+                                BracketLiteralElement::Element { range, .. } | BracketLiteralElement::Expansion { range, .. } => *range,
+                            };
+                            match element {
+                                BracketLiteralElement::Element { expr, .. } => {
+                                    self.emit_positional_target_before_value(target, range);
+                                    self.compile_expr(expr)?;
+                                    self.emit_positional_target_append(target, range);
+                                }
+                                BracketLiteralElement::Expansion { expr, range } => {
+                                    self.compile_positional_expansion(target, expr, range)?;
+                                }
+                            }
                         }
+                        self.emit(Bytecode::GetLocal(list_slot), list_expr.range);
+                        self.emit(Bytecode::FinishListLiteral, list_expr.range);
+                        self.release_pack_scratch_from(list_slot, 1, list_expr.range);
+                    }
+                    phalcom_semantic::checker::SequenceLiteralFamily::Array => {
+                        return Err(CompilerError::Message("Array literal lowering is reserved for P2".to_string()));
+                    }
+                    phalcom_semantic::checker::SequenceLiteralFamily::Vector => {
+                        return Err(CompilerError::Message("Vector literal lowering is reserved for P3".to_string()));
                     }
                 }
-                self.emit(Bytecode::GetLocal(list_slot), list_expr.range);
-                self.emit(Bytecode::FinishListLiteral, list_expr.range);
-                self.release_pack_scratch_from(list_slot, 1, list_expr.range);
             }
             Expr::Var { value, range } => {
                 if value == "nil" {

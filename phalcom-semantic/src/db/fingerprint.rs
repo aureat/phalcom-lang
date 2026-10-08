@@ -1127,6 +1127,19 @@ fn hash_known_invalid_positional_expansions(expansions: &crate::checker::analysi
     }
 }
 
+fn hash_sequence_literals(literals: &crate::checker::analysis::SequenceLiteralResolutionIndex, hasher: &mut impl Hasher) {
+    literals.len().hash(hasher);
+    for (expression, literal) in literals {
+        expression.hash(hasher);
+        literal.source_expression.hash(hasher);
+        literal.family.hash(hasher);
+        literal.result_type.hash(hasher);
+        literal.element_type.hash(hasher);
+        literal.extent.hash(hasher);
+        literal.construction.hash(hasher);
+    }
+}
+
 fn hash_causal_invalidity_shape(causal: &CausalInvalidity, hasher: &mut impl Hasher) {
     match causal {
         CausalInvalidity::Clean => 0u8.hash(hasher),
@@ -1852,6 +1865,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     hash_iteration_lanes(&analysis.for_iteration_lanes, &mut hasher);
     hash_positional_expansions(&analysis.positional_expansions, &mut hasher);
     hash_known_invalid_positional_expansions(&analysis.known_invalid_positional_expansions, &mut hasher);
+    hash_sequence_literals(&analysis.sequence_literals, &mut hasher);
     analysis.callable_reference_resolutions.len().hash(&mut hasher);
     for (expression, resolution) in analysis.callable_reference_resolutions.iter() {
         expression.hash(&mut hasher);

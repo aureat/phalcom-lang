@@ -307,6 +307,33 @@ impl StaticConstantDemandDriver<'_> {
             let key_sites = type_record_key_expressions(annotation, 0);
             if key_sites.is_empty() {
                 let mut diagnostics = Vec::new();
+                if crate::checker::annotation_elaboration::annotation_contains_inference_hole(annotation) {
+                    let mut context = demand_checking_context(
+                        &mut *self.store,
+                        self.hierarchy,
+                        self.resolver,
+                        self.declarations,
+                        self.dispatch,
+                        self.topology,
+                        self.field_signatures,
+                        self.data_semantics,
+                        self.enum_semantics,
+                        self.associated_families,
+                        self.deferred_static_definitions,
+                        id.module(),
+                    );
+                    let (elaboration, _) = context.elaborate_type_annotation(self.resolver, annotation);
+                    let expected = match elaboration {
+                        Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context: inf_ctx, term, .. }) => {
+                            crate::checker::expected::ExpectedType::inference_from(inf_ctx, term, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                        }
+                        Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
+                            crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                        }
+                        None => crate::checker::expected::ExpectedType::None,
+                    };
+                    return self.check_evaluate_publish_with_expected(id, binding, expected, Vec::new(), diagnostics);
+                }
                 let knowledge = resolve_type_annotation(
                     self.store,
                     self.declarations,
@@ -369,6 +396,21 @@ impl StaticConstantDemandDriver<'_> {
         key_expressions: Vec<Arc<crate::static_constant::CheckedStaticExpression>>,
         annotation_diagnostics: Vec<crate::diagnostic::SemanticDiagnostic>,
     ) -> StaticDemandOutcome<Arc<StaticConstantProduct>> {
+        let expected = match expected_type {
+            Some(ty) => crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract),
+            None => crate::checker::expected::ExpectedType::None,
+        };
+        self.check_evaluate_publish_with_expected(id, binding, expected, key_expressions, annotation_diagnostics)
+    }
+
+    fn check_evaluate_publish_with_expected(
+        &mut self,
+        id: &StaticConstantId,
+        binding: &phalcom_ast::ast::LetBinding,
+        expected: crate::checker::expected::ExpectedType,
+        key_expressions: Vec<Arc<crate::static_constant::CheckedStaticExpression>>,
+        annotation_diagnostics: Vec<crate::diagnostic::SemanticDiagnostic>,
+    ) -> StaticDemandOutcome<Arc<StaticConstantProduct>> {
         let Some(catalog) = self.catalogs.get(id.module()).cloned() else {
             return StaticDemandOutcome::Blocked(crate::types::outcome::BlockReason::SuppressedDependency);
         };
@@ -392,7 +434,7 @@ impl StaticConstantDemandDriver<'_> {
                 self.deferred_static_definitions,
                 id.module(),
             );
-            crate::checker::static_body::check_static_expression(context, initializer, expected_type, &catalog, &binding_states, intrinsics)
+            crate::checker::static_body::check_static_expression_with_expected(context, initializer, expected, &catalog, &binding_states, intrinsics)
         };
         let expression = match expression_check {
             crate::checker::static_body::StaticExpressionCheckOutcome::Ready(checked)
@@ -401,6 +443,7 @@ impl StaticConstantDemandDriver<'_> {
                 return StaticDemandOutcome::Awaiting(demands);
             }
         };
+        let expected_type = expression.result_type;
         let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(id, initializer, binding.annotation.as_ref(), expected_type);
         let checked = crate::static_constant::CheckedStaticConstantInitializer {
             id: id.clone(),
@@ -655,5 +698,6 @@ fn demand_checking_context<'a>(
     for declaration in deferred_static_definitions {
         context.resolver.track_deferred_static_definition(declaration.clone());
     }
+    context.phase = crate::checker::context::EvaluationPhase::Static;
     context
 }

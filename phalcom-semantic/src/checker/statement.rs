@@ -34,21 +34,28 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                     .annotation
                     .as_ref()
                     .is_some_and(|annotation| !crate::static_key::type_record_key_expressions(annotation, 0).is_empty());
-            let (declared_k, annotation_invalidity) = (!defer_computed_record_key_annotation)
-                .then_some(binding.annotation.as_ref())
-                .flatten()
-                .map(|annotation| {
-                    let resolver = ctx.resolver.clone();
-                    let (knowledge, causal_invalidity) = ctx.resolve_type_annotation(&resolver, annotation);
-                    (Some(knowledge), causal_invalidity)
-                })
-                .unwrap_or((None, crate::checker::causal::CausalInvalidity::Clean));
 
-            let expected_init = declared_k
-                .as_ref()
-                .and_then(TypeKnowledge::ty)
-                .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::DeclarationContract))
-                .unwrap_or_default();
+            let resolver = ctx.resolver.clone();
+            let (elaboration, mut annotation_invalidity) = if !defer_computed_record_key_annotation {
+                if let Some(annotation) = binding.annotation.as_ref() {
+                    ctx.elaborate_type_annotation(&resolver, annotation)
+                } else {
+                    (None, crate::checker::causal::CausalInvalidity::Clean)
+                }
+            } else {
+                (None, crate::checker::causal::CausalInvalidity::Clean)
+            };
+
+            let expected_init = match &elaboration {
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
+                    ExpectedType::proper_from(*ty, ExpectationOrigin::DeclarationContract)
+                }
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context, term, .. }) => {
+                    ExpectedType::inference_from(*context, term.clone(), ExpectationOrigin::DeclarationContract)
+                }
+                None => ExpectedType::None,
+            };
+
             let (mut val_typed, init_state) = if let Some(expr) = &binding.value {
                 (
                     analyze_expression(ctx, expr, &expected_init),
@@ -76,6 +83,61 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                     TypedExpression::unknown(UnknownReason::MissingInitializer),
                     crate::checker::flow::InitializationState::Uninitialized,
                 )
+            };
+
+            let declared_k = match elaboration {
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
+                    Some(TypeKnowledge::established(ty, EvidenceOrigin::ContextualDerivation))
+                }
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context, frame, term, holes }) => {
+                    let outcome = if let Some(session) = ctx.inference_session(context) {
+                        ctx.solve_inference_in_frame(&mut session.borrow_mut(), frame)
+                    } else {
+                        crate::checker::inference::InferenceOutcome::Cancelled
+                    };
+
+                    let solved_ty = if outcome.is_solved() {
+                        if let Some(session) = ctx.inference_session(context) {
+                            session.borrow().materialize(&term, ctx.store).ok()
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    ctx.pop_inference_frame(context, frame);
+                    ctx.finish_inference_context(context);
+
+                    if let Some(ty) = solved_ty {
+                        Some(TypeKnowledge::established(ty, EvidenceOrigin::ContextualDerivation))
+                    } else {
+                        for hole in holes.iter() {
+                            let diag_code = match &outcome {
+                                crate::checker::inference::InferenceOutcome::Conflicting(_) => DiagnosticCode::GenericInferenceConflict,
+                                _ => DiagnosticCode::GenericInferenceUnderconstrained,
+                            };
+                            let msg = match &outcome {
+                                crate::checker::inference::InferenceOutcome::Conflicting(_) => {
+                                    "conflicting type constraints for inference hole `_`".to_string()
+                                }
+                                _ => {
+                                    "inference hole `_` could not be solved; insufficient type evidence from initializer".to_string()
+                                }
+                            };
+                            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                                ctx.current_module.clone(),
+                                diag_code,
+                                msg,
+                                hole.range,
+                            ));
+                        }
+                        let cause = ctx.alloc_diagnostic_cause();
+                        annotation_invalidity = annotation_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause));
+                        None
+                    }
+                }
+                None => None,
             };
 
             let contract = if let Some(declared_k) = declared_k.as_ref().and_then(TypeKnowledge::ty) {

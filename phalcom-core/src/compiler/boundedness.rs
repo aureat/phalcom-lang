@@ -61,7 +61,7 @@ pub(crate) fn infer_source_facts(expr: &Expr, const_env: &HashMap<String, Source
             (true, false) => concrete(Boundedness::Unbounded),
             (false, _) => concrete(Boundedness::Unknown),
         },
-        Expr::ListLiteral(_) | Expr::TupleLiteral(_) | Expr::MapLiteral(_) | Expr::SetLiteral(_) => concrete(Boundedness::Bounded),
+        Expr::BracketLiteral(_) | Expr::TupleLiteral(_) | Expr::MapLiteral(_) | Expr::SetLiteral(_) => concrete(Boundedness::Bounded),
         Expr::Var { value, .. } => const_env.get(value).copied().unwrap_or(UNKNOWN),
         Expr::GetProperty(property) if property.property == "iter" || property.property == "iterator" => {
             let source = infer_source_facts(&property.object, const_env);

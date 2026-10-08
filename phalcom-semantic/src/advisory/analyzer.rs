@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use phalcom_ast::ast::{
-    Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, NormalizedSelectorSpec, PackItem, ProductLabel, RecordLiteralEntry, SetLiteralEntry, Statement,
+    BracketLiteralElement, Expr, MapLiteralEntry, MapLiteralKey, NormalizedSelectorSpec, PackItem, ProductLabel, RecordLiteralEntry, SetLiteralEntry, Statement,
     SymbolLiteralKind, TupleLiteralEntry,
 };
 use phalcom_common::range::SourceRange;
@@ -193,13 +193,13 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
             ValueShape::Tuple(tuple.entries.iter().map(|entry| tuple_entry_shape(entry, context)).collect::<Vec<_>>().into()),
             range,
         ),
-        Expr::ListLiteral(list) => {
+        Expr::BracketLiteral(list) => {
             let mut elements = Vec::new();
             let mut expanded = false;
             for entry in &list.elements {
                 match entry {
-                    ListLiteralElement::Element { expr, .. } => elements.push(analyze_expr(expr, context).shape),
-                    ListLiteralElement::Expansion { expr, .. } => {
+                    BracketLiteralElement::Element { expr, .. } => elements.push(analyze_expr(expr, context).shape),
+                    BracketLiteralElement::Expansion { expr, .. } => {
                         expanded = true;
                         elements.push(analyze_expr(expr, context).shape.element_shape());
                     }

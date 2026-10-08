@@ -477,6 +477,37 @@ pub struct ConstructorSuperCallResolution {
 }
 
 /// Published semantic analysis product for a single callable body.
+/// Canonical collection family selected for a bracket literal.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SequenceLiteralFamily {
+    List,
+    Array,
+    Vector,
+}
+
+/// Construction plan for literal lowering.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SequenceConstructionPlan {
+    Fixed {
+        element_count: u32,
+    },
+    Expanded,
+}
+
+/// Checked semantic resolution product for a bracket literal (COLL006.C1.P1).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SequenceLiteralResolution {
+    pub source_expression: ExpressionId,
+    pub source_range: SourceRange,
+    pub family: SequenceLiteralFamily,
+    pub result_type: TypeId,
+    pub element_type: TypeId,
+    pub extent: Option<TypeId>,
+    pub construction: SequenceConstructionPlan,
+}
+
+pub type SequenceLiteralResolutionIndex = BTreeMap<ExpressionId, SequenceLiteralResolution>;
+
 #[derive(Clone, Debug)]
 pub struct CallableAnalysis {
     pub callable: CallableId,
@@ -489,6 +520,8 @@ pub struct CallableAnalysis {
     pub positional_expansions: Arc<PositionalExpansionIterationResolutionIndex>,
     /// Known invalid positional expansion facts consumed by core lowering.
     pub known_invalid_positional_expansions: Arc<KnownInvalidPositionalExpansionIndex>,
+    /// Checked sequence literal resolution facts consumed by core lowering.
+    pub sequence_literals: Arc<SequenceLiteralResolutionIndex>,
     pub associated_resolutions: Arc<crate::checker::associated::AssociatedResolutionIndex>,
     pub callable_reference_resolutions: Arc<crate::checker::associated::CallableReferenceResolutionIndex>,
     pub family_applications: Arc<crate::checker::associated::FamilyApplicationResolutionIndex>,

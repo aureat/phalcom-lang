@@ -6,6 +6,7 @@ mod binding_contracts;
 mod binding_init;
 mod canonical_call_application;
 mod causal;
+mod coll006_c1_p1_contextual_literals;
 mod declarations;
 mod diagnostic_presentation;
 mod diagnostics;

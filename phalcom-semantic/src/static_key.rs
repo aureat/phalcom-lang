@@ -88,6 +88,7 @@ pub fn type_record_key_expressions(annotation: &TypeAnnotation, first_ordinal: u
                     visit_annotation(annotation, next, sites);
                 }
             }
+            GenericArgumentSyntax::InferenceHole { .. } => {}
         }
     }
 
