@@ -448,7 +448,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["collections"],
         kind: ModuleKind::Package,
-        children: &["collection", "iterator_laws", "list", "map", "set", "tuple", "record", "pack", "range", "bytes"],
+        children: &["collection", "iterator_laws", "list", "array", "map", "set", "tuple", "record", "pack", "range", "bytes"],
     },
     UniverseNodeSpec {
         path: &["collections", "collection"],
@@ -462,6 +462,11 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["collections", "list"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["collections", "array"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -928,6 +933,9 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "collections" && m.as_str() == "list" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/list.ph")
+            }
+            [c, m] if c.as_str() == "collections" && m.as_str() == "array" => {
+                include_str!("../../phalcom-core/core/universe/src/collections/array.ph")
             }
             [c, m] if c.as_str() == "collections" && m.as_str() == "map" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/map.ph")

@@ -1729,6 +1729,11 @@ impl TypeStore {
         self.apply_type_form(list_form, &[element])
     }
 
+    /// Interns an `Array<T>` applied type.
+    pub fn array_of(&mut self, array_form: TypeId, element: TypeId) -> Result<TypeId, TypeApplicationError> {
+        self.apply_type_form(array_form, &[element])
+    }
+
     /// Interns a `Map<K, V>` applied type.
     pub fn map_of(&mut self, map_form: TypeId, key: TypeId, value: TypeId) -> Result<TypeId, TypeApplicationError> {
         self.apply_type_form(map_form, &[key, value])

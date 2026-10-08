@@ -1,7 +1,7 @@
 #![doc = r" Generated canonical native surface records."]
 #[doc = r" Number of authored `#[primitive]` declarations scanned by the surface"]
 #[doc = r" generator."]
-pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 400usize;
+pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 404usize;
 use crate::{NativeMemberKind, NativeReturnShape, NativeSurfaceRecord};
 use phalcom_native_meta::*;
 pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
@@ -8013,6 +8013,194 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {
             key: PrimitiveKey {
+                owner: UniverseKey::Array,
+                side: NativeDispatch::Instance,
+                selector: "rawAt(_)",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Signature: `Array::rawAt(_)` — raw indexed read.\n Returns None on out of range."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Array,
+                side: NativeDispatch::Instance,
+                selector: "rawLength",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Signature: `Array::rawLength` — the array's fixed element count."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Getter,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Array,
+                side: NativeDispatch::Instance,
+                selector: "rawSet(_,_)",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Signature: `Array::rawSet(_,_)` — raw indexed write."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Array,
+                side: NativeDispatch::Instance,
+                selector: "toString",
+            },
+            visibility: NativeVisibility::Public,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Signature: `Array::toString` — renders the array."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Getter,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
                 owner: UniverseKey::Map,
                 side: NativeDispatch::Instance,
                 selector: "rawGet(_)",
@@ -10414,7 +10602,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             intrinsic: None,
             trust: NativeTrust::Ordinary,
             docs: Some(
-                " Signature: `Bytes.class::new(_)` — allocates a zero-filled buffer.\n\n The allocate floor primitive (PDR-0011 ruling 3). Zero-filled birth is\n `bytes.md` law 4: no constructor exposes uninitialized memory.\n\n # Errors\n\n Returns [`RuntimeError::Type`] if the length is not a non-negative\n integer `Number`.",
+                " Signature: `Bytes.class::new(_)` — allocates a zero-filled buffer.\n\n The allocate floor primitive (PDR-0011 ruling 3). Zero-filled birth is\n `bytes.md` law 4: no constructor exposes uninitialized memory.\n\n # Errors\n\n Returns [`RuntimeError::Type`] if the length is not a non-negative\n integer `Number`, [`RuntimeError::ByteBufferLimit`] above the VM's\n per-buffer limit, or [`RuntimeError::ByteBufferAllocation`] when the host\n cannot reserve the backing storage. The limit is checked before allocation.",
             ),
             conceptual: None,
         },

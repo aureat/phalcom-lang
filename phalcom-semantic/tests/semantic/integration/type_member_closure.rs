@@ -43,6 +43,7 @@ fn decl(name: &str) -> DeclarationId {
         "String" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::String),
         "Bool" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Bool),
         "List" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::List),
+        "Array" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Array),
         "Map" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Map),
         "Option" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Option),
         "TypePack" | "LabeledTypePack" | "CompleteTypePack" => DeclarationId::new(

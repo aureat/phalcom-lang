@@ -48,6 +48,7 @@ pub enum UniverseKey {
 
     Collection,
     List,
+    Array,
     Map,
     Set,
     Tuple,
@@ -223,6 +224,10 @@ pub const UNIVERSE_CLASS_RELATIONS: &[UniverseClassRelationSpec] = &[
         superclass: Some(UniverseKey::Collection),
     },
     UniverseClassRelationSpec {
+        class: UniverseKey::Array,
+        superclass: Some(UniverseKey::Collection),
+    },
+    UniverseClassRelationSpec {
         class: UniverseKey::Map,
         superclass: Some(UniverseKey::Collection),
     },
@@ -381,6 +386,7 @@ impl UniverseKey {
             Self::Ordering => &["object", "ordering"],
             Self::Collection => &["collections", "collection"],
             Self::List => &["collections", "list"],
+            Self::Array => &["collections", "array"],
             Self::Map => &["collections", "map"],
             Self::Set => &["collections", "set"],
             Self::Tuple => &["collections", "tuple"],
@@ -449,6 +455,7 @@ impl UniverseKey {
             Self::None => "None",
             Self::Collection => "Collection",
             Self::List => "List",
+            Self::Array => "Array",
             Self::Map => "Map",
             Self::Set => "Set",
             Self::Tuple => "Tuple",
@@ -523,6 +530,7 @@ impl UniverseKey {
             "None" => Some(Self::None),
             "Collection" => Some(Self::Collection),
             "List" => Some(Self::List),
+            "Array" => Some(Self::Array),
             "Map" => Some(Self::Map),
             "Set" => Some(Self::Set),
             "Tuple" => Some(Self::Tuple),
@@ -799,6 +807,13 @@ pub const UNIVERSE_BINDINGS: &[UniverseBindingSpec] = &[
         prelude: true,
     },
     UniverseBindingSpec {
+        key: UniverseKey::Array,
+        name: "Array",
+        kind: UniverseBindingKind::Class,
+        exported: true,
+        prelude: true,
+    },
+    UniverseBindingSpec {
         key: UniverseKey::Map,
         name: "Map",
         kind: UniverseBindingKind::Class,
@@ -1036,6 +1051,13 @@ use crate::types::{KindSpec, TypeParameterDeclSpec, UniverseTypeFormSpec};
 pub const UNIVERSE_TYPE_FORMS: &[UniverseTypeFormSpec] = &[
     UniverseTypeFormSpec {
         owner: UniverseKey::List,
+        parameters: &[TypeParameterDeclSpec {
+            name: "T",
+            kind: KindSpec::Type,
+        }],
+    },
+    UniverseTypeFormSpec {
+        owner: UniverseKey::Array,
         parameters: &[TypeParameterDeclSpec {
             name: "T",
             kind: KindSpec::Type,

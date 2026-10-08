@@ -211,7 +211,13 @@ impl VM {
             }
             return Ok(());
         }
-        Err(RuntimeError::Internal("positional expansion target is not a pack builder or List".into()))
+        if matches!(self.heap.get(id), Object::ArrayLiteralBuilder(_)) {
+            for value in values {
+                self.heap.array_literal_builder_mut(id).push(value);
+            }
+            return Ok(());
+        }
+        Err(RuntimeError::Internal("positional expansion target is not a pack builder, List, or Array builder".into()))
     }
 
     fn try_append_tuple_positionals(&mut self, source: Value, target: Value) -> Result<bool, RuntimeError> {
@@ -3633,7 +3639,9 @@ impl VM {
                         }
                     }
                 }
-                Bytecode::PackTryExpandTuplePositionals | Bytecode::ListTryExpandTuplePositionals => {
+                Bytecode::PackTryExpandTuplePositionals
+                | Bytecode::ListTryExpandTuplePositionals
+                | Bytecode::ArrayTryExpandTuplePositionals => {
                     let target = self.pop()?;
                     let source = self.pop()?;
                     if self.try_append_tuple_positionals(source, target)? {
@@ -4009,6 +4017,31 @@ impl VM {
                     }
                 }
                 Bytecode::FinishMapLiteral => {}
+                Bytecode::BeginArrayLiteral => self.stack.push(Value::obj(self.heap.alloc_array_literal_builder())),
+                Bytecode::ArrayLiteralAppend => {
+                    let value = self.pop()?;
+                    let builder = self.pop()?;
+                    let Some(id) = builder.as_obj() else {
+                        return Err(RuntimeError::Internal("Array literal builder is not an object".to_string()).into());
+                    };
+                    if !matches!(self.heap.get(id), Object::ArrayLiteralBuilder(_)) {
+                        return Err(RuntimeError::Internal("Array literal builder is not an ArrayLiteralBuilder".to_string()).into());
+                    }
+                    self.heap.array_literal_builder_mut(id).push(value);
+                    self.stack.push(builder);
+                }
+                Bytecode::FinishArrayLiteral => {
+                    let builder = self.pop()?;
+                    let Some(id) = builder.as_obj() else {
+                        return Err(RuntimeError::Internal("Array literal builder is not an object".to_string()).into());
+                    };
+                    let array_obj = match self.heap.as_array_literal_builder(id) {
+                        Some(b) => b.clone().finish(),
+                        None => return Err(RuntimeError::Internal("Array literal builder is not an ArrayLiteralBuilder".to_string()).into()),
+                    };
+                    let array = self.heap.alloc(Object::Array(array_obj));
+                    self.stack.push(Value::obj(array));
+                }
                 Bytecode::BeginListLiteral => self.stack.push(Value::obj(self.heap.alloc_list(Vec::new()))),
                 Bytecode::ListLiteralAppend => {
                     let value = self.pop()?;
@@ -4059,6 +4092,15 @@ impl VM {
                     let lower = if has_lower { Some(self.pop()?) } else { None };
                     let range = self.heap.alloc_range(lower, upper, upper_inclusive);
                     self.stack.push(Value::obj(range));
+                }
+                Bytecode::BuildArray(count) => {
+                    let mut elements = Vec::with_capacity(count as usize);
+                    for _ in 0..count {
+                        elements.push(self.pop()?);
+                    }
+                    elements.reverse();
+                    let array = self.heap.alloc_array(elements);
+                    self.stack.push(Value::obj(array));
                 }
                 Bytecode::BuildList(count) => {
                     let mut elements = Vec::with_capacity(count as usize);

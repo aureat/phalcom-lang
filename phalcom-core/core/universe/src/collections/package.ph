@@ -2,6 +2,7 @@
 expose .collection
 expose .iterator_laws
 expose .list
+expose .array
 expose .map
 expose .set
 expose .tuple

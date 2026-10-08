@@ -121,6 +121,11 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "BuildPack",
     "GuardFieldKey",
     "RecordLiteralCheckKey",
+    "BuildArray",
+    "BeginArrayLiteral",
+    "ArrayLiteralAppend",
+    "FinishArrayLiteral",
+    "ArrayTryExpandTuplePositionals",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -510,6 +515,16 @@ pub enum Bytecode {
     ///
     /// 0: number of arguments. 1: index of selector constant.
     InvokeCompilerInternal(u8, u16),
+    /// Builds an Array from the top `n` stack items.
+    BuildArray(u16),
+    /// Allocates the compiler-owned native Array builder used by a spread-containing Array literal.
+    BeginArrayLiteral,
+    /// Appends one value to a compiler-owned Array literal builder.
+    ArrayLiteralAppend,
+    /// Validates and completes a compiler-owned Array literal builder.
+    FinishArrayLiteral,
+    /// Tries Unit/Tuple positional projection for an Array spread.
+    ArrayTryExpandTuplePositionals,
     /// Builds a List from the top `n` stack items.
     BuildList(u16),
     NewArgumentPack,
@@ -775,7 +790,7 @@ pub enum Bytecode {
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 117;
+    pub const VARIANTS: usize = 122;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -903,6 +918,11 @@ impl Bytecode {
             Bytecode::BuildPack { .. } => 114,
             Bytecode::GuardFieldKey => 115,
             Bytecode::RecordLiteralCheckKey => 116,
+            Bytecode::BuildArray(..) => 117,
+            Bytecode::BeginArrayLiteral => 118,
+            Bytecode::ArrayLiteralAppend => 119,
+            Bytecode::FinishArrayLiteral => 120,
+            Bytecode::ArrayTryExpandTuplePositionals => 121,
         }
     }
 

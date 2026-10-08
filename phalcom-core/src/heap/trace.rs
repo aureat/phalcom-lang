@@ -197,6 +197,16 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
                 trace_value(*element, push);
             }
         }
+        Object::Array(array) => {
+            for element in array.elements() {
+                trace_value(*element, push);
+            }
+        }
+        Object::ArrayLiteralBuilder(builder) => {
+            for element in builder.elements() {
+                trace_value(*element, push);
+            }
+        }
         Object::Fiber(fiber) => {
             for value in &fiber.stack {
                 trace_value(*value, push);

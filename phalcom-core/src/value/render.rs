@@ -62,6 +62,11 @@ impl Value {
                     let parts: Vec<String> = list.elements().iter().map(|v| v.to_string(vm)).collect();
                     format!("[{}]", parts.join(", "))
                 }
+                Object::Array(array) => {
+                    let parts: Vec<String> = array.elements().iter().map(|v| v.to_string(vm)).collect();
+                    format!("Array([{}])", parts.join(", "))
+                }
+                Object::ArrayLiteralBuilder(_) => "<array-builder>".to_string(),
                 // The `.ph` `Bytes#toString` (bytes.md §4) is the surface
                 // spelling; this is the same debug form for the raw-render
                 // path (echo of a receiver with no user override yet).
@@ -190,6 +195,8 @@ impl Value {
                 Object::Block(_) => "<closure>".to_string(),
                 Object::BoundMethod(_) => "<bound method>".to_string(),
                 Object::List(_) => "<list>".to_string(),
+                Object::Array(_) => "<array>".to_string(),
+                Object::ArrayLiteralBuilder(_) => "<array-builder>".to_string(),
                 Object::Bytes(_) => "<bytes>".to_string(),
                 Object::Fiber(_) => "<fiber>".to_string(),
                 Object::Map(_) => "<map>".to_string(),

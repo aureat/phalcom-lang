@@ -523,6 +523,9 @@ pub enum RuntimeError {
     #[error("cannot mutate immutable ADT case payload")]
     ImmutableCasePayload,
 
+    #[error("cannot mutate frozen {collection}")]
+    FrozenMutation { collection: &'static str },
+
     #[error("invalid variant payload slot {slot} (payload length is {len})")]
     InvalidVariantPayloadSlot { slot: usize, len: usize },
 

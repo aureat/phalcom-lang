@@ -60,6 +60,8 @@ mod compiler_product_optimization;
 mod compiler_static_const;
 #[path = "collections/contract.rs"]
 mod core_collections;
+#[path = "collections/array.rs"]
+mod core_array;
 #[path = "collections/outgoing_packs.rs"]
 mod core_outgoing_packs;
 #[path = "collections/outgoing_packs_completion.rs"]

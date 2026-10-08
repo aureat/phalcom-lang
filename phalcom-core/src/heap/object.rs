@@ -1,3 +1,5 @@
+use crate::heap::ArrayLiteralBuilderObject;
+use crate::heap::ArrayObject;
 use crate::heap::BlockObject;
 use crate::heap::BytesObject;
 use crate::heap::ClassObject;
@@ -71,6 +73,10 @@ pub enum Object {
     /// A native array-backed list ([`ListObject`],
     /// [ADR-0020](../../../docs/adr/accepted/0020-kernel-list-native-array-protocol.md)).
     List(ListObject),
+    /// A native fixed-extent array ([`ArrayObject`]).
+    Array(ArrayObject),
+    /// A compiler-owned dynamic Array literal builder. Boxed to preserve arena slot size.
+    ArrayLiteralBuilder(Box<ArrayLiteralBuilderObject>),
     /// A cooperative fiber — the sole concurrency primitive
     /// ([`FiberObject`], [ADR-0030](../../../docs/adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) §2).
     ///

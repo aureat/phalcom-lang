@@ -45,7 +45,7 @@ use std::collections::HashSet;
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
-fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 36] {
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 37] {
     let c = vm.universe.classes;
     [
         ("Object", c.object_class),
@@ -73,6 +73,7 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 36] {
         ("Some", c.some_class),
         ("None", c.none_class),
         ("List", c.list_class),
+        ("Array", c.array_class),
         // U-COLLTYPES Phase 1 (ADR-0039): Map/Set join the audited census.
         ("Map", c.map_class),
         ("Set", c.set_class),
@@ -996,6 +997,11 @@ fn floor_census_matches_installed_bindings() {
         (c.list_class, false, "rawPush(_)"),
         (c.list_class, false, "rawReplaceSlice(_,_,_)"),
         (c.list_class, false, "toString"),
+        // Array (COLL006.C1.P2)
+        (c.array_class, false, "rawLength"),
+        (c.array_class, false, "rawAt(_)"),
+        (c.array_class, false, "rawSet(_,_)"),
+        (c.array_class, false, "toString"),
         // §2.x Bytes (PDR-0011 ruling 3 + PDR-0013 ruling 4, U-BYTES)
         (c.bytes_class, true, "new(_)"),
         (c.bytes_class, true, "rawFromString(_)"),
@@ -1148,10 +1154,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        235,
-        "census must enumerate exactly 235 bindings after the monotonic time primitive"
+        239,
+        "census must enumerate exactly 239 bindings after the Array primitives"
     );
-    assert_eq!(live.len(), 235, "the live floor must be exactly 235 bindings");
+    assert_eq!(live.len(), 239, "the live floor must be exactly 239 bindings");
 }
 
 #[test]
@@ -1162,7 +1168,7 @@ fn parallel_rule_holds_for_all_ordinary_rows() {
     // rows. The boot half of this rides `Universe::verify_invariants`.
     let vm = VM::new();
     let c = &vm.universe.classes;
-    let rows: [(&str, ClassId); 22] = [
+    let rows: [(&str, ClassId); 23] = [
         ("Number", c.number_class),
         ("Int", c.int_class),
         ("Float", c.float_class),
@@ -1182,6 +1188,7 @@ fn parallel_rule_holds_for_all_ordinary_rows() {
         ("Some", c.some_class),
         ("None", c.none_class),
         ("List", c.list_class),
+        ("Array", c.array_class),
         ("Message", c.message_class),
         ("Error", c.error_class),
         ("MessageNotUnderstood", c.message_not_understood_class),

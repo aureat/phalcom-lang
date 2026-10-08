@@ -105,7 +105,7 @@ fn build_list(vm: &mut VM, elems: &[Value]) -> Value {
 /// rather than public constructor selectors.
 fn eval_literal(vm: &mut VM, literal: &str) -> Value {
     let module = vm.create_module("collections-contract", "collections-contract");
-    let source = format!("const built = {literal}\n");
+    let source = format!("let built = {literal}\n");
     let closure = vm.compile_closure(module, &source).expect("literal compiles");
     vm.run_in_module(module, closure).expect("literal runs");
     let built = vm.get_or_intern("built");

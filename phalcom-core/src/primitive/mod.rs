@@ -1,3 +1,4 @@
+pub mod array;
 pub mod attribute;
 pub mod block;
 pub mod boolean;
@@ -322,6 +323,19 @@ pub(crate) fn expect_list(vm: &VM, value: &Value) -> PhResult<ObjRef> {
     .into())
 }
 
+pub(crate) fn expect_array(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    if let Some(id) = value.as_obj() {
+        if vm.heap.as_array(id).is_some() {
+            return Ok(id);
+        }
+    }
+    Err(RuntimeError::Type {
+        expected: "Array",
+        found: value.type_name(),
+    }
+    .into())
+}
+
 /// Extracts a map's [`ObjRef`] handle from a receiver value.
 ///
 /// # Errors
@@ -472,14 +486,18 @@ pub(crate) fn send_eq(vm: &mut VM, a: Value, b: Value) -> PhResult<bool> {
     }
 }
 
-/// Returns `true` iff `value` is one of the three native **mutable**
-/// collection arms (`List`/`Map`/`Set`) — the DEC-CT-C mutable-key rejection
+/// Returns `true` iff `value` is one of the native **mutable**
+/// collection arms (`List`/`Array`/`Map`/`Set`/`Bytes`) — the DEC-CT-C mutable-key rejection
 /// test.
 pub(crate) fn is_mutable_collection_key(vm: &VM, value: &Value) -> bool {
     if let Some(id) = value.as_obj() {
         matches!(
             vm.heap.get(id),
-            crate::heap::Object::List(_) | crate::heap::Object::Map(_) | crate::heap::Object::Set(_) | crate::heap::Object::Bytes(_)
+            crate::heap::Object::List(_)
+                | crate::heap::Object::Array(_)
+                | crate::heap::Object::Map(_)
+                | crate::heap::Object::Set(_)
+                | crate::heap::Object::Bytes(_)
         )
     } else {
         false
@@ -491,7 +509,7 @@ pub(crate) fn is_mutable_collection_key(vm: &VM, value: &Value) -> bool {
 /// [`RuntimeError::Raise`]/`.into()`.
 pub(crate) fn mutable_key_error(vm: &mut VM, class_name: &str) -> RuntimeError {
     let rendered = format!(
-        "{class_name} key must be immutable: a List/Map/Set key has identity hash, \
+        "{class_name} key must be immutable: a mutable collection key has identity hash, \
          which is inconsistent with structural == (collection-protocol.md law 4)"
     );
     let error_class = vm.universe.classes.error_class;

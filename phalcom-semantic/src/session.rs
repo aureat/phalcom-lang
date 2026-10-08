@@ -7322,6 +7322,9 @@ impl SemanticWorkspaceSession {
                                 .then_some(binding.annotation.as_ref())
                                 .flatten()
                                 .and_then(|annotation| {
+                                    if crate::checker::annotation_elaboration::annotation_contains_inference_hole(annotation) {
+                                        return None;
+                                    }
                                     let mut annotation_diagnostics = Vec::new();
                                     let knowledge = crate::types::annotation::resolve_type_annotation(
                                         Arc::make_mut(&mut self.store),
@@ -7668,7 +7671,7 @@ impl SemanticWorkspaceSession {
                     // result types.
                     checked_constants.remove(&id);
                     let binding_states = static_constant_binding_states(catalog, &module_static_binding_runtime_states, Some(&static_constants_table));
-                    let (expected_type, key_expressions) = if decl.has_computed_record_keys {
+                    let (expected, key_expressions) = if decl.has_computed_record_keys {
                         let annotation = decl.annotation.expect("computed key annotation");
                         let owner = QueryKey::StaticConstant(id.clone());
                         let mut projections = crate::static_key::ProjectedRecordKeySet::new(owner);
@@ -7739,9 +7742,42 @@ impl SemanticWorkspaceSession {
                         )
                         .ty();
                         diagnostics_map.entry(decl.module_id.clone()).or_default().extend(annotation_diagnostics);
-                        (expected_type, key_expressions)
+                        (
+                            expected_type.map_or(crate::checker::expected::ExpectedType::None, |ty| {
+                                crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                            }),
+                            key_expressions,
+                        )
                     } else {
-                        (decl.expected_type, Vec::new())
+                        let expected = if let Some(annotation) = decl.annotation {
+                            if crate::checker::annotation_elaboration::annotation_contains_inference_hole(annotation) {
+                                let mut context = CheckingContext::new_with_dispatch_ref(
+                                    Arc::make_mut(&mut self.store),
+                                    &hierarchy,
+                                    &resolver,
+                                    &declarations,
+                                    &dispatch,
+                                    decl.module_id.clone(),
+                                );
+                                let (elaboration, _) = context.elaborate_type_annotation(&resolver, annotation);
+                                match elaboration {
+                                    Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context: inf_ctx, term, .. }) => {
+                                        crate::checker::expected::ExpectedType::inference_from(inf_ctx, term, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                                    }
+                                    Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
+                                        crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                                    }
+                                    None => crate::checker::expected::ExpectedType::None,
+                                }
+                            } else {
+                                decl.expected_type.map_or(crate::checker::expected::ExpectedType::None, |ty| {
+                                    crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                                })
+                            }
+                        } else {
+                            crate::checker::expected::ExpectedType::None
+                        };
+                        (expected, Vec::new())
                     };
                     let mut context = CheckingContext::new_with_dispatch_ref(
                         Arc::make_mut(&mut self.store),
@@ -7759,14 +7795,14 @@ impl SemanticWorkspaceSession {
                     context.attach_data_semantics(&data_semantics);
                     context.attach_associated_families(&associated_surfaces_table);
                     context.attach_conformance_semantics(&conformance_semantics);
-                    let checked = crate::checker::static_body::analyze_static_constant_initializer(
+                    let checked = crate::checker::static_body::analyze_static_constant_initializer_with_expected(
                         context,
                         &decl.id,
                         decl.declaration_range,
                         decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
                         decl.initializer,
                         decl.annotation,
-                        expected_type,
+                        expected,
                         catalog,
                         &binding_states,
                         &static_intrinsics,
@@ -8142,6 +8178,7 @@ fn canonical_erased_superclass_declaration(resolver: &dyn TypeResolver, module: 
         key,
         phalcom_native_meta::UniverseKey::Collection
             | phalcom_native_meta::UniverseKey::List
+            | phalcom_native_meta::UniverseKey::Array
             | phalcom_native_meta::UniverseKey::Map
             | phalcom_native_meta::UniverseKey::Set
             | phalcom_native_meta::UniverseKey::Tuple

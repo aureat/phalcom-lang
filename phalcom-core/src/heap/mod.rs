@@ -30,6 +30,7 @@
 
 mod accessors;
 pub mod adt;
+pub mod array;
 pub mod associated;
 mod block;
 mod bytes;
@@ -57,6 +58,7 @@ pub mod typing;
 mod upvalue;
 
 pub use adt::AdtCaseObject;
+pub use array::{ArrayLiteralBuilderObject, ArrayMutationError, ArrayObject};
 pub use associated::AssociatedFamilyObject;
 pub use block::BlockObject;
 pub use bytes::BytesObject;
@@ -256,6 +258,16 @@ impl Heap {
         self.insert(Object::List(ListObject::new(elements)))
     }
 
+    /// Allocates an [`ArrayObject`] from `elements` and returns its [`ObjRef`].
+    pub fn alloc_array(&mut self, elements: Vec<crate::value::Value>) -> ObjRef {
+        self.insert(Object::Array(ArrayObject::from_vec(elements)))
+    }
+
+    /// Allocates a compiler-owned dynamic Array literal builder.
+    pub(crate) fn alloc_array_literal_builder(&mut self) -> ObjRef {
+        self.insert(Object::ArrayLiteralBuilder(Box::new(ArrayLiteralBuilderObject::new())))
+    }
+
     /// Allocates an empty [`Object::Map`] and returns its [`ObjRef`].
     pub fn alloc_map(&mut self) -> ObjRef {
         self.insert(Object::Map(Box::new(MapObject::new())))
@@ -398,6 +410,8 @@ impl Heap {
             Some(Object::BoundMethod(_)) => "BoundMethod",
             Some(Object::Upvalue(_)) => "Upvalue",
             Some(Object::List(_)) => "List",
+            Some(Object::Array(_)) => "Array",
+            Some(Object::ArrayLiteralBuilder(_)) => "ArrayLiteralBuilder",
             Some(Object::Fiber(_)) => "Fiber",
             Some(Object::Map(_)) => "Map",
             Some(Object::Set(_)) => "Set",

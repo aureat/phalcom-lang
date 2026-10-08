@@ -30,6 +30,7 @@ use crate::primitive::float::{
 use crate::primitive::int::{
     int_and, int_bit_at, int_bit_count, int_bit_length, int_class_new, int_not, int_or, int_shl, int_shr, int_trailing_zeros, int_xor,
 };
+use crate::primitive::array::{array_raw_at, array_raw_length, array_raw_set, array_to_string};
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_replace_slice, list_to_string};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on_shape, method_selector};
@@ -641,6 +642,13 @@ impl Universe {
         primitive_internal!(vm, list_cls, "rawPush", SignatureKind::Method(1), list_raw_push);
         primitive_internal!(vm, list_cls, "rawReplaceSlice", SignatureKind::Method(3), list_replace_slice);
         primitive!(vm, list_cls, "toString", SignatureKind::Getter, list_to_string);
+
+        // Kernel `Array` (COLL006.C1.P2)
+        let array_cls = vm.universe.classes.array_class;
+        primitive_internal!(vm, array_cls, "rawLength", SignatureKind::Getter, array_raw_length);
+        primitive_internal!(vm, array_cls, "rawAt", SignatureKind::Method(1), array_raw_at);
+        primitive_internal!(vm, array_cls, "rawSet", SignatureKind::Method(2), array_raw_set);
+        primitive!(vm, array_cls, "toString", SignatureKind::Getter, array_to_string);
 
         // Kernel `Bytes` (PDR-0011 ruling 3, U-BYTES): implementation
         // ordinary selectors. Bulk no-user-code operations are native

@@ -1,4 +1,6 @@
 use crate::heap::ArgumentPackBuilderObject;
+use crate::heap::ArrayLiteralBuilderObject;
+use crate::heap::ArrayObject;
 use crate::heap::BlockObject;
 use crate::heap::BytesObject;
 use crate::heap::ClassObject;
@@ -239,6 +241,59 @@ impl Heap {
     pub fn as_list(&self, id: ObjRef) -> Option<&ListObject> {
         match self.objects.get(id) {
             Some(Object::List(list)) => Some(list),
+            _ => None,
+        }
+    }
+
+    /// Borrows the [`ArrayObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Array`].
+    pub fn array(&self, id: ObjRef) -> &ArrayObject {
+        match self.get(id) {
+            Object::Array(array) => array,
+            _ => panic!("ObjRef {id:?} is not an ArrayObject"),
+        }
+    }
+
+    /// Mutably borrows the [`ArrayObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Array`].
+    pub fn array_mut(&mut self, id: ObjRef) -> &mut ArrayObject {
+        match self.get_mut(id) {
+            Object::Array(array) => array,
+            _ => panic!("ObjRef {id:?} is not an ArrayObject"),
+        }
+    }
+
+    /// Returns the [`ArrayObject`] behind `id`, or `None` if it is not one.
+    pub fn as_array(&self, id: ObjRef) -> Option<&ArrayObject> {
+        match self.objects.get(id) {
+            Some(Object::Array(array)) => Some(array),
+            _ => None,
+        }
+    }
+
+    pub fn array_literal_builder(&self, id: ObjRef) -> &ArrayLiteralBuilderObject {
+        match self.get(id) {
+            Object::ArrayLiteralBuilder(builder) => builder,
+            _ => panic!("ObjRef {id:?} is not an ArrayLiteralBuilderObject"),
+        }
+    }
+
+    pub fn array_literal_builder_mut(&mut self, id: ObjRef) -> &mut ArrayLiteralBuilderObject {
+        match self.get_mut(id) {
+            Object::ArrayLiteralBuilder(builder) => builder,
+            _ => panic!("ObjRef {id:?} is not an ArrayLiteralBuilderObject"),
+        }
+    }
+
+    pub fn as_array_literal_builder(&self, id: ObjRef) -> Option<&ArrayLiteralBuilderObject> {
+        match self.objects.get(id) {
+            Some(Object::ArrayLiteralBuilder(builder)) => Some(builder),
             _ => None,
         }
     }

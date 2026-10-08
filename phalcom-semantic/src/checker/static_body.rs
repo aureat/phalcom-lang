@@ -91,8 +91,40 @@ pub fn analyze_static_constant_initializer(
     binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
     intrinsics: &StaticIntrinsicRegistry,
 ) -> crate::static_constant::CheckedStaticConstantInitializer {
+    let expected = match expected_type {
+        Some(ty) => ExpectedType::proper_from(ty, ExpectationOrigin::DeclarationContract),
+        None => ExpectedType::None,
+    };
+    analyze_static_constant_initializer_with_expected(
+        context,
+        constant_id,
+        declaration_range,
+        initializer_range,
+        initializer,
+        annotation,
+        expected,
+        catalog,
+        binding_states,
+        intrinsics,
+    )
+}
+
+/// Checks a static constant's initializer expression using an explicit ExpectedType.
+pub fn analyze_static_constant_initializer_with_expected(
+    context: CheckingContext<'_>,
+    constant_id: &crate::static_constant::StaticConstantId,
+    declaration_range: SourceRange,
+    initializer_range: SourceRange,
+    initializer: &Expr,
+    annotation: Option<&phalcom_ast::ast::TypeAnnotation>,
+    expected: ExpectedType,
+    catalog: &crate::module_bindings::ModuleStaticBindingCatalog,
+    binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
+    intrinsics: &StaticIntrinsicRegistry,
+) -> crate::static_constant::CheckedStaticConstantInitializer {
+    let expected_type = expected.ty();
     let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(constant_id, initializer, annotation, expected_type);
-    let expression = analyze_static_expression(context, initializer, expected_type, catalog, binding_states, intrinsics);
+    let expression = analyze_static_expression_with_demands(context, initializer, expected, catalog, binding_states, intrinsics).0;
     crate::static_constant::CheckedStaticConstantInitializer {
         id: constant_id.clone(),
         declaration_range,

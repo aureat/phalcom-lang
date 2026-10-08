@@ -205,7 +205,7 @@ pub(crate) fn canonical_collection_arguments(store: &crate::types::store::TypeSt
     }
 }
 
-fn inference_origin_matches(store: &crate::types::store::TypeStore, expected: &ExpectedType, collection_decl: &DeclarationId) -> bool {
+pub(crate) fn inference_origin_matches(store: &crate::types::store::TypeStore, expected: &ExpectedType, collection_decl: &DeclarationId) -> bool {
     let ExpectedType::Inference {
         term: InferenceTerm::Applied { origin, .. },
         ..
