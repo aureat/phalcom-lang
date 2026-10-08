@@ -528,3 +528,112 @@ let result = render("?")
     let (vm, module) = vm_support::run_inline(source).expect("escaped conditional family must capture creator evidence");
     assert_eq!(named(&vm, module, "result").to_string(&vm), "escaped?");
 }
+
+#[test]
+fn conditional_operators_execute_trait_slots_and_preserve_operand_evaluation() {
+    let source = r#"
+trait ClosedAdd { +(_ other: Self) -> Self }
+trait ClosedNegate { - -> Self }
+data Scalar(_ value: Int)
+// Witness-only operators must use evidence, not a method-table lookup.
+impl ClosedAdd for Scalar {
+  +(_ other: Scalar) -> Scalar { Scalar(value + other.value) }
+}
+impl ClosedNegate for Scalar {
+  - -> Scalar { Scalar(-value) }
+}
+data Cell<T>(_ value: T)
+impl<T> Cell<T> where T |= ClosedAdd {
+  +(_ other: Cell<T>) -> Cell<T> { Cell<T>(self.value + other.value) }
+  copy() -> Cell<T> { Cell<T>(self.value) }
+}
+impl<T> Cell<T> where T |= ClosedNegate {
+  - -> Cell<T> { Cell<T>(-self.value) }
+  negated -> Cell<T> { Cell<T>(-self.value) }
+}
+let mut order = 0
+let left = || { order = order * 10 + 1; Cell(Scalar(2)) }
+let right = || { order = order * 10 + 2; Cell(Scalar(3)) }
+let sum = left() + right()
+let result = sum.value.value
+let sequence = order
+let negative = (-sum).value.value
+let getter = sum.negated.value.value
+let exact_sum = sum === Cell(Scalar(5))
+let exact_negative = (-sum) === Cell(Scalar(-5))
+let exact_getter = sum.negated === Cell(Scalar(-5))
+let exact_copy = sum.copy() === Cell(Scalar(5))
+let copier = &sum.copy()
+let exact_captured = copier() === Cell(Scalar(5))
+"#;
+    let program = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(phalcom_core::modules::compile::EntrySelection::Inline(
+        std::sync::Arc::from(source),
+    ))
+    .expect("conditional operator lowering");
+    assert!(!program.modules[&program.entry].lowering.conditional_invocations.is_empty());
+    assert!(
+        !program.modules[&program.entry].lowering.trait_requirement_invocations.is_empty(),
+        "generic component operators must publish abstract trait slots: {:?}",
+        program.modules[&program.entry].lowering.trait_invocations,
+    );
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("conditional operators receive canonical evidence");
+    let module = vm.module_registry.get(&program.entry).unwrap().object;
+    for (name, expected) in [("result", 5), ("sequence", 12), ("negative", -5), ("getter", -5)] {
+        assert_eq!(named(&vm, module, name), Value::int(expected), "{name}");
+    }
+    for name in ["exact_sum", "exact_negative", "exact_getter", "exact_copy", "exact_captured"] {
+        assert_eq!(named(&vm, module, name), Value::bool(true), "{name}");
+    }
+}
+
+#[test]
+fn conditional_operator_decline_preserves_reflected_fallback() {
+    let source = r#"
+from universe.errors.unsupported import unsupported
+let mut attempts = 0
+data Declining<T>(_ value: T)
+impl<T> Declining<T> where T == Int {
+  +(_ other) { attempts = attempts + 1; unsupported }
+}
+class Right {
+  +(from left) -> Int { left.value + 40 }
+}
+let result = Declining(2) + Right.new()
+"#;
+    let temp = tempfile::TempDir::new().expect("temporary operator package");
+    std::fs::write(temp.path().join("package.ph"), "expose .main\n").expect("manifest");
+    std::fs::write(temp.path().join("main.ph"), source).expect("operator source");
+    let program = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(phalcom_core::modules::compile::EntrySelection::Package(
+        temp.path().to_path_buf(),
+    ))
+    .expect("conditional decline source compiles");
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("conditional decline falls back to reflected operator");
+    let module = vm.module_registry.get(&program.entry).unwrap().object;
+    assert_eq!(named(&vm, module, "result"), Value::int(42));
+    assert_eq!(named(&vm, module, "attempts"), Value::int(1));
+}
+
+#[test]
+fn reentrant_conditional_method_uses_own_receiver_and_nested_closures_capture_it() {
+    let source = r#"
+trait Readable { read() -> Int }
+data Cell<T>(_ value: T)
+impl<T> Cell<T> where T == Int {
+  +(_ other: Cell<Int>) -> Int {
+    let outer = || { let inner = || self.value; inner() }
+    outer() + self.value + other.value
+  }
+}
+impl Readable for Cell<Int> {
+  read() -> Int { self + Cell(0) }
+}
+let first = Cell(23).read()
+let second = Cell(41).read()
+"#;
+    let (mut vm, module) = vm_support::run_inline(source).expect("reentrant method and nested receiver captures execute");
+    vm.force_gc();
+    assert_eq!(named(&vm, module, "first"), Value::int(46));
+    assert_eq!(named(&vm, module, "second"), Value::int(82));
+}

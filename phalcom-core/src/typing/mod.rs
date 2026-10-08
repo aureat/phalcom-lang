@@ -5,6 +5,7 @@ pub mod conformance_environment;
 pub mod context;
 pub mod environment;
 pub mod handle;
+pub mod identity;
 pub mod inspect;
 pub mod loader;
 pub mod overlay;

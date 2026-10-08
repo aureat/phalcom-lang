@@ -4,6 +4,27 @@ use phalcom_core::value::{Value, normalize_bigint};
 use phalcom_core::vm::VM;
 
 #[test]
+fn integer_exactness_is_independent_of_heap_representation_without_float_coercion() {
+    let mut vm = super::vm_support::kernel_vm();
+    let huge = BigInt::from(10).pow(100);
+    let first = normalize_bigint(huge.clone(), &mut vm.heap);
+    let second = normalize_bigint(huge.clone(), &mut vm.heap);
+    let different = normalize_bigint(huge + 1, &mut vm.heap);
+    assert_ne!(first.as_obj(), second.as_obj(), "independent integer allocations");
+    assert!(vm.semantic_same(first, second), "equal Int content is exact regardless of allocation");
+    assert!(!vm.semantic_same(first, different));
+
+    let heap_small = Value::obj(vm.heap.alloc(Object::LargeInt(BigInt::from(42))));
+    assert!(vm.semantic_same(Value::int(42), heap_small));
+    assert!(vm.semantic_same(heap_small, Value::int(42)));
+    assert!(!vm.semantic_same(heap_small, Value::int(43)));
+    assert!(!vm.semantic_same(heap_small, Value::float(42.0)));
+    assert!(!vm.semantic_same(Value::float(42.0), heap_small));
+    assert!(!vm.semantic_same(Value::int(42), Value::float(42.0)));
+    assert!(!vm.semantic_same(Value::float(0.0), Value::float(-0.0)));
+}
+
+#[test]
 fn number_classes_and_abstract_instantiation() {
     let mut vm = VM::new();
     let c = vm.universe.classes;

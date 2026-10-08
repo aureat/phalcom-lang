@@ -2889,6 +2889,11 @@ impl<'a> CheckingContext<'a> {
             }
             let mut signature = crate::checker::declaration_signature::project_semantic_signature(&member.signature);
             let mut type_env = crate::types::environment::TypeEnvironment::default();
+            if side == DispatchSide::Instance {
+                // The proven subject may be a rigid caller parameter. Trait
+                // Self denotes that subject even without a nominal receiver.
+                type_env.bind_self(receiver);
+            }
             if let Some(generics) = &surface.generic_signature {
                 for (idx, &param) in generics.parameters.iter().enumerate() {
                     if let Some(&arg) = conformance_key.trait_ref.arguments.get(idx) {

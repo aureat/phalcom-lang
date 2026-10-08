@@ -61,12 +61,16 @@ fn remap_runtime_indexed_conformance_slots(slots: &mut Box<[(u16, crate::typing:
     }
 }
 
+fn remap_call_environment_recipe(recipe: &mut Arc<crate::typing::RuntimeCallEnvironmentRecipe>, pool_id: crate::typing::MetadataPoolId) {
+    let recipe = Arc::make_mut(recipe);
+    remap_runtime_bindings(&mut recipe.bindings, pool_id);
+    remap_runtime_conformance_slots(&mut recipe.conformance_slots, pool_id);
+}
+
 fn remap_trait_invocation(spec: &mut crate::modules::semantic_lowering::TraitInvocationSpec, pool_id: crate::typing::MetadataPoolId) {
     remap_runtime_bindings(&mut spec.type_bindings, pool_id);
     if let Some(recipe) = &mut spec.call_environment_recipe {
-        let recipe = Arc::make_mut(recipe);
-        remap_runtime_bindings(&mut recipe.bindings, pool_id);
-        remap_runtime_conformance_slots(&mut recipe.conformance_slots, pool_id);
+        remap_call_environment_recipe(recipe, pool_id);
     }
 }
 
@@ -82,16 +86,32 @@ fn remap_lowering_metadata_pool(lowering: &mut crate::modules::semantic_lowering
         spec.type_recipe = remap_runtime_type_recipe(spec.type_recipe, pool_id);
     }
     for recipe in lowering.call_environment_recipes.values_mut() {
-        let recipe = Arc::make_mut(recipe);
-        remap_runtime_bindings(&mut recipe.bindings, pool_id);
-        remap_runtime_conformance_slots(&mut recipe.conformance_slots, pool_id);
+        remap_call_environment_recipe(recipe, pool_id);
+    }
+    for recipe in lowering.conditional_call_environment_recipes.values_mut() {
+        remap_call_environment_recipe(recipe, pool_id);
+    }
+    for spec in lowering.conditional_invocations.values_mut() {
+        if let Some(recipe) = &mut spec.call_environment_recipe {
+            remap_call_environment_recipe(recipe, pool_id);
+        }
     }
     for spec in lowering.trait_invocations.values_mut() {
         remap_trait_invocation(spec, pool_id);
     }
     for spec in lowering.callable_references.values_mut() {
-        if let crate::modules::semantic_lowering::CallableReferenceLoweringSpec::MakeTraitBoundMethod { invocation } = spec {
-            remap_trait_invocation(invocation, pool_id);
+        match spec {
+            crate::modules::semantic_lowering::CallableReferenceLoweringSpec::MakeTraitBoundMethod { invocation } => {
+                remap_trait_invocation(invocation, pool_id);
+            }
+            crate::modules::semantic_lowering::CallableReferenceLoweringSpec::MakeBoundFamily { conditional_members, .. } => {
+                for member in conditional_members.iter_mut() {
+                    if let Some(recipe) = &mut member.call_environment_recipe {
+                        remap_call_environment_recipe(recipe, pool_id);
+                    }
+                }
+            }
+            _ => {}
         }
     }
     for spec in lowering.for_iteration_lanes.values_mut() {
@@ -231,9 +251,8 @@ impl VM {
                         }
                         RuntimeLinkedRead::Binding(BindingRef {
                             module: target_obj,
-                            slot: u16::try_from(slot).map_err(|_| {
-                                RuntimeError::Internal(format!("linked binding slot overflow in {}::{}", symbol_id.module, symbol_id.name))
-                            })?,
+                            slot: u16::try_from(slot)
+                                .map_err(|_| RuntimeError::Internal(format!("linked binding slot overflow in {}::{}", symbol_id.module, symbol_id.name)))?,
                         })
                     }
                 }

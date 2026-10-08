@@ -100,6 +100,70 @@ impl<'vm> Compiler<'vm> {
         Ok(true)
     }
 
+    /// Emits the already-proven call edge for one exact selector, if present.
+    /// Operators share a source range across direct/reflected paths; matching
+    /// selector identity keeps evidence attached to its selected orientation.
+    pub(crate) fn emit_proven_invoke_if_present(&mut self, arity: u8, selector_idx: u16, range: SourceRange) -> Result<bool, CompilerError> {
+        let selector = self.functions.last().expect("active compiler function").chunk.constants[selector_idx as usize]
+            .symbol_value()
+            .ok_or_else(|| CompilerError::Message("invocation selector is not a symbol".into()))?;
+        let selector_text = self.vm.resolve_symbol(selector);
+        let Some(lowering) = self.lowering() else { return Ok(false) };
+        let requirement = lowering
+            .trait_requirement_invocations
+            .iter()
+            .any(|(site, spec)| site.range == range && spec.requirement.selector.to_string() == selector_text);
+        let trait_selected = lowering
+            .trait_invocations
+            .iter()
+            .any(|(site, spec)| site.range == range && spec.selection.requirement.selector.to_string() == selector_text);
+        let conditional = lowering
+            .conditional_invocations
+            .iter()
+            .find(|(site, spec)| site.range == range && spec.callable.selector.to_string() == selector_text)
+            .map(|(_, spec)| spec.clone());
+
+        if requirement {
+            return self.emit_trait_requirement_if_present(arity, range);
+        }
+        if trait_selected {
+            return self.emit_trait_invoke_if_present(arity, range);
+        }
+        let Some(spec) = conditional else { return Ok(false) };
+        let declaring_sym = self.vm.interner.intern(&spec.declaring_owner.name);
+        let declaring_module = self
+            .vm
+            .module_registry
+            .get(&spec.declaring_owner.module)
+            .map(|record| record.object)
+            .ok_or(CompilerError::MissingImplLoweringSemantics(range))?;
+        let declaring_module_idx = self.add_constant(Value::obj(declaring_module), range)?;
+        let declaring_name_idx = self.add_constant(Value::symbol(declaring_sym), range)?;
+        let method = self.get_or_compile_conditional_method(&spec.callable)?;
+        let fallback_method = self.add_constant(Value::obj(method), range)?;
+        let recipe = spec.call_environment_recipe.ok_or(CompilerError::CallableReferenceNotLoweredYet(range))?;
+        let recipe_idx = self
+            .functions
+            .last_mut()
+            .expect("active compiler function")
+            .chunk
+            .executable_semantics
+            .add_call_environment_recipe(recipe, range)?;
+        self.emit(
+            Bytecode::InvokeConditional {
+                arity,
+                selector: selector_idx,
+                declaring_module: declaring_module_idx,
+                declaring_name: declaring_name_idx,
+                class_side: spec.side == phalcom_semantic::identity::DispatchSide::Class,
+                fallback_method,
+                call_environment_recipe: recipe_idx,
+            },
+            range,
+        );
+        Ok(true)
+    }
+
     /// Emits one canonical `for` requirement from the already projected lane
     /// spec. The compiler does not perform selector lookup or conformance
     /// proof here; it only chooses the VM's existing selected/slot opcode.
@@ -142,7 +206,7 @@ impl<'vm> Compiler<'vm> {
     /// (functions.md §2), so it resolves through [`Self::resolve_upvalue`] and is
     /// emitted as [`Bytecode::GetUpvalue`].
     pub(super) fn emit_self(&mut self, range: SourceRange) {
-        if self.functions.len() > 1 {
+        if self.functions.last().is_some_and(|function| function.is_block) {
             let self_sym = self.vm.interner.intern("self");
             if let Some(upvalue) = self.resolve_upvalue(self_sym) {
                 self.emit(Bytecode::GetUpvalue(upvalue as u16), range);
@@ -466,7 +530,9 @@ impl<'vm> Compiler<'vm> {
         let selector = encode_selector(name, &labels, SignatureKind::Method(arity));
         let selector_sym = self.vm.interner.intern(&selector);
         let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
-        self.emit(Bytecode::Invoke(arity, selector_idx), range);
+        if !self.emit_proven_invoke_if_present(arity, selector_idx, range)? {
+            self.emit_invoke(arity, selector_idx, range, InvocationAuthority::Ordinary)?;
+        }
         Ok(())
     }
 
@@ -484,7 +550,9 @@ impl<'vm> Compiler<'vm> {
     pub(super) fn emit_getter_send(&mut self, name: &str, range: SourceRange) -> Result<(), CompilerError> {
         let selector_sym = self.vm.interner.intern(name);
         let selector_idx = self.add_constant(Value::symbol(selector_sym), range)?;
-        self.emit(Bytecode::Invoke(0, selector_idx), range);
+        if !self.emit_proven_invoke_if_present(0, selector_idx, range)? {
+            self.emit_invoke(0, selector_idx, range, InvocationAuthority::Ordinary)?;
+        }
         Ok(())
     }
 

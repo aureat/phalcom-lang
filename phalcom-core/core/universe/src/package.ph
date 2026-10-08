@@ -16,6 +16,7 @@ expose .text
 expose .regex
 expose .json
 expose .math
+expose .numbers
 expose .random
 expose .process
 expose .net
@@ -49,6 +50,7 @@ import .text
 import .regex
 import .json
 import .math
+import .numbers
 import .random
 import .process
 import .net
@@ -82,6 +84,7 @@ export text
 export regex
 export json
 export math
+export numbers
 export random
 export process
 export net

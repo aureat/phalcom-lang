@@ -398,6 +398,9 @@ impl<'vm> Compiler<'vm> {
 
     /// Looks up or compiles the compiled method object for a conditional inherent callable.
     pub(crate) fn get_or_compile_conditional_method(&mut self, callable: &CallableId) -> Result<ObjRef, CompilerError> {
+        if let Some(&obj_ref) = self.vm.detached_method_objects.get(callable) {
+            return Ok(obj_ref);
+        }
         if let Some(&obj_ref) = self.conditional_method_objects.get(callable) {
             return Ok(obj_ref);
         }
@@ -501,6 +504,9 @@ impl<'vm> Compiler<'vm> {
                     return Err(CompilerError::ImplCallableMismatch(impl_def.range));
                 };
                 self.conditional_method_objects.insert(member_lowering.callable.clone(), compiled.method_obj);
+                if spec.is_conditional {
+                    self.vm.detached_method_objects.insert(member_lowering.callable.clone(), compiled.method_obj);
+                }
                 if !spec.is_conditional {
                     self.emit(Bytecode::Constant(compiled.method_obj_idx), compiled.range);
                     self.emit(Bytecode::Method(compiled.selector_const, compiled.is_class_side), compiled.range);

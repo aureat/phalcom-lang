@@ -2407,3 +2407,41 @@ fn exact_case_conditional_precedence_shadows_root_requirement() {
     ));
     assert_eq!(selection.callable.selector, Selector::method("code", []).unwrap());
 }
+
+#[test]
+fn conditional_component_operators_publish_rigid_trait_requirement_evidence() {
+    let source = r#"
+trait ClosedAdd { +(_ other: Self) -> Self }
+data Cell<T>(_ value: T)
+impl<T> Cell<T> where T |= ClosedAdd {
+  add(_ other: Cell<T>) -> T { self.value + other.value }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(test_module(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+    let analysis = output
+        .snapshot
+        .callable_analyses
+        .get(&impl_callable(
+            "Cell",
+            Selector::method("add", [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+        ))
+        .expect("operator consumer");
+    let expression = analysis
+        .expressions
+        .values()
+        .find(|expression| matches!(expression.trait_dispatch, Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Assumed(_))))
+        .expect("assumed operator slot");
+    let Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Assumed(selection)) = &expression.trait_dispatch else {
+        unreachable!()
+    };
+    let phalcom_semantic::types::parameter::TypeTerm::Canonical(subject) = selection.conformance.subject else {
+        panic!("rigid subject")
+    };
+    assert!(matches!(
+        output.snapshot.store.get(subject),
+        phalcom_semantic::types::store::TypeData::Parameter(_)
+    ));
+    assert_eq!(expression.knowledge.ty(), Some(subject), "trait Self must specialize to its rigid subject");
+}
