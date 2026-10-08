@@ -154,6 +154,249 @@ class Substring {
     self.findIn(source, offset)
   }
 
+  /// Checks whether this substring contains the given pattern.
+  contains(_ pattern) -> Bool {
+    let opt = pattern.findIn(self, 0)
+    match opt {
+      Option::Some(_) => true
+      _ => false
+    }
+  }
+
+  /// Determines whether the substring begins with the given prefix pattern.
+  startsWith(_ prefix) -> Bool {
+    if prefix.is(Char) {
+      if first.isSome {
+        return first.unwrap == prefix
+      }
+      return false
+    }
+    if prefix.is(String) {
+      let pLen = prefix.rawByteCount
+      if pLen > byteCount { return false }
+      if pLen == 0 { return true }
+      let opt = prefix.findIn(self, 0)
+      if opt.isSome {
+        return opt.unwrap.rawAt(0) == 0
+      }
+      return false
+    }
+    if prefix.is(Substring) {
+      let pLen = prefix.byteCount
+      if pLen > byteCount { return false }
+      if pLen == 0 { return true }
+      let opt = prefix.findIn(self, 0)
+      if opt.isSome {
+        return opt.unwrap.rawAt(0) == 0
+      }
+      return false
+    }
+    let opt = prefix.findIn(self, 0)
+    if opt.isSome {
+      return opt.unwrap.rawAt(0) == 0
+    }
+    return false
+  }
+
+  /// Determines whether the substring terminates with the given suffix pattern.
+  endsWith(_ suffix) -> Bool {
+    if suffix.is(Char) {
+      if last.isSome {
+        return last.unwrap == suffix
+      }
+      return false
+    }
+    if suffix.is(String) {
+      let sLen = suffix.rawByteCount
+      if sLen > byteCount { return false }
+      if sLen == 0 { return true }
+      let fromOffset = byteCount - sLen
+      let opt = suffix.findIn(self, fromOffset)
+      if opt.isSome {
+        return opt.unwrap.rawAt(1) == byteCount
+      }
+      return false
+    }
+    if suffix.is(Substring) {
+      let sLen = suffix.byteCount
+      if sLen > byteCount { return false }
+      if sLen == 0 { return true }
+      let fromOffset = byteCount - sLen
+      let opt = suffix.findIn(self, fromOffset)
+      if opt.isSome {
+        return opt.unwrap.rawAt(1) == byteCount
+      }
+      return false
+    }
+    return false
+  }
+
+  /// Searches for the first occurrence of `pattern`, returning its start `StringIndex`.
+  find(_ pattern) -> Option<StringIndex> {
+    let opt = pattern.findIn(self, 0)
+    if opt.isSome {
+      return Some(StringIndex(opt.unwrap.rawAt(0)))
+    }
+    return None
+  }
+
+  /// Searches for the last occurrence of `pattern`, returning its start `StringIndex`.
+  findLast(_ pattern) -> Option<StringIndex> {
+    let needle = if pattern.is(Char) {
+      pattern.toString
+    } else if pattern.is(String) {
+      pattern
+    } else if pattern.is(Substring) {
+      pattern.toString
+    } else {
+      throw ArgumentError.new("findLast: unsupported pattern type")
+    }
+    if needle.rawByteCount == 0 {
+      return Some(StringIndex(byteCount))
+    }
+    let optRel = _string.rawRFindSlice(needle, _start, _end)
+    if optRel.isSome {
+      return Some(StringIndex(optRel.unwrap))
+    }
+    return None
+  }
+
+  /// Searches for the first occurrence of `pattern`, returning the matching byte range.
+  findRange(_ pattern) -> Option<Range> {
+    let opt = pattern.findIn(self, 0)
+    if opt.isSome {
+      let pair = opt.unwrap
+      let s = pair.rawAt(0)
+      let e = pair.rawAt(1)
+      return Some(s..e)
+    }
+    return None
+  }
+
+  /// Returns a Substring view with leading Unicode whitespace removed.
+  trimmedStart() -> Substring {
+    let mut offset = 0
+    let total = byteCount
+    while offset < total {
+      let optCh = decodeCharAt(offset)
+      match optCh {
+        Option::Some(ch) => {
+          if not ch.isWhitespace {
+            return slice(offset, total)
+          }
+          offset = offset + ch.utf8Length
+        }
+        _ => {
+          return slice(offset, total)
+        }
+      }
+    }
+    slice(total, total)
+  }
+
+  /// Returns a Substring view with trailing Unicode whitespace removed.
+  trimmedEnd() -> Substring {
+    let mut end = byteCount
+    while end > 0 {
+      let mut i = end - 1
+      while i > 0 and not isCharBoundary(i) {
+        i = i - 1
+      }
+      let optCh = decodeCharAt(i)
+      match optCh {
+        Option::Some(ch) => {
+          if not ch.isWhitespace {
+            return slice(0, end)
+          }
+          end = i
+        }
+        _ => {
+          return slice(0, end)
+        }
+      }
+    }
+    slice(0, 0)
+  }
+
+  /// Returns a Substring view with leading and trailing Unicode whitespace removed.
+  trimmed() -> Substring {
+    let mut s = 0
+    let total = byteCount
+    let mut hasNonWs = false
+    while s < total {
+      let optCh = decodeCharAt(s)
+      match optCh {
+        Option::Some(ch) => {
+          if not ch.isWhitespace {
+            hasNonWs = true
+            break
+          }
+          s = s + ch.utf8Length
+        }
+        _ => {
+          break
+        }
+      }
+    }
+    if not hasNonWs {
+      return slice(total, total)
+    }
+    let mut e = total
+    while e > s {
+      let mut i = e - 1
+      while i > s and not isCharBoundary(i) {
+        i = i - 1
+      }
+      let optCh = decodeCharAt(i)
+      match optCh {
+        Option::Some(ch) => {
+          if not ch.isWhitespace {
+            break
+          }
+          e = i
+        }
+        _ => {
+          break
+        }
+      }
+    }
+    slice(s, e)
+  }
+
+  /// If the substring starts with `prefix`, returns the Substring after the prefix; otherwise None.
+  stripPrefix(_ prefix) -> Option<Substring> {
+    if not startsWith(prefix) {
+      return None
+    }
+    let len = if prefix.is(Char) {
+      prefix.utf8Length
+    } else if prefix.is(String) {
+      prefix.rawByteCount
+    } else if prefix.is(Substring) {
+      prefix.byteCount
+    } else {
+      return None
+    }
+    Some(slice(len, byteCount))
+  }
+
+  /// If the substring ends with `suffix`, returns the Substring before the suffix; otherwise None.
+  stripSuffix(_ suffix) -> Option<Substring> {
+    if not endsWith(suffix) {
+      return None
+    }
+    let len = if suffix.is(Char) {
+      suffix.utf8Length
+    } else if suffix.is(String) {
+      suffix.rawByteCount
+    } else if suffix.is(Substring) {
+      suffix.byteCount
+    } else {
+      return None
+    }
+    Some(slice(0, byteCount - len))
+  }
+
   /// Subscript operator for Substring.
   [_ index] {
     if index.is(StringIndex) {

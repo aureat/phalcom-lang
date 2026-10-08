@@ -156,3 +156,83 @@ let matchNotFound = "world".findIn(sub, 0)
     assert!(mnf.is_none());
 }
 
+#[test]
+fn search_trim_strip() {
+    let source = r#"
+from universe.text import Substring
+from universe.scalar import StringIndex
+
+let text = "  --hello world.ph  "
+let trimmed = text.trimmed()
+let trimmedStr = trimmed.toString
+let trimmedStartStr = text.trimmedStart().toString
+let trimmedEndStr = text.trimmedEnd().toString
+
+let strippedPre = trimmed.stripPrefix("--")
+let strippedPreStr = match strippedPre {
+  Option::Some(s) => s.toString
+  _ => ""
+}
+
+let strippedSuf = strippedPre.unwrap.stripSuffix(".ph")
+let strippedSufStr = match strippedSuf {
+  Option::Some(s) => s.toString
+  _ => ""
+}
+
+let strippedNone = text.stripPrefix("xyz")
+
+let containsChar = text.contains('w')
+let containsStr = text.contains("world")
+let containsSub = text.contains(strippedSuf.unwrap)
+let containsNone = text.contains("missing")
+
+let startsWithTrue = text.startsWith("  --")
+let startsWithFalse = text.startsWith("world")
+let endsWithTrue = text.endsWith(".ph  ")
+let endsWithFalse = text.endsWith("world")
+
+let findIdx = text.find("world")
+let findOffset = match findIdx {
+  Option::Some(idx) => idx.offset
+  _ => -1
+}
+
+let findLastIdx = text.findLast(' ')
+let findLastOffset = match findLastIdx {
+  Option::Some(idx) => idx.offset
+  _ => -1
+}
+
+let rangeOpt = text.findRange("world")
+let rangeStr = match rangeOpt {
+  Option::Some(r) => text[r].toString
+  _ => ""
+}
+"#;
+
+    let (vm, module) = run_standalone(source).expect("search_trim_strip executes");
+
+    assert_eq!(slot(&vm, module, "trimmedStr").map(|v| v.to_string(&vm)), Some("--hello world.ph".to_string()));
+    assert_eq!(slot(&vm, module, "trimmedStartStr").map(|v| v.to_string(&vm)), Some("--hello world.ph  ".to_string()));
+    assert_eq!(slot(&vm, module, "trimmedEndStr").map(|v| v.to_string(&vm)), Some("  --hello world.ph".to_string()));
+    assert_eq!(slot(&vm, module, "strippedPreStr").map(|v| v.to_string(&vm)), Some("hello world.ph".to_string()));
+    assert_eq!(slot(&vm, module, "strippedSufStr").map(|v| v.to_string(&vm)), Some("hello world".to_string()));
+    assert!(slot(&vm, module, "strippedNone").expect("strippedNone slot").is_none());
+
+    assert_eq!(slot(&vm, module, "containsChar").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(slot(&vm, module, "containsStr").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(slot(&vm, module, "containsSub").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(slot(&vm, module, "containsNone").and_then(|v| v.as_bool()), Some(false));
+
+    assert_eq!(slot(&vm, module, "startsWithTrue").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(slot(&vm, module, "startsWithFalse").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(slot(&vm, module, "endsWithTrue").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(slot(&vm, module, "endsWithFalse").and_then(|v| v.as_bool()), Some(false));
+
+    assert_eq!(slot(&vm, module, "findOffset").and_then(|v| v.as_int()), Some(10));
+    assert_eq!(slot(&vm, module, "findLastOffset").and_then(|v| v.as_int()), Some(19));
+    assert_eq!(slot(&vm, module, "rangeStr").map(|v| v.to_string(&vm)), Some("world".to_string()));
+}
+
+
