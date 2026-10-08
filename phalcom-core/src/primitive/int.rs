@@ -326,7 +326,7 @@ pub fn int_raw_to_string_radix(vm: &mut VM, receiver: &Value, args: &[Value]) ->
     let Some(radix) = radix_big.to_u32() else {
         return Err(RuntimeError::ArgumentError("radix out of range".to_string()).into());
     };
-    if radix < 2 || radix > 36 {
+    if !(2..=36).contains(&radix) {
         return Err(RuntimeError::ArgumentError("radix must be in 2..=36".to_string()).into());
     }
     let s = big.to_str_radix(radix);
@@ -343,7 +343,7 @@ pub fn int_class_raw_parse(vm: &mut VM, _receiver: &Value, args: &[Value]) -> Ph
     let Some(radix) = radix_big.to_u32() else {
         return Ok(Value::none());
     };
-    if radix < 2 || radix > 36 {
+    if !(2..=36).contains(&radix) {
         return Ok(Value::none());
     }
     let s_owned = vm.heap.string(s_ref).as_str().trim().to_string();
@@ -352,4 +352,3 @@ pub fn int_class_raw_parse(vm: &mut VM, _receiver: &Value, args: &[Value]) -> Ph
         None => Ok(Value::none()),
     }
 }
-

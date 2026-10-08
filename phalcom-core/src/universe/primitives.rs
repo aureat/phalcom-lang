@@ -9,7 +9,7 @@ use crate::primitive::bytes::{
     bytes_raw_slice, bytes_raw_utf8, bytes_raw_utf8_lossy,
 };
 use crate::primitive::char::{
-    char_code_point, char_from_code_point, char_hash, char_is_ascii, char_is_ascii_alphanumeric, char_is_ascii_alphabetic, char_is_ascii_digit,
+    char_code_point, char_from_code_point, char_hash, char_is_ascii, char_is_ascii_alphabetic, char_is_ascii_alphanumeric, char_is_ascii_digit,
     char_is_ascii_hex_digit, char_is_ascii_lowercase, char_is_ascii_uppercase, char_is_control, char_is_whitespace, char_simple_lowercase,
     char_simple_uppercase, char_to_string, char_utf8_length,
 };

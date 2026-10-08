@@ -37,10 +37,10 @@ mod compiler_lowering_scenarios;
 
 #[path = "abstract_classes.rs"]
 mod abstract_classes;
-#[path = "chars.rs"]
-mod chars;
 #[path = "associated_traits.rs"]
 mod associated_traits;
+#[path = "chars.rs"]
+mod chars;
 #[path = "conditional_conformance.rs"]
 mod conditional_conformance;
 #[path = "data_e2e.rs"]
@@ -71,7 +71,7 @@ mod option;
 mod record_patterns;
 #[path = "record_spread.rs"]
 mod record_spread;
-#[path = "traits.rs"]
-mod traits;
 #[path = "strings_text_model.rs"]
 mod strings_text_model;
+#[path = "traits.rs"]
+mod traits;

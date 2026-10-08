@@ -307,7 +307,13 @@ pub fn string_raw_find_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> P
 pub fn string_class_raw_join(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let list_ref = match args[0].as_obj() {
         Some(r) => r,
-        None => return Err(RuntimeError::Type { expected: "List", found: args[0].type_name() }.into()),
+        None => {
+            return Err(RuntimeError::Type {
+                expected: "List",
+                found: args[0].type_name(),
+            }
+            .into());
+        }
     };
     let elements = vm.heap.list(list_ref).elements().to_vec();
     let mut total_len = 0;
@@ -358,4 +364,3 @@ pub fn string_raw_rfind_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> 
         None => Ok(Value::none()),
     }
 }
-

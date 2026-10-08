@@ -143,7 +143,9 @@ let matchNotFound = "world".findIn(sub, 0)
     let mc = slot(&vm, module, "matchChar").and_then(|v| v.unwrap_some()).expect("found char match");
     assert_eq!(mc.to_string(&vm), "(4, 5)");
 
-    let mc2 = slot(&vm, module, "matchCharSecond").and_then(|v| v.unwrap_some()).expect("found second char match");
+    let mc2 = slot(&vm, module, "matchCharSecond")
+        .and_then(|v| v.unwrap_some())
+        .expect("found second char match");
     assert_eq!(mc2.to_string(&vm), "(7, 8)");
 
     let ms = slot(&vm, module, "matchStr").and_then(|v| v.unwrap_some()).expect("found str match");
@@ -214,9 +216,18 @@ let rangeStr = match rangeOpt {
     let (vm, module) = run_standalone(source).expect("search_trim_strip executes");
 
     assert_eq!(slot(&vm, module, "trimmedStr").map(|v| v.to_string(&vm)), Some("--hello world.ph".to_string()));
-    assert_eq!(slot(&vm, module, "trimmedStartStr").map(|v| v.to_string(&vm)), Some("--hello world.ph  ".to_string()));
-    assert_eq!(slot(&vm, module, "trimmedEndStr").map(|v| v.to_string(&vm)), Some("  --hello world.ph".to_string()));
-    assert_eq!(slot(&vm, module, "strippedPreStr").map(|v| v.to_string(&vm)), Some("hello world.ph".to_string()));
+    assert_eq!(
+        slot(&vm, module, "trimmedStartStr").map(|v| v.to_string(&vm)),
+        Some("--hello world.ph  ".to_string())
+    );
+    assert_eq!(
+        slot(&vm, module, "trimmedEndStr").map(|v| v.to_string(&vm)),
+        Some("  --hello world.ph".to_string())
+    );
+    assert_eq!(
+        slot(&vm, module, "strippedPreStr").map(|v| v.to_string(&vm)),
+        Some("hello world.ph".to_string())
+    );
     assert_eq!(slot(&vm, module, "strippedSufStr").map(|v| v.to_string(&vm)), Some("hello world".to_string()));
     assert!(slot(&vm, module, "strippedNone").expect("strippedNone slot").is_none());
 
@@ -359,7 +370,10 @@ let clearedStr = sb.toString
     assert_eq!(slot(&vm, module, "countAfter").and_then(|v| v.as_int()), Some(13));
     assert_eq!(slot(&vm, module, "built").map(|v| v.to_string(&vm)), Some("hello world!\n".to_string()));
 
-    assert_eq!(slot(&vm, module, "writerResult").map(|v| v.to_string(&vm)), Some("streaming message".to_string()));
+    assert_eq!(
+        slot(&vm, module, "writerResult").map(|v| v.to_string(&vm)),
+        Some("streaming message".to_string())
+    );
     assert_eq!(slot(&vm, module, "joined").map(|v| v.to_string(&vm)), Some("apple, banana, cherry".to_string()));
 
     assert_eq!(slot(&vm, module, "clearedCount").and_then(|v| v.as_int()), Some(0));
@@ -405,10 +419,16 @@ let loc1Col = loc1.column
 
     let (vm, module) = run_standalone(source).expect("text_cursor_and_line_map executes");
 
-    assert_eq!(slot(&vm, module, "peekBefore").and_then(|v| v.unwrap_some()).and_then(|v| v.as_char()), Some('l'));
+    assert_eq!(
+        slot(&vm, module, "peekBefore").and_then(|v| v.unwrap_some()).and_then(|v| v.as_char()),
+        Some('l')
+    );
     assert_eq!(slot(&vm, module, "isAtEndBefore").and_then(|v| v.as_bool()), Some(false));
     assert_eq!(slot(&vm, module, "consumedLet").and_then(|v| v.as_bool()), Some(true));
-    assert_eq!(slot(&vm, module, "peekAfterLet").and_then(|v| v.unwrap_some()).and_then(|v| v.as_char()), Some('x'));
+    assert_eq!(
+        slot(&vm, module, "peekAfterLet").and_then(|v| v.unwrap_some()).and_then(|v| v.as_char()),
+        Some('x')
+    );
     assert_eq!(slot(&vm, module, "remAfterLet").map(|v| v.to_string(&vm)), Some("x = 42".to_string()));
     assert_eq!(slot(&vm, module, "consumedWrong").and_then(|v| v.as_bool()), Some(false));
     assert_eq!(slot(&vm, module, "consumedX").and_then(|v| v.as_bool()), Some(true));
@@ -486,9 +506,3 @@ let charRepr = '\n'.repr
     assert_eq!(slot(&vm, module, "charUpper").and_then(|v| v.as_char()), Some('Z'));
     assert_eq!(slot(&vm, module, "charRepr").map(|v| v.to_string(&vm)), Some("'\\n'".to_string()));
 }
-
-
-
-
-
-

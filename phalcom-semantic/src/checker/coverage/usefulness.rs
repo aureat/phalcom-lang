@@ -265,9 +265,10 @@ impl CoverageEngine {
         rigids: &mut RigidArena,
         enum_table: Option<&EnumSemanticTable>,
     ) -> ExhaustivenessResult {
-        let has_wildcard = self.prior_matrix.iter().any(|row| {
-            row.first().is_some_and(|&pat| pattern_has_wildcard(&self.arena, pat))
-        });
+        let has_wildcard = self
+            .prior_matrix
+            .iter()
+            .any(|row| row.first().is_some_and(|&pat| pattern_has_wildcard(&self.arena, pat)));
         if !has_wildcard {
             if let Some(reason) = self.blocked.clone() {
                 return ExhaustivenessResult::Blocked(reason);
@@ -296,7 +297,12 @@ impl CoverageEngine {
                 }
                 DomainDecomposition::ClosedWithChar(cases) => {
                     let mut witnesses = vec![CoverageWitness::Char('\0')];
-                    witnesses.extend(cases.iter().take(MAX_COVERAGE_WITNESSES - 1).map(|case| construct_case_witness(case, &self.root, None)));
+                    witnesses.extend(
+                        cases
+                            .iter()
+                            .take(MAX_COVERAGE_WITNESSES - 1)
+                            .map(|case| construct_case_witness(case, &self.root, None)),
+                    );
                     return ExhaustivenessResult::Missing(witnesses.into_boxed_slice());
                 }
                 DomainDecomposition::Open => {
@@ -649,7 +655,18 @@ fn useful_internal(
                 )
             }
             DomainDecomposition::Char => useful_char_domain(
-                declarations, store, hierarchy, rigids, enum_table, arena, control, metrics, matrix, candidate, subjects, proof,
+                declarations,
+                store,
+                hierarchy,
+                rigids,
+                enum_table,
+                arena,
+                control,
+                metrics,
+                matrix,
+                candidate,
+                subjects,
+                proof,
             ),
             DomainDecomposition::Closed(all_constructors) => useful_closed_constructors(
                 declarations,
@@ -687,7 +704,18 @@ fn useful_internal(
                     UsefulnessSearch::Useful(witness) => UsefulnessSearch::Useful(witness),
                     UsefulnessSearch::Blocked(reason) => UsefulnessSearch::Blocked(reason),
                     UsefulnessSearch::NotUseful => useful_char_domain(
-                        declarations, store, hierarchy, rigids, enum_table, arena, control, metrics, matrix, candidate, subjects, proof,
+                        declarations,
+                        store,
+                        hierarchy,
+                        rigids,
+                        enum_table,
+                        arena,
+                        control,
+                        metrics,
+                        matrix,
+                        candidate,
+                        subjects,
+                        proof,
                     ),
                 }
             }
@@ -769,9 +797,7 @@ fn char_pattern_may_match(
         return Err(BlockReason::ReflectionBoundary);
     };
 
-    let relation = control.relation(|budget, cancellation| {
-        check_subtype_bounded(store, hierarchy, char_type, subject.canonical, budget, cancellation)
-    });
+    let relation = control.relation(|budget, cancellation| check_subtype_bounded(store, hierarchy, char_type, subject.canonical, budget, cancellation));
     match relation {
         RelationOutcome::Proven { .. } => Ok(true),
         RelationOutcome::Blocked(reason) => Err(reason),
@@ -816,10 +842,7 @@ fn useful_char_domain(
         Err(reason) => return UsefulnessSearch::Blocked(reason),
     };
     if candidate.len() == 1 && subjects.len() == 1 {
-        if matrix.iter().any(|row| {
-            row.first().is_some_and(|head| char_pattern_has_wildcard(arena, *head))
-        }) || values.len() == UNICODE_SCALAR_COUNT
-        {
+        if matrix.iter().any(|row| row.first().is_some_and(|head| char_pattern_has_wildcard(arena, *head))) || values.len() == UNICODE_SCALAR_COUNT {
             return UsefulnessSearch::NotUseful;
         }
         return first_missing_scalar(&values)
@@ -944,17 +967,8 @@ fn useful_closed_constructors(
     UsefulnessSearch::NotUseful
 }
 
-fn char_values_in_matrix(
-    arena: &CoveragePatternArena,
-    matrix: &[Vec<CoveragePatternId>],
-    control: &CheckerControl,
-) -> Result<BTreeSet<char>, BlockReason> {
-    fn collect(
-        arena: &CoveragePatternArena,
-        pattern: CoveragePatternId,
-        values: &mut BTreeSet<char>,
-        control: &CheckerControl,
-    ) -> Result<(), BlockReason> {
+fn char_values_in_matrix(arena: &CoveragePatternArena, matrix: &[Vec<CoveragePatternId>], control: &CheckerControl) -> Result<BTreeSet<char>, BlockReason> {
+    fn collect(arena: &CoveragePatternArena, pattern: CoveragePatternId, values: &mut BTreeSet<char>, control: &CheckerControl) -> Result<(), BlockReason> {
         charge_search_work(control)?;
         match arena.get(pattern) {
             CoveragePattern::Char(value) => {
@@ -991,11 +1005,7 @@ fn char_pattern_has_wildcard(arena: &CoveragePatternArena, pattern: CoveragePatt
     pattern_has_wildcard(arena, pattern)
 }
 
-fn specialize_matrix_for_char_value(
-    arena: &CoveragePatternArena,
-    matrix: &[Vec<CoveragePatternId>],
-    value: Option<char>,
-) -> Vec<Vec<CoveragePatternId>> {
+fn specialize_matrix_for_char_value(arena: &CoveragePatternArena, matrix: &[Vec<CoveragePatternId>], value: Option<char>) -> Vec<Vec<CoveragePatternId>> {
     fn add_matching_alternatives(
         arena: &CoveragePatternArena,
         pattern: CoveragePatternId,

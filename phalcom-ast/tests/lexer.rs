@@ -79,7 +79,6 @@ fn character_literal_valid_scalar_matrix() {
     }
 }
 
-
 #[test]
 fn character_literal_invalid_matrix() {
     use phalcom_ast::token::LexicalError;
@@ -168,7 +167,6 @@ fn character_literal_invalid_matrix() {
 
 #[test]
 fn keywords_and_operators() {
-
     insta::assert_debug_snapshot!(tokens("if a and b or not c { self } else { super }"));
 }
 

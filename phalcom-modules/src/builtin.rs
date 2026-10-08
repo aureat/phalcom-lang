@@ -63,7 +63,18 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["text"],
         kind: ModuleKind::Package,
-        children: &["substring", "traits", "patterns", "split", "lines", "writer", "builder", "cursor", "line_map", "errors"],
+        children: &[
+            "substring",
+            "traits",
+            "patterns",
+            "split",
+            "lines",
+            "writer",
+            "builder",
+            "cursor",
+            "line_map",
+            "errors",
+        ],
     },
     UniverseNodeSpec {
         path: &["text", "substring"],

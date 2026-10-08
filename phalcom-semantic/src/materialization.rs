@@ -44,7 +44,9 @@ pub enum MaterializationDescriptor {
 impl MaterializationDescriptor {
     pub fn capability(&self) -> MaterializationCapability {
         match self {
-            Self::Unit | Self::Bool(_) | Self::Char(_) | Self::Int(_) | Self::Float(_) | Self::String(_) | Self::Symbol(_) => MaterializationCapability::P2Primitive,
+            Self::Unit | Self::Bool(_) | Self::Char(_) | Self::Int(_) | Self::Float(_) | Self::String(_) | Self::Symbol(_) => {
+                MaterializationCapability::P2Primitive
+            }
             Self::DeferredStructural(_) => MaterializationCapability::DeferredStructural,
             Self::Unsupported(_) => MaterializationCapability::Unsupported,
         }
