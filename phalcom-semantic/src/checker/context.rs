@@ -594,6 +594,9 @@ pub struct CheckingContext<'a> {
     pub positional_expansions: crate::checker::analysis::PositionalExpansionIterationResolutionIndex,
     pub known_invalid_positional_expansions: crate::checker::analysis::KnownInvalidPositionalExpansionIndex,
     pub sequence_literals: crate::checker::analysis::SequenceLiteralResolutionIndex,
+    pub(crate) sequence_publication: super::sequence_publication::SequencePublication,
+    pub(crate) deferred_applications: BTreeMap<super::sequence_publication::PublicationOwner, super::sequence_publication::DeferredApplicationRequirements>,
+    pub(crate) call_publication_owners: BTreeMap<ExpressionId, Vec<(super::sequence_publication::PublicationOwner, bool)>>,
     pub associated_resolutions: crate::checker::associated::AssociatedResolutionIndex,
     pub callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex,
     pub family_applications: crate::checker::associated::FamilyApplicationResolutionIndex,
@@ -726,6 +729,9 @@ impl<'a> CheckingContext<'a> {
             positional_expansions: BTreeMap::new(),
             known_invalid_positional_expansions: BTreeMap::new(),
             sequence_literals: BTreeMap::new(),
+            sequence_publication: Default::default(),
+            call_publication_owners: BTreeMap::new(),
+            deferred_applications: BTreeMap::new(),
             associated_resolutions: crate::checker::associated::AssociatedResolutionIndex::new(),
             callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex::new(),
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
@@ -838,6 +844,9 @@ impl<'a> CheckingContext<'a> {
             positional_expansions: BTreeMap::new(),
             known_invalid_positional_expansions: BTreeMap::new(),
             sequence_literals: BTreeMap::new(),
+            sequence_publication: Default::default(),
+            call_publication_owners: BTreeMap::new(),
+            deferred_applications: BTreeMap::new(),
             associated_resolutions: crate::checker::associated::AssociatedResolutionIndex::new(),
             callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex::new(),
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
@@ -929,6 +938,9 @@ impl<'a> CheckingContext<'a> {
             positional_expansions: self.positional_expansions.clone(),
             known_invalid_positional_expansions: self.known_invalid_positional_expansions.clone(),
             sequence_literals: self.sequence_literals.clone(),
+            sequence_publication: self.sequence_publication.clone(),
+            call_publication_owners: self.call_publication_owners.clone(),
+            deferred_applications: self.deferred_applications.clone(),
             associated_resolutions: self.associated_resolutions.clone(),
             callable_reference_resolutions: self.callable_reference_resolutions.clone(),
             family_applications: self.family_applications.clone(),
@@ -1121,6 +1133,7 @@ impl<'a> CheckingContext<'a> {
         probe.inference_contexts = self.inference_contexts.clone();
         probe.next_inference_context_id = self.next_inference_context_id;
         probe.inference_frames = self.inference_frames.clone();
+        probe.sequence_publication = self.sequence_publication.probe();
         probe.symbolic_inference_results = self.symbolic_inference_results.clone();
         probe.rigids = self.rigids.clone();
         probe.active_local_constraints = self.active_local_constraints.clone();
@@ -1293,6 +1306,7 @@ impl<'a> CheckingContext<'a> {
         let mut session = crate::checker::inference::InferenceCoordinator::new();
         let frame = session.root_frame();
         self.inference_contexts.insert(context, Rc::new(RefCell::new(session)));
+        self.sequence_publication.register(super::sequence_publication::PublicationOwner(context, frame), None);
         (context, frame)
     }
 
@@ -1306,7 +1320,7 @@ impl<'a> CheckingContext<'a> {
 
     /// Begins a child application frame in an existing query-local graph.
     pub(crate) fn begin_inference_frame(
-        &self,
+        &mut self,
         context: crate::checker::inference::InferenceContextId,
         parent: crate::checker::inference::InferenceFrameId,
     ) -> Option<crate::checker::inference::InferenceFrameId> {
@@ -1316,7 +1330,12 @@ impl<'a> CheckingContext<'a> {
             return None;
         }
         drop(session_state);
-        Some(session.borrow_mut().begin_frame(Some(parent)))
+        let frame = session.borrow_mut().begin_frame(Some(parent));
+        self.sequence_publication.register(
+            super::sequence_publication::PublicationOwner(context, frame),
+            Some(super::sequence_publication::PublicationOwner(context, parent)),
+        );
+        Some(frame)
     }
 
     pub(crate) fn current_inference_frame(
@@ -1354,7 +1373,125 @@ impl<'a> CheckingContext<'a> {
     /// Drops a completed query-local graph. No solver-local identity survives
     /// this boundary into snapshots or other durable semantic products.
     pub(crate) fn finish_inference_context(&mut self, context: crate::checker::inference::InferenceContextId) {
+        self.sequence_publication.dispose(context, &mut self.sequence_literals);
+        self.deferred_applications.retain(|owner, _| owner.0 != context);
         self.inference_contexts.remove(&context);
+    }
+
+    pub(crate) fn sequence_dependencies(&self) -> super::sequence_publication::PublicationDependencies {
+        self.current_expression_id()
+            .and_then(|expression| self.sequence_publication.expression_dependencies.get(&expression))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn stage_sequence(&mut self, resolution: super::analysis::SequenceLiteralResolution, mut dependencies: super::sequence_publication::PublicationDependencies) {
+        dependencies.extend(self.sequence_dependencies());
+        self.sequence_publication.stage(resolution, dependencies, &mut self.sequence_literals);
+    }
+
+    pub(crate) fn sequence_local_resolution(&self, expression: ExpressionId) -> Option<&super::analysis::SequenceLiteralResolution> {
+        self.sequence_literals.get(&expression).or_else(|| self.sequence_publication.local_resolution(expression))
+    }
+
+    pub(crate) fn reject_sequence_expression(&mut self, expression: ExpressionId) {
+        self.sequence_publication.discard_expression(expression);
+        self.sequence_literals.remove(&expression);
+    }
+
+    pub(crate) fn reject_all_sequence_products(&mut self) {
+        let expressions = self.sequence_literals.keys().copied().collect::<Vec<_>>();
+        for expression in expressions {
+            self.reject_sequence_expression(expression);
+        }
+        let contexts = self.inference_contexts.keys().copied().collect::<Vec<_>>();
+        for context in contexts {
+            self.finish_inference_context(context);
+        }
+    }
+
+    pub(crate) fn accept_sequence_owner(&mut self, owner: super::sequence_publication::PublicationOwner) -> Result<(), AnalysisStatus> {
+        let requirements = self.deferred_applications.values()
+            .filter(|requirements| self.sequence_publication.requires_owner(owner) && self.sequence_publication.depends_on(requirements.owner, owner))
+            .cloned().collect::<Vec<_>>();
+        for requirements in &requirements {
+            if let Err(status) = requirements.validate(self) {
+                self.reject_sequence_owner(owner);
+                if matches!(status, AnalysisStatus::Blocked(_)) {
+                    self.emit_diagnostic(SemanticDiagnostic::error_in(
+                        self.current_module.clone(),
+                        crate::diagnostic::DiagnosticCode::GenericInferenceUnderconstrained,
+                        "required generic application is not ready for construction publication",
+                        requirements.range,
+                    ));
+                }
+                if let Some(expression) = self.expressions.get_mut(&requirements.expression) {
+                    expression.status = status.clone();
+                }
+                self.record_terminal_status(status.clone());
+                return Err(status);
+            }
+        }
+        // Readiness validation completes for every required child before any
+        // terminal owner receipt can flush a product into the committed map.
+        for requirements in requirements {
+            self.sequence_publication.locally_ready(requirements.owner, &mut self.sequence_literals);
+        }
+        self.sequence_publication.locally_ready(owner, &mut self.sequence_literals);
+        Ok(())
+    }
+
+    pub(crate) fn reject_sequence_owner(&mut self, owner: super::sequence_publication::PublicationOwner) {
+        self.sequence_publication.reject(owner, &mut self.sequence_literals);
+        self.deferred_applications.remove(&owner);
+    }
+
+    pub(crate) fn finish_call_sequence_publication(&mut self, status: &mut AnalysisStatus, causal: super::causal::CausalInvalidity) {
+        let Some(expression) = self.current_expression_id() else { return; };
+        let owners = self.call_publication_owners.remove(&expression).unwrap_or_default();
+        for (owner, owns_context) in owners {
+            let readiness = self.deferred_applications.get(&owner);
+            if status.is_ready() && matches!(causal, super::causal::CausalInvalidity::Clean) && readiness.is_some() {
+                if readiness.is_some_and(|requirements| !requirements.deferred) {
+                    if let Err(failure) = self.accept_sequence_owner(owner) {
+                        *status = failure;
+                    }
+                }
+            } else {
+                self.reject_sequence_owner(owner);
+            }
+            if owns_context {
+                self.finish_inference_context(owner.0);
+            }
+        }
+    }
+
+    pub(crate) fn record_sequence_dependencies(&mut self, dependencies: &super::sequence_publication::PublicationDependencies) {
+        if let Some(expression) = self.current_expression_id() {
+            self.sequence_publication.expression_dependencies.entry(expression).or_default().extend(dependencies.iter().copied());
+        }
+    }
+
+    /// Durable artifacts cannot be marked ready while executable facts still
+    /// await an owner decision. Existing source errors remain the primary cause.
+    pub(crate) fn ensure_sequence_publication_settled(&mut self, range: SourceRange) -> bool {
+        if !self.sequence_publication.has_pending() {
+            return true;
+        }
+        if !self.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::DiagnosticSeverity::Error) {
+            self.publish_analysis_incident("sequence construction reached artifact extraction with an unsettled inference owner");
+            self.emit_diagnostic(SemanticDiagnostic::error_in(
+                self.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::AnalysisInternalFailure,
+                "sequence construction inference has not completed",
+                range,
+            ));
+        }
+        let contexts = self.inference_contexts.keys().copied().collect::<Vec<_>>();
+        for context in contexts {
+            self.finish_inference_context(context);
+        }
+        false
     }
 
     pub fn alloc_expression_id(&mut self) -> ExpressionId {
@@ -3652,6 +3789,13 @@ impl<'a> CheckingContext<'a> {
         status: crate::checker::analysis::CallableAnalysisStatus,
         normal_returns: Vec<crate::checker::analysis::NormalReturnFact>,
     ) -> crate::checker::analysis::CallableAnalysis {
+        let mut status = status;
+        if !self.ensure_sequence_publication_settled(body_range) && matches!(status, super::analysis::CallableAnalysisStatus::Complete) {
+            status = match self.terminal_status {
+                Some(AnalysisStatus::InternalFailure(incident)) => super::analysis::CallableAnalysisStatus::InternalFailure(incident),
+                _ => super::analysis::CallableAnalysisStatus::Blocked,
+            };
+        }
         let return_validation = self.validate_return_contract(status, &normal_returns);
         let semantic_dependencies = self.semantic_dependencies_snapshot();
         let entry_flow = self.current_flow_summary();

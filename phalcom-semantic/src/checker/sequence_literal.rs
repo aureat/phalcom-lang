@@ -7,7 +7,7 @@ use super::analysis::{SequenceConstructionPlan, SequenceExpansionResolution, Seq
 use super::annotation_elaboration::{AnnotationElaboration, elaborate_annotation};
 use super::context::CheckingContext;
 use super::expected::{ExpectationOrigin, ExpectedType, canonical_collection_arguments, inference_origin_matches};
-use super::expression::{analyze_expression, check_typed_expr};
+use super::expression::{analyze_expression, check_typed_expr_with_publication};
 use super::inference::{ConstraintOrigin, InferenceRelation, InferenceTerm};
 use super::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
@@ -150,6 +150,14 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
     } else {
         None
     };
+    let head_owner = match &elaboration {
+        Some(AnnotationElaboration::Inference { context, frame, .. }) => Some(super::sequence_publication::PublicationOwner(*context, *frame)),
+        _ => None,
+    };
+    if let Some(owner) = head_owner {
+        ctx.record_sequence_dependencies(&[owner].into_iter().collect());
+    }
+    let mut result = (|| {
     let literal_expected = match &elaboration {
         Some(AnnotationElaboration::Canonical(ty)) => ExpectedType::proper(*ty),
         Some(AnnotationElaboration::Inference { context, term, .. }) => ExpectedType::inference_from(*context, term.clone(), ExpectationOrigin::ExplicitCheck),
@@ -157,6 +165,7 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
     };
     let element_expected = argument(ctx, &literal_expected, selected, 0);
     let extent_expected = argument(ctx, &literal_expected, selected, 1);
+    let element_dependencies = if literal.head.is_none() { ctx.sequence_dependencies() } else { Default::default() };
     let mut operands = Vec::new();
     let mut element_types = Vec::new();
     let mut exact_expansions = BTreeMap::new();
@@ -168,7 +177,7 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
     for element in &literal.elements {
         match element {
             BracketLiteralElement::Element { expr, .. } => {
-                let typed = check_typed_expr(ctx, expr, &element_expected);
+                let typed = check_typed_expr_with_publication(ctx, expr, &element_expected, element_dependencies.clone());
                 if let Some(ty) = typed.knowledge.ty() {
                     element_types.push(ty);
                 } else {
@@ -328,8 +337,6 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
         } else {
             None
         };
-        ctx.pop_inference_frame(context, frame);
-        ctx.finish_inference_context(context);
         if let Some(solved) = solved {
             element_type =
                 canonical_collection_arguments(ctx.store, solved, &declaration, if extent.is_some() { 2 } else { 1 }).and_then(|args| args.first().copied());
@@ -395,8 +402,7 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
         valid &= application.outcome.is_proven();
     }
     if valid && let Some(expression) = ctx.current_expression_id() {
-        ctx.sequence_literals.insert(
-            expression,
+        ctx.stage_sequence(
             SequenceLiteralResolution {
                 source_expression: expression,
                 source_range: literal.range,
@@ -415,10 +421,27 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
                 },
                 exact_expansions,
             },
+            result.publication_dependencies.clone(),
         );
     }
     if !valid {
         result.knowledge = TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause);
+    }
+    result
+    })();
+    if let Some(owner) = head_owner {
+        if result.knowledge.ty().is_some() && result.status.is_ready()
+            && matches!(result.causal_invalidity, super::causal::CausalInvalidity::Clean)
+            && ctx.owning_cause_for_current_expression().is_none()
+        {
+            if let Err(status) = ctx.accept_sequence_owner(owner) {
+                result.status = status;
+            }
+        } else {
+            ctx.reject_sequence_owner(owner);
+        }
+        ctx.pop_inference_frame(owner.0, owner.1);
+        ctx.finish_inference_context(owner.0);
     }
     result
 }

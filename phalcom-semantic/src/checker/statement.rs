@@ -85,6 +85,12 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 )
             };
 
+            let annotation_owner = match &elaboration {
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context, frame, .. }) => {
+                    Some(super::sequence_publication::PublicationOwner(*context, *frame))
+                }
+                _ => None,
+            };
             let declared_k = match elaboration {
                 Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
                     Some(TypeKnowledge::established(ty, EvidenceOrigin::ContextualDerivation))
@@ -105,9 +111,6 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                     } else {
                         None
                     };
-
-                    ctx.pop_inference_frame(context, frame);
-                    ctx.finish_inference_context(context);
 
                     if let Some(ty) = solved_ty {
                         Some(TypeKnowledge::established(ty, EvidenceOrigin::ContextualDerivation))
@@ -224,6 +227,18 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 }
             }
             ctx.sync_expression_outcome(&val_typed);
+            if let Some(owner) = annotation_owner {
+                if declared_k.is_some() && val_typed.status.is_ready() && matches!(causal_invalidity, CausalInvalidity::Clean) {
+                    if let Err(status) = ctx.accept_sequence_owner(owner) {
+                        val_typed.status = status;
+                        ctx.sync_expression_outcome(&val_typed);
+                    }
+                } else {
+                    ctx.reject_sequence_owner(owner);
+                }
+                ctx.pop_inference_frame(owner.0, owner.1);
+                ctx.finish_inference_context(owner.0);
+            }
 
             validate_declaration_pattern(ctx, &binding.pattern);
             bind_declaration_pattern(
@@ -796,4 +811,3 @@ fn validate_declaration_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern
         Pattern::Name { .. } | Pattern::Wildcard { .. } => {}
     }
 }
-

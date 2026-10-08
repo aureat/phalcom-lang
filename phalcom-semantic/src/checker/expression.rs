@@ -46,11 +46,55 @@ use std::collections::HashMap;
 
 /// Central entry point for bidirectional expression analysis (Spec 04.5 / E4).
 pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
+    analyze_expression_with_publication(ctx, expr, expected, Default::default())
+}
+
+/// Carries contextual ownership even when a provisional expectation has
+/// already materialized into a proper type. It is not an ambient lexical gate.
+pub(crate) fn analyze_expression_with_publication(
+    ctx: &mut CheckingContext<'_>,
+    expr: &Expr,
+    expected: &ExpectedType,
+    mut dependencies: super::sequence_publication::PublicationDependencies,
+) -> TypedExpression {
     let expr_id = ctx.alloc_expression_id();
+    let missing_inference_owner = match expected {
+        ExpectedType::Inference { context, .. } => {
+            match (ctx.inference_session(*context), ctx.current_inference_frame(*context)) {
+                (Some(_), Some(frame)) => {
+                    dependencies.insert(super::sequence_publication::PublicationOwner(*context, frame));
+                    false
+                }
+                _ => true,
+            }
+        }
+        _ => false,
+    };
+    ctx.sequence_publication.expression_dependencies.insert(expr_id, dependencies);
     ctx.push_expression_owner(expr_id);
-    let mut typed = analyze_expression_inner(ctx, expr, expected);
+    let mut typed = if missing_inference_owner {
+        let incident = ctx.publish_analysis_incident("inference expectation has no active query-local owner");
+        let cause = ctx
+            .emit_diagnostic(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AnalysisInternalFailure,
+                "inference expectation has no active owner",
+                expr.range(),
+            ))
+            .expect("internal-failure diagnostic has a cause");
+        let mut typed = TypedExpression::unknown(UnknownReason::InferenceBlocked).with_status(AnalysisStatus::InternalFailure(incident));
+        typed.invalidate(cause);
+        typed
+    } else {
+        analyze_expression_inner(ctx, expr, expected)
+    };
+    typed.publication_dependencies.extend(ctx.sequence_dependencies());
+    ctx.record_sequence_dependencies(&typed.publication_dependencies);
     if let Some(cause_id) = ctx.pop_expression_owner(expr_id) {
         typed.invalidate(cause_id);
+    }
+    if !typed.status.is_ready() || !matches!(typed.causal_invalidity, CausalInvalidity::Clean) || typed.knowledge.ty().is_none() {
+        ctx.reject_sequence_expression(expr_id);
     }
 
     if let (Some(expected_ty), Some(origin)) = (expected.ty(), expected.origin()) {
@@ -112,7 +156,7 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
                     },
                     None => crate::explain::ExplanationStep::UnresolvedCall { call: expr_id, return_ty: ty },
                 },
-                Expr::BracketLiteral(_) => match ctx.sequence_literals.get(&expr_id) {
+                Expr::BracketLiteral(_) => match ctx.sequence_local_resolution(expr_id) {
                     Some(resolution) => crate::explain::ExplanationStep::CollectionSynthesis {
                         expression: expr_id,
                         kind: match resolution.family {
@@ -181,6 +225,12 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
     typed
 }
 
+/// Propagates only the provenance of an expectation derived from this result.
+fn analyze_contextual_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
+    let dependencies = if expected.is_none() { Default::default() } else { ctx.sequence_dependencies() };
+    analyze_expression_with_publication(ctx, expr, expected, dependencies)
+}
+
 /// Bidirectionally checks an expression against an expected type.
 pub fn check_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypeKnowledge {
     check_typed_expr(ctx, expr, expected).knowledge
@@ -188,7 +238,16 @@ pub fn check_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &Expecte
 
 /// Bidirectionally checks a typed expression against an expected type, recording a TypeMismatch diagnostic on refutation.
 pub fn check_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
-    let mut typed = analyze_expression(ctx, expr, expected);
+    check_typed_expr_with_publication(ctx, expr, expected, Default::default())
+}
+
+pub(crate) fn check_typed_expr_with_publication(
+    ctx: &mut CheckingContext<'_>,
+    expr: &Expr,
+    expected: &ExpectedType,
+    dependencies: super::sequence_publication::PublicationDependencies,
+) -> TypedExpression {
+    let mut typed = analyze_expression_with_publication(ctx, expr, expected, dependencies);
     if let Some(expected_ty) = expected.ty() {
         let application = ctx.apply_knowledge_against_type_owned(
             &typed.knowledge,
@@ -202,6 +261,9 @@ pub fn check_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &E
             if let Some(analysis) = typed.expression_id.and_then(|id| ctx.expressions.get(&id)) {
                 typed.status = analysis.status.clone();
                 typed.causal_invalidity = analysis.causal_invalidity;
+            }
+            if let Some(expression) = typed.expression_id {
+                ctx.reject_sequence_expression(expression);
             }
         }
     }
@@ -659,7 +721,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 if i == len - 1 {
                     match stmt {
                         Statement::Expr { expr, .. } => {
-                            tail_typed = analyze_expression(ctx, expr, &expected_ret);
+                            tail_typed = analyze_contextual_expression(ctx, expr, &expected_ret);
                         }
                         Statement::Throw { expr, .. } => {
                             analyze_expression(ctx, expr, &ExpectedType::None);
@@ -1101,7 +1163,7 @@ fn synthesize_if_expr(ctx: &mut CheckingContext<'_>, if_expr: &phalcom_ast::ast:
         }
         Some(phalcom_ast::ast::IfElseBody::ElseIf(expr)) if split.when_false.is_reachable() => {
             ctx.flow = split.when_false;
-            let value = analyze_expression(ctx, expr, branch_expected);
+            let value = analyze_contextual_expression(ctx, expr, branch_expected);
             ExecutableRegionResult {
                 causal_invalidity: value.causal_invalidity,
                 value: Some(value),
@@ -2554,7 +2616,7 @@ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast:
     for el in &set.entries {
         match el {
             SetLiteralEntry::Element { expr, .. } => {
-                let typed = analyze_expression(ctx, expr, &expected_elem);
+                let typed = analyze_contextual_expression(ctx, expr, &expected_elem);
                 contributions.push(typed.knowledge.clone());
                 operands.push(typed);
             }
@@ -2667,7 +2729,7 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
                         operands.push(typed);
                     }
                 }
-                let typed = analyze_expression(ctx, value, &expected_val);
+                let typed = analyze_contextual_expression(ctx, value, &expected_val);
                 value_knowledge.push(typed.knowledge.clone());
                 operands.push(typed);
             }
@@ -2762,7 +2824,7 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
         match entry {
             TupleLiteralEntry::Positional { expr, .. } => {
                 let element_expected = expected_tuple_component(expected, ctx.store, expected_index, None);
-                let typed = analyze_expression(ctx, expr, &element_expected);
+                let typed = analyze_contextual_expression(ctx, expr, &element_expected);
                 labels.push(None);
                 knowledge.push(typed.knowledge.clone());
                 operands.push(typed);
@@ -2771,7 +2833,7 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
             TupleLiteralEntry::Labeled { label, value, .. } => {
                 let label_name = product_label_name(label);
                 let element_expected = expected_tuple_component(expected, ctx.store, expected_index, label_name.as_deref());
-                let typed = analyze_expression(ctx, value, &element_expected);
+                let typed = analyze_contextual_expression(ctx, value, &element_expected);
                 labels.push(label_name);
                 knowledge.push(typed.knowledge.clone());
                 operands.push(typed);
@@ -3118,7 +3180,7 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
 
                 if let Some(key) = key {
                     let field_expected = expected_record_field(ctx, expected, &key);
-                    let typed = analyze_expression(ctx, &f.value, &field_expected);
+                    let typed = analyze_contextual_expression(ctx, &f.value, &field_expected);
                     if names.iter().any(|existing| existing == &key) {
                         shape_failure = Some(RecordLiteralShapeFailure::DuplicateField {
                             field: key.clone(),
@@ -5416,7 +5478,7 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
             });
             let branch_expected = branch_expected.as_ref().unwrap_or(expected);
             let branch_typed = match &arm.branch {
-                phalcom_ast::ast::MatchArmBody::Expression(expr) => analyze_expression(ctx, expr, branch_expected),
+                phalcom_ast::ast::MatchArmBody::Expression(expr) => analyze_contextual_expression(ctx, expr, branch_expected),
                 phalcom_ast::ast::MatchArmBody::Block(block) => {
                     let region = super::control::analyze_executable_region(ctx, &block.body, block.range, branch_expected);
                     region

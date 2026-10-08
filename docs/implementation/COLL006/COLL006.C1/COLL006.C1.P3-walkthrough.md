@@ -10,7 +10,15 @@ verification: FOCUSED_TESTED
 
 # COLL006.C1.P3 partial implementation walkthrough
 
-## Outcome and delivery boundary
+## Current outcome — 2026-10-08 inference-publication continuation
+
+P3 and its active publication supplement remain `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. Current inspected HEAD is `298084a4`, after `e5e4ac20`, with uncommitted checker/session/test continuation. The user interrupted implementation and requested lifecycle records and a detailed report. No additional source edits, Cargo validation, commit or push were performed during this records-only update.
+
+The latest completed focused publication run selected **10 tests and passed all 10**, before the newest static session caller correction. The correction is present but uncompiled/untested. Final static fail-closed handling, deferred/union/control evidence, incremental parity, semantic/core/build gates and formatting remain unfinished. The [continuation report](COLL006.C1.P3-inference-publication-report.md) explains all adopted solutions, source/evidence boundaries and dependency-ordered remaining steps; the [checkpoint](COLL006.C1-CHECKPOINT.md) remains the state authority.
+
+The initial delivery sections below are historical. Their aborted-runtime, legacy-synthesis and explanation statements were superseded by the later continuation. The newest publication section at the end records this slice without treating earlier gates as current-tree certification.
+
+## Initial delivery outcome and boundary
 
 P3 is **not complete**. The user requested a stop, record update, commit, and push during the initial Vector runtime verification command. This walkthrough records a resumable work-in-progress patch.
 
@@ -154,3 +162,43 @@ Remaining priority work: canonical negative extent validation including scoped/p
 
 
 Completed continuation results: collection semantics **27 passed**; final Vector runtime suite **8 passed**; Array runtime suite **10 passed**; native surface artifact **current at 406 records**; workspace all-targets check **passed**. The checkpoint ledger records command details and evidence limits.
+
+
+## 2026-10-08 inference-owned publication: implemented partial slice
+
+Objective: prevent locally valid canonical construction facts from surviving a failed enclosing inference owner, while preserving useful types/explanations and independent construction facts.
+
+The initial late generic where-conflict regression failed specifically because the dependent Vector resolution remained published; its valid twin passed. The implementation introduced checker-local staged publication rather than changing inference selection, durable resolution schemas, compiler fallback or runtime storage.
+
+Implemented source:
+
+- `sequence_publication.rs` owns private canonical candidates, conjunctive context/frame dependencies, Open/LocallyReady/Accepted/Rejected receipts, rejection propagation and disposal. Registry metadata is copied by value for probes; pending products are fresh.
+- `CheckingContext` registers root/child owners, stages products, provides pending local lookup for explanation building, settles final call/declaration/head owners, revalidates saved readiness before terminal acceptance and detects unsettled extraction.
+- Private typed-expression dependencies propagate actual required premises. Generic arguments receive application provenance even when their expected type has already materialized to Proper. Independent declarations inside contextual bodies retain independence.
+- Generic call settlement occurs after final causal/status aggregation. Nested children wait for parent acceptance. Deferred applications retain scalar/result terms, exact mandatory constraint intervals, declaration signatures, exact argument bindings and row premises by value.
+- Row readiness uses shared proof/materialization helpers and existing coordinator equations. Deferred conformance preserves exact-case authority selectively for conformance while scalar equality/subtype authority remains in registered obligations.
+- Static owner settlement moved before executable-map extraction. The newest session caller edit elaborates partial static annotation in the configured initializer checker rather than dropping its graph in a temporary checker. That last edit is unverified and static fail-closed/status propagation is unfinished.
+
+### Consultations and amendment
+
+The read-only adviser diagnosed an exact-case conformance authority seam in deferred validation; saved exact arguments and shared conformance overlay preserve the existing ordinary application rule. The helper compiled in the 10-test run, but its discriminating case-only conformance tests remain to add.
+
+A partial static Vector fixture exposed a baseline-confirmed dropped-graph caller defect. The adviser approved a Level 1 supplement T5 clarification: annotation elaboration and initializer checking share one checker; missing supplied owners fail closed; no graph transfer/recreation or P4 materialization. The clarification and baseline cause are recorded in the checkpoint/supplement. Implementation of the caller correction began, but no compile/test occurred afterward.
+
+### Tests and actual evidence
+
+| Command/scope | Completed result | Limit |
+|---|---|---|
+| `cargo test -p phalcom-semantic --lib sequence_publication` | 3 passed | Earlier registry snapshot: conjunction, ancestor rejection, independent preservation, terminal/missing receipt, probe/disposal |
+| `cargo test -p phalcom-semantic --test semantic coll006` | 29 passed | Intermediate combined snapshot with first two new publication tests |
+| `cargo test -p phalcom-semantic --test semantic coll006_c1_p3_publication` | 10 passed | Latest focused run before session caller repair |
+| Partial static Vector fixture | Failed before repair | Owning dropped-graph baseline confirmed; no passing rerun |
+| New `session.rs` caller repair | UNVERIFIED | No later compile/test evidence |
+
+All completed Cargo runs used `RUSTFLAGS='' RUSTC_WRAPPER=''`. Publication test coverage includes late generic constraint failure with preserved fixed return, valid partial/head controls, List/Array families, Proper generic context, locally solved/deferred children, failed parent, independent closure declaration and row application controls. Static List<_> extraction passed but is insufficient evidence for partial Vector ownership.
+
+Deliberately incomplete: new static Vector/missing-owner matrix, exact-case/deferred row/union/control coverage, incremental parity, final generic proof-integrity/record-row/collection suites, supplement core consumer/package checks, scoped formatting and final diff review. Earlier runtime/native/workspace checks predate this supplement. No workspace/release behavioral certification is claimed.
+
+### Required continuation
+
+Finish report S1 static owner closure first, including annotation diagnostic retention and acceptance/settlement error propagation. Then complete S2 deferred/union/control evidence and S3 revision parity; run S4 focused gates. After the supplement closes, parent P3 still requires centralized negative extent formation, Array API typing, Vector durability and remaining semantic/runtime acceptance. Neither this partial implementation nor the records update releases P4.

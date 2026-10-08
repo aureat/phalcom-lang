@@ -329,7 +329,7 @@ The ledger records current C1 execution state. Proposed successor plans retain t
 |---|---|---|---|---|---|
 | `COLL006.C1.P1` | Neutral bracket-literal AST/semantic architecture; `<...>[...]`; `_` inference holes; inference-bearing partial binding annotations | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Establish semantic authority and solver foundation without changing bare-literal defaults |
 | `COLL006.C1.P2` | `Array<T>` runtime/native representation, explicit/contextual Array literals, direct lowering, iteration, GC | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Complete runtime fixed-after-construction homogeneous sequence |
-| `COLL006.C1.P3` | `Vector<T,N>` runtime/native representation, static extent inference/cardinality proof, constructors, equality/hash, direct lowering | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Exact static-generic foundation and initial Vector slices; runtime verification and acceptance closure remain open |
+| `COLL006.C1.P3` | `Vector<T,N>` runtime/native representation, static extent inference/cardinality proof, constructors, equality/hash, direct lowering | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Exact static identity and Vector concrete/symbolic runtime slices have focused evidence; inference publication is partially implemented; formation, Array API, durability and final acceptance remain open |
 | `COLL006.C1.P4` | Static homogeneous sequence model; const Vector; const Array; materialization; repository-wide bracket-default cutover/migration | PROPOSED | NOT_STARTED | UNVERIFIED | Make runtime bare brackets Array and const bare brackets Vector atomically |
 | `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | PROPOSED | NOT_STARTED | UNVERIFIED | Complete contiguous view/bounded-construction family |
 | `COLL006.C1.P6` | Reusable ordered-hash backing; preserve Map/Set; add `MutableBag`, `IndexedDict`, `OrderedSet` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete mutable ordered/hash-indexed family without duplicating re-entry logic |
@@ -662,13 +662,15 @@ Expected policy:
 - Reproduction: `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core reflection`.
 - Revisit: owning reflection/module work or broader certification.
 
-### COLL006.C1.D3 — Partial P3 acceptance gaps
+### COLL006.C1.D3 — Current partial P3 acceptance gaps
 
-- Runtime gate was aborted during compilation; execution, native bootstrap, equality/hash, conversions, GC, and exact spread execution are unverified.
-- Concrete negative Vector extent formation is not yet rejected centrally.
-- Symbolic extent is retained semantically, but current bytecode projection requires concrete `u32` counts; symbolic exact-spread construction has no completed runtime lowering contract.
-- Array public mutation/read homogeneity correction, family-correct explanations, removal of inactive legacy synthesis, and full negative/metadata/incremental test coverage remain open.
-- Revisit immediately on P3 continuation; do not begin P4 cutover until P3 is stable.
+- Vector and Array runtime suites completed in the earlier continuation (8 and 10 passed); those results predate the latest inference-publication edits and require the supplement's consumer regression gate after semantic stabilization.
+- Canonical concrete negative Vector extent formation remains open across complete/scoped/materialized/publication paths. Literal-local checks are not a centralized formation rule.
+- Bounded symbolic identity construction is implemented and runtime-tested. General symbolic arithmetic and extra zero-contribution operands are outside the adopted lane.
+- General inference-owned sequence publication is partially implemented. Ten focused publication tests passed; static missing-owner handling, complete deferred/union/control coverage, revision parity, final gates and formatting remain open. The newest static session caller repair has no compile/test evidence.
+- Array homogeneous public read/replacement typing remains open. Legacy bracket synthesis removal and family-correct explanations were completed in the earlier continuation.
+- Vector metadata/reflection/import-export, exactness/extent revision invalidation, and remaining semantic/runtime edges still need focused acceptance evidence.
+- Revisit through the [publication report](COLL006.C1.P3-inference-publication-report.md) and active supplement. P4 remains deferred until P3 acceptance is closed.
 
 ---
 
@@ -739,7 +741,7 @@ Decision inherited from the analysis: complete and partial applications elaborat
 
 ### COLL006.C1.A8 — Exact spread and lowering product extension
 
-Decision inherited from the analysis: checked sequence products retain canonical extent and exact tuple-positional/Vector-storage lanes. Runtime-sized iterable spreads cannot establish Vector cardinality. Initial projection and bytecodes are implemented with concrete checked `u32` counts and runtime cardinality assertions. Runtime and symbolic-lowering verification remain open.
+Decision inherited from the analysis: checked sequence products retain canonical extent and exact tuple-positional/Vector-storage lanes. Runtime-sized iterable spreads cannot establish Vector cardinality. Initial projection and bytecodes are implemented with concrete checked `u32` counts and runtime cardinality assertions. The initial concrete-u32 limitation was subsequently extended by the adopted bounded symbolic identity-spread proof; earlier continuation runtime evidence is recorded below. Broader symbolic construction is not established.
 
 These entries record adopted requirements and partial implementation, not a claim that the P3 acceptance objective is complete.
 
@@ -828,7 +830,7 @@ The implementer cannot self-waive a triggered consultation.
 active plan:           COLL006.C1.P3 (active continuation)
 latest completed plan: COLL006.C1.P2
 blockers:              remaining formation, Array typing, publication ownership, and durability acceptance gaps
-next action:           centralize negative extent formation, close inference-owned publication and Array typing, then durability/incremental gates
+next action:           finish static publication boundary and discriminators, deferred/union and revision coverage, then focused supplement gates; resume formation/Array/durability closure
 ```
 
 Read `COLL006.C1.P3-implementation-plan.md`, `COLL006.C1.P3-walkthrough.md`, and `COLL006.C1.P3-handoff.md`. Continue on `feat/telos-collection-upgrade` in the collections worktree. Bare brackets still default to List; const sequences and default migration remain P4.
@@ -849,12 +851,12 @@ Ordinary element mismatches previously passed because synthesis propagated expec
 
 The adviser identified a remaining general lifecycle gap: a candidate depending on a subsequently failed/underconstrained/cancelled enclosing inference context can outlive that context. Full closure requires transactional ownership of dependent construction products at inference-context finalization. Do not prematurely solve an outer frame, add a second solver, or add statement-only rollback. Fixed-slot regressions are covered in this continuation; general context-owned cleanup remains an explicit P3 acceptance gap.
 
-Planning follow-up (2026-10-08): [proposed P3 T4 publication supplement](COLL006.C1.P3-inference-publication-plan.md) formulates checker-local staging and owner receipts, contextual provenance surviving provisional canonicalization, owned deferred child/row readiness, probe isolation, and extraction ordering. This is an analysis/planning artifact only (`PROPOSED / NOT_STARTED / UNVERIFIED`); no new implementation or behavioral verification is claimed. P3 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. The first implementation step is to establish the late generic-constraint nonpublication discriminator and valid controls specified in the supplement.
+Implementation follow-up (2026-10-08): the [active P3 T4 publication supplement](COLL006.C1.P3-inference-publication-plan.md) is now authorized and `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. Its discriminator reproduced the late generic failure; checker-local staging, receipts, provenance, deferred scalar/row readiness and extraction integration are present. Closure remains open; the current evidence and residual work are recorded below and in the [detailed continuation report](COLL006.C1.P3-inference-publication-report.md).
 
 
-### P3 continuation verification ledger (2026-10-08)
+### P3 earlier continuation verification ledger (2026-10-08)
 
-These completed results supersede the earlier aborted-runtime snapshot; P3 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
+These completed results supersede the earlier aborted-runtime snapshot and predate the inference-publication supplement. They do not certify the newest checker/session edits. P3 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
 
 | Gate | Command/scope | Completed result | Evidence limit |
 |---|---|---|---|
@@ -868,3 +870,33 @@ These completed results supersede the earlier aborted-runtime snapshot; P3 remai
 Initial runtime failures were diagnosed and closed: unsupported pre-existing-layout oracle (adviser clarification), fixture recompilation after binding installation, missing generic constructor evidence, and an incorrect Map mutation selector. No production representation or accepted semantic oracle was weakened. Existing broader metadata/reflection baseline records remain inherited and un-recertified.
 
 Deferred deliberately: full workspace tests/clippy/release certification (P9), broader metadata/reflection reruns without new coverage, and the remaining formation/Array API/inference-publication/incremental acceptance work listed in the current handoff. No commit or push performed in this continuation.
+
+
+### P3 publication consultation — static annotation owner (2026-10-08)
+
+Plan/task: publication supplement T5. Trigger: unexpected session caller inference identity/lifetime boundary. Observed: partial static annotations were elaborated in a temporary checker whose graph was dropped before a fresh checker analyzed the initializer; confirmed unchanged from e3dfe492. Decision: keep annotation elaboration and initializer checking in the same configured checker; missing supplied owners fail closed. Architecture impact: no graph transfer, new solver, durable identity, or P4 evaluator work. Plan amendment: Level 1 T5 caller clarification recorded in the supplement. Implemented continuation: same-checker elaboration is exercised by valid partial Vector/List, incompatible fixed extent, empty underconstraint, and annotation-diagnostic retention regressions; static acceptance errors and invalid-owner products are rejected before extraction. Missing-owner handling is fail-closed at expression/static entry. Focused evidence passes; direct injected missing-owner API coverage remains open.
+
+
+### P3 inference-owned publication — current state (2026-10-08)
+
+State: `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; neither the supplement nor P3 is complete. Current inspected branch anchor is `298084a4` after `e5e4ac20`, with uncommitted checker/session/test changes. These commits appeared during implementation; this record does not claim a push or clean worktree. Earlier `e3dfe492` is a historical delivery anchor.
+
+Implemented private takeover interface: `checker/sequence_publication.rs` owns staged canonical resolutions and conjunctive context/frame receipts; `CheckingContext` owns application readiness records and terminal decisions. The registry is outside shared solver handles. Probes copy owner metadata by value and start with fresh pending products. Existing committed map/schema and compiler/runtime products are unchanged by this supplement. Actual contextual provenance survives Proper expectations and propagates through required operands; independent declarations retain independence. Deferred children reuse existing frame/residual/row/materialization/conformance rules before any terminal receipt is issued.
+
+| Evidence | Completed result | Scope and limit |
+|---|---|---|
+| `cargo test -p phalcom-semantic --lib sequence_publication` | 3 passed | Registry conjunction, ancestor rejection/independent survival, terminal/missing-owner behavior, probe isolation/disposal |
+| `cargo test -p phalcom-semantic --test semantic coll006_c1_p3_publication` | 14 passed | Generic/Proper expectations, nested/deferred children, independent closure declaration, row cases, valid/invalid partial List/Vector static ownership, empty underconstraint and annotation diagnostics |
+| `cargo test -p phalcom-semantic --test semantic foundations::record_row_inference` | 6 passed | Directly affected row inference regression suite |
+| `cargo check -p phalcom-semantic -p phalcom-core --all-targets` | Passed | Current semantic/core source compiles with all targets |
+| `cargo test -p phalcom-core --test core core_vector` | 8 passed | Vector consumer/runtime regression suite |
+| `cargo test -p phalcom-core --test core core_array` | 10 passed | Array consumer/runtime regression suite |
+| `cargo test -p phalcom-semantic --test semantic foundations::generic_inference_proof_integrity` | 7 passed, 1 failed | Existing argument-range oracle remains open; no assertion weakened |
+| `cargo test -p phalcom-semantic --test semantic foundations::static_constants` | 15 passed, 3 failed | Computed-record-key diagnostics remain outside this publication slice; no repair attempted |
+| `cargo fmt --all -- --check` | Incomplete | Reports inherited formatting drift across the dirty worktree; no broad formatting applied |
+
+Commands used `RUSTFLAGS='' RUSTC_WRAPPER=''`. The List<_> static pass does not establish sound partial Vector owner handling: it can avoid the exact-extent operation that exposed the dangling session.
+
+Adopted deferred-proof correction: preserve exact argument bindings used for conformance, and apply their refinement only to conformance discharge. Scalar equality/subtype authority remains in the existing registered residual constraints. The helper compiled in the 10-test run; case-only conformance regression evidence is still required.
+
+Next action: add direct injected missing-owner coverage, then add exact-case/deferred failure, union, control and incremental parity evidence. The static owner repair is focused-tested; parent P3 formation, Array API, metadata/reflection and runtime edge work follow. Detailed solutions, unresolved review points, exact tests and dependency ordering are in the [continuation report](COLL006.C1.P3-inference-publication-report.md). No broad release certification or new commit/push is claimed.

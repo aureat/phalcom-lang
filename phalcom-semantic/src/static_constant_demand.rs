@@ -308,31 +308,7 @@ impl StaticConstantDemandDriver<'_> {
             if key_sites.is_empty() {
                 let mut diagnostics = Vec::new();
                 if crate::checker::annotation_elaboration::annotation_contains_inference_hole(annotation) {
-                    let mut context = demand_checking_context(
-                        &mut *self.store,
-                        self.hierarchy,
-                        self.resolver,
-                        self.declarations,
-                        self.dispatch,
-                        self.topology,
-                        self.field_signatures,
-                        self.data_semantics,
-                        self.enum_semantics,
-                        self.associated_families,
-                        self.deferred_static_definitions,
-                        id.module(),
-                    );
-                    let (elaboration, _) = context.elaborate_type_annotation(self.resolver, annotation);
-                    let expected = match elaboration {
-                        Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context: inf_ctx, term, .. }) => {
-                            crate::checker::expected::ExpectedType::inference_from(inf_ctx, term, crate::checker::expected::ExpectationOrigin::DeclarationContract)
-                        }
-                        Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
-                            crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
-                        }
-                        None => crate::checker::expected::ExpectedType::None,
-                    };
-                    return self.check_evaluate_publish_with_expected(id, binding, expected, Vec::new(), diagnostics);
+                    return self.check_evaluate_publish_with_expected(id, binding, crate::checker::expected::ExpectedType::None, Vec::new(), diagnostics);
                 }
                 let knowledge = resolve_type_annotation(
                     self.store,
@@ -420,7 +396,7 @@ impl StaticConstantDemandDriver<'_> {
         let binding_states = crate::session::static_constant_binding_states(&catalog, &BTreeMap::new(), Some(self.constants));
         let expression_check = {
             let intrinsics = self.intrinsics;
-            let context = demand_checking_context(
+            let mut context = demand_checking_context(
                 &mut *self.store,
                 self.hierarchy,
                 self.resolver,
@@ -434,7 +410,32 @@ impl StaticConstantDemandDriver<'_> {
                 self.deferred_static_definitions,
                 id.module(),
             );
-            crate::checker::static_body::check_static_expression_with_expected(context, initializer, expected, &catalog, &binding_states, intrinsics)
+            let diagnostic_start = context.diagnostics.len();
+            let expected = if let Some(annotation) = binding.annotation.as_ref().filter(|annotation| {
+                crate::checker::annotation_elaboration::annotation_contains_inference_hole(annotation)
+            }) {
+                let (elaboration, _) = context.elaborate_type_annotation(self.resolver, annotation);
+                match elaboration {
+                    Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context: inf_ctx, term, .. }) => {
+                        crate::checker::expected::ExpectedType::inference_from(inf_ctx, term, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                    }
+                    Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
+                        crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                    }
+                    None => crate::checker::expected::ExpectedType::None,
+                }
+            } else {
+                expected
+            };
+            crate::checker::static_body::check_static_expression_with_expected_and_diagnostic_start(
+                context,
+                initializer,
+                expected,
+                &catalog,
+                &binding_states,
+                intrinsics,
+                diagnostic_start,
+            )
         };
         let expression = match expression_check {
             crate::checker::static_body::StaticExpressionCheckOutcome::Ready(checked)

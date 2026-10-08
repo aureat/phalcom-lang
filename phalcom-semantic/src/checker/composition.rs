@@ -41,6 +41,7 @@ pub(crate) fn propagate_required_dependencies(result: &mut TypedExpression, oper
     let mut selected_terminal: Option<AnalysisStatus> = None;
 
     for operand in operands {
+        result.publication_dependencies.extend(operand.publication_dependencies.iter().copied());
         result.causal_invalidity = result.causal_invalidity.join(operand.causal_invalidity);
         for parent in &operand.explanation_parents {
             push_unique(&mut result.explanation_parents, *parent);

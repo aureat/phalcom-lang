@@ -91,11 +91,12 @@ pub fn analyze_static_constant_initializer(
     binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
     intrinsics: &StaticIntrinsicRegistry,
 ) -> crate::static_constant::CheckedStaticConstantInitializer {
+    let diagnostic_start = context.diagnostics.len();
     let expected = match expected_type {
         Some(ty) => ExpectedType::proper_from(ty, ExpectationOrigin::DeclarationContract),
         None => ExpectedType::None,
     };
-    analyze_static_constant_initializer_with_expected(
+    analyze_static_constant_initializer_with_expected_and_diagnostic_start(
         context,
         constant_id,
         declaration_range,
@@ -106,6 +107,7 @@ pub fn analyze_static_constant_initializer(
         catalog,
         binding_states,
         intrinsics,
+        diagnostic_start,
     )
 }
 
@@ -122,9 +124,50 @@ pub fn analyze_static_constant_initializer_with_expected(
     binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
     intrinsics: &StaticIntrinsicRegistry,
 ) -> crate::static_constant::CheckedStaticConstantInitializer {
+    let diagnostic_start = context.diagnostics.len();
+    analyze_static_constant_initializer_with_expected_and_diagnostic_start(
+        context,
+        constant_id,
+        declaration_range,
+        initializer_range,
+        initializer,
+        annotation,
+        expected,
+        catalog,
+        binding_states,
+        intrinsics,
+        diagnostic_start,
+    )
+}
+
+/// Variant used when the caller elaborates a partial declaration annotation in
+/// this same checker before checking the initializer. The earlier diagnostics
+/// belong to the resulting static owner and must remain in its product.
+pub fn analyze_static_constant_initializer_with_expected_and_diagnostic_start(
+    context: CheckingContext<'_>,
+    constant_id: &crate::static_constant::StaticConstantId,
+    declaration_range: SourceRange,
+    initializer_range: SourceRange,
+    initializer: &Expr,
+    annotation: Option<&phalcom_ast::ast::TypeAnnotation>,
+    expected: ExpectedType,
+    catalog: &crate::module_bindings::ModuleStaticBindingCatalog,
+    binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
+    intrinsics: &StaticIntrinsicRegistry,
+    diagnostic_start: usize,
+) -> crate::static_constant::CheckedStaticConstantInitializer {
     let expected_type = expected.ty();
     let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(constant_id, initializer, annotation, expected_type);
-    let expression = analyze_static_expression_with_demands(context, initializer, expected, catalog, binding_states, intrinsics).0;
+    let expression = analyze_static_expression_with_demands_at(
+        context,
+        initializer,
+        expected,
+        catalog,
+        binding_states,
+        intrinsics,
+        diagnostic_start,
+    )
+    .0;
     crate::static_constant::CheckedStaticConstantInitializer {
         id: constant_id.clone(),
         declaration_range,
@@ -191,7 +234,28 @@ pub fn check_static_expression_with_expected(
     binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
     intrinsics: &StaticIntrinsicRegistry,
 ) -> StaticExpressionCheckOutcome {
-    let (checked, demands) = analyze_static_expression_with_demands(context, initializer, expected, catalog, binding_states, intrinsics);
+    let diagnostic_start = context.diagnostics.len();
+    check_static_expression_with_expected_and_diagnostic_start(
+        context,
+        initializer,
+        expected,
+        catalog,
+        binding_states,
+        intrinsics,
+        diagnostic_start,
+    )
+}
+
+pub fn check_static_expression_with_expected_and_diagnostic_start(
+    context: CheckingContext<'_>,
+    initializer: &Expr,
+    expected: ExpectedType,
+    catalog: &crate::module_bindings::ModuleStaticBindingCatalog,
+    binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
+    intrinsics: &StaticIntrinsicRegistry,
+    diagnostic_start: usize,
+) -> StaticExpressionCheckOutcome {
+    let (checked, demands) = analyze_static_expression_with_demands_at(context, initializer, expected, catalog, binding_states, intrinsics, diagnostic_start);
     if !demands.is_empty() {
         return StaticExpressionCheckOutcome::Awaiting(demands);
     }
@@ -203,15 +267,27 @@ pub fn check_static_expression_with_expected(
 }
 
 fn analyze_static_expression_with_demands(
-    mut context: CheckingContext<'_>,
+    context: CheckingContext<'_>,
     initializer: &Expr,
     expected: ExpectedType,
     catalog: &crate::module_bindings::ModuleStaticBindingCatalog,
     binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
     intrinsics: &StaticIntrinsicRegistry,
 ) -> (crate::static_constant::CheckedStaticExpression, BTreeSet<QueryKey>) {
-    context.phase = crate::checker::context::EvaluationPhase::Static;
     let diagnostic_start = context.diagnostics.len();
+    analyze_static_expression_with_demands_at(context, initializer, expected, catalog, binding_states, intrinsics, diagnostic_start)
+}
+
+fn analyze_static_expression_with_demands_at(
+    mut context: CheckingContext<'_>,
+    initializer: &Expr,
+    expected: ExpectedType,
+    catalog: &crate::module_bindings::ModuleStaticBindingCatalog,
+    binding_states: &BTreeMap<phalcom_modules::linker::SymbolId, crate::checker::analysis::BindingState>,
+    intrinsics: &StaticIntrinsicRegistry,
+    diagnostic_start: usize,
+) -> (crate::static_constant::CheckedStaticExpression, BTreeSet<QueryKey>) {
+    context.phase = crate::checker::context::EvaluationPhase::Static;
     let existing_expressions = context.expressions.keys().copied().collect::<BTreeSet<_>>();
     let expression_start = context.next_local_expr_id;
     let body_id = context.body_id;
@@ -241,7 +317,7 @@ fn analyze_static_expression_with_demands(
     }
     let first_body_binding = context.next_binding_id;
 
-    let typed_result = analyze_expression(&mut context, initializer, &expected);
+    let mut typed_result = analyze_expression(&mut context, initializer, &expected);
     context.sync_expression_outcome(&typed_result);
 
     let runtime_accesses = context
@@ -268,6 +344,80 @@ fn analyze_static_expression_with_demands(
         }
     }
     context.pop_scope();
+
+    let source_invalid = context.diagnostics[diagnostic_start..]
+        .iter()
+        .any(|diagnostic| diagnostic.severity == crate::diagnostic::DiagnosticSeverity::Error);
+    if source_invalid {
+        context.reject_all_sequence_products();
+    }
+
+    let solved_expected_type = if source_invalid {
+        None
+    } else if let ExpectedType::Inference { context: inf_ctx, ref term, .. } = expected {
+        if let Some(session) = context.inference_session(inf_ctx) {
+            let frame = context.current_inference_frame(inf_ctx).unwrap_or(crate::checker::inference::InferenceFrameId(0));
+            let outcome = context.solve_inference_in_frame(&mut session.borrow_mut(), frame);
+            let solved = if outcome.is_solved() {
+                session.borrow().materialize(term, context.store).ok()
+            } else {
+                None
+            };
+            let owner = super::sequence_publication::PublicationOwner(inf_ctx, frame);
+            let source_valid = typed_result.status.is_ready()
+                && matches!(typed_result.causal_invalidity, CausalInvalidity::Clean)
+                && !context.diagnostics[diagnostic_start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::DiagnosticSeverity::Error);
+            if solved.is_some() && source_valid {
+                if let Err(status) = context.accept_sequence_owner(owner) {
+                    typed_result.status = status.clone();
+                    context.sync_expression_outcome(&typed_result);
+                    if !context.diagnostics[diagnostic_start..]
+                        .iter()
+                        .any(|diagnostic| diagnostic.severity == crate::diagnostic::DiagnosticSeverity::Error)
+                    {
+                        let (code, message) = match status {
+                            AnalysisStatus::Blocked(reason) => (DiagnosticCode::AnalysisBlocked, format!("static initializer inference is blocked: {reason:?}")),
+                            AnalysisStatus::BudgetExceeded(report) => {
+                                (DiagnosticCode::AnalysisBudgetExceeded, format!("static initializer inference exceeded budget: {report:?}"))
+                            }
+                            AnalysisStatus::InternalFailure(incident) => {
+                                (DiagnosticCode::AnalysisInternalFailure, format!("static initializer inference failed: {incident:?}"))
+                            }
+                            AnalysisStatus::Cancelled => (DiagnosticCode::AnalysisBlocked, "static initializer inference was cancelled".to_string()),
+                            _ => (DiagnosticCode::GenericInferenceUnderconstrained, "static initializer inference was not accepted".to_string()),
+                        };
+                        context.emit_diagnostic(SemanticDiagnostic::error_in(context.current_module.clone(), code, message, initializer.range()));
+                    }
+                }
+            } else {
+                context.reject_sequence_owner(owner);
+                if source_valid {
+                    typed_result.status = AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnknownType(crate::types::evidence::UnknownReason::InferenceBlocked));
+                    context.sync_expression_outcome(&typed_result);
+                    context.emit_diagnostic(SemanticDiagnostic::error_in(
+                        context.current_module.clone(), DiagnosticCode::GenericInferenceUnderconstrained,
+                        "static initializer inference could not be completed", initializer.range(),
+                    ));
+                }
+            }
+            context.pop_inference_frame(inf_ctx, frame);
+            context.finish_inference_context(inf_ctx);
+            solved
+        } else {
+            context.publish_analysis_incident("static initializer inference owner is no longer active");
+            context.emit_diagnostic(SemanticDiagnostic::error_in(
+                context.current_module.clone(),
+                DiagnosticCode::AnalysisInternalFailure,
+                "static initializer inference owner is no longer active",
+                initializer.range(),
+            ));
+            None
+        }
+    } else {
+        expected.ty()
+    };
+
+    context.ensure_sequence_publication_settled(initializer.range());
 
     let expressions = context
         .expressions
@@ -324,21 +474,6 @@ fn analyze_static_expression_with_demands(
     dependencies.sort();
     dependencies.dedup();
 
-    let solved_expected_type = if let ExpectedType::Inference { context: inf_ctx, ref term, .. } = expected {
-        if let Some(session) = context.inference_session(inf_ctx) {
-            let frame = context.current_inference_frame(inf_ctx).unwrap_or(crate::checker::inference::InferenceFrameId(0));
-            let outcome = context.solve_inference_in_frame(&mut session.borrow_mut(), frame);
-            if outcome.is_solved() {
-                session.borrow().materialize(term, context.store).ok()
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        expected.ty()
-    };
 
     let diagnostics = Arc::from(context.diagnostics[diagnostic_start..].to_vec().into_boxed_slice());
     let checked = crate::static_constant::CheckedStaticExpression {
@@ -354,7 +489,11 @@ fn analyze_static_expression_with_demands(
         static_constant_bindings: Arc::new(stable_bindings),
         static_constant_reads: static_constant_reads.into(),
         dependencies: dependencies.into(),
-        result_type: solved_expected_type.or_else(|| typed_result.knowledge.ty()),
+        result_type: if matches!(expected, ExpectedType::Inference { .. }) && !typed_result.status.is_ready() {
+            None
+        } else {
+            solved_expected_type.or_else(|| typed_result.knowledge.ty())
+        },
         diagnostics,
     };
     (checked, context.semantic_query_demands_snapshot())
@@ -565,6 +704,8 @@ fn analyze_static_body_inner(
         }
     }
     context.pop_scope();
+
+    context.ensure_sequence_publication_settled(definition.source_range);
 
     let expressions = context
         .expressions

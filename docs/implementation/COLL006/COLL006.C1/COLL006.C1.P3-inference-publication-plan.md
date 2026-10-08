@@ -4,9 +4,9 @@ program: COLL006
 checkpoint: COLL006.C1
 kind: implementation-plan-supplement
 scope: COLL006.C1.P3.T4
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 parent_plan: COLL006.C1.P3-implementation-plan.md
 ---
 
@@ -16,11 +16,15 @@ parent_plan: COLL006.C1.P3-implementation-plan.md
 
 Make executable sequence construction facts visible only after every inference owner on which those facts depend has accepted its final, materializable result. Failed owners discard dependent candidates; independently established products remain available.
 
-This is a proposed implementation supplement to P3 T4, prepared at the user's request to analyze and plan. No source implementation or fresh behavioral verification is claimed. It does not close P3 or create a separate checkpoint/state record.
+This is the active implementation supplement to P3 T4, authorized by the user's implementation request. Completion and verification are recorded in the checkpoint and P3 walkthrough. It does not close P3 or create a separate checkpoint/state record.
 
 Fixed authorities: repository AGENTS.md; the C1 checkpoint; P3's solved-only publication contract; `docs/specs/type-level-domains.md` canonical terms; `docs/specs/generic-constraints.md` §13 (all instantiated constraints must be satisfied, solver order is not source semantics); existing causal-invalidity and proof-integrity behavior. This changes checker publication lifetime, not source-language inference or runtime semantics.
 
 Required implementation reads: this supplement, current P3 plan/handoff, checkpoint consultation records, implementation-record convention, the exact sources/tests below, and semantic test placement README. Preserve all existing dirty work, including the unrelated Bytes edit.
+
+## Current implementation checkpoint — 2026-10-08
+
+This supplement is `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. The late-failure discriminator, checker-local registry, simple owners, and substantial application/row integration are present. Ten focused publication tests completed successfully before the latest static caller change; three registry unit tests passed earlier. T5 static fail-closed handling and incremental parity, several T4 coverage obligations, and T6 gates are unfinished. The latest `session.rs` caller correction has not been compiled or tested. See the [continuation report](COLL006.C1.P3-inference-publication-report.md) for exact source/evidence boundaries; the checkpoint remains the state authority.
 
 ## 2. Verified repository grounding
 
@@ -222,7 +226,7 @@ Run publication filter plus `foundations::generic_inference_proof_integrity` and
 
 Modify: `static_body.rs`, context finalization helpers, and targeted incremental test module. Keep snapshot schemas and core lowering unchanged.
 
-Settle static expected owner before extracting products. Export committed maps through a single checked accessor at callable/static boundaries. Ensure incomplete/control outcomes do not become Ready merely because the pending map was discarded. Do not serialize registry state. Ensure contextual explanations do not claim final acceptance for rejected candidates.
+Settle static expected owner before extracting products. T5 Level 1 clarification (2026-10-08): repair the static session caller so partial annotation elaboration and initializer checking share the configured initializer CheckingContext. Reject missing inference owners at the static boundary. This caller correction does not extend static collection evaluation/materialization. Export committed maps through a single checked accessor at callable/static boundaries. Ensure incomplete/control outcomes do not become Ready merely because the pending map was discarded. Do not serialize registry state. Ensure contextual explanations do not claim final acceptance for rejected candidates.
 
 Tests: static successful/invalid owner publication; no pending products exported; invalid -> valid -> invalid edits; cold/incremental comparison of canonical formatted family/type/extent and diagnostics; unchanged independent callable products survive. Compare semantic meaning across sessions, not raw TypeId equality.
 

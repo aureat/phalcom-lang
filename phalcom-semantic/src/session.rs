@@ -7749,34 +7749,11 @@ impl SemanticWorkspaceSession {
                             key_expressions,
                         )
                     } else {
-                        let expected = if let Some(annotation) = decl.annotation {
-                            if crate::checker::annotation_elaboration::annotation_contains_inference_hole(annotation) {
-                                let mut context = CheckingContext::new_with_dispatch_ref(
-                                    Arc::make_mut(&mut self.store),
-                                    &hierarchy,
-                                    &resolver,
-                                    &declarations,
-                                    &dispatch,
-                                    decl.module_id.clone(),
-                                );
-                                let (elaboration, _) = context.elaborate_type_annotation(&resolver, annotation);
-                                match elaboration {
-                                    Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context: inf_ctx, term, .. }) => {
-                                        crate::checker::expected::ExpectedType::inference_from(inf_ctx, term, crate::checker::expected::ExpectationOrigin::DeclarationContract)
-                                    }
-                                    Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
-                                        crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
-                                    }
-                                    None => crate::checker::expected::ExpectedType::None,
-                                }
-                            } else {
-                                decl.expected_type.map_or(crate::checker::expected::ExpectedType::None, |ty| {
-                                    crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
-                                })
-                            }
-                        } else {
-                            crate::checker::expected::ExpectedType::None
-                        };
+                        // Partial annotations are elaborated below in the checker
+                        // that owns initializer constraints and publication.
+                        let expected = decl.expected_type.map_or(crate::checker::expected::ExpectedType::None, |ty| {
+                            crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                        });
                         (expected, Vec::new())
                     };
                     let mut context = CheckingContext::new_with_dispatch_ref(
@@ -7795,7 +7772,24 @@ impl SemanticWorkspaceSession {
                     context.attach_data_semantics(&data_semantics);
                     context.attach_associated_families(&associated_surfaces_table);
                     context.attach_conformance_semantics(&conformance_semantics);
-                    let checked = crate::checker::static_body::analyze_static_constant_initializer_with_expected(
+                    let diagnostic_start = context.diagnostics.len();
+                    let expected = if let Some(annotation) = decl.annotation.filter(|annotation| {
+                        !decl.has_computed_record_keys && crate::checker::annotation_elaboration::annotation_contains_inference_hole(annotation)
+                    }) {
+                        let (elaboration, _) = context.elaborate_type_annotation(&resolver, annotation);
+                        match elaboration {
+                            Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context: inf_ctx, term, .. }) => {
+                                crate::checker::expected::ExpectedType::inference_from(inf_ctx, term, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                            }
+                            Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
+                                crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                            }
+                            None => crate::checker::expected::ExpectedType::None,
+                        }
+                    } else {
+                        expected
+                    };
+                    let checked = crate::checker::static_body::analyze_static_constant_initializer_with_expected_and_diagnostic_start(
                         context,
                         &decl.id,
                         decl.declaration_range,
@@ -7806,6 +7800,7 @@ impl SemanticWorkspaceSession {
                         catalog,
                         &binding_states,
                         &static_intrinsics,
+                        diagnostic_start,
                     );
                     let mut checked = checked;
                     if !key_expressions.is_empty() {

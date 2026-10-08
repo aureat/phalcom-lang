@@ -11,7 +11,7 @@ verification: FOCUSED_TESTED
 
 COLL006 owns Telos's coherent extension of collection semantics across source syntax, contextual typing and inference, static evaluation, compiler lowering, native storage, collection protocols, persistent data structures, and standard-library collection APIs.
 
-The current program state is `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. P1/P2 are complete; P3 has partial implementation and focused semantic evidence. The checkpoint record owns the detailed state and remaining gates.
+The current program state is `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. P1/P2 are complete; P3 has partial implementation and focused semantic/runtime evidence; its inference-publication supplement is active and partially tested. The checkpoint record owns the detailed state and remaining gates.
 
 ## 1. Program ownership
 

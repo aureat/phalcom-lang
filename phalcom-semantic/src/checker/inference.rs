@@ -680,6 +680,11 @@ impl InferenceSession {
         obligations
     }
 
+    /// Stable append-only constraint position for application-local readiness.
+    pub(crate) fn constraint_count(&self) -> u32 {
+        self.constraints.len() as u32
+    }
+
     fn defer_active_constraint(&mut self) {
         let Some(index) = self.active_constraint_index else {
             return;
