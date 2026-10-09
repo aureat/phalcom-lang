@@ -231,9 +231,8 @@ impl VM {
                         }
                         RuntimeLinkedRead::Binding(BindingRef {
                             module: target_obj,
-                            slot: u16::try_from(slot).map_err(|_| {
-                                RuntimeError::Internal(format!("linked binding slot overflow in {}::{}", symbol_id.module, symbol_id.name))
-                            })?,
+                            slot: u16::try_from(slot)
+                                .map_err(|_| RuntimeError::Internal(format!("linked binding slot overflow in {}::{}", symbol_id.module, symbol_id.name)))?,
                         })
                     }
                 }

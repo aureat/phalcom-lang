@@ -2361,12 +2361,7 @@ impl<'source> Parser<'source> {
     fn is_value_generic_argument_ahead(&self) -> bool {
         match self.peek() {
             Token::True | Token::False => true,
-            Token::Int { .. }
-            | Token::Float(..)
-            | Token::String(..)
-            | Token::Char(..)
-            | Token::Hash
-            | Token::QuotedSymbol(..) => true,
+            Token::Int { .. } | Token::Float(..) | Token::String(..) | Token::Char(..) | Token::Hash | Token::QuotedSymbol(..) => true,
             Token::Minus => {
                 if let Some(next) = self.tokens.get(self.pos + 1) {
                     matches!(next.token, Token::Int { .. } | Token::Float(..))

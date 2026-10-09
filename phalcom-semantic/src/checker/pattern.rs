@@ -671,18 +671,20 @@ pub(crate) fn pattern_is_variant_of_scrutinee_family(
             if let Some(owner) = &variant.owner {
                 expected_owners.iter().any(|(expected, _)| expected == owner)
             } else if !variant.owner_candidates.is_empty() {
-                variant.owner_candidates.iter().any(|candidate| {
-                    expected_owners.iter().any(|(expected, _)| expected == candidate)
-                })
+                variant
+                    .owner_candidates
+                    .iter()
+                    .any(|candidate| expected_owners.iter().any(|(expected, _)| expected == candidate))
             } else {
                 false
             }
         }
         crate::match_semantics::PatternResolution::Or(or_pattern) => {
             !or_pattern.alternatives.is_empty()
-                && or_pattern.alternatives.iter().all(|alt| {
-                    pattern_is_variant_of_scrutinee_family(store, alt, scrutinee_ty)
-                })
+                && or_pattern
+                    .alternatives
+                    .iter()
+                    .all(|alt| pattern_is_variant_of_scrutinee_family(store, alt, scrutinee_ty))
         }
         _ => false,
     }

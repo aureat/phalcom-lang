@@ -1,9 +1,68 @@
 # Positive-real special-function backend
 
 This is a source-authored binary64 implementation for proposal 13 A2. The
-public facade is `universe.math.special`; the implementation child is hidden.
+public facade is `universe.math.special`; the implementation child (`kernel`) is hidden.
 No native primitive, host special-function dependency, or numerical promotion
 is introduced. Ordinary `universe.math` does not import this backend.
+
+## Public surface
+
+The public API is structured around mathematical families rather than a flat namespace
+of compound identifiers:
+
+```telos
+from universe.math.special import (
+  Gamma,
+  Beta,
+  Normal,
+  Combinatorics,
+  erf,
+  erfc,
+  logErfc,
+  logFactorial,
+  logChoose,
+  NumericalRangeError,
+  NumericalEvaluationError,
+)
+
+// Gamma family
+Gamma.log(x)
+Gamma.p(a, x)
+Gamma.q(a, x)
+Gamma.logP(a, x)
+Gamma.logQ(a, x)
+Gamma.inverseP(a, p)
+
+// Beta family
+Beta.log(a, b)
+Beta.regularized(x, a, b)
+Beta.complement(x, a, b)
+Beta.logRegularized(x, a, b)
+Beta.logComplement(x, a, b)
+Beta.inverse(p, a, b)
+
+// Normal family
+Normal.quantile(p)
+Normal.cdf(x)
+Normal.survival(x)
+Normal.logCdf(x)
+Normal.logSurvival(x)
+
+// Error functions
+erf(x)
+erfc(x)
+logErfc(x)
+
+// Combinatorics
+logFactorial(n)
+logChoose(n, k)
+Combinatorics.logFactorial(n)
+Combinatorics.logChoose(n, k)
+```
+
+The underlying `SpecialKernel` retains long, explicit identifiers (e.g.
+`SpecialKernel.regularizedBetaComplement`, `SpecialKernel.inverseNormal`) as an internal
+implementation primitive; the public surface projects those into clean mathematical families.
 
 ## Algorithms and ownership
 

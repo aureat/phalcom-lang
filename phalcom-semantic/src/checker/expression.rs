@@ -5363,10 +5363,8 @@ pub(crate) fn coverage_subject_for_expression(
     };
     let refinement_block = refinement_block.or(knowledge_block);
     let scrutinee_local_ty = typed.local_type.clone();
-    let scrutinee_subject = crate::checker::coverage::CoverageSubject::from_parts(
-        scrutinee_ty,
-        scrutinee_local_ty.unwrap_or(crate::types::LocalType::Canonical(scrutinee_ty)),
-    );
+    let scrutinee_subject =
+        crate::checker::coverage::CoverageSubject::from_parts(scrutinee_ty, scrutinee_local_ty.unwrap_or(crate::types::LocalType::Canonical(scrutinee_ty)));
     (scrutinee_subject, refinement_block)
 }
 

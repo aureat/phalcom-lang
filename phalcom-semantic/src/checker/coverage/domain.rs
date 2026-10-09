@@ -366,7 +366,11 @@ pub(crate) fn decompose_domain(
             return DomainDecomposition::Open;
         }
         if all_cases.is_empty() {
-            return if has_char_domain { DomainDecomposition::Char } else { DomainDecomposition::Empty };
+            return if has_char_domain {
+                DomainDecomposition::Char
+            } else {
+                DomainDecomposition::Empty
+            };
         }
         if has_char_domain {
             return DomainDecomposition::ClosedWithChar(all_cases.into_boxed_slice());

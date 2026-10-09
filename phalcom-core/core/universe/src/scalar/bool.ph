@@ -2,6 +2,8 @@
 //!
 //! `Bool` is the abstract base class for boolean logic values `true` and `false`.
 
+from universe.text.errors import BoolParseError
+
 /// Abstract base class representing boolean truth values.
 ///
 /// `Bool` provides core logical operations (`and`, `or`, `not`) and string conversion.
@@ -11,6 +13,19 @@ native class Bool is Object {
 
   @class
   native new(_ value: Dynamic) -> Bool
+
+  /// Parses a boolean from text (`"true"` or `"false"`).
+  @class
+  parse(_ text) -> Result<Bool, BoolParseError> {
+    let s = text.toString
+    if s == "true" {
+      return Result::Ok(true)
+    }
+    if s == "false" {
+      return Result::Ok(false)
+    }
+    Result::Error(BoolParseError.new("Invalid boolean string: " + s))
+  }
 
   native and(_ other: Bool) -> Bool
   native or(_ other: Bool) -> Bool

@@ -24,6 +24,32 @@ last_updated: 2026-10-08
 
 # LANG007.C4 — Checkpoint Record
 
+## Telos text model substrate consolidation (2026-10-08)
+
+The complete Telos Text Model standard library substrate (`LANG007.C4.P12` through
+`LANG007.C4.P16`) has been fully implemented, verified, formatted, and consolidated
+into `main` in merge commit `11084cd9`.
+
+The implementation delivers:
+1. `StringIndex` coordinates, scalar boundaries, case mapping, and Char/String repr.
+2. `Substring` non-allocating range view and zero-copy range slicing (`text[start..end]`).
+3. `Text` and `TextPattern` traits with Char, String, and Substring implementations.
+4. Multi-type pattern search (`contains`, `find`, `findRange`, `startsWith`, `endsWith`),
+   zero-copy trimming (`trimmed*`), and prefix/suffix stripping (`strip*`).
+5. Lazy decomposition iterators (`Split`, `SplitWhitespace`, `Lines`), `splitOnce`,
+   `replaceFirst`, and `replaceAll`.
+6. `StringBuilder`, `TextWriter`, and native linear-time `rawJoin`.
+7. Tooling infrastructure: `TextCursor` (sequential UTF-8 scanner) and `LineMap` (O(log L)
+   coordinate lookup yielding `SourceLocation`).
+8. Parsing conversions: `Utf8Error`, `IntParseError`, `FloatParseError`, `BoolParseError`,
+   `String.fromUtf8*`, typed `Int.parse`, `Float.parse`, `Bool.parse`, and `Int.toString(radix:)` (2..36).
+9. Standard packaging under `universe.text` and top-level `universe` exports.
+
+All 8 integration tests in `phalcom-core::tests::core::language::strings_text_model` PASS.
+The native surface contains 411 declarations and passes `--check`. Workspace rustfmt and
+clippy pass cleanly. See [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md)
+and [handoff](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-handoff.md).
+
 ## Random follow-on prerequisite state (2026-10-08)
 
 The stable owner prerequisite is delivered in `fbf057ea`. The subsequent
@@ -273,12 +299,12 @@ The intended C4 decomposition is:
 | `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P8` | Incremental durability, metadata, cross-module static products, materialization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P9` | Public ontology migration, tooling, documentation, performance certification, checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
-| `LANG007.C4.P11` | `Char` scalar, character literals, semantic/runtime integration | IN_PROGRESS | PARTIAL | UNVERIFIED | implementation committed as `800e1793` on `codex/lang007-c4-p4-r1-stdlib` and pushed; adds scalar/literal/static/runtime/Universe/native seams, generated surface, Char literal parsing/resolution, closed-scalar coverage, and exact runtime lowering; AST lexer/parser cases were added, but no tests or crate checks were run; see interim [walkthrough](LANG007.C4.P11-walkthrough.md) and [handoff](LANG007.C4.P11-handoff.md) |
-| `LANG007.C4.P12` | String–Char bridge, UTF-8 boundaries, iteration, parse.text migration | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P11 |
-| `LANG007.C4.P13` | Typed String hygiene and text-position utilities | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P12 |
-| `LANG007.C4.P14` | Owned immutable homogeneous indexed snapshots | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P11 and iteration laws |
-| `LANG007.C4.P15` | Typed integer/floating conversion | PROPOSED | NOT_STARTED | UNVERIFIED | diagnostics may consume P11/P12 |
-| `LANG007.C4.P16` | StringBuilder, parse migration completion, TOML substrate proof | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P12/P13 and consumes P14/P15 |
+| `LANG007.C4.P11` | `Char` scalar, character literals, semantic/runtime integration | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; consolidated in `c4db36bb`; Char scalar, patterns, Unicode 17.0 pin verified; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P11-P13-walkthrough.md) |
+| `LANG007.C4.P12` | String–Char bridge, UTF-8 boundaries, iteration, parse.text migration | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `StringIndex`, byte/char counts, `String.chars`, `Text`/`TextPattern` traits; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
+| `LANG007.C4.P13` | Typed String hygiene and text-position utilities | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; typed string methods, search, trim, split, replace; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
+| `LANG007.C4.P14` | Owned immutable homogeneous indexed snapshots | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `Substring` non-allocating range view, zero-copy slicing, symmetric equality; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
+| `LANG007.C4.P15` | Typed integer/floating conversion | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `Utf8Error`, `IntParseError`, `FloatParseError`, `BoolParseError`, `String.fromUtf8*`, `Int.parse`, `Float.parse`, `Bool.parse`, `Int.toString(radix:)`; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
+| `LANG007.C4.P16` | StringBuilder, parse migration completion, TOML substrate proof | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `StringBuilder`, `TextWriter`, linear-time `rawJoin`, `TextCursor`, `LineMap`, `universe.text`; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
 
 ### P11 pattern decision — INC-6
 

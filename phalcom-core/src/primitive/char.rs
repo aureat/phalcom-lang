@@ -113,3 +113,19 @@ pub fn char_from_code_point(vm: &mut VM, _receiver: &Value, args: &[Value]) -> P
         None => Ok(vm.none_value()),
     }
 }
+
+/// Returns the simple Unicode lowercase mapping for this scalar.
+#[phalcom_native_macros::primitive(Char, "simpleLowercase", params = [], returns = Char, types = "() -> Char", effects = pure)]
+pub fn char_simple_lowercase(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let ch = expect_char(receiver)?;
+    let lower = ch.to_lowercase().next().unwrap_or(ch);
+    Ok(Value::char(lower))
+}
+
+/// Returns the simple Unicode uppercase mapping for this scalar.
+#[phalcom_native_macros::primitive(Char, "simpleUppercase", params = [], returns = Char, types = "() -> Char", effects = pure)]
+pub fn char_simple_uppercase(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let ch = expect_char(receiver)?;
+    let upper = ch.to_uppercase().next().unwrap_or(ch);
+    Ok(Value::char(upper))
+}

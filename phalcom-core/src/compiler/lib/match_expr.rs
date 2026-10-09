@@ -242,4 +242,3 @@ impl<'vm> Compiler<'vm> {
         }
     }
 }
-
