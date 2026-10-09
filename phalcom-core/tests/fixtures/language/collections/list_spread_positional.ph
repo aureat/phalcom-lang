@@ -4,13 +4,15 @@
 // List spread consumes Unit as empty, Tuple positionals without its labeled
 // lane, and ordinary cursor-protocol sources in lexical order.
 
-let mixed = [0, *(1, 2, name: 3), 4]
-let fromList = [*[5, 6], 7]
-let fromRange = [*(0..3)]
-let fromUnit = [*(), 8]
-let limited = [*(0..).iter.take(3)]
-let gcList = [[1, 2], *(), System.gc]
-let large = [*(0..=65535)]
+let mixed: List<Int> = [0, *(1, 2, name: 3), 4]
+let spreadSource: List<Int> = [5, 6]
+let fromList: List<Int> = [*spreadSource, 7]
+let fromRange: List<Int> = [*(0..3)]
+let fromUnit: List<Int> = [*(), 8]
+let limited: List<Int> = [*(0..).iter.take(3)]
+let nested: List<Int> = [1, 2]
+let gcList: List<Dynamic> = [nested, *(), System.gc]
+let large: List<Int> = [*(0..=65535)]
 
 System.print(mixed.toString)        // [0, 1, 2, 4]
 System.print(fromList.toString)     // [5, 6, 7]

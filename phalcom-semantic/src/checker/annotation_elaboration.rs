@@ -96,6 +96,19 @@ pub fn elaborate_annotation(
     if !annotation_contains_inference_hole(annotation) {
         let (knowledge, _causal) = ctx.resolve_type_annotation(resolver, annotation);
         if let Some(ty) = knowledge.ty() {
+            if let Some((declaration, arguments)) = ctx.store.applied_nominal_static_parts(ty)
+                && declaration == ctx.core_ids.vector
+                && let [crate::types::store::StaticArgument::Term(_element), crate::types::store::StaticArgument::Term(extent)] = arguments[..]
+                && let crate::types::store::TypeData::ConstInt(value) = ctx.store.get(extent)
+                && value.to_bigint() < 0.into()
+            {
+                return Err(vec![SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::GenericInferenceConflict,
+                    "Vector extent must be nonnegative",
+                    annotation.range,
+                )]);
+            }
             return Ok(AnnotationElaboration::Canonical(ty));
         } else {
             return Err(Vec::new());
@@ -203,6 +216,19 @@ fn elaborate_annotation_inner(
                         return Err(Vec::new());
                     }
                 }
+            }
+
+            if origin_ty.and_then(|ty| ctx.store.nominal_origin_declaration(ty)) == Some(&ctx.core_ids.vector)
+                && let Some(InferenceStaticArgument::Term(InferenceTerm::Canonical(extent))) = static_args.get(1)
+                && let crate::types::store::TypeData::ConstInt(value) = ctx.store.get(*extent)
+                && value.to_bigint() < 0.into()
+            {
+                return Err(vec![SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::GenericInferenceConflict,
+                    "Vector extent must be nonnegative",
+                    annotation.range,
+                )]);
             }
 
             Ok(InferenceTerm::Applied {

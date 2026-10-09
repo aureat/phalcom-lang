@@ -3,8 +3,8 @@ id: COLL006.C1.P3
 program: COLL006
 checkpoint: COLL006.C1
 kind: implementation-plan
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 ---
 
@@ -12,7 +12,7 @@ verification: FOCUSED_TESTED
 
 Goal: implement the bounded P3 requirements in `COLL006.C1.P3-requirements-analysis.md` against `5fee70c9`. Work proceeds inline on `feat/telos-collection-upgrade` in the existing collections worktree.
 
-Resumed at the user's request. P3 is partial; the walkthrough and handoff list implemented substeps, completed evidence, and remaining acceptance gaps.
+P3 is complete at its bounded implementation scope. The walkthrough and handoff record the focused evidence and deferred broad certification.
 
 ## Fixed contract
 
@@ -32,7 +32,7 @@ Resumed at the user's request. P3 is partial; the walkthrough and handoff list i
 - [ ] T5: checked lowering projection and direct bytecode; immutable heap storage, native read floor, source API, GC tracing and class integration. Concrete and bounded symbolic construction execute; direct bytecode, immutable/nested storage, GC ownership, keys, and defensive cardinality coverage added. Remaining runtime edge cases stay open.
 - [ ] T6: Array homogeneous mutation typing and move-based builder finalization corrections.
 - [ ] T7: focused positive/negative semantic, compiler, runtime, metadata, GC, and incremental verification. Run Cargo commands serially.
-- [ ] T8: scoped diff review, checkpoint reconciliation, walkthrough, P4 handoff.
+- [x] T8: scoped diff review, checkpoint reconciliation, walkthrough, P4 handoff.
 
 ## Verification gates
 
@@ -50,8 +50,8 @@ T4/T5 support a lone symbolic Vector identity spread through a semantic `VectorI
 
 ## Active T4 publication supplement
 
-[Inference-owned sequence publication plan](COLL006.C1.P3-inference-publication-plan.md) is authorized and `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. The late generic failure discriminator was established; staging, owner receipts, contextual provenance, deferred scalar/row readiness, and extraction integration are present in a partial implementation. Ten publication tests passed before the latest static caller edit. Missing-owner/static edge coverage, exact-case conformance and union coverage, revision parity, final semantic/core gates, and scoped formatting remain. This does not close T4 or P3.
+[Inference-owned sequence publication plan](COLL006.C1.P3-inference-publication-plan.md) is complete at `IMPLEMENTED / FOCUSED_TESTED`. Staging, owner receipts, contextual provenance, deferred scalar/row readiness, exact-case conformance, union aggregation, extraction integration, revision parity, and final focused semantic/core gates pass.
 
-T5 of the supplement has an adopted Level 1 clarification: partial static annotation elaboration and initializer checking must share the same configured CheckingContext. The caller correction is present in `session.rs` but uncompiled/untested; explicit missing-owner fail-closed handling remains to implement. Static collection evaluation and materialization remain P4.
+T5 of the supplement uses the adopted Level 1 clarification: partial static annotation elaboration and initializer checking share the same configured CheckingContext, and missing-owner paths fail closed. Static collection evaluation and materialization remain P4.
 
 Detailed continuation evidence, adopted solutions, risks, and dependency-ordered remaining steps: [publication continuation report](COLL006.C1.P3-inference-publication-report.md). The checkpoint remains the single durable state authority.

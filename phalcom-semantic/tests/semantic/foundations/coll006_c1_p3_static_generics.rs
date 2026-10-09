@@ -244,7 +244,7 @@ fn vector_runtime_sized_spreads_never_publish_construction_products() {
 fn sequence_explanations_consume_the_checked_family() {
     use phalcom_semantic::checker::SequenceLiteralFamily;
     use phalcom_semantic::explain::{CollectionKind, ExplanationStep};
-    let fixture = Fixture::new("class Container { @class test() { let a = <Int>[1]; let v = <Int, 1>[1]; let l = [1] } }\n");
+    let fixture = Fixture::new("class Container { @class test() { let a = <Int>[1]; let v = <Int, 1>[1]; let l: List<Int> = [1] } }\n");
     fixture.assert_no_error_diagnostics();
     let callable = fixture.callable("Container", "test", phalcom_semantic::DispatchSide::Class);
     assert_eq!(callable.sequence_literals.len(), 3);
@@ -290,5 +290,15 @@ fn vector_symbolic_identity_spread_rejects_different_binders_and_arithmetic() {
         );
         let callable = fixture.callable("Copier", "copy", phalcom_semantic::DispatchSide::Class);
         assert!(callable.sequence_literals.is_empty(), "{literal}");
+    }
+}
+
+#[test]
+fn vector_rejects_negative_concrete_extent_at_type_formation() {
+    for annotation in ["Vector<Int, -1>", "Vector<_, -1>"] {
+        let fixture = Fixture::new_allowing_internal_incidents(&format!(
+            "class Container {{ @class test() {{ let value: {annotation} = [1] }} }}\n"
+        ));
+        assert!(fixture.analysis.snapshot.has_errors(), "negative concrete extent must be rejected: {annotation}");
     }
 }

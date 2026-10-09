@@ -2,6 +2,7 @@ mod adts;
 mod advisory;
 mod associated_types;
 mod callable_dependencies;
+mod coll006_c1_p3_publication;
 mod checker_dependencies;
 mod db;
 mod declaration_authority;

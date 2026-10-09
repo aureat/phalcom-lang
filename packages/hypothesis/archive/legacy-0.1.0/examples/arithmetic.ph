@@ -14,8 +14,9 @@ class ArithmeticProperties is PropertySuite {
   }
 }
 
+const properties: List<_> = [ArithmeticProperties]
 const run = PropertyRunner.run(
-  [ArithmeticProperties],
+  properties,
   with: CheckConfig.standard.seed(20260723)
 )
 

@@ -33,6 +33,14 @@ impl ArrayObject {
         }
     }
 
+    /// Builds an immutable-by-alias Array before its first publication.
+    pub(crate) fn from_vec_frozen(elements: Vec<Value>) -> Self {
+        Self {
+            elements: elements.into_boxed_slice(),
+            frozen: true,
+        }
+    }
+
     /// Borrows the array's elements.
     pub fn elements(&self) -> &[Value] {
         &self.elements

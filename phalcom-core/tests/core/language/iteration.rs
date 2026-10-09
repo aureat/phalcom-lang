@@ -207,7 +207,8 @@ fn known_list_iterator_source_receiver_gets_guarded_iterable_to_list_evidence() 
     let source = r#"
 class Caller {
   inspect -> Int {
-    let receiver = [1, 2].iterator
+    let values: List<Int> = [1, 2]
+    let receiver = values.iterator
     receiver.toList.size
     0
   }
@@ -454,16 +455,16 @@ let result = slicePreservesRuntimeShape and firstPair and secondPair and exhaust
 #[test]
 fn list_for_uses_fresh_stateful_canonical_iterator() {
     let list_for_uses_fresh_stateful_canonical_iterator_source = r#"
-const values = [1, 2, 3]
-const first = values.iterator
+let values: List<Int> = [1, 2, 3]
+let first = values.iterator
 let firstOne = first.next
 let firstTwo = first.next
 let firstThree = first.next
 let firstDone = first.next
 let firstDoneAgain = first.next
-const fresh = values.iterator
+let fresh = values.iterator
 let freshOne = fresh.next
-let sum = 0
+let mut sum = 0
 for value in values {
   sum = sum + value
 }
@@ -481,8 +482,9 @@ let result = sum == 6 and firstOne.isSome and firstTwo.isSome and firstThree.isS
 #[test]
 fn canonical_list_for_preserves_break_and_continue_control() {
     let source = r#"
-let sum = 0
-for value in [1, 2, 3, 4] {
+let mut sum = 0
+let values: List<Int> = [1, 2, 3, 4]
+for value in values {
   if (value == 2) { continue }
   sum = sum + value
   if (value == 3) { break }

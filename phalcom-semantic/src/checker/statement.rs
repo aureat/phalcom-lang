@@ -24,6 +24,17 @@ use phalcom_ast::ast::{BindingKind, Pattern, Statement};
 pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> StatementControl {
     match statement {
         Statement::Let(binding) => {
+            // `const` initializers are checked in the static phase. Keep that
+            // phase visible to nested expression synthesis so phase-owned
+            // defaults (including bare sequence literals) agree with the
+            // canonical static-constant product. Runtime `let` bindings keep
+            // the caller's phase, which also preserves static-definition
+            // locals checked within an already-static body.
+            let previous_phase = ctx.phase;
+            if matches!(binding.kind, BindingKind::Const) {
+                ctx.phase = super::context::EvaluationPhase::Static;
+            }
+
             // A module static-constant owner forms annotations containing
             // computed Record keys only after its selected constants have
             // reduced. Resolving such an annotation in this generic pass
@@ -84,6 +95,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                     crate::checker::flow::InitializationState::Uninitialized,
                 )
             };
+            ctx.phase = previous_phase;
 
             let annotation_owner = match &elaboration {
                 Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context, frame, .. }) => {
@@ -251,6 +263,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 contract,
                 causal_invalidity,
                 binding.kind.is_mutable(),
+                binding.kind.phase(),
                 init_state,
                 binding.range,
                 val_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id)),
@@ -570,6 +583,7 @@ fn bind_declaration_pattern(
     contract: Option<BindingContract>,
     causal_invalidity: crate::checker::causal::CausalInvalidity,
     mutable: bool,
+    phase: phalcom_ast::ast::BindingPhase,
     initialization: crate::checker::flow::InitializationState,
     range: phalcom_common::range::SourceRange,
     explanation: Option<crate::identity::ExplanationId>,
@@ -593,6 +607,9 @@ fn bind_declaration_pattern(
                 crate::checker::binding::BindingDeclarationResult::Inserted(binding) => (binding, true),
                 crate::checker::binding::BindingDeclarationResult::Redeclared(binding) => (binding, false),
             };
+            if inserted {
+                ctx.record_binding_phase(binding_id, phase);
+            }
             if let Some(local_type) = local_type {
                 ctx.set_local_binding_type(binding_id, local_type);
             }
@@ -627,6 +644,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    phase,
                     initialization,
                     range,
                     component_explanation,
@@ -650,6 +668,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    phase,
                     initialization,
                     range,
                     explanation,
@@ -667,6 +686,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    phase,
                     initialization,
                     range,
                     explanation,
@@ -696,6 +716,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    phase,
                     initialization,
                     range,
                     explanation,
@@ -732,6 +753,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    phase,
                     initialization,
                     range,
                     explanation,

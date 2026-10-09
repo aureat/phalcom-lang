@@ -4,7 +4,7 @@
 // `[]` allocates empty, `add(_:)` pushes and returns self for
 // chaining, `size` and `at(_:)` round-trip the pushed values.
 
-let l = []
+let l: List<Int> = []
 l.append(10)
 l.append(20)
 l.append(30)

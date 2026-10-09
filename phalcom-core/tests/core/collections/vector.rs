@@ -25,13 +25,20 @@ fn vector_fixed_and_exact_spread_construction_preserve_native_identity_and_order
 }
 
 #[test]
-fn context_free_vector_compilation_requires_checked_lowering() {
+fn context_free_bracket_compilation_requires_checked_lowering() {
     let mut vm = VM::new();
-    let module = vm.create_module("vector-unchecked", "vector-unchecked");
-    let error = vm
-        .compile_closure(module, "let value = <Int, 2>[1, 2]\n")
-        .expect_err("Vector requires semantic authority");
-    assert!(error.to_string().contains("sequence literal lowering"), "{error}");
+    for (name, source) in [
+        ("vector-unchecked", "let value = <Int, 2>[1, 2]\n"),
+        ("headless-unchecked", "let value = [1, 2]\n"),
+    ] {
+        let module = vm.create_module(name, name);
+        let error = vm.compile_closure(module, source).expect_err("semantic lowering is required");
+        assert!(error.to_string().contains("sequence literal lowering"), "{error}");
+    }
+
+    let module = vm.create_module("explicit-array", "explicit-array");
+    vm.compile_closure(module, "let value = <Int>[1, 2]\n")
+        .expect("syntax-explicit Array remains a supported context-free compiler path");
 }
 
 #[test]
@@ -146,7 +153,8 @@ set.add(equal)
 set.add(different)
 let setSize = set.size
 let crossArray = first == <Int>[1, 2]
-let crossList = first == [1, 2]
+let crossListValues: List<Int> = [1, 2]
+let crossList = first == crossListValues
 "#,
     )
     .expect("Vector key program");

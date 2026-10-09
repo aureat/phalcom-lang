@@ -65,10 +65,24 @@ Tuple
 Record
 transparent data values
 Sum values
+closed homogeneous Array and Vector sequence values
 ```
 
 Static values are semantic values, not VM objects. They never depend on runtime heap
 identity, arena offsets, or process-local symbol IDs.
+
+Static `Array<T>` and `Vector<T, N>` values contain ordered, finite element values
+and retain their checked ordinary result type. Static Array values materialize as
+frozen runtime Arrays; static Vector values materialize as immutable Vectors. The
+source-level family selection and literal defaults are specified by
+[`sequence-literals.md`](sequence-literals.md).
+
+A closed static Vector sequence requires an exact extent equal to its produced
+element count. When a Vector identity spread still has a symbolic extent,
+evaluation returns `Symbolic`; it does not publish a closed sequence value. The
+evaluator may reduce the construction once that extent is a closed exact static
+integer. It does not invent symbolic extent arithmetic or perform generic type
+substitution to force closure.
 
 Reduced structural static values form an acyclic DAG. Recursive semantic entities are
 represented by stable semantic references rather than recursively expanded values.
@@ -80,6 +94,7 @@ Subject to static eligibility, static evaluation supports ordinary Telos forms i
 - literals and static references;
 - deterministic arithmetic, comparison, boolean operations, and semantic equality;
 - construction and projection of static Tuple, Pack, Record, data, and Sum values;
+- construction of closed homogeneous Array and Vector sequence values;
 - `if`;
 - `match`;
 - `for`;

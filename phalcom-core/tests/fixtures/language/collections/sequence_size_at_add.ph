@@ -5,7 +5,7 @@
 // reference implementation: `size`/`at(_:)`/`add(_:)` round-trip and `add`
 // returns `self` for chaining.
 
-let l = []
+let l: List<Int> = []
 System.print(l.size)
 l.append(1)
 l.append(2)

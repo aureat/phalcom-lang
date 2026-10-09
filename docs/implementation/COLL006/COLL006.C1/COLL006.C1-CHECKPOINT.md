@@ -19,7 +19,7 @@ It combines the language-level homogeneous-sequence literal upgrade with the run
 
 This record is the **single durable shared state authority** for all numbered plans belonging to `COLL006.C1`.
 
-P1 and P2 are complete. P3 is active with partial implementation and focused semantic/runtime evidence; its full acceptance gates remain open.
+P1, P2, and P3 are complete at their bounded implementation scope with focused evidence. P4 is the active next plan and owns static sequence values/materialization and the bare-bracket default cutover.
 
 ---
 
@@ -329,8 +329,8 @@ The ledger records current C1 execution state. Proposed successor plans retain t
 |---|---|---|---|---|---|
 | `COLL006.C1.P1` | Neutral bracket-literal AST/semantic architecture; `<...>[...]`; `_` inference holes; inference-bearing partial binding annotations | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Establish semantic authority and solver foundation without changing bare-literal defaults |
 | `COLL006.C1.P2` | `Array<T>` runtime/native representation, explicit/contextual Array literals, direct lowering, iteration, GC | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Complete runtime fixed-after-construction homogeneous sequence |
-| `COLL006.C1.P3` | `Vector<T,N>` runtime/native representation, static extent inference/cardinality proof, constructors, equality/hash, direct lowering | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Exact static identity and Vector concrete/symbolic runtime slices have focused evidence; inference publication is partially implemented; formation, Array API, durability and final acceptance remain open |
-| `COLL006.C1.P4` | Static homogeneous sequence model; const Vector; const Array; materialization; repository-wide bracket-default cutover/migration | PROPOSED | NOT_STARTED | UNVERIFIED | Make runtime bare brackets Array and const bare brackets Vector atomically |
+| `COLL006.C1.P3` | `Vector<T,N>` runtime/native representation, static extent inference/cardinality proof, constructors, equality/hash, direct lowering | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Vector runtime/static formation, solved-only publication, negative extent rejection, Array homogeneous contracts, union/deferred publication, incremental parity, and focused runtime/compiler gates pass |
+| `COLL006.C1.P4` | Static homogeneous sequence model; const Vector; const Array; materialization; repository-wide bracket-default cutover/migration | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T10/G6 cutover passes; continue with T11/G7/T12 |
 | `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | PROPOSED | NOT_STARTED | UNVERIFIED | Complete contiguous view/bounded-construction family |
 | `COLL006.C1.P6` | Reusable ordered-hash backing; preserve Map/Set; add `MutableBag`, `IndexedDict`, `OrderedSet` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete mutable ordered/hash-indexed family without duplicating re-entry logic |
 | `COLL006.C1.P7` | Persistent hash substrate; `Bag<T>`; `Bijection<K,V>` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete persistent hash collections with structural sharing |
@@ -642,6 +642,13 @@ Expected policy:
 | `COLL006.C1.P3.G2` | Initial core compile gate | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --all-targets` | Passed before adding the final runtime test file | Compile evidence for initial runtime/lowering slice; does not prove execution |
 | `COLL006.C1.P3.G3` | Vector runtime gate | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core core_vector` | INCOMPLETE: user-aborted during compilation | No runtime result or selected-test count was obtained |
 
+### P4 T0 entry gate — 2026-10-09
+
+- Starting branch revision: `bee1b2fbffa901cf006e2b4f5948ca478436ee10`, the merge of `origin/main` into `feat/telos-collection-upgrade`; merge base is current `origin/main` `c2dd635ee34f2cef3e64e86c87a5e77992f29fa7`.
+- Post-convergence focused P3 gates passed against the live tree: semantic `coll006` **46 passed**, core `core_vector` **8 passed**, core `core_array` **10 passed**, and native-surface `--check` reported **417 declarations current**.
+- The first semantic build exposed one missing sequence-family statement terminator and three checked-binding call sites missing the newly required phase argument; those local compile errors were fixed before the passing rerun. No broad workspace or release certification was run here.
+- P3 is accepted for the bounded scope stated above. P4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; T11/G7/T12 remain before P4 completion.
+
 ---
 
 ## 14. Deferred / baseline issue ledger
@@ -662,15 +669,21 @@ Expected policy:
 - Reproduction: `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core reflection`.
 - Revisit: owning reflection/module work or broader certification.
 
-### COLL006.C1.D3 — Current partial P3 acceptance gaps
+### COLL006.C1.D3 — Deferred broad certification and P4-owned work
 
-- Vector and Array runtime suites completed in the earlier continuation (8 and 10 passed); those results predate the latest inference-publication edits and require the supplement's consumer regression gate after semantic stabilization.
-- Canonical concrete negative Vector extent formation remains open across complete/scoped/materialized/publication paths. Literal-local checks are not a centralized formation rule.
+- Vector and Array runtime suites pass after the final publication/formation changes: 8 and 10 tests respectively.
+- Concrete negative Vector extents are rejected during canonical annotation formation, including concrete and partially inferred element arguments. Static value evaluation/materialization remains P4-owned.
 - Bounded symbolic identity construction is implemented and runtime-tested. General symbolic arithmetic and extra zero-contribution operands are outside the adopted lane.
-- General inference-owned sequence publication is partially implemented. Ten focused publication tests passed; static missing-owner handling, complete deferred/union/control coverage, revision parity, final gates and formatting remain open. The newest static session caller repair has no compile/test evidence.
-- Array homogeneous public read/replacement typing remains open. Legacy bracket synthesis removal and family-correct explanations were completed in the earlier continuation.
-- Vector metadata/reflection/import-export, exactness/extent revision invalidation, and remaining semantic/runtime edges still need focused acceptance evidence.
-- Revisit through the [publication report](COLL006.C1.P3-inference-publication-report.md) and active supplement. P4 remains deferred until P3 acceptance is closed.
+- Inference-owned publication is complete for the bounded P3 surface: late generic failure, deferred scalar/row readiness, exact-case conformance, union aggregation, independent survivors, and invalid/valid/invalid cold parity are covered.
+- Array homogeneous public read/replacement contracts are typed in the Universe source; the pre-convergence P3 native-surface check passed at 406 declarations, and P4 T0 confirmed the merged tree at 417 declarations.
+- Broader metadata/reflection suites and release certification remain deferred under their existing D1/D2/P9 policy. P4 is active and must not absorb those unrelated broad failures.
+
+### COLL006.C1.D4 — Computed Record-key failures in the static-constant filter
+
+- Observed before P4: `foundations::static_constants` reported 15 passed and 3 failed, with `RecordKeyNotStatic` in computed Record-key projection cases.
+- Rechecked during T3/G2: the same filter selected 23 tests, with 20 passed and the same 3 failures: `test_field_signature_key_edit_matches_cold_surface_and_invalidates_exactly`, `test_callable_signature_projects_all_parameter_and_return_record_keys`, and `test_field_signature_projects_a_cold_computed_record_key`.
+- Classification: inherited D failure. The diagnostics and three failing cases match the pre-P4 result; these fixtures exercise computed Record-key projection, not the new empty-sequence diagnostic path. No clean-predecessor comparison was run in this continuation.
+- P4 evidence unaffected: the six `static_sequence` tests, the exact empty-sequence regression, symbolic identity-spread test, and 46-test `coll006` filter all passed. G2 is `BASELINE_BLOCKED`, not `PASS`; the plan's §0.4 amendment permits T4 to proceed with these matched D failures recorded.
 
 ---
 
@@ -744,6 +757,27 @@ Decision inherited from the analysis: complete and partial applications elaborat
 Decision inherited from the analysis: checked sequence products retain canonical extent and exact tuple-positional/Vector-storage lanes. Runtime-sized iterable spreads cannot establish Vector cardinality. Initial projection and bytecodes are implemented with concrete checked `u32` counts and runtime cardinality assertions. The initial concrete-u32 limitation was subsequently extended by the adopted bounded symbolic identity-spread proof; earlier continuation runtime evidence is recorded below. Broader symbolic construction is not established.
 
 These entries record adopted requirements and partial implementation, not a claim that the P3 acceptance objective is complete.
+
+### COLL006.C1.A9 — Empty static sequence keeps element underconstraint across cutover
+
+**Consultation:** P4 T3, 2026-10-09. Before T10, a bare static `[]` retains the
+legacy List family; after T10 it selects `Vector<T,0>`. In both phases, an
+empty literal with no element-type evidence emits the existing
+`GenericInferenceUnderconstrained` diagnostic at the enclosing static
+initializer boundary and publishes no value. A typed empty Vector remains
+valid. Family selection does not move into `sequence_literal::synthesize`, and
+the diagnostic is delayed until normal contextual/inference solving completes.
+No new diagnostic code or ADR is needed. See the P4 plan's §0.3 amendment and
+the T3 consultation record below.
+
+### COLL006.C1.A10 — G2 inherited-failure handoff to T4
+
+**Consultation:** P4 T3/G2, 2026-10-09. If all P4-active G2 discriminators pass
+and all remaining failures are positively matched inherited D failures, record
+G2 as `BASELINE_BLOCKED` and permit T4 to proceed. Do not report the full filter
+as passed. For this handoff, the three unchanged computed-Record-key failures
+in `foundations::static_constants` are tracked as D4. See the P4 plan's §0.4
+amendment.
 
 ---
 
@@ -827,13 +861,16 @@ The implementer cannot self-waive a triggered consultation.
 ## 18. Active plan and next action
 
 ```text
-active plan:           COLL006.C1.P3 (active continuation)
-latest completed plan: COLL006.C1.P2
-blockers:              remaining formation, Array typing, publication ownership, and durability acceptance gaps
-next action:           finish static publication boundary and discriminators, deferred/union and revision coverage, then focused supplement gates; resume formation/Array/durability closure
+active plan:           COLL006.C1.P4
+latest completed plan: COLL006.C1.P3
+blockers:              G2 is BASELINE_BLOCKED by the three inherited computed-Record-key failures in D4; D1/D2 broad residuals remain deferred; T11/G7/T12 remain
+next action:           continue T11 incremental/module/GC boundary coverage, then run G7 and close records in T12
 ```
 
-Read `COLL006.C1.P3-implementation-plan.md`, `COLL006.C1.P3-walkthrough.md`, and `COLL006.C1.P3-handoff.md`. Continue on `feat/telos-collection-upgrade` in the collections worktree. Bare brackets still default to List; const sequences and default migration remain P4.
+Continue in the `telos-collections-upgrade` worktree from the active P4 state.
+T10/G6 are complete; live defaults are runtime Array and static Vector. Read
+`COLL006.C1.P4-handoff.md` for T11/G7/T12 takeover and the remaining acceptance
+matrix.
 
 
 ### P3 continuation consultation — symbolic identity construction (2026-10-08)
@@ -877,9 +914,56 @@ Deferred deliberately: full workspace tests/clippy/release certification (P9), b
 Plan/task: publication supplement T5. Trigger: unexpected session caller inference identity/lifetime boundary. Observed: partial static annotations were elaborated in a temporary checker whose graph was dropped before a fresh checker analyzed the initializer; confirmed unchanged from e3dfe492. Decision: keep annotation elaboration and initializer checking in the same configured checker; missing supplied owners fail closed. Architecture impact: no graph transfer, new solver, durable identity, or P4 evaluator work. Plan amendment: Level 1 T5 caller clarification recorded in the supplement. Implemented continuation: same-checker elaboration is exercised by valid partial Vector/List, incompatible fixed extent, empty underconstraint, and annotation-diagnostic retention regressions; static acceptance errors and invalid-owner products are rejected before extraction. Missing-owner handling is fail-closed at expression/static entry. Focused evidence passes; direct injected missing-owner API coverage remains open.
 
 
-### P3 inference-owned publication — current state (2026-10-08)
+### P3 inference-owned publication — completed state (2026-10-08)
 
-State: `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; neither the supplement nor P3 is complete. Current inspected branch anchor is `298084a4` after `e5e4ac20`, with uncommitted checker/session/test changes. These commits appeared during implementation; this record does not claim a push or clean worktree. Earlier `e3dfe492` is a historical delivery anchor.
+State: `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Current inspected branch is `feat/telos-collection-upgrade`; source changes remain uncommitted in the requested worktree. No push or clean-worktree claim is made.
+
+### P4 takeover and implementation state (2026-10-09)
+
+P4 is active in `telos-collections-upgrade`. The feature branch was merged with
+`origin/main` at `bee1b2fb`; source overlaps were additive or formatting-only.
+P1/P2 lifecycle conflicts were resolved to retain the feature branch's completed
+records. The generated native-surface count combines the 6 feature-branch and
+11 main-branch additions over the shared 400-declaration base, for 417. The
+pre-existing P3 worktree edits do not overlap the merged paths and remain
+uncommitted.
+
+P3 remains `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` based on its recorded
+pre-convergence evidence; P4 T0 separately reran the focused P3 semantic,
+Vector, Array, and native-surface gates after convergence and all passed. P4 is
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; G6 is complete and T11/G7/T12 remain.
+
+P4 has completed the T1/T2 canonical static Sequence storage and laws, T3
+checked bracket evaluation, T4 recursive descriptors, T5 native Vector/frozen
+Array materialization, T6 same-module and linked canonical-owner reads, and T9
+List migration/normative updates.
+Temporary materialization Values remain rooted until the canonical owner cache
+takes ownership. T1/T2 focused laws passed. T3's focused evaluator and
+symbolic-spread cases passed, while CV-35 exposed a missing underconstraint
+diagnostic for bare `const empty = []`. Its architecture ruling, implementation,
+and focused test evidence are recorded below. T4–T7 results and the passing G3
+and G4 gates are recorded after this summary. T8 census and classification are
+complete; T9 migration is complete and G5 passed. T10/G6 now pass; T11/G7/T12
+are next.
+The user selected
+the closed-sequence boundary for symbolic `VectorIdentitySpread`:
+static evaluation returns `Symbolic` for an open exact-static-Int extent before
+evaluating the spread and publishes no sequence root. Evaluator-side extent
+specialization and symbolic arithmetic remain unauthorized. Descriptor family
+is retained as immutable checked `StaticSequenceFamily` metadata derived during
+canonical interning; this avoids expanding the descriptor API with a TypeStore
+argument.
+
+T8's original census was refreshed during T9 after source migration. The G5
+AST-aware snapshot contains 331 `.ph` sites and 164 Rust-source sites, 495
+total: `LIST_RESIZING` 7, `LIST_IDENTITY` 196, `FIXED_RUNTIME` 35,
+`STATIC_IMMUTABLE` 4, `READ_ITERATE_ONLY` 243, and `LEGACY_TEST` 10. It had no
+ambiguous or unclassified sites. T10 added two regression-fixture literals;
+refresh the census in T12 before finalizing it. See the P4 migration census for
+per-site rationale, owner impact, parser diagnostics, and discovery method.
+
+Existing C1 residual metadata/reflection evidence and release-wide
+certification remain deferred under the baseline policy.
 
 Implemented private takeover interface: `checker/sequence_publication.rs` owns staged canonical resolutions and conjunctive context/frame receipts; `CheckingContext` owns application readiness records and terminal decisions. The registry is outside shared solver handles. Probes copy owner metadata by value and start with fresh pending products. Existing committed map/schema and compiler/runtime products are unchanged by this supplement. Actual contextual provenance survives Proper expectations and propagates through required operands; independent declarations retain independence. Deferred children reuse existing frame/residual/row/materialization/conformance rules before any terminal receipt is issued.
 
@@ -899,4 +983,186 @@ Commands used `RUSTFLAGS='' RUSTC_WRAPPER=''`. The List<_> static pass does not 
 
 Adopted deferred-proof correction: preserve exact argument bindings used for conformance, and apply their refinement only to conformance discharge. Scalar equality/subtype authority remains in the existing registered residual constraints. The helper compiled in the 10-test run; case-only conformance regression evidence is still required.
 
-Next action: add direct injected missing-owner coverage, then add exact-case/deferred failure, union, control and incremental parity evidence. The static owner repair is focused-tested; parent P3 formation, Array API, metadata/reflection and runtime edge work follow. Detailed solutions, unresolved review points, exact tests and dependency ordering are in the [continuation report](COLL006.C1.P3-inference-publication-report.md). No broad release certification or new commit/push is claimed.
+Final focused evidence: publication unit laws, exact-case/deferred controls, union shared-argument ownership, invalid/valid/invalid incremental parity with cold agreement and unrelated callable reuse, diagnostic-range/origin regressions, negative concrete extent formation, Vector runtime (8), Array runtime (10), COLL006 semantic (46), workspace all-targets check, and native surface check (406). No broad release certification or commit/push is claimed.
+
+
+### P4 T3 consultation — empty static bracket element evidence (2026-10-09)
+
+Trigger: P4 T3/CV-35 and requirements §13.3 required an underconstraint
+diagnostic for a bare empty static literal, while accepted collection decisions
+only defined the empty List surface/value and live `sequence_literal::synthesize`
+returned `Unknown(NoTypeEvidence)` without a diagnostic. The implementation
+must preserve legacy family selection until the authorized T10 cutover.
+
+Adviser ruling: before T10, `const empty = []` remains the legacy List family,
+but missing element type evidence must emit existing
+`GenericInferenceUnderconstrained` and publish no value. After T10, the same
+source selects `Vector<T,0>` and must retain the same unresolved-T diagnostic
+and no-value behavior. A typed `const empty: Vector<Int,0> = []` remains valid.
+Diagnose only after the enclosing static initializer's normal contextual and
+inference opportunity; do not add a diagnostic in `sequence_literal::synthesize`
+or introduce early phase defaults. No new diagnostic code or ADR is needed.
+
+Plan amendment: T3/CV-35 now records both pre-cutover and post-T10 outcomes; G6
+owns the post-cutover case. Implementation adds the diagnostic at the static
+initializer boundary for a bare empty bracket that remains
+`Unknown(NoTypeEvidence)` with no expected type. The focused regression is
+present and passes. Results: `static_sequence` **6 passed**; the exact empty
+diagnostic test **1 passed**; symbolic identity spread **1 passed**; `coll006`
+**46 passed**. `foundations::static_constants` selected 23 tests: **20 passed,
+3 inherited D failures** recorded as D4. G2 is `BASELINE_BLOCKED`, not passed;
+T4 may proceed under the §0.4 plan amendment because the P4-active cases pass
+and the remaining failures match the pre-P4 baseline. P4 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+
+### P4 T4 descriptor slice — 2026-10-09
+
+Implemented CV-11/CV-12 descriptor coverage for canonical Array/Vector family
+classification, recursively materializable nested sequences, outer deferral
+when a sequence contains an unsupported Tuple, accurate `Sequence` versus
+`DeferredStructural` capabilities, and cloned descriptors that remain
+self-contained after dropping the static-value store. `MaterializationDescriptor`
+retains no static-value reference or TypeStore pointer.
+
+Verification: the exact descriptor test
+`static_sequence_materialization_is_recursive_and_truthfully_deferred` passed
+(1 selected), followed by the owning `static_values_sequence` filter (3 passed).
+T4 is `IMPLEMENTED / FOCUSED_TESTED`. Runtime object materialization is T5 and
+remains pending; descriptors alone do not prove runtime reads, GC rooting, or
+owner-cache behavior. G2 remains `BASELINE_BLOCKED` under D4, with the T4
+handoff allowed by the explicit plan amendment.
+
+
+### P4 T5/T6 runtime sequence slice and G3 — 2026-10-09
+
+T5's recursive materializer constructs native Vector storage and frozen Array
+storage directly from checked descriptors. Recursive heap children stay in
+temporary roots until the owner module's static-constant cache has published the
+outer value. A failed descriptor does not leave a partial owner value and
+restores temporary-root depth. Direct VM coverage also checks nested values
+survive collection and repeated ensure returns the canonical owner object.
+
+T6 confirms same-module reads, selected and renamed imports, qualified module
+reads, and two-hop re-exports all resolve to the same source-owned sequence
+objects. Runtime initializer bytecode does not contain Array/Vector literal
+construction for the constants. The source module owns each materialized value;
+aliases do not create global slots or copies. Array constants retain the Array
+runtime classifier and frozen state.
+
+Focused evidence:
+
+| Gate | Command/filter | Result |
+|---|---|---|
+| T5 direct materializer | `cargo test -p phalcom-core --lib modules::static_constant` | 3 passed |
+| T6 sequence runtime reads | `cargo test -p phalcom-core --test core static_const_sequence` | 2 passed |
+| T6 static-constant regression filter | `cargo test -p phalcom-core --test core static_const` | 23 passed |
+| G3 static sequence semantics | `cargo test -p phalcom-semantic --test semantic static_sequence` | 7 passed |
+| G3 Vector runtime | `cargo test -p phalcom-core --test core core_vector` | 8 passed |
+| G3 Array runtime | `cargo test -p phalcom-core --test core core_array` | 10 passed |
+
+G3 is `PASS`. T5 and T6 are `IMPLEMENTED / FOCUSED_TESTED`. G2 remains
+`BASELINE_BLOCKED` under D4; G3 does not broaden or repair the inherited
+computed-Record-key failures. No workspace/release certification was run.
+
+
+### P4 T7 const-Array mutation safety and G4 — 2026-10-09
+
+The existing checker-local binding-phase index supplies stable `BindingId`
+provenance for module constants and imported constants. T7 uses that provenance
+only when the direct receiver has canonical Array type. Direct subscript writes
+and the canonical `Array.at(_, put:)` replacement method emit
+`StaticObjectMutation`; ordinary `let` and `let mut` Array bindings remain
+mutable. Aliases remain a runtime concern and are rejected by the frozen Array
+guard. Static Vector has no setter or mutation API; dynamic selector misses
+continue through the language's runtime missing-message behavior.
+
+Focused evidence:
+
+| Gate | Command/filter | Result |
+|---|---|---|
+| T7 semantic provenance | `cargo test -p phalcom-semantic --test semantic foundations::static_const_mutation` | 3 passed |
+| G4 COLL006 semantic | `cargo test -p phalcom-semantic --test semantic coll006` | 46 passed |
+| G4 static-constant runtime | `cargo test -p phalcom-core --test core static_const` | 23 passed |
+| G4 Array runtime | `cargo test -p phalcom-core --test core core_array` | 10 passed |
+
+The T7 cases prove direct and imported const mutation rejection, named and
+subscript replacement coverage, ordinary Array mutation, runtime alias
+freezing, Vector's absent mutator, Array's runtime class, and rejection as a
+stable Map key. G4 is `PASS`; T7 is `IMPLEMENTED / FOCUSED_TESTED`. No semantic
+binding redesign was needed.
+
+
+### P4 T9 List migration and G5 — 2026-10-09
+
+The G5 AST-aware census had 495 sites: 331 in `.ph` files and 164 in Rust
+source/test strings. All sites were classified; no `AMBIGUOUS` or
+unclassified entries remained. G5 totals were `LIST_RESIZING` 7,
+`LIST_IDENTITY` 196, `FIXED_RUNTIME` 35, `STATIC_IMMUTABLE` 4,
+`READ_ITERATE_ONLY` 243, and `LEGACY_TEST` 10. Every List-required
+producer now has explicit List intent in its annotation, parameter/result
+contract, or typed intermediate. See the P4 migration census for the complete
+site list and evidence.
+
+The accepted TDR-0091 and current sequence-literal specification define
+explicit-head selection, unique contextual-family selection, then runtime
+Array/static Vector defaults. TDR-0025/TDR-0028 and static-evaluation/bytecode
+wording now agree. The closed-sequence T3 decision remains in force: an open
+symbolic Vector identity spread is not reduced or published.
+
+G3/G4 focused reruns after source migration remain passing:
+
+| Gate | Command/filter | Result |
+|---|---|---|
+| Semantic literals | `cargo test -p phalcom-semantic --test semantic coll006` | 46 passed |
+| Static sequence | `cargo test -p phalcom-semantic --test semantic static_sequence` | 7 passed |
+| Static constants | `cargo test -p phalcom-core --test core static_const` | 23 passed |
+| Array runtime | `cargo test -p phalcom-core --test core core_array` | 10 passed |
+| Vector runtime | `cargo test -p phalcom-core --test core core_vector` | 8 passed |
+
+Exploratory language-corpus filters were mixed: explicit List migration cases
+exposed existing iterator/protocol and unrelated path/Bytes/negative-oracle
+failures, while `option`, `system`, `values`, positive indexing, and reflection
+filters passed. T10 later applied the runtime Array/static Vector defaults. The
+iteration lowering failures also reproduce in untouched iteration fixtures.
+These broad corpus outcomes are not reported as passes and do not alter G5's
+listed acceptance criteria; they remain recorded for later classification if
+the T10 focused gates implicate them.
+
+G5 is `PASS`: census is fully classified, List-dependent sites are explicit,
+normative updates are accepted and indexed, and G3/G4 remain valid after the
+migration. G2 remains `BASELINE_BLOCKED` under D4's three computed-Record-key
+`RecordKeyNotStatic` failures; the amendment does not turn that filter into a
+pass.
+
+
+### P4 T10 atomic default cutover and G6 — 2026-10-09
+
+T10 installs phase defaults only after explicit-head and unique-context
+selection. `sequence_literal.rs` maps runtime evaluation to Array and static
+evaluation to Vector; `check_statement` sets static phase while checking each
+`const` initializer and restores the caller phase afterward. The latter closes
+a phase-owner gap: without it the static-constant product selected Vector while
+the ordinary module binding fact still exposed Array. The new regression checks
+both module binding facts and confirms the static product agrees.
+
+The context-free compiler path fails closed for headless and explicit Vector
+literals without semantic lowering. Syntax-explicit `<T>[...]` Array remains
+available through the compatibility path. The parameter-type overload matrix
+was not added: current object/trait specs prohibit parameter/result-type
+selector overloads, so CV-25 uses the valid ambiguous trait-dispatch case; the
+runtime Array default does not select a candidate.
+
+| G6 evidence | Completed result | Scope and limit |
+|---|---|---|
+| Semantic cutover | `cargo test -p phalcom-semantic --test semantic coll006` — **49 passed** | Includes runtime Array default, top-level const Vector versus runtime let Array, ambiguity, and existing explicit/contextual controls |
+| Array runtime/compiler | `cargo test -p phalcom-core --test core core_array` — **11 passed** | Includes default Array source-order effects and explicit Array behavior |
+| Vector runtime/compiler | `cargo test -p phalcom-core --test core core_vector` — **8 passed** | Includes headless/explicit-Vector fail-closed checks and Vector construction/runtime |
+| Static constant runtime/module | `cargo test -p phalcom-core --test core static_const` — **23 passed** | Includes canonical owner, import/re-export/GC, frozen Array alias, and Vector mutation boundary |
+| Semantic static constants | `cargo test -p phalcom-semantic --test semantic static_constants` — **21 passed, 3 failed** | The three D4 computed-Record-key `RecordKeyNotStatic` failures remain baseline; all static-sequence cases in this filter passed |
+
+G6 is `PASS`; T10 is `IMPLEMENTED / FOCUSED_TESTED`. G2 remains
+`BASELINE_BLOCKED` by D4. No workspace all-target check, native-surface
+recheck, workspace tests, clippy, or release certification was run at this stop
+point. P4 remains open at `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; continue at
+T11 using the [P4 continuation handoff](COLL006.C1.P4-handoff.md).

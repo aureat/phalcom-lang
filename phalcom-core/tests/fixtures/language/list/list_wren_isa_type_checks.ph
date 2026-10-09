@@ -6,7 +6,7 @@
 // not extend a shared `Iterable` root in this build, so the `Sequence`
 // membership check has no Phalcom analog and is dropped here).
 
-let l = []
+let l: List<Int> = []
 System.print(l.is(List))
 System.print(l.is(Object))
 System.print(l.is(Bool))

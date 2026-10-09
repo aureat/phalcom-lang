@@ -7,7 +7,7 @@
 //  Option/List protocols, string interpolation, introspection.
 // ============================================================
 class Stack {
-  _items = []
+  _items: List<Dynamic> = []
 
   // Keyword constructor (`construct`): binds instance state directly
   // from labeled arguments.

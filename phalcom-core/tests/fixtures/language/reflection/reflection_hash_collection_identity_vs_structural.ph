@@ -12,8 +12,8 @@ let t2 = (1, 2)
 System.print(t1 == t2)
 System.print(t1.hash == t2.hash)
 
-let l1 = [1, 2]
-let l2 = [1, 2]
+let l1: List<Int> = [1, 2]
+let l2: List<Int> = [1, 2]
 System.print(l1 == l2)
 System.print(l1.hash == l2.hash)
 System.print(l1.hash == l1.hash)

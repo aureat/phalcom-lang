@@ -3,7 +3,7 @@
 // status: PASS
 // Nullary count traverses via iterate, not size, proving generic length derivation works on List and Iterator
 
-let mut list = [10, 20, 30, 40]
+let mut list: List<Int> = [10, 20, 30, 40]
 System.print(list.count)
 
 let mut view = list.iter.filter |x| { x > 15 }

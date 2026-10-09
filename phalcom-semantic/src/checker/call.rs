@@ -2654,7 +2654,10 @@ fn apply_generic_callable_in_context(
                 | crate::checker::inference::InferenceFailureReason::UnresolvedSelf
                 | crate::checker::inference::InferenceFailureReason::InternalRowSolverFailure { .. } => None,
             };
-            let parents = session.constraint_explanation_roots(&conflict.constraint_indices);
+            let mut parents = session.constraint_explanation_roots(&conflict.constraint_indices);
+            parents.extend(ctx.current_call_explanations());
+            parents.sort_by_key(|id| id.0);
+            parents.dedup();
             let explanation = ctx.record_derivation(
                 crate::explain::ExplanationStep::GenericConflict {
                     parameter,
@@ -3182,16 +3185,31 @@ fn conflict_source_range(
     conflict: &crate::checker::inference::InferenceConflict,
     fallback: SourceRange,
 ) -> SourceRange {
-    let argument = match conflict.origin.as_ref() {
-        Some(ConstraintOrigin::Argument { argument, .. }) => Some(*argument),
+    let range = match conflict.origin.as_ref() {
+        Some(ConstraintOrigin::Argument { argument, .. }) => ctx.expressions.get(argument).map(|analysis| analysis.range),
         _ => conflict.constraint_indices.iter().find_map(|index| match session.constraint_origin(*index) {
-            Some(ConstraintOrigin::Argument { argument, .. }) => Some(*argument),
+            Some(ConstraintOrigin::Argument { argument, .. }) => ctx.expressions.get(argument).map(|analysis| analysis.range),
             _ => None,
         }),
     };
-    argument
-        .and_then(|argument| ctx.expressions.get(&argument).map(|analysis| analysis.range))
-        .unwrap_or(fallback)
+    range.or_else(|| {
+        let ty = match &conflict.failure {
+            crate::checker::inference::InferenceFailureReason::StructuralMismatch { left, right } => [left.as_ref(), right.as_ref()]
+                .into_iter()
+                .find_map(|term| match term {
+                    crate::checker::inference::InferenceTerm::Canonical(ty) => Some(*ty),
+                    _ => None,
+                }),
+            crate::checker::inference::InferenceFailureReason::ConflictingBounds { lower, .. } => Some(*lower),
+            _ => None,
+        }?;
+        ctx.expressions
+            .values()
+            .filter(|expression| expression.range.start >= fallback.start && expression.range.end <= fallback.end)
+            .filter(|expression| expression.knowledge.ty() == Some(ty))
+            .min_by_key(|expression| (expression.range.end - expression.range.start, expression.range.start))
+            .map(|expression| expression.range)
+    }).unwrap_or(fallback)
 }
 
 fn generic_conflict_message(conflict: &crate::checker::inference::InferenceConflict) -> String {
@@ -4352,6 +4370,13 @@ pub(crate) fn apply_union_resolved_call(
     ctx.begin_call_causal_capture();
 
     let shared_scope = prepare_union_generic_inference(ctx, arms, arguments, expected);
+    // Ordinary arguments are also shared by every arm. Their construction
+    // capability waits for the aggregate call even when no shared solver is
+    // needed to supply a contextual closure expectation.
+    let argument_owner = shared_scope.is_none().then(|| {
+        let (context, frame) = ctx.create_inference_context();
+        super::sequence_publication::PublicationOwner(context, frame)
+    });
     let mut contextual_conflicts = Vec::new();
     let mut common_expectations = vec![None; arguments.len()];
     let mut expectation_counts = vec![0usize; arguments.len()];
@@ -4406,7 +4431,7 @@ pub(crate) fn apply_union_resolved_call(
             } else {
                 ExpectedType::None
             };
-            let typed = analyze_application_argument(ctx, argument, &argument_expected);
+            let typed = analyze_application_argument_owned(ctx, argument, &argument_expected, argument_owner);
             record_generic_argument_capture(ctx, &typed);
             typed_arguments.push(typed);
         }
@@ -4634,6 +4659,16 @@ pub(crate) fn apply_union_resolved_call(
     let mut status = status;
     if let Some(scope) = shared_scope {
         scope.finish(ctx, &mut status, causal_invalidity, all_found);
+    }
+    if let Some(owner) = argument_owner {
+        if all_found && status.is_ready() && matches!(causal_invalidity, CausalInvalidity::Clean) {
+            if let Err(failure) = ctx.accept_sequence_owner(owner) {
+                status = failure;
+            }
+        } else {
+            ctx.reject_sequence_owner(owner);
+        }
+        ctx.finish_inference_context(owner.0);
     }
     let local_type = local_type_from_arguments(ctx, knowledge.ty(), &local_types);
     let result = CallCheckResult {

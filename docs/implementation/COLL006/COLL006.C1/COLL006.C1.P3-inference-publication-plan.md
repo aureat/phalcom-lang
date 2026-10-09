@@ -4,8 +4,8 @@ program: COLL006
 checkpoint: COLL006.C1
 kind: implementation-plan-supplement
 scope: COLL006.C1.P3.T4
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 parent_plan: COLL006.C1.P3-implementation-plan.md
 ---
@@ -24,7 +24,7 @@ Required implementation reads: this supplement, current P3 plan/handoff, checkpo
 
 ## Current implementation checkpoint — 2026-10-08
 
-This supplement is `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. The late-failure discriminator, checker-local registry, simple owners, and substantial application/row integration are present. Ten focused publication tests completed successfully before the latest static caller change; three registry unit tests passed earlier. T5 static fail-closed handling and incremental parity, several T4 coverage obligations, and T6 gates are unfinished. The latest `session.rs` caller correction has not been compiled or tested. See the [continuation report](COLL006.C1.P3-inference-publication-report.md) for exact source/evidence boundaries; the checkpoint remains the state authority.
+This supplement is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. The late-failure discriminator, checker-local registry, owner receipts, application/row integration, exact-case conformance, union aggregation, static fail-closed handling, and incremental parity are covered by the focused publication and consumer gates. See the completion walkthrough; the checkpoint remains the state authority.
 
 ## 2. Verified repository grounding
 

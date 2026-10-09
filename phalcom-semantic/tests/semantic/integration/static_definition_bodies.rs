@@ -590,6 +590,54 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
 }
 
 #[test]
+fn symbolic_vector_identity_spread_stays_unreduced_before_reading_its_source() {
+    let fixture = crate::semantic::support::Fixture::new(
+        "class Copier<N: Int> { @class copy(_ source: Vector<Int, N>) -> Vector<Int, N> { <Int, N>[*source] } }\n\
+         const source: Vector<Int, 2> = <Int, 2>[1, 2]\n\
+         const copied: Vector<Int, 2> = <Int, 2>[*source]\n",
+    );
+    fixture.assert_no_error_diagnostics();
+    let symbolic = fixture.callable("Copier", "copy", phalcom_semantic::identity::DispatchSide::Class);
+    let symbolic_resolution = symbolic.sequence_literals.values().next().expect("generic checked identity spread");
+    let symbolic_type = symbolic_resolution.result_type;
+    let symbolic_extent = symbolic_resolution.extent.expect("symbolic Vector extent");
+    assert!(matches!(fixture.analysis.snapshot.store.get(symbolic_extent), phalcom_semantic::types::store::TypeData::Parameter(_)));
+
+    let copied = fixture
+        .analysis
+        .snapshot
+        .static_constant(&phalcom_semantic::static_constant::StaticConstantId::new(fixture.module.clone(), "copied"))
+        .expect("checked constant identity spread");
+    let mut checked = copied.checked.expression.clone();
+    let mut resolutions = (*checked.sequence_literals).clone();
+    let resolution = resolutions.values_mut().next().expect("checked constant literal");
+    let source_range = *resolution.exact_expansions.keys().next().expect("checked Vector spread source range");
+    resolution.result_type = symbolic_type;
+    resolution.extent = Some(symbolic_extent);
+    resolution.construction = phalcom_semantic::checker::SequenceConstructionPlan::VectorIdentitySpread {
+        source_range,
+        extent: symbolic_extent,
+    };
+    resolution.exact_expansions.insert(
+        source_range,
+        phalcom_semantic::checker::SequenceExpansionResolution::VectorStorage { extent: symbolic_extent },
+    );
+    checked.sequence_literals = Arc::new(resolutions);
+
+    let mut values = StaticValueStore::new();
+    let outcome = StaticEvaluator::for_checked_expression(
+        &checked,
+        &mut values,
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+    )
+    .with_type_store(&fixture.analysis.snapshot.store)
+    .evaluate();
+    assert_eq!(outcome, StaticEvalOutcome::Symbolic);
+    assert_eq!(values.len(), 0, "the symbolic spread must stop before reading its source or publishing a sequence root");
+}
+
+#[test]
 fn static_return_control_propagates_to_root_and_stops_at_call_boundaries() {
     let fixture = WorkspaceFixture::new()
         .module(

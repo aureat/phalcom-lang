@@ -5,7 +5,8 @@ let getLeft = || {
 }
 let getRight = || {
   order.append("R")
-  [1, 2, 3]
+  let values: List<Int> = [1, 2, 3]
+  values
 }
 let mut res = getLeft.call() in getRight.call()
 System.print(order.join(""))

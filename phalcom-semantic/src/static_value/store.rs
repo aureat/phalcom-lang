@@ -95,6 +95,7 @@ macro_rules! structural_id {
 }
 
 structural_id!(StaticTupleId);
+structural_id!(StaticSequenceId);
 structural_id!(StaticRecordId);
 structural_id!(StaticDataValueId);
 structural_id!(StaticVariantValueId);
@@ -121,6 +122,38 @@ pub struct StaticPackData {
 struct StaticRecordField {
     key: FieldKey,
     value: StaticValueRef,
+}
+
+/// Canonical family retained from a checked homogeneous sequence result type.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum StaticSequenceFamily {
+    Array,
+    Vector,
+}
+
+/// Immutable homogeneous sequence value with its already-checked ordinary type.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct StaticSequenceData {
+    family: StaticSequenceFamily,
+    result_type: TypeId,
+    elements: Box<[StaticValueRef]>,
+}
+
+impl StaticSequenceData {
+    /// Returns the canonical checked collection family.
+    pub const fn family(&self) -> StaticSequenceFamily {
+        self.family
+    }
+
+    /// Returns the canonical `Array<T>` or `Vector<T, N>` result type.
+    pub const fn result_type(&self) -> TypeId {
+        self.result_type
+    }
+
+    /// Returns the immutable logical contents in source order.
+    pub fn elements(&self) -> &[StaticValueRef] {
+        &self.elements
+    }
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -192,6 +225,8 @@ pub enum StaticValueData {
     StaticTerm(TypeId),
     /// Ordered immutable tuple value.
     Tuple(StaticTupleId),
+    /// Immutable homogeneous `Array` or `Vector` value.
+    Sequence(StaticSequenceId),
     /// Immutable Record value with canonical heterogeneous FieldKey keys.
     Record(StaticRecordId),
     /// Immutable declared data product.
@@ -250,6 +285,18 @@ pub enum StaticValueStoreError {
     /// The variant payload does not match the exact canonical variant fields.
     #[error("static variant payload does not match canonical variant metadata")]
     InvalidVariantPayload,
+    /// The retained sequence type is not a canonical applied Array or Vector type.
+    #[error("type {0:?} is not a canonical Array or Vector sequence type")]
+    InvalidSequenceType(TypeId),
+    /// A Vector sequence type does not carry a closed exact static integer extent.
+    #[error("Vector sequence type {0:?} does not carry a closed exact static Int extent")]
+    InvalidSequenceExtent(TypeId),
+    /// A closed Vector extent cannot be negative.
+    #[error("Vector sequence extent {0} cannot be negative")]
+    NegativeSequenceExtent(StaticInt),
+    /// The closed Vector extent does not equal the sequence's logical element count.
+    #[error("Vector sequence extent {extent} does not match logical element count {actual}")]
+    SequenceExtentMismatch { extent: StaticInt, actual: usize },
 }
 
 /// Append-only canonical arena for semantic compile-time values.
@@ -267,6 +314,8 @@ pub struct StaticValueStore {
     symbol_ids: HashMap<Box<str>, StaticSymbolId>,
     tuples: Vec<Box<[StaticValueRef]>>,
     tuple_ids: HashMap<Box<[StaticValueRef]>, StaticTupleId>,
+    sequences: Vec<StaticSequenceData>,
+    sequence_ids: HashMap<StaticSequenceData, StaticSequenceId>,
     records: Vec<Box<[StaticRecordField]>>,
     record_ids: HashMap<Box<[StaticRecordField]>, StaticRecordId>,
     data_values: Vec<StaticDataValue>,
@@ -298,6 +347,8 @@ impl StaticValueStore {
             symbol_ids: HashMap::new(),
             tuples: Vec::new(),
             tuple_ids: HashMap::new(),
+            sequences: Vec::new(),
+            sequence_ids: HashMap::new(),
             records: Vec::new(),
             record_ids: HashMap::new(),
             data_values: Vec::new(),
@@ -403,6 +454,115 @@ impl StaticValueStore {
             id
         };
         Ok(self.intern(StaticValueData::Tuple(id)))
+    }
+
+    /// Interns an immutable homogeneous Array or Vector value.
+    ///
+    /// Family selection and element assignability are owned by semantic
+    /// checking. This boundary validates only the retained canonical type and
+    /// the static representation's store and extent invariants.
+    pub fn intern_sequence(
+        &mut self,
+        result_type: TypeId,
+        elements: Vec<StaticValueRef>,
+        types: &TypeStore,
+    ) -> Result<StaticValueRef, StaticValueStoreError> {
+        self.check_children(elements.iter().copied())?;
+        let result_kind = self.checked_kind(result_type, types)?;
+        if result_kind != KindId::TYPE {
+            return Err(StaticValueStoreError::NonProperType { ty: result_type, kind: result_kind });
+        }
+
+        let (declaration, arguments) = match types.get(result_type) {
+            crate::types::store::TypeData::Applied { origin, arguments } => {
+                if origin.index() >= types.len() {
+                    return Err(StaticValueStoreError::UnknownType(*origin));
+                }
+                let crate::types::store::TypeData::Nominal { declaration } = types.get(*origin) else {
+                    return Err(StaticValueStoreError::InvalidSequenceType(result_type));
+                };
+                (declaration.clone(), arguments.to_vec())
+            }
+            _ => return Err(StaticValueStoreError::InvalidSequenceType(result_type)),
+        };
+        let _element_type = match arguments.first() {
+            Some(crate::types::store::StaticArgument::Term(element_type)) => {
+                let kind = self.checked_kind(*element_type, types)?;
+                if kind != KindId::TYPE {
+                    return Err(StaticValueStoreError::NonProperType { ty: *element_type, kind });
+                }
+                *element_type
+            }
+            _ => return Err(StaticValueStoreError::InvalidSequenceType(result_type)),
+        };
+        let declarations = crate::core_surface::CoreDeclarationIds::default();
+
+        let family = if declaration == declarations.array {
+            if arguments.len() != 1 {
+                return Err(StaticValueStoreError::InvalidSequenceType(result_type));
+            }
+            StaticSequenceFamily::Array
+        } else if declaration == declarations.vector {
+            if arguments.len() != 2 {
+                return Err(StaticValueStoreError::InvalidSequenceType(result_type));
+            }
+            let extent_type = match arguments[1] {
+                crate::types::store::StaticArgument::Term(extent_type) => extent_type,
+                crate::types::store::StaticArgument::RecordRow(_) | crate::types::store::StaticArgument::DynamicType => {
+                    return Err(StaticValueStoreError::InvalidSequenceExtent(result_type));
+                }
+            };
+            let extent_kind = self.checked_kind(extent_type, types)?;
+            let crate::types::store::TypeData::ConstInt(extent) = types.get(extent_type) else {
+                return Err(StaticValueStoreError::InvalidSequenceExtent(result_type));
+            };
+            if !matches!(
+                types.get_kind(extent_kind),
+                crate::types::KindData::StaticDomain(domain) if *domain == types.const_int_domain()
+            ) {
+                return Err(StaticValueStoreError::InvalidSequenceExtent(result_type));
+            }
+            if extent.to_bigint().sign() == num_bigint::Sign::Minus {
+                return Err(StaticValueStoreError::NegativeSequenceExtent(extent.clone()));
+            }
+            if extent.to_bigint() != BigInt::from(elements.len()) {
+                return Err(StaticValueStoreError::SequenceExtentMismatch {
+                    extent: extent.clone(),
+                    actual: elements.len(),
+                });
+            }
+            StaticSequenceFamily::Vector
+        } else {
+            return Err(StaticValueStoreError::InvalidSequenceType(result_type));
+        };
+
+        let node = StaticSequenceData {
+            family,
+            result_type,
+            elements: elements.into_boxed_slice(),
+        };
+        let id = if let Some(id) = self.sequence_ids.get(&node) {
+            *id
+        } else {
+            let id = StaticSequenceId(self.sequences.len() as u32);
+            self.sequences.push(node.clone());
+            self.sequence_ids.insert(node, id);
+            id
+        };
+        Ok(self.intern(StaticValueData::Sequence(id)))
+    }
+
+    /// Looks up immutable homogeneous sequence data.
+    pub fn get_sequence(&self, id: StaticSequenceId) -> Result<&StaticSequenceData, StaticValueStoreError> {
+        self.sequences.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))
+    }
+
+    /// Looks up the ordered children of an immutable positional tuple.
+    pub fn get_tuple(&self, id: StaticTupleId) -> Result<&[StaticValueRef], StaticValueStoreError> {
+        self.tuples
+            .get(id.0 as usize)
+            .map(Box::as_ref)
+            .ok_or(StaticValueStoreError::UnknownValue(id.0))
     }
 
     /// Interns a closed Record with canonical FieldKey ordering and exact duplicate rejection.
@@ -692,6 +852,14 @@ impl StaticValueStore {
                     .collect::<Result<Vec<_>, _>>()?;
                 types.tuple(elements.into_boxed_slice())
             }
+            StaticValueData::Sequence(id) => {
+                let sequence = self.get_sequence(id)?;
+                let kind = self.checked_kind(sequence.result_type, types)?;
+                if kind != KindId::TYPE {
+                    return Err(StaticValueStoreError::NonProperType { ty: sequence.result_type, kind });
+                }
+                sequence.result_type
+            }
             StaticValueData::Record(id) => {
                 let fields = self.records.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
                 let fields = fields
@@ -817,7 +985,12 @@ impl StaticValueStore {
                 StaticValueDomain::Kind(KindId::TYPE)
             }
             StaticValueData::StaticTerm(ty) => StaticValueDomain::Kind(self.checked_kind(*ty, types)?),
-            StaticValueData::Tuple(_) | StaticValueData::Record(_) | StaticValueData::Data(_) | StaticValueData::Variant(_) | StaticValueData::Pack(_) => {
+            StaticValueData::Tuple(_)
+            | StaticValueData::Sequence(_)
+            | StaticValueData::Record(_)
+            | StaticValueData::Data(_)
+            | StaticValueData::Variant(_)
+            | StaticValueData::Pack(_) => {
                 return Err(StaticValueStoreError::StructuralValueNeedsSemanticProducts);
             }
         };
@@ -844,6 +1017,17 @@ impl StaticValueStore {
                     && left
                         .iter()
                         .zip(right.iter())
+                        .try_fold(true, |same, (a, b)| Ok::<_, StaticValueStoreError>(same && self.semantic_eq(*a, *b)?))?
+            }
+            (StaticValueData::Sequence(a), StaticValueData::Sequence(b)) => {
+                let left = self.get_sequence(*a)?;
+                let right = self.get_sequence(*b)?;
+                left.result_type == right.result_type
+                    && left.elements.len() == right.elements.len()
+                    && left
+                        .elements
+                        .iter()
+                        .zip(right.elements.iter())
                         .try_fold(true, |same, (a, b)| Ok::<_, StaticValueStoreError>(same && self.semantic_eq(*a, *b)?))?
             }
             (StaticValueData::Record(a), StaticValueData::Record(b)) => {
@@ -950,6 +1134,15 @@ impl StaticValueStore {
                     hash.u64(self.content_fingerprint(*child)?);
                 }
             }
+            StaticValueData::Sequence(id) => {
+                hash.byte(14);
+                let sequence = self.get_sequence(*id)?;
+                hash.u32(sequence.result_type.0);
+                hash.u64(sequence.elements.len() as u64);
+                for child in sequence.elements.iter() {
+                    hash.u64(self.content_fingerprint(*child)?);
+                }
+            }
             StaticValueData::Record(id) => {
                 hash.byte(9);
                 let fields = self.records.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
@@ -1042,6 +1235,15 @@ impl StaticValueStore {
                 let children = self.tuples.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))?.clone();
                 hash.u64(children.len() as u64);
                 for child in children.iter() {
+                    hash.u64(self.semantic_hash(*child)?);
+                }
+            }
+            StaticValueData::Sequence(id) => {
+                hash.byte(14);
+                let sequence = self.get_sequence(*id)?;
+                hash.u32(sequence.result_type.0);
+                hash.u64(sequence.elements.len() as u64);
+                for child in sequence.elements.iter() {
                     hash.u64(self.semantic_hash(*child)?);
                 }
             }

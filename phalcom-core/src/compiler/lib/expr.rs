@@ -1402,24 +1402,28 @@ impl<'vm> Compiler<'vm> {
                 self.emit(Bytecode::FinishSetLiteral, set_expr.range);
             }
             Expr::BracketLiteral(list_expr) => {
+                let lowering_available = self.lowering().is_some();
                 let checked_spec = if let Some(lowering) = self.lowering() {
-                    let spec = lowering
-                        .sequence_literals
-                        .get(&list_expr.range)
-                        .cloned()
-                        .ok_or(CompilerError::MissingSequenceLiteralLowering(list_expr.range))?;
-                    Some(spec)
+                    let spec = lowering.sequence_literals.get(&list_expr.range).cloned();
+                    if spec.is_none() {
+                        for element in &list_expr.elements {
+                            if let BracketLiteralElement::Expansion { expr, range } = element
+                                && lowering.known_invalid_positional_expansions.contains_key(range)
+                            {
+                                self.check_bounded_expansion(expr, *range)?;
+                            }
+                        }
+                    }
+                    Some(spec.ok_or(CompilerError::MissingSequenceLiteralLowering(list_expr.range))?)
                 } else {
                     None
                 };
                 let family = if let Some(spec) = &checked_spec {
                     spec.family
-                } else if list_expr.head.as_ref().is_some_and(|head| head.arguments.len() == 2) {
-                    return Err(CompilerError::MissingSequenceLiteralLowering(list_expr.range));
-                } else if list_expr.head.is_some() {
+                } else if !lowering_available && list_expr.head.as_ref().is_some_and(|head| head.arguments.len() == 1) {
                     phalcom_semantic::checker::SequenceLiteralFamily::Array
                 } else {
-                    phalcom_semantic::checker::SequenceLiteralFamily::List
+                    return Err(CompilerError::MissingSequenceLiteralLowering(list_expr.range));
                 };
 
                 let list_expr = *list_expr;
@@ -1593,7 +1597,7 @@ impl<'vm> Compiler<'vm> {
                     let has_lowering = self.lowering().is_some();
                     let spec = self.lowering().and_then(|l| l.static_constants.get(&value)).cloned();
                     if let Some(spec) = spec {
-                        match spec.descriptor {
+                        match spec.descriptor.clone() {
                             phalcom_semantic::materialization::MaterializationDescriptor::Unit => {
                                 let idx = self.add_constant(Value::unit(), range)?;
                                 self.emit(Bytecode::Constant(idx), range);
@@ -1641,6 +1645,19 @@ impl<'vm> Compiler<'vm> {
                                 let sym = self.vm.interner.intern(s.as_ref());
                                 let idx = self.add_constant(Value::symbol(sym), range)?;
                                 self.emit(Bytecode::Constant(idx), range);
+                                return Ok(());
+                            }
+                            phalcom_semantic::materialization::MaterializationDescriptor::Sequence { .. } => {
+                                let reference = self
+                                    .vm
+                                    .ensure_static_constant_materialized(&spec)
+                                    .map_err(|error| CompilerError::Message(error.to_string()))?;
+                                let value = self
+                                    .vm
+                                    .resolve_static_constant(reference)
+                                    .map_err(|error| CompilerError::Message(error.to_string()))?;
+                                let index = self.add_constant(value, range)?;
+                                self.emit(Bytecode::Constant(index), range);
                                 return Ok(());
                             }
                             phalcom_semantic::materialization::MaterializationDescriptor::DeferredStructural(_) => {

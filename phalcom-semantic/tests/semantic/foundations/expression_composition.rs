@@ -40,7 +40,7 @@ fn list_unknown_element_does_not_disappear() {
 class Probe {
   @class
   run() {
-    let xs = [1, missing]
+    let xs: List<Int> = [1, missing]
   }
 }
 "#,
@@ -58,7 +58,7 @@ fn assumed_list_element_weakens_aggregate() {
 class Probe {
   @class
   run(_ value: Int) {
-    let xs = [1, value]
+    let xs: List<Int> = [1, value]
   }
 }
 "#,
@@ -404,8 +404,8 @@ fn exact_expansions_contribute_to_aggregate_shapes() {
 class Probe {
   @class
   run() {
-    let values = [1, 2]
-    let list = [*values, 3]
+    let values: List<Int> = [1, 2]
+    let list: List<Int> = [*values, 3]
     let tuple_values = (1, 2)
     let tuple = (*tuple_values, 3)
     let mapping = Map { base: 1 }
@@ -626,8 +626,8 @@ fn assumed_expansion_weakens_aggregate() {
 class Probe {
   @class
   run(_ value: Int) {
-    let values = [value]
-    let list = [*values, 1]
+    let values: List<Int> = [value]
+    let list: List<Int> = [*values, 1]
   }
 }
 "#,
@@ -643,7 +643,7 @@ fn unknown_expansions_do_not_disappear() {
 class Probe {
   @class
   run() {
-    let list = [*missing, 1]
+    let list: List<Int> = [*missing, 1]
     let tuple = (*missing, 1)
     let map = Map { **missing, key: 1 }
     let record = {**missing, key: 1}
@@ -693,8 +693,8 @@ class Probe {
   run(_ assumed: Int) {
     let bad: Int = CellNum.new()
     let known = bad.value()
-    let list = [1, assumed]
-    let unresolved = [1, missing]
+    let list: List<Int> = [1, assumed]
+    let unresolved: List<Int> = [1, missing]
   }
 }
 "#,

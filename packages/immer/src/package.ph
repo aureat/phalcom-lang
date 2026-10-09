@@ -25,5 +25,6 @@ let serverConfig: ServerConfig = {
 }
 
 let mut next: Base = Immer(base: serverConfig, with: |draft| {
-    draft.push(["z"])
+    let inserted: List<String> = ["z"]
+    draft.push(inserted)
 })

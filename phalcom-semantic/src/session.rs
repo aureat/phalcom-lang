@@ -6758,7 +6758,7 @@ impl SemanticWorkspaceSession {
                     let Some(fact) = module_static_bindings.get(&symbol.module).and_then(|bindings| bindings.get(symbol)) else {
                         continue;
                     };
-                    ctx.declare_checked_binding(local_name.to_string(), &fact.state);
+                    ctx.declare_checked_binding(local_name.to_string(), &fact.state, fact.phase);
                 }
             }
 

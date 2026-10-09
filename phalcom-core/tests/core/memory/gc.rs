@@ -430,7 +430,7 @@ fn ensure_outcome_survives_collecting_cleanup() {
         module,
         r#"
         let result = || {
-          let protectedList = []
+          let protectedList: List<Int> = []
           protectedList.append(7)
           protectedList
         }.ensure(|| {

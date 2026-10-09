@@ -8,8 +8,8 @@ use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{DeclarationId, DispatchSide, FieldId};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::static_constant::StaticConstantId;
-use phalcom_semantic::static_eval::StaticEvalOutcome;
-use phalcom_semantic::static_value::{StaticInt, StaticValueData};
+use phalcom_semantic::static_eval::{StaticEvalError, StaticEvalOutcome, StaticEvaluator};
+use phalcom_semantic::static_value::{StaticInt, StaticSequenceFamily, StaticValueData};
 use phalcom_semantic::types::store::TypeData;
 use std::sync::Arc;
 
@@ -48,6 +48,215 @@ fn test_computed_const() {
     let val_ref = product.value().expect("value");
     let val = update.snapshot.static_values().get(val_ref).expect("value data");
     assert_eq!(val, &StaticValueData::Int(StaticInt::Small(30)));
+}
+
+#[test]
+fn test_static_sequence_constants_reduce_through_checked_array_and_vector_products() {
+    let module = test_module();
+    let source = r#"
+const array_value: Array<Int> = <Int>[1, 2]
+const vector_value: Vector<Int, 2> = <Int, 2>[3, 4]
+const nested_value: Array<Array<Int>> = [<Int>[5], <Int>[6]]
+const empty_vector: Vector<Int, 0> = []
+const tuple_source: (Int, Int) = (7, 8)
+const tuple_expanded: Array<Int> = [*tuple_source]
+const vector_source: Vector<Int, 2> = <Int, 2>[9, 10]
+const vector_expanded: Vector<Int, 2> = <Int, 2>[*vector_source]
+"#;
+    let update = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let family_and_elements = |name: &str| {
+        let product = update
+            .snapshot
+            .static_constant(&StaticConstantId::new(module.clone(), name))
+            .unwrap_or_else(|| panic!("missing static constant {name}"));
+        assert!(product.is_successful(), "{name} did not reduce: {:?}", product.outcome);
+        let StaticValueData::Sequence(id) = update.snapshot.static_values().get(product.value().unwrap()).unwrap() else {
+            panic!("{name} must be a canonical StaticSequence")
+        };
+        let sequence = update.snapshot.static_values().get_sequence(*id).unwrap();
+        let children = sequence
+            .elements()
+            .iter()
+            .map(|child| update.snapshot.static_values().get(*child).unwrap().clone())
+            .collect::<Vec<_>>();
+        (sequence.family(), children)
+    };
+
+    assert_eq!(family_and_elements("array_value"), (StaticSequenceFamily::Array, vec![
+        StaticValueData::Int(StaticInt::Small(1)),
+        StaticValueData::Int(StaticInt::Small(2)),
+    ]));
+    assert_eq!(family_and_elements("vector_value"), (StaticSequenceFamily::Vector, vec![
+        StaticValueData::Int(StaticInt::Small(3)),
+        StaticValueData::Int(StaticInt::Small(4)),
+    ]));
+    let (nested_family, nested_elements) = family_and_elements("nested_value");
+    assert_eq!(nested_family, StaticSequenceFamily::Array);
+    assert_eq!(nested_elements.len(), 2);
+    for child in nested_elements {
+        let StaticValueData::Sequence(id) = child else {
+            panic!("nested child must remain a canonical sequence")
+        };
+        assert_eq!(update.snapshot.static_values().get_sequence(id).unwrap().family(), StaticSequenceFamily::Array);
+    }
+    assert_eq!(family_and_elements("empty_vector"), (StaticSequenceFamily::Vector, Vec::new()));
+    assert_eq!(family_and_elements("tuple_expanded"), (StaticSequenceFamily::Array, vec![
+        StaticValueData::Int(StaticInt::Small(7)),
+        StaticValueData::Int(StaticInt::Small(8)),
+    ]));
+    assert_eq!(family_and_elements("vector_expanded"), (StaticSequenceFamily::Vector, vec![
+        StaticValueData::Int(StaticInt::Small(9)),
+        StaticValueData::Int(StaticInt::Small(10)),
+    ]));
+}
+
+#[test]
+fn test_static_sequence_list_and_missing_proof_fail_closed() {
+    let module = test_module();
+    let update = SemanticWorkspaceSession::new().update(single_module_input(
+        module.clone(),
+        "const legacy: List<Int> = [1, 2]\n",
+        1,
+    ));
+    let product = update
+        .snapshot
+        .static_constant(&StaticConstantId::new(module, "legacy"))
+        .expect("List constant product");
+    assert_eq!(
+        product.outcome,
+        StaticEvalOutcome::Invalid(StaticEvalError::UnsupportedExpression),
+        "static List literals must not acquire frozen Sequence semantics"
+    );
+    assert!(product.value().is_none());
+
+    let module = test_module();
+    let update = SemanticWorkspaceSession::new().update(single_module_input(
+        module.clone(),
+        "const value: Array<Int> = <Int>[1, 2]\n",
+        1,
+    ));
+    let product = update
+        .snapshot
+        .static_constant(&StaticConstantId::new(module, "value"))
+        .expect("Array constant product");
+    assert!(product.is_successful(), "setup constant should reduce: {:?}", product.outcome);
+
+    let mut missing_proof = product.checked.as_ref().clone();
+    let mut checked_expression = missing_proof.expression.clone();
+    checked_expression.sequence_literals = Arc::new(Default::default());
+    missing_proof.expression = checked_expression;
+    let mut values = phalcom_semantic::static_value::StaticValueStore::new();
+    let outcome = StaticEvaluator::for_constant(
+        &missing_proof,
+        &mut values,
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+    )
+    .with_type_store(update.snapshot.store())
+    .evaluate();
+    assert_eq!(outcome, StaticEvalOutcome::Invalid(StaticEvalError::UnsupportedExpression));
+    assert_eq!(values.len(), 0, "a missing checker product must stop before child/root publication");
+}
+
+#[test]
+fn test_static_sequence_budget_and_cancellation_do_not_publish_roots() {
+    let module = test_module();
+    let update = SemanticWorkspaceSession::new().update(single_module_input(
+        module.clone(),
+        "const value: Array<Int> = <Int>[1, 2, 3, 4]\n",
+        1,
+    ));
+    let product = update
+        .snapshot
+        .static_constant(&StaticConstantId::new(module, "value"))
+        .expect("Array constant product");
+    assert!(product.is_successful(), "setup constant should reduce: {:?}", product.outcome);
+
+    let mut values = phalcom_semantic::static_value::StaticValueStore::new();
+    let mut budget = QueryBudget::new(0);
+    let bounded = StaticEvaluator::for_constant(product.checked.as_ref(), &mut values, &mut budget, &CancellationToken::new())
+        .with_type_store(update.snapshot.store())
+        .evaluate();
+    assert!(matches!(bounded, StaticEvalOutcome::BudgetExceeded(_)));
+    assert_eq!(values.len(), 0, "budget exhaustion must precede sequence-root publication");
+
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let mut cancelled_values = phalcom_semantic::static_value::StaticValueStore::new();
+    let cancelled = StaticEvaluator::for_constant(
+        product.checked.as_ref(),
+        &mut cancelled_values,
+        &mut QueryBudget::default(),
+        &cancellation,
+    )
+    .with_type_store(update.snapshot.store())
+    .evaluate();
+    assert_eq!(cancelled, StaticEvalOutcome::Cancelled);
+    assert_eq!(cancelled_values.len(), 0, "cancellation must not publish a sequence root");
+}
+
+#[test]
+fn test_unconstrained_empty_static_sequence_remains_diagnostic_after_cutover() {
+    let module = test_module();
+    let update = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), "const empty = []\n", 1));
+    let diagnostics = update.snapshot.diagnostics.get(&module).expect("diagnostics for underconstrained empty literal");
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::GenericInferenceUnderconstrained),
+        "an empty static literal without result evidence must remain underconstrained: {diagnostics:?}"
+    );
+    if let Some(product) = update.snapshot.static_constant(&StaticConstantId::new(module, "empty")) {
+        assert!(!product.is_successful(), "underconstrained empty literal must not publish a static value");
+    }
+}
+
+#[test]
+fn test_bare_static_sequence_defaults_to_exact_vector() {
+    let module = test_module();
+    let update = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), "const values = [11, 12, 13]\n", 1));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let product = update
+        .snapshot
+        .static_constant(&StaticConstantId::new(module, "values"))
+        .expect("static constant values");
+    assert!(product.is_successful(), "static Vector should reduce: {:?}", product.outcome);
+    let value = update
+        .snapshot
+        .static_values()
+        .get(product.value().expect("Vector value"))
+        .expect("static sequence value");
+    let StaticValueData::Sequence(id) = value else {
+        panic!("bare static bracket must publish a canonical Vector sequence")
+    };
+    let sequence = update.snapshot.static_values().get_sequence(*id).expect("Vector sequence");
+    assert_eq!(sequence.family(), StaticSequenceFamily::Vector);
+    assert_eq!(sequence.elements().len(), 3);
+    let (_, arguments) = update.snapshot.store.applied_nominal_parts(sequence.result_type()).expect("applied Vector type");
+    let TypeData::ConstInt(extent) = update.snapshot.store.get(arguments[1]) else {
+        panic!("bare static Vector must retain its exact extent")
+    };
+    assert_eq!(extent.to_bigint(), 3.into());
+}
+
+#[test]
+fn test_static_bracket_support_does_not_authorize_collection_constructors() {
+    for (name, source) in [
+        ("Array", "const value: Array<Int> = Array<Int>.new()\n"),
+        ("Vector", "const value: Vector<Int, 0> = Vector<Int, 0>.new()\n"),
+    ] {
+        let module = test_module();
+        let update = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1));
+        let product = update.snapshot.static_constant(&StaticConstantId::new(module, "value"));
+        assert!(
+            update.snapshot.has_errors() || product.is_none_or(|product| !product.is_successful()),
+            "{name}.new must not become statically authorized through bracket support"
+        );
+        if let Some(product) = product {
+            assert!(product.value().is_none(), "{name}.new must not publish a static sequence");
+        }
+    }
 }
 
 #[test]

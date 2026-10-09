@@ -20,11 +20,11 @@ native class Array<T> is Collection {
 
   iterator -> ArrayIterator<T> { ArrayIterator.new(self) }
 
-  at(_ i) {
+  at(_ i: Int) -> T | None {
     return self.rawAt(i)
   }
 
-  get(_ index) {
+  get(_ index: Int) -> Option<T> {
     let mut raw = self.rawAt(index)
     let mut len = self.size
     let mut i = index
@@ -35,7 +35,7 @@ native class Array<T> is Collection {
     return None
   }
 
-  [_ index] {
+  [_ index: Int] -> T {
     let mut raw = self.rawAt(index)
     let mut len = self.size
     let mut i = index
@@ -46,7 +46,7 @@ native class Array<T> is Collection {
     throw IndexError.new("Array index out of range")
   }
 
-  [_ index, default] {
+  [_ index: Int, default: T] -> T {
     let mut raw = self.rawAt(index)
     let mut len = self.size
     let mut i = index
@@ -57,7 +57,7 @@ native class Array<T> is Collection {
     return default
   }
 
-  get(_ index, orElse) {
+  get(_ index: Int, orElse: (Int) -> T) -> T {
     let mut raw = self.rawAt(index)
     let mut len = self.size
     let mut i = index
@@ -69,7 +69,7 @@ native class Array<T> is Collection {
   }
 
   /// Replaces the element at `i` and returns the array.
-  at(_ i, put) {
+  at(_ i: Int, put: T) -> Array<T> {
     let mut len = self.size
     let mut norm = i
     if norm < 0 { norm = len + norm }
@@ -81,7 +81,7 @@ native class Array<T> is Collection {
   }
 
   /// Assigns an element through the subscript protocol.
-  [_ i]=(_ val) {
+  [_ i: Int]=(_ val: T) -> Array<T> {
     return self.at(i, put: val)
   }
 

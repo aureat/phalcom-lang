@@ -7,6 +7,7 @@
 
 use phalcom_core::heap::{ObjRef, Object};
 use phalcom_core::interpret::Interpreter;
+use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use std::fs;
@@ -556,6 +557,16 @@ fn disasm_source(source: &str) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
+fn checked_disasm_source(source: &str) -> String {
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source.into())).expect("analyze source");
+    let mut vm = VM::new();
+    vm.materialize_program(&program).expect("materialize analyzed program");
+    let closure = vm
+        .compile_program_module_closure(&program.entry, source, &program)
+        .expect("compile with canonical semantic lowering");
+    format!("{:?}", vm.heap.closure(closure).callable.chunk.code)
+}
+
 #[test]
 fn static_calls_and_static_tuple_emit_no_pack_machinery() {
     let text = disasm_source(
@@ -620,7 +631,7 @@ let product = (0, *values)
 
 #[test]
 fn static_list_keeps_direct_build_fast_path() {
-    let text = disasm_source("let list = [1, 2, 3]\n");
+    let text = checked_disasm_source("let list: List<Int> = [1, 2, 3]\n");
     assert!(text.contains("BuildList(3)"), "static List did not emit BuildList:\n{text}");
     for forbidden in ["BeginListLiteral", "ListLiteralAppend", "FinishListLiteral", "ListTryExpandTuplePositionals"] {
         assert!(!text.contains(forbidden), "static List unexpectedly emitted `{forbidden}`:\n{text}");
@@ -629,7 +640,7 @@ fn static_list_keeps_direct_build_fast_path() {
 
 #[test]
 fn dynamic_list_uses_rooted_incremental_builder_and_shared_spread_lane() {
-    let text = disasm_source("let list = [1, *(2, 3), 4]\n");
+    let text = checked_disasm_source("let list: List<Int> = [1, *(2, 3), 4]\n");
     for required in ["BeginListLiteral", "ListLiteralAppend", "FinishListLiteral", "ListTryExpandTuplePositionals"] {
         assert!(text.contains(required), "dynamic List did not emit `{required}`:\n{text}");
     }
@@ -702,7 +713,7 @@ fn p3_analyzed_pack_construction_uses_canonical_static_product() {
 
 #[test]
 fn p3_shadowed_pack_name_remains_an_ordinary_call() {
-    let text = disasm_source("let Pack = [1, 2]\nlet result = Pack(7)\n");
+    let text = disasm_source("let Pack = List<Int>.new()\nlet result = Pack(7)\n");
     for forbidden in ["BuildPack", "BuildStaticPack", "FinishPack", "NewArgumentPack"] {
         assert!(!text.contains(forbidden), "{text}");
     }

@@ -4,7 +4,7 @@
 // A key hash failure remains its original Error. It occurs after this entry's
 // value evaluation and stops later associations from running.
 
-let mut trace = []
+let mut trace: List<String> = []
 
 class ExplodingKey {
   hash {

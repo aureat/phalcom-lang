@@ -4,7 +4,7 @@
 // `each(_:)` iterates 0..size, calling the block with each element — proves
 // block-calling into List iteration works.
 
-let l = []
+let l: List<Int> = []
 l.append(1)
 l.append(2)
 l.append(3)

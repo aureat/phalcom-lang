@@ -22,6 +22,7 @@ They include:
 
 - [`bindings-and-fields.md`](bindings-and-fields.md) — runtime binding phase/mutability, uninitialized mutable storage, local initialization proof, and field initialization/mutability;
 - [`static-evaluation.md`](static-evaluation.md) — compile-time constants, executable static `type` definitions, static control, residualization, proof predicates, budgets, and materialization;
+- [`sequence-literals.md`](sequence-literals.md) — homogeneous bracket syntax, collection-family selection, contextual inference, and runtime/static defaults;
 - [`type-level-domains.md`](type-level-domains.md) — proper Types, static value domains, kinded pack domains, Pack-based Type collections, generic/static parameter domains, and canonical static terms;
 - [`type-members.md`](type-members.md) — type-member declarations, ownership, identity, lookup, application, result domains, and projection normalization;
 - [`structural-products.md`](structural-products.md) — Pack/Product/OrderedProduct/UnorderedProduct semantics, ordered/unordered shapes, FieldKey, tails, lookup, and structural iteration (companion: [`tuple-and-record-typing.md`](tuple-and-record-typing.md));
@@ -103,6 +104,7 @@ An accepted decision or implementation checkpoint that changes current language 
 | --- | --- |
 | Runtime binding/field mutability and initialization | [`bindings-and-fields.md`](bindings-and-fields.md) |
 | Static evaluation, constants, static `type` computation, residualization, proof predicates | [`static-evaluation.md`](static-evaluation.md) |
+| Homogeneous sequence literal syntax, contextual family selection, and runtime/static defaults | [`sequence-literals.md`](sequence-literals.md) |
 | Proper Types, static value domains, Pack-based Type collections, compile-time parameter domains | [`type-level-domains.md`](type-level-domains.md) |
 | Type-member declarations, ownership, identity, lookup, application, and projection normalization | [`type-members.md`](type-members.md) |
 | Pack/Product structural typing, ordered/unordered shapes, FieldKey, tails, lookup, iteration | [`structural-products.md`](structural-products.md) — semantic authority (syntax/examples companion: [`tuple-and-record-typing.md`](tuple-and-record-typing.md); formal registry: [`typing/type/`](typing/type/), which must agree) |

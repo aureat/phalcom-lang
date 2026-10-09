@@ -245,6 +245,123 @@ fn exported_static_constants_keep_canonical_identity_across_reexports_and_gc() {
 }
 
 #[test]
+fn static_const_sequence_imports_and_reexports_keep_canonical_owner() {
+    let temp = TempDir::new().unwrap();
+    fs::write(
+        temp.path().join("package.ph"),
+        "expose .main\nexpose .source\nexpose .facade\nexpose .facade2\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("source.ph"),
+        "const vec = <Int,2>[7,8]\nconst arr: Array<Int> = <Int>[9,10]\nexport vec, arr\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("facade.ph"),
+        "export vec as vectorAlias, arr as arrayAlias from .source\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("facade2.ph"),
+        "export vectorAlias as vectorTransitive, arrayAlias as arrayTransitive from .facade\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("main.ph"),
+        "import .source as source\nimport .facade2 as facade2\nfrom .source import vec as selectedVec\nfrom .facade import vectorAlias as renamedVec\nfrom .facade2 import vectorTransitive as transitiveVec, arrayTransitive as transitiveArr\nlet selected = selectedVec\nlet renamed = renamedVec\nlet qualified = source.vec\nlet transitive = facade2.vectorTransitive\nlet transitiveArray = facade2.arrayTransitive\n",
+    )
+    .unwrap();
+
+    let program = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(EntrySelection::Package(temp.path().to_path_buf()))
+        .expect("sequence constant imports and re-exports compile");
+    let mut vm = VM::new();
+    vm.materialize_program(&program).expect("sequence constants materialize at their source owners");
+
+    let find_module = |suffix: &str| {
+        program
+            .modules
+            .keys()
+            .find(|id| id.path.components().last().is_some_and(|part| part.as_str() == suffix))
+            .expect("compiled package module")
+    };
+    let source_id = find_module("source");
+    let facade_id = find_module("facade");
+    let facade2_id = find_module("facade2");
+    let source_obj = vm.module_registry.get(source_id).unwrap().object;
+    let facade_obj = vm.module_registry.get(facade_id).unwrap().object;
+    let facade2_obj = vm.module_registry.get(facade2_id).unwrap().object;
+
+    let source_module = vm.heap.module(source_obj);
+    let vec_name = vm.interner.find("vec").unwrap();
+    let arr_name = vm.interner.find("arr").unwrap();
+    let vec_ref = match source_module.export(vec_name).unwrap() {
+        RuntimeExportRef::StaticConstant(reference) => reference,
+        other => panic!("expected canonical Vector constant export, got {other:?}"),
+    };
+    let arr_ref = match source_module.export(arr_name).unwrap() {
+        RuntimeExportRef::StaticConstant(reference) => reference,
+        other => panic!("expected canonical Array constant export, got {other:?}"),
+    };
+    assert_eq!(vec_ref.module, source_obj);
+    assert_eq!(arr_ref.module, source_obj);
+    assert_eq!(vec_ref.name, vec_name);
+    assert_eq!(arr_ref.name, arr_name);
+    assert_eq!(source_module.static_constants.len(), 2, "source owns one materialized value per constant");
+    assert!(!source_module.name_to_slot.contains_key(&vec_name));
+    assert!(!source_module.name_to_slot.contains_key(&arr_name));
+
+    for (module, exported_name, reference) in [
+        (facade_obj, "vectorAlias", vec_ref),
+        (facade2_obj, "vectorTransitive", vec_ref),
+        (facade_obj, "arrayAlias", arr_ref),
+        (facade2_obj, "arrayTransitive", arr_ref),
+    ] {
+        let exported = vm.interner.find(exported_name).unwrap();
+        assert_eq!(
+            vm.heap.module(module).export(exported),
+            Some(RuntimeExportRef::StaticConstant(reference)),
+            "{exported_name} must retain its canonical source owner"
+        );
+    }
+
+    let vector = source_module.static_constants[&vec_name].as_obj().unwrap();
+    let array = source_module.static_constants[&arr_name].as_obj().unwrap();
+    assert!(matches!(vm.heap.get(vector), Object::Vector(value) if value.elements().iter().map(|v| v.as_int().unwrap()).collect::<Vec<_>>() == [7, 8]));
+    assert!(matches!(vm.heap.get(array), Object::Array(value) if value.is_frozen() && value.elements().iter().map(|v| v.as_int().unwrap()).collect::<Vec<_>>() == [9, 10]));
+
+    // No source read below keeps the owner alive; module caches must root both
+    // sequence objects across collection before the initializer executes.
+    vm.force_gc();
+    assert!(vm.heap.try_get(vector).is_some(), "canonical source cache roots Vector across GC");
+    assert!(vm.heap.try_get(array).is_some(), "canonical source cache roots frozen Array across GC");
+    vm.run_compiled(&program).expect("selected, renamed, qualified, and transitive static reads run");
+
+    let main_obj = vm.module_registry.get(&program.entry).unwrap().object;
+    let read = |name: &str| vm.heap.module(main_obj).get(vm.interner.find(name).unwrap()).unwrap().as_obj().unwrap();
+    for name in ["selected", "renamed", "qualified", "transitive"] {
+        assert_eq!(read(name), vector, "{name} resolves the canonical Vector value");
+    }
+    for name in ["transitiveArray"] {
+        assert_eq!(read(name), array, "{name} resolves the canonical frozen Array value");
+    }
+
+    let source_closure = vm.heap.module(source_obj).closure.expect("source initializer closure");
+    let source_code = &vm.heap.closure(source_closure).callable.chunk.code;
+    assert!(
+        !source_code.iter().any(|op| matches!(
+            op,
+            phalcom_core::bytecode::Bytecode::BeginArrayLiteral
+                | phalcom_core::bytecode::Bytecode::FinishArrayLiteral
+                | phalcom_core::bytecode::Bytecode::BuildVector(_)
+                | phalcom_core::bytecode::Bytecode::BeginVectorLiteral
+                | phalcom_core::bytecode::Bytecode::FinishVectorLiteral(_)
+        )),
+        "static sequence constants must not execute bracket construction bytecode in the provider initializer"
+    );
+}
+
+#[test]
 fn universe_math_implementation_children_are_not_exposed() {
     for path in ["universe.math.float_kernel", "universe.math.integer"] {
         let temp = TempDir::new().unwrap();

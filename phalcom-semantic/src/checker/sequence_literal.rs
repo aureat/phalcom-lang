@@ -5,7 +5,7 @@
 
 use super::analysis::{SequenceConstructionPlan, SequenceExpansionResolution, SequenceLiteralFamily, SequenceLiteralResolution};
 use super::annotation_elaboration::{AnnotationElaboration, elaborate_annotation};
-use super::context::CheckingContext;
+use super::context::{CheckingContext, EvaluationPhase};
 use super::expected::{ExpectationOrigin, ExpectedType, canonical_collection_arguments, inference_origin_matches};
 use super::expression::{analyze_expression, check_typed_expr_with_publication};
 use super::inference::{ConstraintOrigin, InferenceRelation, InferenceTerm};
@@ -37,6 +37,13 @@ fn family(ctx: &CheckingContext<'_>, expected: &ExpectedType) -> Option<Sequence
             || inference_origin_matches(ctx.store, expected, declaration))
         .then_some(family)
     })
+}
+
+fn default_family(ctx: &CheckingContext<'_>) -> SequenceLiteralFamily {
+    match ctx.phase {
+        EvaluationPhase::Runtime => SequenceLiteralFamily::Array,
+        EvaluationPhase::Static => SequenceLiteralFamily::Vector,
+    }
 }
 
 fn argument(ctx: &CheckingContext<'_>, expected: &ExpectedType, family: SequenceLiteralFamily, index: usize) -> ExpectedType {
@@ -100,7 +107,7 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
             );
             return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
         }
-        None => contextual_family.unwrap_or(SequenceLiteralFamily::List),
+        None => contextual_family.unwrap_or_else(|| default_family(ctx)),
     };
     if literal.head.is_some() && contextual_family.is_some_and(|contextual| contextual != selected) {
         error(

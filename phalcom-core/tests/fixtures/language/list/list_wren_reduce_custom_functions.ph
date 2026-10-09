@@ -9,7 +9,7 @@
 // `max`/`sum` `Fn` objects (stored here as blocks instead, `Fn`'s Phalcom
 // analog).
 
-let a = []
+let a: List<Int> = []
 a.append(1)
 a.append(4)
 a.append(2)
@@ -24,7 +24,7 @@ System.print(a.fold(initial: 10, using: |acc, x| { max.call(acc, x) }))
 System.print(a.fold(initial: 0, using: |acc, x| { sum.call(acc, x) }))
 System.print(a.fold(initial: -1, using: |acc, x| { sum.call(acc, x) }))
 
-let b = []
+let b: List<String> = []
 b.append("W")
 b.append("o")
 b.append("r")
@@ -35,4 +35,5 @@ System.print(b.fold(initial: "Hello ", using: |acc, x| { sum.call(acc, x) }))
 // An empty seed list still applies `f` zero times, returning `init` as-is —
 // `fold(initial:using:)` always requires an explicit seed, so
 // there is no "empty sequence" raise (unlike Wren's no-init `reduce(_:)`).
-System.print([].fold(initial: 1, using: |acc, x| { 42 }))
+let empty: List<Int> = []
+System.print(empty.fold(initial: 1, using: |acc, x| { 42 }))

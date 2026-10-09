@@ -5,7 +5,7 @@
 // 2-arity block flows as the labeled argument of `fold(initial:using:)` and is called
 // per element to fold the accumulator. Lists are built with `[]` +
 // `add(_)` (no list-literal syntax — still deferred, DEFERRED.md #6).
-let numbers = []
+let numbers: List<Int> = []
 numbers.append(1)
 numbers.append(2)
 numbers.append(3)

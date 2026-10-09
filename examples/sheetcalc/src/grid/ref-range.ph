@@ -16,10 +16,12 @@ class RefRange is Collection {
   /// Construct a range between two corners. Normalizes order.
   @constructor
   fromTo(_ a, _ b) {
-    _minCol = NumModule.Num.min([a.col, b.col])
-    _maxCol = NumModule.Num.max([a.col, b.col])
-    _minRow = NumModule.Num.min([a.row, b.row])
-    _maxRow = NumModule.Num.max([a.row, b.row])
+    let columns: List<Float> = [a.col, b.col]
+    let rows: List<Float> = [a.row, b.row]
+    _minCol = NumModule.Num.min(columns)
+    _maxCol = NumModule.Num.max(columns)
+    _minRow = NumModule.Num.min(rows)
+    _maxRow = NumModule.Num.max(rows)
     _width = (_maxCol - _minCol) + 1
   }
 

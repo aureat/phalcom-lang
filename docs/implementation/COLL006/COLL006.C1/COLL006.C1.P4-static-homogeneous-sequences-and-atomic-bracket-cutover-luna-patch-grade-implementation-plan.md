@@ -5,9 +5,9 @@ program: COLL006
 checkpoint: COLL006.C1
 kind: implementation-plan
 title: "Static Homogeneous Sequences and Atomic Bracket-Default Cutover"
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 depends_on:
   - COLL006.C1.P3
   - LANG007.C4.P3
@@ -116,8 +116,50 @@ literal cutover must:
 P4 must not silently define const List semantics.
 ```
 
+## 0.2 User-approved symbolic identity-spread boundary (2026-10-09)
+
+Decision: keep static homogeneous sequences closed. A checked
+`VectorIdentitySpread` whose canonical extent is symbolic remains
+`StaticEvalOutcome::Symbolic`; the static evaluator does not specialize the
+extent or publish a sequence root. Once the extent is closed as an exact static
+integer, the identity-spread checks and sequence construction may reduce it.
+
+This amends T3.5 and CV-09. It preserves C4 ownership of static evaluation and
+materialization, the closed `StaticValueData::Sequence` invariant, and the
+checker-owned identity proof. It does not authorize symbolic arithmetic,
+type-parameter substitution in the evaluator, or a partial Sequence value.
+
 These are not optional embellishments. They close correctness gaps in the earlier
 high-level P4 outline.
+
+## 0.3 Adviser amendment — empty static bracket element evidence (2026-10-09)
+
+Before the T10 default cutover, `const empty = []` continues to select the
+legacy `List` family. The literal still has no element-type evidence, so the
+enclosing closed-constant check must emit the existing
+`GenericInferenceUnderconstrained` diagnostic and publish no static value.
+After T10, the same source selects `Vector<T, 0>`; its extent is known but `T`
+remains underconstrained, so it must still diagnose and publish no value. A
+typed control such as `const empty: Vector<Int, 0> = []` remains valid.
+
+Do not introduce phase-aware family selection before T10 and do not diagnose
+inside `sequence_literal::synthesize`: contextual/inference owners must first
+get their normal chance to solve the element type. The existing underconstraint
+diagnostic is emitted at the static initializer boundary only when an empty
+bare bracket still has `Unknown(NoTypeEvidence)` after that opportunity. No
+new diagnostic code or decision record is required. This amends T3 and CV-35;
+the post-cutover case is verified at G6.
+
+## 0.4 Adviser amendment — inherited failures at G2 (2026-10-09)
+
+G2 may hand off to T4 as `BASELINE_BLOCKED` when all P4-active G2
+discriminators pass and each remaining failure is positively matched to an
+inherited baseline failure. Do not call the full filter passed. For the current
+tree, the three computed-Record-key `RecordKeyNotStatic` failures in
+`foundations::static_constants` match the pre-P4 15-pass/3-fail result and do
+not execute the new empty-sequence boundary. Record their names and both result
+counts in the checkpoint's baseline ledger. T4 may proceed with that explicit
+classification; unrelated Record-key behavior remains outside P4.
 
 ---
 
@@ -1069,7 +1111,7 @@ relevant to that failure changed.
 | CV-32 | incremental extent edit | 05,09 | Vector N changes canonically |
 | CV-33 | incremental spread edit | 11–15 | exact proof removal does not leave stale product |
 | CV-34 | module durability | 22 | selective/renamed/qualified/re-export |
-| CV-35 | empty literal | 27–30 | family known, T underconstraint preserved |
+| CV-35 | empty literal | 27–30 | phase-owned family; T underconstraint preserved before and after cutover |
 | CV-36 | runtime source order | 14 | default flip does not regress child effects |
 | CV-37 | normative migration | 33 | accepted decision no longer says bare List |
 
@@ -1890,7 +1932,10 @@ source logical count == extent
 destination result type agrees
 ```
 
-Then construct the logical child list.
+If `extent` is not a closed `TypeData::ConstInt`, return
+`StaticEvalOutcome::Symbolic` before evaluating the spread or publishing a
+Sequence root. Do not specialize the extent in the evaluator. For a closed
+extent, perform every check above, then construct the logical child list.
 
 No symbolic arithmetic.
 
@@ -1971,7 +2016,9 @@ explicit static Array literal reduces
 explicit static Vector literal reduces
 nested sequence reduces
 typed empty Vector<Int,0> reduces
-underconstrained empty static bare literal remains diagnostic
+pre-cutover `const empty = []` remains List-family, diagnoses unresolved T, and publishes no static value
+post-T10 the same source selects Vector<T,0>, diagnoses unresolved T, and publishes no static value
+typed control `const empty: Vector<Int,0> = []` remains valid
 fixed children evaluated source-order/exactly-once where observable static operations allow
 closed Tuple spread
 static Vector spread
@@ -2054,7 +2101,9 @@ materialization data.
 
 ## Preconditions
 
-- G2 PASS.
+- G2 PASS, or G2 `BASELINE_BLOCKED` under §0.4 with every P4-active G2
+  discriminator passing and all remaining failures matched to inherited D
+  failures.
 
 ## Consumes
 
@@ -2102,6 +2151,14 @@ static-value materialization tests
 Determine kind from retained result type at descriptor projection time.
 
 Use canonical semantic family identity.
+
+Selected bounded path: retain `StaticSequenceFamily::{Array,Vector}` on
+`StaticSequenceData`, deriving it from the canonical result type during
+`intern_sequence` and rejecting any noncanonical family there. This is immutable
+validated projection metadata, not a second mutable authority, and avoids
+adding `TypeStore` to C4 descriptor call sites. Sequence descriptors receive a
+sequence-specific materialization capability; they are not classified as
+primitive values.
 
 Do not use element count.
 
@@ -2197,10 +2254,10 @@ descriptor clone is self-contained
 
 ```sh
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic static_values_sequence
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic static_materialization
 ```
 
-Use current registered filter.
+The descriptor regression lives in `static_values_sequence`; the repository has
+no separate `static_materialization` test module/filter.
 
 ## Acceptance
 
@@ -3102,6 +3159,7 @@ headless compiler missing-lowering -> fail closed
 **Modify:**
 
 ```text
+phalcom-semantic/src/checker/statement.rs
 phalcom-semantic/src/checker/sequence_literal.rs
 phalcom-core/src/compiler/lib/expr.rs
 focused semantic/compiler tests
@@ -3125,6 +3183,13 @@ fn default_family(ctx: &CheckingContext<'_>) -> SequenceLiteralFamily {
 ```
 
 Use the actual existing EvaluationPhase API.
+
+The binding checker owns the phase of each initializer. Check a `const`
+initializer under `EvaluationPhase::Static` before annotation and expression
+analysis, then restore the caller phase before declaration/flow processing.
+Runtime `let`/`let mut` bindings inherit their caller phase. This keeps the
+ordinary module binding product aligned with the canonical static-constant
+product without introducing a second type projection.
 
 ### T10.2 Selection order
 
@@ -3179,7 +3244,19 @@ phase reasoning, if current public compiler architecture still needs them.
 
 ### T10.6 No overload tie-break
 
-Add regressions before changing overload logic.
+Current language specifications state that parameter/result types do not create
+same-selector overloads (`docs/specs/objects/impl.md` and
+`docs/specs/objects/traits.md`). Therefore the requested Array/Vector,
+List/Array, List/Vector, and three-family type-overload matrix is not expressible
+in the current language. Do not introduce a new overload model for P4.
+
+CV-25's replacement proof is a live ambiguous trait-dispatch case whose two
+same-selector candidates require distinct List and Vector argument families.
+The unbound bracket argument receives the runtime Array default, but the
+dispatch result must retain both candidates, emit `TraitDispatchAmbiguous`, and
+publish no selected target. This verifies that literal family selection cannot
+repair an unrelated ambiguous dispatch result. If parameter-type overloading is
+specified in the future, add the pairwise family matrix with that design.
 
 Do not change call candidate ranking to force default selection.
 
@@ -3221,13 +3298,11 @@ let x = <_>[1,2,3]                 // Array
 let x = <_,_>[1,2,3]               // Vector
 ```
 
-Ambiguity:
+Ambiguity (current-language replacement; see T10.6):
 
 ```text
-Array vs Vector overload
-List vs Array overload
-List vs Vector overload
-three-family overload
+ambiguous same-selector trait candidates requiring List vs Vector arguments;
+runtime-default Array argument does not select either candidate
 ```
 
 Compiler:
@@ -3252,6 +3327,45 @@ Then run directly affected migrated corpus/package filters.
 
 The new default is active with no compiler/parser duplicate authority and no
 known owned List-semantic regressions.
+
+## G6 execution result — 2026-10-09
+
+**PASS / FOCUSED_TESTED.** The `const` phase was made explicit at the binding
+owner after G6 coverage exposed that ordinary module binding facts still saw a
+bare const bracket under the runtime phase. The regression confirms module
+`const values = [1, 2]` publishes `Vector<Int, 2>` while runtime `let values =
+[1, 2]` publishes `Array<Int>`; static-constant evaluation and ordinary module
+binding facts now agree.
+
+| Coverage | Passing evidence |
+|---|---|
+| CV-22 runtime default | `bare_runtime_sequence_literal_defaults_to_array`; `core_array` (11 passed) |
+| CV-23 static default | `test_bare_static_sequence_defaults_to_exact_vector`; `top_level_const_and_let_bindings_use_their_phase_default_families` |
+| CV-24 explicit/context precedence | `test_contextual_array_literal`, `test_contextual_list_literal_remains_available`, `test_explicit_array_literal`, `vector_lowering_uses_checked_extent_and_direct_family_bytecodes` |
+| CV-25 ambiguity | `ambiguous_trait_dispatch_does_not_use_runtime_bracket_default_to_select_a_candidate` |
+| CV-26 compiler fail-closed | `context_free_bracket_compilation_requires_checked_lowering`; explicit Array compatibility is covered by the same test |
+| CV-27 List migration | G5 census and migration review; `test_contextual_list_literal_remains_available` |
+| CV-28 static List boundary | `test_static_sequence_list_and_missing_proof_fail_closed` |
+| CV-35 empty literal | `test_unconstrained_empty_static_sequence_remains_diagnostic_after_cutover` |
+| CV-36 runtime source order | `bare_array_literal_preserves_source_order_of_element_effects` |
+
+Gate commands/results:
+
+```text
+cargo test -p phalcom-semantic --test semantic coll006         49 passed
+cargo test -p phalcom-core --test core core_array               11 passed
+cargo test -p phalcom-core --test core core_vector               8 passed
+cargo test -p phalcom-core --test core static_const             23 passed
+cargo test -p phalcom-semantic --test semantic static_constants 21 passed, 3 failed
+```
+
+The three `static_constants` failures are the existing D4 computed-Record-key
+`RecordKeyNotStatic` baseline cases; all static-sequence cases in that filter
+passed. G2 remains `BASELINE_BLOCKED` by D4. T11/G7/T12, workspace all-target
+check, native-surface recheck, full workspace tests, clippy, and release
+certification remain outside this G6 stop point. The G5 migration census is a
+historical 495-site snapshot; T12 should refresh it to include the additional
+T10 regression literals added after G5.
 
 ## Local STOP / CONSULT triggers
 

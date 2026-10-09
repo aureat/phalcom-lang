@@ -3,7 +3,8 @@
 - Legacy record: `ADR-0032`
 - Ratified: 2026-07-12
 
-- Status: Accepted
+- Status: Accepted; bracket family-selection and default semantics amended by [TDR-0091](./0091-contextual-homogeneous-sequence-literals.md)
+- Amended by: [TDR-0091](./0091-contextual-homogeneous-sequence-literals.md) for bracket-literal family selection and defaults
 - Date: 2026-07-12
 - Related: [TDR-0018](./0018-kernel-list-native-array-protocol.md) (native `List`);
   [TDR — List literals `[a, b, c]` desugar to `List` construction sends](./0025-list-literal-syntax.md) (list literal — **ratified to Accepted here**);
@@ -17,6 +18,13 @@
   [`tuple-and-range.md`](../../spec/current/stdlib/tuple-and-range.md),
   [`list-literal-syntax.md`](../../spec/current/syntax/list-literals.md);
   [open-question 6](../../spec/current/open-questions.md) (set literal)
+
+> **Amendment note (TDR-0091, 2026-10-09):** The original List row and the
+> literal-surface summary below describe the initial collection decision. The
+> current bracket family-selection rule is owned by TDR-0091 and
+> `docs/specs/sequence-literals.md`; `List` remains available through explicit
+> context, while uncontextualized runtime and static brackets select `Array`
+> and `Vector` respectively.
 
 ## Context
 
@@ -63,15 +71,16 @@ immutable ⇒ **value `hash`, valid keys**. Structural `==` holds for all.
 
 | Literal | Ships? | Lowering / status |
 |---|:--:|---|
-| **List** `[a, b, c]` | ✅ | ADR-0029 (ratified here): desugar to `List.new().add(a)…`; trailing comma; construction-only (no subscript sugar). |
+| **Sequence** `[a, b, c]` | ✅ | Contextual homogeneous sequence literal; current family resolution and lowering are governed by TDR-0091. |
 | **Map** `{k: v, …}` | ✅ | desugar to `Map.new().at(k, put: v)…` (§3.1). |
 | **Tuple** `(a, b)` | ✅ | desugar to `Tuple` construction; disambiguated from grouping by the comma (§3.2). |
 | **Set** `#{…}` | ⛔ reserved | sigil reserved, **inactive**; construct via `Set.new()` / `Set(…)` (open-Q6). |
 | **Range** `a..b` / `a...b` | ⛔ reserved | operator sigils reserved, **inactive**, with committed convention (§3.3); construct via the `Range` constructor. |
 
-All shipping literals are **pure parser desugaring to construction sends** — they
-add **no floor primitive** beyond the target class's own arm (the ADR-0019 default,
-as ADR-0029 established for `List`).
+The Map and Tuple forms in this original decision are parser desugarings to
+construction sends. Bracket-family resolution is semantic and may use the
+representation selected by the checked family; it is not a parser-level List
+desugaring. See TDR-0091.
 
 #### 3.1 Map literal `{k: v}`
 

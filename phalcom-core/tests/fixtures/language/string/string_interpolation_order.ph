@@ -2,7 +2,7 @@
 // spec: string-interpolation.md §8
 // status: PASS
 
-let mut trace = []
+let mut trace: List<String> = []
 
 class Probe {
   mut _label

@@ -7,10 +7,10 @@
 // `Option#toString`'s `"Some(" + v.toString + ")"` picks up the list's own
 // bracketed rendering for its inner value.
 
-let inner = []
+let inner: List<Int> = []
 inner.append(1)
 inner.append(2)
-let outer = []
+let outer = List<Dynamic>.new()
 outer.append(inner)
 outer.append(3)
 System.print(outer.toString)

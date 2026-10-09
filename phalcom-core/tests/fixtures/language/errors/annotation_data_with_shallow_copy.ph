@@ -13,7 +13,7 @@ class Basket {
   mut _owner
 }
 
-let items = []
+let items: List<String> = []
 items.append("apple")
 
 let source = Basket.new(items: items, owner: "alice")

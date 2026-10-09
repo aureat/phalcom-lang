@@ -271,12 +271,12 @@ class Container {
 }
 
 #[test]
-fn test_bare_literal_remains_list_compatibility() {
+fn test_contextual_list_literal_remains_available() {
     let f = Fixture::new(
         r#"
 class Container {
     @class test() {
-        let xs = [1, 2, 3]
+        let xs: List<Int> = [1, 2, 3]
     }
 }
 "#,

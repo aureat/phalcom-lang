@@ -225,3 +225,78 @@ fn static_partial_annotation_diagnostics_survive_initializer_checking() {
     assert!(constant.checked.expression.diagnostics.iter().any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnresolved));
     assert!(constant.checked.expression.sequence_literals.is_empty());
 }
+
+#[test]
+fn deferred_case_conformance_preserves_exact_argument_authority() {
+    for (case, valid) in [("Ready", true), ("Waiting", false)] {
+        let source = format!(r#"
+trait Tagged {{}}
+data Status {{ Ready Waiting }}
+impl Tagged for Status::Ready {{}}
+class Consumer {{
+  @class choose<T, U>(_ values: Vector<Int, 1>, _ marker: T) -> U where T |= Tagged {{ 0 }}
+  @class use<U>(_ value: U, _ witness: U) -> U {{ value }}
+  @class run() {{
+    let independent = <Int, 1>[9]
+    let result = Consumer.use(Consumer.choose(<Int, 1>[1], Status::{case}), 42)
+  }}
+}}
+"#);
+        let f = Fixture::new(&source);
+        let run = f.callable("Consumer", "run", DispatchSide::Class);
+        if valid { f.assert_no_error_diagnostics(); }
+        assert_eq!(run.sequence_literals.contains_key(&f.expression(run, "<Int, 1>[1]").id), valid, "{case}: {:?}", f.analysis.snapshot.diagnostics);
+        assert!(run.sequence_literals.contains_key(&f.expression(run, "<Int, 1>[9]").id));
+        if valid {
+            f.assert_no_error_diagnostics();
+            assert_eq!(f.binding(run, "result").current.ty(), Some(f.ty("Int")));
+        } else {
+            assert!(f.analysis.snapshot.has_errors());
+        }
+    }
+}
+
+#[test]
+fn unresolved_deferred_child_cannot_publish_through_a_fixed_parent_return() {
+    let f = Fixture::new(r#"
+class Consumer {
+  @class choose<T, U>(_ values: Vector<T, 1>) -> U { 0 }
+  @class ignore<U>(_ value: U) -> Int { 42 }
+  @class run() {
+    let independent = <Int, 1>[9]
+    let result = Consumer.ignore(Consumer.choose(<Int, 1>[1]))
+  }
+}
+"#);
+    let run = f.callable("Consumer", "run", DispatchSide::Class);
+    let call = f.expression(run, "Consumer.ignore(Consumer.choose(<Int, 1>[1]))");
+    assert!(!call.status.is_ready(), "{call:#?}");
+    assert_eq!(call.knowledge.ty(), Some(f.ty("Int")));
+    assert!(!run.sequence_literals.contains_key(&f.expression(run, "<Int, 1>[1]").id));
+    assert!(run.sequence_literals.contains_key(&f.expression(run, "<Int, 1>[9]").id));
+}
+
+#[test]
+fn union_arms_jointly_authorize_one_real_sequence_argument() {
+    for (constraint, valid) in [("Int", true), ("String", false)] {
+        let source = format!(r#"
+class Left {{ use<T>(_ values: Vector<T, 1>) -> Int where T == Int {{ 0 }} }}
+class Right {{ use<T>(_ values: Vector<T, 1>) -> Int where T == {constraint} {{ 0 }} }}
+class Consumer {{
+  @class run(_ receiver: Left | Right) {{
+    let independent = <Int, 1>[9]
+    let result = receiver.use(<Int, 1>[1])
+  }}
+}}
+"#);
+        let f = Fixture::new(&source);
+        let run = f.callable("Consumer", "run", DispatchSide::Class);
+        let call = f.expression(run, "receiver.use(<Int, 1>[1])");
+        assert_eq!(run.sequence_literals.contains_key(&f.expression(run, "<Int, 1>[1]").id), valid, "{call:#?}; diagnostics: {:?}", f.analysis.snapshot.diagnostics);
+        assert!(run.sequence_literals.contains_key(&f.expression(run, "<Int, 1>[9]").id));
+        assert_eq!(call.status.is_ready(), valid, "{call:#?}");
+        assert_eq!(run.expressions.values().filter(|expression| f.source[expression.range.start..expression.range.end] == *"<Int, 1>[1]").count(), 1);
+        if valid { f.assert_no_error_diagnostics(); }
+        else { assert!(f.analysis.snapshot.has_errors()); }
+    }
+}

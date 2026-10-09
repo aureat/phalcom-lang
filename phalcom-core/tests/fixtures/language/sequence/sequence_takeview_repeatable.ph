@@ -6,12 +6,12 @@
 let mut source = [1, 2, 3, 4, 5]
 let mut view = source.iter.take(3)
 
-let mut result1 = []
+let mut result1: List<Int> = []
 for x in view {
   result1.append(x)
 }
 
-let mut result2 = []
+let mut result2: List<Int> = []
 for x in view {
   result2.append(x)
 }

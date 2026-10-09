@@ -6,7 +6,7 @@
 // `#sym: val` rendering, `Set(...)`, tuple parens, and `Range`'s `a..b`
 // syntax-literal-shaped render, plus `None`/`Some(_)` for good measure.
 
-let l = []
+let l: List<Int> = []
 l.append(1)
 l.append(2)
 System.print(l)

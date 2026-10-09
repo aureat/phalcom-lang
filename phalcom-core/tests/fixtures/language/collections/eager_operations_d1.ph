@@ -48,7 +48,7 @@ System.print(map_idx.at(0))
 System.print(map_idx.at(1))
 System.print(map_idx.at(2))
 
-let mut each_idx_res = []
+let mut each_idx_res: List<String> = []
 list_123.each(indexed: |i, x| {
   each_idx_res.append(i.toString + "-" + x.toString)
 })
@@ -148,14 +148,14 @@ let mut m = Map.new()
 m.at("k1", put: "v1")
 m.at("k2", put: "v2")
 
-let mut map_each_res = []
+let mut map_each_res: List<String> = []
 m.each |x| {
   map_each_res.append(x)
 }
 System.print(map_each_res.at(0))
 System.print(map_each_res.at(1))
 
-let mut entries_each_res = []
+let mut entries_each_res: List<String> = []
 m.entries.each |entry| {
   entries_each_res.append(entry.key + "=" + entry.value)
 }

@@ -3875,6 +3875,12 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
     }
     match ctx.resolve_dispatch_target_with_specialization(receiver_ty, receiver_form, &selector, recv_typed.dispatch_lookup.clone()) {
         ResolvedDispatchResult::Found(resolved) => {
+            if is_array_replacement_callable(ctx, &resolved)
+                && let Some(binding) = recv_typed.binding_read
+                && let Some(invalid) = static_array_mutation_error(ctx, binding, receiver_ty, call.range)
+            {
+                return invalid;
+            }
             let target = specialize_class_side_target(ctx, CallableApplicationTarget::from_dispatch(resolved), receiver_form);
             let result = apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range);
             result.into()
@@ -5114,6 +5120,44 @@ fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr, expecte
     analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into()
 }
 
+fn static_array_mutation_error(
+    ctx: &mut CheckingContext<'_>,
+    binding: crate::identity::BindingId,
+    receiver_type: TypeId,
+    range: SourceRange,
+) -> Option<TypedExpression> {
+    if !ctx.is_static_binding(binding)
+        || !ctx
+            .store
+            .applied_nominal_static_parts(receiver_type)
+            .is_some_and(|(declaration, arguments)| declaration == ctx.core_ids.array && arguments.len() == 1)
+    {
+        return None;
+    }
+    let diagnostic = SemanticDiagnostic::error_in(
+        ctx.current_module.clone(),
+        DiagnosticCode::StaticObjectMutation,
+        "cannot mutate Array contents through a static const binding",
+        range,
+    );
+    let cause = ctx.emit_diagnostic(diagnostic).expect("error diagnostic has cause");
+    let mut invalid = TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
+    invalid.invalidate(cause);
+    Some(invalid)
+}
+
+fn is_array_replacement_callable(ctx: &CheckingContext<'_>, resolved: &crate::dispatch::ResolvedDispatch) -> bool {
+    use phalcom_common::selector::{SelectorBase, SelectorKind, SelectorSlot};
+
+    resolved.callable.try_declaration_owner() == Some(&ctx.core_ids.array)
+        && resolved.signature.selector.kind == SelectorKind::Method
+        && matches!(&resolved.signature.selector.base, SelectorBase::Named(name) if name == "at")
+        && matches!(
+            resolved.signature.selector.slots.as_ref(),
+            [SelectorSlot::Positional, SelectorSlot::Label(label)] if label == "put"
+        )
+}
+
 fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexExpr) -> TypedExpression {
     let recv_typed = analyze_expression(ctx, &set_idx.object, &ExpectedType::None);
     let premise = CallPremise::from_typed(ctx, &recv_typed);
@@ -5138,6 +5182,11 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
         let operation = analyze_unresolved_application(ctx, &premise, &all_arguments, reason);
         return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
     };
+    if let Some(binding) = recv_typed.binding_read
+        && let Some(invalid) = static_array_mutation_error(ctx, binding, recv_ty, set_idx.range)
+    {
+        return invalid;
+    }
     if matches!(ctx.store.get(recv_ty), TypeData::Family(_)) && is_family_denotation(recv_typed.denotation.as_ref()) {
         let operation = synthesize_family_subscript(
             ctx,

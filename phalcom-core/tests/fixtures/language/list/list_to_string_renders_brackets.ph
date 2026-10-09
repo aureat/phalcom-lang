@@ -4,7 +4,7 @@
 // `toString` renders as `"[e1, e2, e3]"`. A native primitive this unit (not
 // `.ph`-defined over `each`) — see the U-LIST return contract for why.
 
-let l = []
+let l: List<Int> = []
 l.append(1)
 l.append(2)
 l.append(3)

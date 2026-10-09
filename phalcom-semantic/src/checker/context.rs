@@ -581,6 +581,8 @@ pub struct CheckingContext<'a> {
     pub(crate) throw_exit_flows: Vec<crate::checker::analysis::FlowStateSummary>,
     /// Binding products remain queryable after a branch-local scope closes.
     pub binding_history: BTreeMap<BindingId, crate::checker::analysis::BindingState>,
+    /// Query-local declaration phase retained by stable lexical binding identity.
+    binding_phases: BTreeMap<BindingId, phalcom_ast::ast::BindingPhase>,
     pub(crate) loop_frames: Vec<LoopFlowFrame>,
     pub body_id: BodyId,
     pub next_local_expr_id: u32,
@@ -716,6 +718,7 @@ impl<'a> CheckingContext<'a> {
             normal_return_exits: Vec::new(),
             throw_exit_flows: Vec::new(),
             binding_history: BTreeMap::new(),
+            binding_phases: BTreeMap::new(),
             loop_frames: Vec::new(),
             body_id: BodyId(0),
             next_local_expr_id: 0,
@@ -831,6 +834,7 @@ impl<'a> CheckingContext<'a> {
             normal_return_exits: Vec::new(),
             throw_exit_flows: Vec::new(),
             binding_history: BTreeMap::new(),
+            binding_phases: BTreeMap::new(),
             loop_frames: Vec::new(),
             body_id: BodyId(0),
             next_local_expr_id: 0,
@@ -925,6 +929,7 @@ impl<'a> CheckingContext<'a> {
             normal_return_exits: self.normal_return_exits.clone(),
             throw_exit_flows: self.throw_exit_flows.clone(),
             binding_history: self.binding_history.clone(),
+            binding_phases: self.binding_phases.clone(),
             loop_frames: self.loop_frames.clone(),
             body_id: self.body_id,
             next_local_expr_id: self.next_local_expr_id,
@@ -1035,7 +1040,7 @@ impl<'a> CheckingContext<'a> {
                 local_name.to_string(),
             ));
             self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(symbol.module.clone()));
-            self.declare_checked_binding(local_name.to_string(), &fact.state);
+            self.declare_checked_binding(local_name.to_string(), &fact.state, fact.phase);
         }
     }
 
@@ -1126,6 +1131,7 @@ impl<'a> CheckingContext<'a> {
         probe.associated_table = self.associated_table;
         probe.trait_surface = self.trait_surface;
         probe.binding_history = self.binding_history.clone();
+        probe.binding_phases = self.binding_phases.clone();
         probe.next_binding_id = self.next_binding_id;
         probe.next_local_expr_id = self.next_local_expr_id;
         probe.next_diagnostic_cause = self.next_diagnostic_cause;
@@ -1623,6 +1629,13 @@ impl<'a> CheckingContext<'a> {
 
     pub(crate) fn call_status_is_recorded(&self) -> bool {
         self.call_dependency_frames.last().is_some_and(|frame| frame.status.is_some())
+    }
+
+    pub(crate) fn current_call_explanations(&self) -> Vec<crate::identity::ExplanationId> {
+        self.call_dependency_frames
+            .last()
+            .map(|frame| frame.explanations.clone())
+            .unwrap_or_default()
     }
 
     pub(crate) fn record_terminal_status(&mut self, status: AnalysisStatus) {
@@ -2184,9 +2197,24 @@ impl<'a> CheckingContext<'a> {
         BindingDeclarationResult::Inserted(binding_id)
     }
 
+    pub(crate) fn record_binding_phase(&mut self, binding: BindingId, phase: phalcom_ast::ast::BindingPhase) {
+        if phase == phalcom_ast::ast::BindingPhase::Static {
+            self.binding_phases.insert(binding, phase);
+        }
+    }
+
+    pub(crate) fn is_static_binding(&self, binding: BindingId) -> bool {
+        self.binding_phases.get(&binding) == Some(&phalcom_ast::ast::BindingPhase::Static)
+    }
+
     /// Imports an already checked binding fact into the current lexical scope
     /// with a fresh body-local identity, without rerunning contract inference.
-    pub(crate) fn declare_checked_binding(&mut self, name: String, source: &crate::checker::analysis::BindingState) -> BindingDeclarationResult {
+    pub(crate) fn declare_checked_binding(
+        &mut self,
+        name: String,
+        source: &crate::checker::analysis::BindingState,
+        phase: crate::module_bindings::ModuleBindingPhase,
+    ) -> BindingDeclarationResult {
         let Some(scope) = self.scopes.last() else {
             return BindingDeclarationResult::Redeclared(BindingId(u32::MAX));
         };
@@ -2205,6 +2233,9 @@ impl<'a> CheckingContext<'a> {
         }
 
         let binding_id = self.alloc_binding();
+        if phase == crate::module_bindings::ModuleBindingPhase::StaticConstant {
+            self.record_binding_phase(binding_id, phalcom_ast::ast::BindingPhase::Static);
+        }
         let seed = BindingSeed {
             name: name.clone(),
             parameter: None,

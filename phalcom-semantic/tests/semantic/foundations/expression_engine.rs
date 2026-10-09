@@ -61,7 +61,7 @@ const b = 3.14
 const c = "phalcom"
 const d = true
 const e = #test
-const f = [1, 2, 3]
+let f: List<Int> = [1, 2, 3]
 const g = Map { key: 100 }
 const i = (1, "two")
 const j = { name: "Alice", age: 30 }
@@ -196,7 +196,7 @@ fn test_local_constraint_inference() {
     let source = r#"
 class CollectionUser {
   process {
-    let xs = []
+    let xs: List<Int> = []
     xs.add(42)
   }
 }

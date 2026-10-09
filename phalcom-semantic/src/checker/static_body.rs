@@ -15,7 +15,7 @@ use crate::identity::{BindingId, ExpressionId};
 use crate::static_definition::{CheckedStaticBody, StaticBodyId, StaticDefinition, StaticDefinitionBodyRepr};
 use crate::static_domain::StaticValueDomain;
 use crate::static_intrinsic::StaticIntrinsicRegistry;
-use crate::types::evidence::{EvidenceOrigin, TypeKnowledge};
+use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::store::TypeData;
 use phalcom_ast::ast::{Expr, TypeAnnotationExpr};
 use phalcom_common::range::SourceRange;
@@ -51,7 +51,7 @@ pub fn analyze_static_body_with_module_bindings(
     let mut stable_bindings = BTreeMap::new();
     context.push_scope();
     for (visible_name, fact) in module_bindings.visible_bindings() {
-        let inserted = context.declare_checked_binding(visible_name.to_owned(), &fact.state);
+        let inserted = context.declare_checked_binding(visible_name.to_owned(), &fact.state, fact.phase);
         if let crate::checker::binding::BindingDeclarationResult::Inserted(binding) = inserted {
             if fact.phase == crate::module_bindings::ModuleBindingPhase::StaticConstant {
                 readable.insert(binding);
@@ -305,7 +305,7 @@ fn analyze_static_expression_with_demands_at(
         let Some(state) = binding_states.get(&seed.symbol) else {
             continue;
         };
-        let inserted = context.declare_checked_binding(visible_name.to_owned(), state);
+        let inserted = context.declare_checked_binding(visible_name.to_owned(), state, seed.phase);
         if let crate::checker::binding::BindingDeclarationResult::Inserted(binding) = inserted {
             if seed.phase == crate::module_bindings::ModuleBindingPhase::StaticConstant {
                 readable.insert(binding);
@@ -416,6 +416,30 @@ fn analyze_static_expression_with_demands_at(
     } else {
         expected.ty()
     };
+
+    // A bare empty bracket literal has a known collection family but supplies
+    // no evidence for its element type. Keep family selection in
+    // `sequence_literal::synthesize`; once this static initializer owner has
+    // had its ordinary expected-type/inference opportunity, report the
+    // unresolved element type here instead of silently leaving a closed
+    // constant without a usable type or value.
+    let unresolved_empty_bracket = matches!(initializer, Expr::BracketLiteral(literal) if literal.elements.is_empty())
+        && matches!(&expected, ExpectedType::None)
+        && matches!(typed_result.knowledge, TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
+    if unresolved_empty_bracket
+        && !context.diagnostics[diagnostic_start..]
+            .iter()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::GenericInferenceUnderconstrained)
+        && let Some(cause) = context.emit_diagnostic(SemanticDiagnostic::error_in(
+            context.current_module.clone(),
+            DiagnosticCode::GenericInferenceUnderconstrained,
+            "empty static sequence literal has no element type evidence",
+            initializer.range(),
+        ))
+    {
+        typed_result.invalidate(cause);
+        context.sync_expression_outcome(&typed_result);
+    }
 
     context.ensure_sequence_publication_settled(initializer.range());
 

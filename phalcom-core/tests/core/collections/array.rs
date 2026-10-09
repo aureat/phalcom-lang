@@ -1,7 +1,15 @@
 use phalcom_core::bytecode::Bytecode;
 use phalcom_core::heap::{ObjRef, Object};
+use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
+
+fn global(vm: &VM, module: ObjRef, name: &str) -> Value {
+    vm.heap
+        .module(module)
+        .get(vm.interner.find(name).expect("interned global"))
+        .expect("global value")
+}
 
 fn send0(vm: &mut VM, receiver: Value, selector: &str) -> Value {
     let sym = vm.get_or_intern(selector);
@@ -108,7 +116,7 @@ fn array_structural_equality() {
     let a2 = eval_expr(&mut vm, "<Int>[1, 2, 3]");
     let a3 = eval_expr(&mut vm, "<Int>[1, 2, 4]");
     let a4 = eval_expr(&mut vm, "<Int>[1, 2]");
-    let list = eval_expr(&mut vm, "[1, 2, 3]");
+    let list = eval_expr(&mut vm, "List<Int>.new()");
 
     // Same elements -> equal
     let eq = send1(&mut vm, a1, "==(_)", a2);
@@ -131,6 +139,31 @@ fn array_structural_equality() {
     assert_eq!(neq, Value::bool(false));
     let neq_diff = send1(&mut vm, a1, "!=(_)", a3);
     assert_eq!(neq_diff, Value::bool(true));
+}
+
+#[test]
+fn bare_array_literal_preserves_source_order_of_element_effects() {
+    let source = r#"
+let trace: List<Int> = []
+class Probe {
+    @class value(_ value: Int) -> Int {
+        trace.append(value)
+        value
+    }
+}
+let values = [Probe.value(1), Probe.value(2)]
+let first = trace[0]
+let second = trace[1]
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source.into())).expect("checked Array source");
+    let mut vm = VM::new();
+    vm.materialize_program(&program).expect("materialize Array program");
+    vm.run_compiled(&program).expect("run Array source");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(global(&vm, module, "first"), Value::int(1));
+    assert_eq!(global(&vm, module, "second"), Value::int(2));
+    let values = global(&vm, module, "values");
+    assert_eq!(values.class(&vm), vm.universe.classes.array_class);
 }
 
 #[test]

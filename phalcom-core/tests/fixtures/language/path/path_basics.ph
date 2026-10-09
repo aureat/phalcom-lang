@@ -2,13 +2,15 @@
 let mut p1 = Path.of("a/b.txt")
 System.print(p1.toString)
 
-let mut nonUtf8Bytes = Bytes.fromList([97, 47, 255, 46, 116, 120, 116])
+let byteValues: List<Int> = [97, 47, 255, 46, 116, 120, 116]
+let mut nonUtf8Bytes = Bytes.fromList(byteValues)
 let mut p2 = Path.ofBytes(nonUtf8Bytes)
 System.print(p2.toString)
 System.print(p2.bytes.at(2))
 
 // Exclusive ownership
-let mut srcBytes = Bytes.fromList([102, 111, 111])
+let sourceBytes: List<Int> = [102, 111, 111]
+let mut srcBytes = Bytes.fromList(sourceBytes)
 let mut p3 = Path.ofBytes(srcBytes)
 srcBytes.set(0, 98) // mutate source Bytes to 'b'
 System.print(p3.toString) // remains "foo"
@@ -54,7 +56,7 @@ System.print(Path.of("a/b/").extension) // None
 System.print(Path.of("a/b").extension) // None
 
 let mut comps = Path.of("//a///b//c/").components
-let mut compStr = []
+let mut compStr: List<String> = []
 comps.each |c| { compStr.append(c.toString) }
 System.print(compStr.join(","))
 
@@ -69,4 +71,3 @@ System.print(m1 != m3)
 System.print(m1.toString)
 System.print(OpenMode.append.toString)
 System.print(OpenMode.readWrite.toString)
-

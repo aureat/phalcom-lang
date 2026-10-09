@@ -4,5 +4,6 @@
 // U14: a rest-less list pattern requires an exact-arity scrutinee too —
 // `[a, b]` against a 1-element `List` is a clean runtime error.
 
-let [a, b] = [1]
+let values: List<Int> = [1]
+let [a, b] = values
 System.print(a)
