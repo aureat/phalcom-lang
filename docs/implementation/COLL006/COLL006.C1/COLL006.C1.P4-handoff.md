@@ -128,6 +128,33 @@ The follow-up's focused gates and the three unchanged D4 static-constant
 baseline failures are recorded in the [C1 checkpoint](COLL006.C1-CHECKPOINT.md).
 P5 can proceed from the current live branch revision with these invariants.
 
+## Residual ownership and P9 closure ruling
+
+The user-provided consultation is recorded as A11 in the checkpoint and as
+§16.7 in the detailed C1 plan. Treat D1/D2/D4 as verification residuals, not
+P5 execution blockers:
+
+| Residual | Current owner/classification | P5 effect | P9 action if it remains |
+|---|---|---|---|
+| D1 — `NonExportableRecordKeyDomain` in metadata fingerprint coverage | Semantic metadata / Record-key exportability; suspected unrelated, not proven external | None | Rerun the exact fingerprint fixture and compare with current `origin/main` |
+| D2 — reflection, Universe exposure, and module/package/project fixture failures | Split by the actual reflection or fixture cause; suspected unrelated, not proven external | None | Rerun and classify each distinct cause against current `origin/main` |
+| D4 — three computed-Record-key `RecordKeyNotStatic` cases | Static Record-key projection / static-constant semantic metadata; inherited non-P4 sequence residual | Prevents a clean aggregate `static_constants` PASS only | Rerun all three exact fixtures and compare with current `origin/main` |
+
+At P9, current-main reproduction of the same failure is sufficient to classify
+it `EXTERNAL_BASELINE`; do historical boundary comparison only when main passes
+and the C1 candidate fails. Classify each residual as `RESOLVED`,
+`EXTERNAL_BASELINE`, `C1_OWNED`, or `AMBIGUOUS`, splitting D2 when causes differ.
+C1 closure requires no `AMBIGUOUS` residuals. Confirmed external failures may
+leave C1 `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`; a C1-owned defect returns
+to its owning plan or a corrective C1 plan. Do not add a P4 repair plan without
+evidence of P4/C1 causality.
+
+P9 also owns broad workspace and current-CI certification plus C1-specific
+behavior, property, GC/rooting, re-entry, cold/incremental, performance,
+migration, documentation, and lifecycle gates. The detailed plan lists the
+current repository commands; re-read `scripts/verify.sh` and
+`.github/workflows/ci.yml` when P9 begins because those gates may evolve.
+
 ## Records to read
 
 - [P4 implementation plan](COLL006.C1.P4-static-homogeneous-sequences-and-atomic-bracket-cutover-luna-patch-grade-implementation-plan.md)

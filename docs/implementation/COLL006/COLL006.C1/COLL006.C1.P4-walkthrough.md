@@ -123,5 +123,23 @@ check reported 417 declarations current. Semantic `static_constants` remains
 `RecordKeyNotStatic` failures. The exact results and residual classification
 are in the [C1 checkpoint](COLL006.C1-CHECKPOINT.md).
 
-No architecture or plan amendment was needed. P4 remains `COMPLETE /
-IMPLEMENTED / BASELINE_BLOCKED`; P5 remains next.
+No architecture consultation or implementation-plan amendment was needed for
+the P4 correctness work. A subsequent consultation resolved only residual
+ownership and final-closure policy; it did not reopen P4 or change its
+acceptance. The decision is recorded in checkpoint entry A11 and P9 §16.7:
+
+- P4 remains `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`.
+- D4's three computed-Record-key `RecordKeyNotStatic` failures remain outside
+  collection ownership absent causal evidence. They prevent a clean aggregate
+  `static_constants` result, but do not block P5.
+- D1's metadata failure and D2's reflection/module fixture failures remain
+  suspected unrelated; no clean-predecessor comparison established provenance.
+- P9 must rerun surviving failures, compare exact discriminators against
+  contemporaneous `origin/main` first, split D2 by cause, and classify every
+  residual. Current-main reproduction supports `EXTERNAL_BASELINE`; historical
+  boundary comparison is needed only when main passes and C1 fails. C1 closure
+  requires no `AMBIGUOUS` residuals. Confirmed external failures may leave C1
+  `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`; a C1-owned defect returns to its
+  owning plan or a corrective C1 plan.
+
+P5 remains the next plan, with no execution blocker from D1, D2, or D4.
