@@ -2,7 +2,7 @@
 id: LANG007.C4.algebraic-literals-follow-on-handoff
 kind: handoff
 checkpoint: LANG007.C4
-status: BLOCKED
+status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
 created: 2026-10-08
@@ -57,44 +57,47 @@ aggregate result was three passes and two failures, not feature acceptance.
   compiler realization descriptor, or temporary direct-construction prototype
   remains in the delivered tree.
 
-## Blocking incident
+## Resolved generic reification incident
 
 Read `algebraic-literals-generic-reification-incident.md` before editing.
 
-The exact issue is generic runtime reification: a checked
+The exact issue was generic runtime reification: a checked
 `Quaternion<Int>.complexPart` call carries a `T = Int` call-entry recipe, but
 the source-owned `Complex<T>` construction inside the generic method reaches
 runtime as `Complex<Dynamic>`. Components remain `(1, 2)`, while exact applied
 data descriptor identity differs from direct `Complex<Int>` construction.
 
-Do not fix this by adding separate `Quaternion<Int>` and `Quaternion<Float>`
-source methods. That would introduce a workaround and leave the generic
-call-entry/type-recipe owner inconsistent.
+The owning-layer repair is now present in `phalcom-core/src/modules/compile.rs`:
+`close_covering_body_bindings` consumes the published semantic
+`EffectiveCallableDefinition.inherent_body_context.covering` relation and adds
+both declaration-owned and impl-owned identities to the executable call-entry
+recipe. It fails closed on inconsistent values, does not mutate semantic call
+specializations, and leaves VM Dynamic fallback and descriptor identity
+unchanged.
+
+Do not replace this with separate `Quaternion<Int>` and `Quaternion<Float>`
+source methods, name/index matching, or VM-side substitution.
 
 ## Next implementation order
 
-1. Obtain an architectural ruling for generic source-body type reification:
-   determine how covering-impl/body-coordinate substitution and runtime call
-   environment recipes must propagate through nested generic data construction.
-2. Add a semantic regression for exact `Complex<Int>` identity through the
-   generic `complexPart` body before changing production code.
-3. Correct the owning generic reification/materialization seam and rerun the
-   exact probe.
-4. Complete T3's scalar identity and explicit basis-realization/real-embedding
+1. **Complete:** preserve the exact `Complex<Int>` identity regression and add
+   neutral generic product, nested-call, outer-forwarding, independent-binder,
+   and declaration-canonical semantic regressions.
+2. **Next:** complete T3's scalar identity and explicit basis-realization/real-embedding
    source capabilities. Preserve exact conformance and callable identity.
-5. Add a durable semantic realization product for basis expressions and native
+3. Add a durable semantic realization product for basis expressions and native
    suffix literals. It must preserve canonical source identities, target type,
    axis, scalar domain, and realization evidence.
-6. Project that product into compiler lowering. The compiler must consume the
+4. Project that product into compiler lowering. The compiler must consume the
    product and construct ordinary data values; it must not infer from `i`/`j`/`k`
    spelling.
-7. Add contextual arithmetic-region propagation for `i + j`, `2*i`, and mixed
+5. Add contextual arithmetic-region propagation for `i + j`, `2*i`, and mixed
    axes. Preserve ordinary selector identity and source evaluation order.
-8. Add semantic negative cases: `j` into Complex, scalar-domain mismatch,
+6. Add semantic negative cases: `j` into Complex, scalar-domain mismatch,
    ambiguous generic contexts, and unsupported capability operations.
-9. Run the focused runtime probe, semantic tests, compiler projection tests,
+7. Run the focused runtime probe, semantic tests, compiler projection tests,
    forced-GC tests, and large exact-coefficient tests.
-10. Only then promote the follow-on lifecycle record from BLOCKED / PARTIAL.
+8. Only then promote the follow-on lifecycle record from IN_PROGRESS / PARTIAL.
 
 ## Must-read and verification boundaries
 
@@ -126,5 +129,5 @@ RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-ast --test integration imagi
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core audit_probes::algebraic_literals -- --nocapture
 ```
 
-The last command is expected to remain red until semantic realization and the
-generic reification blocker are resolved.
+The last command remains red only for the unfinished typed realization probe;
+the generic reification blocker is resolved and its focused regressions pass.

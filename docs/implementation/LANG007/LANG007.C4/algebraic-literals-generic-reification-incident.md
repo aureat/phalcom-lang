@@ -119,7 +119,9 @@ establish the planned capability/identity contract.
 - `typing/environment.rs::instantiate_type_ref` substitutes `Dynamic` when a
   metadata parameter has no entry in the active runtime environment.
 
-The exact execution point that loses the binding is unproven.
+The original execution point is now localized and repaired: the source-body
+template uses the impl-owned parameter while the call recipe previously carried
+only the declaration-owned parameter.
 
 ## 10. Implementer's causal hypothesis
 
@@ -147,17 +149,28 @@ bytecode, rather than changing descriptor equality.
    This rules out a missing top-level call specialization as the sole cause.
 3. Considered Int/Float-specific overloads. Rejected: that would be a local
    workaround with different architectural ownership and would hide the generic
-    reification defect.
+   reification defect.
 
-No serious correction to this generic reification problem was retained. The
-tests remain active and failing; their identity oracle is unchanged.
+4. Added a general compiler-side call-environment closure. It consumes the
+   semantic covering substitution, binds both coordinates to the same actual
+   `TypeId`, rejects inconsistent dual bindings, and applies to ordinary,
+   conditional, and bound-family selected calls.
+5. Added neutral generic product, nested generic call, outer-generic forwarding,
+   independent-binder, and semantic declaration-canonical regressions. The
+   Quaternion exact descriptor regression remains unchanged and passes.
+
+The generic reification correction is retained and focused-tested. The
+remaining red algebraic-literals probe is the separate unfinished typed basis
+realization boundary.
 
 ## 13. Why local authority is insufficient
 
 An arbitrary parameter remap, changed erasure policy, or source API workaround
 would cross stable identity and compiler/runtime generic typing contracts.
-The next implementation requires an explicit owning-layer ruling. No advisory
-decision has been obtained, and the user requested a delivery stop.
+The prior architectural ruling authorized the compiler call-entry bridge. That
+decision is implemented without changing ownership, identity, VM fallback, or
+descriptor equality. The remaining algebraic-literal work is the separate T3/T4
+realization scope.
 
 ## 14. Decision requested
 
@@ -166,3 +179,7 @@ Where should the canonical substitution from a generic source-body parameter
 data construction receives the caller’s reified type environment rather than
 falling back to `Dynamic`? The decision must preserve exact descriptor identity,
 covering-impl coordinate purity, and existing call-entry recipe ownership.
+
+**Decision applied:** at semantic-to-runtime call-environment projection in
+`ProgramCompiler`, using `CoveringImplSubstitution`; preserve distinct stable
+owner identities and duplicate the concrete binding in the executable recipe.

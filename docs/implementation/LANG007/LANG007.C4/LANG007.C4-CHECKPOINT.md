@@ -24,9 +24,9 @@ last_updated: 2026-10-08
 
 # LANG007.C4 — Checkpoint Record
 
-## Algebraic-literals follow-on stop state (2026-10-08)
+## Historical algebraic-literals follow-on stop state (2026-10-08)
 
-User-directed follow-on in `.worktrees/complex-math`, branch
+The initial user-directed stop in `.worktrees/complex-math`, branch
 `feat/complex-math`, delivered partially at `f36f84fa` from starting revision
 `43a4f466` and pushed to `origin/feat/complex-math`:
 `BLOCKED / PARTIAL / FOCUSED_TESTED`. The user requested an implementation stop,
@@ -42,14 +42,43 @@ laws/large Int/GC probes pass. The four-crate check and two focused AST tests
 pass. The aggregate runtime group was 3 PASS / 2 FAIL, with failures in typed
 realization/literal acceptance and generic `complexPart` exact identity.
 
-Next action: obtain the owning-layer ruling in
-[`algebraic-literals-generic-reification-incident.md`](algebraic-literals-generic-reification-incident.md),
-then complete realization capabilities, canonical semantic products, contextual
-arithmetic inference, and compiler lowering under the
-[tracked execution plan](algebraic-literals-follow-on-plan.md). No ruling has
-been adopted. A checked `Quaternion<Int>.complexPart` call carries T=Int evidence,
-but its result instantiates as `Complex<Dynamic>`; the loss point is unresolved.
-Retain the red regression without weakening exact identity.
+That historical next action has been completed through the owning-layer ruling
+and bounded generic compiler repair. Continue with realization capabilities,
+canonical semantic products, contextual arithmetic inference, and compiler
+lowering under the
+[tracked execution plan](algebraic-literals-follow-on-plan.md). The historical
+generic identity regression remains retained as an exact regression; its
+owning-layer ruling and repair are recorded below.
+
+## Generic reification repair (2026-10-09)
+
+The generic covering-impl runtime reification blocker is resolved as a bounded
+compiler projection repair. `ProgramCompiler::project_analyzed` now closes
+runtime call-entry bindings over both declaration-owned and source-impl-owned
+coordinates using the published semantic `CoveringImplSubstitution`. Semantic
+`CallSpecialization` remains declaration-canonical; stable owner identity,
+runtime `Dynamic` erasure fallback, and descriptor equality are unchanged.
+
+Focused regressions pass for the retained Quaternion `complexPart` exact
+descriptor, neutral covering-impl tuple construction, nested generic calls,
+outer generic forwarding across `Int`/`Float`, independent impl binders, and
+declaration-canonical semantic specialization. The conditional operator
+environment regression also passes. The aggregate algebraic-literals group
+still has the pre-existing typed `i`/`j` contextual-realization failure; that
+is T4 work, not a generic-reification failure.
+
+The follow-on remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. T3 identity
+capabilities and explicit realization APIs are the next action; T4/T5 remain
+unfinished. See `algebraic-literals-generic-reification-walkthrough.md` and
+`algebraic-literals-generic-reification-handoff.md`.
+
+T3 is currently held at an architectural boundary: the proposal's `@class`
+trait requirements conflict with the normative trait specification's explicit
+deferral of metatype/class-side conformance syntax and the live trait surface's
+instance-side-only requirement publication. The incident and narrow decision
+request are recorded in
+`algebraic-literals-t3-capability-boundary-incident.md`; no speculative
+instance-side workaround was added.
 
 Current compiler lowering rejects imaginary literals; no temporary realization
 prototype is retained. Broader semantic/incremental/compiler realization gates

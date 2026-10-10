@@ -2,11 +2,11 @@
 id: LANG007.C4.algebraic-literals-follow-on
 kind: implementation-plan
 checkpoint: LANG007.C4
-status: BLOCKED
+status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
 prepared_against_revision: 43a4f466
-last_updated: 2026-10-08
+last_updated: 2026-10-09
 ---
 
 # Contextual algebraic literals — execution plan and stop state
@@ -40,7 +40,7 @@ units by source spelling or infer formal facts from advisory shapes.
 | --- | --- | --- |
 | T1 — Failing syntax and runtime probes | PARTIAL | Syntax, basis identity, Quaternion laws/unavailability, typed realization, and projection probes exist. Add `2i` versus `2*i`, context propagation, shadowing, effect-order, and rejection coverage. |
 | T2 — Lexer/parser and AST consumers | IMPLEMENTED / FOCUSED_TESTED | Dedicated coefficient/axis nodes, numeric grammar integration, atomic errors, and exhaustive consumers compile. Two focused syntax tests pass; all four new syntax tests passed in the larger AST run. |
-| T3 — Source-owned basis/Quaternion algebra | BLOCKED / PARTIAL | Basis declarations, immutable runtime bindings, Quaternion operations, provider registration, and law probes exist. Identity capabilities, explicit realization/embedding APIs, and generic `complexPart` identity acceptance are unfinished. |
+| T3 — Source-owned basis/Quaternion algebra | BLOCKED / PARTIAL | Basis declarations, immutable runtime bindings, Quaternion operations, provider registration, and law probes exist. Generic runtime reification is repaired generally; identity capabilities and explicit realization/embedding APIs require a class-side trait/metatype decision. |
 | T4 — Canonical semantic realization | NOT_STARTED | Temporary direct-construction prototypes were removed. The checker returns `Unknown(UncheckedExpression)` for imaginary nodes; bare basis expressions retain their existing types. |
 | T5 — Compiler projection and lowering | NOT_STARTED | Compiler rejects imaginary expressions with an explicit missing-realization error. No semantic realization descriptor is retained. |
 | T6 — Acceptance and lifecycle | PARTIAL | Interim evidence and blocker records are delivered at the user-requested stop. Full feature acceptance is red. |
@@ -48,7 +48,9 @@ units by source spelling or infer formal facts from advisory shapes.
 ## Resume gates
 
 1. Resolve the generic reification incident before changing the affected seam.
-   Keep the failing projection regression and its exact identity oracle.
+   Keep the exact projection regression and its identity oracle. **COMPLETE:**
+   call-entry projection now closes covering-impl declaration and source-body
+   coordinates bidirectionally from semantic `CoveringImplSubstitution`.
 2. Establish scalar identities and explicit target-side realization capabilities
    in the existing numeric source modules. Validate coherence and exact callable
    selection, especially multiple Quaternion axes under one generic capability.

@@ -1,7 +1,8 @@
 //! Runtime probes for contextual algebraic basis values and native suffix literals.
 
 use phalcom_core::heap::ObjRef;
-use phalcom_core::modules::compile::{CompiledProgram, EntrySelection, ProgramCompiler};
+use phalcom_core::modules::compile::{CompiledProgram, EntrySelection, ProgramAnalyzer, ProgramCompiler};
+use phalcom_core::typing::inspect;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use std::fs;
@@ -28,6 +29,28 @@ fn global(vm: &VM, module: ObjRef, name: &str) -> Value {
         .module(module)
         .get(vm.interner.find(name).expect("binding symbol"))
         .expect("binding value")
+}
+
+fn exact_tuple_type(vm: &VM, value: Value) -> String {
+    let descriptor = vm.heap.tuple(value.as_obj().expect("tuple value")).descriptor();
+    let exact = vm
+        .anonymous_product_descriptors
+        .get(descriptor)
+        .expect("tuple descriptor")
+        .exact_type
+        .expect("exact tuple type");
+    inspect::display(&vm.runtime_typing_context, &vm.typing_registry, &vm.heap, exact)
+}
+
+fn exact_data_type(vm: &VM, value: Value) -> String {
+    let descriptor = vm.heap.data(value.as_obj().expect("data value")).descriptor;
+    let exact = vm
+        .data_registry
+        .descriptor(descriptor)
+        .expect("data descriptor")
+        .exact_type
+        .expect("exact data type");
+    inspect::display(&vm.runtime_typing_context, &vm.typing_registry, &vm.heap, exact)
 }
 
 #[test]
@@ -151,5 +174,194 @@ let projection = projected === expectedProjection
         vm.data_registry.descriptor(projected_descriptor),
         vm.data_registry.descriptor(expected_descriptor),
     );
+    assert_eq!(exact_data_type(&vm, projected), "Complex<Int>");
     assert_eq!(global(&vm, module, "projection"), Value::bool(true));
+}
+
+#[test]
+fn covering_impl_generic_product_preserves_exact_applied_identity() {
+    let source = r#"
+data Box<T>(_ value: T)
+impl<T> Box<T> {
+  pair -> (T, Int) { (self.value, 1) }
+}
+class Maker {
+  @class
+  pair<T>(_ value: T) -> (T, Int) { (value, 1) }
+}
+let pair = Box(7).pair
+let expected = Maker.pair(7)
+let exact = pair === expected
+"#;
+    let (_temp, program) = compile(source);
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("covering impl package executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    vm.force_gc();
+    let pair = global(&vm, module, "pair");
+    let expected = global(&vm, module, "expected");
+    assert_eq!(exact_tuple_type(&vm, pair), "(Int, Int)");
+    assert_eq!(global(&vm, module, "exact"), Value::bool(true));
+    assert_eq!(
+        vm.heap.tuple(pair.as_obj().expect("pair tuple")).descriptor(),
+        vm.heap.tuple(expected.as_obj().expect("expected tuple")).descriptor(),
+        "covering impl generic product must reify the same applied tuple type",
+    );
+}
+
+#[test]
+fn covering_impl_nested_generic_call_preserves_exact_applied_identity() {
+    let source = r#"
+class Identity {
+  @class
+  of<T>(_ value: T) -> (T, Int) { (value, 1) }
+}
+data Box<T>(_ value: T)
+impl<T> Box<T> {
+  project -> (T, Int) { Identity.of(self.value) }
+}
+class Maker {
+  @class
+  pair<T>(_ value: T) -> (T, Int) { (value, 1) }
+}
+let projected = Box(7).project
+let expected = Maker.pair(7)
+let exact = projected === expected
+"#;
+    let (_temp, program) = compile(source);
+    let nested_start = source.find("Identity.of(self.value)").expect("nested call");
+    let recipe = program.modules[&program.entry]
+        .lowering
+        .call_environment_recipes
+        .iter()
+        .find(|(range, _)| range.start == nested_start)
+        .map(|(_, recipe)| recipe)
+        .expect("checked nested generic call recipe");
+    assert!(
+        recipe
+            .bindings
+            .iter()
+            .any(|(_, ty)| matches!(ty, phalcom_core::typing::RuntimeTypeRecipe::Template(_))),
+        "nested call must receive an impl-relative template type argument",
+    );
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("nested covering impl package executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    vm.force_gc();
+    let projected = global(&vm, module, "projected");
+    let expected = global(&vm, module, "expected");
+    assert_eq!(exact_tuple_type(&vm, projected), "(Int, Int)");
+    assert_eq!(global(&vm, module, "exact"), Value::bool(true));
+    assert_eq!(
+        vm.heap.tuple(projected.as_obj().expect("projected tuple")).descriptor(),
+        vm.heap.tuple(expected.as_obj().expect("expected tuple")).descriptor(),
+        "nested generic call must retain the covering impl's applied type",
+    );
+}
+
+#[test]
+fn covering_impl_forwarded_type_arguments_reify_in_both_coordinates() {
+    let (mut vm, module) = run(r#"
+data Box<T>(_ value: T)
+impl<T> Box<T> {
+  project -> Box<T> { Box<T>(self.value) }
+}
+class Forward {
+  @class
+  project<T>(_ box: Box<T>) -> Box<T> { box.project }
+}
+let intProjected = Forward.project(Box(7))
+let intExpected = Box(7)
+let floatProjected = Forward.project(Box(7.0))
+let floatExpected = Box(7.0)
+let intExact = intProjected === intExpected
+let floatExact = floatProjected === floatExpected
+"#);
+    vm.force_gc();
+    for (projected, expected, exact_type) in [("intProjected", "intExpected", "Box<Int>"), ("floatProjected", "floatExpected", "Box<Float>")] {
+        let projected = global(&vm, module, projected);
+        let expected = global(&vm, module, expected);
+        assert_eq!(exact_data_type(&vm, projected), exact_type);
+        assert_eq!(
+            vm.heap.data(projected.as_obj().expect("projected data")).descriptor,
+            vm.heap.data(expected.as_obj().expect("expected data")).descriptor,
+        );
+    }
+    assert_eq!(global(&vm, module, "intExact"), Value::bool(true));
+    assert_eq!(global(&vm, module, "floatExact"), Value::bool(true));
+}
+
+#[test]
+fn independent_covering_impl_binders_do_not_collide() {
+    let (mut vm, module) = run(r#"
+data First<T>(_ value: T)
+data Second<T>(_ value: T)
+impl<T> First<T> {
+  wrap -> Second<T> { Second<T>(self.value) }
+}
+impl<T> Second<T> {
+  wrap -> First<T> { First<T>(self.value) }
+}
+let first = First(7).wrap
+let second = Second(7.0).wrap
+let intExpected = Second(7)
+let floatExpected = First(7.0)
+let intExact = first === intExpected
+let floatExact = second === floatExpected
+"#);
+    vm.force_gc();
+    for (actual, expected, exact_type) in [("first", "intExpected", "Second<Int>"), ("second", "floatExpected", "First<Float>")] {
+        let actual = global(&vm, module, actual);
+        let expected = global(&vm, module, expected);
+        assert_eq!(exact_data_type(&vm, actual), exact_type);
+        assert_eq!(
+            vm.heap.data(actual.as_obj().expect("actual data")).descriptor,
+            vm.heap.data(expected.as_obj().expect("expected data")).descriptor,
+        );
+    }
+    assert_eq!(global(&vm, module, "intExact"), Value::bool(true));
+    assert_eq!(global(&vm, module, "floatExact"), Value::bool(true));
+}
+
+#[test]
+fn covering_impl_semantic_specialization_stays_declaration_canonical() {
+    let source = r#"
+data Box<T>(_ value: T)
+impl<T> Box<T> {
+  wrap -> Box<T> { Box<T>(self.value) }
+}
+let result = Box(7).wrap
+"#;
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(source.into())).expect("covering impl source analyzes");
+    assert!(!analyzed.semantic.has_errors(), "{:#?}", analyzed.semantic.diagnostics);
+    let expression = analyzed
+        .semantic
+        .callable_analyses
+        .iter()
+        .filter(|(callable, _)| callable.owner.module() == &analyzed.entry)
+        .flat_map(|(_, analysis)| analysis.expressions.values())
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("Box(7).wrap"))
+        .expect("exact covering impl call");
+    let specialization = expression.call_specialization.as_ref().expect("canonical call specialization");
+    let [(parameter, ty)] = &specialization.bindings[..] else {
+        panic!("one declaration-owned binding expected: {:?}", specialization.bindings)
+    };
+    assert!(
+        matches!(
+            &analyzed.semantic.store.type_parameter(*parameter).owner,
+            phalcom_semantic::types::parameter::TypeParameterOwner::Declaration(_)
+        ),
+        "semantic specialization must not gain an impl-owned execution alias",
+    );
+    assert_eq!(analyzed.semantic.store.format_type(*ty), "Int");
+
+    let program = ProgramCompiler::compile_analyzed(&analyzed).expect("call environment projection");
+    let recipe = program.modules[&program.entry]
+        .lowering
+        .call_environment_recipes
+        .get(&expression.range)
+        .expect("executable covering impl recipe");
+    assert_eq!(recipe.bindings.len(), 2, "callee must see both declaration and source-body coordinates");
+    assert_ne!(recipe.bindings[0].0.owner, recipe.bindings[1].0.owner);
+    assert_eq!(recipe.bindings[0].1, recipe.bindings[1].1);
 }
