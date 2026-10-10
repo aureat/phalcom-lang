@@ -25,6 +25,32 @@ fn vector_fixed_and_exact_spread_construction_preserve_native_identity_and_order
 }
 
 #[test]
+fn explicit_vector_evaluates_elements_once_in_source_order_and_supports_zero_extent() {
+    let source = r#"
+let trace: List<Int> = []
+class Probe {
+  @class value(_ value: Int) -> Int {
+    trace.append(value)
+    value
+  }
+}
+let values = <Int, 3>[Probe.value(1), Probe.value(2), Probe.value(3)]
+let empty = <Int, 0>[]
+let first = trace[0]
+let second = trace[1]
+let third = trace[2]
+let traceSize = trace.size
+let emptySize = empty.size
+"#;
+    let (vm, module) = vm_support::run_inline(source).expect("ordered Vector fixture compiles and runs");
+    assert_eq!(global(&vm, module, "first"), Value::int(1));
+    assert_eq!(global(&vm, module, "second"), Value::int(2));
+    assert_eq!(global(&vm, module, "third"), Value::int(3));
+    assert_eq!(global(&vm, module, "traceSize"), Value::int(3), "each Vector child must execute exactly once");
+    assert_eq!(global(&vm, module, "emptySize"), Value::int(0));
+}
+
+#[test]
 fn context_free_bracket_compilation_requires_checked_lowering() {
     let mut vm = VM::new();
     for (name, source) in [

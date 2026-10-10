@@ -3,17 +3,18 @@ id: COLL006.C1.P4
 program: COLL006
 checkpoint: COLL006.C1
 kind: handoff
-status: IN_PROGRESS
-completion: PARTIAL
-verification: FOCUSED_TESTED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: BASELINE_BLOCKED
 ---
 
-# COLL006.C1.P4 — Continuation after T10/G6
+# COLL006.C1.P4 — Completed handoff to P5
 
-P4 remains open. T10 and G6 are complete; continue with T11, then G7 and T12.
-The active worktree is `telos-collections-upgrade` on branch
-`feat/telos-collection-upgrade`. Start from its current HEAD, which contains
-the T10/G6 implementation and records.
+P4 is `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED` on
+`feat/telos-collection-upgrade` in the `telos-collections-upgrade` worktree.
+The implementation started from committed `d4fe4473` (T10/G6) and continued
+inline through T11/G7/T12. The final continuation is in this worktree; use the
+live branch revision as the next P5 starting anchor.
 
 ## Stable T10 behavior
 
@@ -55,52 +56,54 @@ Vector, empty underconstraint, static List, and arbitrary-constructor boundary
 cases in that filter passed. Keep G2 `BASELINE_BLOCKED`; do not repair D4 under
 P4.
 
-## T11 work remaining
+## Stable P5 takeover interfaces
 
-No T11 incremental matrix has been retained yet. An exploratory T11 test found
-the `const` phase-owner gap described above; the correction is now part of T10
-and has its own G6 regression. Continue with the plan's remaining cases:
+- `StaticValueData::Sequence` in `phalcom-semantic/src/static_value/store.rs`
+  retains the checked Array/Vector result type and ordered children. Its type,
+  semantic equality/hash, and content fingerprint are canonical C4 products.
+- `phalcom-semantic/src/static_eval/machine.rs` consumes checked literal
+  resolutions; an open symbolic Vector identity spread remains symbolic and
+  publishes no partial sequence.
+- `MaterializationDescriptor::Sequence` is self-contained. The VM uses
+  `RuntimeStaticConstantRef` and the canonical owner module cache to build
+  immutable native Vector objects or frozen ordinary Array objects without
+  runtime initializer execution. Intermediate heap children are temp-rooted
+  until owner publication; failures publish no partial value.
+- Direct const Array mutation has a semantic diagnostic, and the frozen runtime
+  guard protects aliases. Ordinary Array element replacement remains available.
+- P5 may rely on bare runtime Array/static Vector defaults and explicit List
+  contexts. Parser/compiler do not independently select the family.
 
-1. Incremental static contents and exact extent changes; removing an Array
-   annotation; `const` to `let` and `let` to `const`; Vector spread source
-   losing exactness; invalid-to-valid and valid-to-invalid transitions.
-   Assert cold/incremental parity, no stale current value/descriptor, changed
-   fingerprints where inputs/results change, and unaffected product reuse
-   where the live invalidation boundary promises it.
-2. Selective, renamed, qualified, re-exported, and two-consumer module reads;
-   verify canonical source owner identity.
-3. GC before reads, after materialization, during nested construction where
-   hooks permit, and with only the owner module cache rooting the value.
-4. Reconfirm runtime alias mutation fails for frozen const Array while ordinary
-   Array mutation remains available.
-5. Retain source-order/exactly-once checks for bare Array and explicit Vector.
-6. Check zero and supported concrete extents, host-count conversion, and
-   controlled allocation failure only where existing hooks support them; add
-   no artificial global limit.
-7. Reconfirm static List fails closed and bracket support does not authorize
-   arbitrary runtime constructors.
+## T11/G7 evidence and limits
 
-Existing relevant tests include semantic incremental publication parity,
-`static_const` module import/re-export/GC and alias coverage, `core_array`,
-`core_vector`, and the static-constant boundary tests. Inspect them before
-adding coverage and avoid duplicating established cases. T11's focused command
-set is in the P4 plan's T11 section.
+- Semantic `coll006`: 51 passed; `static_sequence`: 10 passed; exact COLL006
+  incremental cases: 3 passed. Content/extent/phase/spread edits match cold
+  analysis, invalidate current values/descriptors/fingerprints correctly, and
+  reuse unrelated products.
+- Core Array: 11 passed; Vector: 9 passed (including exactly-once source order
+  and zero extent); static constants: 23 passed; module parity: 8 passed.
+  Module tests cover selective/renamed/qualified/two-hop re-export reads,
+  canonical owner identity, forced GC before reads, and cache rooting.
+- Native surface `--check`: 417 declarations current. Workspace all-target
+  `cargo check` and `git diff --check` passed.
+- Semantic `static_constants`: 21 passed, three inherited D4 computed Record-key
+  `RecordKeyNotStatic` failures; G7 is `BASELINE_BLOCKED`, not a clean pass.
+  The initial broad `incremental` filter also exposed unrelated failures and
+  timed out; the exact COLL006 incremental gate passed. Global `cargo fmt
+  --all -- --check` reports inherited formatting drift in pre-existing files.
+- The refreshed migration census records 505 classified bare nodes, zero ambiguous
+  or unclassified; P4 introduces no outstanding List migration.
 
-## G7 and T12
+GC during recursive materialization is protected by the existing VM temp-root
+seam and verified by nested post-construction collection and failed-publication
+tests; there is no exposed test hook for forcing GC between individual
+descriptor-child allocations. Controlled allocator failure also has no focused
+injection hook; the implementation uses fallible reservations and errors before
+owner-cache publication. No artificial global extent limit was added.
 
-G7 requires the plan's focused semantic, static-sequence, static-constant,
-incremental, Array, Vector, and module/static-constant gates, plus
-`cargo check --workspace --all-targets`, applicable native-surface checking,
-and `git diff --check`. Do not run workspace tests, clippy, or release
-certification; they are outside this plan's gate.
-
-The G5 census records 495 sites (331 `.ph`, 164 Rust source/test strings),
-with no ambiguous or unclassified sites. T10 added two regression-fixture
-bracket literals after that snapshot; refresh and classify the census in T12.
-Then update the checkpoint and program status as required, create the P4
-walkthrough and P5 handoff, and mark P4 complete only if G7 passes and no
-P4-owned A/B failures remain unresolved. Keep completion and verification
-classifications separate.
+Next: implement P5 Slice/Buffer contiguous views and bounded storage, including
+the LANG007.C4.P14 parser-snapshot convergence. Preserve P4's canonical static
+value/owner model and do not re-derive collection family or static identity.
 
 ## Records to read
 

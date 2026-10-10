@@ -1,6 +1,6 @@
 # COLL006.C1.P4 — Bare-Bracket Migration Census
 
-**T8 baseline:** COMPLETE; 496 in-scope AST literal nodes and 0 `AMBIGUOUS` or unclassified entries before T9 source migration. **G5 refresh:** 495 current AST literal nodes, 0 `AMBIGUOUS` or unclassified entries after T9 migration and before T10 cutover.
+**T8 baseline:** COMPLETE; 496 in-scope AST literal nodes and 0 `AMBIGUOUS` or unclassified entries before T9 source migration. **G5 inventory:** 495 classified bare bracket nodes; its retained rows already include the T10 cutover fixtures. **T12 delta refresh:** 505 classified bare bracket nodes after adding the T11 fixtures, with 0 `AMBIGUOUS` or unclassified entries. The ten new *bare* nodes are nine semantic incremental literals and one explicitly contextual List trace fixture. Explicitly headed Array/Vector literals are excluded by the original walker rule.
 
 ## Method and coverage
 
@@ -527,6 +527,36 @@
 | `phalcom-semantic/tests/semantic/integration/source_index.rs:Rust-L859; Phalcom-L1, bytes 13–19` | `[1, 2]` | `READ_ITERATE_ONLY` | This runtime source reads, iterates, searches, renders, or consumes the sequence without a List-only identity or size-change requirement; its target family is Array. Evidence: `let values = ⟦[1, 2]⟧ ⏎ for value in values { value } ⏎` | Leave the literal bare so it selects runtime Array after T10. If an API needs List identity, classify the producer as `LIST_IDENTITY` and give it explicit List context. | `SEMANTIC-TEST` — preserve the behavior owned by this file at this source site. |
 | `tools/vsphalcom/manual-test/draft.ph:L6, bytes 85–87` | `[]` | `LIST_IDENTITY` | A declared List type, List-only API, or legacy collection-identity assertion requires a nominal List value at this producer. Evidence: `class Path { ⏎ mut _segments: List<String> ⏎ ⏎ @constructor ⏎ new() { ⏎ _segments = ⟦[]⟧ ⏎ } ⏎ ⏎ __intercep…` | Retain an existing `List<T>` expected type/signature or add one at the producer/call boundary; do not depend on the bare default. | `MANUAL-FIXTURE` — preserve the behavior owned by this file at this source site. |
 
+## T12 refresh inventory
+
+The G5 table above has 495 site rows (confirmed by counting rows with source
+locations). It already contains the two T10 cutover test rows at
+`coll006_c1_p4_cutover.rs`, as well as the bare static default fixture in
+`static_constants.rs`. The following *new* bare source nodes occur in T11
+Rust-embedded Phalcom fixtures. Each source string is a separate test input,
+including the repeated cold-analysis control; source line numbers identify
+the containing Rust string at this revision. Their intended family and
+classification have been reviewed individually:
+
+| Source fixture and embedded literal | Class | Evidence / impact |
+|---|---|---|
+| `phalcom-semantic/tests/semantic/incremental/coll006_c1_p3_publication.rs:151` `const values = [1, 2, 3]` | `STATIC_IMMUTABLE` | Removing an Array annotation selects static Vector; no List behavior needed. |
+| `phalcom-semantic/tests/semantic/incremental/coll006_c1_p3_publication.rs:154` `let values = [1, 2, 3]` | `FIXED_RUNTIME` | Runtime phase selects Array. |
+| `phalcom-semantic/tests/semantic/incremental/coll006_c1_p3_publication.rs:157` `const values = [1, 2, 3, 4]` | `STATIC_IMMUTABLE` | Static Vector extent changes from three to four. |
+| `phalcom-semantic/tests/semantic/incremental/coll006_c1_p3_publication.rs:267` `const values = []` | `STATIC_IMMUTABLE` | Empty static Vector is intentionally underconstrained without `T`; no value is published. |
+| `phalcom-semantic/tests/semantic/incremental/coll006_c1_p3_publication.rs:277` `const values = [1, 2]` | `STATIC_IMMUTABLE` | Valid static Vector recovery after underconstraint. |
+| `phalcom-semantic/tests/semantic/incremental/coll006_c1_p3_publication.rs:281` `const values: Vector<Int, 2> = [1]` | `STATIC_IMMUTABLE` | Contextual static Vector with invalid extent fails closed. |
+| `phalcom-semantic/tests/semantic/incremental/coll006_c1_p3_publication.rs:293` `const values: Vector<Int, 2> = [*source]` | `STATIC_IMMUTABLE` | Exact static Vector spread retains its checked proof. |
+| `phalcom-semantic/tests/semantic/incremental/coll006_c1_p3_publication.rs:302` `const values: Vector<Int, 2> = [*source]` | `STATIC_IMMUTABLE` | Runtime-sized source loses the Vector proof; no stale static value. |
+| `phalcom-semantic/tests/semantic/incremental/coll006_c1_p3_publication.rs:316` `const values: Vector<Int, 2> = [*source]` | `STATIC_IMMUTABLE` | Cold-analysis control for the invalid runtime-sized spread. |
+| `phalcom-core/tests/core/collections/vector.rs:30` `let trace: List<Int> = []` | `LIST_RESIZING` | Probe appends to a contextually selected List; the explicit Vector fixtures use headed `<Int, N>[...]` and are excluded. |
+
+T12 delta: `LIST_RESIZING` +1, `FIXED_RUNTIME` +1,
+`STATIC_IMMUTABLE` +8; all other classes unchanged. Thus **505** sites
+(`495 + 10`) are classified, with no new List migration needed. Lines for
+these fixtures may move with later formatting; the embedded source snippets
+and classification are the stable evidence.
+
 ## Normative and documentation impact
 
 | Source | Current effect | T9 action |
@@ -541,13 +571,13 @@
 
 | Class | Count |
 |---|---:|
-| `LIST_RESIZING` | 7 |
+| `LIST_RESIZING` | 8 |
 | `LIST_IDENTITY` | 196 |
-| `FIXED_RUNTIME` | 35 |
-| `STATIC_IMMUTABLE` | 4 |
+| `FIXED_RUNTIME` | 36 |
+| `STATIC_IMMUTABLE` | 12 |
 | `READ_ITERATE_ONLY` | 243 |
 | `LEGACY_TEST` | 10 |
-| **Total** | **495** |
+| **Total** | **505** |
 
 ## T9 takeover
 

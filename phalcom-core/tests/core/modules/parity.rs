@@ -249,7 +249,7 @@ fn static_const_sequence_imports_and_reexports_keep_canonical_owner() {
     let temp = TempDir::new().unwrap();
     fs::write(
         temp.path().join("package.ph"),
-        "expose .main\nexpose .source\nexpose .facade\nexpose .facade2\n",
+        "expose .main\nexpose .source\nexpose .facade\nexpose .facade2\nexpose .second\n",
     )
     .unwrap();
     fs::write(
@@ -257,11 +257,7 @@ fn static_const_sequence_imports_and_reexports_keep_canonical_owner() {
         "const vec = <Int,2>[7,8]\nconst arr: Array<Int> = <Int>[9,10]\nexport vec, arr\n",
     )
     .unwrap();
-    fs::write(
-        temp.path().join("facade.ph"),
-        "export vec as vectorAlias, arr as arrayAlias from .source\n",
-    )
-    .unwrap();
+    fs::write(temp.path().join("facade.ph"), "export vec as vectorAlias, arr as arrayAlias from .source\n").unwrap();
     fs::write(
         temp.path().join("facade2.ph"),
         "export vectorAlias as vectorTransitive, arrayAlias as arrayTransitive from .facade\n",
@@ -269,7 +265,12 @@ fn static_const_sequence_imports_and_reexports_keep_canonical_owner() {
     .unwrap();
     fs::write(
         temp.path().join("main.ph"),
-        "import .source as source\nimport .facade2 as facade2\nfrom .source import vec as selectedVec\nfrom .facade import vectorAlias as renamedVec\nfrom .facade2 import vectorTransitive as transitiveVec, arrayTransitive as transitiveArr\nlet selected = selectedVec\nlet renamed = renamedVec\nlet qualified = source.vec\nlet transitive = facade2.vectorTransitive\nlet transitiveArray = facade2.arrayTransitive\n",
+        "import .source as source\nimport .facade2 as facade2\nimport .second as second\nfrom .source import vec as selectedVec\nfrom .facade import vectorAlias as renamedVec\nfrom .facade2 import vectorTransitive as transitiveVec, arrayTransitive as transitiveArr\nlet selected = selectedVec\nlet renamed = renamedVec\nlet qualified = source.vec\nlet transitive = facade2.vectorTransitive\nlet transitiveArray = facade2.arrayTransitive\nlet secondVector = second.vector\nlet secondArray = second.array\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("second.ph"),
+        "from .facade2 import vectorTransitive as secondVec, arrayTransitive as secondArr\nlet vector = secondVec\nlet array = secondArr\nexport vector, array\n",
     )
     .unwrap();
 
@@ -328,14 +329,17 @@ fn static_const_sequence_imports_and_reexports_keep_canonical_owner() {
     let vector = source_module.static_constants[&vec_name].as_obj().unwrap();
     let array = source_module.static_constants[&arr_name].as_obj().unwrap();
     assert!(matches!(vm.heap.get(vector), Object::Vector(value) if value.elements().iter().map(|v| v.as_int().unwrap()).collect::<Vec<_>>() == [7, 8]));
-    assert!(matches!(vm.heap.get(array), Object::Array(value) if value.is_frozen() && value.elements().iter().map(|v| v.as_int().unwrap()).collect::<Vec<_>>() == [9, 10]));
+    assert!(
+        matches!(vm.heap.get(array), Object::Array(value) if value.is_frozen() && value.elements().iter().map(|v| v.as_int().unwrap()).collect::<Vec<_>>() == [9, 10])
+    );
 
     // No source read below keeps the owner alive; module caches must root both
     // sequence objects across collection before the initializer executes.
     vm.force_gc();
     assert!(vm.heap.try_get(vector).is_some(), "canonical source cache roots Vector across GC");
     assert!(vm.heap.try_get(array).is_some(), "canonical source cache roots frozen Array across GC");
-    vm.run_compiled(&program).expect("selected, renamed, qualified, and transitive static reads run");
+    vm.run_compiled(&program)
+        .expect("selected, renamed, qualified, and transitive static reads run");
 
     let main_obj = vm.module_registry.get(&program.entry).unwrap().object;
     let read = |name: &str| vm.heap.module(main_obj).get(vm.interner.find(name).unwrap()).unwrap().as_obj().unwrap();
@@ -344,6 +348,15 @@ fn static_const_sequence_imports_and_reexports_keep_canonical_owner() {
     }
     for name in ["transitiveArray"] {
         assert_eq!(read(name), array, "{name} resolves the canonical frozen Array value");
+    }
+    let second_obj = vm.module_registry.get(find_module("second")).unwrap().object;
+    for (name, owner) in [("vector", vector), ("array", array)] {
+        let symbol = vm.interner.find(name).unwrap();
+        assert_eq!(
+            vm.heap.module(second_obj).get(symbol).and_then(|value| value.as_obj()),
+            Some(owner),
+            "independent consumer's {name} must share the source owner"
+        );
     }
 
     let source_closure = vm.heap.module(source_obj).closure.expect("source initializer closure");

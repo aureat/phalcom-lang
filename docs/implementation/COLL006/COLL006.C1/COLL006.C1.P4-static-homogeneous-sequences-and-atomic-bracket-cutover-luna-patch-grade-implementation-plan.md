@@ -5,9 +5,9 @@ program: COLL006
 checkpoint: COLL006.C1
 kind: implementation-plan
 title: "Static Homogeneous Sequences and Atomic Bracket-Default Cutover"
-status: IN_PROGRESS
-completion: PARTIAL
-verification: FOCUSED_TESTED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: BASELINE_BLOCKED
 depends_on:
   - COLL006.C1.P3
   - LANG007.C4.P3
@@ -3366,6 +3366,26 @@ check, native-surface recheck, full workspace tests, clippy, and release
 certification remain outside this G6 stop point. The G5 migration census is a
 historical 495-site snapshot; T12 should refresh it to include the additional
 T10 regression literals added after G5.
+
+## T11/G7/T12 completion result — 2026-10-09
+
+T11 added the missing incremental publication matrix and the explicit Vector
+source-order/zero-extent regression. Existing module import/re-export and GC
+coverage was retained because the live tree already exercises selective, renamed,
+qualified, transitive, two-consumer, owner-cache, and forced-GC behavior.
+
+G7 completed all P4-focused behavioral gates: semantic `coll006` (51), static
+sequence (10), exact COLL006 incremental cases (3), Array (11), Vector (9),
+static constants (23 selected with 3 inherited D4 failures), static-constant
+module parity (8), native surface (417 declarations current), workspace
+all-target check, and `git diff --check`. The full `static_constants` filter is
+truthfully `BASELINE_BLOCKED`, not a clean pass. `cargo fmt --all -- --check`
+also reports inherited formatting drift in pre-existing files; no broad format
+rewrite was applied.
+
+The migration census was refreshed from 495 to 505 classified bare nodes with no
+ambiguous or unclassified entries. P4 is `COMPLETE / IMPLEMENTED /
+BASELINE_BLOCKED`; D4 retains the inherited three computed-Record-key failures.
 
 ## Local STOP / CONSULT triggers
 

@@ -4,14 +4,14 @@ category: COLL
 kind: implementation
 status: IN_PROGRESS
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: BASELINE_BLOCKED
 ---
 
 # COLL006 — Extended collection semantics, storage, and contextual sequence literals
 
 COLL006 owns Telos's coherent extension of collection semantics across source syntax, contextual typing and inference, static evaluation, compiler lowering, native storage, collection protocols, persistent data structures, and standard-library collection APIs.
 
-The current program state is `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. P1/P2 are complete; P3 has partial implementation and focused semantic/runtime evidence; its inference-publication supplement is active and partially tested. The checkpoint record owns the detailed state and remaining gates.
+The current program state is `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`. P1–P4 are complete at their bounded implementation scope; P5 Slice/Buffer is the next proposed plan. The inherited computed-Record-key static-constant failures are tracked as D4 in the checkpoint. The checkpoint record owns the detailed state and remaining gates.
 
 ## 1. Program ownership
 
@@ -89,7 +89,7 @@ let explicitVector = <_, _>[1, 2, 3]
 
 ### COLL006.C1 — Extended collections foundation and first-generation collection family
 
-**State:** `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`
+**State:** `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`
 
 C1 owns the first complete extended-collections generation:
 
