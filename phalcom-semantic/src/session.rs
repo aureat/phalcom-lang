@@ -803,6 +803,16 @@ impl SemanticWorkspaceSession {
         // linked providers when a Local scan previously published only
         // shallow module products.
         self.requested_deep_modules = Some(update.changed_modules.clone());
+        self.update_module_workspace_with_cancel(update, cancel)
+    }
+
+    /// Publishes an already-linked update without last-known-good fallback.
+    /// Executable consumers must observe failure instead of stale source.
+    pub fn update_module_workspace_with_cancel(
+        &mut self,
+        update: WorkspaceModuleUpdate,
+        cancel: &CancellationToken,
+    ) -> Result<SemanticWorkspacePublication, QueryOutcome<()>> {
         let generation = self.module_session.generation();
         let delta = SemanticModuleDelta {
             changed_modules: update.changed_modules.clone(),
@@ -1672,6 +1682,22 @@ impl SemanticWorkspaceSession {
                 .filter_map(|callable| callable.try_declaration_owner().cloned()),
         );
         declaration_surface_work.extend(contribution_delta.field_signatures.iter().map(|field| field.owner.clone()));
+        // Rebuilding a declaration surface consumes all its primary member
+        // contracts, even when only a linked-name change reopened the surface.
+        // Schedule those exact owner prerequisites before surface publication.
+        for declaration in &declaration_surface_work {
+            let Some(shard) = self.semantic_structure_shards.get(&declaration.module) else {
+                continue;
+            };
+            field_signature_work.extend(shard.field_signature_fingerprints.keys().filter(|field| field.owner == *declaration).cloned());
+            callable_signature_work.extend(
+                shard
+                    .callable_signature_fingerprints
+                    .keys()
+                    .filter(|callable| callable.try_declaration_owner() == Some(declaration))
+                    .cloned(),
+            );
+        }
         let changed_declarations = hierarchy_edge_work
             .iter()
             .chain(declaration_shell_work.iter())
@@ -3754,6 +3780,24 @@ impl SemanticWorkspaceSession {
             field_signatures.remove_module(module);
         }
 
+        // A retained effective definition is still the canonical input when
+        // its module has no structural work. Signature/body replay must make
+        // that input current before recording a CallableDefinition edge. Modules
+        // with structural work rebuild their definitions below instead.
+        for definition in callable_definitions.values().filter(|definition| {
+            current_modules.contains(definition.callable.module())
+                && !structural_work_modules.contains(definition.callable.module())
+                && (formal_work_modules.contains(definition.callable.module()) || semantic_work_modules.contains(definition.callable.module()))
+        }) {
+            match query_callable_definition(&mut self.db, Arc::new(definition.clone())) {
+                QueryOutcome::Ready(_) => {}
+                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            }
+        }
+
         // Body-bearing trait defaults use the same canonical signature table
         // as ordinary declaration-owned callables. Their initial contract is
         // the already-published trait surface signature; the existing body
@@ -5527,6 +5571,33 @@ impl SemanticWorkspaceSession {
                 .collect()
         });
 
+        // Retained conformance definitions still have source bodies and access
+        // modifiers even when their modules need no structural reconstruction.
+        // Recover these source facts through the accepted definition coordinates,
+        // not through the set of bodies that happened to be rechecked this turn.
+        for definition in callable_definitions.values() {
+            let crate::impls::CallableDefinitionOrigin::ConformanceWitness(impl_id) = &definition.origin else {
+                continue;
+            };
+            let Some(unit) = retained_sources.get(&impl_id.module) else { continue };
+            let Some(Statement::Impl(implementation)) = unit.program.statements.get(impl_id.local.0 as usize) else {
+                continue;
+            };
+            let Some(member) = implementation.members.get(definition.source_member_index).and_then(|member| member.behavior()) else {
+                continue;
+            };
+            conformance_witness_visibilities.insert(definition.callable.clone(), crate::traits::behavior_member_visibility(member));
+            let has_body = match member {
+                phalcom_ast::ast::BehaviorMember::Method(member) => member.body.statements().is_some(),
+                phalcom_ast::ast::BehaviorMember::Getter(member) => member.body.statements().is_some(),
+                phalcom_ast::ast::BehaviorMember::Setter(member) => member.body.statements().is_some(),
+                phalcom_ast::ast::BehaviorMember::Index(member) => member.body.statements().is_some(),
+            };
+            if has_body {
+                conformance_witness_bodies.insert(definition.callable.clone());
+            }
+        }
+
         // Conformance signatures and body presence are already canonical at
         // this point. Publish witness/default plans before ordinary callable
         // bodies are checked so the canonical dispatch resolver can consume
@@ -6309,6 +6380,7 @@ impl SemanticWorkspaceSession {
                 &unit,
                 &formal_inputs,
                 DownstreamCallableBodyState {
+                    definitions: &callable_definitions,
                     store: Arc::make_mut(&mut self.store),
                     hierarchy: &hierarchy,
                     dispatch: &mut dispatch,
@@ -6394,6 +6466,7 @@ impl SemanticWorkspaceSession {
                     unit,
                     &reanalysis_formal_inputs,
                     DownstreamCallableBodyState {
+                        definitions: &callable_definitions,
                         store: Arc::make_mut(&mut self.store),
                         hierarchy: &hierarchy,
                         dispatch: &mut dispatch,
@@ -6550,6 +6623,7 @@ impl SemanticWorkspaceSession {
                     unit,
                     &formal_inputs,
                     DownstreamCallableBodyState {
+                        definitions: &callable_definitions,
                         store: Arc::make_mut(&mut self.store),
                         hierarchy: &hierarchy,
                         dispatch: &mut dispatch,
@@ -6795,6 +6869,7 @@ impl SemanticWorkspaceSession {
                 unit,
                 &module_body_inputs,
                 DownstreamCallableBodyState {
+                    definitions: &callable_definitions,
                     store: Arc::make_mut(&mut self.store),
                     hierarchy: &hierarchy,
                     dispatch: &mut dispatch,
@@ -11206,6 +11281,7 @@ fn source_body_for_callable<'a>(
 }
 
 struct DownstreamCallableBodyState<'a> {
+    definitions: &'a BTreeMap<CallableId, crate::impls::EffectiveCallableDefinition>,
     store: &'a mut TypeStore,
     hierarchy: &'a MapTypeHierarchy,
     dispatch: &'a mut SurfaceDispatchResolver,
@@ -11224,6 +11300,7 @@ fn revalidate_downstream_callable_body(
     state: DownstreamCallableBodyState<'_>,
 ) -> Result<(), QueryOutcome<()>> {
     let DownstreamCallableBodyState {
+        definitions,
         store,
         hierarchy,
         dispatch,
@@ -11233,10 +11310,10 @@ fn revalidate_downstream_callable_body(
         budget,
         cancel,
     } = state;
-    let definition = db
-        .product(&QueryKey::CallableDefinition(callable.clone()))
-        .and_then(|product| product.as_callable_definition())
-        .cloned();
+    let definition = definitions.get(callable).cloned().map(Arc::new);
+    if let Some(definition) = &definition {
+        ready_or_error(query_callable_definition(db, definition.clone()))?;
+    }
     let Some((body, body_range)) = source_body_for_callable(callable, definition.as_deref(), unit) else {
         return Ok(());
     };
@@ -11259,10 +11336,12 @@ fn revalidate_downstream_callable_body(
     let key = QueryKey::CallableBody(callable.clone());
     refresh_cached_body_dependencies(db, &key, formal_inputs, store)?;
     let previous_computation_revision = db.query_state(&key).and_then(|state| state.revision());
+    let signature_id = crate::db::query::declaration_signature_id_for_body(db, callable, unit)
+        .ok_or_else(|| QueryOutcome::Failed(format!("current callable body {callable:?} has no declaration signature identity")))?;
     let canonical_signature = callable_signatures
-        .get(callable)
-        .expect("current callable body must have a canonical signature")
-        .clone();
+        .get(&signature_id)
+        .cloned()
+        .ok_or_else(|| QueryOutcome::Failed(format!("current callable body {callable:?} has no canonical signature {signature_id:?}")))?;
     let body_signature = body_context
         .as_ref()
         .map(|context| {
@@ -11277,7 +11356,7 @@ fn revalidate_downstream_callable_body(
             callable: callable.clone(),
             body,
             body_range,
-            declared_signature: Some((callable, &body_signature)),
+            declared_signature: Some((&signature_id, &body_signature)),
             owner_generic_signature: body_context.as_ref().and_then(|context| context.generic_signature.as_ref()),
             receiver_value_override: body_context.as_ref().and_then(|context| context.runtime_receiver_override(callable.side)),
             instance_self_override: body_context.as_ref().map(|context| context.instance_self_override()),

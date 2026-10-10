@@ -80,6 +80,7 @@ class Script {
     17
   }
 }
+
 impl Generator for Script {}
 let result = Script.new().nextInt(below: 1 << 69)
 "#;
@@ -102,6 +103,35 @@ let result = Script.new().nextInt(below: 1 << 69)
     vm.numeric_policy.max_integer_bits = Some(128);
     let error = vm.run_compiled(&oversized).expect_err("oversized bound preserves ordinary numeric failure");
     assert!(error.to_string().contains("Numeric limit exceeded"), "{error}");
+}
+
+#[test]
+fn random_secure_bytes_reject_unrepresentable_allocation_before_host_fill() {
+    let source = "from universe.random import SecureRandom\nlet result = SecureRandom.system.bytes(10 ** 100)\n";
+    let mut session = phalcom_core::modules::compile_session::ProgramCompilationSession::standalone().unwrap();
+    let program = session
+        .compile_fixture(std::path::Path::new("secure-random-large-count.ph"), source)
+        .expect("large integer count is a valid source expression");
+    let mut vm = vm_support::universe_vm();
+    let error = vm
+        .run_compiled(&program)
+        .expect_err("host-sized Bytes allocation rejects an unrepresentable count");
+    assert!(error.to_string().contains("non-negative integer index"), "{error}");
+}
+
+#[test]
+fn random_secure_bytes_respect_general_byte_buffer_limit() {
+    let mut session = phalcom_core::modules::compile_session::ProgramCompilationSession::standalone().unwrap();
+    let program = session
+        .compile_fixture(
+            std::path::Path::new("secure-random-byte-limit.ph"),
+            "from universe.random import SecureRandom\nSecureRandom.system.bytes(9)\n",
+        )
+        .unwrap();
+    let mut vm = vm_support::universe_vm();
+    vm.max_byte_buffer_len = 8;
+    let error = vm.run_compiled(&program).expect_err("source allocation must reject before OS fill");
+    assert!(error.to_string().contains("Byte buffer limit exceeded: requested 9 octets, limit 8"), "{error}");
 }
 
 fn named(vm: &phalcom_core::vm::VM, module: phalcom_core::heap::ObjRef, name: &str) -> Option<Value> {

@@ -71,7 +71,9 @@ fn character_literal_parses_in_patterns() {
     // Match expression pattern
     let parsed = parse_source("match c { 'a' => 1 _ => 2 }", 0).expect("match should parse");
     match &parsed.statements[0] {
-        Statement::Expr { expr: Expr::Match(match_expr), .. } => {
+        Statement::Expr {
+            expr: Expr::Match(match_expr), ..
+        } => {
             assert_eq!(match_expr.arms.len(), 2);
             assert!(matches!(match_expr.arms[0].pattern, Pattern::Char { value: 'a', .. }));
             assert!(matches!(match_expr.arms[1].pattern, Pattern::Wildcard { .. }));
@@ -91,16 +93,16 @@ fn character_literal_parses_in_patterns() {
     // Or-pattern with characters
     let parsed = parse_source("match c { 'a' | 'b' => 1 _ => 2 }", 0).expect("or-pattern should parse");
     match &parsed.statements[0] {
-        Statement::Expr { expr: Expr::Match(match_expr), .. } => {
-            match &match_expr.arms[0].pattern {
-                Pattern::Or { alternatives, .. } => {
-                    assert_eq!(alternatives.len(), 2);
-                    assert!(matches!(alternatives[0], Pattern::Char { value: 'a', .. }));
-                    assert!(matches!(alternatives[1], Pattern::Char { value: 'b', .. }));
-                }
-                other => panic!("expected or pattern, got {other:?}"),
+        Statement::Expr {
+            expr: Expr::Match(match_expr), ..
+        } => match &match_expr.arms[0].pattern {
+            Pattern::Or { alternatives, .. } => {
+                assert_eq!(alternatives.len(), 2);
+                assert!(matches!(alternatives[0], Pattern::Char { value: 'a', .. }));
+                assert!(matches!(alternatives[1], Pattern::Char { value: 'b', .. }));
             }
-        }
+            other => panic!("expected or pattern, got {other:?}"),
+        },
         other => panic!("expected match expr, got {other:?}"),
     }
 }

@@ -1,143 +1,143 @@
 # mpmath 1.4.1; 100 decimal digits; values rounded once to binary64.
-special.logGamma(1e-300)	690.77552789821368	3e-12
-special.logGamma(1e-08)	18.420680738180209	3e-12
-special.logGamma(0.1)	2.252712651734206	3e-12
-special.logGamma(0.5)	0.57236494292470008	3e-12
-special.logGamma(0.99)	0.0058548067647097813	3e-12
-special.logGamma(1.0)	0	3e-12
-special.logGamma(1.01)	-0.0056903079460696509	3e-12
-special.logGamma(1.5)	-0.12078223763524522	3e-12
-special.logGamma(2.0)	0	3e-12
-special.logGamma(5.0)	3.1780538303479458	3e-12
-special.logGamma(16.0)	27.89927138384089	3e-12
-special.logGamma(100.0)	359.1342053695754	3e-12
-special.logGamma(10000.0)	82099.717496442376	3e-12
-special.logGamma(1000000.0)	12815504.569147611	3e-12
-special.logBeta(0.1, 0.2)	2.6809784793469147	3e-12
-special.logBeta(0.5, 0.5)	1.1447298858494002	3e-12
-special.logBeta(1.0, 1.0)	0	3e-12
-special.logBeta(2.0, 3.0)	-2.4849066497880004	3e-12
-special.logBeta(10.0, 20.0)	-19.115327299887046	3e-12
-special.logBeta(10000.0, 10000.0)	-13866.28325676141	3e-12
-special.logBeta(1000000.0, 1000000.0)	-1386300.0033629211	3e-12
-special.logBeta(1e-300, 2.0)	690.77552789821368	3e-12
-special.logBeta(1.0, 1000000.0)	-13.815510557964274	3e-12
-special.regularizedGammaP(1e-300, 0.5)	1	3e-12
-special.regularizedGammaQ(1e-300, 0.5)	5.5977359477616083e-301	3e-12
-special.logRegularizedGammaP(1e-300, 0.5)	0	3e-12
-special.logRegularizedGammaQ(1e-300, 0.5)	-691.35575077025851	3e-12
-special.regularizedGammaP(1e-08, 0.1)	0.99999998177076055	3e-12
-special.regularizedGammaQ(1e-08, 0.1)	1.822923949088704e-08	3e-12
-special.logRegularizedGammaP(1e-08, 0.1)	-1.8229239657039626e-08	3e-12
-special.logRegularizedGammaQ(1e-08, 0.1)	-17.820238966576007	3e-12
-special.regularizedGammaP(0.1, 1e-10)	0.10511370061022218	3e-12
-special.regularizedGammaQ(0.1, 1e-10)	0.89488629938977782	3e-12
-special.logRegularizedGammaP(0.1, 1e-10)	-2.2527126517432969	3e-12
-special.logRegularizedGammaQ(0.1, 1e-10)	-0.11105860856547679	3e-12
-special.regularizedGammaP(0.1, 0.01)	0.66262125995447985	3e-12
-special.regularizedGammaQ(0.1, 0.01)	0.33737874004552021	3e-12
-special.logRegularizedGammaP(0.1, 0.01)	-0.4115517039768648	3e-12
-special.logRegularizedGammaQ(0.1, 0.01)	-1.0865491219832353	3e-12
-special.regularizedGammaP(0.5, 0.1)	0.345279153981423	3e-12
-special.regularizedGammaQ(0.5, 0.1)	0.65472084601857705	3e-12
-special.logRegularizedGammaP(0.5, 0.1)	-1.0634020471545287	3e-12
-special.logRegularizedGammaQ(0.5, 0.1)	-0.42354632347596571	3e-12
-special.regularizedGammaP(0.5, 1.0)	0.84270079294971489	3e-12
-special.regularizedGammaQ(0.5, 1.0)	0.15729920705028513	3e-12
-special.logRegularizedGammaP(0.5, 1.0)	-0.17114331524104096	3e-12
-special.logRegularizedGammaQ(0.5, 1.0)	-1.8496055099332482	3e-12
-special.regularizedGammaP(0.5, 1000.0)	1	3e-12
-special.regularizedGammaQ(0.5, 1000.0)	0	3e-12
-special.logRegularizedGammaP(0.5, 1000.0)	0	3e-12
-special.logRegularizedGammaQ(0.5, 1000.0)	-1004.0267419589519	3e-12
-special.regularizedGammaP(1.0, 1e-300)	1e-300	3e-12
-special.regularizedGammaQ(1.0, 1e-300)	1	3e-12
-special.logRegularizedGammaP(1.0, 1e-300)	-690.77552789821368	3e-12
-special.logRegularizedGammaQ(1.0, 1e-300)	0	3e-12
-special.regularizedGammaP(1.0, 1.0)	0.63212055882855767	3e-12
-special.regularizedGammaQ(1.0, 1.0)	0.36787944117144233	3e-12
-special.logRegularizedGammaP(1.0, 1.0)	-0.45867514538708187	3e-12
-special.logRegularizedGammaQ(1.0, 1.0)	-1	3e-12
-special.regularizedGammaP(1.0, 1000.0)	1	3e-12
-special.regularizedGammaQ(1.0, 1000.0)	0	3e-12
-special.logRegularizedGammaP(1.0, 1000.0)	0	3e-12
-special.logRegularizedGammaQ(1.0, 1000.0)	-1000	3e-12
-special.regularizedGammaP(2.0, 3.0)	0.80085172652854419	3e-12
-special.regularizedGammaQ(2.0, 3.0)	0.19914827347145578	3e-12
-special.logRegularizedGammaP(2.0, 3.0)	-0.22207945950008767	3e-12
-special.logRegularizedGammaQ(2.0, 3.0)	-1.6137056388801094	3e-12
-special.regularizedGammaP(5.0, 2.0)	0.05265301734371116	3e-12
-special.regularizedGammaQ(5.0, 2.0)	0.94734698265628881	3e-12
-special.logRegularizedGammaP(5.0, 2.0)	-2.9440317325720811	3e-12
-special.logRegularizedGammaQ(5.0, 2.0)	-0.054089850944686692	3e-12
-special.regularizedGammaP(5.0, 10.0)	0.97074731192303898	3e-12
-special.regularizedGammaQ(5.0, 10.0)	0.029252688076961072	3e-12
-special.logRegularizedGammaP(5.0, 10.0)	-0.029689079446520873	3e-12
-special.logRegularizedGammaQ(5.0, 10.0)	-3.5317838094597787	3e-12
-special.regularizedGammaP(100.0, 100.0)	0.5132987982791487	3e-12
-special.regularizedGammaQ(100.0, 100.0)	0.48670120172085135	3e-12
-special.logRegularizedGammaP(100.0, 100.0)	-0.66689715058528942	3e-12
-special.logRegularizedGammaQ(100.0, 100.0)	-0.72010489302547398	3e-12
-special.regularizedGammaP(10000.0, 10000.0)	0.50132980833995522	3e-10
-special.regularizedGammaQ(10000.0, 10000.0)	0.49867019166004478	3e-10
-special.logRegularizedGammaP(10000.0, 10000.0)	-0.69049109440197232	3e-10
-special.logRegularizedGammaQ(10000.0, 10000.0)	-0.69581034030382005	3e-10
-special.regularizedGammaP(10000.0, 9500.0)	1.8624546517951551e-07	3e-10
-special.regularizedGammaQ(10000.0, 9500.0)	0.99999981375453484	3e-10
-special.logRegularizedGammaP(10000.0, 9500.0)	-15.496200328012607	3e-10
-special.logRegularizedGammaQ(10000.0, 9500.0)	-1.8624548252320432e-07	3e-10
-special.regularizedGammaP(10000.0, 10500.0)	0.9999995724127545	3e-10
-special.regularizedGammaQ(10000.0, 10500.0)	4.2758724550596475e-07	3e-10
-special.logRegularizedGammaP(10000.0, 10500.0)	-4.2758733692141706e-07	3e-10
-special.logRegularizedGammaQ(10000.0, 10500.0)	-14.665107486336822	3e-10
-special.regularizedBeta(0.1, 0.2, 1e-20)	0.0068496099335206362	3e-12
-special.regularizedBetaComplement(0.1, 0.2, 1e-20)	0.99315039006647932	3e-12
-special.logRegularizedBeta(0.1, 0.2, 1e-20)	-4.9835635723409606	3e-12
-special.logRegularizedBetaComplement(0.1, 0.2, 1e-20)	-0.0068731761863855103	3e-12
-special.regularizedBeta(0.5, 0.5, 0.1)	0.20483276469913345	3e-12
-special.regularizedBetaComplement(0.5, 0.5, 0.1)	0.79516723530086653	3e-12
-special.logRegularizedBeta(0.5, 0.5, 0.1)	-1.5855614147303534	3e-12
-special.logRegularizedBetaComplement(0.5, 0.5, 0.1)	-0.22920282758111515	3e-12
-special.regularizedBeta(1.0, 1.0, 0.25)	0.25	3e-12
-special.regularizedBetaComplement(1.0, 1.0, 0.25)	0.75	3e-12
-special.logRegularizedBeta(1.0, 1.0, 0.25)	-1.3862943611198906	3e-12
-special.logRegularizedBetaComplement(1.0, 1.0, 0.25)	-0.2876820724517809	3e-12
-special.regularizedBeta(2.0, 3.0, 0.1)	0.052300000000000006	3e-12
-special.regularizedBetaComplement(2.0, 3.0, 0.1)	0.94769999999999999	3e-12
-special.logRegularizedBeta(2.0, 3.0, 0.1)	-2.9507589079112599	3e-12
-special.logRegularizedBetaComplement(2.0, 3.0, 0.1)	-0.053717282505987854	3e-12
-special.regularizedBeta(2.0, 3.0, 0.9)	0.99629999999999996	3e-12
-special.regularizedBetaComplement(2.0, 3.0, 0.9)	0.0036999999999999976	3e-12
-special.logRegularizedBeta(2.0, 3.0, 0.9)	-0.0037068619313264726	3e-12
-special.logRegularizedBetaComplement(2.0, 3.0, 0.9)	-5.5994224593319588	3e-12
-special.regularizedBeta(5.0, 10.0, 0.3)	0.41579881378064998	3e-12
-special.regularizedBetaComplement(5.0, 10.0, 0.3)	0.58420118621935002	3e-12
-special.logRegularizedBeta(5.0, 10.0, 0.3)	-0.87755375642268363	3e-12
-special.logRegularizedBetaComplement(5.0, 10.0, 0.3)	-0.53750985852841815	3e-12
-special.regularizedBeta(100.0, 100.0, 0.5)	0.5	3e-12
-special.regularizedBetaComplement(100.0, 100.0, 0.5)	0.5	3e-12
-special.logRegularizedBeta(100.0, 100.0, 0.5)	-0.69314718055994529	3e-12
-special.logRegularizedBetaComplement(100.0, 100.0, 0.5)	-0.69314718055994529	3e-12
-special.regularizedBeta(100.0, 200.0, 0.2)	3.5460073665672474e-08	3e-12
-special.regularizedBetaComplement(100.0, 200.0, 0.2)	0.99999996453992634	3e-12
-special.logRegularizedBeta(100.0, 200.0, 0.2)	-17.154858458872376	3e-12
-special.logRegularizedBetaComplement(100.0, 200.0, 0.2)	-3.5460074294380906e-08	3e-12
-special.regularizedBeta(1000.0, 1000.0, 0.5)	0.5	3e-10
-special.regularizedBetaComplement(1000.0, 1000.0, 0.5)	0.5	3e-10
-special.logRegularizedBeta(1000.0, 1000.0, 0.5)	-0.69314718055994529	3e-10
-special.logRegularizedBetaComplement(1000.0, 1000.0, 0.5)	-0.69314718055994529	3e-10
-special.regularizedBeta(1000.0, 2.0, 0.001)	0	3e-10
-special.regularizedBetaComplement(1000.0, 2.0, 0.001)	1	3e-10
-special.logRegularizedBeta(1000.0, 2.0, 0.001)	-6900.8475237031553	3e-10
-special.logRegularizedBetaComplement(1000.0, 2.0, 0.001)	0	3e-10
-special.regularizedBeta(2.0, 1000.0, 0.999)	1	3e-10
-special.regularizedBetaComplement(2.0, 1000.0, 0.999)	0	3e-10
-special.logRegularizedBeta(2.0, 1000.0, 0.999)	0	3e-10
-special.logRegularizedBetaComplement(2.0, 1000.0, 0.999)	-6900.8475237031544	3e-10
-special.regularizedBeta(1e-08, 0.1, 0.9)	0.99999991980446956	3e-12
-special.regularizedBetaComplement(1e-08, 0.1, 0.9)	8.0195530386782496e-08	3e-12
-special.logRegularizedBeta(1e-08, 0.1, 0.9)	-8.0195533602444215e-08	3e-12
-special.logRegularizedBetaComplement(1e-08, 0.1, 0.9)	-16.338798054465087	3e-12
+special.Gamma.log(1e-300)	690.77552789821368	3e-12
+special.Gamma.log(1e-08)	18.420680738180209	3e-12
+special.Gamma.log(0.1)	2.252712651734206	3e-12
+special.Gamma.log(0.5)	0.57236494292470008	3e-12
+special.Gamma.log(0.99)	0.0058548067647097813	3e-12
+special.Gamma.log(1.0)	0	3e-12
+special.Gamma.log(1.01)	-0.0056903079460696509	3e-12
+special.Gamma.log(1.5)	-0.12078223763524522	3e-12
+special.Gamma.log(2.0)	0	3e-12
+special.Gamma.log(5.0)	3.1780538303479458	3e-12
+special.Gamma.log(16.0)	27.89927138384089	3e-12
+special.Gamma.log(100.0)	359.1342053695754	3e-12
+special.Gamma.log(10000.0)	82099.717496442376	3e-12
+special.Gamma.log(1000000.0)	12815504.569147611	3e-12
+special.Beta.log(0.1, 0.2)	2.6809784793469147	3e-12
+special.Beta.log(0.5, 0.5)	1.1447298858494002	3e-12
+special.Beta.log(1.0, 1.0)	0	3e-12
+special.Beta.log(2.0, 3.0)	-2.4849066497880004	3e-12
+special.Beta.log(10.0, 20.0)	-19.115327299887046	3e-12
+special.Beta.log(10000.0, 10000.0)	-13866.28325676141	3e-12
+special.Beta.log(1000000.0, 1000000.0)	-1386300.0033629211	3e-12
+special.Beta.log(1e-300, 2.0)	690.77552789821368	3e-12
+special.Beta.log(1.0, 1000000.0)	-13.815510557964274	3e-12
+special.Gamma.p(1e-300, 0.5)	1	3e-12
+special.Gamma.q(1e-300, 0.5)	5.5977359477616083e-301	3e-12
+special.Gamma.logP(1e-300, 0.5)	0	3e-12
+special.Gamma.logQ(1e-300, 0.5)	-691.35575077025851	3e-12
+special.Gamma.p(1e-08, 0.1)	0.99999998177076055	3e-12
+special.Gamma.q(1e-08, 0.1)	1.822923949088704e-08	3e-12
+special.Gamma.logP(1e-08, 0.1)	-1.8229239657039626e-08	3e-12
+special.Gamma.logQ(1e-08, 0.1)	-17.820238966576007	3e-12
+special.Gamma.p(0.1, 1e-10)	0.10511370061022218	3e-12
+special.Gamma.q(0.1, 1e-10)	0.89488629938977782	3e-12
+special.Gamma.logP(0.1, 1e-10)	-2.2527126517432969	3e-12
+special.Gamma.logQ(0.1, 1e-10)	-0.11105860856547679	3e-12
+special.Gamma.p(0.1, 0.01)	0.66262125995447985	3e-12
+special.Gamma.q(0.1, 0.01)	0.33737874004552021	3e-12
+special.Gamma.logP(0.1, 0.01)	-0.4115517039768648	3e-12
+special.Gamma.logQ(0.1, 0.01)	-1.0865491219832353	3e-12
+special.Gamma.p(0.5, 0.1)	0.345279153981423	3e-12
+special.Gamma.q(0.5, 0.1)	0.65472084601857705	3e-12
+special.Gamma.logP(0.5, 0.1)	-1.0634020471545287	3e-12
+special.Gamma.logQ(0.5, 0.1)	-0.42354632347596571	3e-12
+special.Gamma.p(0.5, 1.0)	0.84270079294971489	3e-12
+special.Gamma.q(0.5, 1.0)	0.15729920705028513	3e-12
+special.Gamma.logP(0.5, 1.0)	-0.17114331524104096	3e-12
+special.Gamma.logQ(0.5, 1.0)	-1.8496055099332482	3e-12
+special.Gamma.p(0.5, 1000.0)	1	3e-12
+special.Gamma.q(0.5, 1000.0)	0	3e-12
+special.Gamma.logP(0.5, 1000.0)	0	3e-12
+special.Gamma.logQ(0.5, 1000.0)	-1004.0267419589519	3e-12
+special.Gamma.p(1.0, 1e-300)	1e-300	3e-12
+special.Gamma.q(1.0, 1e-300)	1	3e-12
+special.Gamma.logP(1.0, 1e-300)	-690.77552789821368	3e-12
+special.Gamma.logQ(1.0, 1e-300)	0	3e-12
+special.Gamma.p(1.0, 1.0)	0.63212055882855767	3e-12
+special.Gamma.q(1.0, 1.0)	0.36787944117144233	3e-12
+special.Gamma.logP(1.0, 1.0)	-0.45867514538708187	3e-12
+special.Gamma.logQ(1.0, 1.0)	-1	3e-12
+special.Gamma.p(1.0, 1000.0)	1	3e-12
+special.Gamma.q(1.0, 1000.0)	0	3e-12
+special.Gamma.logP(1.0, 1000.0)	0	3e-12
+special.Gamma.logQ(1.0, 1000.0)	-1000	3e-12
+special.Gamma.p(2.0, 3.0)	0.80085172652854419	3e-12
+special.Gamma.q(2.0, 3.0)	0.19914827347145578	3e-12
+special.Gamma.logP(2.0, 3.0)	-0.22207945950008767	3e-12
+special.Gamma.logQ(2.0, 3.0)	-1.6137056388801094	3e-12
+special.Gamma.p(5.0, 2.0)	0.05265301734371116	3e-12
+special.Gamma.q(5.0, 2.0)	0.94734698265628881	3e-12
+special.Gamma.logP(5.0, 2.0)	-2.9440317325720811	3e-12
+special.Gamma.logQ(5.0, 2.0)	-0.054089850944686692	3e-12
+special.Gamma.p(5.0, 10.0)	0.97074731192303898	3e-12
+special.Gamma.q(5.0, 10.0)	0.029252688076961072	3e-12
+special.Gamma.logP(5.0, 10.0)	-0.029689079446520873	3e-12
+special.Gamma.logQ(5.0, 10.0)	-3.5317838094597787	3e-12
+special.Gamma.p(100.0, 100.0)	0.5132987982791487	3e-12
+special.Gamma.q(100.0, 100.0)	0.48670120172085135	3e-12
+special.Gamma.logP(100.0, 100.0)	-0.66689715058528942	3e-12
+special.Gamma.logQ(100.0, 100.0)	-0.72010489302547398	3e-12
+special.Gamma.p(10000.0, 10000.0)	0.50132980833995522	3e-10
+special.Gamma.q(10000.0, 10000.0)	0.49867019166004478	3e-10
+special.Gamma.logP(10000.0, 10000.0)	-0.69049109440197232	3e-10
+special.Gamma.logQ(10000.0, 10000.0)	-0.69581034030382005	3e-10
+special.Gamma.p(10000.0, 9500.0)	1.8624546517951551e-07	3e-10
+special.Gamma.q(10000.0, 9500.0)	0.99999981375453484	3e-10
+special.Gamma.logP(10000.0, 9500.0)	-15.496200328012607	3e-10
+special.Gamma.logQ(10000.0, 9500.0)	-1.8624548252320432e-07	3e-10
+special.Gamma.p(10000.0, 10500.0)	0.9999995724127545	3e-10
+special.Gamma.q(10000.0, 10500.0)	4.2758724550596475e-07	3e-10
+special.Gamma.logP(10000.0, 10500.0)	-4.2758733692141706e-07	3e-10
+special.Gamma.logQ(10000.0, 10500.0)	-14.665107486336822	3e-10
+special.Beta.regularized(1e-20, 0.1, 0.2)	0.0068496099335206362	3e-12
+special.Beta.complement(1e-20, 0.1, 0.2)	0.99315039006647932	3e-12
+special.Beta.logRegularized(1e-20, 0.1, 0.2)	-4.9835635723409606	3e-12
+special.Beta.logComplement(1e-20, 0.1, 0.2)	-0.0068731761863855103	3e-12
+special.Beta.regularized(0.1, 0.5, 0.5)	0.20483276469913345	3e-12
+special.Beta.complement(0.1, 0.5, 0.5)	0.79516723530086653	3e-12
+special.Beta.logRegularized(0.1, 0.5, 0.5)	-1.5855614147303534	3e-12
+special.Beta.logComplement(0.1, 0.5, 0.5)	-0.22920282758111515	3e-12
+special.Beta.regularized(0.25, 1.0, 1.0)	0.25	3e-12
+special.Beta.complement(0.25, 1.0, 1.0)	0.75	3e-12
+special.Beta.logRegularized(0.25, 1.0, 1.0)	-1.3862943611198906	3e-12
+special.Beta.logComplement(0.25, 1.0, 1.0)	-0.2876820724517809	3e-12
+special.Beta.regularized(0.1, 2.0, 3.0)	0.052300000000000006	3e-12
+special.Beta.complement(0.1, 2.0, 3.0)	0.94769999999999999	3e-12
+special.Beta.logRegularized(0.1, 2.0, 3.0)	-2.9507589079112599	3e-12
+special.Beta.logComplement(0.1, 2.0, 3.0)	-0.053717282505987854	3e-12
+special.Beta.regularized(0.9, 2.0, 3.0)	0.99629999999999996	3e-12
+special.Beta.complement(0.9, 2.0, 3.0)	0.0036999999999999976	3e-12
+special.Beta.logRegularized(0.9, 2.0, 3.0)	-0.0037068619313264726	3e-12
+special.Beta.logComplement(0.9, 2.0, 3.0)	-5.5994224593319588	3e-12
+special.Beta.regularized(0.3, 5.0, 10.0)	0.41579881378064998	3e-12
+special.Beta.complement(0.3, 5.0, 10.0)	0.58420118621935002	3e-12
+special.Beta.logRegularized(0.3, 5.0, 10.0)	-0.87755375642268363	3e-12
+special.Beta.logComplement(0.3, 5.0, 10.0)	-0.53750985852841815	3e-12
+special.Beta.regularized(0.5, 100.0, 100.0)	0.5	3e-12
+special.Beta.complement(0.5, 100.0, 100.0)	0.5	3e-12
+special.Beta.logRegularized(0.5, 100.0, 100.0)	-0.69314718055994529	3e-12
+special.Beta.logComplement(0.5, 100.0, 100.0)	-0.69314718055994529	3e-12
+special.Beta.regularized(0.2, 100.0, 200.0)	3.5460073665672474e-08	3e-12
+special.Beta.complement(0.2, 100.0, 200.0)	0.99999996453992634	3e-12
+special.Beta.logRegularized(0.2, 100.0, 200.0)	-17.154858458872376	3e-12
+special.Beta.logComplement(0.2, 100.0, 200.0)	-3.5460074294380906e-08	3e-12
+special.Beta.regularized(0.5, 1000.0, 1000.0)	0.5	3e-10
+special.Beta.complement(0.5, 1000.0, 1000.0)	0.5	3e-10
+special.Beta.logRegularized(0.5, 1000.0, 1000.0)	-0.69314718055994529	3e-10
+special.Beta.logComplement(0.5, 1000.0, 1000.0)	-0.69314718055994529	3e-10
+special.Beta.regularized(0.001, 1000.0, 2.0)	0	3e-10
+special.Beta.complement(0.001, 1000.0, 2.0)	1	3e-10
+special.Beta.logRegularized(0.001, 1000.0, 2.0)	-6900.8475237031553	3e-10
+special.Beta.logComplement(0.001, 1000.0, 2.0)	0	3e-10
+special.Beta.regularized(0.999, 2.0, 1000.0)	1	3e-10
+special.Beta.complement(0.999, 2.0, 1000.0)	0	3e-10
+special.Beta.logRegularized(0.999, 2.0, 1000.0)	0	3e-10
+special.Beta.logComplement(0.999, 2.0, 1000.0)	-6900.8475237031544	3e-10
+special.Beta.regularized(0.9, 1e-08, 0.1)	0.99999991980446956	3e-12
+special.Beta.complement(0.9, 1e-08, 0.1)	8.0195530386782496e-08	3e-12
+special.Beta.logRegularized(0.9, 1e-08, 0.1)	-8.0195533602444215e-08	3e-12
+special.Beta.logComplement(0.9, 1e-08, 0.1)	-16.338798054465087	3e-12
 special.erfc(-30.0)	2	3e-12
 special.logErfc(-30.0)	0.69314718055994529	3e-12
 special.erfc(-3.0)	1.9999779095030015	3e-12
@@ -166,30 +166,30 @@ special.erfc(27.2)	9.8813129168249309e-324	3e-12
 special.logErfc(27.2)	-743.71625659997676	3e-12
 special.erfc(30.0)	0	3e-12
 special.logErfc(30.0)	-903.97411711064387	3e-12
-special.inverseNormal(1e-300)	-37.047096299361201	3e-12
-special.inverseNormal(1e-20)	-9.262340089798407	3e-12
-special.inverseNormal(0.001)	-3.0902323061678136	3e-12
-special.inverseNormal(0.025)	-1.9599639845400543	3e-12
-special.inverseNormal(0.25)	-0.67448975019608171	3e-12
-special.inverseNormal(0.5)	0	3e-12
-special.inverseNormal(0.75)	0.67448975019608171	3e-12
-special.inverseNormal(0.975)	1.9599639845400538	3e-12
-special.inverseNormal(0.999)	3.0902323061678132	3e-12
-special.inverseNormal(0.999999999999)	7.0344869100478356	3e-12
-special.inverseRegularizedBeta(0.5, 0.5, 6.366197723675813e-11)	9.9999999999999995e-21	3e-10
-special.inverseRegularizedBeta(0.5, 0.5, 0.20483276469913345)	0.10000000000000001	3e-10
-special.inverseRegularizedBeta(2.0, 3.0, 0.052300000000000006)	0.10000000000000001	3e-10
-special.inverseRegularizedBeta(2.0, 5.0, 0.999945)	0.90000000000000002	3e-10
-special.inverseRegularizedBeta(100.0, 100.0, 0.07838793271222053)	0.45000000000000001	3e-10
-special.inverseRegularizedGammaP(1.0, 1e-300)	1e-300	3e-12
-special.inverseRegularizedGammaP(1.0, 0.1)	0.10536051565782631	3e-12
-special.inverseRegularizedGammaP(1.0, 0.5)	0.69314718055994529	3e-12
-special.inverseRegularizedGammaP(1.0, 0.99)	4.6051701859880909	3e-12
-special.inverseRegularizedGammaP(1.0, 0.999999999999)	27.631043237893358	3e-12
-special.inverseRegularizedGammaP(0.5, 0.345279153981423)	0.10000000000000001	3e-10
-special.inverseRegularizedGammaP(2.0, 0.8008517265285442)	3	3e-10
-special.inverseRegularizedGammaP(10.0, 0.5420702855281478)	10	3e-10
-special.inverseRegularizedGammaP(100.0, 0.15822098918643016)	90	3e-10
+special.Normal.quantile(1e-300)	-37.047096299361201	3e-12
+special.Normal.quantile(1e-20)	-9.262340089798407	3e-12
+special.Normal.quantile(0.001)	-3.0902323061678136	3e-12
+special.Normal.quantile(0.025)	-1.9599639845400543	3e-12
+special.Normal.quantile(0.25)	-0.67448975019608171	3e-12
+special.Normal.quantile(0.5)	0	3e-12
+special.Normal.quantile(0.75)	0.67448975019608171	3e-12
+special.Normal.quantile(0.975)	1.9599639845400538	3e-12
+special.Normal.quantile(0.999)	3.0902323061678132	3e-12
+special.Normal.quantile(0.999999999999)	7.0344869100478356	3e-12
+special.Beta.inverse(6.366197723675813e-11, 0.5, 0.5)	9.9999999999999995e-21	3e-10
+special.Beta.inverse(0.20483276469913345, 0.5, 0.5)	0.10000000000000001	3e-10
+special.Beta.inverse(0.052300000000000006, 2.0, 3.0)	0.10000000000000001	3e-10
+special.Beta.inverse(0.999945, 2.0, 5.0)	0.90000000000000002	3e-10
+special.Beta.inverse(0.07838793271222053, 100.0, 100.0)	0.45000000000000001	3e-10
+special.Gamma.inverseP(1.0, 1e-300)	1e-300	3e-12
+special.Gamma.inverseP(1.0, 0.1)	0.10536051565782631	3e-12
+special.Gamma.inverseP(1.0, 0.5)	0.69314718055994529	3e-12
+special.Gamma.inverseP(1.0, 0.99)	4.6051701859880909	3e-12
+special.Gamma.inverseP(1.0, 0.999999999999)	27.631043237893358	3e-12
+special.Gamma.inverseP(0.5, 0.345279153981423)	0.10000000000000001	3e-10
+special.Gamma.inverseP(2.0, 0.8008517265285442)	3	3e-10
+special.Gamma.inverseP(10.0, 0.5420702855281478)	10	3e-10
+special.Gamma.inverseP(100.0, 0.15822098918643016)	90	3e-10
 special.logFactorial(0)	0	3e-12
 special.logFactorial(1)	0	3e-12
 special.logFactorial(10)	15.104412573075516	3e-12
@@ -207,14 +207,14 @@ special.logChoose(9007199254740991, 1)	36.736800569677101	3e-12
 special.logChoose(9007199254740991, 31)	1060.7485941066748	3e-12
 special.logChoose(9007199254740991, 32)	1094.0196587735522	3e-12
 special.logChoose(9007199254740991, 4503599627370495)	6243314768165340	3e-12
-special.regularizedGammaP(2.0, 0.0)	0	3e-12
-special.regularizedGammaQ(2.0, 0.0)	1	3e-12
-special.logRegularizedGammaP(2.0, 0.0)	-inf	3e-12
-special.logRegularizedGammaQ(2.0, 1.0 / 0.0)	-inf	3e-12
-special.regularizedBeta(2.0, 3.0, 0.0)	0	3e-12
-special.regularizedBetaComplement(2.0, 3.0, 1.0)	0	3e-12
-special.inverseNormal(0.0)	-inf	3e-12
-special.inverseNormal(1.0)	inf	3e-12
-special.inverseRegularizedGammaP(2.0, 1.0)	inf	3e-12
-special.inverseRegularizedBeta(2.0, 3.0, 0.0)	0	3e-12
-special.inverseRegularizedBeta(2.0, 3.0, 1.0)	1	3e-12
+special.Gamma.p(2.0, 0.0)	0	3e-12
+special.Gamma.q(2.0, 0.0)	1	3e-12
+special.Gamma.logP(2.0, 0.0)	-inf	3e-12
+special.Gamma.logQ(2.0, 1.0 / 0.0)	-inf	3e-12
+special.Beta.regularized(0.0, 2.0, 3.0)	0	3e-12
+special.Beta.complement(1.0, 2.0, 3.0)	0	3e-12
+special.Normal.quantile(0.0)	-inf	3e-12
+special.Normal.quantile(1.0)	inf	3e-12
+special.Gamma.inverseP(2.0, 1.0)	inf	3e-12
+special.Beta.inverse(0.0, 2.0, 3.0)	0	3e-12
+special.Beta.inverse(1.0, 2.0, 3.0)	1	3e-12

@@ -633,15 +633,15 @@ let result = sum == 6 and count == 3 and directFirst and directSecond and direct
 #[test]
 fn canonical_bytes_and_string_views_iterate_their_stateful_surfaces() {
     let source = r#"
-const bytes = Bytes.fromList([7, 8, 9])
-const bytesIterator = bytes.iterator
+let bytes = Bytes.fromList([7, 8, 9])
+let bytesIterator = bytes.iterator
 let directFirst = bytesIterator.next.isSome
 let directSecond = bytesIterator.next.isSome
 let directThird = bytesIterator.next.isSome
 let byteDone = bytesIterator.next
-const text = "a€"
-const byteView = text.bytes.iterator
-const codePointView = text.codePoints.iterator
+let text = "a€"
+let byteView = text.bytes.iterator
+let codePointView = text.codePoints.iterator
 let viewFirst = byteView.next.isSome
 let viewSecond = byteView.next.isSome
 let viewThird = byteView.next.isSome
@@ -650,7 +650,7 @@ let viewDone = byteView.next
 let codePointFirst = codePointView.next.isSome
 let codePointSecond = codePointView.next.isSome
 let codePointDone = codePointView.next
-let byteSum = 0
+let mut byteSum = 0
 for value in bytes { byteSum = byteSum + value }
 let result = byteSum == 24 and directFirst and directSecond and directThird and byteDone.isNone and text.bytes.size == 4 and viewFirst and viewSecond and viewThird and viewFourth and viewDone.isNone and text.codePoints.size == 2 and codePointFirst and codePointSecond and codePointDone.isNone
 "#;

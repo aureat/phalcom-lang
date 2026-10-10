@@ -117,6 +117,7 @@ impl VM {
             strict_resources: _,
             reactor,
             numeric_policy: _,
+            max_byte_buffer_len: _,
             adt_registry,
             data_registry,
             // Product shape/descriptor registries contain Rust-side metadata

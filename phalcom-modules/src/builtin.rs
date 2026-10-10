@@ -64,6 +64,67 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["text"],
         kind: ModuleKind::Package,
+        children: &[
+            "substring",
+            "traits",
+            "patterns",
+            "split",
+            "lines",
+            "writer",
+            "builder",
+            "cursor",
+            "line_map",
+            "errors",
+        ],
+    },
+    UniverseNodeSpec {
+        path: &["text", "substring"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["text", "traits"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["text", "patterns"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["text", "split"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["text", "lines"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["text", "writer"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["text", "builder"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["text", "cursor"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["text", "line_map"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["text", "errors"],
+        kind: ModuleKind::Module,
         children: &[],
     },
     UniverseNodeSpec {
@@ -355,7 +416,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["scalar"],
         kind: ModuleKind::Package,
-        children: &["number", "nil", "string", "char", "bool", "symbol"],
+        children: &["number", "nil", "string", "string_index", "char", "bool", "symbol"],
     },
     UniverseNodeSpec {
         path: &["scalar", "number"],
@@ -369,6 +430,11 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["scalar", "string"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["scalar", "string_index"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -820,6 +886,36 @@ impl UniverseSourceProvider {
             [c] if c.as_str() == "fs" => include_str!("../../phalcom-core/core/universe/src/fs/package.ph"),
             [c] if c.as_str() == "path" => include_str!("../../phalcom-core/core/universe/src/path/package.ph"),
             [c] if c.as_str() == "text" => include_str!("../../phalcom-core/core/universe/src/text/package.ph"),
+            [c, m] if c.as_str() == "text" && m.as_str() == "substring" => {
+                include_str!("../../phalcom-core/core/universe/src/text/substring.ph")
+            }
+            [c, m] if c.as_str() == "text" && m.as_str() == "traits" => {
+                include_str!("../../phalcom-core/core/universe/src/text/traits.ph")
+            }
+            [c, m] if c.as_str() == "text" && m.as_str() == "patterns" => {
+                include_str!("../../phalcom-core/core/universe/src/text/patterns.ph")
+            }
+            [c, m] if c.as_str() == "text" && m.as_str() == "split" => {
+                include_str!("../../phalcom-core/core/universe/src/text/split.ph")
+            }
+            [c, m] if c.as_str() == "text" && m.as_str() == "lines" => {
+                include_str!("../../phalcom-core/core/universe/src/text/lines.ph")
+            }
+            [c, m] if c.as_str() == "text" && m.as_str() == "writer" => {
+                include_str!("../../phalcom-core/core/universe/src/text/writer.ph")
+            }
+            [c, m] if c.as_str() == "text" && m.as_str() == "builder" => {
+                include_str!("../../phalcom-core/core/universe/src/text/builder.ph")
+            }
+            [c, m] if c.as_str() == "text" && m.as_str() == "cursor" => {
+                include_str!("../../phalcom-core/core/universe/src/text/cursor.ph")
+            }
+            [c, m] if c.as_str() == "text" && m.as_str() == "line_map" => {
+                include_str!("../../phalcom-core/core/universe/src/text/line_map.ph")
+            }
+            [c, m] if c.as_str() == "text" && m.as_str() == "errors" => {
+                include_str!("../../phalcom-core/core/universe/src/text/errors.ph")
+            }
             [c] if c.as_str() == "regex" => include_str!("../../phalcom-core/core/universe/src/regex/package.ph"),
             [c] if c.as_str() == "json" => include_str!("../../phalcom-core/core/universe/src/json/package.ph"),
             [c] if c.as_str() == "math" => include_str!("../../phalcom-core/core/universe/src/math/package.ph"),
@@ -960,6 +1056,9 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "scalar" && m.as_str() == "string" => {
                 include_str!("../../phalcom-core/core/universe/src/scalar/string.ph")
+            }
+            [c, m] if c.as_str() == "scalar" && m.as_str() == "string_index" => {
+                include_str!("../../phalcom-core/core/universe/src/scalar/string_index.ph")
             }
             [c, m] if c.as_str() == "scalar" && m.as_str() == "char" => {
                 include_str!("../../phalcom-core/core/universe/src/scalar/char.ph")

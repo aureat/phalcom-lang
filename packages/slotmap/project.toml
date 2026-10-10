@@ -1,0 +1,5 @@
+[project]
+name = "slotmap"
+namespace = "slotmap"
+version = "0.1.1"
+entry = "slotmap.main"

@@ -27,10 +27,16 @@ pub struct BytesObject {
 impl BytesObject {
     /// Builds a zero-filled buffer of `len` octets (`bytes.md` law 4:
     /// no constructor exposes uninitialized memory).
-    pub fn new_zeroed(len: usize) -> Self {
-        Self {
-            data: vec![0u8; len].into_boxed_slice(),
-        }
+    ///
+    /// # Errors
+    ///
+    /// Returns the host reservation error for capacity overflow or allocation
+    /// failure. No buffer is published before reservation and zeroing succeed.
+    pub fn try_new_zeroed(len: usize) -> Result<Self, std::collections::TryReserveError> {
+        let mut data = Vec::new();
+        data.try_reserve_exact(len)?;
+        data.resize(len, 0);
+        Ok(Self { data: data.into_boxed_slice() })
     }
 
     /// Builds a buffer by taking ownership of `data` — one move, no copy.

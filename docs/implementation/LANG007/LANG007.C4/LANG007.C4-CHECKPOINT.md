@@ -108,6 +108,32 @@ preserved outside new blocks. Full executed evidence and takeover details are
 in the [walkthrough](algebraic-literals-follow-on-walkthrough.md) and
 [handoff](algebraic-literals-follow-on-handoff.md).
 
+## Telos text model substrate consolidation (2026-10-08)
+
+The complete Telos Text Model standard library substrate (`LANG007.C4.P12` through
+`LANG007.C4.P16`) has been fully implemented, verified, formatted, and consolidated
+into `main` in merge commit `11084cd9`.
+
+The implementation delivers:
+1. `StringIndex` coordinates, scalar boundaries, case mapping, and Char/String repr.
+2. `Substring` non-allocating range view and zero-copy range slicing (`text[start..end]`).
+3. `Text` and `TextPattern` traits with Char, String, and Substring implementations.
+4. Multi-type pattern search (`contains`, `find`, `findRange`, `startsWith`, `endsWith`),
+   zero-copy trimming (`trimmed*`), and prefix/suffix stripping (`strip*`).
+5. Lazy decomposition iterators (`Split`, `SplitWhitespace`, `Lines`), `splitOnce`,
+   `replaceFirst`, and `replaceAll`.
+6. `StringBuilder`, `TextWriter`, and native linear-time `rawJoin`.
+7. Tooling infrastructure: `TextCursor` (sequential UTF-8 scanner) and `LineMap` (O(log L)
+   coordinate lookup yielding `SourceLocation`).
+8. Parsing conversions: `Utf8Error`, `IntParseError`, `FloatParseError`, `BoolParseError`,
+   `String.fromUtf8*`, typed `Int.parse`, `Float.parse`, `Bool.parse`, and `Int.toString(radix:)` (2..36).
+9. Standard packaging under `universe.text` and top-level `universe` exports.
+
+All 8 integration tests in `phalcom-core::tests::core::language::strings_text_model` PASS.
+The native surface contains 411 declarations and passes `--check`. Workspace rustfmt and
+clippy pass cleanly. See [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md)
+and [handoff](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-handoff.md).
+
 ## Random follow-on prerequisite state (2026-10-08)
 
 The stable owner prerequisite is delivered in `fbf057ea`. The subsequent
@@ -141,14 +167,37 @@ success/error-lifting PASS 2/2; core trait suite PASS 18/18; four crate checks a
 native surface `--check` PASS. Semantic trait lane is 41 PASS / 4 confirmed
 baseline failures. Workspace format checking reports existing drift.
 
-Remaining next steps: measured performance/allocation/GC checkpoint; dedicated
-native-effect/source-identity and deterministic-effect assertions; remaining
-resource cases (notably secure byte allocation); directly affected provider,
-native verification, numeric and full corpus gates; broad core optional gate;
-final scoped review and truthful promotion of plan state. Retained compilation
-sessions also expose a stale-snapshot failure when an unchanged Universe field
-dependency is not validated at the new revision. Keep fixture isolation until
-that general dependency-validation incident is resolved; do not call it fixed.
+
+## Architect delivery checkpoint (2026-10-08)
+
+Status remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED. R11 source-effect deferral
+stands. R21 is resolved through a general configurable 64 MiB Bytes.new limit
+and fallible backing reservation, independent of numeric budgets. Owner and
+public secure-caller regressions pass. Release expression-owner stack repair
+passed optimized syntax startup. Reactor idle-poll repair passed all 16 reactor
+tests. Final core-lib selection: 20 PASS / 1 FAIL / 147 filtered, 28.74 seconds.
+Retained publication repair remains PARTIAL: expanded actual-fixture replacement
+fails at `phalcom-semantic/src/session.rs:6169`, where an accepted inherent
+callable lacks a canonical signature. Preserve the failing regression and the
+invariant. The earlier simple four-step retained sequence passed.
+
+Completed incremental lane: 208 PASS / 36 FAIL / 4 ignored. All 36 failures
+reproduce on predecessor behavior: 33 smaller exact tests plus three large reuse
+cases (0 PASS / 3 FAIL, 205.16 seconds). These are Category D baseline failures.
+Exact identities are retained in the walkthrough. No assertions were weakened.
+
+Remaining tasks: finish canonical retained inherent-signature publication, rerun
+exact regression and affected acceptance gates, rebuild final release CLI,
+complete R20 throughput/allocation/GC evidence, full corpus classification, broad
+core and cross-platform gates. The million-word benchmark was interrupted at
+225.51 seconds before reactor repair; no workload throughput is claimed.
+
+Scoped Rust formatting and diff hygiene PASS; expression-owner regression PASS 1/1.
+
+The user requested lifecycle updates, commit/push of everything, and an inline
+handoff at this checkpoint. Existing COLL006, slotmap, and math-document
+relocations are included under that instruction without additional behavioral
+verification. Delivery does not promote completion or verification status.
 
 This companion state does not promote the structural/static C4 active plan.
 
@@ -334,13 +383,13 @@ The intended C4 decomposition is:
 | `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P8` | Incremental durability, metadata, cross-module static products, materialization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P9` | Public ontology migration, tooling, documentation, performance certification, checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
-| `LANG007.C4.P11` | `Char` scalar, character literals, semantic/runtime integration | IN_PROGRESS | PARTIAL | UNVERIFIED | implementation committed as `800e1793` on `codex/lang007-c4-p4-r1-stdlib` and pushed; adds scalar/literal/static/runtime/Universe/native seams, generated surface, Char literal parsing/resolution, closed-scalar coverage, and exact runtime lowering; AST lexer/parser cases were added, but no tests or crate checks were run; see interim [walkthrough](LANG007.C4.P11-walkthrough.md) and [handoff](LANG007.C4.P11-handoff.md) |
+| `LANG007.C4.P11` | `Char` scalar, character literals, semantic/runtime integration | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; consolidated in `c4db36bb`; Char scalar, patterns, Unicode 17.0 pin verified; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P11-P13-walkthrough.md) |
+| `LANG007.C4.P12` | String–Char bridge, UTF-8 boundaries, iteration, parse.text migration | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `StringIndex`, byte/char counts, `String.chars`, `Text`/`TextPattern` traits; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
+| `LANG007.C4.P13` | Typed String hygiene and text-position utilities | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; typed string methods, search, trim, split, replace; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
+| `LANG007.C4.P14` | Owned immutable homogeneous indexed snapshots | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `Substring` non-allocating range view, zero-copy slicing, symmetric equality; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
+| `LANG007.C4.P15` | Typed integer/floating conversion | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `Utf8Error`, `IntParseError`, `FloatParseError`, `BoolParseError`, `String.fromUtf8*`, `Int.parse`, `Float.parse`, `Bool.parse`, `Int.toString(radix:)`; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
+| `LANG007.C4.P16` | StringBuilder, parse migration completion, TOML substrate proof | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `StringBuilder`, `TextWriter`, linear-time `rawJoin`, `TextCursor`, `LineMap`, `universe.text`; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
 | `LANG007.C4.algebraic-literals-follow-on` | User-directed contextual algebraic values, Quaternion source algebra, and `i`/`j`/`k` suffix literals | BLOCKED | PARTIAL | UNVERIFIED | generic runtime reification is repaired; T3 class-side source capabilities are implemented but source acceptance is blocked by the dependency-free CLI stack overflow; T4/T5 include bounded arithmetic-region selection, real embedding, and either-order expression coefficients; see [stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), [walkthrough](algebraic-literals-follow-on-walkthrough.md), and [handoff](algebraic-literals-follow-on-handoff.md) |
-| `LANG007.C4.P12` | String–Char bridge, UTF-8 boundaries, iteration, parse.text migration | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P11 |
-| `LANG007.C4.P13` | Typed String hygiene and text-position utilities | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P12 |
-| `LANG007.C4.P14` | Owned immutable homogeneous indexed snapshots | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P11 and iteration laws |
-| `LANG007.C4.P15` | Typed integer/floating conversion | PROPOSED | NOT_STARTED | UNVERIFIED | diagnostics may consume P11/P12 |
-| `LANG007.C4.P16` | StringBuilder, parse migration completion, TOML substrate proof | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P12/P13 and consumes P14/P15 |
 
 ### P11 pattern decision — INC-6
 

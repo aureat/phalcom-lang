@@ -53,11 +53,21 @@ fn expect_octet(value: &Value) -> PhResult<u8> {
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if the length is not a non-negative
-/// integer `Number`.
+/// integer `Number`, [`RuntimeError::ByteBufferLimit`] above the VM's
+/// per-buffer limit, or [`RuntimeError::ByteBufferAllocation`] when the host
+/// cannot reserve the backing storage. The limit is checked before allocation.
 #[phalcom_native_macros::primitive(Bytes, "new(_)" , side = class)]
 pub fn bytes_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let len = expect_index(&args[0])?;
-    Ok(Value::obj(vm.heap.alloc_bytes(BytesObject::new_zeroed(len))))
+    if len > vm.max_byte_buffer_len {
+        return Err(RuntimeError::ByteBufferLimit {
+            requested: len,
+            limit: vm.max_byte_buffer_len,
+        }
+        .into());
+    }
+    let buffer = BytesObject::try_new_zeroed(len).map_err(|_| RuntimeError::ByteBufferAllocation { requested: len })?;
+    Ok(Value::obj(vm.heap.alloc_bytes(buffer)))
 }
 
 /// Signature: `Bytes.class::fromString_(_)` — a `String`'s UTF-8 bytes.
@@ -298,4 +308,28 @@ pub fn bytes_raw_equals_constant_time(vm: &mut VM, receiver: &Value, args: &[Val
         acc |= a[i] ^ b[i];
     }
     Ok(Value::bool(std::hint::black_box(acc) == 0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn bytes_new_enforces_limit_and_zero_filled_boundary() {
+        let mut vm = VM::new_native();
+        vm.max_byte_buffer_len = 8;
+        for count in [0, 1, 8] {
+            let value = bytes_class_new(&mut vm, &Value::unit(), &[Value::int(count)]).unwrap();
+            let buffer = vm.heap.bytes(value.as_obj().unwrap());
+            assert_eq!(buffer.as_slice(), vec![0; count as usize]);
+        }
+        for count in [9, 1_i64 << 40] {
+            let error = bytes_class_new(&mut vm, &Value::unit(), &[Value::int(count)]).unwrap_err();
+            assert!(error.to_string().contains("Byte buffer limit exceeded"), "{error}");
+        }
+        vm.max_byte_buffer_len = 16;
+        let value = bytes_class_new(&mut vm, &Value::unit(), &[Value::int(16)]).unwrap();
+        assert_eq!(vm.heap.bytes(value.as_obj().unwrap()).len(), 16);
+        // Capacity overflow is deterministic and does not attempt a giant allocation.
+        assert!(BytesObject::try_new_zeroed(usize::MAX).is_err());
+    }
 }

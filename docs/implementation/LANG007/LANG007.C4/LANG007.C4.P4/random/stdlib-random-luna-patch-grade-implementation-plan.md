@@ -1868,6 +1868,12 @@ Ensure tooling understands the difference between deterministic state transition
 
 ## R11.1 Deterministic source effects
 
+**User amendment (2026-10-08):** deterministic source mutation-effect
+presentation is deferred until Phalcom has general source effect inference and
+publication. Do not add random-specific effect metadata. The native effect and
+source-identity checks in R11.2–R11.3 remain required and are independently
+covered by the focused native census regression.
+
 Do not annotate xoshiro with native `Nondeterminism`.
 
 Its source body mutates fields, so normal source effect inference should derive mutation.
@@ -1925,7 +1931,9 @@ No duplicate declaration identity.
 
 ## R11 exit criterion
 
-Effect and native/source metadata agree with actual semantics.
+Native effect and source-identity metadata agree with actual semantics.
+Deterministic source effect presentation is deferred by the user amendment
+above and is not an acceptance blocker for this random plan.
 
 ---
 
@@ -2234,6 +2242,22 @@ That may trigger `LargeInt` allocation for values above signed immediate range.
 
 Measure before optimizing.
 
+Architect amendment (2026-10-08): the user authorized general blocker repairs.
+Release bootstrap must preserve expression-owner stack mutation in every build
+profile; assertions may check state but must not own its mutation. Retained
+compilation must consume the fallible semantic transaction and reject failed
+publication rather than execute a last-known-good source snapshot. Restore
+exact declaration-surface prerequisites, validate consumed effective definitions,
+use the existing constructor signature/body correspondence, and retain witness
+body/access facts through canonical source definition coordinates. No random
+special cases, new proof discovery, or alternate semantic identity are allowed.
+
+A release sample after bootstrap repair showed an idle OS poll on virtually
+every VM safepoint dominating the pure random workload. The reactor may skip
+OS polling when its canonical registration table has no active source; worker
+completion ingress must still drain, and active-source polling and executor
+wait behavior remain unchanged. Verify the reactor lane before measuring.
+
 ## 20.1 Required microbenchmarks
 
 Add or adapt benchmarks for:
@@ -2335,6 +2359,18 @@ truncation
 A huge `SecureRandom.bytes(count)` request must fail through the ordinary `Bytes.new` allocation/resource boundary.
 
 Do not allocate an intermediate Vec in the random primitive.
+
+Architect ruling (2026-10-08, user-authorized blocker repair): implement the
+ordinary constructor boundary in the VM/Bytes owner. `VM.max_byte_buffer_len`
+defaults to 64 MiB and is configurable independently of `NumericPolicy`.
+`Bytes.new` checks it before allocation; `BytesObject::try_new_zeroed` reserves
+fallibly before zeroing. Distinct runtime errors report policy rejection and
+host reservation failure. Keep fixed-length zero-filled ownership and the
+existing secure fill/error-lifting protocol. This is a per-constructor limit,
+not a total VM memory budget or an OS OOM-kill recovery guarantee. Test a small
+configured boundary, a huge representable index, zero/exact-limit success,
+capacity overflow, and the public secure caller. The owning VM specification
+records this contract. R11 deferral remains unchanged.
 
 ---
 
@@ -3438,3 +3474,35 @@ native source ownership
 ```
 
 without inventing random-specific language machinery.
+
+## Architect delivery checkpoint (2026-10-08)
+
+Status remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED. R11 source-effect deferral
+stands. R21 is resolved through a general configurable 64 MiB Bytes.new limit
+and fallible backing reservation, independent of numeric budgets. Owner and
+public secure-caller regressions pass. Release expression-owner stack repair
+passed optimized syntax startup. Reactor idle-poll repair passed all 16 reactor
+tests. Final core-lib selection: 20 PASS / 1 FAIL / 147 filtered, 28.74 seconds.
+Retained publication repair remains PARTIAL: expanded actual-fixture replacement
+fails at `phalcom-semantic/src/session.rs:6169`, where an accepted inherent
+callable lacks a canonical signature. Preserve the failing regression and the
+invariant. The earlier simple four-step retained sequence passed.
+
+Completed incremental lane: 208 PASS / 36 FAIL / 4 ignored. All 36 failures
+reproduce on predecessor behavior: 33 smaller exact tests plus three large reuse
+cases (0 PASS / 3 FAIL, 205.16 seconds). These are Category D baseline failures.
+Exact identities are retained in the walkthrough. No assertions were weakened.
+
+Remaining tasks: finish canonical retained inherent-signature publication, rerun
+exact regression and affected acceptance gates, rebuild final release CLI,
+complete R20 throughput/allocation/GC evidence, full corpus classification, broad
+core and cross-platform gates. The million-word benchmark was interrupted at
+225.51 seconds before reactor repair; no workload throughput is claimed.
+
+The user requested lifecycle updates, commit/push of everything, and an inline
+handoff at this checkpoint. Existing COLL006, slotmap, and math-document
+relocations are included under that instruction without additional behavioral
+verification. Delivery does not promote completion or verification status.
+
+Delivery hygiene: scoped Rust formatting and `git diff --check` PASS. The nested
+expression-owner unit regression PASS 1/1. No broad test PASS is claimed.

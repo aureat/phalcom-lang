@@ -1,8 +1,9 @@
 /// Failure to acquire cryptographically suitable bytes from the OS.
 class EntropyError is Error {}
 
-/// Explicit OS-backed secure randomness capability. It does not implement
-/// Generator and never falls back to deterministic randomness.
+/// Explicit OS-backed capability for cryptographically suitable random bytes.
+/// It does not implement Generator and never falls back to deterministic
+/// randomness.
 class SecureRandom {
   @class mut _instance
 
@@ -17,8 +18,9 @@ class SecureRandom {
 
   internal native rawFill(_ bytes: Bytes) -> Option<String>
 
-  /// On host failure raises EntropyError; existing buffer contents are then
-  /// unspecified. Successful calls fill the complete buffer.
+  /// Acquires cryptographically suitable random bytes from the operating
+  /// system. On host failure this raises EntropyError; existing buffer
+  /// contents are then unspecified. Successful calls fill the complete buffer.
   fill(_ bytes: Bytes) -> Unit {
     self.rawFill(bytes).match(
       some: |message| { EntropyError.new(message).raise() },

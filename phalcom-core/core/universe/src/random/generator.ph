@@ -1,5 +1,6 @@
 /// Explicit deterministic state protocol. A word is an Int in 0..<2^64.
-/// No derived operation caches bits or bytes between calls.
+/// No derived operation caches bits or bytes between calls. Results and
+/// consumption order are part of a generator's replay contract.
 trait Generator {
   nextU64 -> Int
 
@@ -57,7 +58,9 @@ trait Generator {
     ()
   }
 
-  /// Deterministic pseudorandom bytes, unsuitable for secrets.
+  /// Deterministic pseudorandom bytes. These are not secure random bytes and
+  /// must not be used for secrets, keys, authentication tokens, or security-
+  /// sensitive nonces.
   bytes(_ count: Int) -> Bytes {
     if count < 0 { ArgumentError.new("Generator.bytes: count must be non-negative").raise() }
     let out = Bytes.new(count)

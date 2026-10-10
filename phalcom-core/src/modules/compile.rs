@@ -346,6 +346,9 @@ pub enum ProgramCompileError {
     /// Semantic type checking errors.
     #[error("semantic error:\n{0}")]
     Semantic(ProgramSemanticDiagnostics),
+    /// Semantic update failed without publishing a current executable snapshot.
+    #[error("semantic update failed: {0}")]
+    SemanticUpdate(String),
     /// Generic I/O error.
     #[error("io error: {0}")]
     Io(String),
@@ -582,7 +585,7 @@ impl ProgramAnalyzer {
                 for node in provider
                     .nodes()
                     .iter()
-                    .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", "string"] | ["option", "unit"]))
+                    .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", ..] | ["text", ..] | ["option", "unit"]))
                 {
                     let path = ModulePath::from_components(
                         node.path
@@ -666,7 +669,7 @@ impl ProgramAnalyzer {
         for node in universe_provider
             .nodes()
             .iter()
-            .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", "string"] | ["option", "unit"]))
+            .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", ..] | ["text", ..] | ["option", "unit"]))
         {
             let path = ModulePath::from_components(
                 node.path

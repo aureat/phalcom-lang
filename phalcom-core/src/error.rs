@@ -299,6 +299,12 @@ pub enum RuntimeError {
     #[error("unable to reserve List capacity for {requested} elements")]
     ListAllocationFailure { requested: String },
 
+    #[error("Byte buffer limit exceeded: requested {requested} octets, limit {limit}")]
+    ByteBufferLimit { requested: usize, limit: usize },
+
+    #[error("Byte buffer allocation failed for {requested} octets")]
+    ByteBufferAllocation { requested: usize },
+
     /// A recursion ceiling was exceeded
     /// ([PDR-0007](../../docs/decisions/0007-bounded-call-depth-and-native-reentrancy.md)).
     ///

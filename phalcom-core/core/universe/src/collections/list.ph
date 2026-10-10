@@ -1,4 +1,5 @@
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+from universe.text.builder import StringBuilder
 
 native class List<T> is Collection {
   @class
@@ -109,6 +110,27 @@ native class List<T> is Collection {
   append(_ value) {
     self.rawPush(value)
     return ()
+  }
+
+  /// Joins all elements into a single string with an optional separator.
+  join() -> String {
+    self.join("")
+  }
+
+  /// Joins all elements into a single string separated by `sep`.
+  join(_ sep) -> String {
+    let mut sb = StringBuilder.new()
+    let mut i = 0
+    let total = self.size
+    while i < total {
+      if i > 0 {
+        sb.append(sep)
+      }
+      let item = self.rawAt(i)
+      sb.append(item.toString)
+      i = i + 1
+    }
+    sb.toString
   }
 
   prepend(_ value) {

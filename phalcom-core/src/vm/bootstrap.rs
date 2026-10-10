@@ -115,6 +115,7 @@ impl VM {
             resources: crate::resource::ResourceTable::new(),
             strict_resources: false,
             reactor: crate::reactor::Reactor::default(),
+            max_byte_buffer_len: 64 * 1024 * 1024,
             numeric_policy: crate::value::NumericPolicy::standard(),
             adt_registry: crate::adt::RuntimeAdtRegistry::new(),
             data_registry: crate::data::RuntimeDataRegistry::new(),

@@ -385,10 +385,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                             );
                         }
                         let elem_ty = fact.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
-                        let subject = crate::checker::coverage::CoverageSubject::from_parts(
-                            elem_ty,
-                            crate::types::LocalType::Canonical(elem_ty),
-                        );
+                        let subject = crate::checker::coverage::CoverageSubject::from_parts(elem_ty, crate::types::LocalType::Canonical(elem_ty));
                         let mut engine = crate::checker::coverage::CoverageEngine::new(subject.clone(), ctx.control.clone());
                         let mut arm_bindings = Vec::new();
                         let pattern_res = crate::checker::pattern::resolve_pattern(ctx, pat, &subject, &mut arm_bindings);
@@ -734,4 +731,3 @@ fn validate_declaration_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern
         Pattern::Name { .. } | Pattern::Wildcard { .. } => {}
     }
 }
-

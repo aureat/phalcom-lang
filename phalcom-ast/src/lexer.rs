@@ -1068,11 +1068,26 @@ impl<'input> Lexer<'input> {
         let start = self.pos;
         self.pos += 1;
         match self.peek_at(0) {
-            Some(b'n') => { self.pos += 1; Ok('\n') }
-            Some(b'r') => { self.pos += 1; Ok('\r') }
-            Some(b't') => { self.pos += 1; Ok('\t') }
-            Some(b'\\') => { self.pos += 1; Ok('\\') }
-            Some(b'\'') => { self.pos += 1; Ok('\'') }
+            Some(b'n') => {
+                self.pos += 1;
+                Ok('\n')
+            }
+            Some(b'r') => {
+                self.pos += 1;
+                Ok('\r')
+            }
+            Some(b't') => {
+                self.pos += 1;
+                Ok('\t')
+            }
+            Some(b'\\') => {
+                self.pos += 1;
+                Ok('\\')
+            }
+            Some(b'\'') => {
+                self.pos += 1;
+                Ok('\'')
+            }
             Some(b'u') => {
                 self.pos += 1;
                 if self.peek_at(0) != Some(b'{') {

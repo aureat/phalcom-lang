@@ -2786,3 +2786,19 @@ A patch changing values or objects should answer all of the following.
 25. Do bytecode, execution, GC, dispatch, and reflection specs need corresponding amendments?
 
 A representation patch is incomplete until every applicable question has a deliberate answer.
+
+## Bytes construction resource boundary
+
+`Bytes.new(count)` MUST validate a non-negative host-representable index before
+allocating. The VM owns a configurable, finite per-construction byte-buffer
+limit, independent of numeric-object limits. The standard limit is 64 MiB;
+embedders may adjust it. Counts above the active limit MUST fail with a
+controlled byte-buffer resource error before reserving storage. Host reservation
+failure MUST also return a controlled allocation error. Successful construction
+exposes exactly `count` zeroed octets with fixed length.
+
+This boundary is shared by all source callers, including deterministic and
+secure random byte helpers. It is not a total VM memory budget and does not
+promise recovery from operating-system termination or failure of unrelated
+heap/metadata allocations. Existing buffers and native ownership-transfer paths
+are outside this constructor-specific limit.

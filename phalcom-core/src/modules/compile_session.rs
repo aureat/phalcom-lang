@@ -122,7 +122,10 @@ impl ProgramCompilationSession {
         }
         #[cfg(any(test, feature = "test-timings"))]
         let semantic_started = Instant::now();
-        let publication = self.semantic_session.update_module_workspace(module_update);
+        let publication = self
+            .semantic_session
+            .update_module_workspace_with_cancel(module_update, &phalcom_semantic::db::CancellationToken::new())
+            .map_err(|error| ProgramCompileError::SemanticUpdate(format!("{error:?}")))?;
         #[cfg(any(test, feature = "test-timings"))]
         {
             self.last_fixture_timing.semantic_update = semantic_started.elapsed();
@@ -260,6 +263,32 @@ mod tests {
         assert_eq!(first_source.display_path, phalcom_modules::source::canonicalize_path(&first_path));
         assert_eq!(second_source.display_path, phalcom_modules::source::canonicalize_path(&second_path));
         assert_eq!(second.modules.len(), 1, "standalone result contains only the current fixture module");
+    }
+
+    #[test]
+    fn retained_random_fixture_replacement_publishes_current_source() {
+        let mut session = ProgramCompilationSession::standalone().unwrap();
+        let path = Path::new("random-retained.ph");
+        let first = "from universe.random import Xoshiro256PlusPlus\nlet result = Xoshiro256PlusPlus.seed(42).nextU64\n";
+        let second = "from universe.random import Xoshiro256PlusPlus\nlet result = Xoshiro256PlusPlus.seed(7).nextU64\n";
+        for source in [
+            first,
+            second,
+            "const result: Int = 17\n",
+            second,
+            include_str!("../../tests/fixtures/language/random/random_foundation.ph"),
+            include_str!("../../tests/fixtures/language/random-syntax/random_syntax.ph"),
+            first,
+        ] {
+            let program = session.compile_fixture(path, source).unwrap();
+            assert_eq!(program.modules[&program.entry].source_text.as_deref(), Some(source));
+            let cold = ProgramCompilationSession::standalone().unwrap().compile_fixture(path, source).unwrap();
+            assert_eq!(
+                program.modules[&program.entry].lowering.associated.len(),
+                cold.modules[&cold.entry].lowering.associated.len()
+            );
+            assert_eq!(signature_shape(&program.modules[&program.entry]), signature_shape(&cold.modules[&cold.entry]));
+        }
     }
 
     #[test]

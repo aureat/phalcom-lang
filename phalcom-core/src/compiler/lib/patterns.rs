@@ -754,20 +754,18 @@ fn contains_char_literal(pattern: &Pattern) -> bool {
     match pattern {
         Pattern::Char { .. } => true,
         Pattern::Tuple { elements, .. } => elements.iter().any(contains_char_literal),
-        Pattern::List { elements, rest, .. } => {
-            elements.iter().any(contains_char_literal) || rest.as_deref().is_some_and(contains_char_literal)
-        }
+        Pattern::List { elements, rest, .. } => elements.iter().any(contains_char_literal) || rest.as_deref().is_some_and(contains_char_literal),
         Pattern::Variant(variant) => match &variant.mode {
             phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => arguments.iter().any(|argument| contains_char_literal(&argument.pattern)),
-            phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => prefix
-                .iter()
-                .chain(suffix)
-                .any(|argument| contains_char_literal(&argument.pattern)),
+            phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                prefix.iter().chain(suffix).any(|argument| contains_char_literal(&argument.pattern))
+            }
             phalcom_ast::ast::VariantPatternMode::Singleton | phalcom_ast::ast::VariantPatternMode::WholeFamily { .. } => false,
         },
         Pattern::Or { alternatives, .. } => alternatives.iter().any(contains_char_literal),
-        Pattern::Record { entries, rest, .. } => entries.iter().any(|entry| contains_char_literal(&entry.pattern))
-            || rest.as_deref().is_some_and(contains_char_literal),
+        Pattern::Record { entries, rest, .. } => {
+            entries.iter().any(|entry| contains_char_literal(&entry.pattern)) || rest.as_deref().is_some_and(contains_char_literal)
+        }
         Pattern::Map { entries, .. } => entries.iter().any(|entry| contains_char_literal(&entry.pattern)),
         Pattern::Name { .. } | Pattern::Wildcard { .. } => false,
     }

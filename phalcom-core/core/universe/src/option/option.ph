@@ -207,6 +207,17 @@ impl<T> Option<T> {
     }
   }
 
+  /// Extracts the contained value from this option.
+  ///
+  /// If this option is `Some(value)`, returns `value`. If this option is
+  /// `None`, raises an error.
+  unwrap -> T {
+    match self {
+      Option::Some(v) => v
+      Option::None => ArgumentError.new("called Option.unwrap on a None value").raise()
+    }
+  }
+
   /// Returns a string representation of this option.
   ///
   /// A `Some(value)` is represented as `Some(<value>)`, using the contained
