@@ -24,7 +24,7 @@ mergeable streaming summaries, and a separate exact Int-to-Rational `meanExact`.
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 | --- | --- | --- | --- | --- | --- |
-| `STDL001.C7.P1` | Stable reductions and descriptive/statistical summary APIs | BLOCKED | PARTIAL | UNVERIFIED | source draft is present; source acceptance is blocked by the dependency-free CLI stack overflow in [incident report](../stack-overflow-incident-2026-10-11.md) |
+| `STDL001.C7.P1` | Stable reductions and descriptive/statistical summary APIs | BLOCKED | PARTIAL | UNVERIFIED | source draft is present; acceptance is blocked by a branch-only stack overflow in canonical Universe semantic expression analysis; clean `origin/main` completes the reproducer; see [incident report](../stack-overflow-incident-2026-10-11.md) |
 
 ## Established invariants
 
@@ -44,14 +44,15 @@ mergeable streaming summaries, and a separate exact Int-to-Rational `meanExact`.
 ## Verification
 
 The statistics source remains unverified. The dependency-free CLI reproducer
-overflows the native stack, so the failure is not isolated to the statistics
-package. Source acceptance remains blocked pending a phase-specific diagnosis;
-the focused Rust checks for the semantic/compiler algebraic-literal seam do not
-establish source-package acceptance. See the
+overflows during branch-only canonical Universe semantic expression analysis,
+so the failure is not isolated to the statistics package. Source acceptance
+remains blocked pending an owner-level correction; the focused Rust checks for
+the semantic/compiler algebraic-literal seam do not establish source-package
+acceptance. See the
 [incident report](../stack-overflow-incident-2026-10-11.md).
 
 ## Next action
 
-Wait for architectural guidance and identification of the overflowing phase.
-Then resume focused source acceptance; parsing, generic capture, numerical
-behavior, and merge laws remain unverified.
+Wait for an owner-level architectural ruling and a passing minimal-project CLI
+regression. Then resume focused source acceptance; parsing, generic capture,
+numerical behavior, and merge laws remain unverified.

@@ -56,12 +56,26 @@ conformance slot responsible for method and environment evidence; do not copy
 the class receiver into that slot. Missing or non-nominal runtime bindings must
 fail closed. This is a clarification within T5, not a new plan.
 
-## Current blocker — 2026-10-11
+## Architect ruling and current blocker — 2026-10-11
 
-Source acceptance is paused because the Phalcom CLI overflows the native stack
-on a dependency-free project containing only an exported integer binding. The
-failing phase is unknown, so this does not establish a defect in the algebraic
-literal implementation itself. See the cross-cutting
+The architect directed three semantic repairs: gate contextual realization on
+classified source and algebraic context before capability lookup; summarize
+arithmetic regions with one iterative post-order worklist; and carry the
+receiver's class-side denotation through ownerless generic dispatch while
+binding trait `Self` to the conforming subject type. These repairs and focused
+semantic regressions are present. The 50,000-node summary test and focused
+class-side tests pass.
+
+Source acceptance remains paused. LLDB and an environment-gated callable trace
+place the branch-only stack overflow in repeated `analyze_expression_inner`
+frames while analyzing `SpecialKernel.logGammaOnePlusRatio` during canonical
+Universe construction. The same dependency-free project completes on clean
+`origin/main`; the feature worktree still overflows after one focused attempt
+to reduce recursive expression-hook overhead. This is not a confirmed baseline
+failure, and the general expression-analysis owner repair needs a further
+architectural ruling. The focused follow-up question was sent on 2026-10-11
+and the response is pending. Do not resume package acceptance until that
+ruling and the minimal-project gate are green. See the cross-cutting
 [incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
 
 ## Task ledger

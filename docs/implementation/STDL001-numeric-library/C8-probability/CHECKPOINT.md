@@ -24,7 +24,7 @@ likelihood helpers, bounded conjugate updates, and fixed-budget Monte Carlo.
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 | --- | --- | --- | --- | --- | --- |
-| `STDL001.C8.P1` | V1 laws, evaluation, sampling, inference, and Monte Carlo source | BLOCKED | PARTIAL | UNVERIFIED | source is present; source acceptance is blocked by the dependency-free CLI stack overflow in [incident report](../stack-overflow-incident-2026-10-11.md) |
+| `STDL001.C8.P1` | V1 laws, evaluation, sampling, inference, and Monte Carlo source | BLOCKED | PARTIAL | UNVERIFIED | source is present; acceptance is blocked by a branch-only stack overflow in canonical Universe semantic expression analysis; clean `origin/main` completes the reproducer; see [incident report](../stack-overflow-incident-2026-10-11.md) |
 
 ## Established compatibility decisions
 
@@ -68,16 +68,17 @@ and stream-consumption review before acceptance.
 
 ## Verification
 
-No probability behavior is verified. A dependency-free CLI project reproduces
-a stack overflow, so the failure is not isolated to this package; source
-acceptance is blocked pending phase-specific diagnosis. Rust checks from earlier
-math/compiler work do not verify these source packages. See the
+No probability behavior is verified. A dependency-free CLI project overflows
+during branch-only canonical Universe semantic expression analysis, so the
+failure is not isolated to this package; source acceptance is blocked pending
+an owner-level correction. Rust checks from earlier math/compiler work do not
+verify these source packages. See the
 [incident report](../stack-overflow-incident-2026-10-11.md).
 
 ## Remaining scope
 
-Wait for architectural guidance and identification of the overflowing phase.
-Then resume source acceptance. Distribution-specific numerical accuracy, the
+Wait for an owner-level architectural ruling and a passing minimal-project CLI
+regression. Then resume source acceptance. Distribution-specific numerical accuracy, the
 full sampler contract, categorical copy/equality guarantees, focused generic
 Family projection, likelihood edge cases, Bayesian invariant checks, and Monte
 Carlo callback/RNG ordering remain unverified. The entire probability plan must

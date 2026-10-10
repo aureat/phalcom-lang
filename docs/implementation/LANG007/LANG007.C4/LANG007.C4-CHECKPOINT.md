@@ -19,10 +19,34 @@ latest_completed_plan: LANG007.C4.P3
 next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-completion-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 4f11cb1a900d76c1d45db108aa8d856ee5940394
-last_updated: 2026-10-08
+last_updated: 2026-10-11
 ---
 
 # LANG007.C4 — Checkpoint Record
+
+## Algebraic-literals architect ruling and current stop — 2026-10-11
+
+For `LANG007.C4.algebraic-literals-follow-on`, the architect required three
+semantic repairs: gate contextual realization on a classified source and
+algebraic context before capability lookup; replace recursive arithmetic
+region discovery with an iterative post-order worklist; and preserve class
+side for ownerless generic type-form dispatch while binding trait `Self` to the
+conforming subject. Focused regressions now cover those rules, including a
+50,000-node region. The generic class-side tests pass 3/3; semantic crate check,
+minimal project compile-in-process, and direct canonical semantic baseline
+regressions pass.
+
+The actual CLI bootstrap regression remains red. LLDB and an environment-gated
+trace place the stack overflow in recursive semantic expression analysis of
+`universe:math.special.kernel::SpecialKernel.logGammaOnePlusRatio`. A clean
+`origin/main` checkout at `c2dd635e` completes the same dependency-free
+project, confirming this is a branch regression. One targeted relocation of
+arithmetic inference out of the central wrapper did not fix it. Do not resume
+LANG007 source acceptance until the general expression-analysis owner is
+resolved. The follow-up evidence and owner-level decision request were sent to
+the existing architect conversation on 2026-10-11; the response is pending.
+The evidence is in the
+[stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
 
 ## Historical algebraic-literals follow-on stop state (2026-10-08)
 
@@ -84,8 +108,9 @@ Rust `cargo check -p phalcom-semantic -p phalcom-core` passed. The scoped
 files other than `expression.rs`, which retains unrelated baseline formatting
 drift. No source-language acceptance probes or tests were run for the focused
 realization work. A later dependency-free CLI project now reproduces a native
-stack overflow, blocking source acceptance across the worktree; the failing
-phase is unknown. The follow-on is `BLOCKED / PARTIAL / UNVERIFIED`. See the
+stack overflow during canonical Universe semantic expression analysis of
+`SpecialKernel.logGammaOnePlusRatio`, blocking source acceptance across the
+worktree. The follow-on is `BLOCKED / PARTIAL / UNVERIFIED`. See the
 [stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
 T4 publishes canonical realization products for directly expected basis
 values, suffix literals, `RealEmbeddable` scalar terms, and bounded arithmetic

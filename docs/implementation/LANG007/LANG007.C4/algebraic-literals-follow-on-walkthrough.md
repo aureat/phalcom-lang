@@ -13,10 +13,12 @@ updated: 2026-10-11
 
 ## Current stop — 2026-10-11
 
-The source-acceptance continuation is blocked by a shared CLI stack overflow.
-A dependency-free project with only an exported integer binding reproduces
-the abort, so the current evidence does not attribute it to algebraic literals
-or class-side traits. The failing phase remains unknown. See the
+The source-acceptance continuation is blocked by a feature-branch CLI stack
+overflow during canonical Universe semantic analysis. LLDB showed repeated
+`analyze_expression_inner -> analyze_expression -> synthesize_binary_expr`
+frames while checking `SpecialKernel.logGammaOnePlusRatio`; clean
+`origin/main` completes the same dependency-free project. The first targeted
+expression-wrapper reduction did not clear the failure. See the
 [incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
 
 This record covers the user-directed algebraic-literals follow-on performed in
@@ -326,3 +328,48 @@ The compiler and semantic crates pass the focused `cargo check`. No Phalcom
 source compilation or tests were run. Source conformance, semantic acceptance,
 runtime behavior, and incremental parity remain unverified. The follow-on
 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+## 14. Architect ruling and follow-up trace — 2026-10-11
+
+Applied the architect's three required corrections: contextual realization
+classifies source and algebraic context before capability lookup; arithmetic
+region facts use an iterative post-order worklist; ownerless generic type-form
+dispatch carries the receiver's class side and binds `Self` to the conforming
+subject type. Added semantic regressions for generic `T.zero`/`T.one`, wrong
+dispatch sides, ordinary `Int` candidate rejection, a small arithmetic facts
+oracle, and a 50,000-node arithmetic region.
+
+The minimal dependency-free project compiles in-process, and the direct
+canonical semantic baseline regression passes. Focused semantic class-side
+tests passed 3/3. `cargo check -p phalcom-semantic` passed. However, the actual
+CLI bootstrap regression still fails: the CLI compiles the project, then
+overflows during `VM::new()`'s canonical Universe program analysis while
+querying `SpecialKernel.logGammaOnePlusRatio` (`universe:math.special.kernel`,
+range `1304..2033`). A bounded LLDB trace repeats
+`analyze_expression_inner -> analyze_expression -> synthesize_binary_expr`;
+the iterative arithmetic scanner and generic conformance proof do not appear
+in that recurrence.
+
+The same project completed on clean `origin/main` at `c2dd635e`, so this is a
+branch regression. One focused attempt moved inferred arithmetic-region
+selection out of the central expression wrapper while retaining direct
+imaginary inference; the CLI regression remained red (status 6 after 35.46s).
+That attempt was reverted and is not part of the retained patch. After the
+revert, the CLI regression reproduced the same stack overflow again (status 6,
+26.18s; final callable trace entry unchanged). Verification for the retained
+tree:
+
+```text
+cargo check -p phalcom-ast -p phalcom-semantic -p phalcom-core — PASS
+semantic::capabilities::algebraic_realization — 3 PASS
+checker::algebraic_realization::tests — 3 PASS
+semantic::foundations::canonical_baseline — 1 PASS
+modules_universe::dependency_free_minimal_project_compiles_in_process — 1 PASS
+modules_universe::dependency_free_minimal_project_bootstraps_canonical_universe — FAIL, status 6 / stack overflow
+```
+
+The same CLI project passes on clean `origin/main` at `c2dd635e` (status 0,
+about 65s). Source acceptance and T4/T5 package gates remain paused pending the
+architectural ruling on the general semantic expression-analysis owner.
+Diagnostic trace output is environment-gated by
+`PHALCOM_TRACE_SEMANTIC_BOOTSTRAP`.

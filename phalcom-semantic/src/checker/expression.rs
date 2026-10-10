@@ -23,7 +23,7 @@ use crate::checker::flow::FlowState;
 use crate::data_semantics::{DataInfo, DataShape};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature, ResolvedDispatch, ResolvedDispatchResult};
-use crate::identity::{DeclarationId, InvocationTargetId};
+use crate::identity::{DeclarationId, DispatchSide, InvocationTargetId};
 use crate::types::annotation::TypeResolver;
 use crate::types::denotation::{AssociatedValueDenotation, BehavioralFamilyDenotation, CapturedBehavioralMember, SemanticDenotation};
 use crate::types::environment::TypeView;
@@ -2199,6 +2199,13 @@ fn receiver_type_form(receiver: &TypedExpression) -> Option<TypeId> {
     }
 }
 
+fn receiver_trait_dispatch_side(receiver: &TypedExpression) -> DispatchSide {
+    match receiver.denotation.as_ref() {
+        Some(SemanticDenotation::TypeForm(_)) => DispatchSide::Class,
+        _ => DispatchSide::Instance,
+    }
+}
+
 /// Adds declaration-owned class parameters to a dispatch target while keeping
 /// them separate from callable-local binders. Applied type forms fix those
 /// parameters; raw forms leave them inferable and therefore reject
@@ -3381,6 +3388,7 @@ fn family_callable_application_target(
         let ResolvedDispatchResult::Found(resolved) = ctx.resolve_dispatch_target_with_specialization(
             behavioral.receiver_type,
             behavioral.receiver_application,
+            behavioral.receiver_application.map_or(DispatchSide::Instance, |_| DispatchSide::Class),
             &callable.selector,
             crate::dispatch::DispatchLookup::Normal,
         ) else {
@@ -3857,7 +3865,13 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
             .collect::<Vec<_>>();
         return apply_union_resolved_call(ctx, &premise, &arms, &arguments, expected, call.range, &selector).into();
     }
-    match ctx.resolve_dispatch_target_with_specialization(receiver_ty, receiver_form, &selector, recv_typed.dispatch_lookup.clone()) {
+    match ctx.resolve_dispatch_target_with_specialization(
+        receiver_ty,
+        receiver_form,
+        receiver_trait_dispatch_side(&recv_typed),
+        &selector,
+        recv_typed.dispatch_lookup.clone(),
+    ) {
         ResolvedDispatchResult::Found(resolved) => {
             let target = specialize_class_side_target(ctx, CallableApplicationTarget::from_dispatch(resolved), receiver_form);
             let result = apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range);
@@ -4394,8 +4408,7 @@ pub(crate) fn apply_binary_operation_from_typed(
 
 fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, expected: &ExpectedType) -> TypedExpression {
     let scalar_basis_product = matches!(binary.op, BinaryOp::Multiply)
-        && (super::algebraic_realization::is_basis_source(ctx, &binary.left)
-            ^ super::algebraic_realization::is_basis_source(ctx, &binary.right));
+        && (super::algebraic_realization::is_basis_source(ctx, &binary.left) ^ super::algebraic_realization::is_basis_source(ctx, &binary.right));
     let left_has_basis = super::algebraic_realization::contains_arithmetic_basis(ctx, &binary.left);
     let right_has_basis = super::algebraic_realization::contains_arithmetic_basis(ctx, &binary.right);
     let left_scalar = super::algebraic_realization::is_embeddable_scalar_source(ctx, &binary.left);
@@ -4438,25 +4451,13 @@ fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, ex
         let contextual = ExpectedType::proper_from(target, ExpectationOrigin::AlgebraicArithmetic);
         if left_typed.contextual_realization.is_none() && super::algebraic_realization::is_basis_source(ctx, &binary.left) {
             if let Some(expression_id) = left_typed.expression_id {
-                super::algebraic_realization::apply_contextual_realization(
-                    ctx,
-                    expression_id,
-                    &binary.left,
-                    &contextual,
-                    &mut left_typed,
-                );
+                super::algebraic_realization::apply_contextual_realization(ctx, expression_id, &binary.left, &contextual, &mut left_typed);
                 ctx.sync_expression_outcome(&left_typed);
             }
         }
         if right_typed.contextual_realization.is_none() && super::algebraic_realization::is_basis_source(ctx, &binary.right) {
             if let Some(expression_id) = right_typed.expression_id {
-                super::algebraic_realization::apply_contextual_realization(
-                    ctx,
-                    expression_id,
-                    &binary.right,
-                    &contextual,
-                    &mut right_typed,
-                );
+                super::algebraic_realization::apply_contextual_realization(ctx, expression_id, &binary.right, &contextual, &mut right_typed);
                 ctx.sync_expression_outcome(&right_typed);
             }
         }
@@ -4734,9 +4735,7 @@ fn reflected_binary_selector(op: &BinaryOp) -> Option<Selector> {
 }
 
 fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr, expected: &ExpectedType) -> TypedExpression {
-    let operand_expected = if matches!(unary.op, UnaryOp::Plus | UnaryOp::Minus)
-        && super::algebraic_realization::contains_arithmetic_basis(ctx, &unary.expr)
-    {
+    let operand_expected = if matches!(unary.op, UnaryOp::Plus | UnaryOp::Minus) && super::algebraic_realization::contains_arithmetic_basis(ctx, &unary.expr) {
         expected
     } else {
         &ExpectedType::None
@@ -4927,7 +4926,13 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr,
 
     // 2. Check Getter selector
     if let Ok(sel) = Selector::getter(&get.property) {
-        match ctx.resolve_dispatch_target_with_specialization(recv_ty, receiver_form, &sel, recv_typed.dispatch_lookup.clone()) {
+        match ctx.resolve_dispatch_target_with_specialization(
+            recv_ty,
+            receiver_form,
+            receiver_trait_dispatch_side(&recv_typed),
+            &sel,
+            recv_typed.dispatch_lookup.clone(),
+        ) {
             ResolvedDispatchResult::Found(resolved) => {
                 let target = specialize_class_side_target(ctx, CallableApplicationTarget::from_dispatch(resolved), receiver_form);
                 let result = apply_resolved_callable(ctx, &target, &premise, &[], expected, get.range);
@@ -5040,7 +5045,13 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
 
     // 2. Check setter selector
     if let Ok(sel) = Selector::setter(&set.property) {
-        match ctx.resolve_dispatch_target_with_specialization(recv_ty, receiver_form, &sel, recv_typed.dispatch_lookup.clone()) {
+        match ctx.resolve_dispatch_target_with_specialization(
+            recv_ty,
+            receiver_form,
+            receiver_trait_dispatch_side(&recv_typed),
+            &sel,
+            recv_typed.dispatch_lookup.clone(),
+        ) {
             ResolvedDispatchResult::Found(resolved) => {
                 let arguments = vec![super::call::ApplicationArgument::Positional {
                     expression: &set.value,

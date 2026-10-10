@@ -45,7 +45,9 @@ this plan can be completed.
 
 ## Current blocker — 2026-10-11
 
-Source acceptance is paused because a dependency-free CLI project overflows the
-native stack. The failing phase and owner are unknown. Preserve the current
-architecture pending adviser guidance; see the
+Source acceptance is paused because the feature branch overflows during
+canonical Universe semantic expression analysis of
+`SpecialKernel.logGammaOnePlusRatio`; clean `origin/main` completes the same
+dependency-free reproducer. Preserve the current architecture pending an
+owner-level ruling and a passing minimal-project gate; see the
 [incident report](../stack-overflow-incident-2026-10-11.md).

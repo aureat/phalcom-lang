@@ -266,6 +266,7 @@ fn test_matrix_5_invariants_hold_across_boundaries() {
             conditional_capability: None,
             trait_dispatch: None,
             trait_dispatch_candidates: None,
+            contextual_realization: None,
             denotation: None,
             status: AnalysisStatus::DynamicBoundary(DynamicReason::ExplicitEscape),
             causal_invalidity: phalcom_semantic::checker::CausalInvalidity::Clean,

@@ -41,14 +41,31 @@ struct ArithmeticRegionFacts {
     algebra_types: Vec<crate::identity::TypeId>,
 }
 
+#[derive(Default)]
+struct ArithmeticRegionSummary {
+    facts: ArithmeticRegionFacts,
+    known_value_type: Option<crate::identity::TypeId>,
+    basis_axis: Option<AlgebraicBasisAxis>,
+}
+
+#[derive(Default)]
+struct RegionNodeSummary {
+    axes: u8,
+    has_basis: bool,
+    known_value_type: Option<crate::identity::TypeId>,
+    basis_axis: Option<AlgebraicBasisAxis>,
+}
+
+enum ScanFrame<'a> {
+    Enter(&'a Expr),
+    ExitUnary,
+    ExitBinary(&'a BinaryExpr),
+}
+
 /// Selects the bounded canonical target for an arithmetic region. This is a
 /// source-semantic rule over canonical basis types and known scalar types; it
 /// never searches imported declarations for a convenient algebra.
-pub(crate) fn arithmetic_region_expected(
-    ctx: &mut CheckingContext<'_>,
-    expression: &Expr,
-    expected: &ExpectedType,
-) -> Option<ExpectedType> {
+pub(crate) fn arithmetic_region_expected(ctx: &mut CheckingContext<'_>, expression: &Expr, expected: &ExpectedType) -> Option<ExpectedType> {
     let is_region = match expression {
         Expr::Imaginary { .. } => true,
         Expr::Unary(unary) => matches!(unary.op, phalcom_ast::ast::UnaryOp::Plus | phalcom_ast::ast::UnaryOp::Minus),
@@ -59,8 +76,8 @@ pub(crate) fn arithmetic_region_expected(
         return None;
     }
 
-    let mut facts = ArithmeticRegionFacts::default();
-    scan_arithmetic_region(ctx, expression, &mut facts);
+    let summary = summarize_arithmetic_region(ctx, expression);
+    let facts = &summary.facts;
     if !facts.has_basis {
         return None;
     }
@@ -106,9 +123,7 @@ pub(crate) fn arithmetic_region_expected(
 /// supported arithmetic region. Used only to decide where an already selected
 /// target expectation should flow.
 pub(crate) fn contains_arithmetic_basis(ctx: &mut CheckingContext<'_>, expression: &Expr) -> bool {
-    let mut facts = ArithmeticRegionFacts::default();
-    scan_arithmetic_region(ctx, expression, &mut facts);
-    facts.has_basis
+    summarize_arithmetic_region(ctx, expression).facts.has_basis
 }
 
 /// Detects a source basis binding (as opposed to a completed algebraic
@@ -121,76 +136,128 @@ fn is_algebraic_region_operator(operator: &BinaryOp) -> bool {
     matches!(operator, BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply)
 }
 
-fn scan_arithmetic_region(ctx: &mut CheckingContext<'_>, expression: &Expr, facts: &mut ArithmeticRegionFacts) {
+fn summarize_arithmetic_region(ctx: &mut CheckingContext<'_>, expression: &Expr) -> ArithmeticRegionSummary {
+    let mut facts = ArithmeticRegionFacts::default();
+    let mut frames = vec![ScanFrame::Enter(expression)];
+    let mut nodes = Vec::<RegionNodeSummary>::new();
+
+    while let Some(frame) = frames.pop() {
+        match frame {
+            ScanFrame::Enter(expression) => match expression {
+                Expr::Binary(binary) if is_algebraic_region_operator(&binary.op) => {
+                    frames.push(ScanFrame::ExitBinary(binary));
+                    frames.push(ScanFrame::Enter(&binary.right));
+                    frames.push(ScanFrame::Enter(&binary.left));
+                }
+                Expr::Unary(unary) if matches!(unary.op, phalcom_ast::ast::UnaryOp::Plus | phalcom_ast::ast::UnaryOp::Minus) => {
+                    frames.push(ScanFrame::ExitUnary);
+                    frames.push(ScanFrame::Enter(&unary.expr));
+                }
+                _ => nodes.push(summarize_leaf(ctx, expression, &mut facts)),
+            },
+            ScanFrame::ExitUnary => {
+                let child = nodes.pop().expect("post-order unary child summary");
+                let basis_axis = child.known_value_type.and_then(|ty| canonical_axis_for_type(ctx, ty));
+                nodes.push(RegionNodeSummary {
+                    axes: child.axes,
+                    has_basis: child.has_basis,
+                    known_value_type: child.known_value_type,
+                    basis_axis,
+                });
+            }
+            ScanFrame::ExitBinary(binary) => {
+                let right = nodes.pop().expect("post-order right operand summary");
+                let left = nodes.pop().expect("post-order left operand summary");
+                match binary.op {
+                    BinaryOp::Multiply => {
+                        if left.basis_axis.is_some() ^ right.basis_axis.is_some() {
+                            let coefficient = if left.basis_axis.is_some() {
+                                right.known_value_type
+                            } else {
+                                left.known_value_type
+                            };
+                            if let Some(scalar) = coefficient {
+                                facts.scalar_types.push(scalar);
+                            } else {
+                                facts.has_unresolved_coefficient_type = true;
+                            }
+                        }
+                    }
+                    BinaryOp::Add | BinaryOp::Subtract => {
+                        for operand in [&left, &right] {
+                            if let Some(ty) = operand.known_value_type {
+                                if canonical_axis_for_type(ctx, ty).is_some() {
+                                    continue;
+                                }
+                                if is_canonical_algebra_type(ctx, ty) {
+                                    facts.algebra_types.push(ty);
+                                } else {
+                                    facts.scalar_types.push(ty);
+                                }
+                            } else if !operand.has_basis {
+                                facts.has_unresolved_coefficient_type = true;
+                            }
+                        }
+                    }
+                    _ => unreachable!("only supported arithmetic operators enter the region summarizer"),
+                }
+
+                let known_value_type = combine_known_numeric_types(ctx, left.known_value_type, right.known_value_type);
+                let basis_axis = known_value_type.and_then(|ty| canonical_axis_for_type(ctx, ty));
+                nodes.push(RegionNodeSummary {
+                    axes: left.axes | right.axes,
+                    has_basis: left.has_basis || right.has_basis,
+                    known_value_type,
+                    basis_axis,
+                });
+            }
+        }
+    }
+
+    let root = nodes.pop().unwrap_or_default();
+    debug_assert!(nodes.is_empty(), "every post-order frame must produce exactly one summary");
+    ArithmeticRegionSummary {
+        facts,
+        known_value_type: root.known_value_type,
+        basis_axis: root.basis_axis,
+    }
+}
+
+fn summarize_leaf(ctx: &mut CheckingContext<'_>, expression: &Expr, facts: &mut ArithmeticRegionFacts) -> RegionNodeSummary {
+    let known_value_type = known_leaf_value_type(ctx, expression);
+    let mut summary = RegionNodeSummary {
+        known_value_type,
+        ..RegionNodeSummary::default()
+    };
+
     match expression {
-        Expr::Imaginary { axis, coefficient, .. } => {
-            facts.has_basis = true;
-            let axis = match axis {
-                ImaginaryAxis::I => AlgebraicBasisAxis::I,
-                ImaginaryAxis::J => AlgebraicBasisAxis::J,
-                ImaginaryAxis::K => AlgebraicBasisAxis::K,
-            };
+        Expr::Imaginary { axis, .. } => {
+            let axis = imaginary_axis(*axis);
+            summary.axes |= 1 << axis_index(axis);
+            summary.has_basis = true;
             facts.axes |= 1 << axis_index(axis);
-            let scalar = match coefficient {
-                ImaginaryCoefficient::Int { .. } => {
-                    let declaration = ctx.core_ids.int.clone();
-                    ctx.core_type(&declaration)
-                }
-                ImaginaryCoefficient::Float(_) => {
-                    let declaration = ctx.core_ids.float.clone();
-                    ctx.core_type(&declaration)
-                }
-            };
-            if let Some(scalar) = scalar {
+            facts.has_basis = true;
+            summary.basis_axis = Some(axis);
+            if let Some(scalar) = known_value_type {
                 facts.scalar_types.push(scalar);
             }
         }
         Expr::Var { .. } | Expr::GetProperty(_) => {
-            if let Some(ty) = known_value_type(ctx, expression) {
+            if let Some(ty) = known_value_type {
                 if let Some(axis) = canonical_axis_for_type(ctx, ty) {
-                    facts.has_basis = true;
+                    summary.axes |= 1 << axis_index(axis);
+                    summary.has_basis = true;
                     facts.axes |= 1 << axis_index(axis);
+                    facts.has_basis = true;
+                    summary.basis_axis = Some(axis);
                 } else if is_canonical_algebra_type(ctx, ty) {
                     facts.algebra_types.push(ty);
                 }
             }
         }
-        Expr::Unary(unary) if matches!(unary.op, phalcom_ast::ast::UnaryOp::Plus | phalcom_ast::ast::UnaryOp::Minus) => {
-            scan_arithmetic_region(ctx, &unary.expr, facts);
-        }
-        Expr::Binary(binary) if is_algebraic_region_operator(&binary.op) => {
-            if matches!(binary.op, BinaryOp::Multiply) {
-                let left_basis = basis_axis_for_expression(ctx, &binary.left).is_some();
-                let right_basis = basis_axis_for_expression(ctx, &binary.right).is_some();
-                if left_basis ^ right_basis {
-                    let coefficient = if left_basis { &binary.right } else { &binary.left };
-                    if let Some(scalar) = known_value_type(ctx, coefficient) {
-                        facts.scalar_types.push(scalar);
-                    } else {
-                        facts.has_unresolved_coefficient_type = true;
-                    }
-                }
-            } else {
-                for operand in [&binary.left, &binary.right] {
-                    if let Some(ty) = known_value_type(ctx, operand) {
-                        if canonical_axis_for_type(ctx, ty).is_some() {
-                            continue;
-                        }
-                        if is_canonical_algebra_type(ctx, ty) {
-                            facts.algebra_types.push(ty);
-                        } else {
-                            facts.scalar_types.push(ty);
-                        }
-                    } else if !contains_arithmetic_basis(ctx, operand) {
-                        facts.has_unresolved_coefficient_type = true;
-                    }
-                }
-            }
-            scan_arithmetic_region(ctx, &binary.left, facts);
-            scan_arithmetic_region(ctx, &binary.right, facts);
-        }
         _ => {}
     }
+    summary
 }
 
 fn basis_axis_for_expression(ctx: &mut CheckingContext<'_>, expression: &Expr) -> Option<AlgebraicBasisAxis> {
@@ -201,11 +268,14 @@ fn basis_axis_for_expression(ctx: &mut CheckingContext<'_>, expression: &Expr) -
             ImaginaryAxis::K => AlgebraicBasisAxis::K,
         });
     }
-    let ty = known_value_type(ctx, expression)?;
-    canonical_axis_for_type(ctx, ty)
+    summarize_arithmetic_region(ctx, expression).basis_axis
 }
 
 fn known_value_type(ctx: &mut CheckingContext<'_>, expression: &Expr) -> Option<crate::identity::TypeId> {
+    summarize_arithmetic_region(ctx, expression).known_value_type
+}
+
+fn known_leaf_value_type(ctx: &mut CheckingContext<'_>, expression: &Expr) -> Option<crate::identity::TypeId> {
     match expression {
         Expr::Int { .. } => {
             let declaration = ctx.core_ids.int.clone();
@@ -233,15 +303,26 @@ fn known_value_type(ctx: &mut CheckingContext<'_>, expression: &Expr) -> Option<
             ctx.resolve_module_export_value(module_alias, &get.property)
                 .and_then(|fact| fact.knowledge.ty())
         }
-        Expr::Unary(unary) if matches!(unary.op, phalcom_ast::ast::UnaryOp::Plus | phalcom_ast::ast::UnaryOp::Minus) => {
-            known_value_type(ctx, &unary.expr)
-        }
-        Expr::Binary(binary) if is_algebraic_region_operator(&binary.op) => {
-            let left = known_value_type(ctx, &binary.left)?;
-            let right = known_value_type(ctx, &binary.right)?;
-            (left == right && is_core_numeric_type(ctx, left)).then_some(left)
-        }
         _ => None,
+    }
+}
+
+fn combine_known_numeric_types(
+    ctx: &mut CheckingContext<'_>,
+    left: Option<crate::identity::TypeId>,
+    right: Option<crate::identity::TypeId>,
+) -> Option<crate::identity::TypeId> {
+    let (Some(left), Some(right)) = (left, right) else {
+        return None;
+    };
+    (left == right && is_core_numeric_type(ctx, left)).then_some(left)
+}
+
+fn imaginary_axis(axis: ImaginaryAxis) -> AlgebraicBasisAxis {
+    match axis {
+        ImaginaryAxis::I => AlgebraicBasisAxis::I,
+        ImaginaryAxis::J => AlgebraicBasisAxis::J,
+        ImaginaryAxis::K => AlgebraicBasisAxis::K,
     }
 }
 
@@ -294,98 +375,106 @@ pub(crate) fn apply_contextual_realization(
         return;
     }
 
-    let Some(source) = realization_source(ctx, expression, typed) else {
-        let Some(scalar_type) = typed.knowledge.ty() else {
-            return;
-        };
-        let Some(realization) = resolve_capability(ctx, target_type, &[], "fromReal", 1) else {
-            return;
-        };
-        let Some(signature) = capability_signature(&realization) else {
-            return;
-        };
-        if signature.parameters.len() != 1
-            || signature.parameters[0].declared_type.canonical_type() != Some(scalar_type)
-            || signature.declared_return.canonical_type() != Some(target_type)
-        {
+    let Some(candidate) = classify_realization_candidate(ctx, expression, expected, target_type, typed) else {
+        return;
+    };
+    let scalar_type = match candidate {
+        RealizationCandidate::RealScalar { scalar_type } => scalar_type,
+        RealizationCandidate::Basis(source) => {
+            let (axis, source_type, coefficient_source, evaluation) = match source {
+                RealizationSource::Basis { ty, axis } => (axis, ty, None, RealizationEvaluationPlan::MultiplicativeIdentityThenSourceBasis),
+                RealizationSource::Literal { scalar, axis, coefficient } => {
+                    (axis, scalar, Some(coefficient), RealizationEvaluationPlan::LiteralCoefficientThenAxis)
+                }
+            };
+            let Some(basis_type) = canonical_basis_type(ctx, axis) else {
+                return;
+            };
+
+            // Keep an unelaborated basis type on failure so normal expected-type
+            // checking reports a mismatch instead of silently accepting an unknown.
+            if coefficient_source.is_some() {
+                typed.knowledge = TypeKnowledge::established(basis_type, EvidenceOrigin::Syntax).with_range(expression.range());
+            }
+
+            let Some(realization) = resolve_capability(ctx, target_type, &[basis_type], "along", 2) else {
+                return;
+            };
+            let Some(signature) = capability_signature(&realization) else {
+                return;
+            };
+            if signature.parameters.len() != 2
+                || signature.parameters[1].declared_type.canonical_type() != Some(basis_type)
+                || signature.declared_return.canonical_type() != Some(target_type)
+            {
+                return;
+            }
+            let Some(coefficient_type) = signature.parameters[0].declared_type.canonical_type() else {
+                return;
+            };
+
+            let coefficient = match coefficient_source {
+                Some(source) => {
+                    if source_type != coefficient_type {
+                        return;
+                    }
+                    source
+                }
+                None => {
+                    let Some(one) = resolve_capability(ctx, coefficient_type, &[], "one", 0) else {
+                        return;
+                    };
+                    let Some(one_signature) = capability_signature(&one) else {
+                        return;
+                    };
+                    if !one_signature.parameters.is_empty() || one_signature.declared_return.canonical_type() != Some(coefficient_type) {
+                        return;
+                    }
+                    RealizationCoefficientSource::One {
+                        scalar_type: coefficient_type,
+                        one,
+                    }
+                }
+            };
+
+            let mut assumed = !selection_is_exact(&realization);
+            if let RealizationCoefficientSource::One { one, .. } = &coefficient {
+                assumed |= !selection_is_exact(one);
+            }
+            typed.knowledge = match assumed {
+                true => TypeKnowledge::assumed(target_type, EvidenceOrigin::ContextualDerivation).with_range(expression.range()),
+                false => TypeKnowledge::established(target_type, EvidenceOrigin::ContextualDerivation).with_range(expression.range()),
+            };
+            typed.contextual_realization = Some(ContextualRealization {
+                source_expression: expression_id,
+                source_range: expression.range(),
+                source_type,
+                target_type,
+                operation: ContextualRealizationOperation::Basis {
+                    basis_type,
+                    axis,
+                    coefficient,
+                    evaluation,
+                },
+                realization,
+            });
             return;
         }
-        let assumed = !selection_is_exact(&realization);
-        typed.knowledge = match assumed {
-            true => TypeKnowledge::assumed(target_type, EvidenceOrigin::ContextualDerivation).with_range(expression.range()),
-            false => TypeKnowledge::established(target_type, EvidenceOrigin::ContextualDerivation).with_range(expression.range()),
-        };
-        typed.contextual_realization = Some(ContextualRealization {
-            source_expression: expression_id,
-            source_range: expression.range(),
-            source_type: scalar_type,
-            target_type,
-            operation: ContextualRealizationOperation::RealEmbedding {
-                value: expression_id,
-                scalar_type,
-            },
-            realization,
-        });
-        return;
-    };
-    let (axis, source_type, coefficient_source, evaluation) = match source {
-        RealizationSource::Basis { ty, axis } => (axis, ty, None, RealizationEvaluationPlan::MultiplicativeIdentityThenSourceBasis),
-        RealizationSource::Literal { scalar, axis, coefficient } => (axis, scalar, Some(coefficient), RealizationEvaluationPlan::LiteralCoefficientThenAxis),
-    };
-    let Some(basis_type) = canonical_basis_type(ctx, axis) else {
-        return;
     };
 
-    // Keep an unelaborated basis type on failure so normal expected-type
-    // checking reports a mismatch instead of silently accepting an unknown.
-    if coefficient_source.is_some() {
-        typed.knowledge = TypeKnowledge::established(basis_type, EvidenceOrigin::Syntax).with_range(expression.range());
-    }
-
-    let Some(realization) = resolve_capability(ctx, target_type, &[basis_type], "along", 2) else {
+    let Some(realization) = resolve_capability(ctx, target_type, &[], "fromReal", 1) else {
         return;
     };
     let Some(signature) = capability_signature(&realization) else {
         return;
     };
-    if signature.parameters.len() != 2
-        || signature.parameters[1].declared_type.canonical_type() != Some(basis_type)
+    if signature.parameters.len() != 1
+        || signature.parameters[0].declared_type.canonical_type() != Some(scalar_type)
         || signature.declared_return.canonical_type() != Some(target_type)
     {
         return;
     }
-    let Some(coefficient_type) = signature.parameters[0].declared_type.canonical_type() else {
-        return;
-    };
-
-    let coefficient = match coefficient_source {
-        Some(source) => {
-            if source_type != coefficient_type {
-                return;
-            }
-            source
-        }
-        None => {
-            let Some(one) = resolve_capability(ctx, coefficient_type, &[], "one", 0) else {
-                return;
-            };
-            let Some(one_signature) = capability_signature(&one) else {
-                return;
-            };
-            if !one_signature.parameters.is_empty() || one_signature.declared_return.canonical_type() != Some(coefficient_type) {
-                return;
-            }
-            RealizationCoefficientSource::One {
-                scalar_type: coefficient_type,
-                one,
-            }
-        }
-    };
-
-    let mut assumed = !selection_is_exact(&realization);
-    if let RealizationCoefficientSource::One { one, .. } = &coefficient {
-        assumed |= !selection_is_exact(one);
-    }
+    let assumed = !selection_is_exact(&realization);
     typed.knowledge = match assumed {
         true => TypeKnowledge::assumed(target_type, EvidenceOrigin::ContextualDerivation).with_range(expression.range()),
         false => TypeKnowledge::established(target_type, EvidenceOrigin::ContextualDerivation).with_range(expression.range()),
@@ -393,16 +482,41 @@ pub(crate) fn apply_contextual_realization(
     typed.contextual_realization = Some(ContextualRealization {
         source_expression: expression_id,
         source_range: expression.range(),
-        source_type,
+        source_type: scalar_type,
         target_type,
-        operation: ContextualRealizationOperation::Basis {
-            basis_type,
-            axis,
-            coefficient,
-            evaluation,
+        operation: ContextualRealizationOperation::RealEmbedding {
+            value: expression_id,
+            scalar_type,
         },
         realization,
     });
+}
+
+enum RealizationCandidate {
+    Basis(RealizationSource),
+    RealScalar { scalar_type: crate::identity::TypeId },
+}
+
+fn classify_realization_candidate(
+    ctx: &mut CheckingContext<'_>,
+    expression: &Expr,
+    expected: &ExpectedType,
+    target_type: crate::identity::TypeId,
+    typed: &TypedExpression,
+) -> Option<RealizationCandidate> {
+    if let Some(source) = realization_source(ctx, expression, typed) {
+        return realization_context_is_algebraic(ctx, expected, target_type).then_some(RealizationCandidate::Basis(source));
+    }
+
+    if !is_embeddable_scalar_source(ctx, expression) || !realization_context_is_algebraic(ctx, expected, target_type) {
+        return None;
+    }
+    let scalar_type = typed.knowledge.ty()?;
+    (known_value_type(ctx, expression) == Some(scalar_type)).then_some(RealizationCandidate::RealScalar { scalar_type })
+}
+
+fn realization_context_is_algebraic(ctx: &mut CheckingContext<'_>, expected: &ExpectedType, target_type: crate::identity::TypeId) -> bool {
+    is_canonical_algebra_type(ctx, target_type) || expected.origin() == Some(crate::checker::expected::ExpectationOrigin::AlgebraicArithmetic)
 }
 
 /// Selects the class-side basis operation for a source-ordered scalar-times-
@@ -691,4 +805,158 @@ fn selection_is_exact(selection: &RealizationCapabilitySelection) -> bool {
             ..
         })
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::contains_arithmetic_basis;
+    use crate::checker::context::CheckingContext;
+    use crate::core_surface::universe_declaration;
+    use crate::declarations::bootstrap_universe_declarations;
+    use crate::types::annotation::SimpleTypeResolver;
+    use crate::types::relation::MapTypeHierarchy;
+    use crate::types::store::TypeStore;
+    use phalcom_ast::ast::{BinaryExpr, BinaryOp, Expr, ImaginaryAxis, ImaginaryCoefficient};
+    use phalcom_common::range::SourceRange;
+    use phalcom_modules::ModuleId;
+
+    #[test]
+    fn deep_arithmetic_region_summary_is_stack_safe() {
+        let module = ModuleId::universe_root();
+        let mut store = TypeStore::new();
+        let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);
+        let resolver = SimpleTypeResolver::new();
+        let hierarchy = MapTypeHierarchy::new();
+        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module);
+
+        let range = SourceRange { start: 0, end: 1 };
+        let mut expression = Expr::Imaginary {
+            coefficient: ImaginaryCoefficient::Int {
+                digits: "1".to_owned(),
+                radix: 10,
+            },
+            axis: ImaginaryAxis::I,
+            range,
+        };
+        for _ in 0..25_000 {
+            expression = Expr::Binary(Box::new(BinaryExpr {
+                op: BinaryOp::Add,
+                op_range: None,
+                left: expression,
+                right: Expr::Int {
+                    digits: "1".to_owned(),
+                    radix: 10,
+                    range,
+                },
+                range,
+            }));
+        }
+
+        let has_basis = contains_arithmetic_basis(&mut ctx, &expression);
+        // The nested AST's default destructor is recursive too; keep this test
+        // focused on the analyzer's traversal rather than recursive drop glue.
+        std::mem::forget(expression);
+        assert!(has_basis, "the iterative summary must retain the I-axis basis fact");
+    }
+
+    #[test]
+    fn ordinary_int_expression_is_not_a_realization_candidate() {
+        use super::classify_realization_candidate;
+        use crate::checker::expected::ExpectedType;
+        use crate::checker::typed_expr::TypedExpression;
+        use crate::types::evidence::{EvidenceOrigin, TypeKnowledge};
+
+        let module = ModuleId::universe_root();
+        let mut store = TypeStore::new();
+        let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);
+        let resolver = SimpleTypeResolver::new();
+        let hierarchy = MapTypeHierarchy::new();
+        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module);
+        let int_declaration = ctx.core_ids.int.clone();
+        let int_type = ctx.core_type(&int_declaration).expect("canonical Int type");
+        let range = SourceRange { start: 0, end: 1 };
+        let expression = Expr::Int {
+            digits: "1".to_owned(),
+            radix: 10,
+            range,
+        };
+        let typed = TypedExpression::new(TypeKnowledge::established(int_type, EvidenceOrigin::Syntax).with_range(range));
+
+        let candidate = classify_realization_candidate(&mut ctx, &expression, &ExpectedType::proper(int_type), int_type, &typed);
+        assert!(candidate.is_none(), "ordinary `Int` checking must stop before capability resolution");
+    }
+
+    #[test]
+    fn small_arithmetic_regions_keep_axis_and_scalar_facts() {
+        use super::summarize_arithmetic_region;
+
+        let module = ModuleId::universe_root();
+        let mut store = TypeStore::new();
+        let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);
+        let resolver = SimpleTypeResolver::new();
+        let hierarchy = MapTypeHierarchy::new();
+        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module);
+        let range = SourceRange { start: 0, end: 1 };
+        let int = || Expr::Int {
+            digits: "1".to_owned(),
+            radix: 10,
+            range,
+        };
+        let imaginary = |axis| Expr::Imaginary {
+            coefficient: ImaginaryCoefficient::Int {
+                digits: "2".to_owned(),
+                radix: 10,
+            },
+            axis,
+            range,
+        };
+        let binary = |op, left, right| {
+            Expr::Binary(Box::new(BinaryExpr {
+                op,
+                op_range: None,
+                left,
+                right,
+                range,
+            }))
+        };
+
+        let expressions = [
+            ("2i", imaginary(ImaginaryAxis::I), 1),
+            ("2*i", binary(BinaryOp::Multiply, int(), imaginary(ImaginaryAxis::I)), 1),
+            ("i*2", binary(BinaryOp::Multiply, imaginary(ImaginaryAxis::I), int()), 1),
+            ("1+2i", binary(BinaryOp::Add, int(), imaginary(ImaginaryAxis::I)), 1),
+            (
+                "1+2i+3j",
+                binary(
+                    BinaryOp::Add,
+                    binary(BinaryOp::Add, int(), imaginary(ImaginaryAxis::I)),
+                    imaginary(ImaginaryAxis::J),
+                ),
+                0b011,
+            ),
+            (
+                "1+2i+3j+4k",
+                binary(
+                    BinaryOp::Add,
+                    binary(
+                        BinaryOp::Add,
+                        binary(BinaryOp::Add, int(), imaginary(ImaginaryAxis::I)),
+                        imaginary(ImaginaryAxis::J),
+                    ),
+                    imaginary(ImaginaryAxis::K),
+                ),
+                0b111,
+            ),
+        ];
+
+        for (source, expression, expected_axes) in expressions {
+            let summary = summarize_arithmetic_region(&mut ctx, &expression);
+            assert!(summary.facts.has_basis, "{source}");
+            assert_eq!(summary.facts.axes, expected_axes, "{source}");
+            assert!(!summary.facts.has_unresolved_coefficient_type, "{source}");
+            let scalar_types = &summary.facts.scalar_types;
+            assert!(!scalar_types.is_empty(), "{source} retains at least one scalar identity");
+            assert!(scalar_types.iter().all(|scalar| *scalar == scalar_types[0]), "{source} scalar identities agree");
+        }
+    }
 }

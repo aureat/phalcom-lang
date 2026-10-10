@@ -1,5 +1,11 @@
 # IMPLEMENTATION INCIDENT
 
+> **Current status (2026-10-11):** The initial report's unknown-phase
+> statements below have been superseded by the LLDB and clean-main comparison
+> in §15. The remaining blocker is a branch-only stack overflow in recursive
+> semantic expression analysis of `SpecialKernel.logGammaOnePlusRatio`; the
+> architect's follow-up owner-level decision is pending.
+
 ## 1. Identity
 
 - Program: `STDL001` — numeric library; cross-cutting source compilation failure
@@ -194,3 +200,73 @@ phase and owning call path without changing semantic behavior. In particular:
 
 Implementation of the affected source-acceptance work is paused until that
 guidance is recorded.
+
+## 15. Architect ruling and follow-up evidence — 2026-10-11
+
+The architect ruled that the active T3/T4 implementation has three concrete
+defects to repair before source acceptance: contextual realization must
+classify source and context before capability lookup; arithmetic-region
+summarization must use one iterative post-order worklist; and ownerless generic
+type-form dispatch must preserve class-side selection while binding `Self` to
+the conforming subject type. The worktree implements those corrections and has
+focused semantic regressions for assumed `T.zero`/`T.one`, wrong-side
+selection, ordinary `Int` candidate rejection, arithmetic summary facts, and a
+50,000-node stack-safety input.
+
+A bounded LLDB run on the feature worktree stopped in repeated
+`analyze_expression_inner -> analyze_expression -> synthesize_binary_expr`
+frames while canonical Universe construction was querying the body of
+`SpecialKernel.logGammaOnePlusRatio` in `universe:math.special.kernel` (source
+range `1304..2033`). The CLI had completed project compilation and entered
+`VM::new`; this is still compile-time semantic analysis during canonical
+Universe construction, before program execution. It did not show recursion in
+the iterative algebraic-region scanner, generic conformance proof, projection
+normalization, or VM execution. An environment-gated callable trace confirms
+that this body is the last query before abort.
+
+The same dependency-free project was then built and run from a clean checkout
+of `origin/main` at `c2dd635e`; it completed successfully with exit status 0
+(about 65 seconds). The feature worktree's subprocess regression still aborts
+with stack overflow (status 6, after 35.46 seconds) after the iterative scanner,
+candidate gate, and class-side fixes. A focused attempt moved arithmetic-region
+selection out of the central expression wrapper and into binary/unary analysis,
+retaining direct imaginary-literal inference; the same callable still
+overflows. The attempted relocation was reverted because it did not improve the
+reproducer and its semantic effect was not independently accepted. It is not
+part of the retained patch.
+
+After reverting that experiment, the retained feature worktree reproduced the
+same failure again: the minimal-project bootstrap regression exited with
+status 6 after 26.18 seconds, and its last callable trace entry was again
+`SpecialKernel.logGammaOnePlusRatio`. The clean-main pass remains the control;
+this current-tree rerun confirms the blocker was not removed by the revert.
+
+This narrows the incident to the added semantic expression-analysis path or
+its stack cost on a supported nested scalar expression, rather than a general
+`origin/main` baseline failure. The exact repeated analyzer edge and the
+owner-level correction remain unresolved. Do not rewrite the standard-library
+polynomial, raise stack limits, add a depth cutoff, or resume source acceptance
+without an architectural ruling on the general expression-analysis owner.
+
+### Follow-up decision requested
+
+1. Given the clean-main pass and the feature-branch failure in
+   `analyze_expression_inner` while analyzing a nested Float arithmetic body,
+   which semantic-owner repair is acceptable: make expression analysis
+   stack-safe for nested ASTs, or refactor the algebraic hooks so they do not
+   increase stack use on ordinary scalar expressions?
+2. What bounded regression should protect the owning invariant, in addition to
+   the retained minimal-project CLI reproduction and the 50,000-node
+   arithmetic-summary test?
+3. The attempted relocation of inference from the central wrapper into
+   binary/unary synthesis was reverted after the CLI regression remained red.
+   Is the general expression-analysis owner repair a bounded stack-safe walk,
+   or a different semantic-layer correction?
+
+Source-level math/package acceptance remains paused. The branch-specific
+failure is not classified as a baseline failure.
+
+The follow-up evidence and decision request were sent on 2026-10-11 to the
+existing architect conversation, **Incident audit analysis**. The owner-level
+response is pending; this incident packet remains the source of truth for the
+new trace and failed attempt.

@@ -964,6 +964,7 @@ fn formal_products_attach_by_callable_and_checker_ids() {
                 conditional_capability: None,
                 trait_dispatch: None,
                 trait_dispatch_candidates: None,
+                contextual_realization: None,
                 denotation: None,
                 status: AnalysisStatus::Ready,
                 causal_invalidity: Default::default(),

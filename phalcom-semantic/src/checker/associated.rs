@@ -6,7 +6,7 @@ use crate::checker::expected::ExpectedType;
 use crate::checker::inference::{ConstraintOrigin, InferenceCoordinator, InferenceOutcome, InferenceRelation, InferenceTerm};
 use crate::checker::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
-use crate::identity::{AssociatedFamilyId, DeclarationId, ExpressionId, InvocationTargetId};
+use crate::identity::{AssociatedFamilyId, DeclarationId, DispatchSide, ExpressionId, InvocationTargetId};
 use crate::types::denotation::SemanticDenotation;
 use crate::types::environment::TypeView;
 use crate::types::family::FamilyOperationShape;
@@ -294,9 +294,13 @@ pub fn resolve_bound_behavioral_family(
 
     match &spec {
         BehavioralFamilySpec::Exact(selector) => {
-            if let crate::dispatch::ResolvedDispatchResult::Found(resolved) =
-                ctx.resolve_dispatch_target_with_specialization(receiver_type, receiver_form, selector, lookup)
-            {
+            if let crate::dispatch::ResolvedDispatchResult::Found(resolved) = ctx.resolve_dispatch_target_with_specialization(
+                receiver_type,
+                receiver_form,
+                receiver_form.map_or(DispatchSide::Instance, |_| DispatchSide::Class),
+                selector,
+                lookup,
+            ) {
                 if let Some(callable_type) = callable_type_from_signature(ctx, &resolved.signature) {
                     let member_kind = if selector.kind == SelectorKind::Getter {
                         crate::types::family::FamilyMemberTypeKind::Value
@@ -379,7 +383,13 @@ pub fn resolve_bound_behavioral_family(
                 if !seen.insert(selector.clone()) {
                     continue;
                 }
-                let resolution = ctx.resolve_dispatch_target_with_specialization(receiver_type, receiver_form, &selector, lookup.clone());
+                let resolution = ctx.resolve_dispatch_target_with_specialization(
+                    receiver_type,
+                    receiver_form,
+                    receiver_form.map_or(DispatchSide::Instance, |_| DispatchSide::Class),
+                    &selector,
+                    lookup.clone(),
+                );
                 let crate::dispatch::ResolvedDispatchResult::Found(resolved) = resolution else {
                     continue;
                 };

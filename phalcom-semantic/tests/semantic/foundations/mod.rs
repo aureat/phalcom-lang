@@ -1,6 +1,7 @@
 mod advisory_domain;
 mod authority_boundaries;
 mod bidirectional_calls;
+mod canonical_baseline;
 
 mod binding_contracts;
 mod binding_init;

@@ -5,6 +5,14 @@ use crate::value::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 
+macro_rules! trace_semantic_bootstrap {
+    ($($arg:tt)*) => {
+        if std::env::var_os("PHALCOM_TRACE_SEMANTIC_BOOTSTRAP").is_some() {
+            eprintln!("[semantic bootstrap trace] {}", format_args!($($arg)*));
+        }
+    };
+}
+
 #[cfg(test)]
 use std::cell::Cell;
 #[cfg(test)]
@@ -170,12 +178,15 @@ impl VM {
         let canonical_started = Instant::now();
         // Canonical source/native verification, linking, semantic analysis, and
         // lowering are process-shared. Runtime installation remains fresh.
+        trace_semantic_bootstrap!("canonical universe start");
         let canonical = crate::modules::canonical_universe_program().map_err(|error| crate::error::VmBootstrapError::CanonicalUniverse(error.to_string()))?;
+        trace_semantic_bootstrap!("canonical universe complete");
         #[cfg(any(test, feature = "test-timings"))]
         let canonical_universe_product = canonical_started.elapsed();
         #[cfg(any(test, feature = "test-timings"))]
         let kernel_native_started = Instant::now();
         let mut vm = Self::try_new_native_with_native_install_mode_and_output(native_install_mode, output)?;
+        trace_semantic_bootstrap!("native runtime complete");
         #[cfg(any(test, feature = "test-timings"))]
         {
             vm.bootstrap_timing.canonical_universe_product = canonical_universe_product;
@@ -186,13 +197,18 @@ impl VM {
         // modules while the source bootstrap is still being compiled. Reserve
         // their real module slots before compiling any initializer so those
         // references can use linked reads just like native Universe bindings.
+        trace_semantic_bootstrap!("source bindings start");
         vm.prepare_universe_source_bindings(canonical)?;
+        trace_semantic_bootstrap!("source bindings complete");
         vm.prepare_universe_static_constants(canonical)?;
+        trace_semantic_bootstrap!("static constants complete");
         crate::native::install::refresh_registered_primitive_origins(&mut vm, canonical.source_index()).map_err(crate::error::VmBootstrapError::Runtime)?;
+        trace_semantic_bootstrap!("primitive origins complete");
         if let Some(metadata_bundle) = canonical.program().semantic_metadata.clone() {
             vm.install_semantic_metadata_bundle(metadata_bundle)
                 .map_err(crate::error::VmBootstrapError::Runtime)?;
         }
+        trace_semantic_bootstrap!("metadata complete");
 
         // Compile and run the registered universe modules now that every native
         // primitive is installed: this is what actually attaches each
@@ -200,11 +216,15 @@ impl VM {
         // …) to its bootstrapped kernel row. Must run after
         // `install_primitives` so a reopen can call the primitives it wraps
         // (e.g. `List.at(_:)` calling `at_(_:)`).
+        trace_semantic_bootstrap!("source module execution start");
         vm.run_universe_modules(canonical).map_err(crate::error::VmBootstrapError::Runtime)?;
+        trace_semantic_bootstrap!("source module execution complete");
         crate::native::install::install_source_owned_primitives(&mut vm, canonical.source_index()).map_err(crate::error::VmBootstrapError::Runtime)?;
+        trace_semantic_bootstrap!("source primitives complete");
         vm.bind_native_error_constructors();
         vm.bind_canonical_variant_aliases()?;
         vm.sync_universe_class_aliases()?;
+        trace_semantic_bootstrap!("aliases complete");
 
         // Semantic roots are late-bound to the exact values exported by the
         // universe sources. No Rust replacement is valid for these identities.
@@ -470,9 +490,11 @@ impl VM {
             executed_units: canonical.bootstrap_order().len(),
         };
         for id in canonical.bootstrap_order().iter() {
+            trace_semantic_bootstrap!("module compile start {id}");
             #[cfg(any(test, feature = "test-timings"))]
             let compile_started = Instant::now();
             let closure = self.compile_universe_module(canonical, id)?;
+            trace_semantic_bootstrap!("module compile complete {id}");
             #[cfg(any(test, feature = "test-timings"))]
             {
                 self.bootstrap_timing.universe_module_compilation += compile_started.elapsed();
@@ -490,7 +512,9 @@ impl VM {
             crate::instrumentation::record_universe_initializer_execution();
             #[cfg(any(test, feature = "test-timings"))]
             let initializer_started = Instant::now();
+            trace_semantic_bootstrap!("module initializer start {id}");
             self.run_in_module(module, closure)?;
+            trace_semantic_bootstrap!("module initializer complete {id}");
             #[cfg(any(test, feature = "test-timings"))]
             {
                 self.bootstrap_timing.universe_initializer_execution += initializer_started.elapsed();

@@ -3190,6 +3190,10 @@ fn query_callable_body_with_requirement(
     } = query;
     let key = QueryKey::CallableBody(callable.clone());
 
+    if std::env::var_os("PHALCOM_TRACE_SEMANTIC_BOOTSTRAP").is_some() {
+        eprintln!("[semantic bootstrap trace] callable-body module={module} callable={callable:?} range={body_range:?}");
+    }
+
     if let Some(inputs) = formal_inputs {
         match ensure_cached_formal_semantic_dependencies_current(db, &key, inputs, store) {
             QueryOutcome::Ready(()) => {}

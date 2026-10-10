@@ -25,11 +25,30 @@ updated: 2026-10-11
 
 ## Current stop — 2026-10-11
 
-Do not resume source-level acceptance until the shared CLI stack-overflow
-incident is assigned to an owning phase. A dependency-free project with only
-`let value = 1; export value` overflows the native stack, including with the
-shell stack limit set to 8192 KiB. The failure is not attributed to this
-follow-on. See the [incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
+Do not resume source-level acceptance until the branch-only expression-analysis
+stack overflow is repaired and the minimal-project CLI regression passes. The
+overflow occurs while canonical Universe semantics analyze
+`SpecialKernel.logGammaOnePlusRatio`, with repeated
+`analyze_expression_inner -> analyze_expression -> synthesize_binary_expr`
+frames. The same project completes on clean `origin/main`. The algebraic
+scanner is now iterative and its deep-input test passes, but moving inference
+out of the central expression wrapper did not resolve the overflow. The
+remaining general expression-analysis correction requires an architectural
+ruling; see the [incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
+
+## Architect ruling — 2026-10-11
+
+Applied the ruling's contextual-candidate gate, iterative arithmetic summary,
+explicit generic dispatch side, and conforming-subject `Self` binding. Focused
+semantic tests pass for `T.zero`/`T.one`, wrong-side rejection, ordinary `Int`
+candidate rejection, arithmetic facts, and the 50,000-node region. The
+dependency-free compile-in-process and semantic-baseline probes pass. The CLI
+subprocess probe still exits 6 with stack overflow after 26.18s; clean
+`origin/main` completes the same project. A focused expression-wrapper
+relocation was tried, remained red, and was reverted. Package acceptance
+therefore remains blocked. The focused follow-up decision request was sent to
+the existing architect conversation on 2026-10-11; its owner-level response is
+pending.
 
 ## T3 architecture ruling and current implementation
 
