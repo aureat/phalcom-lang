@@ -64,7 +64,10 @@ let value = 1
 export value
 ```
 
-After building a fresh CLI from the current source, the command was:
+For the final minimal reproduction, the CLI was freshly rebuilt while generic
+Complex division and the `MathReductions.meanList` facade were temporarily
+disabled. The same failure persisted; both source changes were restored after
+the run. The command was:
 
 ```sh
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo build -p phalcom-core --bin phalcom
