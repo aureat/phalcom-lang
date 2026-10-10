@@ -3,6 +3,10 @@
 //! Exact cardinality evidence always identifies its intrinsic execution lane.
 //! Runtime-sized iteration never establishes a static Vector dimension.
 
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::rc::Rc;
+
 use super::analysis::{SequenceConstructionPlan, SequenceExpansionResolution, SequenceLiteralFamily, SequenceLiteralResolution};
 use super::annotation_elaboration::{AnnotationElaboration, elaborate_annotation};
 use super::context::{CheckingContext, EvaluationPhase};
@@ -17,7 +21,6 @@ use crate::types::store::{AnonymousTupleRemainder, TypeData};
 use num_bigint::BigInt;
 use phalcom_ast::ast::{BracketLiteralElement, BracketLiteralExpr, StaticSymbolRef, TypeAnnotation, TypeAnnotationExpr};
 use phalcom_common::range::SourceRange;
-use std::collections::BTreeMap;
 
 fn error(ctx: &mut CheckingContext<'_>, code: DiagnosticCode, message: impl Into<String>, range: SourceRange) {
     ctx.emit_diagnostic(SemanticDiagnostic::error_in(ctx.current_module.clone(), code, message, range));
@@ -75,21 +78,58 @@ fn argument(ctx: &CheckingContext<'_>, expected: &ExpectedType, family: Sequence
     ExpectedType::None
 }
 
-fn constrain(ctx: &mut CheckingContext<'_>, expected: &ExpectedType, actual: TypeId, exact: bool) -> bool {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ConstraintApplication {
+    ConcreteSatisfied,
+    ConcreteMismatch,
+    /// The concrete subtype relation is checked by the caller's canonical relation query.
+    ConcreteRelationDeferred,
+    /// The canonical inference owner accepted this relation for later solving.
+    /// Registration is not proof that the relation will hold.
+    InferenceRegistered,
+    MissingInferenceOwner,
+}
+
+fn register_inference_constraint(
+    session: Option<Rc<RefCell<super::inference::InferenceCoordinator>>>,
+    term: &InferenceTerm,
+    actual: TypeId,
+    exact: bool,
+) -> ConstraintApplication {
+    let Some(session) = session else {
+        return ConstraintApplication::MissingInferenceOwner;
+    };
+    let actual = InferenceTerm::Canonical(actual);
+    let relation = if exact {
+        InferenceRelation::Equivalent(actual, term.clone())
+    } else {
+        InferenceRelation::Subtype(actual, term.clone())
+    };
+    session.borrow_mut().add_constraint(relation, ConstraintOrigin::Explicit, None);
+    ConstraintApplication::InferenceRegistered
+}
+
+fn constrain(ctx: &mut CheckingContext<'_>, expected: &ExpectedType, actual: TypeId, exact: bool) -> ConstraintApplication {
     if let ExpectedType::Inference { context, term, .. } = expected {
-        if let Some(session) = ctx.inference_session(*context) {
-            let actual = InferenceTerm::Canonical(actual);
-            let relation = if exact {
-                InferenceRelation::Equivalent(actual, term.clone())
-            } else {
-                InferenceRelation::Subtype(actual, term.clone())
-            };
-            session.borrow_mut().add_constraint(relation, ConstraintOrigin::Explicit, None);
-            return true;
-        }
-        return false;
+        return register_inference_constraint(ctx.inference_session(*context), term, actual, exact);
     }
-    !exact || expected.ty().is_none_or(|expected| expected == actual)
+    if !exact && expected.ty().is_some() {
+        ConstraintApplication::ConcreteRelationDeferred
+    } else if expected.ty().is_none_or(|expected| expected == actual) {
+        ConstraintApplication::ConcreteSatisfied
+    } else {
+        ConstraintApplication::ConcreteMismatch
+    }
+}
+
+fn report_missing_inference_owner(ctx: &mut CheckingContext<'_>, range: SourceRange, role: &'static str) {
+    ctx.publish_analysis_incident(format!("sequence {role} constraint has no active query-local inference owner"));
+    let _ = ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+        ctx.current_module.clone(),
+        DiagnosticCode::AnalysisInternalFailure,
+        format!("sequence {role} constraint has no active inference owner"),
+        range,
+    ));
 }
 
 /// Checks one neutral bracket literal and publishes only valid construction facts.
@@ -260,7 +300,24 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
                 }
                 if !items.is_empty() {
                     let item = ctx.store.union(&items);
-                    constrain(ctx, &element_expected, item, false);
+                    match constrain(ctx, &element_expected, item, false) {
+                        ConstraintApplication::ConcreteSatisfied
+                        | ConstraintApplication::ConcreteRelationDeferred
+                        | ConstraintApplication::InferenceRegistered => {}
+                        ConstraintApplication::ConcreteMismatch => {
+                            error(
+                                ctx,
+                                DiagnosticCode::BindingInitializerMismatch,
+                                "sequence spread element is incompatible with the expected element type",
+                                *range,
+                            );
+                            valid = false;
+                        }
+                        ConstraintApplication::MissingInferenceOwner => {
+                            report_missing_inference_owner(ctx, *range, "spread element");
+                            valid = false;
+                        }
+                    }
                     if let Some(expected) = element_expected.ty()
                         && !crate::types::relation::is_subtype(ctx.store, &ctx.hierarchy, item, expected)
                     {
@@ -294,14 +351,31 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
         } else {
             ctx.store.const_int(concrete_count)
         };
-        if !constrain(ctx, &extent_expected, extent, true) {
-            error(
-                ctx,
-                DiagnosticCode::GenericInferenceConflict,
-                "Vector extent mismatch: constructed cardinality differs from the declared extent",
-                literal.range,
-            );
-            valid = false;
+        match constrain(ctx, &extent_expected, extent, true) {
+            ConstraintApplication::ConcreteSatisfied | ConstraintApplication::InferenceRegistered => {}
+            ConstraintApplication::ConcreteMismatch => {
+                error(
+                    ctx,
+                    DiagnosticCode::GenericInferenceConflict,
+                    "Vector extent mismatch: constructed cardinality differs from the declared extent",
+                    literal.range,
+                );
+                valid = false;
+            }
+            ConstraintApplication::ConcreteRelationDeferred => {
+                ctx.publish_analysis_incident("exact Vector extent constraint was deferred as a subtype relation");
+                let _ = ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::AnalysisInternalFailure,
+                    "exact Vector extent constraint was not checked",
+                    literal.range,
+                ));
+                valid = false;
+            }
+            ConstraintApplication::MissingInferenceOwner => {
+                report_missing_inference_owner(ctx, literal.range, "Vector extent");
+                valid = false;
+            }
         }
         Some(extent)
     } else {
@@ -423,7 +497,7 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
                     SequenceConstructionPlan::Expanded
                 } else {
                     SequenceConstructionPlan::Fixed {
-                        element_count: literal.elements.len() as u32,
+                        element_count: literal.elements.len(),
                     }
                 },
                 exact_expansions,
@@ -451,4 +525,36 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
         ctx.finish_inference_context(owner.0);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ConstraintApplication, register_inference_constraint};
+    use crate::checker::analysis::SequenceConstructionPlan;
+    use crate::checker::inference::{InferenceCoordinator, InferenceTerm};
+    use crate::types::id::TypeId;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    #[test]
+    fn missing_inference_session_is_not_treated_as_registered_or_proven() {
+        let result = register_inference_constraint(None, &InferenceTerm::Canonical(TypeId(0)), TypeId(1), false);
+        assert_eq!(result, ConstraintApplication::MissingInferenceOwner);
+    }
+
+    #[test]
+    fn live_inference_session_reports_registration_without_claiming_proof() {
+        let session = Rc::new(RefCell::new(InferenceCoordinator::new()));
+        let result = register_inference_constraint(Some(session), &InferenceTerm::Canonical(TypeId(0)), TypeId(1), false);
+        assert_eq!(result, ConstraintApplication::InferenceRegistered);
+    }
+
+    #[test]
+    fn fixed_sequence_count_preserves_host_lengths_above_u32() {
+        let Some(count) = usize::try_from(u64::from(u32::MAX) + 1).ok() else {
+            return;
+        };
+        let construction = SequenceConstructionPlan::Fixed { element_count: count };
+        assert!(matches!(construction, SequenceConstructionPlan::Fixed { element_count } if element_count == count));
+    }
 }

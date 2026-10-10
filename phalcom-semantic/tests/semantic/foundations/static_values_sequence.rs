@@ -237,3 +237,32 @@ fn static_sequence_materialization_is_recursive_and_truthfully_deferred() {
     drop(values);
     assert_eq!(clone, nested_descriptor, "descriptor clones own their recursive payload without arena references");
 }
+
+#[test]
+fn descriptor_materialization_handles_reasonably_deep_nested_sequences() {
+    let mut types = TypeStore::new();
+    let mut value = StaticValueStore::new();
+    let mut element_type = types.nominal_type(universe_declaration(phalcom_native_meta::UniverseKey::Int));
+    let mut nested = value.intern_int(1);
+    const DEPTH: usize = 128;
+
+    for _ in 0..DEPTH {
+        element_type = array_type(&mut types, element_type);
+        nested = value.intern_sequence(element_type, vec![nested], &types).expect("nested static Array");
+    }
+
+    let descriptor = MaterializationDescriptor::from_static_value(&value, nested).expect("nested descriptor");
+    let mut depth = 0;
+    let mut current = &descriptor;
+    loop {
+        match current {
+            MaterializationDescriptor::Sequence { kind: SequenceMaterializationKind::FrozenArray, elements } => {
+                depth += 1;
+                current = elements.first().expect("nested element");
+            }
+            MaterializationDescriptor::Int(StaticInt::Small(1)) => break,
+            other => panic!("unexpected nested descriptor at depth {depth}: {other:?}"),
+        }
+    }
+    assert_eq!(depth, DEPTH);
+}

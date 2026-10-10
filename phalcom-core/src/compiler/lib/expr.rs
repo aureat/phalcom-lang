@@ -1539,7 +1539,7 @@ impl<'vm> Compiler<'vm> {
                             .expected_extent
                             .ok_or_else(|| CompilerError::Message("Vector construction requires a concrete host-addressable checked extent".into()))?;
                         if let phalcom_semantic::checker::SequenceConstructionPlan::Fixed { element_count } = spec.construction {
-                            if element_count != expected_extent || element_count as usize != list_expr.elements.len() {
+                            if usize::try_from(expected_extent).ok() != Some(element_count) || element_count != list_expr.elements.len() {
                                 return Err(CompilerError::Message("checked Vector extent and operand count disagree".into()));
                             }
                             if let Ok(count) = u16::try_from(element_count) {

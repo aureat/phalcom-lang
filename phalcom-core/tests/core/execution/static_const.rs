@@ -99,6 +99,35 @@ fn static_const_array_alias_stays_frozen_at_runtime() {
 }
 
 #[test]
+fn nested_static_arrays_are_frozen_through_aliases_and_survive_gc() {
+    let source = r#"
+const outer: Array<Array<Int>> = <Array<Int>>[
+    <Int>[1, 2],
+    <Int>[3, 4]
+]
+let outer_alias = outer
+let inner_alias = outer_alias[0]
+inner_alias[0] = 9
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("nested static Arrays compile");
+    let mut vm = VM::new();
+    let error = vm.run_compiled(&program).expect_err("recursively materialized nested Array must be frozen");
+    assert!(error.to_string().contains("cannot mutate frozen Array"), "expected FrozenMutation, got: {error}");
+
+    let entry = program.initialization_order.last().expect("entry module");
+    let module = vm.module_registry.get(entry).expect("entry module materialized").object;
+    let outer_name = vm.interner.find("outer").expect("constant symbol");
+    let outer_object = vm.heap.module(module).static_constants[&outer_name].as_obj().expect("outer Array");
+    let inner_object = get_module_global(&vm, module, "inner_alias").as_obj().expect("nested Array alias");
+    assert!(matches!(vm.heap.get(outer_object), Object::Array(array) if array.is_frozen()));
+    assert!(matches!(vm.heap.get(inner_object), Object::Array(array) if array.is_frozen()));
+
+    vm.force_gc();
+    assert!(matches!(vm.heap.get(outer_object), Object::Array(array) if array.is_frozen()), "owner cache roots outer Array");
+    assert!(matches!(vm.heap.get(inner_object), Object::Array(array) if array.is_frozen()), "nested graph survives collection");
+}
+
+#[test]
 fn static_const_vector_still_has_no_element_mutation_api() {
     let source = "const values: Vector<Int, 2> = <Int, 2>[1, 2]\nvalues[0] = 3\n";
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("Vector assignment remains a dynamic selector");

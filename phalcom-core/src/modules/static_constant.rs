@@ -268,5 +268,18 @@ mod tests {
         let owner = vm.module_registry.get(&owner_id).expect("owner module").object;
         assert!(!vm.heap.module(owner).static_constants.contains_key(&name), "partial roots never enter the owner cache");
         assert_eq!(vm.temp_root_depth(), 0, "failed materialization restores its temporary-root depth");
+
+        let valid = StaticConstantLoweringSpec {
+            id: StaticConstantId::new(owner_id.clone(), "__static_test_after_failed_sequence"),
+            descriptor: MaterializationDescriptor::Sequence {
+                kind: SequenceMaterializationKind::FrozenArray,
+                elements: Arc::from([MaterializationDescriptor::Int(StaticInt::new(7.into()))]),
+            },
+        };
+        let valid_reference = vm.ensure_static_constant_materialized(&valid).expect("valid retry after failure");
+        let valid_value = vm.resolve_static_constant(valid_reference).expect("valid owner value");
+        let valid_object = valid_value.as_obj().expect("heap Array");
+        assert!(matches!(vm.heap.get(valid_object), Object::Array(array) if array.is_frozen() && array.get(0) == Some(Value::int(7))));
+        assert_eq!(vm.temp_root_depth(), 0, "successful retry also restores its temporary-root depth");
     }
 }

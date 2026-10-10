@@ -600,7 +600,7 @@ impl<'a> StaticEvaluator<'a> {
                             }
                             match resolution.construction {
                                 SequenceConstructionPlan::Fixed { element_count } => {
-                                    if usize::try_from(element_count).ok() != Some(literal.elements.len())
+                                    if element_count != literal.elements.len()
                                         || literal.elements.iter().any(|element| !matches!(element, BracketLiteralElement::Element { .. }))
                                     {
                                         return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));

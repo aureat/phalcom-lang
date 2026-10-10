@@ -11,6 +11,7 @@ mod coll006_c1_p2_array;
 mod coll006_c1_p3_static_generics;
 mod coll006_c1_p3_publication;
 mod coll006_c1_p4_cutover;
+mod coll006_c1_p4_correctness;
 mod declarations;
 mod diagnostic_presentation;
 mod diagnostics;

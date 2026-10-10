@@ -12,7 +12,7 @@ bounded scope; P5 is the next proposed plan.
 
 | Checkpoint | State | Active plan | Next action |
 |---|---|---|---|
-| `COLL006.C1` | `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED` | `COLL006.C1.P5` (proposed) | begin Slice/Buffer work from the completed P4 handoff; retain D4 static Record-key baseline |
+| `COLL006.C1` | `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED` | `COLL006.C1.P5` (proposed) | begin Slice/Buffer work; no P5 execution blockers; track D1/D2/D4 as verification residuals |
 
 ## Current program truth
 
@@ -66,4 +66,4 @@ RangeMap<K,V>
 2. Coordinate parser-snapshot exposure with `LANG007.C4.P14` as recorded in the checkpoint.
 3. Keep advanced associative/persistent collection work in later C1 plans.
 
-P4 is complete/implemented with focused evidence, but the checkpoint and program remain `BASELINE_BLOCKED` by the inherited three computed-Record-key failures recorded as D4. No release certification is claimed.
+P4 is `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`: D4 prevents a clean aggregate `static_constants` result. D1/D2 remain suspected unrelated verification residuals pending P9 comparison. None blocks P5 execution. No release certification is claimed.

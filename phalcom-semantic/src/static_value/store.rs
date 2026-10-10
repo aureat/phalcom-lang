@@ -461,6 +461,10 @@ impl StaticValueStore {
     /// Family selection and element assignability are owned by semantic
     /// checking. This boundary validates only the retained canonical type and
     /// the static representation's store and extent invariants.
+    ///
+    /// The production caller must supply the checked result type and expanded
+    /// children from a committed `SequenceLiteralResolution`; this method does
+    /// not implement a second element-subtyping check.
     pub fn intern_sequence(
         &mut self,
         result_type: TypeId,

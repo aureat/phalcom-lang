@@ -489,7 +489,7 @@ pub enum SequenceLiteralFamily {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SequenceConstructionPlan {
     Fixed {
-        element_count: u32,
+        element_count: usize,
     },
     Expanded,
     /// A lone native Vector spread with canonically identical symbolic extent.

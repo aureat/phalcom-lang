@@ -93,3 +93,35 @@ cannot be injected with current test hooks; the existing temporary-root and
 fallible-reservation paths were inspected and nested post-materialization GC
 and failed-publication tests passed. P5 inherits the stable interfaces listed
 in the [P4 handoff](COLL006.C1.P4-handoff.md).
+
+## Bounded correctness follow-up and closure — 2026-10-10
+
+The follow-up closed the inference-constraint, publication/incremental,
+materialization, and checked-count concerns identified in the P4 analysis. The
+checker now treats inference registration as pending owner work, checks
+concrete spread compatibility through the canonical subtype relation, and
+fails closed if the expected query-local inference owner is missing. Fixed
+construction counts now use `usize`; compiler compact-bytecode narrowing is
+checked, with the existing builder path retained.
+
+New regression coverage proves that partial Vector spread inference solves or
+rejects without leaking invalid sequence products, late generic owner rejection
+discards only the dependent sequence, multi-hop extent edits invalidate stale
+values and agree with cold analysis, and descriptor conversion handles 128
+nested sequences. Runtime coverage proves nested static Arrays stay frozen
+through aliases and survive forced GC. Failed materialization restores root
+depth and leaves no cache entry before a successful retry. The production
+`intern_sequence` caller still consumes checked, committed semantic resolution.
+
+Follow-up focused evidence: semantic `coll006` 54 passed; `static_sequence` 10;
+the multi-hop and deep-descriptor tests passed; core Vector 9, Array 11,
+`static_const` 24, and `modules_parity` 8 passed; failed-materialization retry
+passed; targeted module-owner and nested-Array tests passed under
+`PHALCOM_GC_STRESS=1`; workspace all-target `cargo check` passed; native surface
+check reported 417 declarations current. Semantic `static_constants` remains
+21 passed with the same three inherited D4 computed-Record-key
+`RecordKeyNotStatic` failures. The exact results and residual classification
+are in the [C1 checkpoint](COLL006.C1-CHECKPOINT.md).
+
+No architecture or plan amendment was needed. P4 remains `COMPLETE /
+IMPLEMENTED / BASELINE_BLOCKED`; P5 remains next.

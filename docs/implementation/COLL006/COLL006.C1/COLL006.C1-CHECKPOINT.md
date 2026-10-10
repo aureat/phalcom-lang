@@ -810,6 +810,30 @@ as passed. For this handoff, the three unchanged computed-Record-key failures
 in `foundations::static_constants` are tracked as D4. See the P4 plan's §0.4
 amendment.
 
+### COLL006.C1.A11 — Residual ownership and P9 classification
+
+**Consultation:** user-provided residual scope/ownership ruling, 2026-10-10.
+**Decision:** retain P4 as `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`; D4 blocks
+only a clean aggregate `static_constants` result and does not block P5. P5 may
+proceed with no execution blockers. D1 and D2 remain suspected unrelated
+verification residuals because no clean-predecessor comparison has established
+their provenance. Keep the P1–P9 ledger unchanged; do not add a P4 corrective
+plan without evidence of a C1-owned defect.
+
+At P9, rerun each surviving residual and compare its exact failing fixture(s)
+against contemporaneous `origin/main` first. If main reproduces the same
+failure, classify it as `EXTERNAL_BASELINE`; only investigate a historical C1
+boundary when main passes and the C1 candidate fails. Split D2 by the actual
+failure causes. Classify each residual as `RESOLVED`, `EXTERNAL_BASELINE`,
+`C1_OWNED`, or `AMBIGUOUS`. C1 closure requires no `AMBIGUOUS` residuals. A
+confirmed external failure may leave C1 `COMPLETE / IMPLEMENTED /
+BASELINE_BLOCKED`; a C1-owned defect returns to its owning plan or a corrective
+C1 plan.
+
+P9 owns broad workspace/CI certification and the C1 behavior, property, GC,
+re-entry, cold/incremental, performance, migration, documentation, and
+lifecycle gates. P4's bounded acceptance is not retroactively expanded.
+
 ---
 
 ## 16. Fixed / flexible / verify-first classification
@@ -894,7 +918,10 @@ The implementer cannot self-waive a triggered consultation.
 ```text
 active plan:           COLL006.C1.P5 (proposed)
 latest completed plan: COLL006.C1.P4
-blockers:              G2/G7 are BASELINE_BLOCKED by the three inherited computed-Record-key failures in D4; D1/D2 broad residuals remain deferred
+execution blockers:    none for P5
+verification residuals: D4 — computed Record-key failures block a clean aggregate static_constants PASS;
+                         D1 — metadata failure, still suspected unrelated;
+                         D2 — reflection/module fixture failures, still suspected unrelated
 next action:           begin P5 Slice/Buffer implementation from the completed P4 handoff
 ```
 
@@ -1197,3 +1224,65 @@ ledger above and the P4 walkthrough. P4 is `COMPLETE / IMPLEMENTED /
 BASELINE_BLOCKED`; P5 is the next proposed plan. Workspace all-target check and
 native-surface verification passed at G7; workspace tests, clippy, and release
 certification remain outside P4.
+
+
+### P4 bounded correctness follow-up and closure — 2026-10-10
+
+P4 remains `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`; this is a correctness
+follow-up to its existing acceptance objective, not a reopened feature plan.
+Work was performed on `feat/telos-collection-upgrade` from starting revision
+`30746708` in the `telos-collections-upgrade` worktree. No semantic authority,
+ownership, materialization, or GC architecture changed, so no architecture
+consultation or implementation-plan amendment was needed. The separate
+residual-ownership ruling is recorded as A11 above.
+
+The follow-up closed four bounded concerns from the P4 analysis:
+
+- **Spread inference:** constraint handling now distinguishes concrete relation
+  checking, inference-constraint registration, exact mismatch, and a missing
+  query-local owner. A missing owner records an analysis incident and fails
+  closed without publishing construction facts. Concrete spread compatibility
+  remains checked by the canonical subtype relation; registered inference is
+  not treated as proof before owner solving.
+- **Publication and incremental closure:** partial `Vector<_, _>` spread
+  inference is covered alongside contradictory spreads and late generic-owner
+  rejection. Multi-hop static spreads now verify content propagation, extent
+  invalidation, independent-product reuse, and cold/incremental parity.
+- **Materialization safety:** nested static Arrays are checked for recursive
+  freezing through aliases and survival after forced GC. Failed sequence
+  materialization restores temporary-root depth and publishes no owner-cache
+  entry; a subsequent valid materialization succeeds. Descriptor traversal is
+  exercised at 128 nested sequences.
+- **Checked counts and caller boundary:** fixed construction counts now retain
+  host `usize` lengths instead of narrowing to `u32`; the compiler keeps its
+  checked `u16` fast path and builder fallback. The production
+  `intern_sequence` caller remains the static evaluator, consuming the
+  committed `SequenceLiteralResolution`; no second subtype checker was added.
+
+Follow-up verification, run with `RUSTFLAGS='' RUSTC_WRAPPER=''` except where
+GC stress is shown:
+
+| Gate | Result |
+|---|---|
+| Semantic sequence-literal unit tests | 3 passed |
+| Semantic `coll006` | 54 passed |
+| Semantic `static_sequence` | 10 passed |
+| Multi-hop incremental spread test | 1 passed |
+| 128-level descriptor test | 1 passed |
+| Core `core_vector` / `core_array` | 9 / 11 passed |
+| Core `static_const` / `modules_parity` | 24 / 8 passed |
+| Failed-materialization cleanup and retry unit test | 1 passed |
+| GC-stress canonical import/re-export owner test | 1 passed |
+| GC-stress nested frozen-Array test | 1 passed |
+| Native surface `--check` | 417 declarations current |
+| `cargo check --workspace --all-targets` | Passed |
+| `git diff --check` | Passed |
+| Semantic `static_constants` | 21 passed; the same 3 D4 `RecordKeyNotStatic` failures |
+
+The repeated D4 failures are `test_callable_signature_projects_all_parameter_and_return_record_keys`,
+`test_field_signature_projects_a_cold_computed_record_key`, and
+`test_field_signature_key_edit_matches_cold_surface_and_invalidates_exactly`.
+They remain a verification residual that prevents a clean aggregate
+`static_constants` PASS; they were not changed. Workspace tests, clippy, and
+release certification remain outside this bounded follow-up. P5 remains the
+next plan and has no execution blocker from D4.

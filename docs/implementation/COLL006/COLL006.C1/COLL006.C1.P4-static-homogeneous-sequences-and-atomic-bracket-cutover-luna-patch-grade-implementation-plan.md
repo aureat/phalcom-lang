@@ -4033,3 +4033,39 @@ Never implement the cutover first and repair static semantics/migration afterwar
 
 The default flip is the smallest late-stage operation in P4, not the starting
 point.
+
+
+# 29. Bounded correctness follow-up and closure — 2026-10-10
+
+This addendum closes the bounded P4 correctness follow-up without reopening the
+feature plan or changing P4's status: `COMPLETE / IMPLEMENTED /
+BASELINE_BLOCKED`. It was performed on `feat/telos-collection-upgrade` from
+starting revision `30746708`.
+
+- Spread constraints distinguish canonical inference registration from proof,
+  retain concrete subtype checking at the canonical relation query, and fail
+  closed with `AnalysisInternalFailure` if an inference owner is unexpectedly
+  absent. Fixed construction counts retain `usize` lengths; compiler narrowing
+  remains checked.
+- Regressions cover partial Vector spread solving, contradictory spread
+  rejection without static products, late owner rejection with independent
+  sibling preservation, and multi-hop incremental content/extent changes with
+  cold-analysis parity.
+- Materialization regressions cover failed-publication cleanup and retry,
+  recursive nested-Array freezing through aliases under GC stress, canonical
+  imported/re-exported owner identity under GC stress, and 128-level descriptor
+  conversion. `intern_sequence` remains downstream of the committed semantic
+  resolution and has no duplicated subtype authority.
+- Focused evidence: semantic `coll006` 54, `static_sequence` 10, targeted
+  multi-hop/deep-descriptor tests 1 each, core Vector 9, Array 11,
+  `static_const` 24, `modules_parity` 8, workspace all-target check passed, and
+  native surface check reported 417 declarations current. GC-stress targeted
+  tests and the failed-materialization retry unit test passed.
+- The semantic `static_constants` filter remains 21 passed / 3 inherited D4
+  `RecordKeyNotStatic` failures. The same three failures are recorded in the
+  checkpoint; no D4 repair was included. Workspace tests, clippy, and release
+  certification remain deferred.
+
+The authoritative closure evidence and exact command results are recorded in
+the [C1 checkpoint](COLL006.C1-CHECKPOINT.md) and the P4 walkthrough. P5 remains
+the next plan; no architecture consultation or plan amendment was required.

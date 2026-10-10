@@ -105,6 +105,29 @@ Next: implement P5 Slice/Buffer contiguous views and bounded storage, including
 the LANG007.C4.P14 parser-snapshot convergence. Preserve P4's canonical static
 value/owner model and do not re-derive collection family or static identity.
 
+## P4 correctness follow-up closure — 2026-10-10
+
+The bounded correctness follow-up is complete; P4 remains
+`COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`. Its key strengthened invariants are:
+
+- An inference relation registered for a spread remains pending until its
+  canonical owner solves it. A missing owner fails closed and publishes no
+  construction product; concrete subtype checks stay in the canonical relation
+  layer.
+- Incremental multi-hop static spreads propagate content edits, invalidate
+  extent-mismatched dependents, preserve independent products, and agree with
+  cold analysis.
+- Recursive sequence materialization keeps the existing temporary-root and
+  canonical owner-cache boundaries. Failed publication restores root depth;
+  nested frozen Arrays and imported/re-exported identity survive GC stress.
+- `SequenceConstructionPlan::Fixed` retains host lengths as `usize`, with
+  checked compiler conversion. The static evaluator remains the production
+  `intern_sequence` caller and supplies committed semantic resolution.
+
+The follow-up's focused gates and the three unchanged D4 static-constant
+baseline failures are recorded in the [C1 checkpoint](COLL006.C1-CHECKPOINT.md).
+P5 can proceed from the current live branch revision with these invariants.
+
 ## Records to read
 
 - [P4 implementation plan](COLL006.C1.P4-static-homogeneous-sequences-and-atomic-bracket-cutover-luna-patch-grade-implementation-plan.md)

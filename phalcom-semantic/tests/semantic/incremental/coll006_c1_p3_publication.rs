@@ -322,3 +322,61 @@ fn static_sequence_incremental_invalid_valid_invalid_and_spread_exactness_have_n
         static_sequence_meaning(&cold.snapshot, &values)
     );
 }
+
+#[test]
+fn multi_hop_static_spread_dependencies_follow_extent_edits_and_cold_analysis() {
+    let main = module("static_sequence_multi_hop");
+    let base = StaticConstantId::new(main.clone(), "base");
+    let middle = StaticConstantId::new(main.clone(), "middle");
+    let outer = StaticConstantId::new(main.clone(), "outer");
+    let stable = StaticConstantId::new(main.clone(), "stable");
+    let mut incremental = SemanticWorkspaceSession::new();
+
+    let initial_source = r#"
+const base: Vector<Int, 2> = <Int, 2>[1, 2]
+const middle: Vector<Int, 2> = [*base]
+const outer: Vector<Int, 3> = [0, *middle]
+const stable: Vector<Int, 1> = <Int, 1>[7]
+"#;
+    let initial = incremental.update(single_module_input(main.clone(), initial_source, 1));
+    assert!(!initial.snapshot.has_errors(), "initial diagnostics: {:?}", initial.snapshot.diagnostics);
+    let initial_middle = static_sequence_meaning(&initial.snapshot, &middle).expect("middle value");
+    let initial_outer = static_sequence_meaning(&initial.snapshot, &outer).expect("outer value");
+    assert_eq!(initial_middle.1, static_ints(&[1, 2]));
+    assert_eq!(initial_outer.1, static_ints(&[0, 1, 2]));
+
+    let content_edit = r#"
+const base: Vector<Int, 2> = <Int, 2>[3, 4]
+const middle: Vector<Int, 2> = [*base]
+const outer: Vector<Int, 3> = [0, *middle]
+const stable: Vector<Int, 1> = <Int, 1>[7]
+"#;
+    let changed = incremental.update(single_module_input(main.clone(), content_edit, 2));
+    assert!(!changed.snapshot.has_errors(), "content edit diagnostics: {:?}", changed.snapshot.diagnostics);
+    assert_eq!(static_sequence_meaning(&changed.snapshot, &middle).unwrap().1, static_ints(&[3, 4]));
+    assert_eq!(static_sequence_meaning(&changed.snapshot, &outer).unwrap().1, static_ints(&[0, 3, 4]));
+    assert_eq!(static_sequence_meaning(&changed.snapshot, &stable), static_sequence_meaning(&initial.snapshot, &stable));
+
+    let extent_edit = r#"
+const base: Vector<Int, 3> = <Int, 3>[5, 6, 7]
+const middle: Vector<Int, 2> = [*base]
+const outer: Vector<Int, 3> = [0, *middle]
+const stable: Vector<Int, 1> = <Int, 1>[7]
+"#;
+    let invalid = incremental.update(single_module_input(main.clone(), extent_edit, 3));
+    assert!(invalid.snapshot.has_errors(), "a stale exact spread extent must be rejected");
+    assert!(static_sequence_meaning(&invalid.snapshot, &base).is_some(), "edited source is valid");
+    for id in [&middle, &outer] {
+        assert!(static_sequence_meaning(&invalid.snapshot, id).is_none(), "stale dependent value for {id}");
+        let product = invalid.snapshot.static_constant(id).expect("current dependent product");
+        assert!(product.value().is_none(), "stale dependent value survived for {id}");
+        assert!(product.materialization_descriptor(invalid.snapshot.static_values()).is_none(), "stale descriptor survived for {id}");
+    }
+    assert_eq!(static_sequence_meaning(&invalid.snapshot, &stable), static_sequence_meaning(&changed.snapshot, &stable));
+
+    let cold = SemanticWorkspaceSession::new().update(single_module_input(main, extent_edit, 1));
+    assert_eq!(invalid.snapshot.diagnostics, cold.snapshot.diagnostics);
+    for id in [&base, &middle, &outer, &stable] {
+        assert_eq!(static_sequence_meaning(&invalid.snapshot, id), static_sequence_meaning(&cold.snapshot, id), "cold parity for {id}");
+    }
+}
