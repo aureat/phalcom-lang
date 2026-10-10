@@ -40,6 +40,14 @@ native class Int is Number {
 
 native class Float is Number {
   @class
+  native epsilon -> Float
+  @class
+  native minPositiveSubnormal -> Float
+  @class
+  native minNormal -> Float
+  @class
+  native maxFinite -> Float
+  @class
   native new() -> Float
   @class
   native new(_ value: Dynamic) -> Float
@@ -54,4 +62,12 @@ native class Float is Number {
   native isNaN -> Bool
   native isFinite -> Bool
   native isInfinite -> Bool
+  native isNormal -> Bool
+  native isSubnormal -> Bool
+  native isPositiveZero -> Bool
+  native isNegativeZero -> Bool
+  native nextUp -> Float
+  native nextDown -> Float
+  native ulp -> Float
+  native totalCompare(_ other: Float) -> Ordering
 }

@@ -50,9 +50,11 @@ The input brief is [phase2-prompt.md](phase2-prompt.md); continuation context is
 
 ## Scope
 
-Both phases are design reports. Phase 2 specifies a bounded statistical and
-probability library, including limited Bayesian and Monte Carlo modules. Source,
-tests, language specifications, and manifests are outside this deliverable.
+Both phases originated as design reports. The user authorized implementation
+continuation on 2026-10-10; its current source status and verification boundary
+are recorded in [HANDOFF.md](HANDOFF.md) and `docs/implementation/STDL001-numeric-library/`.
+This folder remains the design authority for the bounded statistical and
+probability library, including limited Bayesian and Monte Carlo modules.
 Linear algebra, tensors, automatic differentiation, optimization, symbolic
 algebra, dataframes, and general ML remain later consumers.
 

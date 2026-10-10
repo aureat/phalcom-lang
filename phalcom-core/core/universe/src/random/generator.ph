@@ -9,6 +9,14 @@ trait Generator {
   /// Consumes one word; its top 53 bits give an exact binary64 grid in [0,1).
   nextFloat -> Float { Float.new(self.nextU64 >> 11) / 9007199254740992.0 }
 
+  /// Consumes until the binary64 grid draw is nonzero, producing a value in (0,1).
+  /// This helper is for algorithms that take a logarithm of the draw.
+  openUnit -> Float {
+    let mut value = self.nextFloat
+    while value == 0.0 { value = self.nextFloat }
+    value
+  }
+
   /// Unbiased rejection sampling; earlier words form higher-order chunks.
   nextInt(below upper: Int) -> Int {
     if upper <= 0 { ArgumentError.new("Generator.nextInt: upper bound must be positive").raise() }

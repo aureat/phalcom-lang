@@ -4,11 +4,20 @@ kind: walkthrough
 checkpoint: LANG007.C4
 status: BLOCKED
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: UNVERIFIED
 created: 2026-10-08
+updated: 2026-10-11
 ---
 
 # Contextual algebraic literals — walkthrough
+
+## Current stop — 2026-10-11
+
+The source-acceptance continuation is blocked by a shared CLI stack overflow.
+A dependency-free project with only an exported integer binding reproduces
+the abort, so the current evidence does not attribute it to algebraic literals
+or class-side traits. The failing phase remains unknown. See the
+[incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
 
 This record covers the user-directed algebraic-literals follow-on performed in
 the `feat/complex-math` worktree. It is separate from `LANG007.C4.P3`, whose
@@ -31,9 +40,10 @@ The work stopped at a user-directed checkpoint after syntax integration and a
 source-owned basis/Quaternion slice. Contextual semantic realization and native
 literal execution remain incomplete.
 
-Task 3 of the implementation plan is also partial: explicit realization and
-scalar-identity capabilities are absent and the generic `complexPart` regression
-is failing. Phase 3 of `cliteral.md` (contextual realization) is not complete.
+At the initial stop, T3 lacked realization and scalar-identity capabilities and
+the generic `complexPart` identity regression was failing. The latter was
+resolved on 2026-10-09; the T3 boundary was decided on 2026-10-10. Phase 3 of
+`cliteral.md` (contextual realization) remains incomplete.
 
 ## 2. Architecture implemented
 
@@ -54,10 +64,12 @@ is failing. Phase 3 of `cliteral.md` (contextual realization) is not complete.
   conjugation, norm-squared, and Hamilton multiplication.
 - Universe module registration and all known AST consumers were updated.
 
-The semantic checker currently returns `Unknown(UncheckedExpression)` for
-`Expr::Imaginary`. The compiler has an explicit rejection arm. Temporary
-semantic direct-construction/denotation/lowering prototypes were removed; none
-of those prototypes is part of this delivery.
+At the initial stop, the semantic checker returned
+`Unknown(UncheckedExpression)` for `Expr::Imaginary` and the compiler rejected
+it. Temporary direct-construction/denotation prototypes from that attempt were
+removed. The current continuation publishes canonical realization evidence
+and consumes directly evidenced products in compiler lowering; expressions
+without a product still fail closed.
 
 ## 3. Files changed
 
@@ -112,7 +124,7 @@ failure is classified D by scoped source inspection: its fixture contains no
 numeric literals and fails in the unchanged Record-key grammar. It was not
 confirmed against a clean predecessor and was not modified.
 
-## 5. Known failures and architectural blocker
+## 5. Known failures at the initial stop
 
 The combined native literal/runtime probe fails semantic checking first on the
 typed basis assignments. Imaginary nodes remain unchecked and the compiler
@@ -132,24 +144,28 @@ with correct components but produces `Complex<Dynamic>` metadata, while direct
 contract is therefore violated somewhere between checked generic call-entry
 evidence and runtime recipe instantiation. The exact loss point is not proven.
 
-This is recorded in
-`algebraic-literals-generic-reification-incident.md`. It requires an owning-layer
-decision before continuing; an Int/Float-specific method workaround would create
-a special-case source API and hide the generic reification defect.
+The generic identity defect is recorded in
+`algebraic-literals-generic-reification-incident.md`; its owning-layer repair is
+recorded in the corresponding walkthrough and handoff. The typed realization
+failure remains T4 work.
 
 ## 6. Deliberate scope exclusions
 
 - No static `const` realization was broadened.
 - No runtime algebra registry or source-name-based literal recognition was added.
 - No implicit Int-to-Float promotion was added.
-- No ordinary selector identity or dispatch rule was changed.
+- The original slice preserved ordinary selector identity and dispatch. The
+  continuation adds side-aware trait requirements using the existing
+  `DispatchSide` identity.
 - No broad workspace suite, clippy, or release certification was run.
 
-No adviser decision was obtained. The runtime immutable basis bindings are an
-implementation adaptation under the approved runtime-first scope; static
-declaration eligibility/materialization remains deferred. The tracked
-`algebraic-literals-follow-on-plan.md` captures the original execution contract
-without the occupied P12 identifier suggested by the ignored local plan.
+No adviser decision was obtained during the initial slice. The user's later
+class-side trait ruling is recorded in the T3 incident and checkpoint. Runtime
+immutable basis bindings remain an implementation adaptation under the
+approved runtime-first scope; static declaration eligibility/materialization
+remains deferred. The tracked `algebraic-literals-follow-on-plan.md` captures
+the execution contract without the occupied P12 identifier suggested by the
+ignored local plan.
 
 ## 7. Delivery hygiene
 
@@ -160,9 +176,153 @@ Temporary production/test logging and realization prototypes have been removed.
 The supplied proposal's four Markdown hard-break spaces were normalized for
 `git diff --check` without changing its design text.
 
-## 8. Final classification
+## 8. Initial stop classification
 
-`BLOCKED / PARTIAL / FOCUSED_TESTED`.
+At the initial 2026-10-08 stop this slice was `BLOCKED / PARTIAL /
+FOCUSED_TESTED`. The continuation below supersedes that blocker state.
 
 The AST and source-owned Quaternion/basis slice is implemented and focused
-tested. The proposal’s acceptance objective is not complete.
+tested. The proposal’s acceptance objective was not complete.
+
+## 9. Continuation after class-side trait decision — 2026-10-10
+
+The user chose **Add class-side traits**. The normative trait specification now
+defines side-specific behavioral requirements under the existing nominal
+conformance model, without adding metatype conformance. Enum class-side trait
+conformances and class-side index requirements remain excluded.
+
+Implemented in this continuation:
+
+- Trait method, getter, setter, and property requirements preserve
+  `DispatchSide::Class` in their callable and requirement identities.
+- Trait default body analysis and conformance witness type formation preserve
+  the requirement side. Class-side index requirements are rejected.
+- Data components can witness instance-side getters only; enum class-side trait
+  conformances are rejected.
+- `universe.numbers` now defines `Zero`, `One`, `RealEmbeddable`, and
+  `BasisRealizable`. Complex and Quaternion expose direct class-side identity,
+  real-embedding, and I/J/K component-realization implementations.
+
+Verification for this continuation:
+
+```text
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic -p phalcom-core --message-format=short — passed
+rustfmt --edition 2024 --check phalcom-semantic/src/traits.rs phalcom-semantic/src/session.rs phalcom-semantic/src/types/annotation.rs — passed
+git diff --check — passed
+```
+
+No source-language acceptance probes or tests were run. T3 remains
+`PARTIAL / UNVERIFIED`; T4 canonical contextual realization and T5 compiler
+projection/lowering remain unfinished. Current follow-on state is
+`IN_PROGRESS / PARTIAL / UNVERIFIED` as of 2026-10-10; that state is superseded
+by the 2026-10-11 stack-overflow stop above.
+
+## 10. Continuation: canonical realization product — 2026-10-10
+
+After the user selected class-side traits, T4 now records a directly expected
+basis or suffix realization in the canonical expression analysis product.
+`checker/algebraic_realization.rs` resolves the exact `BasisRealizable` and,
+for bare basis units, `One` requirement through the existing generic
+conformance proof authority. It accepts only a unique class-side requirement,
+checks the selected parameter/return types and exact scalar domain, and leaves
+missing or unresolved evidence unelaborated. It does not infer an algebra for
+an expression without a concrete expected type.
+
+The product stores expression/source/target identities, axis, exact suffix
+coefficient or selected scalar identity, evidence-backed callable selection,
+and source-order evaluation obligations. `ExpressionAnalysis` publication,
+incremental product fingerprints, and callable semantic dependencies include
+the realization fact. Compiler projection and runtime lowering were not yet
+implemented at this point in the continuation; source-level conformance and
+semantic acceptance were also unverified.
+
+Verification performed in this continuation:
+
+```text
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic -p phalcom-core --message-format=short — passed
+rustfmt --edition 2024 --check --config skip_children=true on the new realization module and touched semantic files other than expression.rs — passed
+git diff --check — passed
+```
+
+`expression.rs` retains unrelated baseline rustfmt drift; the new call site was
+reviewed in the scoped diff. No tests were added or run. The follow-on remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`. At that point, the next implementation
+seam was semantic acceptance plus compiler projection/lowering, followed by
+bounded arithmetic-region inference.
+
+## 11. Continuation: compiler projection and lowering — 2026-10-10
+
+Directly evidenced realization products now project from canonical semantic
+analysis into `ModuleLoweringSemantics`. The projection retains the selected
+`BasisRealizable` and `One` trait calls, exact target declarations, basis data
+construction metadata, coefficient payload, and evaluation contract. Runtime
+trait environment bindings are attached from the selected conformance
+evidence. Compiler lowering loads class receivers through canonical imports,
+invokes those selected class-side capabilities, preserves a source basis read
+once, and materializes suffix basis values through the canonical data
+constructor. It does not derive targets from source spellings.
+
+This slice currently handles directly evidenced class receivers. Assumed
+generic receivers do not yet have a runtime type-object projection and fail
+closed during semantic-to-lowering projection. Arithmetic-region inference,
+expression coefficients, and source-language acceptance remain incomplete.
+
+Verification for this slice:
+
+```text
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic -p phalcom-core --message-format=short — passed
+rustfmt --edition 2024 --config skip_children=true on touched compiler/lowering Rust files — passed
+git diff --check — passed
+```
+
+No tests were added or run. T5 is `PARTIAL / UNVERIFIED`; the follow-on remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+## 12. Continuation: assumed generic class-side receivers — 2026-10-10
+
+The user selected the active runtime type environment as the source of an
+assumed generic receiver. Semantic lowering now represents a contextual class
+receiver as either an exact declaration or a stable type parameter. An assumed
+class-side capability projects its existing generic evidence slot; it does not
+create a new conformance search or add the receiver to `RuntimeConformanceSlot`.
+
+The compiler emits `LoadTypeParameterClass` for a generic receiver. The VM
+requires the current frame's type environment to contain the stable parameter,
+then resolves a nominal class or applied nominal origin. Missing bindings and
+non-nominal types fail closed. `InvokeTraitRequirement` continues to use the
+existing method and type/conformance environments. The executable semantic
+pool owns the stable parameter references, and the bytecode specification now
+documents the instruction.
+
+Verification performed:
+
+```text
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --message-format=short — passed
+rustfmt on the six touched core Rust files — passed
+git diff --check — passed
+```
+
+No tests were added or run. Generic receiver behavior remains source-unverified;
+T5 and the follow-on remain `PARTIAL / UNVERIFIED`. Next work is focused source
+acceptance and the bounded arithmetic-region lowering/inference slice.
+
+## 13. Continuation: bounded arithmetic regions and real embedding — 2026-10-10
+
+The semantic layer now selects a bounded Complex/Quaternion target from
+canonical basis axes and known scalar types. An explicit canonical algebra
+expectation takes precedence. I-only regions select Complex; J/K or mixed axes
+select Quaternion. Scalar domains must agree, completed bindings remain
+boundaries, and unresolved scalar types do not create a default target.
+
+`ContextualRealization` now records either a basis-component operation or a
+separate `RealEmbeddable.fromReal` operation. Both carry canonical target and
+selected class-side capability evidence through expression publication,
+incremental fingerprints, semantic lowering, runtime roots, and compiler
+lowering. Scalar-by-basis expressions work in either operand order; when the
+basis is first, lowering stages it so both source operands still execute once
+in source order.
+
+The compiler and semantic crates pass the focused `cargo check`. No Phalcom
+source compilation or tests were run. Source conformance, semantic acceptance,
+runtime behavior, and incremental parity remain unverified. The follow-on
+remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.

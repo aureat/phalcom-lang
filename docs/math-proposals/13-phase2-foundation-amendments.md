@@ -116,5 +116,6 @@ Rational, Complex, arbitrary-precision Float, numeric promotion relations,
 generic constants, differentiation, and static parameter refinements are not
 prerequisites for the recommended Float probability layer. Preserve extension
 space for them through explicit conversion and separate observation/sample
-types. `meanExact` over Int waits for Rational; no tuple masquerades as a new
-rational-number implementation.
+types. A named `meanExact` Family now exists over Int using the source-defined
+Rational type; both source slices still await Phalcom acceptance. No tuple
+masquerades as a rational-number implementation.

@@ -6,6 +6,103 @@ use crate::vm::VM;
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::{ToPrimitive, Zero};
+use std::num::FpCategory;
+
+fn expect_float_value(value: &Value) -> Result<f64, RuntimeError> {
+    value.as_float().ok_or(RuntimeError::Type {
+        expected: "Float",
+        found: value.type_name(),
+    })
+}
+
+/// Signature: `Float::nextUp` — the adjacent representable value toward +infinity.
+#[phalcom_native_macros::primitive(Float, "nextUp")]
+pub fn float_next_up(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    Ok(Value::float(expect_float_value(receiver)?.next_up()))
+}
+
+/// Signature: `Float::nextDown` — the adjacent representable value toward -infinity.
+#[phalcom_native_macros::primitive(Float, "nextDown")]
+pub fn float_next_down(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    Ok(Value::float(expect_float_value(receiver)?.next_down()))
+}
+
+/// Signature: `Float::ulp` — the spacing at the magnitude of the receiver.
+#[phalcom_native_macros::primitive(Float, "ulp")]
+pub fn float_ulp(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let value = expect_float_value(receiver)?;
+    let spacing = if value.is_nan() || value.is_infinite() {
+        value.abs()
+    } else {
+        let magnitude = value.abs();
+        if magnitude == 0.0 {
+            f64::from_bits(1)
+        } else {
+            let above = magnitude.next_up();
+            if above.is_infinite() {
+                magnitude - magnitude.next_down()
+            } else {
+                above - magnitude
+            }
+        }
+    };
+    Ok(Value::float(spacing))
+}
+
+/// Signature: `Float::totalCompare(_)` — IEEE total ordering, including NaNs and signed zero.
+#[phalcom_native_macros::primitive(Float, "totalCompare(_)" , params = [Float], returns = Ordering, types = "(Float) -> Ordering", effects = pure)]
+pub fn float_total_compare(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let left = expect_float_value(receiver)?;
+    let right = expect_float_value(&args[0])?;
+    let result = match left.total_cmp(&right) {
+        std::cmp::Ordering::Less => "less",
+        std::cmp::Ordering::Equal => "equal",
+        std::cmp::Ordering::Greater => "greater",
+    };
+    super::number::ordering_value(vm, result)
+}
+
+#[phalcom_native_macros::primitive(Float, "isNormal")]
+pub fn float_is_normal(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    Ok(Value::bool(expect_float_value(receiver)?.is_normal()))
+}
+
+#[phalcom_native_macros::primitive(Float, "isSubnormal")]
+pub fn float_is_subnormal(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    Ok(Value::bool(expect_float_value(receiver)?.classify() == FpCategory::Subnormal))
+}
+
+#[phalcom_native_macros::primitive(Float, "isPositiveZero")]
+pub fn float_is_positive_zero(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let value = expect_float_value(receiver)?;
+    Ok(Value::bool(value == 0.0 && !value.is_sign_negative()))
+}
+
+#[phalcom_native_macros::primitive(Float, "isNegativeZero")]
+pub fn float_is_negative_zero(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let value = expect_float_value(receiver)?;
+    Ok(Value::bool(value == 0.0 && value.is_sign_negative()))
+}
+
+#[phalcom_native_macros::primitive(Float, "epsilon", params = [], returns = Float, types = "() -> Float", side = class, effects = pure)]
+pub fn float_epsilon(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    Ok(Value::float(f64::EPSILON))
+}
+
+#[phalcom_native_macros::primitive(Float, "minPositiveSubnormal", params = [], returns = Float, types = "() -> Float", side = class, effects = pure)]
+pub fn float_min_positive_subnormal(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    Ok(Value::float(f64::from_bits(1)))
+}
+
+#[phalcom_native_macros::primitive(Float, "minNormal", params = [], returns = Float, types = "() -> Float", side = class, effects = pure)]
+pub fn float_min_normal(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    Ok(Value::float(f64::MIN_POSITIVE))
+}
+
+#[phalcom_native_macros::primitive(Float, "maxFinite", params = [], returns = Float, types = "() -> Float", side = class, effects = pure)]
+pub fn float_max_finite(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    Ok(Value::float(f64::MAX))
+}
 
 /// Convert a finite f64 exactly to a rational (Numerator, Denominator)
 pub fn float_to_rational(f: f64) -> (BigInt, BigInt) {

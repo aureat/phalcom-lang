@@ -1,4 +1,5 @@
 pub mod algebraic_declaration;
+pub(crate) mod algebraic_realization;
 pub mod analysis;
 pub mod associated;
 pub mod binding;
@@ -33,8 +34,10 @@ pub mod type_member_declaration;
 pub mod typed_expr;
 
 pub use analysis::{
-    AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, ExpressionAnalysisIndex,
-    FlowStateSummary, ForIterationLaneResolution, ForIterationLaneResolutionIndex, ForIterationRequirementResolution,
+    AlgebraicBasisAxis, AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ContextualRealization,
+    ContextualRealizationOperation,
+    ExpressionAnalysis, ExpressionAnalysisIndex, FlowStateSummary, ForIterationLaneResolution, ForIterationLaneResolutionIndex,
+    ForIterationRequirementResolution, RealizationCapabilitySelection, RealizationCoefficientSource, RealizationEvaluationPlan,
 };
 pub use associated::{
     AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CallableReferenceResolution, CallableReferenceResolutionIndex,

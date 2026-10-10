@@ -46,12 +46,16 @@ use std::collections::HashMap;
 
 /// Central entry point for bidirectional expression analysis (Spec 04.5 / E4).
 pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
+    let algebraic_expected = super::algebraic_realization::arithmetic_region_expected(ctx, expr, expected);
+    let effective_expected = algebraic_expected.as_ref().unwrap_or(expected);
     let expr_id = ctx.alloc_expression_id();
     ctx.push_expression_owner(expr_id);
-    let mut typed = analyze_expression_inner(ctx, expr, expected);
+    let mut typed = analyze_expression_inner(ctx, expr, effective_expected);
     if let Some(cause_id) = ctx.pop_expression_owner(expr_id) {
         typed.invalidate(cause_id);
     }
+
+    super::algebraic_realization::apply_contextual_realization(ctx, expr_id, expr, effective_expected, &mut typed);
 
     if let (Some(expected_ty), Some(origin)) = (expected.ty(), expected.origin()) {
         let requirement = crate::explain::ExplanationStep::TypeRequirement {
@@ -4389,8 +4393,74 @@ pub(crate) fn apply_binary_operation_from_typed(
 }
 
 fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, expected: &ExpectedType) -> TypedExpression {
-    let left_typed = analyze_expression(ctx, &binary.left, &ExpectedType::None);
-    let right_typed = analyze_expression(ctx, &binary.right, &ExpectedType::None);
+    let scalar_basis_product = matches!(binary.op, BinaryOp::Multiply)
+        && (super::algebraic_realization::is_basis_source(ctx, &binary.left)
+            ^ super::algebraic_realization::is_basis_source(ctx, &binary.right));
+    let left_has_basis = super::algebraic_realization::contains_arithmetic_basis(ctx, &binary.left);
+    let right_has_basis = super::algebraic_realization::contains_arithmetic_basis(ctx, &binary.right);
+    let left_scalar = super::algebraic_realization::is_embeddable_scalar_source(ctx, &binary.left);
+    let right_scalar = super::algebraic_realization::is_embeddable_scalar_source(ctx, &binary.right);
+    let no_expected = ExpectedType::None;
+    let left_expected = if !scalar_basis_product && (left_has_basis || (right_has_basis && left_scalar)) {
+        expected
+    } else {
+        &no_expected
+    };
+    let right_expected = if !scalar_basis_product && (right_has_basis || (left_has_basis && right_scalar)) {
+        expected
+    } else {
+        &no_expected
+    };
+    let mut left_typed = analyze_expression(ctx, &binary.left, left_expected);
+    let mut right_typed = analyze_expression(ctx, &binary.right, right_expected);
+    if let Some(realized) = super::algebraic_realization::realize_scalar_basis_product(ctx, binary, &left_typed, &right_typed, expected) {
+        return realized;
+    }
+
+    // A concrete sibling may establish the algebra for a direct basis value.
+    // Retarget the already-checked child product without re-analyzing it, so
+    // semantic dependencies and runtime single-evaluation order stay intact.
+    let contextual_target = expected
+        .ty()
+        .filter(|ty| super::algebraic_realization::is_canonical_algebra_type(ctx, *ty))
+        .or_else(|| {
+            let left = left_typed.knowledge.ty()?;
+            let right = right_typed.knowledge.ty()?;
+            let left_algebra = super::algebraic_realization::is_canonical_algebra_type(ctx, left).then_some(left);
+            let right_algebra = super::algebraic_realization::is_canonical_algebra_type(ctx, right).then_some(right);
+            match (left_algebra, right_algebra) {
+                (Some(target), None) | (None, Some(target)) => Some(target),
+                (Some(left), Some(right)) if left == right => Some(left),
+                _ => None,
+            }
+        });
+    if let Some(target) = contextual_target {
+        let contextual = ExpectedType::proper_from(target, ExpectationOrigin::AlgebraicArithmetic);
+        if left_typed.contextual_realization.is_none() && super::algebraic_realization::is_basis_source(ctx, &binary.left) {
+            if let Some(expression_id) = left_typed.expression_id {
+                super::algebraic_realization::apply_contextual_realization(
+                    ctx,
+                    expression_id,
+                    &binary.left,
+                    &contextual,
+                    &mut left_typed,
+                );
+                ctx.sync_expression_outcome(&left_typed);
+            }
+        }
+        if right_typed.contextual_realization.is_none() && super::algebraic_realization::is_basis_source(ctx, &binary.right) {
+            if let Some(expression_id) = right_typed.expression_id {
+                super::algebraic_realization::apply_contextual_realization(
+                    ctx,
+                    expression_id,
+                    &binary.right,
+                    &contextual,
+                    &mut right_typed,
+                );
+                ctx.sync_expression_outcome(&right_typed);
+            }
+        }
+    }
     apply_binary_operation_from_typed(
         ctx,
         &binary.left,
@@ -4664,7 +4734,14 @@ fn reflected_binary_selector(op: &BinaryOp) -> Option<Selector> {
 }
 
 fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr, expected: &ExpectedType) -> TypedExpression {
-    let operand_typed = analyze_expression(ctx, &unary.expr, &ExpectedType::None);
+    let operand_expected = if matches!(unary.op, UnaryOp::Plus | UnaryOp::Minus)
+        && super::algebraic_realization::contains_arithmetic_basis(ctx, &unary.expr)
+    {
+        expected
+    } else {
+        &ExpectedType::None
+    };
+    let operand_typed = analyze_expression(ctx, &unary.expr, operand_expected);
     let premise = CallPremise::from_typed(ctx, &operand_typed);
 
     let op_name = match unary.op {

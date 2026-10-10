@@ -12,6 +12,7 @@ use phalcom_common::range::SourceRange;
 use phalcom_semantic::identity::{DataConstructorId, VariantId};
 use phalcom_semantic::identity::{DeclarationId, DispatchSide};
 use phalcom_semantic::types::family::FamilyOperationShape;
+use phalcom_type_meta::StableTypeParameterRef;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -65,6 +66,7 @@ pub struct ExecutableSemanticPool {
     pub family_candidate_sets: Vec<ExecutableFamilyCandidateSet>,
     pub trait_invocations: Vec<TraitInvocationSpec>,
     pub trait_requirement_invocations: Vec<TraitRequirementInvocationSpec>,
+    pub type_parameter_class_receivers: Vec<StableTypeParameterRef>,
 }
 
 impl ExecutableSemanticPool {
@@ -248,6 +250,19 @@ impl ExecutableSemanticPool {
 
     pub fn trait_requirement_invocation(&self, index: u16) -> &TraitRequirementInvocationSpec {
         &self.trait_requirement_invocations[index as usize]
+    }
+
+    pub fn add_type_parameter_class_receiver(&mut self, parameter: StableTypeParameterRef, span: SourceRange) -> Result<u16, CompilerError> {
+        let index = u16::try_from(self.type_parameter_class_receivers.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
+            kind: "TypeParameterClassReceiver",
+            span,
+        })?;
+        self.type_parameter_class_receivers.push(parameter);
+        Ok(index)
+    }
+
+    pub fn type_parameter_class_receiver(&self, index: u16) -> &StableTypeParameterRef {
+        &self.type_parameter_class_receivers[index as usize]
     }
 }
 

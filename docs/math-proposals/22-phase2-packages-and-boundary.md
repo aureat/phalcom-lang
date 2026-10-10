@@ -41,17 +41,22 @@ probability/bayes/package.ph     public bounded conjugate/interval facade
 probability/monte_carlo/package.ph public expectation facade
 ```
 
-This is proposed topology, not new manifests. Importing probability's root must
-not implicitly load Monte Carlo/statistics or Bayesian helpers. Hidden children
-follow E02/E10 facade precedent. Shared errors belong to their owning package;
+This is proposed topology, not new manifests. The live branch currently places
+the `Distribution` sampling trait in `universe.random`; keep that canonical
+identity or provide a compatibility-preserving facade if ownership changes.
+Do not define a duplicate probability trait with the same role. Importing
+probability's root must not implicitly load Monte Carlo/statistics or Bayesian
+helpers. Hidden children follow E02/E10 facade precedent. Shared errors belong to their owning package;
 NumericalRangeError/EvaluationError should be math-owned and re-exported where
 needed, rather than duplicate incompatible error identities.
 
-The random stub's annotation mentions distributions. Amend that description
-when implementation is authorized: RNG mechanics remain in random; probability
-owns probability laws and their samplers. This report makes no source edit to
-the stub. Namespace details may adapt to current package loading, while these
-dependency/ownership boundaries remain fixed recommendations.
+The source tree now has a deterministic random implementation, so the old
+random-stub annotation and G1 evidence are stale. RNG mechanics remain in
+`universe.random`; probability owns laws and their evaluation. The proposed
+`RandomBits`/`Pcg32` remains an alternative to the existing `Generator`/
+`Xoshiro256PlusPlus` contract and needs a deliberate compatibility decision.
+Namespace details may adapt to current package loading, while dependency
+direction remains the recommendation.
 
 ## 22.2 Selective prior art: four ecosystems
 
@@ -115,19 +120,19 @@ catch-all error channel.
 
 | ID / category | Concrete need and evidence | Minimum useful action | V1 blocking? |
 |---|---|---|---|
-| G1 stdlib | random stub E05 cannot feed any sampler | RandomBits + pinned Pcg32 + unbiased uniform helpers | Yes, sampling/Monte Carlo |
-| G2 stdlib | E02–E03 lack gamma/beta/incomplete/tail functions | A2's bounded math.special and accuracy contracts | Yes, full recommended distribution evaluation |
-| G3 stdlib | Fold E07 is not a stable numerical sum/moment kernel | A1 stable reductions plus concrete moment owners | Yes, numerical stats guarantees |
-| G4 stdlib | Current IntegerMath E04 has no choose/factorial | A3 exact/log combinatorial helpers | Exact helpers separate; log kernels needed for probability |
-| G5 stdlib | No inspected sort API; quantile must order a copy | Private sort/selection now; optional general collection sort later | No compiler blocker |
-| G6 typing | New generic Sampleable method quantified over RNG and associated sample returned through exported Families | Exercise existing canonical evidence/projection machinery; preserve the declared contract | Verification prerequisite later; no new type feature assumed |
+| G1 stdlib | Live branch has Generator/Xoshiro256PlusPlus and Distribution; probability has source samplers, but `sampleMany` lacks a preflight allocation bound | Preserve existing RNG identities; decide a shared List allocation limit, validate it before drawing, and review inverse-CDF Binomial/Poisson drafts | Source acceptance and sampler policy/review remain open |
+| G2 stdlib | Live branch already has `universe.math.special` gamma/beta, incomplete/tail, and inverse kernels; acceptance accuracy still belongs to their checkpoint | Reuse the canonical special-function surface and validate distribution-specific tails | Remaining distribution contracts depend on source acceptance |
+| G3 stdlib | `universe.math.sum`/`mean` and a first `statistics` source implementation now exist; Phalcom source acceptance remains open | Complete focused generic and numerical acceptance for stable reductions and moment owners | Source acceptance remains required |
+| G4 stdlib | Live `IntegerMath` already provides factorial/choose/falling/rising factorial and logarithmic helpers | Reuse existing exact and log kernels; retain distribution-specific accuracy work | Existing helper slice; source acceptance governs claims |
+| G5 stdlib | No public collection sort terminal; statistics now uses a private heap sort on a copied List | Keep sorting private until a general collection API is justified | No compiler blocker |
+| G6 typing | Probability reuses `universe.random::Distribution::Output` in generic sampling and uses associated types in evaluation capabilities | Exercise canonical evidence/projection through exported Families; keep one sampling trait identity | Verification prerequisite; source acceptance remains open |
 | G7 language | No supertraits/trait objects, E25 | Use independent nominal traits and concrete/callable adapters | No; no enhancement proposed |
 | G8 compiler/runtime | No cross-platform bitwise transcendental guarantee, Phase 1 file 05 | Document backend sensitivity; deterministic backend only separately funded | No for version/platform-scoped sampling |
 | G9 ergonomic | Validated data factory is more verbose than direct construction, E24 | Explicit .new/tryNew; preserve inaccessible raw constructor | No new constructor validation syntax |
-| G10 stdlib | No nextDown/machine metadata in inspected Float surface | Scalar-owned representability helper and constants, Phase 1 extension | nextDown needed for Uniform rounding policy |
+| G10 stdlib | Float representability helpers were absent in the inspected baseline; they are now declared and implemented on `feat/complex-math` | Keep scalar-owned nextDown and machine metadata; source acceptance remains open | Implemented slice; source verification pending |
 | G11 stdlib | No dedicated split/counter-based generator | Later source-defined generator/capability with explicit stream laws | No, serial explicit streams suffice |
 | G12 typing/ergonomic | Heterogeneous feature products do not imply homogeneous Float iteration, E27–E28 | User-authored extraction/normalization callback; later schema libraries | No |
-| G13 stdlib | Exact statistical means would need Rational | Keep named future meanExact; approximate Float API is explicit | No |
+| G13 stdlib | Rational source and exact `Complex<Rational>` division/powers now exist but are unverified; statistics exposes named Int-to-Rational `meanExact` | Keep exact mean separate from Float `mean`; source acceptance still gates claims | No |
 
 No compiler/language enhancement is proposed for foundational V1. Every listed
 API has an existing language mechanism or an explicit stdlib dependency. If a
@@ -191,11 +196,13 @@ family selection. These are not reopened by the questions above.
 
 ## 22.7 Future work streams
 
-Continue numeric-foundation work on Rational/Complex independently. Probability
-follow-ups may add Geometric/Multinomial, Dirichlet and conjugate predictive
-laws, StudentT/ChiSquared, weighted-variance models and higher moments. Future
-inference can then design estimators, confidence procedures, hypothesis tests,
-and differentiable log evaluators on the established measure/tail contracts.
+Continue source acceptance and numeric-foundation work on Rational/Complex
+independently; the current Rational and exact Complex<Rational> source remains
+unverified. Probability follow-ups may add Geometric/Multinomial, Dirichlet and
+conjugate predictive laws, StudentT/ChiSquared, weighted-variance models and
+higher moments. Future inference can then design estimators, confidence
+procedures, hypothesis tests, and differentiable log evaluators on the
+established measure/tail contracts.
 Advanced simulation needs splittable/counter-based streams and valid sequential
 diagnostics before parallel/adaptive APIs. No full ML or probabilistic-program
 runtime is implied.
@@ -210,11 +217,14 @@ runtime is implied.
   covariance/correlation, Type 7 median/quantile, weighted mean, exact sumInts.
 - RunningMoments/RunningCovariance and validated mergeable snapshots.
 - Named log/odds helpers, linear/log normalization, direct normalized log outputs.
-- Independent RandomBits, Sampleable, HasMass, HasDensity, HasOrderedTails, and
-  HasQuantile contracts; no hierarchy or existential Distribution.
+- Preserve `universe.random::Generator` and `Distribution` as the canonical
+  sampling contracts; add independent `HasMass`, `HasDensity`,
+  `HasOrderedTails`, and `HasQuantile` evaluation capabilities.
 - Bernoulli, Binomial, Categorical, Poisson, Uniform, Normal, Exponential, Gamma,
-  Beta; validated immutable parameters, direct evaluation/log/tail methods, and
-  explicit seeded sampling using pinned Pcg32.
+  Beta; validated immutable parameters, direct evaluation/log/tail methods,
+  Bernoulli indicator mean/variance, and explicit sampling with the caller-owned
+  canonical Generator. The proposal's Pcg32 stream contract is not the current
+  implementation contract.
 - sampleMany and lazy SampleIterator; no hidden default generator.
 - iid mass/density log likelihood, BernoulliCounts, BinomialObservation,
   PoissonCounts; Beta–Bernoulli/Binomial and unit-exposure Gamma–Poisson updates.
@@ -222,11 +232,12 @@ runtime is implied.
   quantile interval, fixed-budget Monte Carlo expectation/standard-error estimate.
 
 This is the recommended target after its prerequisites, not a claim that the
-current random stub and elementary math suffice to ship it immediately.
+current random and math layers already supply every listed distribution or
+consumer API.
 
 ### Design now, implement later
 
-- Rational-returning meanExact, precision-specific distribution kernels.
+- Precision-specific distribution kernels.
 - Frequency/reliability weighted variance, M3/M4 and explicit skewness/kurtosis,
   modes/frequencies, geometric/harmonic means, percentile convenience.
 - Geometric, Multinomial, Dirichlet, BetaBinomial, NegativeBinomial predictive

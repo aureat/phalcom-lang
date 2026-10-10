@@ -1880,6 +1880,7 @@ impl<'a> CheckingContext<'a> {
         analysis.conditional_capability = self.resolved_conditional_capabilities.get(&id).cloned();
         analysis.trait_dispatch = self.resolved_trait_dispatches.get(&id).cloned();
         analysis.trait_dispatch_candidates = self.resolved_trait_dispatch_candidates.get(&id).cloned();
+        analysis.contextual_realization = typed.contextual_realization.clone();
         analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
@@ -1911,6 +1912,7 @@ impl<'a> CheckingContext<'a> {
         analysis.conditional_capability = self.resolved_conditional_capabilities.get(&id).cloned();
         analysis.trait_dispatch = self.resolved_trait_dispatches.get(&id).cloned();
         analysis.trait_dispatch_candidates = self.resolved_trait_dispatch_candidates.get(&id).cloned();
+        analysis.contextual_realization = typed.contextual_realization.clone();
         analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
@@ -2615,6 +2617,43 @@ impl<'a> CheckingContext<'a> {
                         ));
                     }
                 }
+            }
+        }
+    }
+
+    /// Records the exact semantic inputs consumed by an algebraic
+    /// realization capability selection.
+    pub(crate) fn record_contextual_realization_dependencies(&mut self, selection: &crate::checker::analysis::RealizationCapabilitySelection) {
+        match selection {
+            crate::checker::analysis::RealizationCapabilitySelection::Evidenced(selection) => {
+                self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitHeader(
+                    selection.exact_trait_ref.declaration.clone(),
+                ));
+                self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                    selection.exact_trait_ref.declaration.clone(),
+                ));
+                match &selection.evidence {
+                    crate::generic_evidence::GenericConformanceEvidence::Exact(evidence) => {
+                        self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(evidence.source_impl.clone()));
+                    }
+                    crate::generic_evidence::GenericConformanceEvidence::Derived(evidence) => self.record_derived_conformance_dependencies(evidence),
+                    crate::generic_evidence::GenericConformanceEvidence::Assumed(evidence) => {
+                        self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                            evidence.key.trait_ref.declaration.clone(),
+                        ));
+                    }
+                }
+                if let Some(callable) = &selection.callable {
+                    self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::CallableSignature(callable.clone()));
+                }
+            }
+            crate::checker::analysis::RealizationCapabilitySelection::Assumed(selection) => {
+                self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitHeader(
+                    selection.conformance.trait_ref.declaration.clone(),
+                ));
+                self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                    selection.conformance.trait_ref.declaration.clone(),
+                ));
             }
         }
     }

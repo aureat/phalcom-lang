@@ -3537,6 +3537,22 @@ impl VM {
                         .into());
                     }
                 }
+                Bytecode::LoadTypeParameterClass(index) => {
+                    let parameter = callable.chunk.executable_semantics.type_parameter_class_receiver(index).clone();
+                    let environment_id = self
+                        .frames
+                        .last()
+                        .map(|frame| frame.type_environment)
+                        .unwrap_or(crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY);
+                    let runtime_type = self
+                        .runtime_type_environments
+                        .get(environment_id)
+                        .and_then(|environment| environment.get(&parameter))
+                        .ok_or_else(|| RuntimeError::Internal(format!("no active runtime type binding for {parameter:?}")))?;
+                    let class = crate::typing::inspect::nominal_origin_class(&self.runtime_typing_context, &self.typing_registry, runtime_type)
+                        .ok_or_else(|| RuntimeError::Internal(format!("runtime type binding for {parameter:?} has no nominal class object")))?;
+                    self.stack.push(crate::value::Value::obj(class));
+                }
                 Bytecode::NewArgumentPack => {
                     let id = self.heap.alloc(Object::PackBuilder(Box::new(crate::heap::ArgumentPackBuilderObject::new())));
                     self.stack.push(Value::obj(id));

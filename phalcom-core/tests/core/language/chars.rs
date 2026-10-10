@@ -10,11 +10,7 @@ fn slot(vm: &phalcom_core::vm::VM, module: phalcom_core::heap::ObjRef, name: &st
 
 #[test]
 fn unicode_version_guard() {
-    let (major, minor, patch) = (
-        std::char::UNICODE_VERSION.0,
-        std::char::UNICODE_VERSION.1,
-        std::char::UNICODE_VERSION.2,
-    );
+    let (major, minor, patch) = (std::char::UNICODE_VERSION.0, std::char::UNICODE_VERSION.1, std::char::UNICODE_VERSION.2);
     assert_eq!((major, minor, patch), (17, 0, 0));
 }
 

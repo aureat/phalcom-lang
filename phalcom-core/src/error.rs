@@ -291,6 +291,14 @@ pub enum RuntimeError {
     #[error("resource handle table capacity exceeded")]
     ResourceLimit,
 
+    /// An explicit List reservation exceeded the shared storage budget.
+    #[error("List capacity request of {requested} elements exceeds the shared limit of {max_elements} elements")]
+    ListCapacityLimit { requested: String, max_elements: usize },
+
+    /// The allocator could not reserve an in-policy List capacity request.
+    #[error("unable to reserve List capacity for {requested} elements")]
+    ListAllocationFailure { requested: String },
+
     /// A recursion ceiling was exceeded
     /// ([PDR-0007](../../docs/decisions/0007-bounded-call-depth-and-native-reentrancy.md)).
     ///

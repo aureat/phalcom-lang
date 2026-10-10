@@ -23,6 +23,16 @@ trait IntegerPower {
   **(_ exponent: Int) -> Self
 }
 
+/// Additive identity, constructed on the conforming type's class side.
+trait Zero {
+  @class zero -> Self
+}
+
+/// Multiplicative identity, constructed on the conforming type's class side.
+trait One {
+  @class one -> Self
+}
+
 impl Addable for Int {}
 impl Subtractable for Int {}
 impl Multipliable for Int {}
@@ -32,4 +42,17 @@ impl Subtractable for Float {}
 impl Multipliable for Float {}
 impl Negatable for Float {}
 
-export Addable, Subtractable, Multipliable, Negatable, IntegerPower
+impl Zero for Int {
+  @class zero -> Int { 0 }
+}
+impl One for Int {
+  @class one -> Int { 1 }
+}
+impl Zero for Float {
+  @class zero -> Float { 0.0 }
+}
+impl One for Float {
+  @class one -> Float { 1.0 }
+}
+
+export Addable, Subtractable, Multipliable, Negatable, IntegerPower, Zero, One

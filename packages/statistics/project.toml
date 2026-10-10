@@ -1,0 +1,5 @@
+[project]
+name = "statistics"
+namespace = "statistics"
+version = "0.1.0"
+source = "src"

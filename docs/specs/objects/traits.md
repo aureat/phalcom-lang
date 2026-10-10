@@ -112,6 +112,40 @@ A requirement is not itself a concrete target callable.
 
 A conformance must satisfy the requirement with a compatible witness or an applicable trait default.
 
+## Dispatch side
+
+Behavioral requirements may be instance-side or class-side. A class-side
+requirement is marked with the ordinary `@class` member attribute:
+
+```phalcom
+trait Zero {
+  @class zero -> Self
+}
+```
+
+The attribute determines dispatch side; it does not create a conformance to a
+metatype or class-object type. The conformance remains `impl Trait for Target`
+and its evidence proves that the nominal target type satisfies the exact trait
+reference. Calling a class-side requirement uses the target's class-side
+receiver, while `Self` continues to denote the conforming nominal instance
+type, including its generic arguments.
+
+Class-side requirements may be methods, getters, setters, or properties marked
+`@class`. Class-side index requirements are not defined. A data component may
+witness an instance-side getter requirement, but it cannot witness a class-side
+getter requirement.
+
+Dispatch side is part of requirement, callable, and witness identity. An
+instance-side and class-side member with the same selector are distinct
+requirements and are checked against members on their matching side. Explicit
+conformance witnesses and reused inherent members must have the required side;
+an applicable trait default retains the side declared by its requirement.
+
+Class-side trait requirements use the existing nominal conformance and
+class-side dispatch machinery. This does not add metatype-target `impl`
+syntax, existential trait values, or a second conformance relation. Enum
+conformances do not support class-side trait requirements.
+
 ## Stable requirement identity
 
 Requirement identity is independent of witness identity.
@@ -629,7 +663,7 @@ The default remains available to other conformances that do not provide a concre
 
 # Trait Behavior and Ordinary Member Syntax
 
-Trait behavior selected by an applicable conformance participates in ordinary instance dispatch without becoming an inherent declaration.
+Trait behavior selected by an applicable conformance participates in ordinary dispatch without becoming an inherent declaration.
 
 For a receiver whose static type and conformance evidence establish `Printable`, an applicable `toString` requirement may be called using ordinary instance syntax:
 
@@ -656,6 +690,10 @@ inherent declaration owned by target
 > **Surface-separation invariant**
 >
 > Conformance can make trait behavior dispatchable through a target without copying the trait member into the target's inherent surface.
+
+Class-side trait behavior follows the same rule through ordinary class-side
+syntax. For example, `T.zero` in a generic context constrained by `T |= Zero`
+uses the class-side requirement selected by that conformance evidence.
 
 ---
 
@@ -919,7 +957,7 @@ Runtime reflection, table scanning, module traversal, import order, source order
 
 Traits are reusable behavioral contracts, not representation or inheritance declarations. They do not own instance fields, establish superclass relationships, inject representation, or replace an enum's closed-case contract.
 
-A trait declaration also does not by itself introduce an existential runtime value type. This specification defines no trait objects, `dyn Trait`/`any Trait` equivalent, trait inheritance or supertrait mechanism, or metatype/class-side conformance syntax. Those facilities require separate specifications if introduced.
+A trait declaration also does not by itself introduce an existential runtime value type. This specification defines no trait objects, `dyn Trait`/`any Trait` equivalent, trait inheritance or supertrait mechanism, or conformance to metatype/class-object types. Those facilities require separate specifications if introduced.
 
 ---
 
@@ -959,7 +997,7 @@ A trait cannot contain incompatible behavioral declarations with the same select
 
 ## Ambiguous trait dispatch
 
-An unqualified instance dispatch that would select among multiple competing trait defaults without a single resolving concrete witness is invalid.
+An unqualified dispatch that would select among multiple competing trait defaults on the same dispatch side without a single resolving concrete witness is invalid.
 
 ## Invalid trait-as-value use
 
@@ -1001,7 +1039,7 @@ The following are not defined by this specification:
 - trait specialization;
 - overlapping conformance resolution by specificity;
 - first-class trait objects or existential trait values;
-- metatype/class-side conformance syntax;
+- conformance to metatype/class-object types;
 - parameterized associated members not admitted by the applicable trait grammar;
 - trait-qualified callable-reference syntax beyond the ordinary concrete instance reference model.
 

@@ -2,10 +2,11 @@
 id: LANG007.C4.algebraic-literals-follow-on-handoff
 kind: handoff
 checkpoint: LANG007.C4
-status: IN_PROGRESS
+status: BLOCKED
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: UNVERIFIED
 created: 2026-10-08
+updated: 2026-10-11
 ---
 
 # Contextual algebraic literals — handoff
@@ -16,9 +17,72 @@ created: 2026-10-08
 - Branch: `feat/complex-math`
 - Remote: `origin/feat/complex-math`
 - Starting published revision: `43a4f466`
+- Continuation base revision: `fdbc2c41`; this branch delivery includes the
+  incident packet and matching lifecycle updates.
 - Delivery anchor: `f36f84fa` (`feat: checkpoint algebraic literal and Quaternion foundations`),
   pushed to `origin/feat/complex-math`. Delivery publishes partial implementation.
-- Main worktree is clean and must remain untouched.
+- This continuation edits only the managed `complex-math` worktree.
+
+## Current stop — 2026-10-11
+
+Do not resume source-level acceptance until the shared CLI stack-overflow
+incident is assigned to an owning phase. A dependency-free project with only
+`let value = 1; export value` overflows the native stack, including with the
+shell stack limit set to 8192 KiB. The failure is not attributed to this
+follow-on. See the [incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
+
+## T3 architecture ruling and current implementation
+
+The user chose **Add class-side traits** on 2026-10-10. `@class` behavioral
+requirements now retain `DispatchSide::Class` through trait-surface creation,
+default-body analysis, conformance witness formation, and semantic selection.
+Conformance remains ordinary `impl Trait for Target` on the nominal target;
+there is no metatype conformance. Enum class-side trait conformances and
+class-side index requirements are excluded.
+
+`docs/specs/objects/traits.md` records the contract. `universe.numbers` now
+declares `Zero`, `One`, `RealEmbeddable`, and `BasisRealizable`, with direct
+Complex/Quaternion realizations. Data components are prevented from witnessing
+class-side getters.
+
+The Rust check for `phalcom-semantic` and `phalcom-core` passed. Changed Rust
+files pass `rustfmt --check`, and `git diff --check` is clean. No source-language
+acceptance probes or tests were run, so T3 remains `PARTIAL / UNVERIFIED`.
+
+## T4 semantic realization product — partial
+
+Explicit expected types now realize a typed `Basis<I/J/K>` value or a native
+imaginary suffix through exact `BasisRealizable<Basis<Axis>>` evidence. Bare
+basis units also retain the selected `One` capability for their coefficient.
+`ExpressionAnalysis` publishes canonical source/target types, axis, coefficient
+source, class-side selection evidence, and the evaluation-order contract;
+semantic dependencies and callable-body fingerprints include the product.
+
+Directly evidenced products and assumed generic class-side selections now
+project into `ModuleLoweringSemantics`. The compiler lowers them through
+selected or active-requirement trait calls and the canonical `Basis<Axis>`
+constructor. Direct class receivers use canonical declaration imports;
+assumed type-parameter receivers resolve from the active runtime type
+environment.
+
+Bounded arithmetic-region selection now uses canonical basis identities and
+known scalar types: I-only regions choose Complex, J/K or mixed-axis regions
+choose Quaternion, explicit canonical algebra expectations take precedence,
+and completed bindings are not rescanned. Known scalar domains remain distinct;
+unresolved scalar types do not select a default. Real-valued terms use a
+separate checked `RealEmbeddable` operation; basis coefficients use direct
+component realization.
+
+Compiler lowering accepts expression coefficients in both multiplication
+orders. When the basis is the left operand, lowering stages that value in a
+scratch local, evaluates the coefficient next, then supplies the basis while
+retaining source evaluation order. Real embeddings project through the selected
+`RealEmbeddable.fromReal` class-side requirement.
+
+No Phalcom source-language probes or tests were run. The focused Rust check for
+`phalcom-semantic` and `phalcom-core` passed after these changes. T4 and T5
+remain `PARTIAL / UNVERIFIED` pending source acceptance, semantic/compiler
+coverage, and incremental parity.
 
 `LANG007.C4.P3` is already COMPLETE / IMPLEMENTED / FOCUSED_TESTED for the
 separate Pack/call-rest plan. Do not reopen or relabel P3 for this follow-on.
@@ -52,10 +116,11 @@ aggregate result was three passes and two failures, not feature acceptance.
 - Quaternion operation applicability remains capability-gated. Unsupported
   operations use ordinary dispatch failure; no Dynamic arithmetic fallback is
   permitted.
-- The checker returns `Unknown(UncheckedExpression)` for imaginary literals.
-  Compiler lowering explicitly rejects the node. No checked realization fact,
-  compiler realization descriptor, or temporary direct-construction prototype
-  remains in the delivered tree.
+- Explicitly expected imaginary literals now retain a checked realization fact
+  in `ExpressionAnalysis`; bounded arithmetic regions can also select a
+  canonical target. Directly evidenced products and real scalar embeddings are
+  projected and lowered. Expressions without checked products still fail
+  closed in the compiler.
 
 ## Resolved generic reification incident
 
@@ -83,16 +148,26 @@ source methods, name/index matching, or VM-side substitution.
 1. **Complete:** preserve the exact `Complex<Int>` identity regression and add
    neutral generic product, nested-call, outer-forwarding, independent-binder,
    and declaration-canonical semantic regressions.
-2. **Next:** complete T3's scalar identity and explicit basis-realization/real-embedding
-   source capabilities. Preserve exact conformance and callable identity.
-3. Add a durable semantic realization product for basis expressions and native
-   suffix literals. It must preserve canonical source identities, target type,
-   axis, scalar domain, and realization evidence.
-4. Project that product into compiler lowering. The compiler must consume the
-   product and construct ordinary data values; it must not infer from `i`/`j`/`k`
-   spelling.
-5. Add contextual arithmetic-region propagation for `i + j`, `2*i`, and mixed
-   axes. Preserve ordinary selector identity and source evaluation order.
+2. Complete source-level T3 acceptance for scalar identities and explicit
+   basis-realization/real-embedding capabilities. Preserve exact conformance and
+   callable identity; class-side source declarations are currently unverified.
+3. **Partial:** add semantic acceptance coverage for the new durable product
+   and extend direct realization to any remaining basis/suffix cases that need
+   a concrete expected type. The product already preserves canonical source
+   identities, target type, axis, scalar domain, capability evidence, and
+   evaluation order.
+4. **Partially implemented:** project directly evidenced products into
+   compiler lowering. The compiler consumes the product, invokes the selected
+   class-side capabilities, and constructs source-owned basis values; it must
+   not infer from `i`/`j`/`k` spelling. Add direct semantic/compiler acceptance
+   coverage and runtime tests.
+5. **Implemented, source acceptance pending:** assumed generic class-side
+   receivers resolve from the current frame's stable type-parameter binding.
+   The conformance slot still carries the method and type/conformance
+   environments only. Missing or non-nominal bindings fail closed. Next add
+   contextual arithmetic-region propagation for `i + j`, `2*i`, and mixed
+   axes while preserving ordinary selector identity and source evaluation
+   order.
 6. Add semantic negative cases: `j` into Complex, scalar-domain mismatch,
    ambiguous generic contexts, and unsupported capability operations.
 7. Run the focused runtime probe, semantic tests, compiler projection tests,
@@ -104,7 +179,9 @@ source methods, name/index matching, or VM-side substitution.
 - `LANG007.C4-CHECKPOINT.md` — shared follow-on lifecycle and active next action.
 - `algebraic-literals-follow-on-plan.md` — tracked task/resume contract.
 - `algebraic-literals-follow-on-walkthrough.md` — executed evidence and omissions.
-- `algebraic-literals-generic-reification-incident.md` — pending decision.
+- `algebraic-literals-generic-reification-incident.md` — resolved repair record.
+- `algebraic-literals-t3-capability-boundary-incident.md` — resolved class-side
+  trait ruling and implementation boundary.
 - `cliteral.md`, `docs/specs/complex-numbers.md`,
   `docs/specs/static-evaluation.md`, and `docs/specs/objects/traits.md` — design
   proposal and existing normative boundaries.

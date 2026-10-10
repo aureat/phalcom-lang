@@ -29,6 +29,9 @@ pub struct TypedExpression {
     pub knowledge: TypeKnowledge,
     pub status: AnalysisStatus,
     pub denotation: Option<SemanticDenotation>,
+    /// Solver-local carrier for a canonical algebraic realization selected
+    /// during bidirectional expression checking.
+    pub contextual_realization: Option<crate::checker::analysis::ContextualRealization>,
     pub dispatch_lookup: DispatchLookup,
     pub constraints: Vec<TypeConstraint>,
     pub provenance: EvidenceSet,
@@ -82,6 +85,7 @@ impl TypedExpression {
                 _ => AnalysisStatus::Ready,
             },
             denotation: None,
+            contextual_realization: None,
             dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
             provenance,
@@ -105,6 +109,7 @@ impl TypedExpression {
             knowledge,
             status: AnalysisStatus::Ready,
             denotation: None,
+            contextual_realization: None,
             dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
             provenance,
@@ -128,6 +133,7 @@ impl TypedExpression {
             knowledge,
             status: AnalysisStatus::Ready,
             denotation: None,
+            contextual_realization: None,
             dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
             provenance,
@@ -148,6 +154,7 @@ impl TypedExpression {
             knowledge: TypeKnowledge::Unknown(reason),
             status: AnalysisStatus::Ready,
             denotation: None,
+            contextual_realization: None,
             dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
             provenance: EvidenceSet::default(),
@@ -168,6 +175,7 @@ impl TypedExpression {
             knowledge: TypeKnowledge::Dynamic(reason.clone()),
             status: AnalysisStatus::DynamicBoundary(reason),
             denotation: None,
+            contextual_realization: None,
             dispatch_lookup: DispatchLookup::Normal,
             constraints: Vec::new(),
             provenance: EvidenceSet::default(),
@@ -256,6 +264,7 @@ impl From<crate::checker::analysis::ExpressionAnalysis> for TypedExpression {
         expr.binding_write = analysis.binding_write;
         expr.explanation_parents = analysis.explanation.into_iter().collect();
         expr.denotation = analysis.denotation;
+        expr.contextual_realization = analysis.contextual_realization;
         expr.status = analysis.status;
         expr.causal_invalidity = analysis.causal_invalidity;
         expr.binding_read_safety = analysis.binding_read_safety;

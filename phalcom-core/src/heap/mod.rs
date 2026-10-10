@@ -65,7 +65,7 @@ pub use closure::ClosureObject;
 pub use data::DataObject;
 pub use fiber::{FiberConsumer, FiberConsumerMode, FiberObject, FiberStatus};
 pub use instance::InstanceObject;
-pub use list::ListObject;
+pub use list::{ListCapacityError, ListObject, MAX_LIST_CAPACITY, MAX_LIST_CAPACITY_BYTES};
 pub use map::MapObject;
 pub use module::{MAIN_MODULE_NAME, MAX_GLOBALS, ModuleId, ModuleKind, ModuleObject, RuntimeExportRef};
 pub use object::{BoundMethodFamilyObject, BoundMethodObject, ConditionalFamilyDispatchEntry, FamilyObject, FamilySpec, MethodFamilyObject, Object};
@@ -253,7 +253,12 @@ impl Heap {
 
     /// Allocates a [`ListObject`] from `elements` and returns its [`ObjRef`].
     pub fn alloc_list(&mut self, elements: Vec<crate::value::Value>) -> ObjRef {
-        self.insert(Object::List(ListObject::new(elements)))
+        self.alloc_list_object(ListObject::new(elements))
+    }
+
+    /// Allocates an already-constructed [`ListObject`] and returns its [`ObjRef`].
+    pub fn alloc_list_object(&mut self, list: ListObject) -> ObjRef {
+        self.insert(Object::List(list))
     }
 
     /// Allocates an empty [`Object::Map`] and returns its [`ObjRef`].

@@ -22,9 +22,10 @@ convert arbitrary-size Int, or infer a global promotion. Users can write
 | Arbitrary labels, frequencies/modes | Future counts stay Int and labels stay T |
 | Running summary | Immutable concrete summary with count Int and optional mean/variance accessors |
 
-`meanExact(Iterable<Int>) -> Rational` and exact second moments are designed as
-later distinct operations, blocked on the Phase 1 Rational slice. Standard
-deviation generally has no Rational result. Decimal/BigFloat-specific packages
+The distinct `meanExact(Iterable<Int>) -> Rational` source Family is now present
+in `packages/statistics`; its Phalcom source acceptance remains open. Exact
+second moments remain later work. Standard deviation generally has no Rational
+result. Decimal/BigFloat-specific packages
 may provide their own explicit capabilities and kernels; V1 does not require a
 universal associated accumulation type before users can compute a Float mean.
 

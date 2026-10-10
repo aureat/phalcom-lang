@@ -459,6 +459,42 @@ pub struct TraitInvocationSpec {
     pub call_environment_recipe: Option<Arc<RuntimeCallEnvironmentRecipe>>,
 }
 
+/// Compiler-facing projection of one checked contextual algebraic
+/// realization. The selected class-side capabilities remain ordinary
+/// semantic trait invocations; this record only supplies their canonical
+/// receivers and the source-owned basis constructor for suffix literals.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContextualRealizationLoweringSpec {
+    pub source_expression: ExpressionId,
+    pub source_range: SourceRange,
+    pub target_receiver: ContextualClassReceiver,
+    pub realization: ForIterationRequirementSpec,
+    pub operation: ContextualRealizationOperationLowering,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ContextualRealizationOperationLowering {
+    Basis {
+        basis_construction: Arc<DataConstructionLoweringSpec>,
+        coefficient: phalcom_semantic::checker::analysis::RealizationCoefficientSource,
+        evaluation: phalcom_semantic::checker::analysis::RealizationEvaluationPlan,
+        coefficient_receiver: Option<ContextualClassReceiver>,
+        coefficient_one: Option<ForIterationRequirementSpec>,
+    },
+    RealEmbedding {
+        value: ExpressionId,
+        scalar_type: TypeId,
+    },
+}
+
+/// The class-side receiver for a contextual coefficient capability. Generic
+/// receivers are projected from the active runtime type environment.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ContextualClassReceiver {
+    Declaration(DeclarationId),
+    TypeParameter(phalcom_type_meta::StableTypeParameterRef),
+}
+
 pub type RuntimeTraitEnvironmentKey = (SourceRange, ImplId, phalcom_semantic::traits::TraitRequirementId);
 pub type RuntimeTraitEnvironmentBindings = BTreeMap<RuntimeTraitEnvironmentKey, Box<[(phalcom_type_meta::StableTypeParameterRef, RuntimeTypeRecipe)]>>;
 
@@ -547,6 +583,10 @@ pub struct ModuleLoweringSemantics {
     pub binding_read_safeties: BTreeMap<SourceRange, phalcom_semantic::checker::flow::BindingReadSafety>,
     pub type_form_values: BTreeMap<SourceRange, RuntimeTypeFormValueSpec>,
     pub anonymous_products: BTreeMap<SourceRange, Arc<AnonymousProductConstructionLoweringSpec>>,
+    /// Canonical contextual algebraic realization facts keyed by their AST
+    /// source range. The compiler consumes these without repeating semantic
+    /// capability discovery.
+    pub contextual_realizations: BTreeMap<SourceRange, Arc<ContextualRealizationLoweringSpec>>,
     /// Checked calls whose constructor belongs to the canonical intrinsic Pack.
     pub pack_constructions: BTreeSet<SourceRange>,
     pub call_environment_recipes: BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>,
@@ -600,6 +640,18 @@ pub(crate) fn attach_runtime_trait_environments(lowering: &mut ModuleLoweringSem
         attach_requirement(&mut spec.iterator, range, environments);
         attach_requirement(&mut spec.next, range, environments);
     }
+
+    for realization in lowering.contextual_realizations.values_mut() {
+        let spec = Arc::make_mut(realization);
+        attach_requirement(&mut spec.realization, spec.source_range, environments);
+        if let ContextualRealizationOperationLowering::Basis {
+            coefficient_one: Some(invocation),
+            ..
+        } = &mut spec.operation
+        {
+            attach_requirement(invocation, spec.source_range, environments);
+        }
+    }
 }
 
 impl ModuleLoweringSemantics {
@@ -614,6 +666,7 @@ impl ModuleLoweringSemantics {
             binding_read_safeties: BTreeMap::new(),
             type_form_values: BTreeMap::new(),
             anonymous_products: BTreeMap::new(),
+            contextual_realizations: BTreeMap::new(),
             pack_constructions: BTreeSet::new(),
             call_environment_recipes: BTreeMap::new(),
             conditional_call_environment_recipes: BTreeMap::new(),
@@ -650,6 +703,14 @@ pub enum ProjectionError {
     AmbiguousLoweringSiteAttachment(LoweringSite),
     #[error("ambiguous constructor super-initializer attachment at {0:?}")]
     AmbiguousConstructorSuperInitializerAttachment(SourceRange),
+    #[error("ambiguous contextual algebraic realization at {0:?}")]
+    AmbiguousContextualRealization(SourceRange),
+    #[error("contextual algebraic realization {0:?} requires runtime reification for an assumed class-side receiver")]
+    AssumedContextualRealizationReceiver(ExpressionId),
+    #[error("contextual algebraic realization {0:?} has no canonical type-parameter receiver")]
+    MissingContextualRealizationTypeParameter(ExpressionId),
+    #[error("contextual algebraic realization {0:?} has no canonical nominal class receiver")]
+    MissingContextualRealizationClass(ExpressionId),
     #[error("missing source range for expression {0:?}")]
     MissingSourceRange(ExpressionId),
     #[error("missing variant metadata for {0:?}")]
@@ -1164,6 +1225,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
     let mut conditional_invocations = BTreeMap::new();
     let mut trait_invocations = BTreeMap::new();
     let mut trait_requirement_invocations = BTreeMap::new();
+    let mut contextual_realizations = BTreeMap::new();
     let mut for_iteration_lanes = BTreeMap::new();
     let mut positional_expansions = BTreeMap::new();
     let mut known_invalid_positional_expansions = BTreeMap::new();
@@ -1419,6 +1481,13 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                 family_values.insert(LoweringSite::new(source_id.clone(), expression.range, LoweringSiteKind::FamilyApplication));
             }
 
+            if let Some(realization) = expression.contextual_realization.as_ref() {
+                let spec = project_contextual_realization(realization, &generic_evidence, snapshot, projects)?;
+                if contextual_realizations.insert(realization.source_range, Arc::new(spec)).is_some() {
+                    return Err(ProjectionError::AmbiguousContextualRealization(realization.source_range));
+                }
+            }
+
             match expression.trait_dispatch.as_ref() {
                 Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)) => {
                     let Some(&raw_slot) = requirement_slots.get(&selection.requirement) else {
@@ -1591,6 +1660,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         binding_read_safeties,
         type_form_values,
         anonymous_products,
+        contextual_realizations,
         pack_constructions,
         call_environment_recipes: runtime_call_environment_recipes.clone(),
         conditional_call_environment_recipes: conditional_call_environment_recipes.clone(),
@@ -3098,6 +3168,128 @@ fn project_trait_invocation_spec(
         antecedent_slots,
         type_bindings: Box::new([]),
         call_environment_recipe: None,
+    })
+}
+
+fn project_contextual_realization(
+    realization: &phalcom_semantic::checker::analysis::ContextualRealization,
+    generic_evidence: &phalcom_semantic::generic_evidence::GenericEvidenceEnvironment,
+    snapshot: &SemanticSnapshot,
+    projects: &phalcom_modules::ProjectUniverse,
+) -> Result<ContextualRealizationLoweringSpec, ProjectionError> {
+    use phalcom_semantic::checker::analysis::{
+        ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource,
+    };
+
+    fn project_capability(
+        expression: ExpressionId,
+        receiver_type: TypeId,
+        selection: &RealizationCapabilitySelection,
+        generic_evidence: &phalcom_semantic::generic_evidence::GenericEvidenceEnvironment,
+        snapshot: &SemanticSnapshot,
+        projects: &phalcom_modules::ProjectUniverse,
+    ) -> Result<(ContextualClassReceiver, ForIterationRequirementSpec), ProjectionError> {
+        match selection {
+            RealizationCapabilitySelection::Evidenced(selection) => {
+                let target_class = snapshot
+                    .store
+                    .nominal_origin_declaration(selection.exact_target)
+                    .cloned()
+                    .ok_or(ProjectionError::MissingContextualRealizationClass(expression))?;
+                Ok((
+                    ContextualClassReceiver::Declaration(target_class),
+                    ForIterationRequirementSpec::Selected(project_trait_invocation_spec(selection, snapshot)?),
+                ))
+            }
+            RealizationCapabilitySelection::Assumed(selection) => {
+                let TypeData::Parameter(parameter) = snapshot.store.get(receiver_type) else {
+                    return Err(ProjectionError::MissingContextualRealizationTypeParameter(expression));
+                };
+                let slot_key = phalcom_semantic::generic_evidence::GenericEvidenceSlotKey::new(selection.conformance.clone(), selection.requirement.clone());
+                let requirement_slot = generic_evidence
+                    .slot_for(&slot_key)
+                    .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(selection.requirement.clone()))?;
+                let stable_parameter = phalcom_semantic::metadata::MetadataExporter::new(
+                    &snapshot.store,
+                    None,
+                    None,
+                    None,
+                    phalcom_type_meta::header::MetadataProfile::RuntimePublic,
+                )
+                .with_project_universe(projects)
+                .export_type_parameter(*parameter)
+                .map_err(|error| ProjectionError::DataTypeMetadata(error.to_string()))?;
+                Ok((
+                    ContextualClassReceiver::TypeParameter(stable_parameter),
+                    ForIterationRequirementSpec::Requirement(TraitRequirementInvocationSpec {
+                        requirement: selection.requirement.clone(),
+                        requirement_slot,
+                    }),
+                ))
+            }
+        }
+    }
+
+    let (target_receiver, realization_invocation) = project_capability(
+        realization.source_expression,
+        realization.target_type,
+        &realization.realization,
+        generic_evidence,
+        snapshot,
+        projects,
+    )?;
+    let operation = match &realization.operation {
+        ContextualRealizationOperation::Basis {
+            basis_type,
+            coefficient,
+            evaluation,
+            ..
+        } => {
+            let basis_class = snapshot
+                .store
+                .nominal_origin_declaration(*basis_type)
+                .cloned()
+                .ok_or(ProjectionError::MissingContextualRealizationClass(realization.source_expression))?;
+            let basis_construction = build_data_construction_spec(
+                snapshot,
+                projects,
+                &DataConstructorId::new(basis_class),
+                *basis_type,
+                0,
+                Some(Box::new([])),
+            )?;
+            let (coefficient_receiver, coefficient_one) = match coefficient {
+                RealizationCoefficientSource::One { scalar_type, one } => {
+                    let (receiver, invocation) =
+                        project_capability(realization.source_expression, *scalar_type, one, generic_evidence, snapshot, projects)?;
+                    (Some(receiver), Some(invocation))
+                }
+                RealizationCoefficientSource::IntegerLiteral { .. }
+                | RealizationCoefficientSource::FloatLiteral { .. }
+                | RealizationCoefficientSource::Expression { .. } => (None, None),
+            };
+            ContextualRealizationOperationLowering::Basis {
+                basis_construction,
+                coefficient: coefficient.clone(),
+                evaluation: evaluation.clone(),
+                coefficient_receiver,
+                coefficient_one,
+            }
+        }
+        ContextualRealizationOperation::RealEmbedding { value, scalar_type } => {
+            ContextualRealizationOperationLowering::RealEmbedding {
+                value: *value,
+                scalar_type: *scalar_type,
+            }
+        }
+    };
+
+    Ok(ContextualRealizationLoweringSpec {
+        source_expression: realization.source_expression,
+        source_range: realization.source_range,
+        target_receiver,
+        realization: realization_invocation,
+        operation,
     })
 }
 

@@ -617,6 +617,28 @@ pub fn nominal_class(context: &TypingContextData, registry: &RuntimeTypingRegist
     }
 }
 
+/// Resolves the nominal class object represented by a closed nominal or
+/// applied runtime type. Applied types contribute their nominal origin while
+/// retaining the full type identity in the type environment.
+pub fn nominal_origin_class(context: &TypingContextData, registry: &RuntimeTypingRegistry, handle: RuntimeTypeRef) -> Option<ClassId> {
+    match handle {
+        RuntimeTypeRef::Overlay(id) => match context.overlay.type_node(id)? {
+            RuntimeOverlayTypeNode::Nominal { class } => Some(*class),
+            RuntimeOverlayTypeNode::Applied { origin, .. } => nominal_class(context, registry, *origin),
+            _ => None,
+        },
+        RuntimeTypeRef::Base { pool, node } => {
+            let loaded = registry.get_pool(pool)?;
+            let entry = loaded.bundle.types.get(node.0 as usize)?;
+            match &entry.form {
+                TypeNode::Nominal { declaration } => registry.resolve_nominal(declaration),
+                TypeNode::Applied { origin, .. } => nominal_class(context, registry, RuntimeTypeRef::Base { pool, node: *origin }),
+                _ => None,
+            }
+        }
+    }
+}
+
 pub fn subtype(context: &TypingContextData, registry: &RuntimeTypingRegistry, heap: &Heap, left: RuntimeTypeRef, right: RuntimeTypeRef) -> bool {
     if equivalent(context, registry, left, right) {
         return true;

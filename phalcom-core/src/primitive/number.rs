@@ -740,7 +740,7 @@ mod tests {
     }
 }
 
-fn ordering_value(vm: &mut VM, selector: &str) -> PhResult<Value> {
+pub(crate) fn ordering_value(vm: &mut VM, selector: &str) -> PhResult<Value> {
     let variant_name = match selector {
         "less" => "Less",
         "equal" => "Equal",

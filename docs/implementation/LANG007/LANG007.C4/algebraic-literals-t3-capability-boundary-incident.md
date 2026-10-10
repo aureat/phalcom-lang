@@ -128,10 +128,27 @@ capability contract changes dispatch-side identity, conformance evidence,
 reflection, generic witness selection, and normative source semantics. A local
 instance-side workaround would make later T4/T5 evidence unsound.
 
-## 13. Decision requested
+## 13. Decision and implementation boundary
 
-Should T3 introduce and normatively specify class-side/metatype trait
-requirements and conformance, including witness identity and runtime evidence,
-or should the algebraic realization capability be redesigned to use the current
-instance-side trait model? The implementation must not proceed until that
-boundary is decided.
+On 2026-10-10 the user chose **Add class-side traits**.
+
+Interpret the decision as class-side behavioral requirements selected through
+the existing nominal `impl Trait for Target` conformance model. Dispatch side
+remains part of requirement and callable identity. No conformance to a
+metatype/class-object type is introduced. Enum class-side trait requirements
+remain unsupported under the enum semantic boundary; class-side index
+requirements are also excluded.
+
+The normative contract is recorded in `docs/specs/objects/traits.md`. The live
+implementation now publishes `@class` requirements and properties on the
+class side, preserves side through default-body and explicit-witness signature
+formation, prevents instance data components from witnessing class-side
+getters, and rejects enum class-side trait conformances. `universe.numbers`
+declares `Zero`, `One`, `RealEmbeddable`, and `BasisRealizable`, with direct
+Complex/Quaternion implementations.
+
+Rust `cargo check` passes for `phalcom-semantic` and `phalcom-core`. No
+source-language acceptance probes or tests were run in this continuation, so
+the source capability declarations and exact runtime evidence remain
+unverified. T4 canonical contextual realization and T5 compiler projection/
+lowering remain incomplete.

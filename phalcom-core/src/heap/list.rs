@@ -11,6 +11,25 @@
 
 use crate::value::Value;
 
+/// Maximum backing storage reserved by one explicit List capacity request.
+///
+/// The cap applies to the element buffer, not to the total objects retained by
+/// a list. Keeping it in bytes makes the same policy apply on hosts with
+/// different `Value` layouts.
+pub const MAX_LIST_CAPACITY_BYTES: usize = 64 * 1024 * 1024;
+
+/// Maximum element count that fits the shared explicit-reservation budget.
+pub const MAX_LIST_CAPACITY: usize = MAX_LIST_CAPACITY_BYTES / std::mem::size_of::<Value>();
+
+/// Why a requested List capacity could not be reserved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListCapacityError {
+    /// The request exceeds the shared per-list backing-storage budget.
+    PolicyLimit,
+    /// The allocator or `Vec` capacity checks rejected an in-budget request.
+    Allocation,
+}
+
 /// A native array-backed list.
 ///
 /// The six VM-blessed floor primitives
@@ -28,6 +47,17 @@ impl ListObject {
     /// Builds a list object from an owned element buffer.
     pub fn new(elements: Vec<Value>) -> Self {
         Self { elements }
+    }
+
+    /// Creates an empty list after checking and reserving the requested
+    /// capacity under the shared List policy.
+    pub fn try_with_capacity(capacity: usize) -> Result<Self, ListCapacityError> {
+        if capacity > MAX_LIST_CAPACITY {
+            return Err(ListCapacityError::PolicyLimit);
+        }
+        let mut elements = Vec::new();
+        elements.try_reserve_exact(capacity).map_err(|_| ListCapacityError::Allocation)?;
+        Ok(Self { elements })
     }
 
     /// Borrows the list's elements.

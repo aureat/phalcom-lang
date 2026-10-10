@@ -513,6 +513,32 @@ fn candidate_from_proof(
     })
 }
 
+/// Materializes one ordinary selected trait requirement from proof evidence
+/// already obtained for an exact target and trait reference. This keeps
+/// callers that resolve a known capability on the canonical selection path
+/// without asking the broad selector-discovery index to choose among
+/// unrelated trait arguments.
+pub(crate) fn selection_from_proven_requirement(
+    evidence: GenericConformanceEvidence,
+    exact_target: TypeId,
+    requirement: &TraitRequirementId,
+    store: &mut TypeStore,
+) -> Option<TraitDispatchSelection> {
+    let candidate = candidate_from_proof(evidence, exact_target, requirement, store)?;
+    Some(TraitDispatchSelection {
+        source_impl: candidate.source_impl,
+        exact_target: candidate.exact_target,
+        exact_trait_ref: candidate.exact_trait_ref,
+        requirement: candidate.requirement,
+        callable: selected_callable(&candidate.selection),
+        signature: candidate.signature,
+        evidence_fingerprint: candidate.evidence_fingerprint,
+        evidence: candidate.evidence,
+        selection: candidate.selection,
+        requirement_targets: candidate.requirement_targets,
+    })
+}
+
 fn evidence_fingerprint(evidence: &GenericConformanceEvidence) -> ProductFingerprint {
     crate::db::fingerprint::generic_conformance_evidence_fingerprint(evidence)
 }

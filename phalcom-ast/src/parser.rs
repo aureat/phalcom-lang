@@ -4776,7 +4776,7 @@ impl<'source> Parser<'source> {
             }
             if let Some(attribute) = pending_attrs
                 .iter()
-                .find(|attribute| matches!(attribute.name.as_str(), "class" | "constructor" | "invariant"))
+                .find(|attribute| matches!(attribute.name.as_str(), "constructor" | "invariant"))
             {
                 return Err(SyntaxError {
                     kind: SyntaxErrorKind::Message(format!("`@{}` is not allowed on trait members", attribute.name)),

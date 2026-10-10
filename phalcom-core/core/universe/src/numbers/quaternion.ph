@@ -1,4 +1,5 @@
-from .capabilities import Addable, Subtractable, Multipliable, Negatable
+from .capabilities import Addable, Subtractable, Multipliable, Negatable, Zero, One
+from .algebra import Basis, I, J, K, BasisRealizable, RealEmbeddable
 from .complex import Complex
 
 /// Immutable Hamilton quaternion with four components of one scalar type.
@@ -11,6 +12,50 @@ impl<T> Quaternion<T> {
   }
 
   complexPart -> Complex<T> { Complex<T>(self.real, self.i) }
+}
+
+impl<T> Zero for Quaternion<T> where T |= Zero {
+  @class zero -> Quaternion<T> {
+    Quaternion<T>(T.zero, T.zero, T.zero, T.zero)
+  }
+}
+
+impl<T> One for Quaternion<T> where T |= Zero, T |= One {
+  @class one -> Quaternion<T> {
+    Quaternion<T>(T.one, T.zero, T.zero, T.zero)
+  }
+}
+
+impl<T> RealEmbeddable for Quaternion<T> where T |= Zero {
+  type Scalar = T
+
+  @class fromReal(_ value: T) -> Quaternion<T> {
+    Quaternion<T>(value, T.zero, T.zero, T.zero)
+  }
+}
+
+impl<T> BasisRealizable<Basis<I>> for Quaternion<T> where T |= Zero, T |= One {
+  type Scalar = T
+
+  @class along(_ coefficient: T, _ basis: Basis<I>) -> Quaternion<T> {
+    Quaternion<T>(T.zero, coefficient, T.zero, T.zero)
+  }
+}
+
+impl<T> BasisRealizable<Basis<J>> for Quaternion<T> where T |= Zero, T |= One {
+  type Scalar = T
+
+  @class along(_ coefficient: T, _ basis: Basis<J>) -> Quaternion<T> {
+    Quaternion<T>(T.zero, T.zero, coefficient, T.zero)
+  }
+}
+
+impl<T> BasisRealizable<Basis<K>> for Quaternion<T> where T |= Zero, T |= One {
+  type Scalar = T
+
+  @class along(_ coefficient: T, _ basis: Basis<K>) -> Quaternion<T> {
+    Quaternion<T>(T.zero, T.zero, T.zero, coefficient)
+  }
 }
 
 impl<T> Quaternion<T> where T |= Addable {

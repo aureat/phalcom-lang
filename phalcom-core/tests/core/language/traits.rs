@@ -45,13 +45,24 @@ let result = zero.size + one.size
 #[test]
 fn random_rejects_secure_conformance_hidden_children_and_wrong_output_types() {
     for (source, expected) in [
-        ("from universe.random import SecureRandom, Generator\nclass Consumer { @class use<G>(_ generator: G) -> Int where G |= Generator { generator.nextU64 } }\nConsumer.use(SecureRandom.system)", "genericconstraintunsatisfied"),
+        (
+            "from universe.random import SecureRandom, Generator\nclass Consumer { @class use<G>(_ generator: G) -> Int where G |= Generator { generator.nextU64 } }\nConsumer.use(SecureRandom.system)",
+            "genericconstraintunsatisfied",
+        ),
         ("import universe.random.xoshiro256pp\n", "moduleexposurerejected"),
-        ("from universe.random import Xoshiro256PlusPlus, Bernoulli\nlet wrong: Int = Bernoulli.new(0.5).sample(using: Xoshiro256PlusPlus.seed(42))", "assignable"),
-        ("from universe.random import Xoshiro256PlusPlus\nXoshiro256PlusPlus.seed(42).nextInt(below: 1.0)", "argument"),
+        (
+            "from universe.random import Xoshiro256PlusPlus, Bernoulli\nlet wrong: Int = Bernoulli.new(0.5).sample(using: Xoshiro256PlusPlus.seed(42))",
+            "assignable",
+        ),
+        (
+            "from universe.random import Xoshiro256PlusPlus\nXoshiro256PlusPlus.seed(42).nextInt(below: 1.0)",
+            "argument",
+        ),
     ] {
         let mut session = phalcom_core::modules::compile_session::ProgramCompilationSession::standalone().unwrap();
-        let error = session.compile_fixture(std::path::Path::new("random-negative.ph"), source).expect_err("invalid random client must fail");
+        let error = session
+            .compile_fixture(std::path::Path::new("random-negative.ph"), source)
+            .expect_err("invalid random client must fail");
         assert!(error.to_string().to_lowercase().contains(expected), "{error}");
     }
 }
@@ -76,12 +87,18 @@ let result = Script.new().nextInt(below: 1 << 69)
     let program = session.compile_fixture(std::path::Path::new("random-policy.ph"), source).unwrap();
     let mut vm = vm_support::universe_vm();
     vm.numeric_policy.max_integer_bits = Some(70);
-    vm.run_compiled(&program).expect("masked first chunk never builds an avoidable 128-bit candidate");
+    vm.run_compiled(&program)
+        .expect("masked first chunk never builds an avoidable 128-bit candidate");
     let module = vm.module_registry.get(&program.entry).unwrap().object;
     assert_eq!(named(&vm, module, "result").unwrap().to_string(&vm), "571849066284996100113");
 
     let mut session = phalcom_core::modules::compile_session::ProgramCompilationSession::standalone().unwrap();
-    let oversized = session.compile_fixture(std::path::Path::new("random-limit.ph"), "from universe.random import Xoshiro256PlusPlus\nlet result = Xoshiro256PlusPlus.seed(42).nextInt(below: 1 << 140)\n").unwrap();
+    let oversized = session
+        .compile_fixture(
+            std::path::Path::new("random-limit.ph"),
+            "from universe.random import Xoshiro256PlusPlus\nlet result = Xoshiro256PlusPlus.seed(42).nextInt(below: 1 << 140)\n",
+        )
+        .unwrap();
     vm.numeric_policy.max_integer_bits = Some(128);
     let error = vm.run_compiled(&oversized).expect_err("oversized bound preserves ordinary numeric failure");
     assert!(error.to_string().contains("Numeric limit exceeded"), "{error}");

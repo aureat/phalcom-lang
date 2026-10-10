@@ -121,6 +121,7 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "BuildPack",
     "GuardFieldKey",
     "RecordLiteralCheckKey",
+    "LoadTypeParameterClass",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -770,12 +771,17 @@ pub enum Bytecode {
     /// on the stack. The compiler emits this after key validation and before
     /// evaluating the associated field value.
     RecordLiteralCheckKey,
+
+    /// Pushes the nominal class object bound to a stable type parameter in the
+    /// active runtime type environment. Missing or non-nominal bindings fail
+    /// closed. The operand indexes the executable semantic pool.
+    LoadTypeParameterClass(u16),
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 117;
+    pub const VARIANTS: usize = 118;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -903,6 +909,7 @@ impl Bytecode {
             Bytecode::BuildPack { .. } => 114,
             Bytecode::GuardFieldKey => 115,
             Bytecode::RecordLiteralCheckKey => 116,
+            Bytecode::LoadTypeParameterClass(..) => 117,
         }
     }
 

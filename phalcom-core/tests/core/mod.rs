@@ -82,6 +82,8 @@ mod execution_repair_regressions;
 mod execution_send_arity;
 #[path = "execution/static_const.rs"]
 mod execution_static_const;
+#[path = "collections/list_capacity.rs"]
+mod list_capacity;
 #[path = "memory/gc.rs"]
 mod memory_gc;
 #[path = "memory/pack_gc.rs"]

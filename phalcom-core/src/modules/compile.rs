@@ -99,6 +99,59 @@ fn add_runtime_trait_environment_roots(
     }
 }
 
+fn add_contextual_realization_trait_roots(
+    roots: &mut Vec<RuntimeTraitEnvironmentRootSpec>,
+    seen: &mut BTreeSet<(
+        ModuleId,
+        SourceRange,
+        phalcom_semantic::identity::ImplId,
+        phalcom_semantic::traits::TraitRequirementId,
+        phalcom_semantic::types::id::TypeParameterId,
+    )>,
+    module: &ModuleId,
+    realization: &phalcom_semantic::checker::analysis::ContextualRealization,
+) {
+    use phalcom_semantic::checker::analysis::{
+        ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource,
+    };
+
+    let mut add_selection = |selection: &RealizationCapabilitySelection| {
+        let RealizationCapabilitySelection::Evidenced(selection) = selection else {
+            return;
+        };
+        let bindings = match &selection.evidence {
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(evidence) => evidence
+                .impl_environment
+                .bindings
+                .iter()
+                .map(|(&parameter, &ty)| (parameter, ty))
+                .collect::<Vec<_>>(),
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(evidence) => {
+                evidence.impl_bindings.bindings().iter().map(|(&parameter, &ty)| (parameter, ty)).collect()
+            }
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(_) => Vec::new(),
+        };
+        add_runtime_trait_environment_roots(
+            roots,
+            seen,
+            module,
+            realization.source_range,
+            &selection.source_impl,
+            &selection.requirement,
+            bindings,
+        );
+    };
+
+    add_selection(&realization.realization);
+    if let ContextualRealizationOperation::Basis {
+        coefficient: RealizationCoefficientSource::One { one, .. },
+        ..
+    } = &realization.operation
+    {
+        add_selection(one);
+    }
+}
+
 fn inherent_impl_domain_for_callable<'a>(
     snapshot: &'a phalcom_semantic::SemanticSnapshot,
     callable: &phalcom_semantic::identity::CallableId,
@@ -759,6 +812,9 @@ impl ProgramCompiler {
             }
             for (callable, analysis) in analyzed.semantic.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == id) {
                 for expression in analysis.expressions.values() {
+                    if let Some(realization) = expression.contextual_realization.as_ref() {
+                        add_contextual_realization_trait_roots(&mut runtime_trait_root_specs, &mut runtime_trait_root_seen, id, realization);
+                    }
                     let specialization = expression.call_specialization.as_ref();
                     let capability = expression.conditional_capability.as_ref();
                     if specialization.is_none() && capability.is_none() {

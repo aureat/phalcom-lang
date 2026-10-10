@@ -41,7 +41,8 @@ capability; one capability does not imply another.
 | `T \|= Addable`, `T \|= Subtractable`, `T \|= Multipliable` | `*` |
 | `T \|= Negatable` | unary `-`, `conjugate` |
 | `T \|= Addable`, `T \|= Multipliable` | `normSquared` |
-| `Complex<Int> \|= IntegerPower` or `Complex<Float> \|= IntegerPower` | `**(Int)` |
+| `Complex<Float>` or `Complex<Rational>` | `/` |
+| `Complex<Int> \|= IntegerPower`, `Complex<Rational> \|= IntegerPower`, or `Complex<Float> \|= IntegerPower` | `**(Int)` |
 
 For `a + bi` and `c + di`, the algebraic operations are:
 
@@ -79,6 +80,14 @@ is unavailable on `Complex<Int>`; there is no implicit conversion to
 Integer powers use exponentiation by squaring. Exponent zero returns
 `Complex(1, 0)`, including `0 ** 0`. A negative integer exponent raises
 `ArgumentError`; it does not manufacture floating-point components.
+
+## Rational components
+
+`Complex<Rational>` supports exact addition, subtraction, multiplication,
+division, and integer powers. Division uses the exact conjugate-over-norm
+formula and raises the existing divide-by-zero error for a zero divisor.
+Negative integer powers use exact reciprocal division. No conversion to Float
+occurs.
 
 ## Floating-point components
 

@@ -132,6 +132,7 @@ An accepted decision or implementation checkpoint that changes current language 
 | Callable reflection | [`callables/reflection.md`](callables/reflection.md) |
 | Canonical builtin Universe package | [`universe.md`](universe.md) |
 | Generic Complex values, capability arithmetic, and principal Float mathematics | [`complex-numbers.md`](complex-numbers.md) |
+| Exact Rational values and Float representability/ordering | [`numeric-types.md`](numeric-types.md) |
 | VM bytecode set and bytecode contracts | [`vm/bytecodes.md`](vm/bytecodes.md) |
 | VM execution model | [`vm/vm-execution-model.md`](vm/vm-execution-model.md) |
 | VM value/object representation | [`vm/values-and-objects.md`](vm/values-and-objects.md) |

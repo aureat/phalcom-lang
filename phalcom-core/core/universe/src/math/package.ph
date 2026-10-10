@@ -44,6 +44,55 @@ let degrees = &FloatAngleHelpers.degrees(_)
 let radians = &FloatAngleHelpers.radians(_)
 
 let logSumExp = &FloatReduction.logSumExp(_)
+let sum = &FloatReduction.sum(_)
+let mean = &FloatReduction.mean(_)
+
+/// Range-aware compensated mean for an already-collected List. The concrete
+/// entry point preserves the same numeric contract without asking callers to
+/// re-establish an Iterable associated-item equality for List<Float>.
+class MathReductions {
+  @class
+  meanList(_ values: List<Float>) -> Float {
+    if values.size == 0 { ArgumentError.new("mean requires a nonempty input").raise() }
+    let mut scale = 0.0
+    let mut total = 0.0
+    let mut correction = 0.0
+    let mut i = 0
+    while i < values.size {
+      let x: Float = values.at(i)
+      if not x.isFinite { ArgumentError.new("Float mean requires finite values").raise() }
+      let magnitude = x.abs
+      if magnitude > scale {
+        if scale != 0.0 {
+          let ratio = scale / magnitude
+          total = total * ratio
+          correction = correction * ratio
+        }
+        scale = magnitude
+      }
+      if scale != 0.0 {
+        let term = x / scale
+        let next = total + term
+        if total.abs >= term.abs {
+          correction = correction + ((total - next) + term)
+        } else {
+          correction = correction + ((term - next) + total)
+        }
+        total = next
+      }
+      i = i + 1
+    }
+    if scale == 0.0 { return 0.0 }
+    let normalized = (total + correction) / Float.new(values.size)
+    let result = scale * normalized
+    if not result.isFinite {
+      NumericalRangeError.new("Float mean is outside the finite binary64 range").raise()
+    }
+    return result
+  }
+}
+
+let meanList = &MathReductions.meanList(_)
 
 let factorial = &IntegerMath.factorial(_)
 let choose = &IntegerMath.choose(_, _)
@@ -59,6 +108,6 @@ export (
   sqrt, cbrt, exp, exp2, expm1, ln, ln1p, log, log2, log10,
   sin, cos, tan, asin, acos, atan, atan2,
   degrees, radians, sinh, cosh, tanh, asinh, acosh, atanh, hypot,
-  gcd, lcm, isqrt, logSumExp, factorial, choose, fallingFactorial, risingFactorial,
+  gcd, lcm, isqrt, sum, mean, meanList, logSumExp, factorial, choose, fallingFactorial, risingFactorial,
   NumericalRangeError, NumericalEvaluationError
 )

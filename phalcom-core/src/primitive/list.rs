@@ -13,6 +13,8 @@ use crate::heap::ObjRef;
 use crate::primitive::expect_list;
 use crate::value::Value;
 use crate::vm::VM;
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 /// Extracts a non-negative integer index from `value`.
 ///
@@ -58,6 +60,73 @@ pub(crate) fn expect_index(value: &Value) -> PhResult<usize> {
 #[phalcom_native_macros::primitive(List, "new()", side = class)]
 pub fn list_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Ok(Value::obj(vm.heap.alloc_list(Vec::new())))
+}
+
+/// Signature: `List.class::rawWithCapacity(_)` — allocates an empty list with
+/// a checked, pre-reserved element buffer.
+#[phalcom_native_macros::primitive(List, "rawWithCapacity(_)", side = class, visibility = internal)]
+pub fn list_class_with_capacity(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let (capacity, requested) = list_capacity_request(vm, &args[0])?;
+    let list = match crate::heap::ListObject::try_with_capacity(capacity) {
+        Ok(list) => list,
+        Err(crate::heap::ListCapacityError::PolicyLimit) => {
+            return Err(RuntimeError::ListCapacityLimit {
+                requested,
+                max_elements: crate::heap::MAX_LIST_CAPACITY,
+            }
+            .into());
+        }
+        Err(crate::heap::ListCapacityError::Allocation) => {
+            return Err(RuntimeError::ListAllocationFailure { requested }.into());
+        }
+    };
+    Ok(Value::obj(vm.heap.alloc_list_object(list)))
+}
+
+fn list_capacity_request(vm: &VM, value: &Value) -> PhResult<(usize, String)> {
+    if let Some(requested) = value.as_int() {
+        if requested < 0 {
+            return Err(RuntimeError::Type {
+                expected: "a non-negative integer List capacity",
+                found: value.type_name(),
+            }
+            .into());
+        }
+        if requested as u128 > crate::heap::MAX_LIST_CAPACITY as u128 {
+            return Err(RuntimeError::ListCapacityLimit {
+                requested: requested.to_string(),
+                max_elements: crate::heap::MAX_LIST_CAPACITY,
+            }
+            .into());
+        }
+        let requested = requested as usize;
+        return Ok((requested, requested.to_string()));
+    }
+
+    if let Some(big) = value.as_obj().and_then(|id| vm.heap.as_large_int(id)) {
+        if big < &BigInt::from(0) {
+            return Err(RuntimeError::Type {
+                expected: "a non-negative integer List capacity",
+                found: value.type_name(),
+            }
+            .into());
+        }
+        let requested = big.to_string();
+        let Some(capacity) = big.to_usize() else {
+            return Err(RuntimeError::ListCapacityLimit {
+                requested,
+                max_elements: crate::heap::MAX_LIST_CAPACITY,
+            }
+            .into());
+        };
+        return Ok((capacity, requested));
+    }
+
+    Err(RuntimeError::Type {
+        expected: "a non-negative integer List capacity",
+        found: value.type_name(),
+    }
+    .into())
 }
 
 /// Signature: `List::length_` — the list's element count.

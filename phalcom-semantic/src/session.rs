@@ -4536,6 +4536,18 @@ impl SemanticWorkspaceSession {
                                 let target_owner = head.target.declaration().clone();
                                 let impl_signature = head.generic_signature.clone();
                                 let contribution = crate::impls::ConformanceContribution::from_resolved(head, authorized);
+                                let has_class_side_requirements = trait_surfaces
+                                    .get(&contribution.trait_ref.declaration)
+                                    .is_some_and(|surface| surface.iter().any(|(requirement, _)| requirement.side == DispatchSide::Class));
+                                if has_class_side_requirements && enum_semantics.enum_info(contribution.target.declaration()).is_some() {
+                                    diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                        module_id.clone(),
+                                        DiagnosticCode::EnumCaseStaticBehaviorUnsupported,
+                                        "class-side trait requirements are not supported on enum targets",
+                                        impl_def.range,
+                                    ));
+                                    continue;
+                                }
                                 let mut source_associated_type_plan = if let Some(surface) = trait_surfaces.get(&contribution.trait_ref.declaration) {
                                     let associated_plan = crate::impls::build_conformance_associated_type_plan(
                                         &mut context,
@@ -4641,7 +4653,7 @@ impl SemanticWorkspaceSession {
                                                 &callable_owner,
                                                 &target_owner,
                                                 impl_signature.as_ref(),
-                                                formation_site,
+                                                &formation_site.clone().with_self_dispatch_side(side),
                                                 syntax,
                                                 side,
                                             )
@@ -4712,6 +4724,20 @@ impl SemanticWorkspaceSession {
                                 let Some(surface) = trait_surfaces.get(&rule_head.trait_ref.declaration) else {
                                     continue;
                                 };
+                                let target_declaration = context.store.nominal_origin_declaration(rule_head.target_template).cloned();
+                                if surface.iter().any(|(requirement, _)| requirement.side == DispatchSide::Class)
+                                    && target_declaration
+                                        .as_ref()
+                                        .is_some_and(|declaration| enum_semantics.enum_info(declaration).is_some())
+                                {
+                                    diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                        module_id.clone(),
+                                        DiagnosticCode::EnumCaseStaticBehaviorUnsupported,
+                                        "class-side trait requirements are not supported on enum targets",
+                                        impl_def.range,
+                                    ));
+                                    continue;
+                                }
                                 let mut source_associated_type_plan = crate::impls::build_conformance_associated_type_plan(
                                     &mut context,
                                     &rule_head.impl_id,
@@ -4780,7 +4806,7 @@ impl SemanticWorkspaceSession {
                                     let formation_site = TypeFormationSite::trait_member(
                                         module_id.clone(),
                                         rule_head.trait_ref.declaration.clone(),
-                                        DispatchSide::Instance,
+                                        side,
                                         rule_head.trait_ref.clone(),
                                         associated_type_context,
                                     )
@@ -5552,10 +5578,11 @@ impl SemanticWorkspaceSession {
                         continue;
                     };
                     let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
+                    let side = crate::semantic_shard::behavior_side(member);
                     let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(
                         &crate::identity::CallableOwnerId::Declaration(declaration.clone()),
                         syntax,
-                        DispatchSide::Instance,
+                        side,
                     ) else {
                         continue;
                     };
@@ -5566,7 +5593,7 @@ impl SemanticWorkspaceSession {
                         phalcom_ast::ast::BehaviorMember::Index(index) => index.body.statements().map(|body| (body, index.range)),
                     };
                     let Some((body, body_range)) = body else { continue };
-                    let Some(surface_member) = surface.get_by_selector(&callable.selector, DispatchSide::Instance) else {
+                    let Some(surface_member) = surface.get_by_selector(&callable.selector, side) else {
                         continue;
                     };
                     let query_key = QueryKey::CallableBody(callable.clone());
@@ -12011,7 +12038,8 @@ fn publish_conformance_witness_plans(
                 }
                 crate::impls::EffectiveInherentWitnessResolution::NotFound => {}
             }
-            if matches!(requirement.selector.kind, phalcom_common::selector::SelectorKind::Getter)
+            if requirement.side == DispatchSide::Instance
+                && matches!(requirement.selector.kind, phalcom_common::selector::SelectorKind::Getter)
                 && let Some(info) = data_semantics.get(contribution.target.declaration())
                 && let Some(component) = info.find_component(&requirement.selector.encode())
                 && let Some(component_type) = component.declared_type.canonical_type()

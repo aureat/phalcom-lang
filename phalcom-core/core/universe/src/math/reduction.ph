@@ -1,7 +1,100 @@
 from .float_kernel import FloatMathKernel
+from .numerical_errors import NumericalRangeError
+from universe.collections.iterator_laws import Iterable
 
-/// Stable Float reductions. The input List is read without mutation.
+/// Stable Float reductions over one-pass inputs; no source value is mutated.
 class FloatReduction {
+  /// Compensated, range-aware sum for one finite Float stream.
+  @class
+  sum<I>(_ values: I) -> Float
+    where I |= Iterable, <I as Iterable>::Item == Float
+  {
+    let mut iterator = values.iterator
+    let mut scale = 0.0
+    let mut total = 0.0
+    let mut correction = 0.0
+    let mut step = iterator.next
+    while step.isSome {
+      let x: Float = step.match(some: |value| { value }, none: || { 0.0 })
+      if not x.isFinite { ArgumentError.new("Float sum requires finite values").raise() }
+      let magnitude = x.abs
+      if magnitude > scale {
+        if scale != 0.0 {
+          let ratio = scale / magnitude
+          total = total * ratio
+          correction = correction * ratio
+        }
+        scale = magnitude
+      }
+      if scale != 0.0 {
+        let term = x / scale
+        let next = total + term
+        if total.abs >= term.abs {
+          correction = correction + ((total - next) + term)
+        } else {
+          correction = correction + ((term - next) + total)
+        }
+        total = next
+      }
+      step = iterator.next
+    }
+    if scale == 0.0 { return 0.0 }
+    let result = scale * (total + correction)
+    if not result.isFinite {
+      NumericalRangeError.new("Float sum is outside the finite binary64 range").raise()
+    }
+    return result
+  }
+
+  /// Range-aware mean for one finite Float stream.
+  @class
+  mean<I>(_ values: I) -> Float
+    where I |= Iterable, <I as Iterable>::Item == Float
+  {
+    let mut iterator = values.iterator
+    let mut scale = 0.0
+    let mut total = 0.0
+    let mut correction = 0.0
+    let mut count = 0
+    let mut step = iterator.next
+    while step.isSome {
+      let x: Float = step.match(some: |value| { value }, none: || { 0.0 })
+      if not x.isFinite { ArgumentError.new("Float mean requires finite values").raise() }
+      if count >= 9007199254740991 {
+        NumericalRangeError.new("mean count exceeds the exact Float integer range").raise()
+      }
+      let magnitude = x.abs
+      if magnitude > scale {
+        if scale != 0.0 {
+          let ratio = scale / magnitude
+          total = total * ratio
+          correction = correction * ratio
+        }
+        scale = magnitude
+      }
+      if scale != 0.0 {
+        let term = x / scale
+        let next = total + term
+        if total.abs >= term.abs {
+          correction = correction + ((total - next) + term)
+        } else {
+          correction = correction + ((term - next) + total)
+        }
+        total = next
+      }
+      count = count + 1
+      step = iterator.next
+    }
+    if count == 0 { ArgumentError.new("mean requires a nonempty input").raise() }
+    if scale == 0.0 { return 0.0 }
+    let normalized = (total + correction) / Float.new(count)
+    let result = scale * normalized
+    if not result.isFinite {
+      NumericalRangeError.new("Float mean is outside the finite binary64 range").raise()
+    }
+    return result
+  }
+
   @class
   logSumExp(_ values: List<Float>) -> Float {
     let infinity = 1.0 / 0.0

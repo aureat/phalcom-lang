@@ -67,22 +67,41 @@ environment regression also passes. The aggregate algebraic-literals group
 still has the pre-existing typed `i`/`j` contextual-realization failure; that
 is T4 work, not a generic-reification failure.
 
-The follow-on remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`. T3 identity
-capabilities and explicit realization APIs are the next action; T4/T5 remain
-unfinished. See `algebraic-literals-generic-reification-walkthrough.md` and
-`algebraic-literals-generic-reification-handoff.md`.
+The user resolved the T3 boundary on 2026-10-10 by choosing **Add class-side
+traits**. The scope is `@class` behavioral requirements under ordinary
+nominal-target conformance evidence; no metatype conformance was added. Enum
+class-side trait conformances and class-side index requirements remain outside
+the supported boundary.
 
-T3 is currently held at an architectural boundary: the proposal's `@class`
-trait requirements conflict with the normative trait specification's explicit
-deferral of metatype/class-side conformance syntax and the live trait surface's
-instance-side-only requirement publication. The incident and narrow decision
-request are recorded in
-`algebraic-literals-t3-capability-boundary-incident.md`; no speculative
-instance-side workaround was added.
+The trait specification and semantic surface now preserve dispatch side for
+requirements, properties, defaults, and explicit witnesses. Data components
+remain instance-side witnesses. `universe.numbers` now declares `Zero`, `One`,
+`RealEmbeddable`, and `BasisRealizable`, with direct class-side realizations
+for Complex and Quaternion.
 
-Current compiler lowering rejects imaginary literals; no temporary realization
-prototype is retained. Broader semantic/incremental/compiler realization gates
-and workspace certification are deferred. Full AST integration reported
+Rust `cargo check -p phalcom-semantic -p phalcom-core` passed. The scoped
+`rustfmt --check` passed on the new realization module and touched semantic
+files other than `expression.rs`, which retains unrelated baseline formatting
+drift. No source-language acceptance probes or tests were run for the focused
+realization work. A later dependency-free CLI project now reproduces a native
+stack overflow, blocking source acceptance across the worktree; the failing
+phase is unknown. The follow-on is `BLOCKED / PARTIAL / UNVERIFIED`. See the
+[stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
+T4 publishes canonical realization products for directly expected basis
+values, suffix literals, `RealEmbeddable` scalar terms, and bounded arithmetic
+regions selected from known basis and scalar types. Explicit target types take
+precedence; completed bindings are boundaries; unresolved scalar types do not
+select a default. T5 projects direct and assumed generic class-side selections
+and lowers them through selected/requirement trait calls and the canonical
+basis constructor. Expression coefficients work in either multiplication
+order while preserving source order. Assumed class receivers come from the
+active runtime type environment. Source acceptance remains unverified.
+See `algebraic-literals-t3-capability-boundary-incident.md` and the updated
+follow-on walkthrough/handoff.
+
+Compiler lowering still fails closed when canonical realization facts are
+missing. Broader semantic/incremental/compiler realization gates and workspace
+certification are deferred. Full AST integration reported
 304 PASS / 1 FAIL / 1 ignored; the unrelated Record-pattern failure is D by
 scoped inspection, not clean-predecessor confirmed. Existing rustfmt drift is
 preserved outside new blocks. Full executed evidence and takeover details are
@@ -316,7 +335,7 @@ The intended C4 decomposition is:
 | `LANG007.C4.P8` | Incremental durability, metadata, cross-module static products, materialization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P9` | Public ontology migration, tooling, documentation, performance certification, checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P11` | `Char` scalar, character literals, semantic/runtime integration | IN_PROGRESS | PARTIAL | UNVERIFIED | implementation committed as `800e1793` on `codex/lang007-c4-p4-r1-stdlib` and pushed; adds scalar/literal/static/runtime/Universe/native seams, generated surface, Char literal parsing/resolution, closed-scalar coverage, and exact runtime lowering; AST lexer/parser cases were added, but no tests or crate checks were run; see interim [walkthrough](LANG007.C4.P11-walkthrough.md) and [handoff](LANG007.C4.P11-handoff.md) |
-| `LANG007.C4.algebraic-literals-follow-on` | User-directed contextual algebraic values, Quaternion source algebra, and `i`/`j`/`k` suffix literals | BLOCKED | PARTIAL | FOCUSED_TESTED | syntax, source-owned basis values, and focused Quaternion laws landed in the Complex worktree; contextual realization/literal lowering is unfinished; blocked by generic runtime type reification; see [walkthrough](algebraic-literals-follow-on-walkthrough.md), [handoff](algebraic-literals-follow-on-handoff.md), and [incident](algebraic-literals-generic-reification-incident.md) |
+| `LANG007.C4.algebraic-literals-follow-on` | User-directed contextual algebraic values, Quaternion source algebra, and `i`/`j`/`k` suffix literals | BLOCKED | PARTIAL | UNVERIFIED | generic runtime reification is repaired; T3 class-side source capabilities are implemented but source acceptance is blocked by the dependency-free CLI stack overflow; T4/T5 include bounded arithmetic-region selection, real embedding, and either-order expression coefficients; see [stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), [walkthrough](algebraic-literals-follow-on-walkthrough.md), and [handoff](algebraic-literals-follow-on-handoff.md) |
 | `LANG007.C4.P12` | String–Char bridge, UTF-8 boundaries, iteration, parse.text migration | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P11 |
 | `LANG007.C4.P13` | Typed String hygiene and text-position utilities | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P12 |
 | `LANG007.C4.P14` | Owned immutable homogeneous indexed snapshots | PROPOSED | NOT_STARTED | UNVERIFIED | depends on P11 and iteration laws |

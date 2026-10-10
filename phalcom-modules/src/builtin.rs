@@ -84,7 +84,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["numbers"],
         kind: ModuleKind::Package,
-        children: &["capabilities", "algebra", "complex", "quaternion", "float_complex"],
+        children: &["capabilities", "algebra", "complex", "quaternion", "float_complex", "rational"],
     },
     UniverseNodeSpec {
         path: &["numbers", "capabilities"],
@@ -108,6 +108,11 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["numbers", "float_complex"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["numbers", "rational"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -833,6 +838,9 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "numbers" && m.as_str() == "float_complex" => {
                 include_str!("../../phalcom-core/core/universe/src/numbers/float_complex.ph")
+            }
+            [c, m] if c.as_str() == "numbers" && m.as_str() == "rational" => {
+                include_str!("../../phalcom-core/core/universe/src/numbers/rational.ph")
             }
             [c, m] if c.as_str() == "math" && m.as_str() == "float_kernel" => {
                 include_str!("../../phalcom-core/core/universe/src/math/float_kernel.ph")
