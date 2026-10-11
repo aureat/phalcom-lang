@@ -3305,13 +3305,12 @@ fn project_realization_prerequisite_recipe(
     snapshot: &SemanticSnapshot,
     projects: &phalcom_modules::ProjectUniverse,
 ) -> Result<Option<Arc<RuntimeCallEnvironmentRecipe>>, ProjectionError> {
+    use crate::typing::RuntimeConformanceSlotRecipe;
     use phalcom_semantic::generic_evidence::{
-        DerivedConformanceOrigin, GenericConformanceEvidence, GenericConformanceKey, GenericEvidenceEnvironment, GenericEvidenceSlotKey,
-        NestedGenericEvidence,
+        DerivedConformanceOrigin, GenericConformanceEvidence, GenericConformanceKey, GenericEvidenceEnvironment, GenericEvidenceSlotKey, NestedGenericEvidence,
     };
     use phalcom_semantic::impls::RequirementSelectionTemplate;
     use phalcom_semantic::types::parameter::GenericConstraint;
-    use crate::typing::RuntimeConformanceSlotRecipe;
 
     let RequirementSelectionTemplate::ConformanceCallable { callable } = &selection.selection else {
         return Ok(None);
@@ -3319,7 +3318,14 @@ fn project_realization_prerequisite_recipe(
     let GenericConformanceEvidence::Derived(evidence) = &selection.evidence else {
         return Ok(None);
     };
-    if evidence.nested.is_empty() {
+    // Concrete antecedents already use the selected-trait projection. A
+    // caller-assumed prerequisite needs a call-entry recipe so its complete
+    // runtime slot (including environments) can be forwarded.
+    if !evidence
+        .nested
+        .iter()
+        .any(|nested| matches!(nested, NestedGenericEvidence::Conformance(GenericConformanceEvidence::Assumed(_))))
+    {
         return Ok(None);
     }
     let signature = match &evidence.origin {
@@ -3328,9 +3334,12 @@ fn project_realization_prerequisite_recipe(
             .get(&exact_source.source_impl)
             .and_then(|plan| plan.generic_signature.as_ref()),
         DerivedConformanceOrigin::GuardedRule { rule, .. } => Some(&rule.generic_signature),
-    }.ok_or_else(|| ProjectionError::GenericEvidenceLayout("selected realization lacks its prerequisite signature".into()))?;
+    }
+    .ok_or_else(|| ProjectionError::GenericEvidenceLayout("selected realization lacks its prerequisite signature".into()))?;
     if signature.constraints.len() != evidence.nested.len() {
-        return Err(ProjectionError::GenericEvidenceLayout("realization prerequisite proofs do not match source constraints".into()));
+        return Err(ProjectionError::GenericEvidenceLayout(
+            "realization prerequisite proofs do not match source constraints".into(),
+        ));
     }
     let layout = GenericEvidenceEnvironment::try_from_constraints(&signature.constraints, signature.owner.clone(), &snapshot.trait_surfaces)
         .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
@@ -3349,7 +3358,10 @@ fn project_realization_prerequisite_recipe(
                             RuntimeConformanceSlotRecipe::Forwarded(caller_slot)
                         }
                         GenericConformanceEvidence::Exact(exact) => {
-                            let selected = exact.requirements.get(&key.requirement).and_then(phalcom_semantic::trait_dispatch::selected_callable)
+                            let selected = exact
+                                .requirements
+                                .get(&key.requirement)
+                                .and_then(phalcom_semantic::trait_dispatch::selected_callable)
                                 .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(key.requirement.clone()))?;
                             RuntimeConformanceSlotRecipe::Selection {
                                 callable: selected,
@@ -3358,20 +3370,29 @@ fn project_realization_prerequisite_recipe(
                             }
                         }
                         GenericConformanceEvidence::Derived(_) => {
-                            return Err(ProjectionError::GenericEvidenceLayout("nested derived realization prerequisite requires a further recipe".into()));
+                            return Err(ProjectionError::GenericEvidenceLayout(
+                                "nested derived realization prerequisite requires a further recipe".into(),
+                            ));
                         }
                     };
                     slots[*target_slot as usize] = Some(recipe);
                 }
             }
-            (GenericConstraint::Equivalent { .. }, NestedGenericEvidence::Equivalent)
-            | (GenericConstraint::Subtype { .. }, NestedGenericEvidence::Subtype) => {}
-            _ => return Err(ProjectionError::GenericEvidenceLayout("realization prerequisite proof does not align with its source constraint".into())),
+            (GenericConstraint::Equivalent { .. }, NestedGenericEvidence::Equivalent) | (GenericConstraint::Subtype { .. }, NestedGenericEvidence::Subtype) => {
+            }
+            _ => {
+                return Err(ProjectionError::GenericEvidenceLayout(
+                    "realization prerequisite proof does not align with its source constraint".into(),
+                ));
+            }
         }
     }
-    let conformance_slots = slots.into_iter().enumerate().map(|(slot, recipe)| {
-        recipe.ok_or_else(|| ProjectionError::GenericEvidenceLayout(format!("missing realization prerequisite recipe for slot {slot}")))
-    }).collect::<Result<Vec<_>, _>>()?.into_boxed_slice();
+    let conformance_slots = slots
+        .into_iter()
+        .enumerate()
+        .map(|(slot, recipe)| recipe.ok_or_else(|| ProjectionError::GenericEvidenceLayout(format!("missing realization prerequisite recipe for slot {slot}"))))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_boxed_slice();
     Ok(Some(Arc::new(RuntimeCallEnvironmentRecipe {
         callable: phalcom_semantic::metadata::stable_identity::to_stable_callable_with_context(
             callable,

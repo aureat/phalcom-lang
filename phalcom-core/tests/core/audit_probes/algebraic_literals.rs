@@ -181,20 +181,90 @@ class ImaginaryFactory {
   makeImaginary<T>(_ seed: T) -> Complex<T> where T |= Zero, T |= One { i }
 }
 "#;
-        let (_temp, program) = compile(source);
-        let realization = program.modules[&program.entry].lowering.contextual_realizations.values().next().expect("generic contextual realization");
-        let phalcom_core::modules::semantic_lowering::ForIterationRequirementSpec::Selected(invocation) = &realization.realization else {
+        use phalcom_core::modules::semantic_lowering::ForIterationRequirementSpec;
+        use phalcom_core::typing::RuntimeConformanceSlotRecipe;
+        use phalcom_semantic::checker::analysis::RealizationCapabilitySelection;
+        use phalcom_semantic::generic_evidence::{GenericConformanceEvidence, GenericEvidenceEnvironment, GenericEvidenceSlotKey};
+
+        let temp = TempDir::new().expect("temporary package");
+        fs::write(temp.path().join("package.ph"), "expose .main\n").expect("manifest");
+        fs::write(temp.path().join("main.ph"), source).expect("source");
+        let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Package(temp.path().to_path_buf())).expect("generic realization analyzes");
+        assert!(!analyzed.semantic.has_errors(), "{:#?}", analyzed.semantic.diagnostics);
+        let (caller, realization) = analyzed
+            .semantic
+            .callable_analyses
+            .iter()
+            .filter(|(callable, _)| callable.owner.module() == &analyzed.entry)
+            .find_map(|(callable, analysis)| {
+                analysis
+                    .expressions
+                    .values()
+                    .find_map(|expression| expression.contextual_realization.as_ref().map(|realization| (callable, realization)))
+            })
+            .expect("generic contextual realization");
+        let RealizationCapabilitySelection::Evidenced(selection) = &realization.realization else {
+            panic!("Complex<T> must have a selected source realization")
+        };
+        let GenericConformanceEvidence::Derived(evidence) = &selection.evidence else {
+            panic!("conditional Complex<T> realization must retain its derived proof")
+        };
+        let signature = analyzed.semantic.conformance_witness_plans[&selection.source_impl]
+            .generic_signature
+            .as_ref()
+            .expect("impl prerequisites");
+        let impl_layout =
+            GenericEvidenceEnvironment::try_from_constraints(&signature.constraints, signature.owner.clone(), &analyzed.semantic.trait_surfaces).unwrap();
+        let caller_signature = analyzed.semantic.callable_signatures.get(caller).unwrap().generics.as_ref().unwrap();
+        let caller_layout =
+            GenericEvidenceEnvironment::try_from_constraints(&caller_signature.constraints, caller_signature.owner.clone(), &analyzed.semantic.trait_surfaces)
+                .unwrap();
+        let program = ProgramCompiler::compile_analyzed(&analyzed).expect("generic realization projects");
+        let realization = program.modules[&program.entry]
+            .lowering
+            .contextual_realizations
+            .values()
+            .next()
+            .expect("generic contextual realization");
+        let ForIterationRequirementSpec::Selected(invocation) = &realization.realization else {
             panic!("selected along invocation")
         };
-        let recipe = invocation.call_environment_recipe.as_ref().expect("along must receive its implementation prerequisites");
-        assert_eq!(recipe.conformance_slots.len(), 2);
         assert_eq!(
-            recipe.conformance_slots.as_ref(),
-            &[
-                phalcom_core::typing::RuntimeConformanceSlotRecipe::Forwarded(0),
-                phalcom_core::typing::RuntimeConformanceSlotRecipe::Forwarded(1),
-            ],
-            "Complex<T>.along must forward the canonical One and Zero slots from makeImaginary<T>",
+            invocation.selection, *selection,
+            "projection must preserve the selected callable and derived proof"
+        );
+        let recipe = invocation
+            .call_environment_recipe
+            .as_ref()
+            .expect("along must receive its implementation prerequisites");
+        assert_eq!(evidence.nested.len(), 2);
+        assert_eq!(recipe.conformance_slots.len(), impl_layout.len());
+        for (constraint, nested) in signature.constraints.iter().zip(evidence.nested.iter()) {
+            let phalcom_semantic::types::parameter::GenericConstraint::Conforms { subject, trait_ref } = constraint else {
+                panic!("conformance prerequisite")
+            };
+            let phalcom_semantic::generic_evidence::NestedGenericEvidence::Conformance(GenericConformanceEvidence::Assumed(assumed)) = nested else {
+                panic!("caller-assumed prerequisite")
+            };
+            let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(subject.clone(), trait_ref.clone());
+            for (slot_key, target_slot) in impl_layout.layout().slots.iter().filter(|(slot_key, _)| slot_key.conformance == key) {
+                let caller_key = GenericEvidenceSlotKey::new(assumed.key.clone(), slot_key.requirement.clone());
+                assert_eq!(
+                    recipe.conformance_slots[*target_slot as usize],
+                    RuntimeConformanceSlotRecipe::Forwarded(caller_layout.slot_for(&caller_key).unwrap()),
+                    "{:?} must keep its canonical impl/caller slot mapping",
+                    slot_key.requirement
+                );
+            }
+        }
+        assert_eq!(
+            impl_layout
+                .layout()
+                .slots
+                .iter()
+                .map(|(key, _)| key.requirement.owner.name.as_ref())
+                .collect::<std::collections::BTreeSet<_>>(),
+            ["One", "Zero"].into_iter().collect()
         );
     });
 }
