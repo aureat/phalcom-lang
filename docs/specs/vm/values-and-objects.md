@@ -943,7 +943,10 @@ The current object taxonomy is exhaustive below.
 | `Uri` | logical URI |
 | `Typing` | runtime typing context/descriptor |
 
-These are ordinary arena objects when surfaced. Their APIs and semantic meanings belong to the module/reflection/typing specifications.
+These are ordinary arena objects when surfaced. Module identities are owned by
+the Universe/reflection specifications. The public typing descriptor API and
+its semantic boundary are owned by [Runtime Typing
+Reflection](../typing/runtime-reflection.md).
 
 ---
 

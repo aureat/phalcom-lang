@@ -200,6 +200,7 @@ mod tests {
             visibility: phalcom_native_meta::NativeVisibility::Public,
             stability: NativeStability::Stable,
             anchor: NativeAnchorPolicy::Hidden,
+            signature_mode: phalcom_native_meta::NativeSignatureMode::Exact,
             params: &EMPTY_PARAMS,
             returns: &UNKNOWN_RETURN,
             callable: &CALLABLE,

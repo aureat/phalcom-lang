@@ -45,6 +45,7 @@ let radians = &FloatAngleHelpers.radians(_)
 let logSumExp = &FloatReduction.logSumExp(_)
 let sum = &FloatReduction.sum(_)
 let mean = &FloatReduction.mean(_)
+let meanOption = &FloatReduction.meanOption(_)
 let logAddExp = &FloatReduction.logAddExp(_, _)
 let log1mexp = &FloatReduction.log1mexp(_)
 
@@ -62,7 +63,7 @@ export (
   sqrt, cbrt, exp, exp2, expm1, ln, ln1p, log, log2, log10,
   sin, cos, tan, asin, acos, atan, atan2,
   degrees, radians, sinh, cosh, tanh, asinh, acosh, atanh, hypot,
-  gcd, lcm, isqrt, sum, mean, logSumExp, logAddExp, log1mexp,
+  gcd, lcm, isqrt, sum, mean, meanOption, logSumExp, logAddExp, log1mexp,
   factorial, choose, fallingFactorial, risingFactorial,
   NumericalRangeError, NumericalEvaluationError
 )

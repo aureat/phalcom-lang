@@ -74,7 +74,7 @@ impl Rational {
 
   inverse -> Rational {
     if self.numerator == 0 { Rational.failDivisionByZero(self.numerator) }
-    Rational(self.denominator, self.numerator)
+    Rational.new(self.denominator, self.numerator)
   }
 
   +(_ other: Rational) -> Rational {

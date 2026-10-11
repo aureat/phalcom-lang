@@ -1,8 +1,44 @@
 # Standard Numeric Types
 
-This specification records source-visible contracts for the exact `Rational`
-type and the binary64-specific additions to `Float`. It composes with
+This specification records source-visible contracts for `Int`, exact
+`Rational`, and the binary64-specific additions to `Float`. It composes with
 [`complex-numbers.md`](complex-numbers.md), which owns Complex arithmetic.
+The accepted integer and numeric-surface decisions are
+[TDR-0022](../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md),
+[TDR-0064](../decisions/accepted/0064-numeric-tower-implementation-and-floor-amendment.md),
+[TDR-0068](../decisions/accepted/0068-bitwise-operations-on-int.md), and
+[TDR-0069](../decisions/accepted/0069-numeric-tower-residue-rulings.md), and
+[TDR-0070](../decisions/accepted/0070-numeric-literals.md).
+
+## Int
+
+`Number` is abstract. Its concrete numeric types are exact, unbounded `Int` and
+IEEE-754 binary64 `Float`. `Int` literals and integer-only operations preserve
+exactness without machine-word wraparound; small and large runtime
+representations do not change the public `Int` identity.
+
+`Int` and `Float` are distinct types, but numeric equality compares their
+mathematical values across the two representations: `1 == 1.0`. Their hashes
+must agree whenever they compare equal. For `+`, `-`, and `*`, two `Int`
+operands produce an exact `Int`; if either operand is `Float`, the operation is
+in the `Float` domain and converting the `Int` operand may round.
+
+`/` is true division and returns `Float`, including for two `Int` operands.
+`~/` returns an exact `Int` using floor semantics for all `Int`/`Float` operand
+combinations; zero divisors, non-finite operands, and non-finite quotients are
+errors. Integer `%` uses floor-division remainder semantics; Float remainder
+retains its Float contract. Integer bitwise operations use infinite two's
+complement, without a width or wraparound.
+
+There is no general implicit conversion between numeric types. `Float.new(Int)`
+is an explicit widening request that follows binary64 rounding and may lose
+precision. `Int.new(Float)` rejects Float arguments, including integral values;
+Float-to-Int narrowing is performed by an explicitly named rounding operation.
+Exact integer operations do not silently pass through binary64.
+
+The standard integer algorithms exposed by `universe.math` are specified in
+[`numeric-math.md`](numeric-math.md). The language-level rounding operations on
+Float and exact `Rational` conversion are described below.
 
 ## Rational
 

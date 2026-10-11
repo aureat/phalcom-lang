@@ -209,7 +209,7 @@ pub fn catalog_fingerprint_for(records: &[NativeSurfaceRecord]) -> NativeCatalog
     let mut right = 0x84222325cbf29ce4_u64;
     for record in ordered {
         let structural = format!(
-            "{:?}|{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+            "{:?}|{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
             record.surface.key.owner,
             record.surface.key.side,
             record.surface.key.selector,
@@ -223,6 +223,7 @@ pub fn catalog_fingerprint_for(records: &[NativeSurfaceRecord]) -> NativeCatalog
             record.surface.effects,
             record.surface.flow,
             record.surface.lifecycle,
+            record.surface.signature_mode,
             record.surface.intrinsic,
             record.surface.trust,
             record.surface.docs,
@@ -279,6 +280,27 @@ pub fn validate_native_surface_catalog(records: &[NativeSurfaceRecord]) -> Resul
         }
         if !record.lifecycle().is_consistent() {
             failures.push(format!("inconsistent lifecycle metadata for {:?}", record.surface.key));
+        }
+        if record.surface.signature_mode == NativeSignatureMode::AbiErased {
+            let callable = record.callable();
+            let object_type = |ty: &TypeExprSpec| matches!(ty, TypeExprSpec::Universe(UniverseKey::Object));
+            let object_slots = callable.params.rest.is_none()
+                && callable.params.positional.iter().all(object_type)
+                && callable.params.labeled.iter().all(|parameter| object_type(parameter.ty));
+            if record.abi != PrimitiveAbi::Shape
+                || record.anchor() != NativeAnchorPolicy::Required
+                || !callable.type_params.is_empty()
+                || !callable.constraints.is_empty()
+                || callable.params != record.params()
+                || callable.return_type != record.returns()
+                || !object_slots
+                || !object_type(callable.return_type)
+            {
+                failures.push(format!(
+                    "invalid ABI-erased native signature metadata for {:?}: requires a required Shape anchor with fixed Object slots/result and no native generics",
+                    record.surface.key
+                ));
+            }
         }
     }
     if let Err(intrinsic_failures) = validate_intrinsic_expectations(records) {

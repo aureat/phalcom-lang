@@ -6,7 +6,7 @@
 
 ## Purpose
 
-This file defines coherence laws between static type semantics, public reified reflection, and pattern-space reasoning.
+This file defines coherence laws between static type semantics, public reified reflection, and pattern-space reasoning. The runtime descriptor and query API that must satisfy these laws is specified by [Runtime Typing Reflection](../runtime-reflection.md).
 
 Reflection must expose the same semantic type relations as the compiler whenever sufficient type information is reified. Pattern matching must consume semantic type space using the same identity, subtype, union, intersection, exact-type, and closed-domain laws defined elsewhere in the registry.
 

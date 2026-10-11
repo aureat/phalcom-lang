@@ -22,7 +22,7 @@ The governing invariant is:
 
 Different compiler/runtime layers may project different representations of one entity, but they must not create competing builtin ownership models.
 
-This document defines that contract. It intentionally does not enumerate the full API of the Universe library, define every native primitive ABI, or prescribe patch-by-patch implementation work.
+This document defines that contract. It intentionally does not enumerate the full API of the Universe library, define every native primitive ABI, or prescribe patch-by-patch implementation work. The source-visible UTF-8 text contract is owned by [Text and String Model](text.md); the public type-reflection API is owned by [Runtime Typing Reflection](typing/runtime-reflection.md).
 
 ---
 
@@ -772,6 +772,13 @@ Builtin materialization and ordinary program materialization must agree on these
 ---
 
 ## 13. Reflection and reification
+
+This section owns canonical Universe identity and reification at the package
+boundary. The public typing descriptors, query contexts, capability checks,
+and result variants are specified by
+[Runtime Typing Reflection](typing/runtime-reflection.md). Formal consistency
+between runtime reflection and static type semantics is specified by the
+[Type Algebra reflection laws](typing/type/type.reflection-pattern.md).
 
 Reflection must expose canonical Universe ownership.
 

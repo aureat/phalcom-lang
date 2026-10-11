@@ -449,6 +449,12 @@ The standard iterable families use the following `Iterable::Item` bindings:
 | `Tuple<***Es: CompleteTypePack>` | `Tuple<***Es>::Element` |
 | `Bytes` | `Int` |
 | `Range` | `Number` |
+| `String.chars` and `Substring.chars` | `Char` |
+| `String.bytes`, `String.utf8`, and `Substring.utf8` | `Int` |
+
+String and Substring are traversed through these explicit scalar and UTF-8 byte
+views; the text contract for their encoding, indexing, and view behavior is
+owned by [Text and String Model](text.md).
 
 A `Map<K, V>` yields the complete entry as a labeled tuple:
 

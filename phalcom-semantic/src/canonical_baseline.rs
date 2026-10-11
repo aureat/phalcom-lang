@@ -460,8 +460,13 @@ impl CanonicalUniverseSemanticBaseline {
                 );
                 for contribution in &contributions {
                     for member in &contribution.members {
-                        base_callable_signatures.insert(member.signature.clone());
+                        if member.signature.native_id.is_none() {
+                            base_callable_signatures.insert(member.signature.clone());
+                        }
                     }
+                }
+                for signature in effective.native_anchors.values() {
+                    base_callable_signatures.insert(signature.clone());
                 }
             }
 

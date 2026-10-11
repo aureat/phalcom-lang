@@ -2,7 +2,10 @@
 
 `docs/specs/` is the authoritative specification corpus for the current Phalcom language, platform, and implementation model.
 
-The documents in this directory define the semantics that implementations, tests, tooling, implementation plans, and language documentation are expected to preserve.
+The documents in this directory define the semantics that implementations,
+tests, tooling, implementation plans, and language documentation are expected
+to preserve. A page explicitly marked **Proposed** or **Draft** records a
+prospective contract; it does not change current semantics until accepted.
 
 > **Authority rule**
 >
@@ -32,12 +35,21 @@ They include:
 - [`objects/`](objects/) — values, classes and instance fields, runtime algebraic data, traits, and implementation declarations;
 - [`objects/characters.md`](objects/characters.md) — Unicode-scalar `Char` values, character literals, exactness, and scalar classifications;
 - [`callables/`](callables/) — selectors, arguments, methods, callable values, closures, references, families, dispatch, execution context, binding, and callable reflection.
+- [`collections/`](collections/) — source-visible collection contracts and explicitly marked proposed targets for new types; structural Tuple and Record semantics remain owned by [`structural-products.md`](structural-products.md) and [`tuple-and-record-typing.md`](tuple-and-record-typing.md).
+- [`numerics/`](numerics/) — the optional `numerics` package and its special-function, statistics, probability, Bayesian, and Monte Carlo APIs.
+- [`numeric-math.md`](numeric-math.md) and [`numeric-capabilities.md`](numeric-capabilities.md) — the canonical `universe.math` surface and reusable arithmetic capabilities.
 
 A conforming implementation may choose different internal representations or algorithms provided that the language semantics remain unchanged.
 
 ### Platform specification
 
 [`universe.md`](universe.md) defines the canonical Phalcom Universe package and the semantic relationship among builtin source ownership, module identity, native implementation, prelude visibility, reflection, and tooling.
+The public UTF-8 text API is specified by [`text.md`](text.md). Runtime typing
+descriptors, query contexts, capability boundaries, and query outcomes are
+specified by [`typing/runtime-reflection.md`](typing/runtime-reflection.md).
+Numeric math, random generation, and resource-backed I/O have dedicated owners
+in [`numeric-math.md`](numeric-math.md), [`randomness.md`](randomness.md), and
+[`io.md`](io.md).
 
 Universe is part of the language platform, but its package architecture is not the general source-language grammar.
 
@@ -109,10 +121,32 @@ An accepted decision or implementation checkpoint that changes current language 
 | Sum/Variant/Variants structural reflection | [`structural-sums.md`](structural-sums.md) |
 | Tuple/Record family typing details | [`tuple-and-record-typing.md`](tuple-and-record-typing.md) |
 | Generic `where` constraints and generic evidence | [`generic-constraints.md`](generic-constraints.md) |
+| Integer, Float, and Rational value semantics | [`numeric-types.md`](numeric-types.md) |
+| `universe.math` functions, reductions, and numerical errors | [`numeric-math.md`](numeric-math.md) |
+| Closed numeric capabilities and arithmetic identities | [`numeric-capabilities.md`](numeric-capabilities.md) |
+| Complex values and principal complex mathematics | [`complex-numbers.md`](complex-numbers.md) |
+| Quaternion values, basis tags, and real/basis embeddings | [`quaternions.md`](quaternions.md) |
+| Optional `numerics` package index and module boundaries | [`numerics/README.md`](numerics/README.md) |
+| Optional special functions | [`numerics/special.md`](numerics/special.md) |
+| Optional descriptive statistics and online summaries | [`numerics/statistics.md`](numerics/statistics.md) |
+| Optional probability laws, sampling, and support metadata | [`numerics/probability.md`](numerics/probability.md) |
+| Bayesian helpers | [`numerics/probability/bayes.md`](numerics/probability/bayes.md) |
+| Monte Carlo expectation | [`numerics/probability/monte-carlo.md`](numerics/probability/monte-carlo.md) |
+| Explicit random generators and sampling protocol | [`randomness.md`](randomness.md) |
+| Resource lifecycle, paths, and asynchronous byte streams | [`io.md`](io.md) |
+| Collection-family index and shared collection contracts | [`collections/README.md`](collections/README.md) |
+| Mutable dynamic `List<T>` | [`collections/list.md`](collections/list.md) |
+| Mutable hash `Map<K,V>` | [`collections/map.md`](collections/map.md) |
+| Mutable hash `Set<T>` | [`collections/set.md`](collections/set.md) |
+| Lazy `Range` values | [`collections/range.md`](collections/range.md) |
+| Mutable byte sequences | [`collections/bytes.md`](collections/bytes.md) |
+| Proposed fixed-extent mutable `Array<T>` target | [`collections/array.md`](collections/array.md) |
+| Proposed fixed-extent immutable `Vector<T,N>` target | [`collections/vector.md`](collections/vector.md) |
 | Trait-owned associated declarations, bindings, and conformance evidence | [`associated-types.md`](associated-types.md) |
 | Source declaration modifiers, access domains, implementation origin, and legacy namespace retirement | [`source-declarations.md`](source-declarations.md) |
 | Foundational value/object semantics and exactness | [`objects/values.md`](objects/values.md) |
 | Unicode scalar values and character literal syntax | [`objects/characters.md`](objects/characters.md) |
+| UTF-8 String/Text model and text utilities | [`text.md`](text.md) |
 | Class instance fields, defaults, and constructor initialization | [`objects/classes.md`](objects/classes.md) |
 | Nominal transparent data objects | [`objects/data-objects.md`](objects/data-objects.md) |
 | Runtime closed sums, cases, exact-case semantics, and case construction | [`objects/enums.md`](objects/enums.md) |
@@ -122,7 +156,7 @@ An accepted decision or implementation checkpoint that changes current language 
 | Selector identity | [`callables/selectors.md`](callables/selectors.md) |
 | Argument/parameter shape, rest, and spread | [`callables/arguments.md`](callables/arguments.md) |
 | Exact reified methods | [`callables/methods.md`](callables/methods.md) |
-| Complete callable values and `Function` semantics | [`callables/functions.md`](callables/functions.md) |
+| Complete callable values and `Function` semantics | [`callables/callable-values.md`](callables/callable-values.md) |
 | Closures | [`callables/closures.md`](callables/closures.md) |
 | Callable-reference expressions | [`callables/references.md`](callables/references.md) |
 | First-class callable families | [`callables/families.md`](callables/families.md) |
@@ -130,6 +164,7 @@ An accepted decision or implementation checkpoint that changes current language 
 | Ordinary selector dispatch | [`callables/dispatch.md`](callables/dispatch.md) |
 | Callable lexical/dynamic execution context | [`callables/execution-contexts.md`](callables/execution-contexts.md) |
 | Callable reflection | [`callables/reflection.md`](callables/reflection.md) |
+| Runtime type reflection and typing-query outcomes | [`typing/runtime-reflection.md`](typing/runtime-reflection.md) — semantic coherence laws remain in [`typing/type/type.reflection-pattern.md`](typing/type/type.reflection-pattern.md) |
 | Canonical builtin Universe package | [`universe.md`](universe.md) |
 | Generic Complex values, capability arithmetic, and principal Float mathematics | [`complex-numbers.md`](complex-numbers.md) |
 | Exact Rational values and Float representability/ordering | [`numeric-types.md`](numeric-types.md) |

@@ -1,7 +1,7 @@
 //! Universe key definitions and binding catalog.
 
 /// Schema version of the generated native surface manifest.
-pub const NATIVE_SURFACE_SCHEMA_VERSION: u32 = 1;
+pub const NATIVE_SURFACE_SCHEMA_VERSION: u32 = 2;
 
 /// One VM-free bootstrap class relation owned by the native universe.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]

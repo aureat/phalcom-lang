@@ -6,8 +6,8 @@ This specification defines the source-language value and literal semantics of
 `Char`. A `Char` is one Unicode scalar value. It is distinct from `Int` and
 from a `String` containing one scalar. This specification owns scalar identity,
 character literal syntax, and the minimum classification operations; UTF-8
-storage, decoding, boundaries, and iteration over text are owned by the String
-text substrate.
+storage, decoding, boundaries, and iteration over text are owned by the
+[Text and String Model](../text.md).
 
 ## Character values
 
@@ -85,6 +85,9 @@ Char.isAsciiHexDigit -> Bool
 Char.isWhitespace -> Bool
 Char.isControl -> Bool
 Char.hash -> Int
+Char.simpleLowercase -> Char
+Char.simpleUppercase -> Char
+Char.repr -> String
 ```
 
 ASCII classifications use the corresponding named ASCII ranges. `isWhitespace`
@@ -97,9 +100,16 @@ property-data version is an explicit Unicode-contract update.
 integer, and `Some(char)` for every valid Unicode scalar value. `utf8Length` is
 the scalar's UTF-8 encoded width from one through four bytes.
 
+`simpleLowercase` and `simpleUppercase` apply the Unicode simple case mapping
+and return one `Char`; they do not return a multi-scalar full case mapping.
+`repr` returns the quoted source representation of one character. Its escapes
+must be accepted by the character-literal grammar above; in particular, NUL
+is represented as `\u{0}` because `\0` is not a character-literal escape.
+
 ## Ownership boundary
 
 `String` owns UTF-8 encoding/decoding and byte-boundary operations. Consumers
 may use a Char's code point when a numeric scalar is explicitly needed, but may
 not reinterpret arbitrary Int values as characters. Character iteration over
-String is defined by the String text substrate and yields Char values.
+String is defined by the [Text and String Model](../text.md) and yields Char
+values.

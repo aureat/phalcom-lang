@@ -286,7 +286,7 @@ class Categorical<T> {
     return result
   }
 
-  private find(_ value: T) -> Int {
+  internal find(_ value: T) -> Int {
     let mut i = 0
     while i < _labels.size {
       if _labels.at(i) == value { return i }
@@ -294,28 +294,20 @@ class Categorical<T> {
     }
     return -1
   }
-}
 
-impl HasMass for Categorical<T> {
-  type Observation = T
-
-  pmf(_ value: T) -> Float {
+  internal massOf(_ value: T) -> Float {
     let index = self.find(value)
     if index < 0 { return 0.0 }
     return _probabilities.at(index)
   }
 
-  logPmf(_ value: T) -> Float {
+  internal logMassOf(_ value: T) -> Float {
     let index = self.find(value)
     if index < 0 { return -1.0 / 0.0 }
     return _logMasses.at(index)
   }
-}
 
-impl Distribution for Categorical<T> {
-  type Output = T
-
-  sample<G>(using generator: G) -> T where G |= Generator {
+  internal draw<G>(using generator: G) -> T where G |= Generator {
     let target = generator.nextFloat
     let mut low = 0
     let mut high = _prefixes.size
@@ -329,6 +321,26 @@ impl Distribution for Categorical<T> {
     }
     if low >= _labels.size { low = _lastPositive }
     return _labels.at(low)
+  }
+}
+
+impl<T> HasMass for Categorical<T> {
+  type Observation = T
+
+  pmf(_ value: T) -> Float {
+    self.massOf(value)
+  }
+
+  logPmf(_ value: T) -> Float {
+    self.logMassOf(value)
+  }
+}
+
+impl<T> Distribution for Categorical<T> {
+  type Output = T
+
+  sample<G>(using generator: G) -> T where G |= Generator {
+    self.draw(using: generator)
   }
 }
 

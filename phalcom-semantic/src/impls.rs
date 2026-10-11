@@ -2,7 +2,8 @@
 
 use crate::checker::context::{CheckerControl, CheckingContext};
 use crate::checker::declaration_signature::{
-    CallableSyntaxRef, DelegationError, delegated_accessor_signatures, delegated_member_visibility, semantic_signature_for_syntax_with_resolver,
+    CallableSyntaxRef, DelegationError, callable_id_for_syntax, delegated_accessor_signatures, delegated_member_visibility,
+    semantic_signature_for_syntax_with_resolver,
 };
 use crate::core_surface::universe_declaration;
 use crate::db::ProductFingerprint;
@@ -4090,6 +4091,10 @@ pub struct EffectiveSurfaceProduct {
     pub surface: Arc<DeclarationSurface>,
     pub conditional_members: Arc<ConditionalInherentMemberSet>,
     pub definitions: BTreeMap<CallableId, EffectiveCallableDefinition>,
+    /// Unique, conflict-admitted source signatures bound to ABI-erased native
+    /// entries. These have no source body definition but remain canonical
+    /// callable signatures for semantic consumers.
+    pub native_anchors: BTreeMap<CallableId, CallableSemanticSignature>,
     pub diagnostics: Arc<[SemanticDiagnostic]>,
 }
 
@@ -4106,6 +4111,7 @@ impl EffectiveSurfaceProduct {
             surface,
             conditional_members,
             definitions,
+            native_anchors: BTreeMap::new(),
             diagnostics,
         }
     }
@@ -4133,6 +4139,16 @@ pub fn build_effective_surface(
     let mut effective_surface = DeclarationSurface::new(Some(owner.clone()));
     let mut conditional_members = ConditionalInherentMemberSet::new(Some(InherentImplTarget::Declaration(owner.clone())));
     let mut definitions = BTreeMap::new();
+    let mut native_anchors = BTreeMap::new();
+
+    let mut native_anchor_counts = HashMap::<phalcom_native_surface::NativeSurfaceId, usize>::new();
+    for contribution in inherent_contributions.iter().filter(|contribution| contribution.target.declaration() == owner) {
+        for member in contribution.members.iter() {
+            if let Some(native_id) = member.signature.native_id {
+                *native_anchor_counts.entry(native_id).or_default() += 1;
+            }
+        }
+    }
 
     // Reserved namespace tracking per dispatch side
     // (Side, Selector) -> EffectiveMemberOrigin
@@ -4260,6 +4276,18 @@ pub fn build_effective_surface(
             let selector = &member.signature.callable.selector;
             let callable_id = &member.signature.callable;
 
+            if let Some(native_id) = member.signature.native_id
+                && native_anchor_counts.get(&native_id).copied() != Some(1)
+            {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    owner.module.clone(),
+                    DiagnosticCode::NativeSignatureMismatch,
+                    format!("native.signature_mismatch: {}::{} (source anchor is not unique)", owner.name, selector.encode()),
+                    member.signature.source.as_ref().map(|source| source.range).unwrap_or_default(),
+                ));
+                continue;
+            }
+
             // Conflict check
             if let Some(existing) = reserved_selectors.get(&(side, selector.clone())) {
                 let err_msg = match existing {
@@ -4325,7 +4353,12 @@ pub fn build_effective_surface(
                     .add_callable_with_visibility(Some(owner), side, projection, member.visibility);
             }
 
-            if !member.is_requirement {
+            if let Some(native_id) = member.signature.native_id {
+                debug_assert_eq!(native_anchor_counts.get(&native_id).copied(), Some(1));
+                native_anchors.insert(callable_id.clone(), member.signature.clone());
+            }
+
+            if !member.is_requirement && member.signature.native_id.is_none() {
                 definitions.insert(
                     callable_id.clone(),
                     EffectiveCallableDefinition {
@@ -4349,6 +4382,7 @@ pub fn build_effective_surface(
         surface: Arc::new(effective_surface),
         conditional_members: Arc::new(conditional_members),
         definitions,
+        native_anchors,
         diagnostics: Arc::from(diagnostics.into_boxed_slice()),
     }
 }
@@ -5791,6 +5825,61 @@ pub fn type_contains_impl_param(store: &TypeStore, ty: TypeId, impl_id: &ImplId)
     !parameters.is_empty()
 }
 
+fn abi_erased_native_anchor_error(
+    store: &TypeStore,
+    owner: &DeclarationId,
+    side: DispatchSide,
+    applicability: &InherentImplApplicability,
+    visibility: MemberVisibility,
+    signature: &CallableSemanticSignature,
+    record: &phalcom_native_surface::NativeSurfaceRecord,
+) -> Option<String> {
+    let callable = record.callable();
+    let object_type = |ty: &phalcom_native_meta::TypeExprSpec| matches!(ty, phalcom_native_meta::TypeExprSpec::Universe(UniverseKey::Object));
+    let object_slots = callable.params.rest.is_none()
+        && callable.params.positional.iter().all(object_type)
+        && callable.params.labeled.iter().all(|parameter| object_type(parameter.ty));
+    let source_slots_are_typed = signature.parameters.iter().all(|parameter| {
+        parameter.rest == phalcom_ast::ast::RestMode::None
+            && parameter.declared_type.canonical_type().is_some_and(|ty| store.kind_of(ty) == KindId::TYPE)
+    });
+    let source_return_is_typed = signature
+        .declared_return
+        .canonical_type()
+        .is_some_and(|ty| store.kind_of(ty) == KindId::TYPE);
+    let record_owner = universe_declaration(record.owner());
+    let record_side = match record.side() {
+        phalcom_native_meta::NativeDispatch::Instance => DispatchSide::Instance,
+        phalcom_native_meta::NativeDispatch::Class => DispatchSide::Class,
+    };
+    let conditional = matches!(applicability, InherentImplApplicability::Conditional(_));
+
+    if record.surface.signature_mode != phalcom_native_meta::NativeSignatureMode::AbiErased
+        || record.abi != phalcom_native_meta::PrimitiveAbi::Shape
+        || record.anchor() != phalcom_native_meta::NativeAnchorPolicy::Required
+        || record_owner != *owner
+        || record_side != side
+        || record.selector() != signature.selector.encode()
+        || signature.owner != *owner
+        || signature.side != side
+        || signature.implementation != phalcom_common::modifier::ImplementationKind::Native
+        || signature.parameters.len() != callable.params.positional.len() + callable.params.labeled.len()
+        || !source_slots_are_typed
+        || !source_return_is_typed
+        || !object_slots
+        || !object_type(callable.return_type)
+        || callable.params.positional.len() + callable.params.labeled.len() != record.params().positional.len() + record.params().labeled.len()
+        || callable.params.rest.is_some()
+        || !callable.type_params.is_empty()
+        || !callable.constraints.is_empty()
+        || conditional
+        || visibility != record.visibility()
+    {
+        return Some("source anchor does not match the unique required owner/side/selector ABI boundary".into());
+    }
+    None
+}
+
 /// Builds the canonical `InherentImplContribution` from an `ImplDef`.
 pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: &ImplId, impl_def: &ImplDef) -> InherentImplContribution {
     let mut diagnostics = Vec::new();
@@ -5972,6 +6061,52 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
                 BehaviorMember::Setter(s) => s.is_static,
                 BehaviorMember::Index(_) => false,
             };
+        let side = if is_class_side { DispatchSide::Class } else { DispatchSide::Instance };
+
+        let native_anchor_record = if !syntax.has_body()
+            && syntax.implementation() == phalcom_common::modifier::ImplementationKind::Native
+            && ctx.declarations.intrinsic_runtime_owner(target_owner.declaration()).is_some()
+        {
+            let source_callable = callable_id_for_syntax(&target_owner, syntax, side);
+            let candidates = phalcom_native_surface::NATIVE_SURFACES
+                .iter()
+                .filter(|record| {
+                    record.surface.signature_mode == phalcom_native_meta::NativeSignatureMode::AbiErased
+                        && universe_declaration(record.owner()) == *target_owner.declaration()
+                        && match record.side() {
+                            phalcom_native_meta::NativeDispatch::Instance => side == DispatchSide::Instance,
+                            phalcom_native_meta::NativeDispatch::Class => side == DispatchSide::Class,
+                        }
+                })
+                .filter_map(|record| phalcom_common::selector::Selector::try_decode_exact(record.selector()).ok().map(|selector| (record, selector)))
+                .collect::<Vec<_>>();
+            let base_candidates = source_callable.as_ref().map_or_else(Vec::new, |source_callable| {
+                candidates
+                    .iter()
+                    .filter(|(_, selector)| selector.kind == source_callable.selector.kind && selector.base == source_callable.selector.base)
+                    .collect::<Vec<_>>()
+            });
+            if base_candidates.is_empty() {
+                None
+            } else if base_candidates.len() == 1 && source_callable.as_ref().is_some_and(|callable| base_candidates[0].1 == callable.selector) {
+                Some(base_candidates[0].0)
+            } else {
+                let selector_text = source_callable.as_ref().map_or_else(|| "<invalid selector>".to_string(), |callable| callable.selector.encode());
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::NativeSignatureMismatch,
+                    format!(
+                        "native.signature_mismatch: {}::{} (source anchor selector is missing, incompatible, or ambiguous)",
+                        target_owner.declaration().name,
+                        selector_text
+                    ),
+                    syntax.range(),
+                ));
+                continue;
+            }
+        } else {
+            None
+        };
 
         if is_exact_case {
             if is_class_side {
@@ -6013,10 +6148,12 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
             if !syntax.has_body() {
                 if syntax.implementation() == phalcom_common::modifier::ImplementationKind::Native
                     && ctx.declarations.intrinsic_runtime_owner(target_owner.declaration()).is_some()
+                    && native_anchor_record.is_none()
                 {
                     // The canonical native surface catalog owns the checked
                     // signature and dispatch descriptor. This impl declaration
-                    // is its source anchor after structural facade migration.
+                    // is its source anchor unless the catalog explicitly marks
+                    // the host signature as ABI-erased.
                     continue;
                 }
                 diagnostics.push(SemanticDiagnostic::error_in(
@@ -6032,8 +6169,6 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
             false
         };
 
-        let side = if is_class_side { DispatchSide::Class } else { DispatchSide::Instance };
-
         let diagnostic_start = ctx.diagnostics.len();
         let raw_sig = semantic_signature_for_syntax_with_resolver(ctx, &target_owner, &impl_resolver, syntax, side);
         // Signature formation owns annotation errors even when the body never
@@ -6044,7 +6179,7 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
         };
 
         // Canonicalize signature into target declaration parameter space for covering impls
-        let final_sig = if let Some(ref instantiation) = covering_instantiation {
+        let mut final_sig = if let Some(ref instantiation) = covering_instantiation {
             match apply_covering_instantiation_to_signature(ctx.store, instantiation, raw_sig) {
                 Ok(signature) => signature,
                 Err(error) => {
@@ -6060,6 +6195,31 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
         } else {
             raw_sig
         };
+
+        if let Some(record) = native_anchor_record {
+            if let Some(reason) = abi_erased_native_anchor_error(
+                ctx.store,
+                target_owner.declaration(),
+                side,
+                &resolved_target.applicability,
+                visibility,
+                &final_sig,
+                record,
+            ) {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::NativeSignatureMismatch,
+                    format!("native.signature_mismatch: {}::{} ({reason})", target_owner.declaration().name, final_sig.selector.encode()),
+                    syntax.range(),
+                ));
+                continue;
+            }
+            final_sig.native_id = Some(record.id());
+            final_sig.effects = record.effects();
+            final_sig.raises = record.raises();
+            final_sig.flow = record.flow();
+            final_sig.lifecycle = record.lifecycle();
+        }
 
         // Invariant assertion: published unconditional surface signatures contain no free target-head TypeParameterOwner::Impl(current_impl)
         if domain.is_none() {

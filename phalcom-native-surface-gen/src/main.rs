@@ -181,6 +181,11 @@ fn emit_surface_record(decl: &NormalizedPrimitiveDecl) -> Result<TokenStream2, S
         NativeAnchorPolicy::Hidden => format_ident!("Hidden"),
     };
 
+    let signature_mode_ident = match decl.signature_mode {
+        NativeSignatureMode::Exact => format_ident!("Exact"),
+        NativeSignatureMode::AbiErased => format_ident!("AbiErased"),
+    };
+
     let abi_ident = match decl.abi {
         PrimitiveAbi::Value => format_ident!("Value"),
         PrimitiveAbi::Shape => format_ident!("Shape"),
@@ -347,6 +352,7 @@ fn emit_surface_record(decl: &NormalizedPrimitiveDecl) -> Result<TokenStream2, S
                 visibility: NativeVisibility::#vis_ident,
                 stability: NativeStability::#stability_ident,
                 anchor: NativeAnchorPolicy::#anchor_ident,
+                signature_mode: NativeSignatureMode::#signature_mode_ident,
                 params: #params_tokens,
                 returns: &#returns_tokens,
                 callable: #callable_tokens,

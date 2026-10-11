@@ -51,6 +51,21 @@ class FloatReduction {
   mean<I>(_ values: I) -> Float
     where I |= Iterable, <I as Iterable>::Item == Float
   {
+    let result: Option<Float> = FloatReduction.meanOption(values)
+    return result.match(
+      some: |value| { value },
+      none: || {
+        ArgumentError.new("mean requires a nonempty input").raise()
+        0.0
+      }
+    )
+  }
+
+  /// Returns None for an empty input; otherwise computes the stable mean in one pass.
+  @class
+  meanOption<I>(_ values: I) -> Option<Float>
+    where I |= Iterable, <I as Iterable>::Item == Float
+  {
     let mut iterator = values.iterator
     let mut scale = 0.0
     let mut total = 0.0
@@ -85,14 +100,14 @@ class FloatReduction {
       count = count + 1
       step = iterator.next
     }
-    if count == 0 { ArgumentError.new("mean requires a nonempty input").raise() }
-    if scale == 0.0 { return 0.0 }
+    if count == 0 { return Option::None }
+    if scale == 0.0 { return Option::Some(0.0) }
     let normalized = (total + correction) / Float.new(count)
     let result = scale * normalized
     if not result.isFinite {
       NumericalRangeError.new("Float mean is outside the finite binary64 range").raise()
     }
-    return result
+    return Option::Some(result)
   }
 
   /// Stable two-term log-domain addition with explicit IEEE edge handling.

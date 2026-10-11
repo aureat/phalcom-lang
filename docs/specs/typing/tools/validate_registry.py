@@ -93,6 +93,10 @@ tuple_companion = 'tuple-and-record-typing.md'
 structural_products = 'structural-products.md'
 arguments = 'callables/arguments.md'
 closures = 'callables/closures.md'
+kind_registry = 'typing/type/type.kind.md'
+domains = 'type-level-domains.md'
+reflection_registry = 'typing/type/type.reflection-pattern.md'
+runtime_reflection = 'typing/runtime-reflection.md'
 
 require_match('Tuple<> == Unit', tuple_registry, r'Tuple<>\s*≡\s*Unit\s*≡\s*\(\)')
 require_match('Tuple<> == Unit', tuple_companion, r'Tuple<>\s*≡\s*Unit\s*≡\s*\(\)')
@@ -124,6 +128,18 @@ require_match('Pack-native rest capture', arguments, r'Closure \*rest -> positio
 require_match('Pack-native rest capture', closures, r'Closure \*rest -> positional Pack')
 require_match('Pack() != Unit', arguments, r'Pack\(\) != Unit')
 require_match('Pack() != Unit', closures, r'Pack\(\) != Unit')
+require_match('variadic kind law uses the concrete lane domains', kind_registry, r'Concrete Phalcom variadic\s+lanes and their distinct kind domains are defined in')
+require_match(
+    'variadic kind law preserves lane-domain distinctions',
+    domains,
+    r'(?s)\*Ts\s*: TypePack.*\*\*Ls\s*: LabeledTypePack.*\*\*\*Es\s*: CompleteTypePack',
+)
+require_match('reflection conservatism law', reflection_registry, r'(?s)@id\(T1062\).*runtimeReflectionMustNotInventDefinitiveRelation')
+require_match(
+    'runtime reflection preserves conservative unknown outcomes',
+    runtime_reflection,
+    r'Incomplete reification must remain conservative: reflection must not invent a definitive relation',
+)
 
 if errors:
     print('REGISTRY VALIDATION: FAILED')
@@ -138,4 +154,4 @@ print(f'unique IDs: {len(set(ids))}')
 print(f'unique semantic paths: {len(set(names))}')
 print('dangling references: 0')
 print('forward/self explicit dependencies: 0')
-print('cross-spec canonical assertions: 11')
+print('cross-spec canonical assertions: 13')

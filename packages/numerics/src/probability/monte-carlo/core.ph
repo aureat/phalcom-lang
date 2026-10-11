@@ -2,7 +2,7 @@ import universe.math as math
 from universe.math import NumericalRangeError
 from universe.random import Distribution, Generator
 from ..errors import UndefinedStatisticError
-from ...statistics import RunningMoments, MomentSummary
+from ...statistics.moments import RunningMoments, MomentSummary
 
 const maxMonteCarloCount: Int = 9007199254740991
 
@@ -14,6 +14,25 @@ data MonteCarloEstimate private(
   _ standardError: Float,
   _ summary: MomentSummary
 )
+
+impl MonteCarloEstimate {
+  @class
+  internal fromSummary(_ count: Int, _ summary: MomentSummary) -> MonteCarloEstimate {
+    let sampleVariance = summary.sampleVariance.match(
+      some: |value| { value },
+      none: || { UndefinedStatisticError.new("Monte Carlo estimate requires at least two values").raise() }
+    )
+    let mean = summary.mean.match(
+      some: |value| { value },
+      none: || { UndefinedStatisticError.new("Monte Carlo estimate requires an observed value").raise() }
+    )
+    let standardError = math.sqrt(sampleVariance / Float.new(count))
+    if not standardError.isFinite {
+      NumericalRangeError.new("Monte Carlo standard error is outside Float range").raise()
+    }
+    MonteCarloEstimate(count, mean, sampleVariance, standardError, summary)
+  }
+}
 
 class MonteCarlo {
   @class
@@ -37,19 +56,7 @@ class MonteCarlo {
       remaining = remaining - 1
     }
     let summary = moments.snapshot
-    let sampleVariance = summary.sampleVariance.match(
-      some: |value| { value },
-      none: || { UndefinedStatisticError.new("Monte Carlo estimate requires at least two values").raise() }
-    )
-    let mean = summary.mean.match(
-      some: |value| { value },
-      none: || { UndefinedStatisticError.new("Monte Carlo estimate requires an observed value").raise() }
-    )
-    let standardError = math.sqrt(sampleVariance / Float.new(n))
-    if not standardError.isFinite {
-      NumericalRangeError.new("Monte Carlo standard error is outside Float range").raise()
-    }
-    return MonteCarloEstimate(n, mean, sampleVariance, standardError, summary)
+    return MonteCarloEstimate.fromSummary(n, summary)
   }
 }
 

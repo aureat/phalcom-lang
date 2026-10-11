@@ -630,6 +630,26 @@ may determine `T` from `I`'s associated evidence.
 
 The reverse does not authorize open-world existential search. Knowing `T = User` does not permit searching for an arbitrary `I` satisfying `I |= Iterator<Item = User>`.
 
+### Contextual inference for empty list literals
+
+An empty list literal contributes its known outer constructor, `List`, even
+though it contributes no element-value evidence. When a generic parameter is
+constrained by a canonical `List<T>` conformance and its associated binding
+determines `T`, inference may use that binding to specialize the literal. For
+example, an empty list passed to a parameter `I` with
+`I |= Iterable, <I as Iterable>::Item == Float` may be inferred as
+`List<Float>` when the canonical `List<T> |= Iterable` conformance binds
+`Iterable::Item` to `T`.
+
+This rule does not search for an arbitrary type satisfying the conformance
+bound. The literal fixes the candidate constructor as `List`; only its element
+argument is inferred from the uniquely applicable canonical conformance and
+associated equality. The resulting call must carry the ordinary canonical
+conformance evidence for `List<Float>`. If the context does not uniquely
+determine the element type, the literal remains underconstrained. A bare
+`Iterable` bound, without an item equality or other element evidence, does not
+authorize choosing an element type.
+
 ---
 
 ## 14. Conditional conformance

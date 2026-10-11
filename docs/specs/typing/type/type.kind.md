@@ -201,7 +201,12 @@ Supplying all required arguments to a multi-argument constructor produces the co
 
 A variadic type constructor accepts a pack whose element kinds match the constructor's variadic input kind and produces the declared result kind.
 
-This law is intended to cover constructors such as a variadic `Tuple` without prescribing the final surface syntax of kind packs.
+This law is generic variadic-application notation. Concrete Phalcom variadic
+lanes and their distinct kind domains are defined in
+[`type-level-domains.md`](../../type-level-domains.md): `*Ts` uses
+`TypePack`, `**Ls` uses `LabeledTypePack` (or the context-specific
+`RecordFields` binder for Records), and `***Es` uses `CompleteTypePack`.
+This law does not merge those domains or prescribe a new source syntax.
 
 **Kind:** Semantic law  
 **Depends on:** T0054
@@ -236,4 +241,24 @@ This file does not yet define:
 - type-function reduction
 - higher-kinded subtyping, if Phalcom ever introduces it
 
-Those belong to later semantic families and must preserve T0050–T0060.
+The current ownership boundary is:
+
+- kinded variadic lanes: [`type-level-domains.md`](../../type-level-domains.md);
+- associated type projection ownership and kinds:
+  [`type-members.md`](../../type-members.md) and
+  [`associated-types.md`](../../associated-types.md);
+- reflective type-form access, if additional source syntax is provided:
+  [`runtime-reflection.md`](../runtime-reflection.md) and the owning
+  type-member specification;
+- projection and type-function reduction:
+  [`type.projection-type-function.md`](type.projection-type-function.md);
+- constructor variance:
+  [`type.generic-constructor-variance.md`](type.generic-constructor-variance.md);
+- runtime type-form descriptors and their `.kind` observation:
+  [`Runtime Typing Reflection`](../runtime-reflection.md).
+
+No source-level reflective `T::Type` or `.type` shorthand is introduced by
+this registry. Ordinary associated-type projection syntax remains governed by
+the type-member specifications. Any additional reflection syntax must be
+specified by its owning language feature and preserve T0050–T0060.
+Higher-kinded subtyping remains deferred.

@@ -1315,8 +1315,14 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
             let (kind, spec) = project_associated_resolution(resolution, snapshot, projects)?;
             let site = LoweringSite::new(source_id.clone(), range, kind);
 
-            if associated.contains_key(&site) {
-                return Err(ProjectionError::AmbiguousLoweringSiteAttachment(site));
+            if let Some(previous) = associated.get(&site) {
+                if previous != &spec {
+                    return Err(ProjectionError::AmbiguousLoweringSiteAttachment(site));
+                }
+                // Multiple semantic expression ids can refer to the same
+                // source span after contextual analysis. Coalesce only when
+                // projection produces exactly the same executable meaning.
+                continue;
             }
             associated.insert(site, spec);
         }
@@ -1583,8 +1589,15 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
             let site = LoweringSite::new(source_id.clone(), range, LoweringSiteKind::FamilyApplication);
             family_application_sites.insert(site.clone());
 
-            if family_applications.contains_key(&site) {
-                return Err(ProjectionError::AmbiguousLoweringSiteAttachment(site));
+            if let Some(previous) = family_applications.get(&site) {
+                if previous != &spec {
+                    return Err(ProjectionError::AmbiguousLoweringSiteAttachment(site));
+                }
+                // Distinct semantic expression ids can share one source range
+                // when the same family call is observed through more than one
+                // analysis path. Identical projections have one unambiguous
+                // lowering meaning, so coalesce them at the source site.
+                continue;
             }
             family_applications.insert(site, spec);
         }

@@ -993,9 +993,16 @@ impl VM {
         entry: &crate::heap::ConditionalFamilyDispatchEntry,
         view: ArgumentView,
         source_range: SourceRange,
+        call_environment: Option<&crate::typing::RuntimeCallEnvironmentRecipe>,
     ) -> PhResult<CallOutcome> {
         let outcome = self.select_conditional_method(receiver, entry.selector, entry.declaring_class, entry.fallback_method);
         self.stack[receiver_idx] = receiver;
+        if let Some(recipe) = call_environment {
+            let method = match outcome {
+                ConditionalSelectionOutcome::OrdinaryOverride(method) | ConditionalSelectionOutcome::SelectedFallback(method) => method,
+            };
+            return self.activate_specialized_family_method(receiver, method, view, source_range, recipe);
+        }
         match outcome {
             ConditionalSelectionOutcome::OrdinaryOverride(method) => self.activate_captured_method_as(receiver, method, view, source_range),
             ConditionalSelectionOutcome::SelectedFallback(method) => {
@@ -1185,6 +1192,19 @@ impl VM {
         invocation: FamilyInvocationKind,
         source_range: SourceRange,
     ) -> PhResult<CallOutcome> {
+        self.activate_family_with_kind_and_recipe(view, invocation, source_range, None)
+    }
+
+    /// Activates a Family after a specialized call site has selected its
+    /// runtime member. The recipe remains call-site-specific and is applied
+    /// only after live Family routing reaches the captured receiver method.
+    pub(crate) fn activate_family_with_kind_and_recipe(
+        &mut self,
+        view: ArgumentView,
+        invocation: FamilyInvocationKind,
+        source_range: SourceRange,
+        call_environment: Option<&crate::typing::RuntimeCallEnvironmentRecipe>,
+    ) -> PhResult<CallOutcome> {
         view.layout().validate_window(view.receiver_index(), self.stack.len())?;
         let expects_setter = matches!(invocation, FamilyInvocationKind::Setter | FamilyInvocationKind::SubscriptSet);
         if view.has_setter_value() != expects_setter {
@@ -1356,10 +1376,41 @@ impl VM {
         };
         let conditional = family.conditional.iter().find(|entry| entry.selector == selector).cloned();
         if let Some(entry) = conditional {
-            return self.dispatch_conditional_family_entry(receiver_idx, family.receiver, &entry, view, source_range);
+            return self.dispatch_conditional_family_entry(receiver_idx, family.receiver, &entry, view, source_range, call_environment);
+        }
+        if let Some(recipe) = call_environment {
+            let (name, slots, kind) = decode_selector(self.resolve_symbol(selector));
+            let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
+            let labels = slots
+                .iter()
+                .filter_map(|slot| slot.as_ref())
+                .map(|label| self.interner.intern(label))
+                .collect::<Vec<_>>();
+            let method = family.receiver.lookup_method(self, selector).or_else(|| {
+                matches!(kind, SignatureKind::Method(_))
+                    .then(|| self.interner.intern(&name))
+                    .and_then(|base| self.lookup_rest_method(family.receiver.class(self), base, positional_count, &labels))
+            });
+            if let Some(method) = method {
+                return self.activate_specialized_family_method(family.receiver, method, view, source_range, recipe);
+            }
         }
         self.stack[receiver_idx] = family.receiver;
         self.dispatch_shape_at_as(receiver_idx, selector, view.layout().clone(), source_range, view.caller_authority())
+    }
+
+    fn activate_specialized_family_method(
+        &mut self,
+        receiver: Value,
+        method: ObjRef,
+        view: ArgumentView,
+        source_range: SourceRange,
+        recipe: &crate::typing::RuntimeCallEnvironmentRecipe,
+    ) -> PhResult<CallOutcome> {
+        self.validate_specialized_call(recipe, method)?;
+        let type_environment = self.materialize_call_environment(recipe)?;
+        let conformance_environment = self.materialize_conformance_environment(receiver, recipe)?;
+        self.activate_captured_method_as_with_environment(receiver, method, view, source_range, type_environment, conformance_environment)
     }
 
     fn activate_associated_family_with_kind(
@@ -1601,6 +1652,7 @@ impl VM {
         receiver_idx: usize,
         selector_sym: Symbol,
         arity: usize,
+        layout: InvocationLayout,
         source_range: SourceRange,
         type_environment: crate::typing::RuntimeTypeEnvironmentId,
         call_environment: Option<&crate::typing::RuntimeCallEnvironmentRecipe>,
@@ -1660,6 +1712,20 @@ impl VM {
         let call_selector = crate::method::encode_selector("call", &slots, kind);
         let call_sym = self.get_or_intern(&call_selector);
         let caller_authority = self.current_caller_authority();
+
+        // A generic call through an exported behavioral Family still needs
+        // live Family routing. Carry the original call-site shape and recipe
+        // past the module export gateway so validation happens against the
+        // selected Family member, not Function.call(***) itself.
+        if let Some(recipe) = call_environment
+            && target_val
+                .as_obj()
+                .is_some_and(|id| matches!(self.heap.get(id), Object::Family(_)))
+        {
+            let view = ArgumentView::from_layout(receiver_idx, layout, caller_authority.0, caller_authority.1);
+            self.activate_family_with_kind_and_recipe(view, FamilyInvocationKind::Method, source_range, Some(recipe))?;
+            return Ok(Some(()));
+        }
 
         if let Some(method) = target_val.lookup_method(self, call_sym) {
             if let Some(recipe) = call_environment {

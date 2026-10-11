@@ -2,7 +2,7 @@ import universe.math as math
 import ...special as special
 from universe.math import NumericalRangeError
 from universe.collections.iterator_laws import Iterable
-from ..bernoulli import Bernoulli
+from universe.random import Bernoulli
 from ..gamma_beta import Beta, Gamma
 
 const maxApproximateCount: Int = 9007199254740991
@@ -82,9 +82,7 @@ impl PoissonCounts {
   }
 
   merged(_ other: PoissonCounts) -> PoissonCounts {
-    if self.observations > maxApproximateCount - other.observations
-      or self.totalCount > maxApproximateCount - other.totalCount
-    {
+    if self.observations > maxApproximateCount - other.observations or self.totalCount > maxApproximateCount - other.totalCount {
       NumericalRangeError.new("merged Poisson sufficient statistics exceed exact Float count range").raise()
     }
     return PoissonCounts(self.observations + other.observations, self.totalCount + other.totalCount)
@@ -97,10 +95,7 @@ class Bayes {
     if counts.count == 0 { return prior }
     let alpha = prior.alpha + Float.new(counts.successes)
     let beta = prior.beta + Float.new(counts.failures)
-    if not alpha.isFinite or not beta.isFinite
-      or (counts.successes > 0 and alpha == prior.alpha)
-      or (counts.failures > 0 and beta == prior.beta)
-    {
+    if not alpha.isFinite or not beta.isFinite or (counts.successes > 0 and alpha == prior.alpha) or (counts.failures > 0 and beta == prior.beta) {
       NumericalRangeError.new("Beta-Bernoulli posterior parameters are not representable").raise()
     }
     return Beta.new(alpha: alpha, beta: beta)
@@ -112,10 +107,7 @@ class Bayes {
     let alpha = prior.alpha + Float.new(observation.successes)
     let failures = observation.trials - observation.successes
     let beta = prior.beta + Float.new(failures)
-    if not alpha.isFinite or not beta.isFinite
-      or (observation.successes > 0 and alpha == prior.alpha)
-      or (failures > 0 and beta == prior.beta)
-    {
+    if not alpha.isFinite or not beta.isFinite or (observation.successes > 0 and alpha == prior.alpha) or (failures > 0 and beta == prior.beta) {
       NumericalRangeError.new("Beta-Binomial posterior parameters are not representable").raise()
     }
     return Beta.new(alpha: alpha, beta: beta)
@@ -128,10 +120,10 @@ class Bayes {
 
   @class
   logBernoulliSequenceEvidence(prior: Beta, counts: BernoulliCounts) -> Float {
-    let result = special.logBeta(
+    let result = special.Beta.log(
       prior.alpha + Float.new(counts.successes),
       prior.beta + Float.new(counts.failures)
-    ) - special.logBeta(prior.alpha, prior.beta)
+    ) - special.Beta.log(prior.alpha, prior.beta)
     if not result.isFinite {
       NumericalRangeError.new("Bernoulli sequence evidence is outside Float range").raise()
     }
@@ -141,11 +133,11 @@ class Bayes {
   @class
   logBinomialEvidence(prior: Beta, observation: BinomialObservation) -> Float {
     let result = special.logChoose(observation.trials, observation.successes)
-      + special.logBeta(
+      + special.Beta.log(
         prior.alpha + Float.new(observation.successes),
         prior.beta + Float.new(observation.trials - observation.successes)
       )
-      - special.logBeta(prior.alpha, prior.beta)
+      - special.Beta.log(prior.alpha, prior.beta)
     if not result.isFinite {
       NumericalRangeError.new("Binomial evidence is outside Float range").raise()
     }
@@ -157,10 +149,7 @@ class Bayes {
     if counts.observations == 0 and counts.totalCount == 0 { return prior }
     let shape = prior.shape + Float.new(counts.totalCount)
     let rate = prior.rate + Float.new(counts.observations)
-    if not shape.isFinite or not rate.isFinite
-      or (counts.totalCount > 0 and shape == prior.shape)
-      or (counts.observations > 0 and rate == prior.rate)
-    {
+    if not shape.isFinite or not rate.isFinite or (counts.totalCount > 0 and shape == prior.shape) or (counts.observations > 0 and rate == prior.rate) {
       NumericalRangeError.new("Gamma-Poisson posterior parameters are not representable").raise()
     }
     return Gamma.new(shape: shape, rate: rate)

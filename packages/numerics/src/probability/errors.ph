@@ -1,3 +1,3 @@
-class UndefinedStatisticError is Error {}
+from ..errors import UndefinedStatisticError
 
 export UndefinedStatisticError

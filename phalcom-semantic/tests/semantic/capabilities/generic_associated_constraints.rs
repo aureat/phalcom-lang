@@ -637,3 +637,66 @@ class TestBox<T> {
     let norm_res = normalize_type(&mut store, proj_ty, &mut context);
     assert_eq!(norm_res, ProjectionNormalizationResult::Normalized(t_ty));
 }
+
+#[test]
+fn exact_associated_binding_survives_a_concrete_generic_conformance_assumption() {
+    use phalcom_semantic::generic_evidence::GenericEvidenceEnvironment;
+    use phalcom_semantic::traits::{AssociatedTypeRequirementId, TraitRef};
+    use phalcom_semantic::types::outcome::{CancellationToken, QueryBudget};
+    use phalcom_semantic::types::parameter::TypeParameterOwner;
+    use phalcom_semantic::types::projection::{ProjectionNormalizationContext, ProjectionNormalizationMode, ProjectionNormalizationResult, normalize_type};
+    use phalcom_semantic::types::store::TypeData;
+
+    let fixture = Fixture::new(
+        r#"
+trait Iterable {
+  type Item
+}
+
+class Item {}
+class Iter<T> {}
+class Owner {}
+
+impl<T> Iterable for Iter<T> {
+  type Item = T
+}
+"#,
+    );
+    let snapshot = &fixture.analysis.snapshot;
+    let mut store = (*snapshot.store).clone();
+    let iter_decl = fixture.decl("Iter");
+    let iter_kind = snapshot.declarations.get(&iter_decl).expect("Iter declaration").kind;
+    let iter_form = store.intern_with_kind(TypeData::Nominal { declaration: iter_decl }, iter_kind);
+    let item_ty = store.nominal(fixture.decl("Item"));
+    let iter_ty = store.apply_type_form(iter_form, &[item_ty]).expect("Iter<Item>");
+    let trait_ref = TraitRef::new(fixture.decl("Iterable"), Vec::<phalcom_semantic::types::id::TypeId>::new().into_boxed_slice());
+    let item_requirement = AssociatedTypeRequirementId::new(trait_ref.declaration.clone(), 0);
+    let projection = store.associated_projection(iter_ty, trait_ref.clone(), item_requirement);
+    let conformance = GenericConstraint::Conforms {
+        subject: TypeTerm::Canonical(iter_ty),
+        trait_ref,
+    };
+    let evidence = GenericEvidenceEnvironment::try_from_constraints(
+        &[conformance],
+        TypeParameterOwner::Declaration(fixture.decl("Owner")),
+        &snapshot.trait_surfaces,
+    )
+    .expect("generic evidence layout");
+    let mut budget = QueryBudget::new(100);
+    let cancel = CancellationToken::new();
+    let mut context = ProjectionNormalizationContext::new(
+        ProjectionNormalizationMode::Generic {
+            evidence: &evidence,
+            conformance_index: Some(&snapshot.conformance_index),
+            witness_plans: Some(&snapshot.conformance_witness_plans),
+            trait_surfaces: &snapshot.trait_surfaces,
+            derived_rules: Some(&snapshot.derived_conformance_rules),
+            declarations: &snapshot.declarations,
+            hierarchy: &*snapshot.hierarchy,
+        },
+        &mut budget,
+        &cancel,
+    );
+
+    assert_eq!(normalize_type(&mut store, projection, &mut context), ProjectionNormalizationResult::Normalized(item_ty));
+}

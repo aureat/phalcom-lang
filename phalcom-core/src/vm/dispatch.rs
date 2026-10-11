@@ -8,7 +8,7 @@ use crate::heap::ClosureObject;
 use crate::heap::Upvalue;
 use crate::heap::{ObjRef, Object, is_strict_subclass, lookup_method_with_definer};
 use crate::interner::Symbol;
-use crate::method::{InvocationLayout, SignatureKind, decode_selector, encode_selector};
+use crate::method::{ArgumentView, InvocationLayout, SignatureKind, decode_selector, encode_selector};
 use crate::value::Value;
 use crate::value::{FALSE, TRUE};
 use crate::vm::control::{ControlStepOutcome, Transfer};
@@ -1656,6 +1656,24 @@ impl VM {
         let selector_val = callable.chunk.constants[selector_idx as usize];
         let selector_sym = selector_val.as_symbol().unwrap();
         let layout = self.invocation_layout_for_selector(selector_sym, arity)?;
+        let source_range = callable.chunk.span_at(cache_ip);
+
+        // A specialized call through Function.call on a behavioral Family is
+        // still a live Family dispatch. Defer recipe validation and
+        // materialization until the Family has derived its selector and
+        // selected the captured receiver's actual method.
+        if let Some(recipe) = call_environment
+            && self.resolve_symbol(selector_sym) == "call(***)"
+            && receiver
+                .as_obj()
+                .is_some_and(|id| matches!(self.heap.get(id), Object::Family(_)))
+        {
+            let authority = self.current_caller_authority();
+            let view = ArgumentView::from_layout(receiver_idx, layout, authority.0, authority.1);
+            self.activate_family_with_kind_and_recipe(view, super::send::FamilyInvocationKind::Method, source_range, Some(recipe))?;
+            return Ok(());
+        }
+
         let type_environment = call_environment.map(|recipe| self.materialize_call_environment(recipe)).transpose()?;
         let conformance_environment = call_environment
             .map(|recipe| self.materialize_conformance_environment(receiver, recipe))
@@ -1695,7 +1713,15 @@ impl VM {
 
         let type_environment = type_environment.unwrap_or(crate::typing::RuntimeTypeEnvironmentId::EMPTY);
         let conformance_environment = conformance_environment.unwrap_or(crate::typing::RuntimeConformanceEnvironmentId::EMPTY);
-        if let Some(()) = self.try_module_export_send_with_environment(receiver_idx, selector_sym, arity, source_range, type_environment, call_environment)? {
+        if let Some(()) = self.try_module_export_send_with_environment(
+            receiver_idx,
+            selector_sym,
+            arity,
+            layout.clone(),
+            source_range,
+            type_environment,
+            call_environment,
+        )? {
             return Ok(());
         }
 
@@ -1828,7 +1854,7 @@ impl VM {
         Ok(())
     }
 
-    fn materialize_call_environment(
+    pub(super) fn materialize_call_environment(
         &mut self,
         recipe: &crate::typing::RuntimeCallEnvironmentRecipe,
     ) -> Result<crate::typing::RuntimeTypeEnvironmentId, RuntimeError> {
@@ -1884,7 +1910,7 @@ impl VM {
         method.ok_or_else(|| RuntimeError::Internal(format!("trait-selected callable {callable:?} has no executable method")).into())
     }
 
-    fn materialize_conformance_environment(
+    pub(super) fn materialize_conformance_environment(
         &mut self,
         receiver: Value,
         recipe: &crate::typing::RuntimeCallEnvironmentRecipe,

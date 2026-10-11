@@ -48,11 +48,12 @@ impl<T: Type> PositionalPack<T> {
 
 `primitive` classifies an irreducible runtime foundation declaration. It is
 independent of implementation origin: `native` states where implementation
-comes from, while `primitive` classifies the declaration. Initially it is legal
-only on native class and callable declarations in the canonical Universe. It
-is not inherited and does not mark a class's methods automatically. `@primitive`
-is retired; use the declaration modifier. The source attribute `@intrinsic` is
-also retired; `intrinsic` is the canonical implementation keyword.
+comes from, while `primitive` classifies the declaration. It is legal only on
+native class declarations and native method, getter, setter, or index
+declarations in the canonical Universe project. It is not inherited and does
+not mark a class's methods automatically. `@primitive` is retired; use the
+declaration modifier. The source attribute `@intrinsic` is also retired;
+`intrinsic` is the canonical implementation keyword.
 
 ## 2. Canonical semantic products
 

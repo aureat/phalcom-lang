@@ -421,7 +421,7 @@ impl HasQuantile for Normal {
     DistributionNumeric.validateProbability(probability, "Normal quantile probability")
     if probability == 0.0 { return -1.0 / 0.0 }
     if probability == 1.0 { return 1.0 / 0.0 }
-    let z = special.inverseNormal(probability)
+    let z = special.Normal.quantile(probability)
     return DistributionNumeric.normalAffine(self.mean, self.stddev, z)
   }
 
@@ -429,7 +429,7 @@ impl HasQuantile for Normal {
     DistributionNumeric.validateProbability(upperProbability, "Normal upper quantile probability")
     if upperProbability == 0.0 { return 1.0 / 0.0 }
     if upperProbability == 1.0 { return -1.0 / 0.0 }
-    let z = -special.inverseNormal(upperProbability)
+    let z = -special.Normal.quantile(upperProbability)
     return DistributionNumeric.normalAffine(self.mean, self.stddev, z)
   }
 }

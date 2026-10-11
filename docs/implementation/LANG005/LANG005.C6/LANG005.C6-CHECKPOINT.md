@@ -9,9 +9,9 @@ completion: PARTIAL
 verification: FOCUSED_TESTED
 requires:
   - LANG005.C5
-active_plan: LANG005.C6.P6
+active_plan: LANG005.C6.P7
 latest_completed_plan: LANG005.C6.P5
-next_plan: LANG005.C6.P6
+next_plan: LANG005.C6.P7
 next_checkpoint: null
 planning_baseline_revision: 14352f3824e8dcfc9f5b3f46d9f4a4bb5cf48709
 prepared: 2026-09-16
@@ -325,9 +325,146 @@ C6 must not migrate production `for`, collections, Range, Map, lazy adapters, ru
 | `LANG005.C6.P3` | Conditional conformances, nested recursive obligations, cycle/memoization proof state, conditional coherence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T0–T8 complete; recursive proof engine, cycle/memoization, derived runtime evidence, and cross-module/incremental integration verified; Gates G1–G6 pass |
 | `LANG005.C6.P4` | Iterator/Iterable generic laws, canonical Universe migration, explicit blanket/derived implication decision | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 complete; canonical law and focused gates pass; positive legacy iteration corpus is reproduced baseline-blocked at clean HEAD |
 | `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Part I & Part II complete: stateful iterators across Set, Map, Range, Bytes, String views, canonical one-shot lazy adapters (T9), Iterable default terminals (T10), and compiler boundedness updates (T11) implemented and unit-tested |
-| `LANG005.C6.P6` | Remaining generic-constraint closure, higher-kind integration where specified, alias/GADT/tooling/performance/stress/certification | PROPOSED | NOT_STARTED | UNVERIFIED | C6 closure plan; exact scope may be amended |
+| `LANG005.C6.P6` | Stateful-iteration corrective closure from the P5 audit | PROPOSED | NOT_STARTED | UNVERIFIED | Existing corrective plan remains open; independent of P7 |
+| `LANG005.C6.P7` | Source/native generic signature preservation, canonical Iterable inference, helper forwarding, and executable evidence transport needed by numeric clients | IN_PROGRESS | PARTIAL | UNVERIFIED | Adviser-directed correction; T1 found `Option.match` loses its source generics at native signature publication; see P7 amendment |
 
 The precise numbering/content of P2–P6 may be amended by later live repository analysis. The dependency structure is more authoritative than the placeholder plan names.
+
+### 5.1 P7 compiler-owned corrective plan
+
+The numeric package integration exposed compiler-owned gaps beyond the
+consumer plan boundary. P7 initially treated the failure as generic
+`Iterable<Item = Float>` inference and evidence transport. Its first callback
+discriminator instead found that canonical `Option.match` dispatch receives
+no generic signature: source declares
+`match<R>(some: (T) -> R, none: () -> R) -> R`, while the imported native
+surface publishes Object callbacks/Object result with no binders. The checker
+correctly rejects a Bool return from that erased contract. Adviser decision:
+amend P7 and repair the existing source/native binding path so one canonical
+merged signature preserves declaration-owned `Option.T`, callable-owned
+`match.R`, and native identity, while retaining the shape primitive's Object
+ABI. Do not add an Option-specific inference route or duplicate `T`. Then
+resume typed List, iterator, literal, same-bound forwarding, Family, and public
+numeric-client discriminators. The intended generic API remains fixed; no
+List-only fallback or numerics-specific semantic path is authorized. See
+`LANG005.C6.P7` for the bounded plan and gates.
+
+### P7 source/native signature consultation — 2026-10-11
+
+- **Observed**: focused `Probe.optionCheck` fails with `ReturnMismatch` at the
+  `Option.match` return. The canonical source declaration carries owner
+  `Option.T` and method `match.R`; call application sees no generic domains,
+  two Object parameters, Object return, and `NativeSignature` evidence. A plain
+  generic callback method with matching callback shapes solves both binders.
+- **Decision**: this is a source/native signature publication mismatch, not a
+  generic callback inference defect. Use the existing source/native binding
+  path to publish one canonical merged signature with the two distinct binders,
+  matching native identity, and parity validation. Keep the primitive's
+  two-Object callback ABI and Object runtime result unchanged.
+- **Plan effect**: P7 was amended before implementation. Its objective remains
+  numeric generic-client acceptance; the semantic fix now begins at source/
+  native binding and canonical signature publication. No new plan is needed.
+- **Deferred gates**: `Option.match` canonical signature/runtime behavior,
+  numeric end-to-end compilation, Iterable inference/evidence, helper
+  forwarding, and Family transport remain open until focused gates pass.
+
+### P7 inherent-impl publication refinement — 2026-10-11
+
+- **Observed**: the source declaration is a bodyless native method in
+  `impl<T> Option<T>`. `impls::build_inherent_impl_contribution` skips such
+  methods when the target has an intrinsic runtime owner; the accompanying
+  comment says the native catalog owns the checked signature. Native import
+  consequently publishes the erased Object signature instead of the source
+  owner/callable binders.
+- **Decision**: the source impl declaration must supply the canonical
+  `Option.match` signature, with declaration-owned `Option.T` and
+  callable-owned `match.R`. Associate the matching native identity with that
+  same target-owned callable and permit replacement of its imported primary
+  projection only through a unique exact native-anchor match. Preserve the
+  primitive's Object callback/result ABI. The class/enum
+  `core_surface::merge` is presentation-only; do not extend it to scan impl
+  syntax.
+- **Contract check**: keep `native_contract_mismatch` strict. The Option catalog
+  record must explicitly identify its callable types as ABI-erased; validate
+  slot count, labels, and runtime representation in a separate check, while
+  normal semantic processing owns source-level generic binders and
+  constraints. Do not treat Object as a universal wildcard. A missing,
+  ambiguous, or incompatible source anchor must fail closed instead of leaving
+  the erased Object signature as the accepted source contract.
+- **Required before edits**: verify the exact publication order and binding
+  keys around the inherent-impl contribution and native catalog import. The
+  implementation remains within P7's existing source/native signature
+  objective; no inference-specific workaround or new checkpoint objective is
+  authorized.
+
+### P7 contextual empty-list inference ruling — 2026-10-11
+
+- **Plan/Task**: `LANG005.C6.P7.T3`
+- **Trigger**: `stats.mean([])` requires contextual element typing, while the
+  empty literal contributes no element values and generic `I |= Iterable`
+  must not select an arbitrary subject type.
+- **Decision**: The literal fixes the candidate constructor as `List`. A
+  uniquely applicable canonical `List<T> |= Iterable` conformance and an
+  associated equality such as `Iterable::Item == Float` may determine `T`,
+  producing `List<Float>` and ordinary canonical conformance evidence. With no
+  unique element type, the literal remains underconstrained. A bare Iterable
+  bound does not select an element type or trigger open-world type search.
+- **Authority**: Principal-architect ruling recorded in the P7 consultation;
+  the accepted language rule is now specified in
+  `docs/specs/generic-constraints.md`, §13.
+- **Plan effect**: P7 is amended to implement this contextual rule in the
+  existing canonical inference path and to test both successful constrained
+  inference and underconstrained cases. No runtime proof search or fabricated
+  evidence is permitted.
+- **Adviser**: confirmed `impls::build_inherent_impl_contribution` as the
+  minimal semantic owner and rejected extending the presentation merger. The
+  follow-up fixed the validated native-anchor replacement rule and separate
+  ABI-erasure validation; `build_effective_surface` must retain ordinary
+  same-selector conflicts.
+
+### P7 Family call-recipe transport ruling — 2026-10-11
+
+- **Plan/Task**: `LANG005.C6.P7.T4`
+- **Trigger**: the public numeric client compiles, but a specialized
+  `stats.mean` call fails at runtime because its generic recipe is checked
+  against the `Function.call(***)` gateway instead of the selected Family
+  member `Descriptive.mean(_)`.
+- **Decision**: keep the call-site recipe attached to the Family application
+  and apply it only after Family activation has derived the selector and
+  selected the actual live target method. Validate canonical callable
+  identity as well as selector; materialize type/conformance environments for
+  that target using caller evidence and the Family's captured receiver.
+- **Invariants**: preserve live receiver lookup, structural selector checks,
+  call-site-specific specialization, argument order, and existing Family
+  errors. Do not direct-dispatch the semantic target or rewrite the recipe to
+  `Function.call(***)`. Ordinary closure calls continue through the Function
+  gateway.
+- **Plan effect**: amend P7 to extend Family lowering/activation with opaque
+  recipe transport and post-selection validation. No change to semantic
+  callable identity or runtime proof-search policy is authorized.
+- **Focused verification**: prove that lowering associates the recipe with
+  the Family application; exercise `stats.mean([1.0, 3.0])`; reject a
+  selector-compatible but identity-incompatible recipe; retain ordinary
+  closure gateway and Family shape-error behavior.
+
+### P7 Family gateway execution status — 2026-10-11
+
+- **Observed**: imported `stats.mean` first enters the module-export gateway,
+  which selected `Function.call(***)` and rejected the `Descriptive.mean(_)`
+  recipe before Family dispatch.
+- **Change and evidence**: the gateway now carries the original argument shape
+  and call recipe into live Family activation. `RUSTFLAGS='' cargo check -p
+  phalcom-core` passes. The positive `stats.mean(values.iterator)` execution
+  reaches the Family method and computes the expected value.
+- **Open failure**: the same focused test's negative control changes the
+  recipe's dispatch side but runtime still succeeds. Canonical identity
+  validation is unproven; verify recipe materialization and runtime callable
+  metadata before claiming T4/G2.
+- **Other open failure**: Float list literals still fail the associated-item
+  equality discriminator with `GenericConstraintUnsatisfied`, after one exact
+  conformance-binding normalization correction.
+- **State**: P7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. Do not close the
+  plan or promote the checkpoint from these focused results.
 
 ---
 

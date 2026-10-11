@@ -11,8 +11,9 @@ The pass converted the initial law collection into a dependency-ordered semantic
 
 The original report described only registry-internal mechanical checks. Those checks
 did not establish agreement with newer feature-specific normative specifications.
-The current result adds and reruns targeted structural cross-specification
-assertions. It still does not claim that every current or future language
+The current result adds targeted cross-specification assertions for high-risk
+structural rules, concrete variadic kind domains, and conservative runtime
+reflection. It still does not claim that every current or future language
 specification has been semantically reconciled.
 
 ## 2. Registry-level changes
@@ -50,7 +51,10 @@ The initial IDs were provisional and did not consistently respect foundational d
 - balanced Markdown code fences.
 - the 11 canonical Tuple, Record, `FieldKey`, and Pack-rest invariants listed
   in §2.4 across the registry, structural owner/companion specifications, and
-  callable specifications.
+  callable specifications;
+- the current variadic lane-domain names used by T0058; and
+- the reflection registry's conservative-information law and its runtime API
+  contract.
 
 Current result:
 
@@ -62,10 +66,10 @@ unique IDs: 375
 unique semantic paths: 375
 dangling references: 0
 forward/self explicit dependencies: 0
-cross-spec canonical assertions: 11
+cross-spec canonical assertions: 13
 ```
 
-### 2.4 Structural cross-specification conformance assertions
+### 2.4 Cross-specification conformance assertions
 
 The registry validator now fails if the registry, the structural semantic owner
 or syntax companion, or the callable rest specification cease to agree on:
@@ -84,6 +88,10 @@ or syntax companion, or the callable rest specification cease to agree on:
 
 These are maintained assertions over stable normative markers, not a claim that
 the validator proves the complete prose semantics.
+
+The two added assertions keep T0058 tied to the distinct concrete lane domains
+(`TypePack`, `LabeledTypePack`, and `CompleteTypePack`) and ensure T1062's
+reflection-conservatism requirement is also stated by the runtime API owner.
 
 ```text
 registry mechanical validation

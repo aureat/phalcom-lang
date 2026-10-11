@@ -11,7 +11,7 @@ pub const MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION: u32 = 1;
 /// typed static-domain catalog and v7 retains selected source member identity.
 pub const TYPE_METADATA_SCHEMA_VERSION: u32 = 11;
 pub const SEMANTIC_MODEL_VERSION: u32 = 1;
-pub const NATIVE_SURFACE_SCHEMA_VERSION: u32 = 1;
+pub const NATIVE_SURFACE_SCHEMA_VERSION: u32 = 2;
 
 #[inline]
 pub const fn supports_type_metadata_schema(version: u32) -> bool {

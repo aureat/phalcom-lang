@@ -3,7 +3,7 @@
 **Status:** Draft 0.1 — authoritative implementation-internals specification  
 **Specification domain:** `spec/vm/`  
 **Implementation:** Phalcom reference runtime (`phalcom-core`)  
-**Companion specification:** `bytecode.md`
+**Companion specification:** `bytecodes.md`
 
 ---
 
@@ -36,7 +36,7 @@ In particular, this document specifies:
 - stack walking and source-state relationships;
 - execution invariants and resource ceilings.
 
-This document does **not** redefine the meaning of individual bytecodes. Those semantics belong to [`bytecode.md`](bytecode.md).
+This document does **not** redefine the meaning of individual bytecodes. Those semantics belong to [`bytecodes.md`](bytecodes.md).
 
 It also does not fully specify:
 
@@ -1621,7 +1621,7 @@ else:
     push return_value for caller
 ```
 
-The exact opcode definition belongs to `bytecode.md`.
+The exact opcode definition belongs to `bytecodes.md`.
 
 This document specifies the activation destruction sequence.
 
@@ -2566,7 +2566,7 @@ Pooling MUST NOT change:
 
 ## 132. Bytecodes
 
-[`bytecode.md`](bytecode.md) owns:
+[`bytecodes.md`](bytecodes.md) owns:
 
 - instruction catalog;
 - instruction operands;

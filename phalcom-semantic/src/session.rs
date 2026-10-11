@@ -5302,6 +5302,18 @@ impl SemanticWorkspaceSession {
                 );
                 let _ = query_bootstrap_declaration_surface(&mut self.db, target.clone(), effective.surface.clone());
 
+                for signature in effective.native_anchors.values() {
+                    match query_bootstrap_callable_signature(&mut self.db, Arc::new(signature.clone())) {
+                        QueryOutcome::Ready(signature) => {
+                            callable_signatures.insert((*signature).clone());
+                        }
+                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                        QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                    }
+                }
+
                 for definition in effective.definitions.values() {
                     if matches!(definition.origin, crate::impls::CallableDefinitionOrigin::InherentImpl(_)) {
                         callable_definitions.insert(definition.callable.clone(), definition.clone());

@@ -29,6 +29,7 @@ struct PrimitiveAttrArgs {
     visibility: Option<String>,
     stability: Option<String>,
     anchor: Option<String>,
+    signature_mode: Option<String>,
 
     since: Option<String>,
     deprecated_since: Option<String>,
@@ -67,6 +68,7 @@ impl Parse for PrimitiveAttrArgs {
             visibility: None,
             stability: None,
             anchor: None,
+            signature_mode: None,
             since: None,
             deprecated_since: None,
             replacement: None,
@@ -153,6 +155,10 @@ impl Parse for PrimitiveAttrArgs {
                 "anchor" => {
                     let id: Ident = input.parse()?;
                     args.anchor = Some(id.to_string());
+                }
+                "signature" => {
+                    let id: Ident = input.parse()?;
+                    args.signature_mode = Some(id.to_string());
                 }
                 "since" => {
                     let lit: LitStr = input.parse()?;
@@ -302,6 +308,14 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
         }
     };
 
+    let signature_mode = match args.signature_mode.as_deref() {
+        Some("exact") | None => phalcom_native_meta::NativeSignatureMode::Exact,
+        Some("abi_erased") => phalcom_native_meta::NativeSignatureMode::AbiErased,
+        Some(other) => {
+            return Err(Error::new(Span::call_site(), format!("unknown native signature mode '{other}', expected exact or abi_erased")));
+        }
+    };
+
     // 6. Trust
     let trust = match args.trust.as_deref() {
         Some("ordinary") | None => phalcom_native_meta::NativeTrust::Ordinary,
@@ -424,6 +438,19 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
         let parsed_callable =
             parse_callable_type(types_str).map_err(|e| Error::new(*types_span, format!("failed to parse types contract '{types_str}': {e}")))?;
 
+        if signature_mode == phalcom_native_meta::NativeSignatureMode::AbiErased {
+            let is_object = |ty: &TypeExpr| matches!(ty, TypeExpr::Universe(name) | TypeExpr::Named(name) if name == "Object");
+            let object_slots = parsed_callable.params.rest.is_none()
+                && parsed_callable.params.positional.iter().all(is_object)
+                && parsed_callable.params.labeled.iter().all(|parameter| is_object(&parameter.ty));
+            if !object_slots || !is_object(&parsed_callable.return_type) || !parsed_callable.type_params.is_empty() || !parsed_callable.constraints.is_empty() {
+                return Err(Error::new(
+                    *types_span,
+                    "abi_erased signatures require Object in every fixed parameter and result slot, with no native type parameters or constraints",
+                ));
+            }
+        }
+
         let binders: Vec<String> = parsed_callable.type_params.iter().map(|p| p.name.clone()).collect();
 
         // If params_str is present, cross-check
@@ -515,6 +542,11 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
         phalcom_native_meta::PrimitiveAbi::Shape => quote!(::phalcom_native_meta::PrimitiveAbi::Shape),
     };
 
+    let signature_mode_tokens = match signature_mode {
+        phalcom_native_meta::NativeSignatureMode::Exact => quote!(::phalcom_native_meta::NativeSignatureMode::Exact),
+        phalcom_native_meta::NativeSignatureMode::AbiErased => quote!(::phalcom_native_meta::NativeSignatureMode::AbiErased),
+    };
+
     let abi_check = match abi {
         phalcom_native_meta::PrimitiveAbi::Value => {
             quote! {
@@ -569,6 +601,7 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
             visibility: #visibility_tokens,
             stability: #stability_tokens,
             anchor: #anchor,
+            signature_mode: #signature_mode_tokens,
             params: #params_spec,
             returns: #returns_spec,
             callable: #callable_spec,

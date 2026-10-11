@@ -5,7 +5,7 @@ expose .monte_carlo
 
 from .probability_helpers import ProbabilityHelpers, UndefinedNormalizationError
 from .capabilities import HasMass, HasDensity, HasOrderedTails, HasQuantile
-from .bernoulli import Bernoulli
+from .bernoulli import Bernoulli, bernoulliSupport
 from .continuous import Uniform, Normal, Exponential
 from .discrete import Binomial, Poisson
 from .gamma_beta import Gamma, Beta
@@ -32,7 +32,7 @@ let tailDiagnostics = &Likelihood.tailDiagnostics(_, at)
 export (
   logit, logOdds, odds, invLogit,
   normalizeWeights, normalizeLogWeights, normalizedLogWeights,
-  Bernoulli, Binomial, Poisson, Categorical, Uniform, Normal, Exponential, Gamma, Beta,
+  Bernoulli, bernoulliSupport, Binomial, Poisson, Categorical, Uniform, Normal, Exponential, Gamma, Beta,
   Distribution, Generator, HasMass, HasDensity, HasOrderedTails, HasQuantile,
   RealSupport, IntegerSupport, FiniteSupport,
   Sampling, SampleIterator, sampleMany, samples,

@@ -15,6 +15,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -62,6 +63,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -109,6 +111,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -156,6 +159,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -211,6 +215,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -258,6 +263,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -305,6 +311,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Message)],
                 labeled: &[],
@@ -354,6 +361,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -409,6 +417,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -456,6 +465,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -503,6 +513,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -550,6 +561,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -597,6 +609,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
                 labeled: &[],
@@ -650,6 +663,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -697,6 +711,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -746,6 +761,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -799,6 +815,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
                 labeled: &[],
@@ -846,6 +863,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -895,6 +913,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Symbol)],
                 labeled: &[],
@@ -944,6 +963,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -993,6 +1013,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -1040,6 +1061,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -1087,6 +1109,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -1140,6 +1163,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -1187,6 +1211,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -1234,6 +1259,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -1281,6 +1307,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
@@ -1328,6 +1355,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
@@ -1375,6 +1403,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
@@ -1422,6 +1451,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -1471,6 +1501,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
@@ -1518,6 +1549,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -1567,6 +1599,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
@@ -1614,6 +1647,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
@@ -1661,6 +1695,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
@@ -1708,6 +1743,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
@@ -1755,6 +1791,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
@@ -1802,6 +1839,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
@@ -1849,6 +1887,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
@@ -1896,6 +1935,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -1943,6 +1983,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -1990,6 +2031,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Number)],
                 labeled: &[],
@@ -2037,6 +2079,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -2084,6 +2127,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -2131,6 +2175,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -2178,6 +2223,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -2225,6 +2271,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -2272,6 +2319,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -2319,6 +2367,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -2366,6 +2415,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -2413,6 +2463,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -2460,6 +2511,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -2507,6 +2559,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -2554,6 +2607,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -2601,6 +2655,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -2648,6 +2703,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -2695,6 +2751,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -2742,6 +2799,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -2789,6 +2847,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -2836,6 +2895,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -2883,6 +2943,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -2930,6 +2991,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -2977,6 +3039,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[
                     ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float),
@@ -3030,6 +3093,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3077,6 +3141,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3124,6 +3189,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3171,6 +3237,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3218,6 +3285,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3265,6 +3333,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3312,6 +3381,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3359,6 +3429,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3406,6 +3477,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3453,6 +3525,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3500,6 +3573,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3547,6 +3621,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -3594,6 +3669,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3641,6 +3717,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3688,6 +3765,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -3735,6 +3813,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3782,6 +3861,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3829,6 +3909,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3876,6 +3957,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3923,6 +4005,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -3970,6 +4053,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -4017,6 +4101,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -4064,6 +4149,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -4111,6 +4197,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -4158,6 +4245,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String)],
                 labeled: &[],
@@ -4205,6 +4293,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -4258,6 +4347,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -4305,6 +4395,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -4352,6 +4443,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -4399,6 +4491,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -4452,6 +4545,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -4499,6 +4593,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -4546,6 +4641,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[
                     ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String),
@@ -4607,6 +4703,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[
                     ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String),
@@ -4668,6 +4765,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[
                     ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
@@ -4721,6 +4819,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -4768,6 +4867,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -4815,6 +4915,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -4862,6 +4963,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -4909,6 +5011,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -4956,6 +5059,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5003,6 +5107,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5050,6 +5155,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5097,6 +5203,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5144,6 +5251,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5191,6 +5299,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5238,6 +5347,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5285,6 +5395,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5332,6 +5443,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5379,6 +5491,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5426,6 +5539,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5473,6 +5587,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5520,6 +5635,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5567,6 +5683,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5614,6 +5731,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -5667,6 +5785,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -5714,6 +5833,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5761,6 +5881,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -5808,6 +5929,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -5855,6 +5977,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[::phalcom_native_meta::LabeledParameterSpec {
@@ -5908,6 +6031,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -5955,6 +6079,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -6002,6 +6127,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -6049,6 +6175,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -6096,6 +6223,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -6143,6 +6271,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -6190,6 +6319,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -6237,6 +6367,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -6284,6 +6415,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -6331,6 +6463,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -6378,6 +6511,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -6425,6 +6559,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -6472,6 +6607,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -6519,6 +6655,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -6572,6 +6709,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -6619,6 +6757,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -6666,6 +6805,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -6713,6 +6853,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -6760,6 +6901,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -6807,6 +6949,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -6854,6 +6997,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -6901,6 +7045,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -6948,6 +7093,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -6995,6 +7141,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -7042,6 +7189,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -7089,6 +7237,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -7136,6 +7285,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -7185,6 +7335,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -7234,6 +7385,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -7283,6 +7435,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -7332,6 +7485,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -7379,6 +7533,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -7428,6 +7583,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -7475,6 +7631,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -7524,6 +7681,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -7573,6 +7731,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -7620,6 +7779,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -7669,6 +7829,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -7718,6 +7879,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -7765,6 +7927,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -7814,6 +7977,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -7861,6 +8025,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -7908,6 +8073,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -7955,6 +8121,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -8002,6 +8169,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -8051,6 +8219,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -8098,6 +8267,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -8147,6 +8317,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -8196,6 +8367,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -8245,6 +8417,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -8294,6 +8467,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -8341,6 +8515,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -8388,6 +8563,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -8435,6 +8611,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -8482,6 +8659,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -8529,6 +8707,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -8576,6 +8755,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -8623,6 +8803,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -8670,6 +8851,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -8717,6 +8899,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -8764,6 +8947,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::AbiErased,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[
@@ -8831,6 +9015,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Hidden,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -8880,6 +9065,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Hidden,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -8927,6 +9113,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -8976,6 +9163,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -9025,6 +9213,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -9074,6 +9263,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[
                     ::phalcom_native_meta::TypeExprSpec::Unknown,
@@ -9131,6 +9321,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -9180,6 +9371,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -9229,6 +9421,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -9276,6 +9469,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -9323,6 +9517,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -9372,6 +9567,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -9421,6 +9617,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -9470,6 +9667,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -9519,6 +9717,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -9568,6 +9767,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -9617,6 +9817,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -9666,6 +9867,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -9713,6 +9915,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -9762,6 +9965,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -9811,6 +10015,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -9860,6 +10065,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -9909,6 +10115,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -9958,6 +10165,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -10005,6 +10213,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -10052,6 +10261,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -10099,6 +10309,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -10146,6 +10357,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -10193,6 +10405,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -10240,6 +10453,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -10289,6 +10503,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -10338,6 +10553,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -10387,6 +10603,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -10434,6 +10651,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -10481,6 +10699,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -10528,6 +10747,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -10575,6 +10795,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -10622,6 +10843,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -10669,6 +10891,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -10716,6 +10939,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -10763,6 +10987,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -10810,6 +11035,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -10857,6 +11083,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -10904,6 +11131,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -10951,6 +11179,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -10998,6 +11227,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -11045,6 +11275,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -11092,6 +11323,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -11145,6 +11377,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -11198,6 +11431,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -11245,6 +11479,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -11294,6 +11529,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -11343,6 +11579,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -11392,6 +11629,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -11441,6 +11679,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -11490,6 +11729,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -11539,6 +11779,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -11588,6 +11829,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -11637,6 +11879,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -11686,6 +11929,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -11735,6 +11979,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -11784,6 +12029,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -11831,6 +12077,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -11878,6 +12125,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -11925,6 +12173,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -11972,6 +12221,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12019,6 +12269,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12066,6 +12317,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12113,6 +12365,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -12160,6 +12413,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12207,6 +12461,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12254,6 +12509,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -12303,6 +12559,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12350,6 +12607,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12397,6 +12655,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12444,6 +12703,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12491,6 +12751,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12538,6 +12799,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12585,6 +12847,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12632,6 +12895,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12679,6 +12943,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12726,6 +12991,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12773,6 +13039,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12822,6 +13089,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12869,6 +13137,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12916,6 +13185,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -12963,6 +13233,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13010,6 +13281,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13057,6 +13329,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13104,6 +13377,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13151,6 +13425,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13198,6 +13473,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13245,6 +13521,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13292,6 +13569,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13339,6 +13617,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13386,6 +13665,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13433,6 +13713,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13480,6 +13761,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13527,6 +13809,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13574,6 +13857,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13621,6 +13905,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13668,6 +13953,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13715,6 +14001,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13770,6 +14057,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13817,6 +14105,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13864,6 +14153,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -13913,6 +14203,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -13968,6 +14259,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String)],
                 labeled: &[],
@@ -14023,6 +14315,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -14080,6 +14373,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -14127,6 +14421,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -14176,6 +14471,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -14225,6 +14521,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Bool)],
                 labeled: &[],
@@ -14280,6 +14577,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -14329,6 +14627,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -14378,6 +14677,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -14425,6 +14725,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -14472,6 +14773,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -14519,6 +14821,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -14566,6 +14869,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -14613,6 +14917,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -14660,6 +14965,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[
                     ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
@@ -14723,6 +15029,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -14770,6 +15077,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -14817,6 +15125,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
                 labeled: &[],
@@ -14864,6 +15173,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::String)],
                 labeled: &[],
@@ -14911,6 +15221,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -14958,6 +15269,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -15005,6 +15317,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15052,6 +15365,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15099,6 +15413,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15146,6 +15461,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15193,6 +15509,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15240,6 +15557,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[
                     ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float),
@@ -15293,6 +15611,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15340,6 +15659,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15387,6 +15707,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15434,6 +15755,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15481,6 +15803,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15528,6 +15851,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15575,6 +15899,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15622,6 +15947,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[
                     ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float),
@@ -15675,6 +16001,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15722,6 +16049,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15769,6 +16097,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[::phalcom_native_meta::LabeledParameterSpec {
@@ -15822,6 +16151,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15869,6 +16199,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15916,6 +16247,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -15963,6 +16295,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -16010,6 +16343,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -16057,6 +16391,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -16104,6 +16439,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
                 labeled: &[],
@@ -16151,6 +16487,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Bytes)],
                 labeled: &[],
@@ -16208,6 +16545,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -16255,6 +16593,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -16302,6 +16641,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -16349,6 +16689,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -16396,6 +16737,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -16445,6 +16787,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -16494,6 +16837,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -16543,6 +16887,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -16590,6 +16935,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -16639,6 +16985,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -16688,6 +17035,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -16737,6 +17085,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -16786,6 +17135,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -16835,6 +17185,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -16884,6 +17235,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -16933,6 +17285,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -16980,6 +17333,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17029,6 +17383,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -17076,6 +17431,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -17125,6 +17481,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17172,6 +17529,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -17221,6 +17579,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17270,6 +17629,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -17317,6 +17677,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -17364,6 +17725,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17411,6 +17773,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17458,6 +17821,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Internal,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17505,6 +17869,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17552,6 +17917,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17599,6 +17965,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17646,6 +18013,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17693,6 +18061,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17740,6 +18109,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17787,6 +18157,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17834,6 +18205,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17881,6 +18253,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17928,6 +18301,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -17975,6 +18349,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18022,6 +18397,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18069,6 +18445,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18116,6 +18493,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18163,6 +18541,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18210,6 +18589,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18257,6 +18637,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18304,6 +18685,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18351,6 +18733,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18398,6 +18781,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18445,6 +18829,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18492,6 +18877,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18539,6 +18925,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18586,6 +18973,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18633,6 +19021,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18680,6 +19069,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18727,6 +19117,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18774,6 +19165,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18821,6 +19213,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18868,6 +19261,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18915,6 +19309,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -18962,6 +19357,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19009,6 +19405,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19056,6 +19453,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19103,6 +19501,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19150,6 +19549,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19197,6 +19597,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19244,6 +19645,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19291,6 +19693,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19338,6 +19741,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19385,6 +19789,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19432,6 +19837,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -19479,6 +19885,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -19526,6 +19933,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -19573,6 +19981,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19620,6 +20029,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19667,6 +20077,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19714,6 +20125,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19761,6 +20173,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19808,6 +20221,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19855,6 +20269,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19902,6 +20317,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19949,6 +20365,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -19996,6 +20413,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -20043,6 +20461,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -20090,6 +20509,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -20137,6 +20557,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -20184,6 +20605,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -20231,6 +20653,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -20278,6 +20701,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -20325,6 +20749,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],
@@ -20372,6 +20797,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
                 labeled: &[],
@@ -20419,6 +20845,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: NativeSignatureMode::Exact,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[],
                 labeled: &[],

@@ -836,3 +836,325 @@ let flatLogChoose = logChoose(5, 2)
     assert!((read_global(&vm, module, "combLogChoose").as_float().unwrap() - expected_choose5_2).abs() < 1e-14);
     assert!((read_global(&vm, module, "flatLogChoose").as_float().unwrap() - expected_choose5_2).abs() < 1e-14);
 }
+
+#[test]
+fn float_representation_methods_and_stable_reductions_cover_boundaries() {
+    let source = r#"
+import universe.math as math
+
+let fused = 1.000000007450580596923828125.fma(0.999999992549419403076171875, -1.0)
+let copiedNegative = 1.0.copySign(-0.0)
+let negativeZero = 0.0.copySign(-1.0)
+let smallestSubnormal = 1.0.scalePow2(-1074)
+let underflow = 1.0.scalePow2(-1075)
+let overflow = 1.0.scalePow2(1024)
+let logAdd = math.logAddExp(1000.0, 1000.0)
+let logAddNaN = math.logAddExp(0.0 / 0.0, 1.0 / 0.0)
+let logOneMinus = math.log1mexp(-0.6931471805599453)
+let meanOption = math.meanOption([1.0e308, -1.0e308].iterator)
+let mean = meanOption.match(some: |value| { value }, none: || { -1.0 })
+let empty = List<Float>.new()
+let emptyMeanIsNone = math.meanOption(empty.iterator).isNone
+"#;
+    let (_temp, program) = compile_package(source);
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("Float boundary client executes");
+    let module = vm.module_registry.get(&program.entry).unwrap().object;
+
+    for (name, expected) in [
+        ("fused", -2.0_f64.powi(-54)),
+        ("copiedNegative", -1.0),
+        ("negativeZero", -0.0),
+        ("smallestSubnormal", f64::from_bits(1)),
+        ("underflow", 0.0),
+        ("overflow", f64::INFINITY),
+        ("logAdd", 1000.0 + 2.0_f64.ln()),
+        ("logOneMinus", -2.0_f64.ln()),
+        ("mean", 0.0),
+    ] {
+        let actual = read_global(&vm, module, name).as_float().unwrap();
+        assert_eq!(actual.to_bits(), expected.to_bits(), "{name}");
+    }
+    assert!(read_global(&vm, module, "logAddNaN").as_float().unwrap().is_nan());
+    assert_eq!(read_global(&vm, module, "emptyMeanIsNone"), Value::bool(true));
+}
+
+#[test]
+fn rational_negative_inverse_uses_the_normalized_constructor() {
+    let source = r#"
+from universe.numbers import Rational
+
+let value = Rational.new(-2, 3)
+let reciprocal = value.inverse
+let expected = Rational.new(-3, 2)
+let exact = reciprocal === expected
+let productIsOne = (value * reciprocal) === Rational.fromInt(1)
+"#;
+    let (_temp, program) = compile_package(source);
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("negative Rational inverse executes");
+    let module = vm.module_registry.get(&program.entry).unwrap().object;
+    assert_eq!(read_global(&vm, module, "exact"), Value::bool(true));
+    assert_eq!(read_global(&vm, module, "productIsOne"), Value::bool(true));
+}
+
+#[test]
+fn generic_method_infers_shared_callback_result_for_option_and_plain_calls() {
+    let source = r#"
+class Probe {
+  @class optionCheck(_ value: Option<Int>) -> Bool {
+    return value.match(
+      some: |item| { item > 0 },
+      none: || { false }
+    )
+  }
+
+  @class callbackCheck() -> Bool {
+    return Probe.sameResult(
+      1,
+      |item| { item > 0 },
+      || { false }
+    )
+  }
+
+  @class sameResult<T, R>(_ value: T, _ some: (T) -> R, _ none: () -> R) -> R {
+    some.call(value)
+  }
+}
+
+let optionResult = Probe.optionCheck(Option<Int>::Some(1))
+let callbackResult = Probe.callbackCheck()
+"#;
+    let (_temp, program) = compile_package(source);
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("generic callback result inference executes");
+    let module = vm.module_registry.get(&program.entry).unwrap().object;
+    assert_eq!(read_global(&vm, module, "optionResult"), Value::bool(true));
+    assert_eq!(read_global(&vm, module, "callbackResult"), Value::bool(true));
+}
+
+#[test]
+fn generic_plain_method_infers_shared_callback_result() {
+    let source = r#"
+class Probe {
+  @class callbackCheck() -> Bool {
+    return Probe.sameResult(
+      1,
+      |item| { item > 0 },
+      || { false }
+    )
+  }
+
+  @class sameResult<T, R>(_ value: T, _ some: (T) -> R, _ none: () -> R) -> R {
+    some.call(value)
+  }
+}
+
+let callbackResult = Probe.callbackCheck()
+"#;
+    let (_temp, _program) = compile_package(source);
+}
+
+#[test]
+fn generic_iterable_specializes_typed_and_literal_inputs() {
+    let source = r#"
+from universe.collections.iterator_laws import Iterable
+
+class Probe {
+  @class accept<I>(_ input: I) -> Float
+    where I |= Iterable, <I as Iterable>::Item == Float
+  { 1.0 }
+}
+
+let values = List<Float>.new()
+values.append(1.0)
+let typed = Probe.accept(values)
+let iterator = Probe.accept(values.iterator)
+let literal = Probe.accept([1.0])
+let literalIterator = Probe.accept([1.0].iterator)
+"#;
+    let (_temp, program) = compile_package(source);
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("generic Iterable calls execute");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    for name in ["typed", "iterator", "literal", "literalIterator"] {
+        assert_eq!(read_global(&vm, module, name).as_float(), Some(1.0), "{name}");
+    }
+}
+
+#[test]
+fn public_statistics_family_applies_its_recipe_after_live_member_selection() {
+    let source = r#"
+import numerics.statistics as stats
+
+let values = List<Float>.new()
+values.append(1.0)
+values.append(3.0)
+let mean = stats.mean(values.iterator)
+"#;
+    let (_temp, program) = compile_numerics_package(source);
+    let entry_module = program.modules.get(&program.entry).expect("entry module");
+    let (call_range, recipe) = entry_module
+        .lowering
+        .call_environment_recipes
+        .iter()
+        .find(|(_, recipe)| recipe.callable.selector.as_ref() == "mean(_)")
+        .expect("generic recipe for the public mean call");
+    let family_application = entry_module
+        .lowering
+        .family_applications
+        .iter()
+        .find(|(site, _)| site.range == *call_range)
+        .map(|(_, spec)| spec)
+        .expect("mean recipe is associated with its Family application");
+    assert!(matches!(
+        family_application,
+        phalcom_core::modules::semantic_lowering::FamilyApplicationLoweringSpec::Static {
+            kind: phalcom_semantic::checker::associated::FamilyApplicationKind::Behavioral,
+            ..
+        } | phalcom_core::modules::semantic_lowering::FamilyApplicationLoweringSpec::DynamicPack {
+            kind: phalcom_semantic::checker::associated::FamilyApplicationKind::Behavioral,
+            ..
+        }
+    ));
+    let owner = recipe.callable.owner.try_declaration().expect("declaration-owned public method");
+    assert_eq!(owner.path.last().map(AsRef::as_ref), Some("Descriptive"));
+
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("public Family call executes with its selected generic evidence");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(read_global(&vm, module, "mean").as_float(), Some(2.0));
+
+    let mut mismatched = program.clone();
+    let mut lowering = (*mismatched.modules[&mismatched.entry].lowering).clone();
+    let mismatched_recipe = lowering.call_environment_recipes.get_mut(call_range).expect("mean call recipe");
+    let mismatched_recipe = std::sync::Arc::make_mut(mismatched_recipe);
+    mismatched_recipe.callable.side = match mismatched_recipe.callable.side {
+        phalcom_type_meta::identity::StableDispatchSide::Instance => phalcom_type_meta::identity::StableDispatchSide::Class,
+        phalcom_type_meta::identity::StableDispatchSide::Class => phalcom_type_meta::identity::StableDispatchSide::Instance,
+    };
+    mismatched.modules.get_mut(&mismatched.entry).expect("entry module").lowering = std::sync::Arc::new(lowering);
+    let mut mismatched_vm = VM::new();
+    let failure = mismatched_vm.run_compiled(&mismatched).expect_err("same-selector but wrong callable identity must fail closed");
+    assert!(
+        format!("{}", runtime_error(&failure)).contains("canonical callable identity mismatch"),
+        "unexpected failure: {failure}"
+    );
+}
+
+#[test]
+fn numerics_modules_compile_and_run_as_one_public_client() {
+    let source = r#"
+import numerics as numerics
+import numerics.special as special
+import numerics.statistics as stats
+import numerics.probability as probability
+import numerics.probability.bayes as bayes
+import numerics.probability.monte_carlo as monte
+from universe.random import Xoshiro256PlusPlus
+
+let gammaLog = special.Gamma.log(5.0)
+let mean = stats.mean([1.0, 2.0, 3.0].iterator)
+let stream = [1.0, 2.0, 3.0].iterator
+let streamMean = stats.mean(stream)
+let streamExhausted = stream.next.isNone
+let exactMean = stats.meanExact([1, 2, 3].iterator)
+let exactMeanFloat = exactMean.toFloat
+
+let normal = probability.Normal.new(mean: 0.0, stddev: 1.0)
+let normalMedian = normal.quantile(0.5)
+let gamma = probability.Gamma.new(shape: 1.0, rate: 1.0)
+let gammaLogDensity = gamma.logPdf(1.0)
+let gammaCdf = gamma.cdf(0.5)
+let gammaMedian = gamma.quantile(0.5)
+let beta = probability.Beta.new(alpha: 2.0, beta: 3.0)
+let betaLogDensity = beta.logPdf(0.5)
+let betaCdf = beta.cdf(0.5)
+let betaMedian = beta.quantile(0.5)
+let betaMedianCdf = beta.cdf(betaMedian)
+let binomial = probability.Binomial.new(trials: 4, probability: 0.5)
+let binomialCdf = binomial.cdf(1)
+let poisson = probability.Poisson.new(rate: 2.0)
+let poissonCdf = poisson.cdf(1)
+
+let bernoulli = probability.Bernoulli.new(0.25)
+let bernoulliMean = bernoulli.mean
+let bernoulliVariance = bernoulli.variance
+let bernoulliSupport = probability.bernoulliSupport(bernoulli)
+let supportHasFalse = bernoulliSupport.contains(false)
+let supportHasTrue = bernoulliSupport.contains(true)
+
+let prior = probability.Beta.new(alpha: 1.0, beta: 1.0)
+let counts = bayes.BernoulliCounts.fromBools([true, true, false].iterator)
+let posterior = bayes.betaBernoulli(prior: prior, counts: counts)
+let posteriorAlpha = posterior.alpha
+let posteriorBeta = posterior.beta
+let logEvidence = bayes.logBernoulliSequenceEvidence(prior: prior, counts: counts)
+
+let mut callbackCount = 0
+let generator = Xoshiro256PlusPlus.seed(17)
+let estimate = monte.expectation(
+  bernoulli,
+  count: 16,
+  using: generator,
+  evaluate: |value| {
+    callbackCount = callbackCount + 1
+    if value { 1.0 } else { 0.0 }
+  }
+)
+let estimateCount = estimate.count
+
+let sharedStatisticError = numerics.UndefinedStatisticError === stats.UndefinedStatisticError and stats.UndefinedStatisticError === probability.UndefinedStatisticError
+"#;
+    let (_temp, program) = compile_numerics_package(source);
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("integrated numerics client executes");
+    let module = vm.module_registry.get(&program.entry).unwrap().object;
+
+    for (name, expected) in [
+        ("gammaLog", 24.0_f64.ln()),
+        ("mean", 2.0),
+        ("streamMean", 2.0),
+        ("exactMeanFloat", 2.0),
+        ("normalMedian", 0.0),
+        ("gammaLogDensity", -1.0),
+        ("gammaCdf", 1.0 - (-0.5_f64).exp()),
+        ("gammaMedian", 2.0_f64.ln()),
+        ("betaLogDensity", 0.4054651081081644),
+        ("betaCdf", 0.6875),
+        ("binomialCdf", 0.3125),
+        ("poissonCdf", 3.0 * (-2.0_f64).exp()),
+        ("bernoulliMean", 0.25),
+        ("bernoulliVariance", 0.1875),
+        ("posteriorAlpha", 3.0),
+        ("posteriorBeta", 2.0),
+        ("logEvidence", -12.0_f64.ln()),
+    ] {
+        let actual = read_global(&vm, module, name).as_float().unwrap();
+        assert!((actual - expected).abs() <= 1e-12 * expected.abs().max(1.0), "{name}: {actual} != {expected}");
+    }
+
+    assert_eq!(read_global(&vm, module, "streamExhausted"), Value::bool(true));
+    assert_eq!(read_global(&vm, module, "supportHasFalse"), Value::bool(true));
+    assert_eq!(read_global(&vm, module, "supportHasTrue"), Value::bool(true));
+    assert_eq!(read_global(&vm, module, "callbackCount").as_int(), Some(16));
+    assert_eq!(read_global(&vm, module, "estimateCount").as_int(), Some(16));
+    assert!((read_global(&vm, module, "betaMedianCdf").as_float().unwrap() - 0.5).abs() <= 1e-12);
+    assert_eq!(read_global(&vm, module, "sharedStatisticError"), Value::bool(true));
+}
+
+#[test]
+fn statistics_mean_preserves_empty_input_error() {
+    let source = r#"
+import numerics.statistics as stats
+let empty = List<Float>.new()
+stats.mean(empty.iterator)
+"#;
+    let (_temp, program) = compile_numerics_package(source);
+    let mut vm = VM::new();
+    let failure = vm.run_compiled(&program).expect_err("empty mean must raise");
+    let RuntimeError::Raise { error, .. } = runtime_error(&failure) else {
+        panic!("expected EmptyInputError: {failure}")
+    };
+    assert_eq!(vm.heap.class(error.class(&vm)).name, "EmptyInputError");
+}

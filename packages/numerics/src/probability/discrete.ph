@@ -60,8 +60,8 @@ impl HasOrderedTails for Binomial {
     if cut >= self.trials { return 1.0 }
     if self.probability == 0.0 { return 1.0 }
     if self.probability == 1.0 { return 0.0 }
-    return special.regularizedBeta(
-      Float.new(self.trials - cut), Float.new(cut + 1), 1.0 - self.probability
+    return special.Beta.regularized(
+      1.0 - self.probability, Float.new(self.trials - cut), Float.new(cut + 1)
     )
   }
 
@@ -70,8 +70,8 @@ impl HasOrderedTails for Binomial {
     if cut >= self.trials { return 0.0 }
     if self.probability == 0.0 { return 0.0 }
     if self.probability == 1.0 { return 1.0 }
-    return special.regularizedBeta(
-      Float.new(cut + 1), Float.new(self.trials - cut), self.probability
+    return special.Beta.regularized(
+      self.probability, Float.new(cut + 1), Float.new(self.trials - cut)
     )
   }
 
@@ -80,8 +80,8 @@ impl HasOrderedTails for Binomial {
     if cut >= self.trials { return 0.0 }
     if self.probability == 0.0 { return 0.0 }
     if self.probability == 1.0 { return -1.0 / 0.0 }
-    return special.logRegularizedBeta(
-      Float.new(self.trials - cut), Float.new(cut + 1), 1.0 - self.probability
+    return special.Beta.logRegularized(
+      1.0 - self.probability, Float.new(self.trials - cut), Float.new(cut + 1)
     )
   }
 
@@ -90,8 +90,8 @@ impl HasOrderedTails for Binomial {
     if cut >= self.trials { return -1.0 / 0.0 }
     if self.probability == 0.0 { return -1.0 / 0.0 }
     if self.probability == 1.0 { return 0.0 }
-    return special.logRegularizedBeta(
-      Float.new(cut + 1), Float.new(self.trials - cut), self.probability
+    return special.Beta.logRegularized(
+      self.probability, Float.new(cut + 1), Float.new(self.trials - cut)
     )
   }
 }
@@ -190,25 +190,25 @@ impl HasOrderedTails for Poisson {
     if cut < 0 { return 0.0 }
     if self.rate == 0.0 { return 1.0 }
     if cut >= maxApproximateCount { return 1.0 }
-    return special.regularizedGammaQ(Float.new(cut + 1), self.rate)
+    return special.Gamma.q(Float.new(cut + 1), self.rate)
   }
 
   survival(_ cut: Int) -> Float {
     if cut < 0 { return 1.0 }
     if self.rate == 0.0 or cut >= maxApproximateCount { return 0.0 }
-    return special.regularizedGammaP(Float.new(cut + 1), self.rate)
+    return special.Gamma.p(Float.new(cut + 1), self.rate)
   }
 
   logCdf(_ cut: Int) -> Float {
     if cut < 0 { return -1.0 / 0.0 }
     if self.rate == 0.0 or cut >= maxApproximateCount { return 0.0 }
-    return special.logRegularizedGammaQ(Float.new(cut + 1), self.rate)
+    return special.Gamma.logQ(Float.new(cut + 1), self.rate)
   }
 
   logSurvival(_ cut: Int) -> Float {
     if cut < 0 { return 0.0 }
     if self.rate == 0.0 or cut >= maxApproximateCount { return -1.0 / 0.0 }
-    return special.logRegularizedGammaP(Float.new(cut + 1), self.rate)
+    return special.Gamma.logP(Float.new(cut + 1), self.rate)
   }
 }
 
@@ -243,7 +243,7 @@ impl Distribution for Poisson {
 
 impl Poisson {
   @class
-  private searchQuantile(_ distribution: Poisson, _ target: Float, upperTail: Bool) -> Int {
+  internal searchQuantile(_ distribution: Poisson, _ target: Float, upperTail: Bool) -> Int {
     let mut low = 0
     let mut high = 1
     let mut found = false

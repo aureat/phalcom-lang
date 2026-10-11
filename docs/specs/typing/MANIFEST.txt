@@ -1,6 +1,7 @@
 ./ID-MIGRATION.md
 ./MANIFEST.txt
 ./REGISTRY-COHERENCE-REPORT.md
+./runtime-reflection.md
 ./tools/validate_registry.py
 ./type/README.md
 ./type/type.algebra.md

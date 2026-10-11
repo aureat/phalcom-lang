@@ -72,7 +72,7 @@ impl IntegerSupport {
 /// Finite label support with copied labels and stable equality membership.
 data FiniteSupport<T> private(_ labels: List<T>, _ members: Set<T>)
 
-impl FiniteSupport<T> {
+impl<T> FiniteSupport<T> {
   @class
   from<I>(_ values: I) -> FiniteSupport<T>
     where I |= Iterable, <I as Iterable>::Item == T
@@ -96,7 +96,7 @@ impl FiniteSupport<T> {
 
   contains(_ value: T) -> Bool { self.members.contains(value) }
 
-  labels -> List<T> {
+  values -> List<T> {
     let result = List<T>.new()
     let mut i = 0
     while i < self.labels.size {

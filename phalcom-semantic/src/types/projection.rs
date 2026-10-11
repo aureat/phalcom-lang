@@ -679,7 +679,38 @@ fn normalize_projection(
                     context.active.remove(&projection);
                     return result;
                 }
-                // Assumed conformance without refinement remains symbolic
+
+                // A lexical assumption can survive substitution of its
+                // subject with a canonical type that also has exact published
+                // conformance evidence. In that case use the canonical
+                // associated binding; otherwise the assumption alone still
+                // leaves this projection symbolic.
+                if let (Some(conformance_index), Some(witness_plans)) = (conformance_index, witness_plans) {
+                    let resolution = crate::impls::resolve_conformance_evidence_with_surfaces(
+                        conformance_index,
+                        witness_plans,
+                        trait_surfaces,
+                        declarations,
+                        store,
+                        *hierarchy,
+                        subject,
+                        &trait_ref,
+                    );
+                    if let ConformanceResolution::Proven(exact_evidence) = resolution {
+                        let Some(binding) = exact_evidence.associated_types.get(&projection.requirement) else {
+                            return ProjectionNormalizationResult::Incomplete;
+                        };
+                        if !context.active.insert(projection.clone()) {
+                            return ProjectionNormalizationResult::Recursive;
+                        }
+                        let result = normalize_associated_binding(store, &binding.value, context);
+                        context.active.remove(&projection);
+                        return result;
+                    }
+                }
+
+                // Assumed conformance without a lexical refinement or exact
+                // canonical binding remains symbolic.
                 return ProjectionNormalizationResult::Symbolic(rewritten);
             }
 

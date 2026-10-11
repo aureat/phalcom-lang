@@ -4,9 +4,9 @@ from universe.math import NumericalRangeError
 from universe.collections.iterator_laws import Iterable
 from .moments import MomentKernel, MomentSummary
 from .covariance import CovarianceKernel
+from ..errors import UndefinedStatisticError
 
 class EmptyInputError is Error {}
-class UndefinedStatisticError is Error {}
 
 const maxApproximateCount: Int = 9007199254740991
 
@@ -77,9 +77,14 @@ class Descriptive {
   mean<I>(_ input: I) -> Float
     where I |= Iterable, <I as Iterable>::Item == Float
   {
-    let values = Descriptive.snapshot(input)
-    if values.size == 0 { EmptyInputError.new("mean requires a nonempty input").raise() }
-    return math.mean(values.iterator)
+    let result: Option<Float> = math.meanOption(input)
+    return result.match(
+      some: |value| { value },
+      none: || {
+        EmptyInputError.new("mean requires a nonempty input").raise()
+        0.0
+      }
+    )
   }
 
   @class

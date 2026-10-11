@@ -86,7 +86,7 @@ class Likelihood {
   }
 
   @class
-  tailDiagnostics<D>(_ distribution: D, at cut: <D as HasOrderedTails>::Cut) -> Tuple<Float, Float, Float, Float>
+  tailDiagnostics<D>(_ distribution: D, at cut: <D as HasOrderedTails>::Cut) -> Tuple<***(Float, Float, Float, Float)>
     where D |= HasOrderedTails
   {
     return (
@@ -98,7 +98,7 @@ class Likelihood {
   }
 
   @class
-  equalTailedInterval<D>(_ distribution: D, mass: Float) -> Tuple<<D as HasQuantile>::Quantile, <D as HasQuantile>::Quantile>
+  equalTailedInterval<D>(_ distribution: D, mass: Float) -> Tuple<***(<D as HasQuantile>::Quantile, <D as HasQuantile>::Quantile)>
     where D |= HasQuantile
   {
     if not mass.isFinite or mass <= 0.0 or mass >= 1.0 {

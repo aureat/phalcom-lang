@@ -1,5 +1,43 @@
 # Math proposal implementation handoff — 2026-10-07
 
+## Current main continuation status — 2026-10-11
+
+The consolidation remains on `main`; Universe has not been relocated. The
+attached audit's source-level corrections are present in the current work:
+probability consumers use the structured `numerics.special` families, the
+foreign inherent Bernoulli methods are owned by Universe, `Rational.inverse`
+uses the normalized constructor, `stats.mean` delegates to the streaming math
+kernel, the shared `UndefinedStatisticError` has one numerics owner, and
+`monte_carlo` uses a hyphenated source directory while preserving its module
+name. Focused numerical and package-client regressions have been added.
+
+This is not source acceptance or numerical certification. Current evidence and
+open blockers:
+
+- `RUSTFLAGS='' cargo check -p phalcom-core` passes after the module-export
+  Family gateway began forwarding the original call shape and generic recipe.
+- `audit_probes::math::public_statistics_family_applies_its_recipe_after_live_member_selection`
+  reaches the real `stats.mean` Family method and obtains the positive result,
+  but its negative control still succeeds after the recipe's dispatch side is
+  changed. Canonical runtime identity validation is open.
+- The Float list-literal Iterable/associated-item discriminator still reports
+  `GenericConstraintUnsatisfied`; the recent exact-conformance normalization
+  fallback did not fix it. Typed `List<Float>` and its iterator pass the
+  bounded discriminator. Inspect the materialized projection, normalization
+  result, rewrite-progress flag, and residual on canonical retry before another
+  semantic correction.
+- The stable Float/reduction boundary test and the consolidated numerics
+  end-to-end client have not passed their full focused gates. Do not infer
+  distributional accuracy, RNG-consumption, moment, or workspace certification
+  from the source edits or Rust compilation.
+
+Keep the generic `Iterable<Item = Float>` API and evidence authority intact.
+The next bounded work is a debugger-led root-cause pass for canonical literal
+inference and runtime Family identity, followed by the smallest tests that
+establish each correction. Update the STDL C7/C8/C9 records only when their
+specific acceptance evidence is complete. Preserve the decision not to move
+Universe in this workstream.
+
 ## Consolidation into main — 2026-10-08
 
 The complete worktree snapshot was committed as `568c545a` on

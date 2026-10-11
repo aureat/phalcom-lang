@@ -62,6 +62,7 @@ pub fn some_new(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
     params = [some: Object, none: Object],
     returns = Object,
     types = "(some: Object, none: Object) -> Object",
+    signature = abi_erased,
     abi = shape
 )]
 pub fn option_match_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {

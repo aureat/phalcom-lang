@@ -68,7 +68,7 @@ impl HasDensity for Gamma {
       NumericalRangeError.new("Gamma log density is outside the finite Float range").raise()
     }
     let result = self.shape * math.ln(self.rate)
-      - special.logGamma(self.shape)
+      - special.Gamma.log(self.shape)
       + (self.shape - 1.0) * math.ln(value)
       - scaled
     if result.isNaN {
@@ -85,28 +85,28 @@ impl HasOrderedTails for Gamma {
     if value.isNaN { ArgumentError.new("Gamma CDF does not accept NaN").raise() }
     if value <= 0.0 { return 0.0 }
     if value == 1.0 / 0.0 { return 1.0 }
-    return special.regularizedGammaP(self.shape, self.rate * value)
+    return special.Gamma.p(self.shape, self.rate * value)
   }
 
   survival(_ value: Float) -> Float {
     if value.isNaN { ArgumentError.new("Gamma survival does not accept NaN").raise() }
     if value <= 0.0 { return 1.0 }
     if value == 1.0 / 0.0 { return 0.0 }
-    return special.regularizedGammaQ(self.shape, self.rate * value)
+    return special.Gamma.q(self.shape, self.rate * value)
   }
 
   logCdf(_ value: Float) -> Float {
     if value.isNaN { ArgumentError.new("Gamma log CDF does not accept NaN").raise() }
     if value <= 0.0 { return -1.0 / 0.0 }
     if value == 1.0 / 0.0 { return 0.0 }
-    return special.logRegularizedGammaP(self.shape, self.rate * value)
+    return special.Gamma.logP(self.shape, self.rate * value)
   }
 
   logSurvival(_ value: Float) -> Float {
     if value.isNaN { ArgumentError.new("Gamma log survival does not accept NaN").raise() }
     if value <= 0.0 { return 0.0 }
     if value == 1.0 / 0.0 { return -1.0 / 0.0 }
-    return special.logRegularizedGammaQ(self.shape, self.rate * value)
+    return special.Gamma.logQ(self.shape, self.rate * value)
   }
 }
 
@@ -117,7 +117,7 @@ impl HasQuantile for Gamma {
     DistributionNumeric.validateProbability(q, "Gamma quantile probability")
     if q == 0.0 { return 0.0 }
     if q == 1.0 { return 1.0 / 0.0 }
-    let result = special.inverseRegularizedGammaP(self.shape, q) / self.rate
+    let result = special.Gamma.inverseP(self.shape, q) / self.rate
     if not result.isFinite or result <= 0.0 {
       NumericalRangeError.new("Gamma quantile is outside the finite Float range").raise()
     }
@@ -147,7 +147,7 @@ impl Distribution for Gamma {
 
 impl Gamma {
   @class
-  private searchUpperQuantile(_ distribution: Gamma, _ target: Float) -> Float {
+  internal searchUpperQuantile(_ distribution: Gamma, _ target: Float) -> Float {
     let targetLog = math.ln(target)
     let mut high = distribution.shape / distribution.rate
     if not high.isFinite { high = Float.maxFinite }
@@ -244,7 +244,7 @@ impl HasDensity for Beta {
     }
     return (self.alpha - 1.0) * math.ln(value)
       + (self.beta - 1.0) * math.ln1p(-value)
-      - special.logBeta(self.alpha, self.beta)
+      - special.Beta.log(self.alpha, self.beta)
   }
 }
 
@@ -255,28 +255,28 @@ impl HasOrderedTails for Beta {
     if value.isNaN { ArgumentError.new("Beta CDF does not accept NaN").raise() }
     if value <= 0.0 { return 0.0 }
     if value >= 1.0 { return 1.0 }
-    return special.regularizedBeta(self.alpha, self.beta, value)
+    return special.Beta.regularized(value, self.alpha, self.beta)
   }
 
   survival(_ value: Float) -> Float {
     if value.isNaN { ArgumentError.new("Beta survival does not accept NaN").raise() }
     if value <= 0.0 { return 1.0 }
     if value >= 1.0 { return 0.0 }
-    return special.regularizedBetaComplement(self.alpha, self.beta, value)
+    return special.Beta.complement(value, self.alpha, self.beta)
   }
 
   logCdf(_ value: Float) -> Float {
     if value.isNaN { ArgumentError.new("Beta log CDF does not accept NaN").raise() }
     if value <= 0.0 { return -1.0 / 0.0 }
     if value >= 1.0 { return 0.0 }
-    return special.logRegularizedBeta(self.alpha, self.beta, value)
+    return special.Beta.logRegularized(value, self.alpha, self.beta)
   }
 
   logSurvival(_ value: Float) -> Float {
     if value.isNaN { ArgumentError.new("Beta log survival does not accept NaN").raise() }
     if value <= 0.0 { return 0.0 }
     if value >= 1.0 { return -1.0 / 0.0 }
-    return special.logRegularizedBetaComplement(self.alpha, self.beta, value)
+    return special.Beta.logComplement(value, self.alpha, self.beta)
   }
 }
 
@@ -287,14 +287,14 @@ impl HasQuantile for Beta {
     DistributionNumeric.validateProbability(q, "Beta quantile probability")
     if q == 0.0 { return 0.0 }
     if q == 1.0 { return 1.0 }
-    return special.inverseRegularizedBeta(self.alpha, self.beta, q)
+    return special.Beta.inverse(q, self.alpha, self.beta)
   }
 
   upperQuantile(_ t: Float) -> Float {
     DistributionNumeric.validateProbability(t, "Beta upper quantile probability")
     if t == 0.0 { return 1.0 }
     if t == 1.0 { return 0.0 }
-    return 1.0 - special.inverseRegularizedBeta(self.beta, self.alpha, t)
+    return 1.0 - special.Beta.inverse(t, self.beta, self.alpha)
   }
 }
 

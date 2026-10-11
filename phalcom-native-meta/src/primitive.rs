@@ -70,6 +70,19 @@ pub enum PrimitiveAbi {
     Shape,
 }
 
+/// Describes what the native callable types mean for source binding.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub enum NativeSignatureMode {
+    /// The native callable types are the semantic contract and must match the
+    /// source declaration exactly.
+    #[default]
+    Exact,
+    /// The native callable types describe only an erased host ABI boundary;
+    /// an explicit canonical source declaration supplies language-level
+    /// generic semantics.
+    AbiErased,
+}
+
 /// Release metadata attached to one native declaration.
 ///
 /// Kept as one value so every projection can preserve lifecycle information
@@ -149,6 +162,7 @@ pub struct PrimitiveSurfaceSpec {
     pub visibility: NativeVisibility,
     pub stability: NativeStability,
     pub anchor: NativeAnchorPolicy,
+    pub signature_mode: NativeSignatureMode,
 
     pub params: &'static ParameterTupleSpec,
     pub returns: &'static TypeExprSpec,

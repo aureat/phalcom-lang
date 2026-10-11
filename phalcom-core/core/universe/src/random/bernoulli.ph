@@ -11,6 +11,12 @@ impl Bernoulli {
     }
     Bernoulli(probability)
   }
+
+  /// Mean of the Bool indicator (false = 0, true = 1).
+  mean -> Float { self.probability }
+
+  /// Variance of the Bool indicator (false = 0, true = 1).
+  variance -> Float { self.probability * (1.0 - self.probability) }
 }
 
 impl Distribution for Bernoulli {

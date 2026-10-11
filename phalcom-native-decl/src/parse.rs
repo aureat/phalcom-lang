@@ -5,7 +5,9 @@ use syn::{Attribute, Expr, Ident, LitStr, Token};
 
 use crate::normalized::{NormalizedPrimitiveDecl, PrimitiveDeclField, PrimitiveDeclKey};
 use crate::{DeclError, validate};
-use phalcom_native_meta::{NativeAnchorPolicy, NativeDispatch, NativeStability, NativeTrust, NativeVisibility, PrimitiveAbi, UniverseKey};
+use phalcom_native_meta::{
+    NativeAnchorPolicy, NativeDispatch, NativeSignatureMode, NativeStability, NativeTrust, NativeVisibility, PrimitiveAbi, UniverseKey,
+};
 
 struct RawPrimitiveDecl {
     owner: Ident,
@@ -63,6 +65,7 @@ pub fn parse_primitive_attribute(attribute: &Attribute) -> Result<NormalizedPrim
         visibility: None,
         stability: NativeStability::Unspecified,
         anchor: NativeAnchorPolicy::Required,
+        signature_mode: NativeSignatureMode::Exact,
         since: None,
         deprecated_since: None,
         replacement: None,
@@ -100,6 +103,7 @@ pub fn parse_primitive_attribute(attribute: &Attribute) -> Result<NormalizedPrim
             "visibility" => normalized.visibility = Some(parse_visibility(&tokens)?),
             "stability" => normalized.stability = parse_stability(&tokens)?,
             "anchor" => normalized.anchor = parse_anchor(&tokens)?,
+            "signature" => normalized.signature_mode = parse_signature_mode(&tokens)?,
             "since" => normalized.since = Some(parse_string_literal(&tokens)?),
             "deprecated_since" => normalized.deprecated_since = Some(parse_string_literal(&tokens)?),
             "replacement" => normalized.replacement = Some(parse_string_literal(&tokens)?),
@@ -165,6 +169,14 @@ fn parse_anchor(tokens: &TokenStream) -> Result<NativeAnchorPolicy, DeclError> {
     }
 }
 
+fn parse_signature_mode(tokens: &TokenStream) -> Result<NativeSignatureMode, DeclError> {
+    match parse_ident_string(tokens)?.as_str() {
+        "exact" => Ok(NativeSignatureMode::Exact),
+        "abi_erased" => Ok(NativeSignatureMode::AbiErased),
+        other => Err(DeclError::InvalidMetadata(format!("unknown native signature mode `{other}`; expected exact or abi_erased"))),
+    }
+}
+
 fn parse_stability(tokens: &TokenStream) -> Result<NativeStability, DeclError> {
     match parse_ident_string(tokens)?.as_str() {
         "unspecified" => Ok(NativeStability::Unspecified),
@@ -220,5 +232,33 @@ mod tests {
             )]
         );
         assert!(parse_primitive_attribute(&public).is_ok());
+    }
+
+    #[test]
+    fn abi_erased_signature_mode_requires_shape_abi() {
+        let attribute: syn::Attribute = syn::parse_quote!(
+            #[primitive(
+                Option,
+                "match(some,none)",
+                params = [some: Object, none: Object],
+                returns = Object,
+                types = "(some: Object, none: Object) -> Object",
+                signature = abi_erased,
+                abi = shape
+            )]
+        );
+        assert!(parse_primitive_attribute(&attribute).is_ok());
+
+        let invalid: syn::Attribute = syn::parse_quote!(
+            #[primitive(
+                Option,
+                "match(some,none)",
+                params = [some: Object, none: Object],
+                returns = Object,
+                types = "(some: Object, none: Object) -> Object",
+                signature = abi_erased
+            )]
+        );
+        assert!(parse_primitive_attribute(&invalid).is_err());
     }
 }

@@ -1,5 +1,6 @@
 use crate::DeclError;
 use crate::normalized::NormalizedPrimitiveDecl;
+use phalcom_native_meta::{NativeSignatureMode, PrimitiveAbi};
 use phalcom_common::selector::Selector;
 
 pub fn validate_decl(decl: &NormalizedPrimitiveDecl) -> Result<(), DeclError> {
@@ -10,6 +11,9 @@ pub fn validate_decl(decl: &NormalizedPrimitiveDecl) -> Result<(), DeclError> {
     }
     if decl.replacement.is_some() && decl.deprecated_since.is_none() {
         return Err(DeclError::InvalidMetadata("replacement requires deprecated_since".into()));
+    }
+    if decl.signature_mode == NativeSignatureMode::AbiErased && decl.abi != PrimitiveAbi::Shape {
+        return Err(DeclError::InvalidMetadata("abi_erased native signatures require `abi = shape`".into()));
     }
     Ok(())
 }

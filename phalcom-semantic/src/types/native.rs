@@ -10,7 +10,7 @@ use crate::types::parameter::{GenericConstraint, GenericSignature, TypeParameter
 use phalcom_common::selector::{Selector, SelectorBase, SelectorSlot};
 use phalcom_native_meta::types::TypeExprSpec;
 use phalcom_native_meta::universe::UniverseKey;
-use phalcom_native_meta::{GenericConstraintSpec, NativeDispatch, PrimitiveKey, ReturnFlowSpec};
+use phalcom_native_meta::{GenericConstraintSpec, NativeAnchorPolicy, NativeDispatch, NativeSignatureMode, PrimitiveAbi, PrimitiveKey, ReturnFlowSpec};
 use phalcom_native_surface::{NATIVE_SURFACES, NativeCatalogFingerprint, NativeSurfaceId, NativeSurfaceRecord, catalog_fingerprint, catalog_fingerprint_for};
 use std::collections::HashMap;
 
@@ -367,6 +367,33 @@ pub fn register_native_surfaces_from_records(
             });
         }
 
+        // An ABI-erased native row is only the runtime boundary descriptor.
+        // Its Object slots are not a source-language callable contract, so it
+        // must not become a semantic surface or signature-table fallback. The
+        // required source anchor publishes the canonical generic signature.
+        if record.surface.signature_mode == NativeSignatureMode::AbiErased {
+            let object_type = |ty: &TypeExprSpec| matches!(ty, TypeExprSpec::Universe(UniverseKey::Object));
+            let object_slots = callable_spec.params.rest.is_none()
+                && callable_spec.params.positional.iter().all(object_type)
+                && callable_spec.params.labeled.iter().all(|parameter| object_type(parameter.ty));
+            if record.abi != PrimitiveAbi::Shape
+                || record.anchor() != NativeAnchorPolicy::Required
+                || !callable_spec.type_params.is_empty()
+                || !callable_spec.constraints.is_empty()
+                || callable_spec.params != record.params()
+                || callable_spec.return_type != record.returns()
+                || !object_slots
+                || !object_type(callable_spec.return_type)
+            {
+                return Err(NativeSurfaceImportError::UnsupportedMetadata {
+                    key: record.surface.key,
+                    reason: "ABI-erased signature requires a required Shape anchor with fixed Object slots/result and no native generics".into(),
+                });
+            }
+            report.imported_keys.push(record.id());
+            continue;
+        }
+
         // Rest selectors use a runtime family spelling (`call(***)`) but the
         // canonical semantic selector contains only fixed slots; the rest
         // parameter is carried by the signature shape below.  This is the
@@ -566,6 +593,7 @@ mod tests {
             visibility: phalcom_native_meta::NativeVisibility::Public,
             stability: NativeStability::Stable,
             anchor: NativeAnchorPolicy::Required,
+            signature_mode: phalcom_native_meta::NativeSignatureMode::Exact,
             params: &GENERIC_PARAMETERS,
             returns: &GENERIC_PARAMETER_TYPE,
             callable: &GENERIC_CALLABLE,
