@@ -3161,6 +3161,11 @@ impl<'a> CheckingContext<'a> {
             return ResolvedDispatchResult::Missing { visited_owners: Box::new([]) };
         };
 
+        // Keep the type form that identifies a conformance subject separate
+        // from the class-object receiver used for ordinary class-side lookup.
+        // A raw nominal form is not itself a runtime dispatch receiver, but
+        // it is the exact target needed to query a class-side witness.
+        let conformance_receiver = specialization_receiver.unwrap_or(dispatch_receiver);
         let result = self.dispatch.get().resolve_dispatch_with_trace(&self.hierarchy, &decl, side, selector);
         // A raw class type form carries declaration parameters only as a
         // template. Keep class-object `Self` formation for that case; applied
@@ -3318,7 +3323,7 @@ impl<'a> CheckingContext<'a> {
                     }
                 }
 
-                if let Some(result) = self.resolve_assumed_trait_target(specialization_receiver, selector, side) {
+                if let Some(result) = self.resolve_assumed_trait_target(conformance_receiver, selector, side) {
                     return result;
                 }
 
@@ -3333,7 +3338,7 @@ impl<'a> CheckingContext<'a> {
                         self.declarations,
                         self.store,
                         &self.hierarchy,
-                        specialization_receiver,
+                        conformance_receiver,
                         selector,
                         side,
                     );

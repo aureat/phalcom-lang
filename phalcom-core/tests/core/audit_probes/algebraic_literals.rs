@@ -53,9 +53,23 @@ fn exact_data_type(vm: &VM, value: Value) -> String {
     inspect::display(&vm.runtime_typing_context, &vm.typing_registry, &vm.heap, exact)
 }
 
+fn on_algebraic_stack(name: &'static str, body: impl FnOnce() + Send + 'static) {
+    std::thread::Builder::new()
+        .name(name.into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(body)
+        .expect("spawn bounded algebraic realization test")
+        .join()
+        .expect("algebraic realization test must not overflow an 8 MiB stack");
+}
+
 #[test]
 fn native_imaginary_literals_and_basis_products_are_runtime_values() {
-    let (vm, module) = run(r#"
+    std::thread::Builder::new()
+        .name("algebraic-literals-runtime".into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(|| {
+            let (vm, module) = run(r#"
 from universe.numbers import Complex, Quaternion, i, j
 let typedComplex: Complex<Float> = i
 let typedQuaternion: Quaternion<Float> = j
@@ -64,12 +78,194 @@ let quaternion = 1 + 2i + 3j + 4k
 let equivalent = 2i === Complex(0, 2)
 let hamilton = (Quaternion(0, 1, 0, 0) * Quaternion(0, 0, 1, 0)) === Quaternion(0, 0, 0, 1)
 "#);
-    assert_eq!(global(&vm, module, "equivalent"), Value::bool(true));
-    assert_eq!(global(&vm, module, "hamilton"), Value::bool(true));
-    assert!(global(&vm, module, "typedComplex").is_obj());
-    assert!(global(&vm, module, "typedQuaternion").is_obj());
-    assert!(global(&vm, module, "complex").is_obj());
-    assert!(global(&vm, module, "quaternion").is_obj());
+            assert_eq!(global(&vm, module, "equivalent"), Value::bool(true));
+            assert_eq!(global(&vm, module, "hamilton"), Value::bool(true));
+            assert!(global(&vm, module, "typedComplex").is_obj());
+            assert!(global(&vm, module, "typedQuaternion").is_obj());
+            assert!(global(&vm, module, "complex").is_obj());
+            assert!(global(&vm, module, "quaternion").is_obj());
+        })
+        .expect("spawn algebraic literals runtime thread")
+        .join()
+        .expect("algebraic literals runtime must not overflow an 8 MiB stack");
+}
+
+#[test]
+fn class_side_trait_default_runs_at_runtime() {
+    std::thread::Builder::new()
+        .name("class-side-trait-default-runtime".into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(|| {
+            let (vm, module) = run(
+                r#"
+trait Describable {
+  @class describe() -> String { "undescribed" }
+}
+data Widget(_ value: Int)
+impl Describable for Widget {}
+let description = Widget.describe()
+"#,
+            );
+            let description = global(&vm, module, "description");
+            let text = vm.heap.as_string(description.as_obj().expect("String object")).expect("String value");
+            assert_eq!(text.as_str(), "undescribed");
+        })
+        .expect("spawn class-side trait runtime thread")
+        .join()
+        .expect("class-side trait default must not overflow an 8 MiB stack");
+}
+
+#[test]
+fn contextual_realization_preserves_side_effect_order() {
+    on_algebraic_stack("algebraic-realization-order", || {
+        let (vm, module) = run(r#"
+from universe.numbers import Complex, Quaternion, i, j
+class Probe {
+  @class mut _counter = 0
+  @class coefficient() -> Int {
+    _counter = _counter + 1
+    return _counter
+  }
+  @class counter { _counter }
+}
+let x = Probe.coefficient() * i
+let once = Probe.counter == 1
+let firstTerm: Quaternion<Int> = Probe.coefficient() * i
+let secondTerm: Quaternion<Int> = Probe.coefficient() * j
+let y = firstTerm + secondTerm
+let thrice = Probe.counter == 3
+let firstThenSecond = y === Quaternion(0, 2, 3, 0)
+"#);
+        assert_eq!(global(&vm, module, "once"), Value::bool(true));
+        assert_eq!(global(&vm, module, "thrice"), Value::bool(true));
+        assert_eq!(global(&vm, module, "firstThenSecond"), Value::bool(true), "the i coefficient must be evaluated before the j coefficient");
+        assert_eq!(exact_data_type(&vm, global(&vm, module, "x")), "Complex<Int>");
+        assert_eq!(exact_data_type(&vm, global(&vm, module, "y")), "Quaternion<Int>");
+    });
+}
+
+#[test]
+fn scalar_basis_operand_orders_have_the_same_exact_value() {
+    on_algebraic_stack("algebraic-realization-operand-order", || {
+        let source = r#"
+from universe.numbers import Complex, i
+let coefficientFirst = 3i
+let basisFirst = i * 3
+let same = coefficientFirst === basisFirst
+"#;
+        let (_temp, program) = compile(source);
+        let start = source.find("i * 3").expect("basis-first operand order");
+        let basis_first_range = phalcom_common::range::SourceRange::new(start, start + "i * 3".len());
+        assert!(
+            program.modules[&program.entry].lowering.contextual_realizations.contains_key(&basis_first_range),
+            "basis-first product must publish its canonical realization"
+        );
+        let mut vm = VM::new();
+        vm.run_compiled(&program).expect("basis-first realization executes");
+        let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+        let coefficient_first = global(&vm, module, "coefficientFirst");
+        let basis_first = global(&vm, module, "basisFirst");
+        assert_eq!(global(&vm, module, "same"), Value::bool(true));
+        assert_eq!(exact_data_type(&vm, coefficient_first), "Complex<Int>");
+        assert_eq!(exact_data_type(&vm, basis_first), "Complex<Int>");
+    });
+}
+
+#[test]
+fn generic_assumed_receiver_projects_realization_prerequisite_slots() {
+    on_algebraic_stack("algebraic-realization-generic-projection", || {
+        let source = r#"
+from universe.numbers import Complex, i, Zero, One
+class ImaginaryFactory {
+  @class
+  makeImaginary<T>(_ seed: T) -> Complex<T> where T |= Zero, T |= One { i }
+}
+"#;
+        let (_temp, program) = compile(source);
+        let realization = program.modules[&program.entry].lowering.contextual_realizations.values().next().expect("generic contextual realization");
+        let phalcom_core::modules::semantic_lowering::ForIterationRequirementSpec::Selected(invocation) = &realization.realization else {
+            panic!("selected along invocation")
+        };
+        let recipe = invocation.call_environment_recipe.as_ref().expect("along must receive its implementation prerequisites");
+        assert_eq!(recipe.conformance_slots.len(), 2);
+        assert_eq!(
+            recipe.conformance_slots.as_ref(),
+            &[
+                phalcom_core::typing::RuntimeConformanceSlotRecipe::Forwarded(0),
+                phalcom_core::typing::RuntimeConformanceSlotRecipe::Forwarded(1),
+            ],
+            "Complex<T>.along must forward the canonical One and Zero slots from makeImaginary<T>",
+        );
+    });
+}
+
+#[test]
+fn generic_assumed_receiver_realizes_exact_complex_types() {
+    on_algebraic_stack("algebraic-realization-generic", || {
+        let (vm, module) = run(r#"
+from universe.numbers import Complex, i, Zero, One
+class ImaginaryFactory {
+  @class
+  makeImaginary<T>(_ seed: T) -> Complex<T> where T |= Zero, T |= One { i }
+}
+let intImag = ImaginaryFactory.makeImaginary(1)
+let floatImag = ImaginaryFactory.makeImaginary(1.0)
+let intExact = intImag === Complex(0, 1)
+let floatExact = floatImag === Complex(0.0, 1.0)
+"#);
+        assert_eq!(global(&vm, module, "intExact"), Value::bool(true));
+        assert_eq!(global(&vm, module, "floatExact"), Value::bool(true));
+        assert_eq!(exact_data_type(&vm, global(&vm, module, "intImag")), "Complex<Int>");
+        assert_eq!(exact_data_type(&vm, global(&vm, module, "floatImag")), "Complex<Float>");
+    });
+}
+
+#[test]
+fn open_world_real_embedding_keeps_exact_user_target_type() {
+    on_algebraic_stack("algebraic-realization-open-world", || {
+        let (vm, module) = run(r#"
+from universe.numbers import RealEmbeddable, Zero
+data Plane<T>(_ x: T, _ y: T)
+impl<T> RealEmbeddable for Plane<T> where T |= Zero {
+  type Scalar = T
+  @class fromReal(_ value: T) -> Plane<T> { Plane(value, T.zero) }
+}
+let point: Plane<Int> = 5
+let expected = Plane<Int>(5, 0)
+let exact = point === expected
+"#);
+        assert_eq!(global(&vm, module, "exact"), Value::bool(true));
+        assert_eq!(exact_data_type(&vm, global(&vm, module, "point")), "Plane<Int>");
+    });
+}
+
+#[test]
+fn contextual_realization_survives_collection_pressure() {
+    on_algebraic_stack("algebraic-realization-gc", || {
+        let source = r#"
+from universe.numbers import Complex, i
+class Probe {
+  @class mut _counter = 0
+  @class coefficient() -> Int {
+    System.gc
+    _counter = _counter + 1
+    return _counter
+  }
+  @class counter { _counter }
+}
+let result = Probe.coefficient() * i
+let counterValue = Probe.counter
+"#;
+        let (_temp, program) = compile(source);
+        let mut vm = VM::new();
+        vm.force_gc();
+        vm.run_compiled(&program).expect("GC-pressure realization executes");
+        let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+        vm.force_gc();
+        let result = global(&vm, module, "result");
+        assert_eq!(exact_data_type(&vm, result), "Complex<Int>");
+        assert_eq!(global(&vm, module, "counterValue"), Value::int(1));
+    });
 }
 
 #[test]

@@ -3194,9 +3194,17 @@ fn project_contextual_realization(
                     .nominal_origin_declaration(selection.exact_target)
                     .cloned()
                     .ok_or(ProjectionError::MissingContextualRealizationClass(expression))?;
+                let mut invocation = project_trait_invocation_spec(selection, snapshot)?;
+                invocation.call_environment_recipe = project_realization_prerequisite_recipe(selection, generic_evidence, snapshot, projects)?;
+                if invocation.call_environment_recipe.is_some() {
+                    // The recipe supplies the selected impl's complete evidence
+                    // layout, including forwarded assumptions. Do not overwrite
+                    // those slots with the legacy concrete antecedent projection.
+                    invocation.antecedent_slots = Box::new([]);
+                }
                 Ok((
                     ContextualClassReceiver::Declaration(target_class),
-                    ForIterationRequirementSpec::Selected(project_trait_invocation_spec(selection, snapshot)?),
+                    ForIterationRequirementSpec::Selected(invocation),
                 ))
             }
             RealizationCapabilitySelection::Assumed(selection) => {
@@ -3289,6 +3297,89 @@ fn project_contextual_realization(
         realization: realization_invocation,
         operation,
     })
+}
+
+fn project_realization_prerequisite_recipe(
+    selection: &phalcom_semantic::trait_dispatch::TraitDispatchSelection,
+    caller_evidence: &phalcom_semantic::generic_evidence::GenericEvidenceEnvironment,
+    snapshot: &SemanticSnapshot,
+    projects: &phalcom_modules::ProjectUniverse,
+) -> Result<Option<Arc<RuntimeCallEnvironmentRecipe>>, ProjectionError> {
+    use phalcom_semantic::generic_evidence::{
+        DerivedConformanceOrigin, GenericConformanceEvidence, GenericConformanceKey, GenericEvidenceEnvironment, GenericEvidenceSlotKey,
+        NestedGenericEvidence,
+    };
+    use phalcom_semantic::impls::RequirementSelectionTemplate;
+    use phalcom_semantic::types::parameter::GenericConstraint;
+    use crate::typing::RuntimeConformanceSlotRecipe;
+
+    let RequirementSelectionTemplate::ConformanceCallable { callable } = &selection.selection else {
+        return Ok(None);
+    };
+    let GenericConformanceEvidence::Derived(evidence) = &selection.evidence else {
+        return Ok(None);
+    };
+    if evidence.nested.is_empty() {
+        return Ok(None);
+    }
+    let signature = match &evidence.origin {
+        DerivedConformanceOrigin::ConditionalSource { exact_source } => snapshot
+            .conformance_witness_plans
+            .get(&exact_source.source_impl)
+            .and_then(|plan| plan.generic_signature.as_ref()),
+        DerivedConformanceOrigin::GuardedRule { rule, .. } => Some(&rule.generic_signature),
+    }.ok_or_else(|| ProjectionError::GenericEvidenceLayout("selected realization lacks its prerequisite signature".into()))?;
+    if signature.constraints.len() != evidence.nested.len() {
+        return Err(ProjectionError::GenericEvidenceLayout("realization prerequisite proofs do not match source constraints".into()));
+    }
+    let layout = GenericEvidenceEnvironment::try_from_constraints(&signature.constraints, signature.owner.clone(), &snapshot.trait_surfaces)
+        .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+    let mut slots = vec![None; layout.len()];
+    for (constraint, nested) in signature.constraints.iter().zip(evidence.nested.iter()) {
+        match (constraint, nested) {
+            (GenericConstraint::Conforms { subject, trait_ref }, NestedGenericEvidence::Conformance(proof)) => {
+                let conformance = GenericConformanceKey::new(subject.clone(), trait_ref.clone());
+                for (key, target_slot) in layout.layout().slots.iter().filter(|(key, _)| key.conformance == conformance) {
+                    let recipe = match proof {
+                        GenericConformanceEvidence::Assumed(assumed) => {
+                            let caller_key = GenericEvidenceSlotKey::new(assumed.key.clone(), key.requirement.clone());
+                            let caller_slot = caller_evidence.slot_for(&caller_key).ok_or_else(|| {
+                                ProjectionError::GenericEvidenceLayout(format!("realization prerequisite has no caller slot: {caller_key:?}"))
+                            })?;
+                            RuntimeConformanceSlotRecipe::Forwarded(caller_slot)
+                        }
+                        GenericConformanceEvidence::Exact(exact) => {
+                            let selected = exact.requirements.get(&key.requirement).and_then(phalcom_semantic::trait_dispatch::selected_callable)
+                                .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(key.requirement.clone()))?;
+                            RuntimeConformanceSlotRecipe::Selection {
+                                callable: selected,
+                                selector: key.requirement.selector.clone(),
+                                nested_slots: Box::new([]),
+                            }
+                        }
+                        GenericConformanceEvidence::Derived(_) => {
+                            return Err(ProjectionError::GenericEvidenceLayout("nested derived realization prerequisite requires a further recipe".into()));
+                        }
+                    };
+                    slots[*target_slot as usize] = Some(recipe);
+                }
+            }
+            (GenericConstraint::Equivalent { .. }, NestedGenericEvidence::Equivalent)
+            | (GenericConstraint::Subtype { .. }, NestedGenericEvidence::Subtype) => {}
+            _ => return Err(ProjectionError::GenericEvidenceLayout("realization prerequisite proof does not align with its source constraint".into())),
+        }
+    }
+    let conformance_slots = slots.into_iter().enumerate().map(|(slot, recipe)| {
+        recipe.ok_or_else(|| ProjectionError::GenericEvidenceLayout(format!("missing realization prerequisite recipe for slot {slot}")))
+    }).collect::<Result<Vec<_>, _>>()?.into_boxed_slice();
+    Ok(Some(Arc::new(RuntimeCallEnvironmentRecipe {
+        callable: phalcom_semantic::metadata::stable_identity::to_stable_callable_with_context(
+            callable,
+            &phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(projects),
+        ),
+        bindings: Box::new([]),
+        conformance_slots,
+    })))
 }
 
 fn behavioral_operation(callable: &CallableId) -> FamilyOperationShape {

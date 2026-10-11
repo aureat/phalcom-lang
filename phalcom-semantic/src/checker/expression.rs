@@ -2237,7 +2237,13 @@ fn specialize_class_side_target(
     if matches!(target.authority, super::call::CallTargetAuthority::AbstractContract) {
         return target;
     }
-    let declaration_generics = ctx.declaration_generic_signature(callable.declaration_owner());
+    // Conformance witnesses are already selected against their exact subject
+    // type. They have no declaration owner whose class parameters should be
+    // fixed from the receiver form.
+    let Some(declaration_owner) = callable.owner.try_declaration() else {
+        return target;
+    };
+    let declaration_generics = ctx.declaration_generic_signature(declaration_owner);
     if let Some(generics) = declaration_generics {
         if matches!(ctx.store.get(receiver_form), TypeData::Applied { .. } | TypeData::ExactCase { .. }) {
             if let Some(specialization) = target.specialization.as_ref() {
@@ -4426,10 +4432,47 @@ fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, ex
         .ty()
         .is_some_and(|target| super::algebraic_realization::is_canonical_algebra_type(ctx, target));
     if !left_has_basis && !right_has_basis && !expects_algebra {
+        let has_binding_operand = matches!(binary.left.as_ref(), Expr::Var { .. } | Expr::GetProperty(_))
+            || matches!(binary.right.as_ref(), Expr::Var { .. } | Expr::GetProperty(_));
+        if matches!(binary.op, BinaryOp::Multiply) && has_binding_operand {
+            return synthesize_binding_binary_expr(ctx, binary, expected);
+        }
         return synthesize_ordinary_binary_expr(ctx, binary, expected);
     }
 
     synthesize_algebraic_binary_expr(ctx, binary, expected, left_has_basis, right_has_basis)
+}
+
+fn synthesize_binding_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, expected: &ExpectedType) -> TypedExpression {
+    // A source-only region scan cannot always recover an imported value's
+    // canonical type. Analyze operands once, in source order, before trying
+    // their checked realization. Keep these temporaries out of the dispatcher:
+    // otherwise they occupy every recursive binary frame, including addition.
+    let left_typed = analyze_expression(ctx, &binary.left, &ExpectedType::None);
+    let right_typed = analyze_expression(ctx, &binary.right, &ExpectedType::None);
+    if let Some(realized) = super::algebraic_realization::realize_scalar_basis_product(ctx, binary, &left_typed, &right_typed, expected) {
+        return realized;
+    }
+    // Imports are not necessarily available during the first source pass.
+    // Avoid diagnosing ordinary multiplication against a temporary unresolved
+    // imported basis; the expression is revisited once the binding has its
+    // canonical type and can be realized.
+    if let TypeKnowledge::Unknown(UnknownReason::UnresolvedName(name)) = &left_typed.knowledge {
+        return TypedExpression::unknown(UnknownReason::UnresolvedName(name.clone()));
+    }
+    if let TypeKnowledge::Unknown(UnknownReason::UnresolvedName(name)) = &right_typed.knowledge {
+        return TypedExpression::unknown(UnknownReason::UnresolvedName(name.clone()));
+    }
+    apply_binary_operation_from_typed(
+        ctx,
+        &binary.left,
+        &left_typed,
+        binary.op.clone(),
+        &binary.right,
+        &right_typed,
+        expected,
+        binary.range,
+    )
 }
 
 fn synthesize_ordinary_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, expected: &ExpectedType) -> TypedExpression {

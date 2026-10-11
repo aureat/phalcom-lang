@@ -2849,6 +2849,10 @@ impl ConformanceIndex {
         self.contributions.insert(contribution.impl_id.clone(), contribution);
     }
 
+    pub fn remove(&mut self, impl_id: &ImplId) {
+        self.contributions.remove(impl_id);
+    }
+
     pub fn remove_source(&mut self, module: &crate::identity::ModuleId) {
         self.contributions.retain(|impl_id, _| &impl_id.module != module);
     }

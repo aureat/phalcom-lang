@@ -1747,6 +1747,39 @@ impl SemanticWorkspaceSession {
             })
             .cloned()
             .collect::<BTreeSet<_>>();
+        let mut conformance_witness_rebuild_impls = BTreeSet::new();
+        if let Some(previous) = previous_snapshot.as_ref() {
+            conformance_witness_rebuild_impls.extend(
+                previous
+                    .conformance_index
+                    .iter()
+                    .filter(|(impl_id, _)| structural_work_modules.contains(&impl_id.module))
+                    .map(|(impl_id, _)| impl_id.clone()),
+            );
+            conformance_witness_rebuild_impls.extend(
+                previous
+                    .derived_conformance_rules
+                    .iter()
+                    .filter(|rule| structural_work_modules.contains(&rule.impl_id.module))
+                    .map(|rule| rule.impl_id.clone()),
+            );
+            conformance_witness_rebuild_impls.extend(previous.callable_definitions.values().filter_map(|definition| {
+                let crate::impls::CallableDefinitionOrigin::ConformanceWitness(impl_id) = &definition.origin else {
+                    return None;
+                };
+                structural_work_modules.contains(&impl_id.module).then(|| impl_id.clone())
+            }));
+        }
+        for module in &structural_work_modules {
+            let Some(shard) = self.semantic_structure_shards.get(module) else {
+                continue;
+            };
+            conformance_witness_rebuild_impls.extend(shard.source.program.statements.iter().enumerate().filter_map(|(index, statement)| {
+                let Statement::Impl(implementation) = statement else { return None };
+                matches!(implementation.kind, phalcom_ast::ast::ImplKind::Conformance { .. })
+                    .then(|| crate::identity::ImplId::new(module.clone(), crate::identity::ImplLocalId(index as u32)))
+            }));
+        }
         let hierarchy_work_modules = structural_work_modules
             .iter()
             .cloned()
@@ -1761,7 +1794,7 @@ impl SemanticWorkspaceSession {
         // present in the immutable aggregate and are not replaced merely
         // because a body in their module was edited.
         let mut hierarchy_query_work = hierarchy_edge_work.clone();
-        let formal_work_modules = structural_work_modules
+        let mut formal_work_modules = structural_work_modules
             .iter()
             .cloned()
             .chain(declaration_surface_work.iter().map(|declaration| declaration.module.clone()))
@@ -1795,7 +1828,7 @@ impl SemanticWorkspaceSession {
                 .map(|field| field.owner.clone())
                 .filter(|declaration| current_modules.contains(&declaration.module)),
         );
-        let formal_declaration_modules = formal_declarations
+        let mut formal_declaration_modules = formal_declarations
             .iter()
             .map(|declaration| declaration.module.clone())
             .collect::<BTreeSet<_>>();
@@ -1826,6 +1859,7 @@ impl SemanticWorkspaceSession {
             for dependent in self.db.index().reverse_closure(changed_contract_products) {
                 match dependent {
                     QueryKey::ConformanceDispatch(impl_id) => {
+                        conformance_witness_rebuild_impls.insert(impl_id.clone());
                         diagnostic_work_modules.insert(impl_id.module.clone());
                         semantic_work_modules.insert(impl_id.module.clone());
                     }
@@ -1837,6 +1871,53 @@ impl SemanticWorkspaceSession {
                     _ => {}
                 }
             }
+        }
+        let retired_conformance_witnesses = previous_snapshot
+            .as_ref()
+            .into_iter()
+            .flat_map(|previous| previous.callable_definitions.values())
+            .filter_map(|definition| {
+                let crate::impls::CallableDefinitionOrigin::ConformanceWitness(impl_id) = &definition.origin else {
+                    return None;
+                };
+                conformance_witness_rebuild_impls.contains(impl_id).then(|| definition.callable.clone())
+            })
+            .collect::<BTreeSet<_>>();
+        if !retired_conformance_witnesses.is_empty() {
+            let retired_roots = retired_conformance_witnesses
+                .iter()
+                .flat_map(|callable| {
+                    [
+                        QueryKey::CallableDefinition(callable.clone()),
+                        QueryKey::CallableSignature(callable.clone()),
+                        QueryKey::CallableBody(callable.clone()),
+                        QueryKey::AdvisoryCallable(callable.clone()),
+                    ]
+                })
+                .collect::<BTreeSet<_>>();
+            for dependent in self.db.index().reverse_closure(retired_roots) {
+                match dependent {
+                    QueryKey::CallableSignature(callable) if !retired_conformance_witnesses.contains(&callable) => {
+                        callable_signature_work.insert(callable.clone());
+                        semantic_work_modules.insert(callable.module().clone());
+                        diagnostic_work_modules.insert(callable.module().clone());
+                        formal_work_modules.insert(callable.module().clone());
+                        if let Some(declaration) = callable.try_declaration_owner() {
+                            formal_declarations.insert(declaration.clone());
+                            formal_declaration_modules.insert(declaration.module.clone());
+                        }
+                    }
+                    QueryKey::CallableBody(callable) if !retired_conformance_witnesses.contains(&callable) => {
+                        callable_body_work.insert(callable.clone());
+                        prior_conformance_clients.insert(callable.clone());
+                        semantic_work_modules.insert(callable.module().clone());
+                        diagnostic_work_modules.insert(callable.module().clone());
+                    }
+                    _ => {}
+                }
+            }
+            callable_signature_work.retain(|callable| !retired_conformance_witnesses.contains(callable));
+            callable_body_work.retain(|callable| !retired_conformance_witnesses.contains(callable));
         }
         let structural_aggregates_reusable = previous_snapshot.as_ref().is_some_and(|previous| {
             hierarchy_work_modules.is_empty()
@@ -3748,6 +3829,14 @@ impl SemanticWorkspaceSession {
         let mut field_signatures = previous_snapshot
             .as_ref()
             .map_or_else(FieldSignatureTable::new, |snapshot| (*snapshot.field_signatures).clone());
+        for callable in &retired_conformance_witnesses {
+            callable_definitions.remove(callable);
+            callable_signatures.remove(callable);
+            self.db.retire_query(&QueryKey::CallableDefinition(callable.clone()));
+            self.db.retire_query(&QueryKey::CallableSignature(callable.clone()));
+            self.db.retire_query(&QueryKey::CallableBody(callable.clone()));
+            self.db.retire_query(&QueryKey::AdvisoryCallable(callable.clone()));
+        }
         let previous_callable_formal_states = callable_signature_work
             .iter()
             .filter_map(|callable| callable_signatures.get(callable).cloned().map(|signature| (callable.clone(), signature)))
@@ -4561,7 +4650,18 @@ impl SemanticWorkspaceSession {
             conformance_associated_type_plans.retain(|impl_id, _| &impl_id.module != module);
             derived_conformance_rules.remove_source(module);
         }
-        for module_id in &structural_work_modules {
+        for impl_id in conformance_witness_rebuild_impls.iter().filter(|impl_id| !structural_work_modules.contains(&impl_id.module)) {
+            conformance_index.remove(impl_id);
+            conformance_witness_plans.remove(impl_id);
+            conformance_associated_type_plans.remove(impl_id);
+            derived_conformance_rules.remove(impl_id);
+        }
+        let conformance_rebuild_modules = structural_work_modules
+            .iter()
+            .cloned()
+            .chain(conformance_witness_rebuild_impls.iter().map(|impl_id| impl_id.module.clone()))
+            .collect::<BTreeSet<_>>();
+        for module_id in &conformance_rebuild_modules {
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
                 continue;
             };
@@ -4569,7 +4669,14 @@ impl SemanticWorkspaceSession {
             for (idx, statement) in parsed_unit.program.statements.iter().enumerate() {
                 if let Statement::Impl(impl_def) = statement {
                     let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(idx as u32));
-                    if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Conformance { .. }) {
+                    let is_conformance = matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Conformance { .. });
+                    if is_conformance && !conformance_witness_rebuild_impls.contains(&impl_id) {
+                        continue;
+                    }
+                    if !is_conformance && !structural_work_modules.contains(module_id) {
+                        continue;
+                    }
+                    if is_conformance {
                         let mut context =
                             crate::checker::CheckingContext::new(Arc::make_mut(&mut self.store), &hierarchy, &resolver, &declarations, module_id.clone());
                         context.attach_data_semantics(&data_semantics);
@@ -5566,6 +5673,7 @@ impl SemanticWorkspaceSession {
                     current_modules.contains(callable.module())
                         && !contribution_delta.callable_bodies_removed.contains(*callable)
                         && !removed_callable_bodies.contains(*callable)
+                        && !retired_conformance_witnesses.contains(*callable)
                 })
                 .map(|(callable, analysis)| (callable.clone(), analysis.clone()))
                 .collect()
@@ -5631,6 +5739,36 @@ impl SemanticWorkspaceSession {
             derived_conformance_rules: &derived_conformance_rules,
             callable_signatures: None,
         };
+
+        // Refresh changed dispatch fingerprint owners before any cached body
+        // replays its previous semantic dependencies. Include removed buckets:
+        // their current fingerprint is the canonical empty-bucket fingerprint.
+        let changed_bucket_keys = previous_snapshot.as_ref().map_or_else(BTreeSet::new, |previous| {
+            let bucket_keys = trait_dispatch_index
+                .buckets()
+                .keys()
+                .chain(previous.trait_dispatch_index.buckets().keys())
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            bucket_keys
+                .into_iter()
+                .filter(|bucket_key| {
+                    trait_dispatch_index.bucket_fingerprint(bucket_key)
+                        != previous.trait_dispatch_index.bucket_fingerprint(bucket_key)
+                })
+                .map(QueryKey::TraitDispatchBucket)
+                .collect()
+        });
+        for key in &changed_bucket_keys {
+            let QueryKey::TraitDispatchBucket(bucket_key) = key else {
+                unreachable!("changed bucket set contains only trait dispatch buckets");
+            };
+            ready_or_error(crate::db::query::refresh_trait_dispatch_bucket_root(
+                &mut self.db,
+                bucket_key,
+                trait_dispatch_index.bucket_fingerprint(bucket_key),
+            ))?;
+        }
 
         // Trait defaults are checked once against the complete abstract
         // contract. They receive the trait header directly instead of
@@ -6559,22 +6697,6 @@ impl SemanticWorkspaceSession {
             )
             .collect::<BTreeSet<_>>();
         diagnostic_work_modules.extend(changed_conformance_plans.iter().map(|impl_id| impl_id.module.clone()));
-        let changed_bucket_keys = if let Some(previous) = previous_snapshot.as_ref() {
-            let mut changed = BTreeSet::new();
-            for (bucket_key, _) in trait_dispatch_index.buckets() {
-                if trait_dispatch_index.bucket_fingerprint(bucket_key) != previous.trait_dispatch_index.bucket_fingerprint(bucket_key) {
-                    changed.insert(QueryKey::TraitDispatchBucket(bucket_key.clone()));
-                }
-            }
-            for (bucket_key, _) in previous.trait_dispatch_index.buckets() {
-                if !trait_dispatch_index.buckets().contains_key(bucket_key) {
-                    changed.insert(QueryKey::TraitDispatchBucket(bucket_key.clone()));
-                }
-            }
-            changed
-        } else {
-            BTreeSet::new()
-        };
         let changed_plan_keys = changed_conformance_plans
             .iter()
             .cloned()

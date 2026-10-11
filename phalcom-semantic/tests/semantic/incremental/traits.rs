@@ -123,6 +123,206 @@ trait Display {
 }
 
 #[test]
+fn class_side_requirement_edit_invalidates_fingerprint() {
+    use phalcom_semantic::db::QueryKey;
+    use phalcom_semantic::impls::ConformanceCompleteness;
+
+    let module = module_id();
+    let source_instance = r#"
+trait Contract { foo() -> Int }
+data Subject(_ value: Int)
+impl Contract for Subject { foo() -> Int { self.value } }
+"#;
+    let source_class = source_instance.replace("trait Contract { foo()", "trait Contract { @class foo()");
+    let declaration = DeclarationId::new(module.clone(), "Contract".into());
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session.update(input(module.clone(), source_instance, 1));
+    assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
+    let first_surface = first.snapshot.trait_surfaces.get(&declaration).expect("initial trait surface");
+    assert!(first_surface.iter().any(|(requirement, _)| requirement.side == DispatchSide::Instance));
+    let first_surface_fingerprint = phalcom_semantic::db::fingerprint::trait_surface_product_fingerprint(first_surface);
+    let (impl_id, first_plan) = first
+        .snapshot
+        .conformance_witness_plans
+        .iter()
+        .next()
+        .expect("initial conformance plan");
+    assert!(matches!(first_plan.completeness, ConformanceCompleteness::Complete));
+    let dispatch_key = QueryKey::ConformanceDispatch(impl_id.clone());
+    let surface_key = QueryKey::TraitSurface(declaration.clone());
+    assert!(session.db().index().dependencies_of(&dispatch_key).is_some_and(|edges| {
+        edges.iter().any(|edge| edge.dependency == surface_key && edge.observed_fingerprint == first_surface_fingerprint)
+    }));
+
+    let second = session
+        .update_with_budget_and_cancel(
+            input(module.clone(), &source_class, 2),
+            phalcom_semantic::db::QueryBudget::default(),
+            &phalcom_semantic::db::CancellationToken::new(),
+        )
+        .unwrap_or_else(|error| panic!("updated analysis failed: {error:?}"));
+    let shard = session.semantic_structure_shards().get(&module).expect("updated semantic structure shard");
+    assert_eq!(shard.source.text.as_ref(), source_class);
+    let phalcom_ast::ast::Statement::Trait(trait_def) = &shard.source.program.statements[0] else {
+        panic!("updated source must retain its trait declaration")
+    };
+    assert!(
+        trait_def.members[0]
+            .behavior()
+            .is_some_and(|member| matches!(
+                member,
+                phalcom_ast::ast::BehaviorMember::Method(method)
+                    if method.attributes.iter().any(|attribute| attribute.name == "class")
+            )),
+        "parsed class-side requirement must carry Class side"
+    );
+    let second_surface = second.snapshot.trait_surfaces.get(&declaration).expect("updated trait surface");
+    assert!(
+        second_surface.iter().any(|(requirement, _)| requirement.side == DispatchSide::Class),
+        "updated source: {source_class}; surface requirements: {:?}",
+        second_surface.members.keys().collect::<Vec<_>>()
+    );
+    let second_surface_fingerprint = phalcom_semantic::db::fingerprint::trait_surface_product_fingerprint(second_surface);
+    assert_ne!(first_surface_fingerprint, second_surface_fingerprint, "changing requirement side changes the trait contract fingerprint");
+    let second_plan = second.snapshot.conformance_witness_plans.get(impl_id).expect("updated conformance plan");
+    assert!(!Arc::ptr_eq(first_plan, second_plan), "dependent conformance analysis must be recomputed");
+    assert_ne!(first_plan.fingerprint, second_plan.fingerprint, "conformance plan records the changed requirement side");
+    assert!(matches!(second_plan.completeness, ConformanceCompleteness::Incomplete { .. }));
+    assert!(
+        second.snapshot.all_diagnostics().any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::ImplConformanceIncomplete),
+        "the instance-only witness must no longer satisfy the class-side requirement"
+    );
+    let stale_witness = first
+        .snapshot
+        .callable_definitions
+        .values()
+        .find(|definition| matches!(
+            &definition.origin,
+            phalcom_semantic::impls::CallableDefinitionOrigin::ConformanceWitness(owner) if owner == impl_id
+        ))
+        .expect("initial accepted instance witness")
+        .callable
+        .clone();
+    assert!(!second.snapshot.callable_definitions.contains_key(&stale_witness), "rejected witness definition must be retired");
+    assert!(second.snapshot.callable_signatures.get(&stale_witness).is_none(), "rejected witness signature must be retired");
+    assert!(!second.snapshot.callable_analyses.contains_key(&stale_witness), "rejected witness analysis must be retired");
+    assert!(session.db().product(&QueryKey::CallableDefinition(stale_witness.clone())).is_none());
+    assert!(session.db().product(&QueryKey::CallableSignature(stale_witness.clone())).is_none());
+    assert!(session.db().product(&QueryKey::CallableBody(stale_witness.clone())).is_none());
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_result = cold.update(input(module, &source_class, 1));
+    let cold_plan = cold_result.snapshot.conformance_witness_plans.get(impl_id).expect("cold conformance plan");
+    assert_eq!(second_plan.fingerprint, cold_plan.fingerprint, "incremental conformance plan must match cold analysis");
+    assert_eq!(second.snapshot.diagnostics, cold_result.snapshot.diagnostics, "incremental diagnostics must match cold analysis");
+}
+
+#[test]
+fn class_side_requirement_edit_rebuilds_reused_conformance_module() {
+    use phalcom_common::selector::{Selector, SelectorSlot};
+    use phalcom_modules::{SourceId, SourceLocation, SourceRevision, WorkspaceSourceBatchMutation};
+
+    let root = tempfile::tempdir().expect("temporary workspace");
+    std::fs::write(root.path().join("package.ph"), "").expect("package marker");
+    let provider_path = root.path().join("provider.ph");
+    let impl_path = root.path().join("impl.ph");
+    let location = |path: &std::path::Path| SourceLocation {
+        source_id: SourceId(path.to_string_lossy().into()),
+        display_path: path.to_path_buf(),
+    };
+    let provider = location(&provider_path);
+    let implementation = location(&impl_path);
+    let provider_source = "trait Contract { foo() -> Int }\nexport Contract\n";
+    let provider_class = provider_source.replace("foo()", "@class foo()");
+    let impl_source = "from .provider import Contract\ndata Subject(_ value: Int)\nimpl Contract for Subject { foo() -> Int { self.value } }\nclass Caller { run(_ subject: Subject) -> Int { subject.foo() } }\nexport Subject\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session
+        .apply_module_mutations([
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: provider.clone(),
+                text: Arc::from(provider_source),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: implementation.clone(),
+                text: Arc::from(impl_source),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
+        .expect("initial two-module publication");
+    assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
+    let impl_module = first.snapshot.module_for_display_path(&impl_path).expect("implementation module").clone();
+    let impl_id = first
+        .snapshot
+        .conformance_witness_plans
+        .keys()
+        .find(|impl_id| impl_id.module == impl_module)
+        .expect("implementation conformance")
+        .clone();
+    let stale_witness = first
+        .snapshot
+        .callable_definitions
+        .values()
+        .find(|definition| matches!(
+            &definition.origin,
+            phalcom_semantic::impls::CallableDefinitionOrigin::ConformanceWitness(owner) if owner == &impl_id
+        ))
+        .expect("initial accepted instance witness")
+        .callable
+        .clone();
+    let caller = CallableId::new(
+        DeclarationId::new(impl_module.clone(), "Caller".into()),
+        Selector::method("run", [SelectorSlot::Positional]).unwrap(),
+        DispatchSide::Instance,
+    );
+    let first_caller_analysis = first.snapshot.callable_analyses.get(&caller).expect("initial dependent caller analysis").clone();
+    let first_impl_shard = session.semantic_structure_shards().get(&impl_module).expect("initial implementation shard").clone();
+
+    let second = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider.clone(),
+            text: Arc::from(provider_class.as_str()),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
+        .expect("trait-side update");
+    assert!(
+        Arc::ptr_eq(&first_impl_shard, session.semantic_structure_shards().get(&impl_module).expect("retained implementation shard")),
+        "the conformance source shard should remain structurally reusable"
+    );
+    let second_plan = second.snapshot.conformance_witness_plans.get(&impl_id).expect("updated conformance plan");
+    assert!(matches!(second_plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }));
+    assert!(!second.snapshot.callable_definitions.contains_key(&stale_witness));
+    assert!(second.snapshot.callable_signatures.get(&stale_witness).is_none());
+    assert!(!second.snapshot.callable_analyses.contains_key(&stale_witness));
+    let second_caller_analysis = second.snapshot.callable_analyses.get(&caller).expect("refreshed dependent caller analysis");
+    assert!(!Arc::ptr_eq(&first_caller_analysis, second_caller_analysis), "witness retirement must refresh dependent clients");
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_result = cold
+        .apply_module_mutations([
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: provider,
+                text: Arc::from(provider_class.as_str()),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: implementation,
+                text: Arc::from(impl_source),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
+        .expect("cold final publication");
+    let cold_plan = cold_result.snapshot.conformance_witness_plans.get(&impl_id).expect("cold conformance plan");
+    assert_eq!(second_plan.fingerprint, cold_plan.fingerprint);
+    assert_eq!(second.snapshot.diagnostics, cold_result.snapshot.diagnostics);
+}
+
+#[test]
 fn trait_bodyless_to_bodyful_preserves_requirement_and_source_callable_identity() {
     let module = module_id();
     let source_a = "trait Display { render(_ value: Int) -> Int }\n";

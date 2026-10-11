@@ -472,6 +472,7 @@ pub(crate) fn behavior_side(member: &BehaviorMember) -> DispatchSide {
         BehaviorMember::Method(method) if method.is_static || method.attributes.iter().any(|attribute| attribute.name == "class") => DispatchSide::Class,
         BehaviorMember::Getter(getter) if getter.is_static || getter.attributes.iter().any(|attribute| attribute.name == "class") => DispatchSide::Class,
         BehaviorMember::Setter(setter) if setter.is_static || setter.attributes.iter().any(|attribute| attribute.name == "class") => DispatchSide::Class,
+        BehaviorMember::Index(index) if index.attributes.iter().any(|attribute| attribute.name == "class") => DispatchSide::Class,
         _ => DispatchSide::Instance,
     }
 }
@@ -550,9 +551,12 @@ fn matching_brace(text: &str, open: usize, end: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::ModuleSemanticStructureShard;
-    use crate::identity::{CallableOwnerId, ImplId, ImplLocalId, ModuleId};
+    use super::{ModuleSemanticStructureShard, behavior_side};
+    use crate::checker::declaration_signature::CallableSyntaxRef;
+    use crate::identity::{CallableOwnerId, DeclarationId, DispatchSide, ImplId, ImplLocalId, ModuleId};
     use crate::source::ParsedModuleUnit;
+    use crate::source_index::{SourceIndexContext, build_source_scope_index};
+    use phalcom_ast::ast::{BehaviorMember, Statement, TraitMember};
     use phalcom_modules::identity::{ModulePath, ResolvedProjectId};
     use phalcom_modules::source::ModuleKind;
     use std::sync::Arc;
@@ -588,5 +592,55 @@ mod tests {
         let refreshed = ModuleSemanticStructureShard::with_source(&shard, second);
         assert!(refreshed.callable_signature_fingerprints.contains_key(&callable));
         assert!(refreshed.callable_body_fingerprints.contains_key(&callable));
+    }
+
+    #[test]
+    fn behavior_side_and_source_index_agree_for_class_side_requirements() {
+        let text = r#"
+trait Surface {
+  @class make() -> Int
+  @class value -> Int
+  @class value=(_ next: Int) -> Unit
+  @class [_ index: Int] -> Int
+}
+"#;
+        let parsed = phalcom_ast::parse(text, 0);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        let program = Arc::new(parsed.program);
+        let source = Arc::new(ParsedModuleUnit::new(
+            ModuleId::resolved(ResolvedProjectId::from_raw(8), ModulePath::root()),
+            ModuleKind::Module,
+            None,
+            Arc::from(text),
+            Arc::clone(&program),
+        ));
+        let Statement::Trait(trait_def) = &program.statements[0] else {
+            panic!("fixture must contain a trait");
+        };
+        let declaration = DeclarationId::new(source.id.clone(), trait_def.name.clone().into());
+        let source_index = build_source_scope_index(source.id.clone(), &program, &SourceIndexContext::default());
+
+        for member in &trait_def.members {
+            let TraitMember::Behavior(member) = member else {
+                continue;
+            };
+            let expected_side = match member {
+                BehaviorMember::Index(_) => DispatchSide::Class,
+                _ => DispatchSide::Class,
+            };
+            assert_eq!(behavior_side(member), expected_side);
+            let syntax = CallableSyntaxRef::from(member);
+            let callable =
+                crate::checker::declaration_signature::callable_id_for_syntax(&CallableOwnerId::Declaration(declaration.clone()), syntax, expected_side)
+                    .expect("canonical callable identity");
+            if matches!(member, BehaviorMember::Index(_)) {
+                assert!(
+                    !source_index.callable_sources.contains_key(&callable),
+                    "unsupported class-side index must not enter the source index as Class-side"
+                );
+            } else {
+                assert!(source_index.callable_sources.contains_key(&callable), "source index must retain {callable:?}");
+            }
+        }
     }
 }

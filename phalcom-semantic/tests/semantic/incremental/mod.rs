@@ -1,4 +1,5 @@
 mod adts;
+mod algebraic_realization;
 mod advisory;
 mod associated_types;
 mod callable_dependencies;

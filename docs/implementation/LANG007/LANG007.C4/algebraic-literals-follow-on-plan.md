@@ -87,6 +87,61 @@ Next action: resume contextual realization tasks (T4/T5) and source package
 acceptance. See the cross-cutting
 [incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), §16–17.
 
+## Incremental dispatch invalidation consultation — 2026-10-11
+
+P1-T's first add/remove conformance regressions reached a current-revision
+`SuppressedDependency` while replaying cached body dependencies. The exact
+blocked key was not exposed, but inspection confirmed that a retained
+`TraitDispatchBucket` query with a prior fingerprint is rejected instead of
+refreshed, while changed-bucket discovery runs later in the session update.
+The read-only architect consultation confirmed this is a plausible direct
+failure path and recommended keeping the bucket query as owner of its
+fingerprint.
+
+P1-T's implementation scope is amended to refresh changed bucket roots from
+the current canonical `ConformanceSemanticView` immediately after constructing
+the current trait-dispatch index and before cached body dependency replay.
+Refresh the union of old and new bucket keys, including removed buckets at the
+current empty-bucket fingerprint. Preserve incoming client edges and use the
+existing dependency-fingerprint comparison to recompute only clients whose
+observed bucket changed; do not invalidate the full reverse closure eagerly.
+The original A/B/C tests remain the acceptance contract: add, remove, and
+unrelated-bucket reuse with cold/incremental parity. This is a bounded
+implementation correction; it does not change semantic architecture or require
+an ADR.
+
+## P2 literal-scalar contract clarification — 2026-10-11
+
+The remaining-task acceptance example `2i` targeting `Strange<Tag, Float>`
+conflicts with `cliteral.md` §10.4 and §19: the numeric literal grammar fixes
+`2i` to Int and `2.0i` to Float, with no implicit Int-to-Float conversion.
+The live contextual-realization checker enforces exact source/associated
+scalar identity. The read-only architect consultation confirmed the existing
+contract. P2 therefore uses `2.0i` for the Float realization and may retain a
+negative check that `2i` does not realize against a Float coefficient. No
+language-semantic amendment is made.
+
+## P4-T6 accepted-witness lifecycle amendment — 2026-10-11
+
+An incremental trait-side edit left a prior accepted Instance-side conformance
+callable available to current-revision replay after the requirement changed to
+Class side. The read-only architectural consultation confirmed that explicit
+witness identity includes dispatch side. Do not republish the rejected source
+method as an independent callable.
+
+Reconcile the affected accepted witness set at session-level conformance
+rebuild, before retained-definition replay. Preserve exact affected `ImplId`s
+when a changed trait surface reaches a structurally reusable conformance
+module. Retire rejected `CallableDefinition`, `CallableSignature`, and
+`CallableBody` products and its `callable_analyses` entry; remove it from
+signature/body refresh worklists; and capture reverse dependents before
+retirement so their current semantic products and diagnostics are refreshed.
+Keep the nominal `ConformanceContribution` and publish the new incomplete
+dispatch plan. Acceptance requires cold/incremental equality for plan
+fingerprints and diagnostics, absence of stale witness products, and refreshed
+dependent clients. This is a bounded P4-T6 lifecycle/scheduling correction;
+it does not alter language rules or require an ADR.
+
 ## Task ledger
 
 | Task | State | Established result / remaining acceptance |

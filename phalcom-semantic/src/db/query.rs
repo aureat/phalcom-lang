@@ -1792,7 +1792,16 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
 ) -> QueryOutcome<()> {
     let key = semantic_dependency_query_key(dependency);
     if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision()) {
-        return QueryOutcome::Ready(());
+        if let crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket_key) = dependency {
+            let Some(view) = inputs.conformance_semantics else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            if db.ready_product_fingerprint(&key) == Some(view.bucket_fingerprint(bucket_key)) {
+                return QueryOutcome::Ready(());
+            }
+        } else {
+            return QueryOutcome::Ready(());
+        }
     }
 
     let outcome = match dependency {
@@ -1933,29 +1942,7 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             let Some(view) = inputs.conformance_semantics else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
-            let fingerprint = view.bucket_fingerprint(bucket_key);
-            if db.query_state(&key).is_some() {
-                if db.ready_product_fingerprint(&key) == Some(fingerprint) && db.validate_ready(&key) {
-                    QueryOutcome::Ready(())
-                } else {
-                    QueryOutcome::Blocked(BlockReason::SuppressedDependency)
-                }
-            } else {
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                bucket_key.hash(&mut hasher);
-                let input_fingerprint = crate::db::InputFingerprint::new(hasher.finish());
-                if let Err(error) = db.publish_ready(
-                    key.clone(),
-                    db.revision(),
-                    input_fingerprint,
-                    fingerprint,
-                    crate::db::state::QueryValue::from_bytes([]),
-                    Vec::new(),
-                ) {
-                    return query_failure(db, key, format!("{error:?}"));
-                }
-                QueryOutcome::Ready(())
-            }
+            refresh_trait_dispatch_bucket_root(db, bucket_key, view.bucket_fingerprint(bucket_key))
         }
         crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => {
             if !inputs.sources.contains_key(&declaration.module) && declaration.module.project == phalcom_modules::ProjectIdentity::Universe {
@@ -2115,6 +2102,36 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
         QueryOutcome::Ready(()) => ensure_dependency_state_current(db, &key),
         other => other,
     }
+}
+
+/// Publishes or revalidates the canonical fingerprint owner for one dispatch
+/// bucket. Publishing a changed root preserves incoming client edges, allowing
+/// each dependent body to compare the fingerprint it observed and recompute
+/// only when that exact bucket changed.
+pub(crate) fn refresh_trait_dispatch_bucket_root(
+    db: &mut SemanticDb,
+    bucket_key: &crate::trait_dispatch::TraitDispatchBucketKey,
+    fingerprint: crate::db::ProductFingerprint,
+) -> QueryOutcome<()> {
+    let key = QueryKey::TraitDispatchBucket(bucket_key.clone());
+    if db.ready_product_fingerprint(&key) == Some(fingerprint) && db.validate_ready(&key) {
+        return QueryOutcome::Ready(());
+    }
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bucket_key.hash(&mut hasher);
+    let input_fingerprint = InputFingerprint::new(hasher.finish());
+    if let Err(error) = db.publish_ready(
+        key.clone(),
+        db.revision(),
+        input_fingerprint,
+        fingerprint,
+        crate::db::state::QueryValue::from_bytes([]),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, format!("{error:?}"));
+    }
+    QueryOutcome::Ready(())
 }
 
 /// Replays every semantic dependency recorded by a cached formal query.

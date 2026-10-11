@@ -60,6 +60,60 @@ Next action: resume contextual realization tasks (T4/T5 of the algebraic-literal
 follow-on) and subsequent source package acceptance. Evidence:
 [stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), §17.
 
+### Algebraic-literals P1-T incremental invalidation consultation — 2026-10-11
+
+P1-T's add/remove conformance updates fail with `SuppressedDependency` during
+cached body replay. The read-only consultation found a direct code-confirmed
+stale `TraitDispatchBucket` path, but the current test output does not identify
+the exact blocked key. Decision: keep the bucket query as fingerprint owner;
+refresh stale current/removed bucket roots from the canonical current view
+before body work, and preserve incoming clients so fingerprint checks determine
+which consumers recompute. No semantic redesign or ADR is required. P1-T is
+amended to include this query/session refresh ordering; its A/B/C focused gate
+remains open. See the companion
+[follow-on plan](algebraic-literals-follow-on-plan.md).
+
+### Algebraic-literals P2 literal-scalar contract clarification — 2026-10-11
+
+The remaining-task P2 example expects `2i` to realize a Float coefficient,
+which conflicts with `cliteral.md` §10.4/§19 and the live exact-scalar checker.
+The read-only architect consultation confirmed that `2i` is Int and `2.0i` is
+Float; implicit Int-to-Float conversion is not part of this feature. The P2
+acceptance fixture is amended to use `2.0i` for `Strange<Tag, Float>` and may
+assert that `2i` fails that Float context. This resolves an example mismatch
+without changing accepted language behavior.
+
+### Algebraic-literals P4-T6 witness retirement consultation — 2026-10-11
+
+An incremental trait-side edit exposed a stale accepted conformance witness:
+the new Class-side requirement correctly made the old Instance-side member
+invalid, but its prior callable definition/signature/body remained available to
+current-revision replay. The read-only architectural consultation confirmed
+that the source method must not be republished as an independent callable.
+Dispatch side participates in requirement, callable, and witness identity, so
+the current plan must become incomplete while the nominal conformance head
+remains present.
+
+P4-T6 is amended to reconcile accepted witnesses at the session conformance
+boundary before retained-definition replay. Rebuild affected `ImplId`s even
+when their source shard is structurally reusable; retire rejected witness
+definition/signature/body products and body analyses; exclude them from
+signature/body refresh; and capture reverse dependents before retirement so
+current clients and diagnostics are refreshed. Preserve the nominal
+`ConformanceContribution`. Cold and incremental plan fingerprints, diagnostics,
+and dependent products must agree. This is bounded lifecycle/scheduling work,
+not a language-rule change or ADR. See the companion
+[follow-on plan](algebraic-literals-follow-on-plan.md).
+
+The lifecycle repair now retires affected witness definitions, signatures,
+bodies, and body analyses before retained-definition replay. Exact affected
+`ImplId`s are rebuilt even for structurally reused source modules; reverse
+clients are captured before query retirement and refreshed. Focused gates pass:
+the single-module and cross-module incremental invalidation regressions (2/2),
+`capabilities::dispatch` (25/25), and `capabilities::algebraic_realization`
+(9/9). The class-side default runtime probe passed 1/1 earlier in this
+continuation. P4 acceptance is `IMPLEMENTED / FOCUSED_TESTED`.
+
 ## Historical algebraic-literals follow-on stop state (2026-10-08)
 
 The initial user-directed stop in `.worktrees/complex-math`, branch

@@ -98,6 +98,21 @@ impl DerivedConformanceRuleIndex {
         self.rules_by_impl.get(impl_id)
     }
 
+    pub fn remove(&mut self, impl_id: &ImplId) {
+        let Some(rule) = self.rules_by_impl.remove(impl_id) else {
+            return;
+        };
+        let remove_trait_bucket = if let Some(rules) = self.rules_by_trait.get_mut(&rule.trait_ref.declaration) {
+            rules.retain(|candidate| candidate.impl_id != *impl_id);
+            rules.is_empty()
+        } else {
+            false
+        };
+        if remove_trait_bucket {
+            self.rules_by_trait.remove(&rule.trait_ref.declaration);
+        }
+    }
+
     pub fn remove_source(&mut self, module: &ModuleId) {
         self.rules_by_impl.retain(|impl_id, _| &impl_id.module != module);
         for rules in self.rules_by_trait.values_mut() {

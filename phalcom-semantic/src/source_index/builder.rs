@@ -1253,7 +1253,12 @@ impl SourceScopeBuilder<'_> {
             let Some(member) = trait_member.behavior() else {
                 continue;
             };
-            self.visit_behavior_member(parent, CallableOwnerId::Declaration(declaration.clone()), member, crate::semantic_shard::behavior_side(member));
+            self.visit_behavior_member(
+                parent,
+                CallableOwnerId::Declaration(declaration.clone()),
+                member,
+                crate::semantic_shard::behavior_side(member),
+            );
         }
     }
 
@@ -1436,6 +1441,9 @@ impl SourceScopeBuilder<'_> {
     }
 
     fn visit_behavior_member(&mut self, parent: SourceScopeId, owner: CallableOwnerId, behavior: &phalcom_ast::ast::BehaviorMember, side: DispatchSide) {
+        if matches!(behavior, phalcom_ast::ast::BehaviorMember::Index(_)) && side == DispatchSide::Class {
+            return;
+        }
         match behavior {
             BehaviorMember::Method(method) => {
                 if let Some(annotation) = &method.return_annotation {
@@ -2073,7 +2081,6 @@ fn parameter_slot(parameter: &phalcom_ast::ast::ParameterDef) -> SelectorSlot {
         .as_ref()
         .map_or(SelectorSlot::Positional, |label| SelectorSlot::Label(label.clone()))
 }
-
 
 fn statements_range(statements: &[Statement]) -> SourceRange {
     statements
