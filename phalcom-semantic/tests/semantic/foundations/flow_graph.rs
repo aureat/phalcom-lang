@@ -95,6 +95,7 @@ class CfgSubject {
     throw "done"
   }
 }
+
 "#;
     let program = parse_source(source, 0).expect("valid parse");
     let class_def = match &program.statements[0] {
@@ -119,6 +120,49 @@ class CfgSubject {
 
     let has_back_edge = cfg.edges.values().any(|e| matches!(e.kind, FlowEdgeKind::BackEdge));
     assert!(has_back_edge, "CFG for loop construct must contain a BackEdge");
+}
+
+#[test]
+fn test_flow_graph_for_explicit_while_keeps_condition_and_backedge() {
+    let source = r#"
+class CfgWhile {
+  run(_ cond: Bool) {
+    while cond {
+      let bodyLocal = 1
+    }
+  }
+}
+"#;
+    let program = parse_source(source, 0).expect("valid parse");
+    let class_def = match &program.statements[0] {
+        phalcom_ast::ast::Statement::Class(c) => c,
+        _ => panic!("expected class"),
+    };
+    let member_body = match &class_def.members[0] {
+        phalcom_ast::ast::ClassMember::Method(m) => m.body.statements().expect("statements block"),
+        _ => panic!("expected method"),
+    };
+    let while_expr = match &member_body[0] {
+        phalcom_ast::ast::Statement::Expr {
+            expr: phalcom_ast::ast::Expr::While(while_expr), ..
+        } => while_expr,
+        other => panic!("expected explicit While expression, got {other:?}"),
+    };
+
+    let cfg = FlowGraph::from_statements(member_body);
+    let header = cfg
+        .nodes
+        .values()
+        .find(|node| matches!(node.kind, FlowNodeKind::LoopHeader))
+        .expect("while loop header");
+    let condition = cfg
+        .nodes
+        .values()
+        .find(|node| node.kind == FlowNodeKind::BranchCondition && node.range == while_expr.condition.range())
+        .expect("condition branch uses the source condition range");
+    assert_eq!(header.range, while_expr.range);
+    assert!(cfg.edges.values().any(|edge| edge.kind == FlowEdgeKind::BackEdge && edge.target == header.id));
+    assert!(cfg.edges.values().any(|edge| edge.kind == FlowEdgeKind::FalseBranch && edge.source == condition.id));
 }
 
 fn parse_expr_helper(src: &str) -> phalcom_ast::ast::Expr {

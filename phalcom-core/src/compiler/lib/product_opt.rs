@@ -853,6 +853,14 @@ impl<'a> ProductPlanner<'a> {
                 }
                 self.current_loop_depth -= 1;
             }
+            Expr::While(while_expr) => {
+                self.current_loop_depth += 1;
+                self.visit_expression(&while_expr.condition, UseContext::Value);
+                for stmt in &while_expr.body.body {
+                    self.visit_statement(stmt);
+                }
+                self.current_loop_depth -= 1;
+            }
             Expr::TupleLiteral(t) => {
                 for entry in &t.entries {
                     match entry {

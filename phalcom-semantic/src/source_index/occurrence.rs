@@ -611,6 +611,10 @@ impl OccurrenceBuilder<'_> {
                     }
                 }
             }
+            Expr::While(while_expr) => {
+                self.expr(&while_expr.condition, OccurrenceRole::Read);
+                self.statements(&while_expr.body.body);
+            }
             Expr::WhileLet(while_let) => {
                 self.expr(&while_let.value, OccurrenceRole::Read);
                 self.statements(&while_let.body);

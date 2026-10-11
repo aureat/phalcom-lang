@@ -779,6 +779,172 @@ type BreakCaller: Int { BreakCallee<> }
 }
 
 #[test]
+fn static_while_uses_loop_control_work_and_rejects_while_true_as_static_control() {
+    let boolean_flag_loop = |name: &str, iterations: usize| {
+        let flags = (0..iterations).map(|index| format!("flag_{index}")).collect::<Vec<_>>();
+        let declarations = flags
+            .iter()
+            .map(|flag| format!("  let mut {flag} = true\n"))
+            .collect::<String>();
+        let condition = flags.join(" or ");
+        let mut branch = format!("{last} = false", last = flags.last().expect("at least one loop flag"));
+        for index in (0..iterations.saturating_sub(1)).rev() {
+            branch = format!("if {} {{ {} = false }} else {{ {branch} }}", flags[index], flags[index]);
+        }
+        format!("type {name}: Unit {{\n{declarations}  while {condition} {{\n    {branch}\n  }}\n}}\n")
+    };
+    let mut source = String::from(
+        r#"
+type RecursiveBody: Int { RecursiveBody<> }
+type WhileZero: Int { let mut n = 4
+  while false { RecursiveBody<> }
+  n }
+type WhileBreak: Unit { while true {
+  break
+  RecursiveBody<>
+} }
+type WhileContinue: Bool {
+  let mut first = true
+  let mut second = true
+  while first or second {
+    if first { first = false
+      continue }
+    second = false
+  }
+  second }
+type WhileReturn: Int { while true { return 13
+  RecursiveBody<> }
+  17 }
+type WhileNested: Bool {
+  let mut outer_first = true
+  let mut outer_second = true
+  while outer_first or outer_second {
+    let mut inner_first = true
+    let mut inner_second = true
+    while inner_first or inner_second {
+      if inner_first { inner_first = false } else { inner_second = false }
+    }
+    if outer_first { outer_first = false } else { outer_second = false }
+  }
+  outer_second }
+type WhileForever: Unit { while true {} }
+type ExplicitWhileTrue: Int { || { false }.whileTrue || { 1 } }
+type WhileNonBool: Int { while 1 { break }
+  2 }
+"#,
+    );
+    source.push_str(&boolean_flag_loop("WhileShort", 2));
+    source.push_str(&boolean_flag_loop("WhileLong", 64));
+    let fixture = WorkspaceFixture::new().module("main", source.as_str()).analyze();
+
+    let evaluate = |name: &str, budget: &mut QueryBudget, cancellation: &CancellationToken| {
+        let checked = fixture
+            .analysis
+            .snapshot
+            .static_definition(&fixture.decl("main", name))
+            .and_then(|definition| definition.checked_body.as_ref())
+            .unwrap_or_else(|| panic!("checked static definition {name}"));
+        let mut values = StaticValueStore::new();
+        let outcome = StaticEvaluator::new(checked, &mut values, budget, cancellation, &[])
+            .with_type_store(fixture.analysis.snapshot.store())
+            .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+            .evaluate();
+        (outcome, values)
+    };
+
+    for (name, expected) in [("WhileZero", 4), ("WhileReturn", 13)] {
+        let (outcome, values) = evaluate(name, &mut QueryBudget::default(), &CancellationToken::new());
+        let StaticEvalOutcome::Reduced(value) = outcome else {
+            panic!("{name} should reduce, got {outcome:?}");
+        };
+        assert_eq!(
+            values.get(value).unwrap(),
+            &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(expected)),
+            "unexpected result for {name}"
+        );
+    }
+
+    for name in ["WhileShort", "WhileBreak"] {
+        let (outcome, values) = evaluate(name, &mut QueryBudget::default(), &CancellationToken::new());
+        let StaticEvalOutcome::Reduced(value) = outcome else {
+            panic!("{name} should reduce, got {outcome:?}");
+        };
+        assert_eq!(values.get(value).unwrap(), &StaticValueData::Unit, "unexpected result for {name}");
+    }
+    for (name, expected) in [("WhileContinue", false), ("WhileNested", false)] {
+        let (outcome, values) = evaluate(name, &mut QueryBudget::default(), &CancellationToken::new());
+        let StaticEvalOutcome::Reduced(value) = outcome else {
+            panic!("{name} should reduce, got {outcome:?}");
+        };
+        assert_eq!(values.get(value).unwrap(), &StaticValueData::Bool(expected), "unexpected result for {name}");
+    }
+
+    let mut short_budget = QueryBudget::default();
+    let (short, _) = evaluate("WhileShort", &mut short_budget, &CancellationToken::new());
+    assert!(matches!(short, StaticEvalOutcome::Reduced(_)));
+    let mut long_budget = QueryBudget::new(1_000_000);
+    let (long, _) = evaluate("WhileLong", &mut long_budget, &CancellationToken::new());
+    assert!(matches!(long, StaticEvalOutcome::Reduced(_)));
+    assert!(long_budget.steps_taken > short_budget.steps_taken, "longer loops must charge more Work transitions");
+
+    let mut bounded_budget = QueryBudget::new(64);
+    let (bounded, _) = evaluate("WhileForever", &mut bounded_budget, &CancellationToken::new());
+    assert!(matches!(bounded, StaticEvalOutcome::BudgetExceeded(_)));
+
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let (pre_cancelled, _) = evaluate("WhileForever", &mut QueryBudget::default(), &cancellation);
+    assert_eq!(pre_cancelled, StaticEvalOutcome::Cancelled);
+
+    let checked = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "WhileForever"))
+        .and_then(|definition| definition.checked_body.as_ref())
+        .expect("checked infinite-loop workload");
+    let cancellation = CancellationToken::new();
+    let cancel_after_start = cancellation.clone();
+    let canceller = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        cancel_after_start.cancel();
+    });
+    let mut active_budget = QueryBudget::new(10_000_000);
+    let mut values = StaticValueStore::new();
+    let active = StaticEvaluator::new(checked, &mut values, &mut active_budget, &cancellation, &[])
+        .with_type_store(fixture.analysis.snapshot.store())
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .evaluate();
+    canceller.join().expect("active cancellation worker");
+    assert_eq!(active, StaticEvalOutcome::Cancelled);
+    assert!(active_budget.steps_taken > 0, "active cancellation must follow charged work");
+
+    let explicit_while_true = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "ExplicitWhileTrue"))
+        .and_then(|definition| definition.checked_body.as_ref())
+        .expect("checked explicit whileTrue send");
+    let explicit = StaticEvaluator::new(
+        explicit_while_true,
+        &mut StaticValueStore::new(),
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+        &[],
+    )
+    .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+    .evaluate();
+    assert_eq!(explicit, StaticEvalOutcome::Invalid(StaticEvalError::UnsupportedExpression));
+
+    let non_bool = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "WhileNonBool"))
+        .and_then(|definition| definition.checked_body.as_ref())
+        .expect("checked non-Bool while condition");
+    assert!(non_bool.diagnostics.iter().any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeMismatch));
+}
+
+#[test]
 fn static_evaluator_resource_work_scales_and_cancellation_is_cooperative() {
     let long_body = (0..4_000).map(|index| format!("  let value_{index} = {index}\n")).collect::<String>() + "  value_3999\n";
     let mut source = String::from(

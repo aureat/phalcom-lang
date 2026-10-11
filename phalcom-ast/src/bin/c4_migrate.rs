@@ -156,6 +156,12 @@ fn collect_bindings_from_expr(expr: &Expr, lets: &mut Vec<LetBinding>) {
                 }
             }
         }
+        Expr::While(w) => {
+            collect_bindings_from_expr(&w.condition, lets);
+            for s in &w.body.body {
+                collect_bindings_from_stmt(s, lets);
+            }
+        }
         Expr::IfLet(i) => {
             collect_bindings_from_expr(&i.value, lets);
             for s in &i.then_body.body {
@@ -455,6 +461,12 @@ fn collect_assigned_fields(expr: &Expr, fields: &mut Vec<String>) {
                         collect_assigned_fields(e, fields);
                     }
                 }
+            }
+        }
+        Expr::While(w) => {
+            collect_assigned_fields(&w.condition, fields);
+            for statement in &w.body.body {
+                collect_assigned_fields_stmt(statement, fields);
             }
         }
         Expr::MapLiteral(map) => {

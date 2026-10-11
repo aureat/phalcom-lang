@@ -9122,10 +9122,8 @@ impl<'source> Parser<'source> {
         })))
     }
 
-    /// Parses `while condition { body }` as the sacred loop send
-    /// `{ cond }.whileTrue { body }` (control-flow.md §1, §3; U5-plan.md
-    /// §4.1, BD-U5-1 Option A) — the receiver is itself a literal block
-    /// wrapping the condition, re-evaluated each iteration.
+    /// Parses plain `while` as explicit lexical control flow. An explicit
+    /// `.whileTrue(...)` call remains an ordinary method-call expression.
     ///
     /// # Errors
     ///
@@ -9144,17 +9142,12 @@ impl<'source> Parser<'source> {
             let range = (start..self.prev_end).into();
             return Ok(Expr::WhileLet(Box::new(WhileLetExpr { pattern, value, body, range })));
         }
-        let cond = self.parse_expr_without_trailing_closures()?;
-        let cond_block = Self::wrap_expr_as_block(cond);
-        let body = self.parse_brace_block()?;
-        let body_range = body.range();
+        let condition = self.parse_expr_without_trailing_closures()?;
+        let body = self.parse_lexical_block()?;
         let range = (start..self.prev_end).into();
-        Ok(Expr::MethodCall(Box::new(MethodCallExpr {
-            object: cond_block,
-            method: "whileTrue".to_string(),
-            method_range: None,
-            args: vec![PackItem::Positional { expr: body, range: body_range }],
-            invocation_authority: Default::default(),
+        Ok(Expr::While(Box::new(WhileExpr {
+            condition,
+            body,
             range,
         })))
     }
@@ -10676,6 +10669,21 @@ mod tests {
             panic!("expected while let expression");
         };
         assert!(matches!(while_let.pattern, Pattern::Variant(VariantPattern { ref base, .. }) if base == "Some"));
+    }
+
+    #[test]
+    fn plain_while_is_explicit_and_while_true_remains_a_send() {
+        let Statement::Expr { expr: Expr::While(while_expr), .. } = only_statement("while ready { break }") else {
+            panic!("expected explicit while expression");
+        };
+        assert!(matches!(while_expr.condition, Expr::Var { ref value, .. } if value == "ready"));
+        assert!(matches!(while_expr.body.body.as_slice(), [Statement::Break { .. }]));
+
+        let Statement::Expr { expr: Expr::MethodCall(call), .. } = only_statement("|| { true }.whileTrue || { false }") else {
+            panic!("expected explicit whileTrue method send");
+        };
+        assert_eq!(call.method, "whileTrue");
+        assert!(matches!(&call.object, Expr::Block(_)));
     }
 
     /// Returns the single statement of a program that must parse cleanly.

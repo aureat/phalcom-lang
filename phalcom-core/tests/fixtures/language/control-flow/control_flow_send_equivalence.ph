@@ -1,9 +1,9 @@
 // area: control flow
 // spec: control-flow.md §1
 // status: PASS
-// U5: keyword sugar and the explicit sacred-selector send compile to
-// observationally identical behavior — both are the same message send
-// (`if/else` === `ifTrue(_:ifFalse:)`, `while` === `whileTrue(_:)`).
+// The keyword control forms and explicit sacred-selector sends have
+// observationally compatible runtime behavior, but retain separate semantic
+// identities (`if/else` vs. `ifTrue(_:ifFalse:)`, `while` vs. `whileTrue(_)`).
 
 System.print(if (3 > 2) { "yes" } else { "no" })
 System.print((3 > 2).ifTrue(|| { "yes" }, ifFalse: || { "no" }))

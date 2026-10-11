@@ -2088,6 +2088,10 @@ fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<A
             collect_anonymous_product_expr(&e.value, out);
             collect_anonymous_product_statements(&e.body, out);
         }
+        Expr::While(e) => {
+            collect_anonymous_product_expr(&e.condition, out);
+            collect_anonymous_product_statements(&e.body.body, out);
+        }
         Expr::UnqualifiedCall(e) => {
             let mut positional_len = 0u32;
             let mut labels = Vec::new();

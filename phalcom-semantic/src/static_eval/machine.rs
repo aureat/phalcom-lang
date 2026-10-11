@@ -216,6 +216,8 @@ enum Work<'a> {
     StoreLocal(BindingId, &'a LexicalBlock, usize),
     StoreAssignment(BindingId),
     AfterIf(&'a phalcom_ast::ast::IfExpr),
+    AfterWhileCondition(&'a phalcom_ast::ast::WhileExpr),
+    AfterWhileBody(&'a phalcom_ast::ast::WhileExpr),
     FinishTuple(usize),
     SequenceNext(&'a BracketLiteralExpr, &'a SequenceLiteralResolution, usize, Vec<StaticValueRef>),
     SequenceElementReady(&'a BracketLiteralExpr, &'a SequenceLiteralResolution, usize, Vec<StaticValueRef>),
@@ -258,7 +260,6 @@ enum EvalControl {
     Continue,
 }
 
-#[allow(dead_code)] // The Loop boundary is consumed by T6's explicit while work item.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ControlBoundary {
     Root,
@@ -494,7 +495,11 @@ impl<'a> StaticEvaluator<'a> {
             if pending_control.is_some()
                 && !matches!(
                     item,
-                    Work::PopTrace | Work::FinishRoot | Work::FinishStaticApplication(_) | Work::AbortStaticApplication(_)
+                    Work::PopTrace
+                        | Work::FinishRoot
+                        | Work::FinishStaticApplication(_)
+                        | Work::AbortStaticApplication(_)
+                        | Work::AfterWhileBody(_)
                 )
             {
                 continue;
@@ -554,6 +559,10 @@ impl<'a> StaticEvaluator<'a> {
                         Expr::If(if_expression) => {
                             work.push(Work::AfterIf(if_expression));
                             work.push(Work::Evaluate(&if_expression.condition));
+                        }
+                        Expr::While(while_expression) => {
+                            work.push(Work::AfterWhileCondition(while_expression));
+                            work.push(Work::Evaluate(&while_expression.condition));
                         }
                         Expr::Assignment(assignment) => {
                             let id = self.expression_id(assignment.range)?;
@@ -818,6 +827,40 @@ impl<'a> StaticEvaluator<'a> {
                             Some(IfElseBody::Block(block)) => work.push(Work::EvaluateBlock(block)),
                             Some(IfElseBody::ElseIf(expression)) => work.push(Work::Evaluate(expression)),
                             None => stack.push(self.values.intern_unit()),
+                        }
+                    }
+                }
+                Work::AfterWhileCondition(while_expression) => {
+                    let condition = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let StaticValueData::Bool(condition) = self.values.get(condition).map_err(Stop::from)? else {
+                        return Err(Stop::invalid(StaticEvalError::ExpectedBool));
+                    };
+                    if *condition {
+                        work.push(Work::AfterWhileBody(while_expression));
+                        work.push(Work::EvaluateBlock(&while_expression.body));
+                    } else {
+                        stack.push(self.values.intern_unit());
+                    }
+                }
+                Work::AfterWhileBody(while_expression) => {
+                    match pending_control
+                        .take()
+                        .map(|control| control_disposition(ControlBoundary::Loop, control))
+                    {
+                        Some(ControlDisposition::ConsumeBreak) => stack.push(self.values.intern_unit()),
+                        Some(ControlDisposition::ConsumeContinue) => {
+                            work.push(Work::AfterWhileCondition(while_expression));
+                            work.push(Work::Evaluate(&while_expression.condition));
+                        }
+                        Some(ControlDisposition::Propagate(control)) => pending_control = Some(control),
+                        Some(ControlDisposition::Invalid) => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
+                        Some(ControlDisposition::ConsumeReturn(_)) => {
+                            return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                        }
+                        None => {
+                            stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                            work.push(Work::AfterWhileCondition(while_expression));
+                            work.push(Work::Evaluate(&while_expression.condition));
                         }
                     }
                 }

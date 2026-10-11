@@ -852,6 +852,10 @@ fn collect_decl_names_in_expr(expr: &Expr, out: &mut Vec<DeclNameOverride>) {
                 }
             }
         }
+        Expr::While(while_expr) => {
+            collect_decl_names_in_expr(&while_expr.condition, out);
+            collect_decl_names(&while_expr.body.body, out);
+        }
         Expr::UnqualifiedCall(call) => collect_pack_item_overrides(&call.args, out),
         Expr::MethodCall(call) => {
             collect_decl_names_in_expr(&call.object, out);

@@ -437,6 +437,13 @@ fn analyze_non_binary_expr(expr: &Expr, context: &AdvisoryExpressionContext<'_>)
             let _ = analyze_expr(&while_let.value, context);
             literal(context, context.builtins.boolean.clone(), range)
         }
+        Expr::While(while_expr) => {
+            let _ = analyze_expr(&while_expr.condition, context);
+            for statement in &while_expr.body.body {
+                let _ = analyze_statement(statement, context);
+            }
+            unknown_at(context, range)
+        }
         Expr::Match(match_expr) => {
             let _ = analyze_expr(&match_expr.value, context);
             for arm in &match_expr.arms {

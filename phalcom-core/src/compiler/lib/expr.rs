@@ -2392,6 +2392,7 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::IfLet(if_let) => self.compile_if_let(*if_let)?,
             Expr::If(if_expr) => self.compile_if_expr(*if_expr)?,
+            Expr::While(while_expr) => self.compile_while_expr(*while_expr)?,
             Expr::WhileLet(while_let) => self.compile_while_let(*while_let)?,
             Expr::Match(match_expr) => self.compile_match_expr(match_expr)?,
             Expr::Ellipsis { range } => {

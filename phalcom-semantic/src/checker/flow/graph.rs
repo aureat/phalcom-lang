@@ -332,6 +332,33 @@ impl CfgBuilder {
                 }
                 return vec![join_node];
             }
+            Expr::While(while_expr) => {
+                let header_node = self.graph.add_node(FlowNodeKind::LoopHeader, while_expr.range);
+                for prev in incoming {
+                    self.graph.add_edge_with_kind(prev, header_node, FlowEdgeKind::Normal, None);
+                }
+
+                let condition_tails = self.build_expression_flow(&while_expr.condition, while_expr.condition.range(), stmt_idx, vec![header_node]);
+                let cond_node = self.graph.add_node(FlowNodeKind::BranchCondition, while_expr.condition.range());
+                for tail in condition_tails {
+                    self.graph.add_edge_with_kind(tail, cond_node, FlowEdgeKind::Normal, None);
+                }
+
+                let loop_exit_join = self.graph.add_node(FlowNodeKind::Join, while_expr.range);
+                self.loop_stack.push(LoopTarget {
+                    header: header_node,
+                    exit_join: loop_exit_join,
+                });
+
+                let body_tails = self.build_statements(&while_expr.body.body, vec![cond_node]);
+                for tail in body_tails {
+                    self.graph.add_edge_with_kind(tail, header_node, FlowEdgeKind::BackEdge, None);
+                }
+
+                self.graph.add_edge_with_kind(cond_node, loop_exit_join, FlowEdgeKind::FalseBranch, None);
+                self.loop_stack.pop();
+                return vec![loop_exit_join];
+            }
             Expr::WhileLet(while_let) => {
                 let header_node = self.graph.add_node(FlowNodeKind::LoopHeader, while_let.range);
                 for prev in incoming {

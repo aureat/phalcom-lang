@@ -2481,11 +2481,11 @@ pub struct ReturnStatement {
 /// A `for (binding in iter) { body }` cursor loop (ADR-0035 §2,
 /// iteration.md §2).
 ///
-/// The parser produces this node directly (unlike `while`, which desugars to a
-/// `whileTrue` [`Expr::MethodCall`] at parse time); the compiler lowers it to
-/// an inlined cursor `while` driving the `iterate(_)` / `iteratorValue(_)`
-/// protocol sends, evaluating [`iter`](ForStatement::iter) exactly once. See
-/// the U-ITER specification §3 for the exact desugar.
+/// The parser produces this node directly; plain `while` and `while let` also
+/// retain explicit control-flow identities. The compiler lowers this to an
+/// inlined cursor loop driving the `iterate(_)` / `iteratorValue(_)` protocol
+/// sends, evaluating [`iter`](ForStatement::iter) exactly once. See the
+/// U-ITER specification §3 for the exact lowering.
 #[derive(Debug, Clone)]
 pub struct ForStatement {
     /// Non-empty lockstep lanes, each evaluated once from left to right.
@@ -2577,6 +2577,8 @@ pub enum Expr {
     /// A lexical conditional expression. Its branch bodies execute inline;
     /// they are not Closure values.
     If(Box<IfExpr>),
+    /// A lexical condition loop. Its body executes inline and is not a Closure.
+    While(Box<WhileExpr>),
     /// The ordinary expression value represented by `...`.
     Ellipsis {
         range: SourceRange,
@@ -2627,10 +2629,8 @@ pub enum Expr {
 impl Expr {
     /// Returns this expression's source span.
     ///
-    /// Added for U5's `if`/`while` desugaring (`phalcom-ast/src/parser.rs`),
-    /// which needs a uniform way to span-wrap an arbitrary sub-expression
-    /// (e.g. an `else if`'s nested [`Expr::MethodCall`]) into a synthetic
-    /// block literal.
+    /// Returns the source span uniformly across explicit control-flow nodes
+    /// and ordinary expressions.
     pub fn range(&self) -> SourceRange {
         match self {
             Expr::Char { range, .. }
@@ -2651,6 +2651,7 @@ impl Expr {
             Expr::IfLet(e) => e.range,
             Expr::WhileLet(e) => e.range,
             Expr::If(e) => e.range,
+            Expr::While(e) => e.range,
             Expr::Ellipsis { range } => *range,
             Expr::UnqualifiedCall(e) => e.range,
             Expr::MethodCall(e) => e.range,
@@ -2725,6 +2726,14 @@ pub struct IfExpr {
     pub condition: Expr,
     pub then_body: LexicalBlock,
     pub else_body: Option<IfElseBody>,
+    pub range: SourceRange,
+}
+
+/// `while condition { body }` as an explicit lexical control-flow expression.
+#[derive(Debug, Clone)]
+pub struct WhileExpr {
+    pub condition: Expr,
+    pub body: LexicalBlock,
     pub range: SourceRange,
 }
 

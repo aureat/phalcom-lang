@@ -73,6 +73,11 @@ fn control_flow() {
 }
 
 #[test]
+fn control_flow_while_break_continue() {
+    support::check_pass("control-flow/while_break_continue");
+}
+
+#[test]
 fn membership() {
     support::check_pass("membership");
 }

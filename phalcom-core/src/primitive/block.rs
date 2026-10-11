@@ -267,11 +267,12 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     result
 }
 
-/// Signature: `Block::whileTrue(_)` — sacred loop fallback (control-flow.md
-/// §1/§3: `while (c) { B }` desugars to `{ c }.whileTrue { B }`). Calls the
-/// receiver block each iteration as the condition; if its result is not a
-/// `Bool`, raises a type error (this is Phalcom's "no truthiness" floor —
-/// there is no generic coercion, only `Bool` may drive a branch). Loops
+/// Signature: `Block::whileTrue(_)` — the runtime method-send implementation
+/// retained for explicit `.whileTrue(...)` calls and the guarded compiler
+/// fallback for source `while`. Calls the receiver block each iteration as the
+/// condition; if its result is not a `Bool`, raises a type error (this is
+/// Phalcom's "no truthiness" floor — there is no generic coercion, only `Bool`
+/// may drive a branch). Loops
 /// while the condition is `true`, calling `args[0]` (the body) each pass and
 /// discarding its result; returns immediate `None` (surface absence value)
 /// on normal exit, matching the sacred inliner's `Bytecode::Nil` result site
@@ -284,10 +285,7 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 ///
 /// Returns [`RuntimeError::Type`] if a condition evaluation is not `Bool`,
 /// or any error raised calling the condition/body blocks.
-/// Signature: `Block::whileTrue(_)` — sacred loop fallback (control-flow.md
-/// §1/§3: `while (c) { B }` desugars to `{ c }.whileTrue { B }`). Calls the
-/// receiver block each iteration as the condition; if its result is not a
-/// `Bool`, raises a type error.
+/// Runtime method-send implementation for explicit `.whileTrue(...)` calls.
 #[phalcom_native_macros::primitive(Closure, "whileTrue(_)", abi = shape)]
 pub fn block_while_true_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
     let body = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {

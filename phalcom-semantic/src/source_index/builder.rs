@@ -1914,6 +1914,11 @@ impl SourceScopeBuilder<'_> {
                     }
                 }
             }
+            Expr::While(while_expr) => {
+                self.visit_expr(scope, &while_expr.condition);
+                let loop_scope = self.new_scope(scope, while_expr.body.range);
+                self.visit_statements(loop_scope, &while_expr.body.body, false);
+            }
             Expr::WhileLet(while_let) => {
                 let loop_scope = self.new_scope(scope, while_let.range);
                 self.visit_expr(loop_scope, &while_let.value);

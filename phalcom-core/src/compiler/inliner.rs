@@ -519,4 +519,28 @@ impl<'vm> Compiler<'vm> {
         self.pop_loop_context();
         Ok(())
     }
+
+    /// Compiles a semantic `while` with the existing guarded loop lowering.
+    /// The temporary block nodes exist only during code generation: the
+    /// semantic AST remains `Expr::While`, while the guard's deopt arm still
+    /// sends the real `Block.whileTrue(_)` selector when it has been replaced.
+    pub(crate) fn compile_while_expr(&mut self, node: phalcom_ast::ast::WhileExpr) -> Result<(), CompilerError> {
+        let condition_range = node.condition.range();
+        let condition_block = Expr::Block(Box::new(phalcom_ast::ast::BlockExpr {
+            params: phalcom_ast::ast::ClosureParameters::default(),
+            body: vec![phalcom_ast::ast::Statement::Expr {
+                expr: node.condition,
+                range: condition_range,
+            }],
+            expr_body: true,
+            range: condition_range,
+        }));
+        let body_block = Expr::Block(Box::new(phalcom_ast::ast::BlockExpr {
+            params: phalcom_ast::ast::ClosureParameters::default(),
+            body: node.body.body,
+            expr_body: false,
+            range: node.body.range,
+        }));
+        self.compile_while_true(condition_block, body_block, node.range)
+    }
 }

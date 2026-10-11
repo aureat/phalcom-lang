@@ -564,7 +564,7 @@ The intended C4 decomposition is:
 | `LANG007.C4.P2` | Static value model, static definitions, evaluator foundation, closed `const` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T11 implemented and verified; G1 end-to-end VM execution (16/16 pass), G2 C1–C3 compatibility (365 pass), G3 affected crates check pass; unblocks P3 |
 | `LANG007.C4.P3` | First-class Pack and call/rest convergence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T1–T9 implemented and verified; G1 semantic/static vertical, G2 runtime/rest/spread vertical, G3 fixed-call/resource invariants, G4 compatibility/stabilization gates pass; unblocks P4/P5 |
 | `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | PARTIAL | UNVERIFIED | T1-T6 remain COMPLETE / IMPLEMENTED / FOCUSED_TESTED. Earlier T7.0C-D work is retained as substrate, but the remaining execution order is superseded by the corrective completion plan: rebaseline the owner matrix, converge StaticConstant formation, then add exact owner orchestration and projection-aware replay before aliases/T7.0E. No T7.0E acceptance or Record-pattern work is claimed. |
-| `LANG007.C4.P10` | Parallel structural classification, static-control, and convergence foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | pre-barrier work through `46d00056` is integrated on main and S1 is complete; focused synchronization checks passed. T1-T5 remain implemented/focused-tested, T7/T8 audits completed, and Pack plus non-loop evaluator T9 harnesses focused-tested. T6 and while-dependent T9 cases are unstarted; an inherited fixed-call Pack runtime test remains unverified. |
+| `LANG007.C4.P10` | Parallel structural classification, static-control, and convergence foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Pre-barrier work through `46d00056` is integrated on main and S1 is complete. In the completion worktree `codex/lang007-c4-p10`, explicit `Expr::While`, parser/consumer convergence, bounded static-while execution, and direct jump-loop lowering with deopt fallback are completely implemented and verified. AST/parser, direct CFG/source-index, static-while, structural-classifier/reflection, fixed-call/no-Pack, runtime `control_flow_while_break_continue`, and affected-crate check gates passed. The reported nontermination of the runtime fixture was resolved as normal debug-build Universe compilation time (~52s). The comparison-loop flow issue was proven to be an inherited baseline failure on `main` (Category D, AUD-SEM-002 opaque-call invalidation); see P10 walkthrough and handoff. |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
@@ -639,9 +639,24 @@ the consolidated revision so its ignored/local workspace state is not discarded.
 
 The coherent P4 frontend and current T2 source slice are now integrated into
 main at `59976d25`. This made synchronization eligible; the S1 merge and its
-directly affected checks are now complete. P10 T6 and its explicit `while` AST
-edits are eligible to start in a later implementation turn, but remain
-unimplemented here. Both plans' checkpoint state was retained during merge.
+directly affected checks are now complete. At the time of that synchronization,
+P10 T6 and its explicit `while` AST edits were eligible to start in a later
+implementation turn and remained unimplemented. Both plans' checkpoint state
+was retained during merge.
+
+The user-requested P10 completion implementation is completed in
+`/Users/altunhasanli/.codex/worktrees/lang007-c4-p10-5099/phalcom`, on
+`codex/lang007-c4-p10`, based at `6e5287af`. It does not change this
+checkpoint's primary `active_plan` (`P4`). Explicit `Expr::While`, parser and
+consumer convergence, static evaluator support, runtime compiler lowering, and focused regressions are
+implemented and verified in that worktree. The reported nontermination of
+the runtime plain-while fixture was diagnosed: it runs and passes in ~52s,
+dominated by canonical Universe compilation in unoptimized debug mode.
+The comparison-loop flow failure was classified as an inherited baseline
+failure on `main` (Category D, AUD-SEM-002 opaque-call invalidation of unannotated
+mutable locals). Structural, static-evaluator, runtime control-flow,
+Pack, affected-crate, and semantic-test compilation gates passed; see the P10
+worktree walkthrough and handoff for exact evidence. P10 is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 
 ### S1 merge-conflict audit and completed synchronization — 2026-10-05
 

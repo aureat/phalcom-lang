@@ -10,7 +10,7 @@ use phalcom_semantic::source_index::{resolve_type_member_projection_targets, res
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
 use phalcom_semantic::{
-    FormalFactRef, FormalSemanticProjection, ModuleId, OccurrenceIndex, OccurrenceKind, OccurrenceRole, SemanticOccurrence, SemanticRevision, SemanticTargetId,
+    FormalFactRef, FormalSemanticProjection, ModuleId, OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, SemanticOccurrence, SemanticRevision, SemanticTargetId,
     SnapshotId, SourceBindingKind, SourceCallableKind, SourceIndexContext, SourceNameResolution, SourceReceiverKind, SourceSemanticIndex, TypeStoreId,
     WorkspaceId, build_source_scope_index,
 };
@@ -42,6 +42,35 @@ fn canonical_targets_survive_revision_changes() {
     );
 
     assert_eq!(first, second);
+}
+
+#[test]
+fn plain_while_uses_lexical_body_scope_without_fake_selector_occurrence() {
+    let source = "let flag = true\nwhile flag { let bodyLocal = 1 }\nlet after = 2\n";
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+    let module = ModuleId::universe_root();
+    let mut scopes = build_source_scope_index(module, &parsed.program, &SourceIndexContext::default());
+
+    let body_start = source.find("bodyLocal").expect("while body binding");
+    let body_binding = scopes
+        .binding_for_declaration((body_start..body_start + "bodyLocal".len()).into())
+        .expect("indexed while-body binding");
+    assert!(scopes
+        .visible_bindings_at(body_start)
+        .iter()
+        .any(|binding| binding.declaration_site == body_binding.declaration_site));
+
+    let after_start = source.find("after").expect("outer binding after loop");
+    assert!(scopes
+        .visible_bindings_at(after_start)
+        .iter()
+        .all(|binding| binding.name.as_ref() != "bodyLocal"));
+
+    let occurrences = OccurrenceIndex::from_program_with_context(&mut scopes, &parsed.program, None);
+    assert!(occurrences.all().iter().all(|occurrence| {
+        !matches!(&occurrence.hint, Some(OccurrenceHint::Name(name)) if name.as_ref() == "whileTrue")
+    }));
 }
 
 #[test]

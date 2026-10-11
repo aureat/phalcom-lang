@@ -937,6 +937,7 @@ fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, exp
             super::control::join_branch_results(ctx, val_typed.causal_invalidity, &then_result, &else_result, expected, if_let.range)
         }
         Expr::If(if_expr) => synthesize_if_expr(ctx, if_expr, expected),
+        Expr::While(while_expr) => synthesize_while_expr(ctx, while_expr),
         Expr::WhileLet(while_let) => {
             let before = ctx.flow.clone();
 
@@ -3983,12 +3984,11 @@ fn synthesize_applied_data_constructor_call(
     Some(result.into())
 }
 
-/// Analyzes parser-desugared control sends using their block bodies as
-/// executable flow while preserving Phalcom's ordinary message-send semantics.
-/// A paired `ifTrue(_:ifFalse:)` is structured only for a receiver proven to be
-/// the canonical Bool type. `whileTrue(_)` is structured only for the literal
-/// block receiver shape recognized by the compiler's sacred-selector inliner.
-/// Other same-named sends fall through to normal dispatch.
+/// Analyzes explicit control-method sends using their block bodies as executable
+/// flow while preserving ordinary message-send identity. Plain source `while`
+/// is analyzed separately from this compatibility path. A paired
+/// `ifTrue(_:ifFalse:)` is structured only for a receiver proven to be the
+/// canonical Bool type; other same-named sends fall through to normal dispatch.
 fn synthesize_control_method_call(
     ctx: &mut CheckingContext<'_>,
     call: &MethodCallExpr,
@@ -4169,6 +4169,145 @@ fn synthesize_control_method_call(
         }
         _ => None,
     }
+}
+
+/// Analyzes plain `while` from its explicit semantic identity. The loop header
+/// is solved by the shared checker fixed-point engine; the source spelling of
+/// an explicit `whileTrue` send remains a separate method-call path.
+fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast::ast::WhileExpr) -> TypedExpression {
+    let expected_bool = ctx
+        .core_type(&ctx.core_ids.bool_.clone())
+        .map(|ty| ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::ExplicitCheck))
+        .unwrap_or_default();
+    let before = ctx.flow.clone();
+
+    let evaluate_step = |step_ctx: &mut CheckingContext<'_>,
+                         current_header: &FlowState|
+     -> (Option<FlowState>, FlowState, Vec<FlowState>, CausalInvalidity) {
+        step_ctx.flow = current_header.clone();
+        let cond_typed = analyze_expression(step_ctx, &while_expr.condition, &expected_bool);
+        let cond_typed = match (expected_bool.ty(), cond_typed.knowledge.ty()) {
+            (Some(expected_ty), Some(actual_ty)) if expected_ty != actual_ty => {
+                check_typed_expr(step_ctx, &while_expr.condition, &expected_bool)
+            }
+            _ => cond_typed,
+        };
+        let condition_flow = step_ctx.flow.clone();
+        if !condition_flow.is_reachable() {
+            return (None, FlowState::unreachable(), Vec::new(), cond_typed.causal_invalidity);
+        }
+
+        let truth = super::control::condition_truth(&while_expr.condition);
+        let when_true = match truth {
+            super::control::ConditionTruth::AlwaysFalse => FlowState::unreachable(),
+            _ => {
+                step_ctx.flow = condition_flow.clone();
+                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(
+                    step_ctx,
+                    &while_expr.condition,
+                    &cond_typed,
+                    true,
+                ) {
+                    step_ctx.apply_flow_predicate(&predicate);
+                }
+                step_ctx.flow.clone()
+            }
+        };
+        let when_false = match truth {
+            super::control::ConditionTruth::AlwaysTrue => FlowState::unreachable(),
+            _ => {
+                step_ctx.flow = condition_flow;
+                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(
+                    step_ctx,
+                    &while_expr.condition,
+                    &cond_typed,
+                    false,
+                ) {
+                    step_ctx.apply_flow_predicate(&predicate);
+                }
+                step_ctx.flow.clone()
+            }
+        };
+
+        if !when_true.is_reachable() {
+            return (None, when_false, Vec::new(), cond_typed.causal_invalidity);
+        }
+
+        step_ctx.flow = when_true;
+        step_ctx.push_loop_frame();
+        let body_res = super::control::analyze_executable_region(
+            step_ctx,
+            &while_expr.body.body,
+            while_expr.body.range,
+            &ExpectedType::None,
+        );
+        let body_flow = step_ctx.flow.clone();
+        let loop_frame = step_ctx.pop_loop_frame();
+        let normal_backedge = if body_res.completes_normally() { Some(body_flow) } else { None };
+        let mut continues = loop_frame.continues;
+        continues.extend(normal_backedge);
+        let backedge = if continues.is_empty() {
+            None
+        } else if continues.len() == 1 {
+            continues.pop()
+        } else {
+            step_ctx.join_flow_states(&continues).ok()
+        };
+
+        (
+            backedge,
+            when_false,
+            loop_frame.breaks,
+            cond_typed.causal_invalidity.join(body_res.causal_invalidity),
+        )
+    };
+
+    let fixpoint = match super::loop_analysis::solve_loop_header(ctx, &before, |probe_ctx, current_header| {
+        let (backedge, _false_exit, breaks, _causal) = evaluate_step(probe_ctx, current_header);
+        super::loop_analysis::LoopStepResult {
+            normal_backedge: backedge,
+            continues: Vec::new(),
+            breaks,
+        }
+    }) {
+        Ok(fixpoint) => fixpoint,
+        Err(failure) => {
+            let status = ctx.publish_flow_join_failure(failure, while_expr.range);
+            let mut typed = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Flow, while_expr.range);
+            typed.status = status;
+            return typed;
+        }
+    };
+
+    let (_backedge, when_false, breaks, causal) = evaluate_step(ctx, &fixpoint.header);
+    let mut exit_states = Vec::new();
+    if when_false.is_reachable() {
+        exit_states.push(when_false);
+    }
+    exit_states.extend(breaks.into_iter().filter(FlowState::is_reachable));
+
+    let join_status = if exit_states.is_empty() {
+        ctx.flow = FlowState::unreachable();
+        None
+    } else if exit_states.len() == 1 {
+        ctx.flow = exit_states.pop().expect("single while exit state exists");
+        None
+    } else {
+        match ctx.join_flow_states(&exit_states) {
+            Ok(flow) => {
+                ctx.flow = flow;
+                None
+            }
+            Err(failure) => Some(ctx.publish_flow_join_failure(failure, while_expr.range)),
+        }
+    };
+
+    let mut typed = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Flow, while_expr.range);
+    if let Some(status) = join_status {
+        typed.status = status;
+    }
+    typed.causal_invalidity = causal;
+    typed
 }
 
 fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &UnqualifiedCallExpr, expected: &ExpectedType) -> TypedExpression {
