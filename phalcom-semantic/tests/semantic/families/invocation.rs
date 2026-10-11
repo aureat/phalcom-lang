@@ -203,6 +203,112 @@ class Nested {
 }
 
 #[test]
+fn qualified_module_calls_distinguish_unknown_exports_from_known_noncallables() {
+    let client_source = r#"
+import .provider as api
+let unresolved = api.transform(1)
+let invalid = api.value(1)
+"#;
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "provider",
+            r#"
+let mut transform = |x| { x * 2 }
+let value = 1
+export transform, value
+"#,
+        )
+        .module("client", client_source)
+        .entry("client")
+        .analyze();
+
+    let transform_symbol = phalcom_modules::linker::SymbolId {
+        module: fixture.module("provider").clone(),
+        name: "transform".into(),
+    };
+    let transform_fact = fixture
+        .analysis
+        .snapshot
+        .module_static_binding(&transform_symbol)
+        .expect("canonical exported closure binding");
+    assert_eq!(transform_fact.symbol, transform_symbol);
+    assert_eq!(
+        transform_fact.phase,
+        phalcom_semantic::module_bindings::ModuleBindingPhase::Runtime
+    );
+    assert!(
+        transform_fact.state.current.is_unknown(),
+        "an unannotated exported closure has no complete canonical callable type: {:?}",
+        transform_fact.state.current
+    );
+    assert!(transform_fact.state.current.ty().is_none());
+
+    let value_symbol = phalcom_modules::linker::SymbolId {
+        module: fixture.module("provider").clone(),
+        name: "value".into(),
+    };
+    let value_fact = fixture
+        .analysis
+        .snapshot
+        .module_static_binding(&value_symbol)
+        .expect("canonical exported integer binding");
+    assert!(
+        value_fact.state.current.is_known(),
+        "integer export should have a canonical type: {value_fact:#?}"
+    );
+    let value_type = value_fact.state.current.ty().expect("known integer type");
+    assert!(
+        !matches!(fixture.analysis.snapshot.store.get(value_type), TypeData::Callable(_) | TypeData::Family(_)),
+        "integer export must be known and non-callable"
+    );
+
+    let client_main = CallableId::new(
+        DeclarationId::new(fixture.module("client").clone(), "<main>".into()),
+        phalcom_common::selector::Selector::getter("<main>").expect("main selector"),
+        DispatchSide::Instance,
+    );
+    let client = fixture.analysis.snapshot.callable_analyses.get(&client_main).expect("client analysis");
+    let expression_for = |source_text: &str| {
+        client
+            .expressions
+            .values()
+            .find(|expression| client_source.get(expression.range.start..expression.range.end) == Some(source_text))
+            .unwrap_or_else(|| panic!("missing expression {source_text}"))
+    };
+    let unresolved_call = expression_for("api.transform(1)");
+    assert!(
+        unresolved_call.knowledge.is_unknown(),
+        "unknown exported call must remain unresolved: {unresolved_call:#?}"
+    );
+    assert!(matches!(
+        unresolved_call.status,
+        phalcom_semantic::checker::analysis::AnalysisStatus::Ready
+    ));
+
+    let known_noncallable_call = expression_for("api.value(1)");
+    assert!(
+        known_noncallable_call.status.is_invalid(),
+        "known non-callable export must remain an error: {known_noncallable_call:#?}"
+    );
+
+    let not_callable = fixture
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .filter(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::NotCallable)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        not_callable.len(),
+        1,
+        "only the known integer export should be rejected: {not_callable:#?}"
+    );
+    assert_eq!(
+        client_source.get(not_callable[0].primary_range.start..not_callable[0].primary_range.end),
+        Some("api.value(1)")
+    );
+}
+
+#[test]
 fn imported_family_member_body_revalidates_when_exported_contract_changes() {
     let math_source_v1 = r#"
 class Kernel {

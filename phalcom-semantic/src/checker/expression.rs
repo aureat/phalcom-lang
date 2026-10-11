@@ -3816,13 +3816,22 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
                 explanation: None,
             };
             let arguments = application_arguments(&call.args);
-            if let Some(ty) = fact.knowledge.ty() {
-                if matches!(ctx.store.get(ty), TypeData::Family(_)) {
-                    return synthesize_family_value_call(ctx, ty, fact.denotation.as_ref(), &premise, &arguments, expected, call.range);
-                }
-                if let Some(target) = super::call::callable_value_target(ctx.store, ty, fact.knowledge.status().unwrap_or(EvidenceStatus::Assumed)) {
-                    return apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range).into();
-                }
+            let Some(ty) = fact.knowledge.ty() else {
+                // Missing type evidence is not evidence that an exported
+                // value is non-callable. Keep unknown/dynamic calls on the
+                // ordinary unresolved-application path.
+                let reason = match &fact.knowledge {
+                    TypeKnowledge::Unknown(_) => UnresolvedApplicationReason::PremiseUnknown,
+                    TypeKnowledge::Dynamic(reason) => UnresolvedApplicationReason::PremiseDynamic(reason.clone()),
+                    TypeKnowledge::Known(_) => unreachable!("known module export knowledge has a type"),
+                };
+                return analyze_unresolved_application(ctx, &premise, &arguments, reason).into();
+            };
+            if matches!(ctx.store.get(ty), TypeData::Family(_)) {
+                return synthesize_family_value_call(ctx, ty, fact.denotation.as_ref(), &premise, &arguments, expected, call.range);
+            }
+            if let Some(target) = super::call::callable_value_target(ctx.store, ty, fact.knowledge.status().unwrap_or(EvidenceStatus::Assumed)) {
+                return apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range).into();
             }
             return analyze_non_callable_invocation(ctx, &premise, &call.args, call.range).into();
         }
