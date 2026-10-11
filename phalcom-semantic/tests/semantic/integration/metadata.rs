@@ -1496,7 +1496,7 @@ fn structural_member_presence_and_remainder_affect_fingerprints() {
 
     let mut store = TypeStore::new();
     let int_ty = store.nominal(dummy_decl("Int"));
-    let field_key_ty = store.field_key_type_from_core();
+    let symbol_key_ty = store.nominal(phalcom_semantic::core_surface::CoreDeclarationIds::default().symbol);
 
     // Record Required vs Optional
     let row_req = store
@@ -1532,7 +1532,7 @@ fn structural_member_presence_and_remainder_affect_fingerprints() {
     let row_anon = store
         .record_row_checked(
             vec![RecordRowField::symbol_required("x", int_ty)],
-            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: field_key_ty }),
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: symbol_key_ty }),
         )
         .unwrap();
 

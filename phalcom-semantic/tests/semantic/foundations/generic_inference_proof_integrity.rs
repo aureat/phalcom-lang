@@ -220,3 +220,52 @@ class Probe {
     assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
     assert_eq!(diagnostics[0].primary_range, f.expression(run, "\"bad\"").range);
 }
+
+#[test]
+fn labeled_generic_conflicts_keep_the_failing_argument_range_at_each_position() {
+    let cases = [
+        (
+            "Probe.constrained(first: \"bad\", middle: 1, last: 2)",
+            "\"bad\"",
+        ),
+        (
+            "Probe.constrained(first: 1, middle: \"bad\", last: 2)",
+            "\"bad\"",
+        ),
+        (
+            "Probe.constrained(first: 1, middle: 2, last: \"bad\")",
+            "\"bad\"",
+        ),
+    ];
+
+    for (call_source, failing_argument) in cases {
+        let source = format!(
+            r#"
+class Probe {{
+  @class
+  constrained<T>(first value: T, middle value: T, last value: T) -> T where T == Int {{
+    value
+  }}
+
+  @class
+  run() {{
+    let result = {call_source}
+  }}
+}}
+"#
+        );
+        let f = Fixture::new(&source);
+        let run = f.callable("Probe", "run", DispatchSide::Class);
+        let call = f.expression(run, call_source);
+        assert!(matches!(call.status, AnalysisStatus::Invalid(_)), "{call:#?}");
+        assert_eq!(call.knowledge, TypeKnowledge::Unknown(UnknownReason::InferenceConflict));
+
+        let diagnostics = f.diagnostics(DiagnosticCode::GenericConstraintUnsatisfied);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+        assert_eq!(
+            diagnostics[0].primary_range,
+            f.expression(run, failing_argument).range,
+            "constraint detection must retain the actual labeled argument range even when solving is deferred"
+        );
+    }
+}

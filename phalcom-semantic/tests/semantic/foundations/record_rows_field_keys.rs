@@ -60,6 +60,36 @@ fn canonical_row_identity_is_order_independent_for_mixed_field_keys() {
 }
 
 #[test]
+fn anonymous_record_key_domains_retain_distinct_canonical_row_and_type_identities() {
+    use phalcom_semantic::types::row::AnonymousRecordRemainder;
+
+    let mut store = TypeStore::new();
+    let core = phalcom_semantic::core_surface::CoreDeclarationIds::default();
+    let domains = [
+        ("Symbol", store.nominal_type(core.symbol)),
+        ("String", store.nominal_type(core.string)),
+        ("Int", store.nominal_type(core.int)),
+        ("Bool", store.nominal_type(core.bool_)),
+        ("FieldKey", store.field_key_type_from_core()),
+    ];
+    let mut rows = Vec::new();
+    let mut records = Vec::new();
+    for (_, key_type) in domains {
+        let tail = RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type });
+        let row = store.record_row_checked(Vec::new(), tail).expect("FieldKey member domain is a valid row tail");
+        rows.push(row);
+        records.push(store.record_row_type_checked(Vec::new(), tail).expect("proper key domain forms a canonical Record type"));
+        assert_eq!(store.record_row_checked(Vec::new(), tail).unwrap(), row, "row identity remains canonical");
+    }
+    for left in 0..rows.len() {
+        for right in (left + 1)..rows.len() {
+            assert_ne!(rows[left], rows[right], "distinct valid FieldKey domains must retain distinct row identities");
+            assert_ne!(records[left], records[right], "Record type identity must preserve its canonical row key domain");
+        }
+    }
+}
+
+#[test]
 fn self_specialization_recurses_through_all_record_row_carriers() {
     let mut store = TypeStore::new();
     let owner = declaration("Owner");
