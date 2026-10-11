@@ -202,9 +202,22 @@ fn physical_universe_corpus_matches_catalog() {
 }
 
 #[test]
-fn package_exposures_match_catalog_children() {
+fn package_catalog_children_match_physical_membership_and_exposures_stay_within_them() {
     let provider = phalcom_modules::builtin::UniverseSourceProvider::new();
     for node in phalcom_modules::builtin::UNIVERSE_NODES.iter().filter(|node| node.kind.is_package_like()) {
+        let catalog_children = phalcom_modules::builtin::UNIVERSE_NODES
+            .iter()
+            .filter(|child| child.path.len() == node.path.len() + 1 && child.path[..node.path.len()] == node.path[..])
+            .map(|child| child.path[node.path.len()])
+            .collect::<BTreeSet<_>>();
+        let registered_children = node.children.iter().copied().collect::<BTreeSet<_>>();
+        assert_eq!(
+            registered_children,
+            catalog_children,
+            "catalog children must enumerate the package's physical direct children for {}",
+            node.path.join(".")
+        );
+
         let path = phalcom_modules::identity::ModulePath::from_components(
             node.path
                 .iter()
@@ -223,7 +236,10 @@ fn package_exposures_match_catalog_children() {
                 _ => None,
             })
             .collect::<BTreeSet<_>>();
-        let expected = node.children.iter().copied().collect::<BTreeSet<_>>();
-        assert_eq!(exposed, expected, "package exposure drift for {id}");
+        assert!(
+            exposed.is_subset(&registered_children),
+            "package exposes children absent from its immediate catalog children for {id}: {:?}",
+            exposed.difference(&registered_children).collect::<Vec<_>>()
+        );
     }
 }

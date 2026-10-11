@@ -24,7 +24,7 @@ let mut p4 = Path.of("a/b.txt")
 System.print(p1 == p4)
 System.print(p1 != p2)
 
-let mut map = Map.new()
+let mut map: Map<Dynamic, Dynamic> = Map<Dynamic, Dynamic>.new()
 map.at(p1, put: "entry1")
 System.print(map[p4])
 

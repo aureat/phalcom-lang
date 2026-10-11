@@ -22,7 +22,8 @@ System.print(f.call())
 // The combinator form, over a native container (bytes.md §9 "yield
 // mid-iteration"): each octet is yielded out of the fiber and the fiber
 // resumes correctly to completion.
-let b = Bytes.fromList([10, 20])
+let byteValues: List<Int> = [10, 20]
+let b = Bytes.fromList(byteValues)
 let g = Fiber.new || {
   b.each |x| { Fiber.yield(x) }
   "done"

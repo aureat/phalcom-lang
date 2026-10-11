@@ -6,8 +6,10 @@
 
 System.print(Bytes.fromString("Hi").utf8)
 System.print(Bytes.fromString("héllo").utf8)
-System.print(Bytes.fromList([255, 255]).utf8)
-System.print(Bytes.fromList([72, 255]).utf8Lossy)
+let invalidUtf8Values: List<Int> = [255, 255]
+let mixedUtf8Values: List<Int> = [72, 255]
+System.print(Bytes.fromList(invalidUtf8Values).utf8)
+System.print(Bytes.fromList(mixedUtf8Values).utf8Lossy)
 System.print(Bytes.new(0).utf8 == "")
 System.print(Bytes.fromString("Hi").size)
 System.print(Bytes.fromString("é").size)

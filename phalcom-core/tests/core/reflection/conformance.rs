@@ -19,13 +19,13 @@ fn native_method_reflection_reports_native_metadata() {
     let (result, vm) = eval_source(
         r#"
         let m = true.methodFor(#not)
-        let res = [m.isNative, m.isIntrinsic, m.implementationKind == #native]
+        let res = <Bool>[m.isNative, m.isIntrinsic, m.implementationKind == #native]
         "#,
         "res",
     )
     .expect("eval succeeds");
 
-    assert_eq!(result.to_string(&vm), "[true, true, true]");
+    assert_eq!(result.to_string(&vm), "Array([true, true, true])");
 }
 
 #[test]
@@ -37,13 +37,13 @@ fn source_method_reflection_reports_source_metadata() {
         }
         let g = Greeter.new()
         let m = g.methodFor(#"sayHello()")
-        let res = [m.isNative, m.isIntrinsic, m.implementationKind == #phalcom]
+        let res = <Bool>[m.isNative, m.isIntrinsic, m.implementationKind == #phalcom]
         "#,
         "res",
     )
     .expect("eval succeeds");
 
-    assert_eq!(result.to_string(&vm), "[false, false, true]");
+    assert_eq!(result.to_string(&vm), "Array([false, false, true])");
 }
 
 #[test]
