@@ -1,4 +1,4 @@
-# Optional positive-real special-function package
+# `numerics.special` — positive-real special functions
 
 This is a source-authored binary64 implementation migrated from the former
 `universe.math.special` surface. The public facade is `numerics.special`; the

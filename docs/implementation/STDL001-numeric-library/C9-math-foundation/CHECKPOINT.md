@@ -16,9 +16,9 @@ active_plan: STDL001.C9.P1
 ## Objective
 
 Keep `universe.math` sufficient for ordinary Float and exact integer
-mathematics, while moving advanced special functions to an optional
-`numerics.special` package and placing representation-sensitive operations on
-`Float`.
+mathematics, while housing optional special functions, statistics, and
+probability under the `numerics` project and placing representation-sensitive
+operations on `Float`.
 
 ## Plan ledger
 
@@ -31,9 +31,10 @@ mathematics, while moving advanced special functions to an optional
 - `universe.numbers` owns numeric values and capabilities; `universe.math`
   owns Float mathematical operations, stable reductions, constants, and exact
   integer algorithms.
-- Advanced special functions are in the optional `numerics.special` package.
-  Its kernel consumes public `universe.math` functions and numerical error
-  types; `universe.math` does not depend on `numerics`.
+- Optional numerical modules share the `numerics` project and are exposed as
+  `numerics.special`, `numerics.statistics`, and `numerics.probability`.
+  They use public Universe APIs and may depend on sibling numerical modules;
+  `universe.math` does not depend on `numerics`.
 - `Float.fma`, `Float.copySign`, and `Float.scalePow2` are Float-owned
   operations. Complex scalar-pair code delegates sign copying and binary
   scaling to those methods.
@@ -47,16 +48,17 @@ mathematics, while moving advanced special functions to an optional
 
 - `phalcom-native-surface-gen --root .` regenerated 427 primitive records.
 - `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core -p phalcom-modules -p phalcom-native-surface` passed.
-- Phalcom source compilation and runtime behavior for the moved package,
-  Float methods, and stable reductions were not run. The existing special
-  function test clients were migrated to an explicit `numerics` dependency
-  but were not executed.
+- Phalcom source compilation and runtime behavior for the numerical modules,
+  Float methods, and stable reductions were not run. The special-function and
+  probability test clients use an explicit `numerics` dependency but were not
+  executed.
 - `log1pExp`, extended GCD, modular exponentiation, additional IEEE
   decomposition methods, and broad numerical certification remain deferred
   as lower-priority work in the proposal.
 
 ## Next action
 
-Run focused Phalcom source acceptance for `numerics.special`, the Float methods,
-and the stable reductions. Promote this checkpoint only after those results are
-recorded; broad crate/workspace certification is not implied by the Rust check.
+Run focused Phalcom source acceptance for `numerics.special`,
+`numerics.statistics`, `numerics.probability`, the Float methods, and the stable
+reductions. Promote this checkpoint only after those results are recorded;
+broad crate/workspace certification is not implied by the Rust check.

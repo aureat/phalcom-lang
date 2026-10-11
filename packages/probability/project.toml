@@ -1,9 +1,0 @@
-[project]
-name = "probability"
-namespace = "probability"
-version = "0.1.0"
-source = "src"
-
-[dependencies]
-statistics = { path = "../statistics" }
-numerics = { path = "../numerics" }

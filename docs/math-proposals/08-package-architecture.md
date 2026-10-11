@@ -18,17 +18,19 @@ universe.math
     ├── exact integer algorithms (current)
     └── later dispatch to explicitly supported numeric domains
           ↓
-optional packages
-    ├── math.special
-    ├── statistics
-    ├── probability/distributions
+optional numerics project
+    ├── numerics.special
+    ├── numerics.statistics
+    ├── numerics.probability/distributions
+future independent packages
     ├── linear algebra
     └── scientific computing
 ```
 
 The arrows show dependency direction, not import syntax. In particular,
-`statistics` and `probability` may depend on stable `universe.math` and
-`universe.numbers`, but the numerical foundation must not depend on them.
+`numerics.statistics` and `numerics.probability` may depend on stable
+`universe.math` and `universe.numbers`, but the numerical foundation must not
+depend on them.
 
 ## 8.2 Keep `universe.math` as a facade
 

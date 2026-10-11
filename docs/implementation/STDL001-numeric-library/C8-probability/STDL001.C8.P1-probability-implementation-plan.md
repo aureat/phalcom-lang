@@ -23,9 +23,9 @@ Advance the V1 proposal scope in files 14 and 16–21 while preserving the live
   tails, and quantiles. Do not infer one capability from another.
 - Keep descriptors immutable with private raw constructors and checked factories.
 - Keep statistics out of probability distribution evaluation; only
-  `monte_carlo` consumes `statistics` summaries.
-- Keep Bayesian updates in `probability.bayes` and Monte Carlo in
-  `probability.monte_carlo`, not in the probability root facade.
+  `numerics.probability.monte_carlo` consumes `numerics.statistics` summaries.
+- Keep Bayesian updates in `numerics.probability.bayes` and Monte Carlo in
+  `numerics.probability.monte_carlo`, not in the probability root facade.
 
 ## Tasks
 

@@ -1,8 +1,8 @@
-# Statistics
+# `numerics.statistics`
 
 Status: first implementation slice present; source acceptance is unverified.
 
-This optional package implements finite-Float descriptive reductions with
+This optional module implements finite-Float descriptive reductions with
 explicit population/sample names, strict paired covariance, Type 7 quantiles,
 relative-weight means, and mergeable scaled central-moment summaries. Input
 streams are consumed once. Numeric statistics reject nonfinite observations;

@@ -16,7 +16,7 @@ active_plan: STDL001.C7.P1
 ## Objective
 
 Implement the bounded Phase 2 descriptive-statistics foundation in the optional
-`statistics` package: finite-Float collection reductions, explicit sample and
+`numerics.statistics` module: finite-Float collection reductions, explicit sample and
 population estimators, strict paired covariance, quantiles, weighted means,
 mergeable streaming summaries, and a separate exact Int-to-Rational `meanExact`.
 
@@ -37,9 +37,9 @@ mergeable streaming summaries, and a separate exact Int-to-Rational `meanExact`.
 - Moment state uses a scale and normalized central moments; merge uses the
   Chan combination formula without converting an arbitrary-precision count.
 - Quantiles use Type 7 on a private copy; caller input is not reordered.
-- `universe.math.sum` and `mean` are math-owned Float reductions; the optional
-  statistics package may delegate but the numeric foundation does not depend on
-  the consumer package.
+- `universe.math.sum` and `mean` are math-owned Float reductions;
+  `numerics.statistics` may delegate, while the numeric foundation does not
+  depend on the optional numerical modules.
 
 ## Verification
 
@@ -52,5 +52,5 @@ behavior, and merge laws. See the
 
 ## Next action
 
-Resume focused source acceptance for the descriptive statistics package now
+Resume focused source acceptance for the `numerics.statistics` module now
 that canonical bootstrap passes.

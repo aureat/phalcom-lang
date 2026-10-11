@@ -98,6 +98,6 @@ than making `sqrt` accept `Number` and silently converting.
 `erf`, `erfc`, `gamma`, `logGamma`, and `beta` should not enter the first
 foundational implementation merely because Python's `math` contains them. They
 are valuable forward-compatibility requirements for probability and statistics,
-but they require a backend dependency and accuracy/overflow contract. Design
-their future ownership now as `universe.math.special` or a sibling package;
-implement after the base backend policy is decided.
+but they require a backend dependency and accuracy/overflow contract. The
+optional implementation now exposes these operations through `numerics.special`;
+their numerical acceptance remains subject to backend and accuracy verification.

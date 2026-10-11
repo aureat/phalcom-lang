@@ -1,47 +1,46 @@
 # 22. Packages, gaps, alternatives, and V1 boundary
 
-Status: recommendation. This closes the Phase 2 architecture report. The report
-is a design deliverable; no implementation completion or behavioral certification
-is implied by its V1 list.
+Status: recommendation with its package namespace adopted on 2026-10-11. This
+closes the Phase 2 architecture report. The report is a design deliverable; no
+implementation completion or behavioral certification is implied by its V1
+list.
 
 ## 22.1 Bounded package architecture
 
 Arrows below mean “imports/depends on,” not execution order:
 
 ```text
-statistics ---------------------> universe.math, universe.collections
-probability.distributions ------> universe.math, universe.math.special,
-                                  universe.random, universe.collections
-probability.probability_helpers -> universe.math, universe.collections
-probability.bayes ---------------> probability.distributions,
-                                  universe.math.special, universe.collections
-probability.monte_carlo ---------> probability sampling capabilities,
-                                  statistics, universe.random
+numerics.statistics ---------------------> universe.math, universe.collections
+numerics.probability.distributions ------> universe.math, numerics.special,
+                                            universe.random, universe.collections
+numerics.probability.helpers ------------> universe.math, universe.collections
+numerics.probability.bayes --------------> numerics.probability.distributions,
+                                            numerics.special, universe.collections
+numerics.probability.monte_carlo --------> probability sampling capabilities,
+                                            numerics.statistics, universe.random
 ```
 
-`statistics` never imports probability or random. Distribution evaluation does
-not import statistics; formulas for model moments remain distribution-owned.
+`numerics.statistics` never imports probability or random. Distribution
+evaluation does not import statistics; formulas for model moments remain
+distribution-owned.
 `universe.random` supplies bit generation, uniform helpers, and future entropy
-adapters, and never imports probability. `universe.math.special` is optional
+adapters, and never imports probability. `numerics.special` is optional
 numerical infrastructure and never imports consumer packages.
 
-Two optional packages with public facades are sufficient:
+One optional `numerics` project with public module facades is sufficient:
 
 ```text
-statistics/package.ph            descriptive Families, summaries, errors
-statistics/descriptive.ph        hidden terminal owner
-statistics/moments.ph            concrete streaming owners/snapshots
-
-probability/package.ph           capabilities, descriptors, normalization, sampling
-probability/capabilities.ph      shared exported contracts
-probability/distributions/       hidden family implementations
-probability/probability_helpers.ph hidden weight/log utility owner
-probability/sampling.ph          sampleMany and sample stream owner
-probability/bayes/package.ph     public bounded conjugate/interval facade
-probability/monte_carlo/package.ph public expectation facade
+numerics/project.toml                          one optional package manifest
+numerics/src/package.ph                        exposes special/statistics/probability
+numerics/src/special/package.ph                special-function facade
+numerics/src/statistics/package.ph             descriptive Families and summaries
+numerics/src/statistics/{descriptive,moments,covariance}.ph
+numerics/src/probability/package.ph            capabilities, descriptors, normalization, sampling
+numerics/src/probability/{bernoulli,continuous,discrete,gamma-beta}.ph
+numerics/src/probability/{bayes,monte_carlo}/package.ph
 ```
 
-This is proposed topology, not new manifests. The live branch currently places
+The live topology uses one project manifest with these public submodules. The live branch currently places
 the `Distribution` sampling trait in `universe.random`; keep that canonical
 identity or provide a compatibility-preserving facade if ownership changes.
 Do not define a duplicate probability trait with the same role. Importing
@@ -121,7 +120,7 @@ catch-all error channel.
 | ID / category | Concrete need and evidence | Minimum useful action | V1 blocking? |
 |---|---|---|---|
 | G1 stdlib | Live branch has Generator/Xoshiro256PlusPlus and Distribution; probability has source samplers, but `sampleMany` lacks a preflight allocation bound | Preserve existing RNG identities; decide a shared List allocation limit, validate it before drawing, and review inverse-CDF Binomial/Poisson drafts | Source acceptance and sampler policy/review remain open |
-| G2 stdlib | Live branch already has `universe.math.special` gamma/beta, incomplete/tail, and inverse kernels; acceptance accuracy still belongs to their checkpoint | Reuse the canonical special-function surface and validate distribution-specific tails | Remaining distribution contracts depend on source acceptance |
+| G2 stdlib | Live branch has `numerics.special` gamma/beta, incomplete/tail, and inverse kernels; acceptance accuracy still belongs to their checkpoint | Reuse the canonical special-function surface and validate distribution-specific tails | Remaining distribution contracts depend on source acceptance |
 | G3 stdlib | `universe.math.sum`/`mean` and a first `statistics` source implementation now exist; Phalcom source acceptance remains open | Complete focused generic and numerical acceptance for stable reductions and moment owners | Source acceptance remains required |
 | G4 stdlib | Live `IntegerMath` already provides factorial/choose/falling/rising factorial and logarithmic helpers | Reuse existing exact and log kernels; retain distribution-specific accuracy work | Existing helper slice; source acceptance governs claims |
 | G5 stdlib | No public collection sort terminal; statistics now uses a private heap sort on a copied List | Keep sorting private until a general collection API is justified | No compiler blocker |

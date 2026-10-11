@@ -23,7 +23,8 @@ convert arbitrary-size Int, or infer a global promotion. Users can write
 | Running summary | Immutable concrete summary with count Int and optional mean/variance accessors |
 
 The distinct `meanExact(Iterable<Int>) -> Rational` source Family is now present
-in `packages/statistics`; its Phalcom source acceptance remains open. Exact
+in `packages/numerics/src/statistics`; its Phalcom source acceptance remains
+open. Exact
 second moments remain later work. Standard deviation generally has no Rational
 result. Decimal/BigFloat-specific packages
 may provide their own explicit capabilities and kernels; V1 does not require a

@@ -18,7 +18,8 @@ The minimal project compiles, bootstraps, and runs under `VM::new()`. Focused
 source acceptance for the active Rational (`C6`), statistics (`C7`), and
 probability (`C8`) checkpoints can now proceed.
 
-The `STDL001.C9` math-boundary implementation is present: advanced special
-functions now live in the optional `numerics.special` package, and the
-foundational Float/reduction APIs have been consolidated. Its Phalcom source
+The `STDL001.C9` math-boundary implementation is present: optional special
+functions, statistics, and probability live under the `numerics` project as
+`numerics.special`, `numerics.statistics`, and `numerics.probability`, and the
+foundational Float/reduction APIs have been consolidated. Phalcom source
 acceptance remains open; see [`C9`](C9-math-foundation/CHECKPOINT.md).

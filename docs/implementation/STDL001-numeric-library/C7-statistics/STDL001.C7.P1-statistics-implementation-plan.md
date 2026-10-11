@@ -18,8 +18,9 @@ conversion.
 
 ## Fixed decisions
 
-- Preserve the package split: stable Float sum/mean belong to `universe.math`;
-  collection statistics belong to optional `statistics`.
+- Preserve the ownership split: stable Float sum/mean belong to
+  `universe.math`; collection statistics belong to optional
+  `numerics.statistics`.
 - Inputs are single-pass `Iterable` values. Snapshot only when multiple passes
   or ordering are required.
 - Reject nonfinite observations and enforce the exact binary64 count limit.

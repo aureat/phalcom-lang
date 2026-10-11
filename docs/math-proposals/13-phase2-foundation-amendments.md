@@ -57,9 +57,9 @@ scientific catalogs deferred:
 | Tail-aware inverse normal; safeguarded beta/gamma inversion | Quantiles and equal-tailed credible limits |
 | Stable `logFactorial(n)`/`logChoose(n,k)` using exact count validation | Count log probabilities without exact factorial construction |
 
-Names are proposed library contracts. Use `universe.math.special` as an optional
-public facade, backed by hidden source owners. Do not make importing the current
-`universe.math` require all special functions or any probability module.
+Names are proposed library contracts. The adopted optional public facade is
+`numerics.special`, backed by hidden source owners. Do not make importing
+`universe.math` require special functions or any probability module.
 
 The kernel contract must specify domains, endpoint values, convergence failure,
 accuracy by parameter region, and supported range. Direct log tails must survive

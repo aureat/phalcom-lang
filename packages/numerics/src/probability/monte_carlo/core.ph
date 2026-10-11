@@ -2,7 +2,7 @@ import universe.math as math
 from universe.math import NumericalRangeError
 from universe.random import Distribution, Generator
 from ..errors import UndefinedStatisticError
-from statistics import RunningMoments, MomentSummary
+from ...statistics import RunningMoments, MomentSummary
 
 const maxMonteCarloCount: Int = 9007199254740991
 

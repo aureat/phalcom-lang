@@ -15,15 +15,16 @@ verification: UNVERIFIED
 
 Apply the user's definitive `universe.math` proposal to the live `feat/complex-math`
 tree. Keep the base math facade independent of advanced numerical algorithms,
-move special functions behind the optional package boundary, and place the
-proposed Float and stable-reduction operations on their canonical owners.
+move advanced numerical modules behind one optional project boundary, and place
+the proposed Float and stable-reduction operations on their canonical owners.
 
 ## Fixed decisions
 
 - `universe.math` remains Float-based and keeps its constants, elementary
   functions, exact integer/combinatorial algorithms, and complex child.
-- The public special-function path is `numerics.special`; its source backend
-  uses only public `universe.math` APIs and error types.
+- The optional `numerics` project exposes `numerics.special`,
+  `numerics.statistics`, and `numerics.probability`. The special-function
+  backend uses public `universe.math` APIs and error types.
 - `Float.fma` is a fused operation. `Float.copySign` and `Float.scalePow2` are
   representation-sensitive Float methods; scale exponents remain arbitrary
   precision `Int` values.
@@ -37,7 +38,7 @@ proposed Float and stable-reduction operations on their canonical owners.
 
 | Task | Work | State |
 | --- | --- | --- |
-| T1 | Move the special-function sources into `packages/numerics`; migrate probability imports and the existing special-function test clients | COMPLETE |
+| T1 | Consolidate special functions, statistics, and probability as sibling modules under `packages/numerics`; migrate internal and client imports | COMPLETE |
 | T2 | Add Float-owned fused multiply-add, sign-copy, and integer power-of-two scaling; move Complex helper uses onto Float | COMPLETE |
 | T3 | Add stable log-domain operations, make `logSumExp` generic/streaming, remove `meanList`, and update statistics delegation | COMPLETE |
 | T4 | Regenerate native surface records and run focused Rust compilation checks | COMPLETE |

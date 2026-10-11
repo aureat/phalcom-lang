@@ -66,6 +66,15 @@ acceptance was attempted in this continuation but is blocked by a native stack
 overflow, including on a dependency-free project; see the
 [implementation incident](../implementation/STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
 
+## Package namespace reconciliation — 2026-10-11
+
+The optional numerical sources now share the `packages/numerics` project and
+are public as `numerics.special`, `numerics.statistics`, and
+`numerics.probability`. `numerics` exposes these sibling modules; probability
+uses the sibling special and statistics modules internally. Standalone
+`statistics` and `probability` project manifests were removed. This records the
+current package boundary; source acceptance remains unverified.
+
 This handoff tracks authorized implementation. Focused Rust crate checks pass
 for the current semantic and compiler changes; they do not establish Phalcom
 source behavior. The new Rational/Complex, statistics, and probability source

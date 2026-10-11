@@ -50,7 +50,7 @@ claim every inference combination was tested here.
 ## 21.2 Descriptive and weighted statistics
 
 ```telos
-import statistics as stats
+import numerics.statistics as stats
 
 let xs = [1.2, 4.0, 3.8, 7.1]
 let mean = stats.mean(xs)
@@ -74,7 +74,7 @@ overload silently changes exactness. Named covariance/correlation wrappers use
 ## 21.3 Streaming state and merge
 
 ```telos
-from statistics import RunningMoments
+from numerics.statistics import RunningMoments
 
 let left = RunningMoments.new()
 for x in [1000000000001.0, 1000000000002.0] {
@@ -113,7 +113,7 @@ snapshot -> CovarianceSummary
 ## 21.4 Distribution evaluation and tails
 
 ```telos
-from probability import Normal, Binomial, Beta, Gamma, Exponential, Uniform
+from numerics.probability import Normal, Binomial, Beta, Gamma, Exponential, Uniform
 
 let normal = Normal.new(mean: 0.0, stddev: 1.0)
 let density: Float = normal.pdf(1.0)
@@ -151,7 +151,7 @@ RandomBits earn public interfaces:
 ```telos
 from universe.collections import Iterable, Iterator
 from universe.random import RandomBits
-from probability import Sampleable
+from numerics.probability import Sampleable
 
 class Sampling {
   @class
@@ -185,8 +185,8 @@ specified in file 18.
 
 ```telos
 from universe.random import Pcg32
-from probability import Normal, Categorical, sampleMany, samples
-import statistics as stats
+from numerics.probability import Normal, Categorical, sampleMany, samples
+import numerics.statistics as stats
 
 let rng = Pcg32.new(seed: 42, stream: 7)
 let normal = Normal.new(mean: 0.0, stddev: 1.0)
@@ -211,10 +211,10 @@ Item to Sampleable::Sample using the existing canonical Iterator conformance.
 ## 21.6 Likelihood and conjugate updates
 
 ```telos
-import probability as probability
-import probability.bayes as bayes
-from probability import Beta, Gamma, Bernoulli, Poisson
-from probability.bayes import BernoulliCounts, BinomialObservation, PoissonCounts
+import numerics.probability as probability
+import numerics.probability.bayes as bayes
+from numerics.probability import Beta, Gamma, Bernoulli, Poisson
+from numerics.probability.bayes import BernoulliCounts, BinomialObservation, PoissonCounts
 
 let observations = [true, true, false, true, true, true, false, true, true, true]
 let counts = BernoulliCounts.fromBools(observations)
@@ -257,9 +257,9 @@ Generic likelihood shape (non-executable contract notation):
 ## 21.7 Monte Carlo expectation and pi
 
 ```telos
-import probability.monte_carlo as mc
+import numerics.probability.monte_carlo as mc
 from universe.random import Pcg32
-from probability import Normal
+from numerics.probability import Normal
 
 let rng = Pcg32.new(seed: 42, stream: 11)
 let normal = Normal.new(mean: 0.0, stddev: 1.0)
@@ -279,8 +279,8 @@ An explicit multi-variable simulation needs only ordinary loops:
 
 ```telos
 from universe.random import Pcg32
-from probability import Uniform
-from statistics import RunningMoments
+from numerics.probability import Uniform
+from numerics.statistics import RunningMoments
 import universe.math as math
 
 let rng = Pcg32.new(seed: 42, stream: 12)
@@ -312,8 +312,8 @@ No deterministic decimal result is asserted for unimplemented samplers.
 ## 21.8 Log-domain classifier example without an ML framework
 
 ```telos
-import probability as probability
-from probability import Bernoulli, Normal
+import numerics.probability as probability
+from numerics.probability import Bernoulli, Normal
 import universe.math as math
 
 let classPriorA = 0.6

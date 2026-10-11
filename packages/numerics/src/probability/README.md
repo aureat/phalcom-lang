@@ -1,4 +1,4 @@
-# Probability foundations
+# `numerics.probability`
 
 Status: substantial source implementation, not yet accepted. The generic
 `Iterable` helper signatures and single-pass normalization are present, alongside
@@ -9,15 +9,16 @@ or runtime acceptance has been performed for this slice. The earlier note about 
 `MATH-GENERIC-ITERABLE-INCIDENT.md` is stale; no such incident record exists in
 this checkout.
 
-This optional source package defines checked Float transformations and
+This optional source module defines checked Float transformations and
 normalization from math proposals 16 and 22:
 
 - `logit`, `logOdds`, `odds`, `invLogit`
 - `normalizeWeights`, `normalizeLogWeights`, `normalizedLogWeights`
 - `UndefinedNormalizationError`
 
-It depends only on Universe math and canonical collection protocols. It has no
-RNG state and does not import the optional special-function backend.
+The normalization helpers depend only on Universe math and canonical collection
+protocols and carry no RNG state. Distribution implementations use the sibling
+`numerics.special` module for advanced kernels.
 
 Inputs are `Iterable` values with Float items. A normalization consumes its input
 once into a private List, validates it, and returns a fresh List in input order.
@@ -43,7 +44,7 @@ made.
 fail before generator state can advance. The cap applies to the List element
 buffer, not to objects referenced by those elements.
 
-Bayesian helpers live under `probability.bayes`; fixed-budget expectation lives
-under `probability.monte_carlo`. The latter depends on the optional `statistics`
-package. Importing the root probability package does not export those consumer
-facades.
+Bayesian helpers live under `numerics.probability.bayes`; fixed-budget
+expectation lives under `numerics.probability.monte_carlo`. Monte Carlo consumes
+the sibling `numerics.statistics` summaries. Importing `numerics.probability`
+does not export those consumer facades.

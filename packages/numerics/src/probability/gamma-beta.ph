@@ -1,5 +1,5 @@
 import universe.math as math
-import numerics.special as special
+import ..special as special
 from universe.math import NumericalRangeError, NumericalEvaluationError
 from universe.random import Distribution, Generator
 from .capabilities import HasDensity, HasOrderedTails, HasQuantile

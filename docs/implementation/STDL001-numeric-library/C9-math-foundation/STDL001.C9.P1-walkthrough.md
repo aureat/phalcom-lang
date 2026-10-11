@@ -3,13 +3,12 @@
 ## Delivered
 
 - Moved the gamma, beta, error-function, inverse-tail, and log-combinatorics
-  implementation into the optional `packages/numerics` project at
-  `numerics.special`. The kernel now calls captured public `universe.math`
-  functions and imports math-owned numerical errors.
-- Removed `math.special` from the canonical Universe module graph. Probability
-  now declares `numerics` as a path dependency and imports `numerics.special`.
-  Existing special-function clients in the core audit test were migrated to
-  compile with that explicit optional dependency.
+  implementation into `numerics.special`; its kernel calls public
+  `universe.math` functions and imports math-owned numerical errors.
+- Removed `math.special` from the canonical Universe module graph. Consolidated
+  statistics and probability into sibling `numerics.statistics` and
+  `numerics.probability` modules, and migrated their special/statistics imports
+  and core audit clients to the shared `numerics` project.
 - Added `Float.fma` using `f64::mul_add`, `Float.copySign` using IEEE sign-bit
   copying, and `Float.scalePow2` with bounded work for arbitrary-precision
   exponents. Complex scalar-pair arithmetic uses the Float methods instead of
