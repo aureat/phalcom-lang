@@ -94,4 +94,29 @@ Disposition of separately preserved work:
 - All 13 original stash entries remain present and each stash object has a snapshot ref. The latest class-initialization plan was copied into `main`; older stashes were preserved but not applied.
 - Detached comparison worktrees remain unchanged.
 
-No tests were executed. The native-surface artifact was regenerated and its consistency check passed at 481 declarations. Library-only compile checks passed for `phalcom-core`, `phalcom-semantic`, and `phalcom-lsp`. A core test-target compile check remains blocked by a call at `phalcom-core/src/vm/send.rs:1960` that omits the sixth argument added on the existing main line; the call is unchanged from the pre-consolidation main revision and was left as a baseline issue. The merge-caused `StaticInt` test mismatch was adapted and no longer appears in that check. Original plan records retain their prior focused-test evidence. COLL006 P7 is active: the saved source includes Bag implementation files, but its T5 gate has not been reconciled or newly verified; Bijection remains outstanding.
+At the time of the initial consolidation, no tests were executed. The native-surface artifact was regenerated and its consistency check passed at 481 declarations. Library-only compile checks passed for `phalcom-core`, `phalcom-semantic`, and `phalcom-lsp`. A core test-target compile check remains blocked by a call at `phalcom-core/src/vm/send.rs:1960` that omits the sixth argument added on the existing main line; the call is unchanged from the pre-consolidation main revision and was left as a baseline issue. The merge-caused `StaticInt` test mismatch was adapted and no longer appears in that check. Original plan records retain their prior focused-test evidence. COLL006 P7 is active: the saved source includes Bag implementation files, but its T5 gate has not been reconciled or newly verified; Bijection remains outstanding.
+
+## Follow-up review of the unaccepted COLL006 commit
+
+The unique commit `82725c90` was replayed on consolidated `main` (`170792cd`)
+in `.worktrees/coll006-p4-followup-review`, branch
+`codex/coll006-p4-followup-review`. The original
+`codex/coll006-p4-followup-unaccepted` branch and its source worktree were not
+modified. The replay applied without merge conflicts and was split into these
+local, unpushed commits:
+
+| Commit | Review disposition |
+|---|---|
+| `06afc16c` | Computed-Record-key canonical signature-owner correction, amended LANG007 C4 P4 plan/checkpoint, and focused regressions. P4 remains partial and unverified overall. |
+| `f98ccaae` | Preserve unknown qualified module calls as unresolved rather than diagnosing them as known non-callables. |
+| `9fede15a` | Add inference diagnostic-range and Record-row identity regressions; align the metadata fixture with its Symbol-only remainder domain. |
+| `fd5f7835` | Preserve compiler scratch bookkeeping across the loop-pattern failure branch; update iteration fixtures. |
+| `7cf72a78` | Migrate core Bytes/Path/reflection fixtures to explicit typed collections and current package exposure semantics. |
+
+The `foundations::static_constants` filter changed from 21 passed / 3 failed
+on the baseline to 25/25 passed after the signature-owner correction. The
+individual focused semantic regressions and `cargo check -p phalcom-core --lib`
+also passed. Core runtime tests were not run because the existing core
+test-target compile blocker at `phalcom-core/src/vm/send.rs:1960` remains.
+The follow-up branch remains local and has not been merged into `main` or
+pushed; the original unaccepted branch remains available for comparison.
