@@ -3278,6 +3278,12 @@ Focused evidence on the review branch:
 
 P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; these focused results do not close T3 or the checkpoint.
 
+On 2026-10-11, the review branch was fast-forwarded onto local `main` at
+`fc9b6557` at the user's direction so this work can continue there. This is a
+branch-integration decision only: P4 remains `IN_PROGRESS / PARTIAL /
+UNVERIFIED`, the follow-up remains work in progress, and no verification was
+rerun as part of the fast-forward. Continue from the integrated `main` tip.
+
 ### R1 progress consolidated on local main — 2026-10-06
 
 | Work unit | Implementation anchor | Status | Completion | Verification | Next action |

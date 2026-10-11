@@ -122,6 +122,22 @@ test-target compile blocker at `phalcom-core/src/vm/send.rs:1960` remains.
 The follow-up branch remains local and has not been merged into `main` or
 pushed; the original unaccepted branch remains available for comparison.
 
+### Subsequent update — follow-up integrated for continued work
+
+On 2026-10-11, the user directed that this work be brought onto local `main`
+for continued development while it remains work in progress. The review branch
+was fast-forwarded from `170792cd` to `fc9b6557`; this integration does not mark
+the follow-up accepted or close LANG007 C4/P4. The original
+`codex/coll006-p4-followup-unaccepted` ref remains at `82725c90` for comparison,
+and `codex/coll006-p4-followup-review` remains at the integrated tip. No remote
+push or new verification run was part of the fast-forward; `main` remains
+local-only relative to `origin/main`.
+
+The pre-existing uncommitted root-checkout edits were left intact: the two
+Universe error files, heap and value files, `phalcom-core/tests/core/mod.rs`,
+and untracked `phalcom-core/src/heap/bijection.rs`. The separate collections
+worktree still contains its uncommitted P6/P7 work and remains untouched.
+
 Targeted rustfmt checking passed for 47 changed Rust ranges across 20 files.
 The earlier workspace-wide `cargo fmt --all -- --check` reported formatting
 differences across many files outside this follow-up; no repository-wide
