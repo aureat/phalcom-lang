@@ -1,8 +1,10 @@
 # `Set<T>`
 
 `Set<T>` is a mutable collection of unique members. `Set.new()` creates an
-empty set. Membership uses the member's hash and equality; inserting a value
-equal to an existing member does not create a duplicate.
+empty set. Membership uses the member's hash and the keyed-collection
+equivalence relation; inserting an equivalent value does not create a
+duplicate. For numeric members, see
+[`../numeric-types.md`](../numeric-types.md).
 
 `add(value)`, `remove(value)`, and `contains`/`includes` mutate or inspect the
 set. `size` reports unique members. `at(index)` selects the member at its

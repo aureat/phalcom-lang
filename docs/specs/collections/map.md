@@ -1,9 +1,12 @@
 # `Map<K,V>`
 
 `Map<K,V>` is a mutable mapping from keys of type `K` to values of type `V`.
-`Map.new()` creates an empty instance. A key's hash and equality determine key
-identity; keys that compare equal occupy one association. Mutating values for
-an existing key does not create a second entry.
+`Map.new()` creates an empty instance. A key's hash and the keyed-collection
+equivalence relation determine key identity; equivalent keys occupy one
+association. Numeric keys use the SameValueZero-style equivalence specified by
+[`../numeric-types.md`](../numeric-types.md), which groups NaNs and signed zeroes
+for key lookup while ordinary Float equality follows IEEE semantics. Mutating
+values for an existing key does not create a second entry.
 
 ## Operations and order
 

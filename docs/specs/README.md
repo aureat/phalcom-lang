@@ -121,7 +121,7 @@ An accepted decision or implementation checkpoint that changes current language 
 | Sum/Variant/Variants structural reflection | [`structural-sums.md`](structural-sums.md) |
 | Tuple/Record family typing details | [`tuple-and-record-typing.md`](tuple-and-record-typing.md) |
 | Generic `where` constraints and generic evidence | [`generic-constraints.md`](generic-constraints.md) |
-| Integer, Float, and Rational value semantics | [`numeric-types.md`](numeric-types.md) |
+| Int, Float, and Rational values, conversions, equality, ordering, and numeric collection keys | [`numeric-types.md`](numeric-types.md) |
 | `universe.math` functions, reductions, and numerical errors | [`numeric-math.md`](numeric-math.md) |
 | Closed numeric capabilities and arithmetic identities | [`numeric-capabilities.md`](numeric-capabilities.md) |
 | Complex values and principal complex mathematics | [`complex-numbers.md`](complex-numbers.md) |
@@ -166,8 +166,6 @@ An accepted decision or implementation checkpoint that changes current language 
 | Callable reflection | [`callables/reflection.md`](callables/reflection.md) |
 | Runtime type reflection and typing-query outcomes | [`typing/runtime-reflection.md`](typing/runtime-reflection.md) — semantic coherence laws remain in [`typing/type/type.reflection-pattern.md`](typing/type/type.reflection-pattern.md) |
 | Canonical builtin Universe package | [`universe.md`](universe.md) |
-| Generic Complex values, capability arithmetic, and principal Float mathematics | [`complex-numbers.md`](complex-numbers.md) |
-| Exact Rational values and Float representability/ordering | [`numeric-types.md`](numeric-types.md) |
 | VM bytecode set and bytecode contracts | [`vm/bytecodes.md`](vm/bytecodes.md) |
 | VM execution model | [`vm/vm-execution-model.md`](vm/vm-execution-model.md) |
 | VM value/object representation | [`vm/values-and-objects.md`](vm/values-and-objects.md) |

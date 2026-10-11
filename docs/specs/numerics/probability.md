@@ -33,8 +33,8 @@ for each supplied operation.
 | `Uniform` | `new(lower:, upper:)` | Continuous density, log-density, ordered tails, quantiles, and sampling on its finite interval. |
 | `Normal` | `new(mean:, stddev:)` or `fromVariance(mean:, variance:)` | Continuous density, log-density, ordered tails, quantiles, and sampling; standard deviation must be positive and finite. |
 | `Exponential` | `new(rate:)` | Continuous density, log-density, ordered tails, quantiles, and sampling for a positive finite rate. |
-| `Binomial` | `new(trials:, probability:)` | Integer mass, ordered tails, integer quantiles, and sampling; `trials` is nonnegative and probability lies in `[0,1]`. |
-| `Poisson` | `new(rate:)` | Integer mass, ordered tails, integer quantiles, and sampling for a nonnegative finite rate. |
+| `Binomial` | `new(trials:, probability:)` | Integer mass, ordered tails, integer quantiles, and sampling; `trials` is in `[0, 2^53 - 1]` and probability lies in `[0,1]`. |
+| `Poisson` | `new(rate:)` | Integer mass, ordered tails, integer quantiles, and sampling for a finite rate in `[0, 2^53 - 1]`. |
 | `Gamma` | `new(shape:, rate:)` or `fromScale(shape:, scale:)` | Continuous density, log-density, ordered tails, quantiles, and sampling for positive parameters. |
 | `Beta` | `new(alpha:, beta:)` | Continuous density, log-density, ordered tails, quantiles, and sampling for positive parameters. |
 | `Categorical<T>` | See constructors below | Mass/log-mass over unique labels and explicit-generator sampling of `T`. |
