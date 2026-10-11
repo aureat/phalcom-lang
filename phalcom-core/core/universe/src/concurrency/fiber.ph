@@ -27,7 +27,7 @@ native class System is Object {
   /// @param fiber Target fiber to schedule.
   /// @returns The scheduled fiber.
   @class
-  native schedule(_ fiber: Object) -> Fiber
+  native primitive schedule(_ fiber: Object) -> Fiber
 
   /// Suspends the current execution context asynchronously for the given duration.
   ///
@@ -39,10 +39,10 @@ native class System is Object {
   }
 
   @class
-  internal native sleepRaw(_ nanoseconds: Int) -> Future<Unit>
+  internal native primitive sleepRaw(_ nanoseconds: Int) -> Future<Unit>
 
   @class
-  internal native nextScheduled -> Option<Fiber>
+  internal native primitive nextScheduled -> Option<Fiber>
 
   @class
   internal native schedulerFailureCursor -> Int
@@ -54,14 +54,14 @@ native class System is Object {
   internal native reportUnhandledScheduledFailures -> Unit
 
   @class
-  internal native wake(_ fiber: Fiber, _ generation: Int) -> Bool
+  internal native primitive wake(_ fiber: Fiber, _ generation: Int) -> Bool
 
   /// Triggers a garbage collection cycle.
   @class
-  native gc -> Unit
+  native primitive gc -> Unit
 
   @class
-  internal native rawWrite(_ value: String) -> Unit
+  internal native primitive rawWrite(_ value: String) -> Unit
 
   @class
   internal native leakReport -> List<String>
@@ -110,19 +110,19 @@ native class System is Object {
 /// Lightweight cooperative execution context (coroutine / fiber).
 ///
 /// Fibers encapsulate a stack, execution state, and completion lifecycle.
-native class Fiber is Object {
+native primitive class Fiber is Object {
 
   /// Creates a new fiber wrapping the given callable entry point.
   ///
   /// @param body Function or closure to execute.
   @class
-  native new(_ body: Function) -> Fiber
+  native primitive new(_ body: Function) -> Fiber
 
   /// Resumes or starts this fiber without arguments.
-  native call() -> Dynamic
+  native primitive call() -> Dynamic
 
   /// Resumes or starts this fiber, passing a value to the yield point.
-  native call(_ value: Dynamic) -> Dynamic
+  native primitive call(_ value: Dynamic) -> Dynamic
 
   /// Resumes this fiber in protected mode, capturing runtime errors.
   native try() -> Dynamic
@@ -130,11 +130,11 @@ native class Fiber is Object {
   /// Resumes this fiber with an argument in protected mode.
   native try(_ value: Dynamic) -> Dynamic
 
-  internal native resumeScheduled() -> Dynamic
+  internal native primitive resumeScheduled() -> Dynamic
 
-  internal native preparePark() -> Int
+  internal native primitive preparePark() -> Int
 
-  internal native park(_ generation: Int) -> Dynamic
+  internal native primitive park(_ generation: Int) -> Dynamic
 
   internal native onComplete(_ observer: () -> Unit) -> Fiber
 
@@ -142,19 +142,19 @@ native class Fiber is Object {
 
   /// Yields execution from the currently active fiber back to its caller or scheduler.
   @class
-  native yield() -> Dynamic
+  native primitive yield() -> Dynamic
 
   /// Yields execution from the active fiber, producing a value for the caller.
   @class
-  native yield(_ value: Dynamic) -> Dynamic
+  native primitive yield(_ value: Dynamic) -> Dynamic
 
   /// Returns the currently executing fiber context.
   @class
-  native current -> Fiber
+  native primitive current -> Fiber
 
   /// Aborts the active fiber immediately with the given error.
   @class
-  native abort(_ error: Error) -> Never
+  native primitive abort(_ error: Error) -> Never
 
   /// Returns `true` if this fiber has terminated.
   native isDone -> Bool

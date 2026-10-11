@@ -1,5 +1,5 @@
 @!documentation("Module reflection and execution boundary object.")
-native class Module is Object {
+native primitive class Module is Object {
   @class
   native new() -> Module
   native doesNotUnderstand(_ message: Message) -> Dynamic

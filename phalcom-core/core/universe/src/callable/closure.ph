@@ -1,5 +1,5 @@
 @!documentation("First-class closure capturing lexical scope.")
-native class Closure is Function {
+native primitive class Closure is Function {
   native arity -> Int
   native name -> Symbol
   native whileTrue(_ body: Dynamic) -> Dynamic

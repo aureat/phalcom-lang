@@ -34,7 +34,7 @@ class TimeZone {
   internal native namedNative(_ identifier: String) -> TimeZone
 
   @class
-  internal native systemNative -> TimeZone
+  internal native primitive systemNative -> TimeZone
 
   offsetSeconds(_ timestamp: Timestamp) -> Int {
     self.offsetSecondsNative(timestamp.unixNanoseconds)

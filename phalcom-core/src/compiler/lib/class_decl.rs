@@ -247,12 +247,43 @@ impl<'vm> Compiler<'vm> {
             CompileMode::Unchecked => true,
         };
         let is_privileged = self.compiling_privileged_universe();
+        if class_def.is_primitive {
+            if class_def.implementation != phalcom_common::modifier::ImplementationKind::Native {
+                return Err(CompilerError::Message(
+                    "primitive.requires_native: primitive classes must also be native".to_string(),
+                ));
+            }
+            if !is_privileged {
+                return Err(CompilerError::Message(
+                    "primitive.universe_only: primitive declarations are permitted only in the canonical Universe project".to_string(),
+                ));
+            }
+        }
         // Reject source constructor rest before attribute expansion. The
         // constructor expander lowers the marker into paired factory/init
         // methods, where erasing it would otherwise occur before the
         // post-expansion defensive pass below can observe it.
         for member in &class_def.members {
             validate_rest_usage(member)?;
+            let primitive_member = match member {
+                ClassMember::Method(method) => Some((method.is_primitive, method.implementation)),
+                ClassMember::Getter(getter) => Some((getter.is_primitive, getter.implementation)),
+                ClassMember::Setter(setter) => Some((setter.is_primitive, setter.implementation)),
+                ClassMember::Index(index) => Some((index.is_primitive, index.implementation)),
+                _ => None,
+            };
+            if let Some((true, implementation)) = primitive_member {
+                if implementation != phalcom_common::modifier::ImplementationKind::Native {
+                    return Err(CompilerError::Message(
+                        "primitive.requires_native: primitive callables must also be native".to_string(),
+                    ));
+                }
+                if !is_privileged {
+                    return Err(CompilerError::Message(
+                        "primitive.universe_only: primitive declarations are permitted only in the canonical Universe project".to_string(),
+                    ));
+                }
+            }
         }
         // M-ATTR-ROOT: whether this class itself is a would-be `Attribute`
         // subclass — a direct `extends Attribute` (transitively-inherited

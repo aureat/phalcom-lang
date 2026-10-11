@@ -3,19 +3,19 @@ from universe.text.errors import (
   FloatParseError
 )
 
-native class Number is Object {
-  native +(_ other: Number) -> Self
-  native -(_ other: Number) -> Self
-  native *(_ other: Number) -> Self
-  native /(_ other: Number) -> Float
-  native %(_ other: Number) -> Self
-  native ~/(_ other: Number) -> Self
+native primitive class Number is Object {
+  native primitive +(_ other: Number) -> Self
+  native primitive -(_ other: Number) -> Self
+  native primitive *(_ other: Number) -> Self
+  native primitive /(_ other: Number) -> Float
+  native primitive %(_ other: Number) -> Self
+  native primitive ~/(_ other: Number) -> Self
   native **(_ other: Number) -> Self
   native <(_ other: Number) -> Bool
   native <=(_ other: Number) -> Bool
   native >(_ other: Number) -> Bool
   native >=(_ other: Number) -> Bool
-  native compare(_ other: Number) -> Ordering
+  native primitive compare(_ other: Number) -> Ordering
   native + -> Self
   native - -> Self
   native hash -> Int
@@ -26,7 +26,7 @@ native class Number is Object {
   native new(_ value: Dynamic) -> Never
 }
 
-native class Int is Number {
+native primitive class Int is Number {
   native &(_ other: Int) -> Int
   native |(_ other: Int) -> Int
   native ^(_ other: Int) -> Int
@@ -68,7 +68,7 @@ native class Int is Number {
   }
 }
 
-native class Float is Number {
+native primitive class Float is Number {
   @class
   native epsilon -> Float
   @class

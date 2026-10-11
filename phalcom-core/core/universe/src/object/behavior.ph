@@ -7,7 +7,7 @@
 ///
 /// Implemented by `Class` and `Metaclass`. Supplies reflection for methods,
 /// superclass navigation, and decorator attribute inspection.
-native class Behavior is Object {
+native primitive class Behavior is Object {
   native superclass -> Dynamic
 
   native superclass=(_ value: Dynamic) -> Dynamic

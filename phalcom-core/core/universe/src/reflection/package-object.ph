@@ -1,5 +1,5 @@
 @!documentation("Package reflection and exposure namespace object.")
-native class Package is Module {
+native primitive class Package is Module {
   native package -> Package
   native parentPackage -> Package
   native rootPackage -> Package

@@ -1,1 +1,1 @@
-native class Metaclass is Behavior {}
+native primitive class Metaclass is Behavior {}

@@ -504,6 +504,7 @@ impl<'input> Lexer<'input> {
                 "package" => Token::Package,
                 "foreign" => Token::Foreign,
                 "intrinsic" => Token::Intrinsic,
+                "primitive" => Token::Primitive,
                 _ => Token::Identifier(slice.to_string()),
             });
         }

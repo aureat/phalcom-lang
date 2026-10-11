@@ -136,6 +136,8 @@ pub enum Token {
     Foreign,
     /// The `intrinsic` keyword introducing compiler-intrinsic declarations.
     Intrinsic,
+    /// The `primitive` keyword classifying a canonical native runtime declaration.
+    Primitive,
 
     /// An identifier lexeme, e.g. `foo` or a field name like `_bar`.
     Identifier(String),

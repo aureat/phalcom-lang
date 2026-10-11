@@ -19,7 +19,7 @@ from universe.text.substring import (
 /// Strings represent text sequences encoded as UTF-8. Slicing and indexing operations
 /// are specified at byte granularity, while codepoint accessors provide decoded
 /// Unicode scalar values.
-native class String is Object {
+native primitive class String is Object {
   native +(_ other: String) -> String
   native hash -> Int
 
@@ -50,8 +50,8 @@ native class String is Object {
     b.rawUtf8Lossy
   }
 
-  internal native rawByteCount -> Int
-  internal native rawByteAt(_ index: Int) -> Option<Int>
+  internal native primitive rawByteCount -> Int
+  internal native primitive rawByteAt(_ index: Int) -> Option<Int>
   internal native rawSlice(_ start: Int, _ end: Int) -> String
   internal native rawEquals(_ other: Object) -> Bool
   internal native rawFindSlice(_ needle: String, _ start: Int, _ end: Int) -> Option<Int>

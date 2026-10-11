@@ -1,12 +1,12 @@
 // `Method#attributes`/`#attributesOfType(_)` — the same reflection surface
 // as `Behavior` above, for the reified `Method` object a class's method
 // dictionary holds.
-native class Method is Object {
+native primitive class Method is Object {
   @class
   native new(_ value: Dynamic) -> Method
   native arity -> Int
   native name -> Symbol
-  native invokeOn(_ receiver: Dynamic, ***args: Dynamic) -> Dynamic
+  native primitive invokeOn(_ receiver: Dynamic, ***args: Dynamic) -> Dynamic
   native bind(_ receiver: Dynamic) -> BoundMethod
   native selector -> Selector
   native holder -> Dynamic
@@ -18,4 +18,4 @@ native class Method is Object {
   attributesOfType(_ cls) { self.rawAttributes.filter |a| { a.is(cls) } }
 }
 
-native class BoundMethod is Function {}
+native primitive class BoundMethod is Function {}

@@ -269,6 +269,9 @@ pub struct ClassDef {
     pub invariants: Vec<(Expr, SourceRange)>,
     pub implementation: ImplementationKind,
     pub implementation_range: Option<SourceRange>,
+    /// Marks this native declaration as an irreducible runtime foundation.
+    /// This is source classification metadata and does not install a primitive.
+    pub is_primitive: bool,
     pub range: SourceRange,
     /// The source span of just the class name identifier (e.g. the `Foo` in
     /// `class Foo is Bar { … }`), distinct from [`Self::range`]'s
@@ -1873,6 +1876,7 @@ pub struct IndexMethodDef {
     pub visibility_range: Option<SourceRange>,
     pub implementation: ImplementationKind,
     pub implementation_range: Option<SourceRange>,
+    pub is_primitive: bool,
     pub return_annotation: Option<TypeAnnotation>,
     /// Generic `where` constraints attached to this index member.
     pub where_clause: Option<WhereClauseSyntax>,
@@ -2096,6 +2100,7 @@ pub struct MethodDef {
     pub visibility_range: Option<SourceRange>,
     pub implementation: ImplementationKind,
     pub implementation_range: Option<SourceRange>,
+    pub is_primitive: bool,
     pub return_annotation: Option<TypeAnnotation>,
     /// Generic `where` constraints attached to this method (Spec 04).
     pub where_clause: Option<WhereClauseSyntax>,
@@ -2126,6 +2131,7 @@ pub struct GetterDef {
     pub visibility_range: Option<SourceRange>,
     pub implementation: ImplementationKind,
     pub implementation_range: Option<SourceRange>,
+    pub is_primitive: bool,
     pub return_annotation: Option<TypeAnnotation>,
     /// Generic `where` constraints attached to this getter (Spec 04).
     pub where_clause: Option<WhereClauseSyntax>,
@@ -2152,6 +2158,7 @@ pub struct SetterDef {
     pub visibility_range: Option<SourceRange>,
     pub implementation: ImplementationKind,
     pub implementation_range: Option<SourceRange>,
+    pub is_primitive: bool,
     pub return_annotation: Option<TypeAnnotation>,
     /// Generic `where` constraints attached to this setter.
     pub where_clause: Option<WhereClauseSyntax>,

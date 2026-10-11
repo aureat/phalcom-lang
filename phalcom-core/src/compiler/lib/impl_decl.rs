@@ -147,6 +147,24 @@ impl<'vm> Compiler<'vm> {
     /// Validates that the generated selector and side strictly match the supplied
     /// target-owned [`CallableId`]; any mismatch fails closed.
     pub(crate) fn compile_behavior_member(&mut self, member: &BehaviorMember, expected_callable: &CallableId) -> Result<CompiledBehaviorMember, CompilerError> {
+        let primitive = match member {
+            BehaviorMember::Method(method) => Some((method.is_primitive, method.implementation)),
+            BehaviorMember::Getter(getter) => Some((getter.is_primitive, getter.implementation)),
+            BehaviorMember::Setter(setter) => Some((setter.is_primitive, setter.implementation)),
+            BehaviorMember::Index(index) => Some((index.is_primitive, index.implementation)),
+        };
+        if let Some((true, implementation)) = primitive {
+            if implementation != phalcom_common::modifier::ImplementationKind::Native {
+                return Err(CompilerError::Message(
+                    "primitive.requires_native: primitive callables must also be native".to_string(),
+                ));
+            }
+            if !self.compiling_privileged_universe() {
+                return Err(CompilerError::Message(
+                    "primitive.universe_only: primitive declarations are permitted only in the canonical Universe project".to_string(),
+                ));
+            }
+        }
         let strip_metadata = match self.vm.compile_mode {
             CompileMode::Debug => false,
             CompileMode::Release => self.vm.strip_contract_metadata,

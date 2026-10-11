@@ -6,11 +6,11 @@
 ///
 /// Inherited by `Closure` and `Method`. Provides dynamic invocation, arity inspection,
 /// and error-capturing helpers.
-native class Function is Object {
+native primitive class Function is Object {
   native arity -> Int
   native name -> Symbol
   native callWith(_ value: Dynamic) -> Dynamic
-  native call(***args: Dynamic) -> Dynamic
+  native primitive call(***args: Dynamic) -> Dynamic
 
   /// Executes this zero-argument callable, capturing any raised `Error` into a `Result`.
   ///

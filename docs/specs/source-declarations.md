@@ -9,18 +9,20 @@ for legacy implementation namespaces.
 The language reserves these declaration keywords:
 
 ```text
-native foreign intrinsic private protected module package internal
+native foreign intrinsic private protected module package internal primitive
 ```
 
 There is no `public` keyword. A declaration without a visibility modifier is
 `Public`.
 
-At most one visibility modifier and at most one implementation modifier may
-precede a declaration. `native`, `foreign`, and `intrinsic` are mutually
-exclusive implementation modifiers. The authored order is canonical: when both
-are present, visibility must precede implementation (e.g. `private native`,
-`internal intrinsic`, not `intrinsic internal`). The normalized products remain
-orthogonal after parsing, but noncanonical source permutations are rejected.
+At most one visibility modifier, at most one implementation modifier, and one
+`primitive` classification modifier may precede a declaration. `native`,
+`foreign`, and `intrinsic` are mutually exclusive implementation modifiers.
+The authored order is canonical: visibility precedes implementation, and
+`primitive` follows implementation (e.g. `internal native primitive`, not
+`native internal primitive` or `primitive native`). `primitive` requires
+`native`. The normalized products remain orthogonal after parsing, but
+noncanonical source permutations are rejected.
 
 ```phalcom
 native class Buffer {
@@ -35,15 +37,22 @@ native class Buffer {
 
 intrinsic data Pack<***Es>(***Es)
 
+native primitive class Int is Number {
+  internal native primitive rawBits -> Int
+}
+
 impl<T: Type> PositionalPack<T> {
   intrinsic type View: PositionalPackView<T>
 }
 ```
 
-`@primitive` remains a metadata attribute because it describes native/Universe
-metadata, not declaration visibility or implementation origin. The source
-attribute `@intrinsic` is retired; `intrinsic` is the canonical implementation
-keyword.
+`primitive` classifies an irreducible runtime foundation declaration. It is
+independent of implementation origin: `native` states where implementation
+comes from, while `primitive` classifies the declaration. Initially it is legal
+only on native class and callable declarations in the canonical Universe. It
+is not inherited and does not mark a class's methods automatically. `@primitive`
+is retired; use the declaration modifier. The source attribute `@intrinsic` is
+also retired; `intrinsic` is the canonical implementation keyword.
 
 ## 2. Canonical semantic products
 
@@ -56,6 +65,7 @@ categories:
 | `private`, `protected`, `module`, `package`, `internal` | corresponding visibility |
 | no implementation modifier | `Phalcom` |
 | `native`, `foreign`, `intrinsic` | corresponding implementation kind |
+| `primitive` | independent primitive classification flag |
 
 Names identify declarations. No selector, type name, or field spelling implies
 visibility, implementation origin, or runtime privilege.
@@ -136,13 +146,22 @@ The existence of `intrinsic` as a lexical modifier does not mean every
 declaration category admits intrinsic implementation; target legality is
 defined by each owning declaration grammar and compiler rule.
 
+`primitive` is declaration classification metadata, independent from the
+implementation category and the runtime's native-primitive registration
+tables. It is legal only on native class declarations and native method,
+getter, setter, or index declarations in the canonical Universe project. It
+does not install or link a native implementation and does not change access,
+selector identity, lowering, bytecode, representation, or dispatch. It is not
+inherited from a class to its members or from a member to an override. The
+compiler retains the flag in source declaration and core-surface presentation
+records where those products are available; this does not add runtime
+reflection for source declarations.
+
 ## 6. Built-in metadata attributes
 
-`@primitive` is a metadata-only attribute for canonical Universe native
-declarations. It does not change visibility, implementation kind, selector
-identity, field identity, lowering, bytecode, representation, or runtime
-authorization merely by being present. Its authored use is legal only in the
-canonical Universe project; use outside Universe is a compile-time error.
+`@primitive` is retired and receives a migration diagnostic directing users to
+the `primitive` declaration modifier. It is not an alias and is not expanded as
+metadata.
 
 The source attribute `@intrinsic` is retired. It is no longer a builtin
 attribute, receives no compiler attribute expansion, and must not be used to
@@ -162,9 +181,10 @@ structured products above. They may present:
 ```text
 visibility: public | private | protected | module | package | internal
 implementation: phalcom | native | foreign | intrinsic
+primitive: true | false
 ```
 
 The `public` word is presentation text for the implicit semantic state, not a
-source keyword. Syntax tooling highlights the eight declaration keywords and
-the metadata attribute `@primitive`; it does not highlight `_$` or general
+source keyword. Syntax tooling highlights the nine declaration keywords,
+including `primitive`; it does not highlight `_$` or general
 `__field` spellings as active implementation namespaces.

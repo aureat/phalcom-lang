@@ -16,7 +16,7 @@ class SecureRandom {
     _instance
   }
 
-  internal native rawFill(_ bytes: Bytes) -> Option<String>
+  internal native primitive rawFill(_ bytes: Bytes) -> Option<String>
 
   /// Acquires cryptographically suitable random bytes from the operating
   /// system. On host failure this raises EntropyError; existing buffer

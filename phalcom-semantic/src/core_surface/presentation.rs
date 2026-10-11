@@ -12,6 +12,7 @@ pub struct MethodPresentation {
     pub side: DispatchSide,
     pub display_signature: String,
     pub implementation_kind: ImplementationKind,
+    pub is_primitive: bool,
     pub implementation_provenance: ImplementationProvenance,
     pub native_id: Option<NativeSurfaceId>,
     pub intrinsic: Option<NativeIntrinsicId>,
@@ -28,6 +29,7 @@ pub struct ClassPresentation {
     pub declaration_id: DeclarationId,
     pub name: String,
     pub superclass: Option<String>,
+    pub is_primitive: bool,
     pub members: Vec<MethodPresentation>,
     pub documentation: Option<String>,
 }
@@ -49,6 +51,7 @@ impl ClassPresentation {
                         side: *side,
                         display_signature: sel.to_string(),
                         implementation_kind: ImplementationKind::Native,
+                        is_primitive: false,
                         implementation_provenance: ImplementationProvenance::NativePrimitive,
                         native_id: Some(n.id()),
                         intrinsic: n.intrinsic(),
@@ -71,6 +74,7 @@ impl ClassPresentation {
                         side: *side,
                         display_signature: sel.to_string(),
                         implementation_kind: ImplementationKind::Phalcom,
+                        is_primitive: false,
                         implementation_provenance: ImplementationProvenance::Generated,
                         native_id: Some(n.id()),
                         intrinsic: n.intrinsic(),
@@ -88,6 +92,7 @@ impl ClassPresentation {
                         side: *side,
                         display_signature: sel.to_string(),
                         implementation_kind: s.implementation,
+                        is_primitive: s.is_primitive,
                         implementation_provenance: if s.implementation == ImplementationKind::Foreign {
                             ImplementationProvenance::External
                         } else {
@@ -110,6 +115,7 @@ impl ClassPresentation {
                         side: *side,
                         display_signature: sel.to_string(),
                         implementation_kind: ImplementationKind::Native,
+                        is_primitive: source.is_primitive,
                         implementation_provenance: ImplementationProvenance::NativePrimitive,
                         native_id: Some(native.id()),
                         intrinsic: native.intrinsic(),
@@ -131,6 +137,7 @@ impl ClassPresentation {
                         side: *side,
                         display_signature: sel.to_string(),
                         implementation_kind: ImplementationKind::Phalcom,
+                        is_primitive: source.is_primitive,
                         implementation_provenance: ImplementationProvenance::Source,
                         native_id: Some(native.id()),
                         intrinsic: native.intrinsic(),
@@ -148,6 +155,7 @@ impl ClassPresentation {
                         side: *side,
                         display_signature: sel.to_string(),
                         implementation_kind: ImplementationKind::Phalcom,
+                        is_primitive: source.is_primitive,
                         implementation_provenance: ImplementationProvenance::Source,
                         native_id: Some(native.id()),
                         intrinsic: None,
@@ -168,6 +176,7 @@ impl ClassPresentation {
             declaration_id: merged.declaration_id.clone(),
             name: merged.name.clone(),
             superclass: merged.superclass.clone(),
+            is_primitive: merged.source_class().is_some_and(|source| source.is_primitive),
             members,
             documentation: merged.doc_comment().map(str::to_owned),
         }
@@ -177,6 +186,9 @@ impl ClassPresentation {
     pub fn render_markdown(&self) -> String {
         let mut out = String::new();
         out.push_str(&format!("## class {}\n\n", self.name));
+        if self.is_primitive {
+            out.push_str("*primitive runtime foundation*\n\n");
+        }
         if let Some(ref sup) = self.superclass {
             out.push_str(&format!("*Extends `{sup}`*\n\n"));
         }
@@ -198,6 +210,9 @@ impl ClassPresentation {
             }
             if m.implementation_provenance == ImplementationProvenance::Generated {
                 badges.push("generated".to_string());
+            }
+            if m.is_primitive {
+                badges.push("primitive".to_string());
             }
             if let Some(intrin) = m.intrinsic {
                 badges.push(format!("intrinsic-id:{:?}", intrin));
@@ -224,19 +239,23 @@ impl ClassPresentation {
         let mut out = String::new();
         out.push_str("// Generated Canonical Core Surface — Read Only\n");
         let sup = self.superclass.as_deref().map(|s| format!(" is {s}")).unwrap_or_default();
-        out.push_str(&format!("class {}{} {{\n", self.name, sup));
+        let class_kw = if self.is_primitive { "native primitive class " } else { "class " };
+        out.push_str(&format!("{}{}{} {{\n", class_kw, self.name, sup));
         for m in &self.members {
+            if m.side == DispatchSide::Class {
+                out.push_str("  @class\n");
+            }
             if let Some(ref eff) = m.effects {
                 out.push_str(&format!("  @{}\n", eff));
             }
-            let static_kw = if m.side == DispatchSide::Class { "static " } else { "" };
             let impl_kw = match m.implementation_kind {
                 ImplementationKind::Phalcom => "",
                 ImplementationKind::Native => "native ",
                 ImplementationKind::Foreign => "foreign ",
                 ImplementationKind::Intrinsic => "intrinsic ",
             };
-            out.push_str(&format!("  {}{}{}\n\n", impl_kw, static_kw, m.selector));
+            let primitive_kw = if m.is_primitive { "primitive " } else { "" };
+            out.push_str(&format!("  {}{}{}\n\n", impl_kw, primitive_kw, m.selector));
         }
         out.push_str("}\n");
         out

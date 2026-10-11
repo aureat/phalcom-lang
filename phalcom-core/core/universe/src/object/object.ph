@@ -7,38 +7,38 @@
 ///
 /// Provides basic object identity, string formatting, dynamic invocation, classification (`is`),
 /// and relational comparison operators derived from bilateral comparison.
-native class Object {
+native primitive class Object {
   native name -> Dynamic
 
-  native class -> Dynamic
+  native primitive class -> Dynamic
 
   native class=(_ value: Dynamic) -> Unit
 
   native toString -> String
 
-  native hash -> Int
+  native primitive hash -> Int
 
   native ==(_ other: Dynamic) -> Bool
 
   native !=(_ other: Dynamic) -> Bool
 
-  native ===(_ other: Dynamic) -> Bool
+  native primitive ===(_ other: Dynamic) -> Bool
 
   native matches(_ other: Dynamic) -> Bool
 
   native understands(_ selector: Dynamic) -> Bool
 
-  native perform(_ selector: Dynamic, ***args: Dynamic) -> Dynamic
+  native primitive perform(_ selector: Dynamic, ***args: Dynamic) -> Dynamic
 
   native respondsTo(_ selector: Dynamic) -> Bool
 
   native doesNotUnderstand(_ message: Dynamic) -> Dynamic
 
-  native methodFor(_ selector: Dynamic) -> Dynamic
+  native primitive methodFor(_ selector: Dynamic) -> Dynamic
 
-  internal native invariantEnter() -> Dynamic
+  internal native primitive invariantEnter() -> Dynamic
 
-  internal native invariantExit() -> Dynamic
+  internal native primitive invariantExit() -> Dynamic
 
   internal native rawAttributes -> Dynamic
 

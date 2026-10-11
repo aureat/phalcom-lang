@@ -1,5 +1,5 @@
 @!documentation("Method family reference produced by selector binding.")
-native class Family is Function {
+native primitive class Family is Function {
   native receiver -> Dynamic
   native selector -> Selector
   native pattern -> SelectorPattern
@@ -14,11 +14,11 @@ native class Family is Function {
   native set(_ shape: Dynamic, _ value: Dynamic) -> Dynamic
 }
 
-native class MethodFamily is Object {
+native primitive class MethodFamily is Object {
   native bind(_ receiver: Dynamic) -> BoundMethodFamily
   native selectors -> List
   native size -> Int
   native methodFor(_ selector: Selector) -> Method
 }
 
-native class BoundMethodFamily is Function {}
+native primitive class BoundMethodFamily is Function {}

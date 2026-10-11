@@ -868,33 +868,19 @@ impl AttributeExpander for ClassExpander {
     }
 }
 
-/// Validates the two Universe-only metadata attributes. These attributes are
-/// deliberately no-ops: their source attributes remain attached for semantic,
-/// native-surface, and presentation consumers, but they never synthesize
-/// visibility, implementation kind, lowering, or runtime privilege.
-pub struct MetadataExpander {
-    name: &'static str,
-}
+/// Retains a targeted migration diagnostic for the retired `@primitive`
+/// spelling. Primitive classification is now a declaration modifier.
+pub struct RetiredPrimitiveExpander;
 
-impl AttributeExpander for MetadataExpander {
+impl AttributeExpander for RetiredPrimitiveExpander {
     fn legal_targets(&self) -> &'static [Target] {
         &[Target::Method, Target::Getter, Target::Setter, Target::Index]
     }
 
-    fn expand(&self, ctx: &mut ExpandCtx, _member: &mut ClassMember, args: &[Expr]) -> Result<(), CompilerError> {
-        if !ctx.privileged_universe {
-            return Err(CompilerError::Message(format!(
-                "attr.universe_only: `@{}` is permitted only in the canonical Universe project",
-                self.name
-            )));
-        }
-        if !args.is_empty() {
-            return Err(CompilerError::Message(format!(
-                "attr.arguments_not_allowed: `@{}` does not accept arguments",
-                self.name
-            )));
-        }
-        Ok(())
+    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
+        Err(CompilerError::Message(
+            "attr.retired: '@primitive' is retired; write 'native primitive' on the declaration instead".to_string(),
+        ))
     }
 }
 
@@ -918,7 +904,7 @@ impl Default for AttributeRegistry {
         expanders[BuiltinAttr::Variant as usize] = Some(Box::new(VariantExpander));
         expanders[BuiltinAttr::On as usize] = Some(Box::new(OnExpander));
         expanders[BuiltinAttr::Ignore as usize] = Some(Box::new(IgnoreExpander));
-        expanders[BuiltinAttr::Primitive as usize] = Some(Box::new(MetadataExpander { name: "primitive" }));
+        expanders[BuiltinAttr::Primitive as usize] = Some(Box::new(RetiredPrimitiveExpander));
         Self { expanders }
     }
 }
@@ -1345,6 +1331,7 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
         visibility_range: None,
         implementation: ImplementationKind::Phalcom,
         implementation_range: None,
+        is_primitive: false,
         range: attr_range,
         name_range: attr_range,
     }));
@@ -1486,6 +1473,7 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                     visibility_range: field.visibility_range,
                     implementation: ImplementationKind::Phalcom,
                     implementation_range: None,
+                    is_primitive: false,
                     range: attr.range,
                     name_range: attr.range,
                 }));
@@ -1519,6 +1507,7 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                     visibility_range: field.visibility_range,
                     implementation: ImplementationKind::Phalcom,
                     implementation_range: None,
+                    is_primitive: false,
                     range: attr.range,
                     name_range: attr.range,
                 }));
@@ -1905,6 +1894,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                     visibility_range: f.visibility_range,
                     implementation: ImplementationKind::Phalcom,
                     implementation_range: None,
+                    is_primitive: false,
                     range: attr_range,
                     name_range: attr_range,
                 }));
@@ -1937,6 +1927,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             visibility_range: None,
             implementation: ImplementationKind::Phalcom,
             implementation_range: None,
+            is_primitive: false,
             range: attr_range,
             name_range: attr_range,
         }));
@@ -1957,6 +1948,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             visibility_range: None,
             implementation: ImplementationKind::Phalcom,
             implementation_range: None,
+            is_primitive: false,
             range: attr_range,
             name_range: attr_range,
         }));
@@ -1980,6 +1972,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             visibility_range: None,
             implementation: ImplementationKind::Phalcom,
             implementation_range: None,
+            is_primitive: false,
             range: attr_range,
             name_range: attr_range,
         }));
@@ -2024,6 +2017,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                 visibility_range: None,
                 implementation: ImplementationKind::Phalcom,
                 implementation_range: None,
+                is_primitive: false,
                 range: attr_range,
                 name_range: attr_range,
             }));
@@ -2172,6 +2166,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             visibility_range: None,
             implementation: ImplementationKind::Phalcom,
             implementation_range: None,
+            is_primitive: false,
             range: v.range,
             name_range: v.range,
         }));
@@ -2200,6 +2195,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             invariants: Vec::new(),
             implementation: ImplementationKind::Phalcom,
             implementation_range: None,
+            is_primitive: false,
             range: v.range,
             name_range: v.range,
         }));
@@ -2265,6 +2261,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         visibility_range: None,
         implementation: ImplementationKind::Phalcom,
         implementation_range: None,
+        is_primitive: false,
         range: match_range,
         name_range: match_range,
     }));
@@ -2541,6 +2538,11 @@ pub fn expand_class_attributes(
     };
     let has_sealed = sealed_by_attr || sealed_by_table;
     for attr in &class_attrs {
+        if matches!(&attr.kind, AttrKind::Builtin(BuiltinAttr::Primitive)) {
+            return Err(CompilerError::Message(
+                "attr.retired: '@primitive' is retired; write 'native primitive' on the declaration instead".to_string(),
+            ));
+        }
         if let Some(expander) = registry.get(&attr.name) {
             let legal = expander.legal_targets().contains(&Target::Class);
             if !legal {
@@ -2620,6 +2622,7 @@ pub fn expand_class_attributes(
                 visibility_range: None,
                 implementation: ImplementationKind::Phalcom,
                 implementation_range: None,
+                is_primitive: false,
                 range: class.range,
                 name_range: class.range,
             }));
@@ -2957,6 +2960,7 @@ fn lower_constructors(members: &mut Vec<ClassMember>, ctx: &mut ExpandCtx<'_>) -
             visibility_range: method.visibility_range,
             implementation: ImplementationKind::Phalcom,
             implementation_range: None,
+            is_primitive: false,
             range,
             name_range: method.name_range,
         }));
@@ -2975,6 +2979,7 @@ fn lower_constructors(members: &mut Vec<ClassMember>, ctx: &mut ExpandCtx<'_>) -
             visibility_range: method.visibility_range,
             implementation: ImplementationKind::Phalcom,
             implementation_range: None,
+            is_primitive: false,
             range,
             name_range: method.name_range,
         }));

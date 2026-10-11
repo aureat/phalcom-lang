@@ -347,6 +347,8 @@ pub struct ParsedModifiers {
     pub visibility_range: Option<SourceRange>,
     pub implementation: ImplementationKind,
     pub implementation_range: Option<SourceRange>,
+    pub is_primitive: bool,
+    pub primitive_range: Option<SourceRange>,
 }
 
 impl Default for ParsedModifiers {
@@ -356,6 +358,8 @@ impl Default for ParsedModifiers {
             visibility_range: None,
             implementation: ImplementationKind::Phalcom,
             implementation_range: None,
+            is_primitive: false,
+            primitive_range: None,
         }
     }
 }
@@ -1355,10 +1359,18 @@ impl<'source> Parser<'source> {
         if !header_attrs.is_empty()
             || modifiers.implementation_range.is_some()
             || modifiers.visibility_range.is_some()
+            || modifiers.primitive_range.is_some()
             || ((matches!(self.peek(), Token::Class | Token::Data | Token::Trait) && matches!(self.peek_next(), Token::Identifier(_)))
                 || matches!(self.peek(), Token::Impl)
                 || (matches!(self.peek(), Token::TypeKw) && matches!(self.peek_next(), Token::Data)))
         {
+            if modifiers.is_primitive && !matches!(self.peek(), Token::Class) {
+                let range = modifiers.primitive_range.expect("primitive modifier has a source range");
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("primitive.illegal_target: 'primitive' is supported only on classes and callable declarations".to_string()),
+                    range: range.start..range.end,
+                });
+            }
             if let Some(range) = modifiers.visibility_range {
                 return Err(SyntaxError {
                     kind: SyntaxErrorKind::Message(
@@ -4153,6 +4165,7 @@ impl<'source> Parser<'source> {
             Token::Package => "package",
             Token::Foreign => "foreign",
             Token::Intrinsic => "intrinsic",
+            Token::Primitive => "primitive",
             _ => return None,
         })
     }
@@ -4166,7 +4179,15 @@ impl<'source> Parser<'source> {
     fn is_modifier_start(&self) -> bool {
         matches!(
             self.peek(),
-            Token::Native | Token::Foreign | Token::Intrinsic | Token::Private | Token::Protected | Token::Module | Token::Package | Token::Internal
+            Token::Native
+                | Token::Foreign
+                | Token::Intrinsic
+                | Token::Primitive
+                | Token::Private
+                | Token::Protected
+                | Token::Module
+                | Token::Package
+                | Token::Internal
         )
     }
 
@@ -4286,6 +4307,14 @@ impl<'source> Parser<'source> {
                     let start = self.cur_start();
                     self.advance();
                     let range = (start..self.prev_end).into();
+                    if modifiers.primitive_range.is_some() {
+                        self.errors.push(SyntaxError {
+                            kind: SyntaxErrorKind::Message(
+                                "modifier.order: 'primitive' must follow the implementation modifier (e.g. 'native primitive')".to_string(),
+                            ),
+                            range: start..self.prev_end,
+                        });
+                    }
                     if modifiers.implementation_range.is_some() {
                         return Err(SyntaxError {
                             kind: SyntaxErrorKind::Message("modifier.duplicate_implementation: multiple implementation modifiers are not allowed".to_string()),
@@ -4299,6 +4328,14 @@ impl<'source> Parser<'source> {
                     let start = self.cur_start();
                     self.advance();
                     let range = (start..self.prev_end).into();
+                    if modifiers.primitive_range.is_some() {
+                        self.errors.push(SyntaxError {
+                            kind: SyntaxErrorKind::Message(
+                                "modifier.order: 'primitive' must follow the implementation modifier (e.g. 'native primitive')".to_string(),
+                            ),
+                            range: start..self.prev_end,
+                        });
+                    }
                     if modifiers.implementation_range.is_some() {
                         return Err(SyntaxError {
                             kind: SyntaxErrorKind::Message("modifier.duplicate_implementation: multiple implementation modifiers are not allowed".to_string()),
@@ -4312,6 +4349,14 @@ impl<'source> Parser<'source> {
                     let start = self.cur_start();
                     self.advance();
                     let range = (start..self.prev_end).into();
+                    if modifiers.primitive_range.is_some() {
+                        self.errors.push(SyntaxError {
+                            kind: SyntaxErrorKind::Message(
+                                "modifier.order: 'primitive' must follow the implementation modifier (e.g. 'native primitive')".to_string(),
+                            ),
+                            range: start..self.prev_end,
+                        });
+                    }
                     if modifiers.implementation_range.is_some() {
                         return Err(SyntaxError {
                             kind: SyntaxErrorKind::Message("modifier.duplicate_implementation: multiple implementation modifiers are not allowed".to_string()),
@@ -4321,8 +4366,28 @@ impl<'source> Parser<'source> {
                     modifiers.implementation = ImplementationKind::Intrinsic;
                     modifiers.implementation_range = Some(range);
                 }
+                Token::Primitive => {
+                    let start = self.cur_start();
+                    self.advance();
+                    let range = (start..self.prev_end).into();
+                    if modifiers.primitive_range.is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("modifier.duplicate_primitive: duplicate 'primitive' modifier".to_string()),
+                            range: start..self.prev_end,
+                        });
+                    }
+                    modifiers.is_primitive = true;
+                    modifiers.primitive_range = Some(range);
+                }
                 _ => break,
             }
+        }
+        if modifiers.is_primitive && modifiers.implementation != ImplementationKind::Native {
+            let range = modifiers.primitive_range.expect("primitive modifier has a source range");
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message("primitive.requires_native: 'primitive' declarations must also be marked 'native'".to_string()),
+                range: range.start..range.end,
+            });
         }
         Ok(modifiers)
     }
@@ -4351,7 +4416,11 @@ impl<'source> Parser<'source> {
             header_attrs.push(self.parse_attribute()?);
             self.skip_newlines();
         }
-        let start = modifiers.implementation_range.map(|r| r.start).unwrap_or_else(|| self.cur_start());
+        let start = modifiers
+            .implementation_range
+            .or(modifiers.primitive_range)
+            .map(|range| range.start)
+            .unwrap_or_else(|| self.cur_start());
         self.expect(&Token::Class, &["\"class\""])?;
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["identifier"])?;
@@ -4409,6 +4478,7 @@ impl<'source> Parser<'source> {
             invariants,
             implementation: modifiers.implementation,
             implementation_range: modifiers.implementation_range,
+            is_primitive: modifiers.is_primitive,
             range,
             name_range,
         }))
@@ -5573,6 +5643,7 @@ impl<'source> Parser<'source> {
         let start = modifiers
             .visibility_range
             .or(modifiers.implementation_range)
+            .or(modifiers.primitive_range)
             .map(|r| r.start)
             .unwrap_or_else(|| self.cur_start());
         if allow_index_declaration {
@@ -5669,6 +5740,7 @@ impl<'source> Parser<'source> {
                 visibility_range: modifiers.visibility_range,
                 implementation: modifiers.implementation,
                 implementation_range: modifiers.implementation_range,
+                is_primitive: modifiers.is_primitive,
                 return_annotation,
                 where_clause,
                 body,
@@ -5725,6 +5797,7 @@ impl<'source> Parser<'source> {
                 visibility_range: modifiers.visibility_range,
                 implementation: modifiers.implementation,
                 implementation_range: modifiers.implementation_range,
+                is_primitive: modifiers.is_primitive,
                 return_annotation,
                 where_clause,
                 body,
@@ -5742,6 +5815,7 @@ impl<'source> Parser<'source> {
                 visibility_range: modifiers.visibility_range,
                 implementation: modifiers.implementation,
                 implementation_range: modifiers.implementation_range,
+                is_primitive: modifiers.is_primitive,
                 return_annotation,
                 where_clause,
                 body,
@@ -5932,6 +6006,14 @@ impl<'source> Parser<'source> {
         }))
     }
 
+    fn primitive_illegal_member_target(&self, modifiers: ParsedModifiers) -> SyntaxError {
+        let range = modifiers.primitive_range.expect("primitive modifier has a source range");
+        SyntaxError {
+            kind: SyntaxErrorKind::Message("primitive.illegal_target: 'primitive' is supported only on callable declarations".to_string()),
+            range: range.start..range.end,
+        }
+    }
+
     /// Parses a single class member: a method, getter, setter, or subscript.
     ///
     /// A trailing `=` after the name marks a setter with one distinguished
@@ -5951,6 +6033,7 @@ impl<'source> Parser<'source> {
         let start = modifiers
             .visibility_range
             .or(modifiers.implementation_range)
+            .or(modifiers.primitive_range)
             .map(|r| r.start)
             .unwrap_or_else(|| self.cur_start());
         // Field grammar: bare declarations are immutable, while the
@@ -5958,6 +6041,9 @@ impl<'source> Parser<'source> {
         // tokens in method-shaped positions fall through and are rejected as
         // non-selector names below.
         if matches!(self.peek(), Token::Const) {
+            if modifiers.is_primitive {
+                return Err(self.primitive_illegal_member_target(modifiers));
+            }
             let const_start = self.cur_start();
             self.advance();
             self.errors.push(SyntaxError {
@@ -5974,6 +6060,9 @@ impl<'source> Parser<'source> {
             return self.parse_field_decl(start, false, modifiers);
         }
         if matches!(self.peek(), Token::Let) {
+            if modifiers.is_primitive {
+                return Err(self.primitive_illegal_member_target(modifiers));
+            }
             self.advance();
             let range = start..self.prev_end;
             return Err(SyntaxError {
@@ -5984,6 +6073,9 @@ impl<'source> Parser<'source> {
             });
         }
         if self.starts_mut_member() && matches!(self.peek_at(1), Token::FieldIdentifier(_)) {
+            if modifiers.is_primitive {
+                return Err(self.primitive_illegal_member_target(modifiers));
+            }
             self.advance();
             return self.parse_field_decl(start, true, modifiers);
         }
@@ -5997,6 +6089,9 @@ impl<'source> Parser<'source> {
         if matches!(self.peek(), Token::FieldIdentifier(_))
             && matches!(self.peek_next(), Token::Newline | Token::RBrace | Token::Eof | Token::Equal | Token::Colon)
         {
+            if modifiers.is_primitive {
+                return Err(self.primitive_illegal_member_target(modifiers));
+            }
             return self.parse_field_decl(start, false, modifiers);
         }
         // U-INDEX (ADR-0060): a bracket subscript method (`[_ idx] { ... }` /
@@ -6009,10 +6104,16 @@ impl<'source> Parser<'source> {
             return self.parse_index_member(start, false, modifiers);
         }
         if matches!(self.peek(), Token::TypeKw) {
+            if modifiers.is_primitive {
+                return Err(self.primitive_illegal_member_target(modifiers));
+            }
             self.advance();
             return self.parse_type_member_decl(start, modifiers);
         }
         if self.starts_delegation() {
+            if modifiers.is_primitive {
+                return Err(self.primitive_illegal_member_target(modifiers));
+            }
             if modifiers.visibility != Visibility::Public || modifiers.implementation != ImplementationKind::Phalcom {
                 return Err(SyntaxError {
                     kind: SyntaxErrorKind::Message("delegations cannot have visibility or implementation modifiers".to_string()),
@@ -6102,6 +6203,7 @@ impl<'source> Parser<'source> {
                 visibility_range: modifiers.visibility_range,
                 implementation: modifiers.implementation,
                 implementation_range: modifiers.implementation_range,
+                is_primitive: modifiers.is_primitive,
                 return_annotation,
                 where_clause,
                 body,
@@ -6158,6 +6260,7 @@ impl<'source> Parser<'source> {
                 visibility_range: modifiers.visibility_range,
                 implementation: modifiers.implementation,
                 implementation_range: modifiers.implementation_range,
+                is_primitive: modifiers.is_primitive,
                 return_annotation,
                 where_clause,
                 body,
@@ -6175,6 +6278,7 @@ impl<'source> Parser<'source> {
                 visibility_range: modifiers.visibility_range,
                 implementation: modifiers.implementation,
                 implementation_range: modifiers.implementation_range,
+                is_primitive: modifiers.is_primitive,
                 return_annotation,
                 where_clause,
                 body,
@@ -6267,6 +6371,7 @@ impl<'source> Parser<'source> {
             visibility_range: modifiers.visibility_range,
             implementation: modifiers.implementation,
             implementation_range: modifiers.implementation_range,
+            is_primitive: modifiers.is_primitive,
             return_annotation,
             where_clause,
             body,

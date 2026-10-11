@@ -3,8 +3,8 @@
 from universe.text.substring import Substring
 
 @sealed
-native class Char is Object {
-  native codePoint -> Int
+native primitive class Char is Object {
+  native primitive codePoint -> Int
   native utf8Length -> Int
   native toString -> String
   native isAscii -> Bool
@@ -20,7 +20,7 @@ native class Char is Object {
   native simpleLowercase -> Char
   native simpleUppercase -> Char
   @class
-  native fromCodePoint(_ value: Int) -> Option<Char>
+  native primitive fromCodePoint(_ value: Int) -> Option<Char>
 
   /// Canonical Telos source representation of this character scalar.
   repr -> String {

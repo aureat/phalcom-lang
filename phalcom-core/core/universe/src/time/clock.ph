@@ -114,8 +114,7 @@ class SystemClock is Clock {
   private create() { self }
 
   @class
-  @primitive
-  internal native monotonicNanoseconds -> Int
+  internal native primitive monotonicNanoseconds -> Int
 
   now -> Instant {
     self.instant(SystemClock.monotonicNanoseconds)

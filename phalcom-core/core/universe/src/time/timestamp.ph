@@ -21,8 +21,7 @@ class SystemWallClock is WallClock {
   private create() { self }
 
   @class
-  @primitive
-  internal native unixNanoseconds -> Int
+  internal native primitive unixNanoseconds -> Int
 
   now -> Timestamp {
     Timestamp.nanoseconds(SystemWallClock.unixNanoseconds)

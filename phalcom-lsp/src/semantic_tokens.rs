@@ -193,7 +193,8 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Module
         | Token::Package
         | Token::Foreign
-        | Token::Intrinsic => Some(Keyword),
+        | Token::Intrinsic
+        | Token::Primitive => Some(Keyword),
 
         Token::Identifier(_) | Token::FieldIdentifier(_) => Some(Variable),
 

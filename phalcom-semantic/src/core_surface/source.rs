@@ -1,7 +1,7 @@
 //! Source core declaration surface extraction.
 
 use crate::identity::{DeclarationId, DispatchSide, ModuleId};
-use phalcom_ast::ast::{ClassMember, ImplementationKind, Program, Statement};
+use phalcom_ast::ast::{ClassMember, ImplementationKind, IndexAccessor, Program, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 
@@ -21,6 +21,7 @@ pub struct SourceMemberRecord {
     pub is_getter: bool,
     pub is_setter: bool,
     pub implementation: ImplementationKind,
+    pub is_primitive: bool,
     pub range: SourceRange,
     pub doc_comment: Option<String>,
     pub binding_role: SourceNativeBindingRole,
@@ -31,6 +32,7 @@ pub struct SourceClassRecord {
     pub declaration_id: DeclarationId,
     pub name: String,
     pub superclass: Option<String>,
+    pub is_primitive: bool,
     pub members: Vec<SourceMemberRecord>,
     pub range: SourceRange,
     pub doc_comment: Option<String>,
@@ -105,6 +107,7 @@ pub fn extract_source_declarations(module_id: &ModuleId, program: &Program) -> V
                                     is_getter: false,
                                     is_setter: false,
                                     implementation: m.implementation,
+                                    is_primitive: m.is_primitive,
                                     range: m.range,
                                     doc_comment: None,
                                     binding_role: source_native_binding_role(&m.attributes, m.implementation),
@@ -120,6 +123,7 @@ pub fn extract_source_declarations(module_id: &ModuleId, program: &Program) -> V
                                     is_getter: true,
                                     is_setter: false,
                                     implementation: g.implementation,
+                                    is_primitive: g.is_primitive,
                                     range: g.range,
                                     doc_comment: None,
                                     binding_role: source_native_binding_role(&g.attributes, g.implementation),
@@ -135,9 +139,41 @@ pub fn extract_source_declarations(module_id: &ModuleId, program: &Program) -> V
                                     is_getter: false,
                                     is_setter: true,
                                     implementation: s.implementation,
+                                    is_primitive: s.is_primitive,
                                     range: s.range,
                                     doc_comment: None,
                                     binding_role: source_native_binding_role(&s.attributes, s.implementation),
+                                });
+                            }
+                        }
+                        ClassMember::Index(index) => {
+                            let slots = index
+                                .params
+                                .iter()
+                                .filter(|parameter| parameter.rest_mode == phalcom_ast::ast::RestMode::None)
+                                .map(|parameter| {
+                                    parameter
+                                        .label
+                                        .as_ref()
+                                        .map_or(SelectorSlot::Positional, |label| SelectorSlot::Label(label.clone()))
+                                })
+                                .collect::<Vec<_>>();
+                            let selector = match &index.accessor {
+                                IndexAccessor::Get => Selector::subscript_get(slots),
+                                IndexAccessor::Set { .. } => Selector::subscript_set(slots),
+                            };
+                            if let Ok(selector) = selector {
+                                members.push(SourceMemberRecord {
+                                    selector_raw: selector.encode(),
+                                    selector,
+                                    side: DispatchSide::Instance,
+                                    is_getter: matches!(&index.accessor, IndexAccessor::Get),
+                                    is_setter: matches!(&index.accessor, IndexAccessor::Set { .. }),
+                                    implementation: index.implementation,
+                                    is_primitive: index.is_primitive,
+                                    range: index.range,
+                                    doc_comment: None,
+                                    binding_role: source_native_binding_role(&index.attributes, index.implementation),
                                 });
                             }
                         }
@@ -149,6 +185,7 @@ pub fn extract_source_declarations(module_id: &ModuleId, program: &Program) -> V
                     declaration_id: class_decl,
                     name: class_def.name.clone(),
                     superclass,
+                    is_primitive: class_def.is_primitive,
                     members,
                     range: class_def.range,
                     doc_comment: None,

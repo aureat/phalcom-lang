@@ -174,6 +174,10 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
         "Marks a declaration as implemented by the native runtime while retaining its source-level visibility and canonical signature.",
     ),
     (
+        "primitive",
+        "Classifies a native class or callable as part of the canonical Universe runtime foundation; it does not install a native implementation.",
+    ),
+    (
         "foreign",
         "Marks a legal declaration whose implementation is supplied by a foreign backend; this repository reports an explicit unsupported-binding diagnostic until one exists.",
     ),
@@ -214,6 +218,7 @@ fn keyword_spelling(token: &Token) -> Option<&'static str> {
         Token::Static => Some("static"),
         Token::Construct => Some("construct"),
         Token::Native => Some("native"),
+        Token::Primitive => Some("primitive"),
         Token::Foreign => Some("foreign"),
         Token::Private => Some("private"),
         Token::Protected => Some("protected"),

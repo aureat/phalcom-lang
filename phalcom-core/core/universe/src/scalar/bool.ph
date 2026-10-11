@@ -7,7 +7,7 @@ from universe.text.errors import BoolParseError
 /// Abstract base class representing boolean truth values.
 ///
 /// `Bool` provides core logical operations (`and`, `or`, `not`) and string conversion.
-native class Bool is Object {
+native primitive class Bool is Object {
   @class
   native new() -> Bool
 
@@ -46,7 +46,7 @@ native class Bool is Object {
 }
 
 /// Concrete singleton class for the boolean value `true`.
-native class True is Bool {}
+native primitive class True is Bool {}
 
 /// Concrete singleton class for the boolean value `false`.
-native class False is Bool {}
+native primitive class False is Bool {}
