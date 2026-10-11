@@ -1,0 +1,5 @@
+[project]
+name = "measure"
+namespace = "measure"
+version = "0.1.0"
+entry = "measure.main"

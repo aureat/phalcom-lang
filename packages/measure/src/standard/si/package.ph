@@ -1,0 +1,9 @@
+expose .base
+expose .geometry
+expose .mechanics
+expose .temperature
+expose .angle
+expose .electromagnetism
+expose .photometry
+expose .nuclear
+expose .chemistry

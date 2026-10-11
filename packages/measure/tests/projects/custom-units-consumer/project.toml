@@ -1,0 +1,10 @@
+[project]
+name = "measure-custom-units-consumer"
+namespace = "custom_units_consumer"
+version = "0.0.0"
+source = "src"
+entry = "custom_units_consumer.main"
+
+[dependencies]
+measure = { path = "../../.." }
+custom_units = { path = "../custom-units" }

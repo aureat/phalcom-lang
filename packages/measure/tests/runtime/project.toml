@@ -1,0 +1,9 @@
+[project]
+name = "measure-runtime-tests"
+namespace = "measure_tests"
+version = "0.0.0"
+source = "src"
+entry = "measure_tests.main"
+
+[dependencies]
+measure = { path = "../.." }
