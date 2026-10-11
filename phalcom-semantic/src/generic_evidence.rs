@@ -87,8 +87,9 @@ impl DerivedConformanceEvidence {
     }
 }
 
-/// Proven generic conformance evidence: exact (unconditional source impl),
-/// assumed (derived from a lexical generic bound), or derived (instantiated conditional conformance).
+/// Proven generic conformance evidence: exact (unconditional source impl with
+/// its instantiated trait-header obligations proved), assumed (derived from a
+/// lexical generic bound), or derived (instantiated conditional conformance).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GenericConformanceEvidence {
     Exact(Arc<ConformanceEvidence>),
@@ -810,7 +811,12 @@ pub fn prove_constraint(constraint: &GenericConstraint, substitution: &TypeSubst
 
 fn map_conformance_resolution_to_proof(res: ConformanceResolution) -> GenericConformanceProof {
     match res {
-        ConformanceResolution::Proven(ev) => GenericConformanceProof::Proven(GenericConformanceEvidence::Exact(ev)),
+        // A raw exact witness is not a complete generic proof until its
+        // instantiated trait-header obligations have been discharged by the
+        // active proof session.
+        ConformanceResolution::Proven(_) => GenericConformanceProof::InternalFailure(
+            "raw exact conformance witness bypassed trait-header proof publication".into(),
+        ),
         ConformanceResolution::NotDeclared => GenericConformanceProof::Missing,
         ConformanceResolution::InvalidSource(impl_id) | ConformanceResolution::Incomplete(impl_id) => GenericConformanceProof::Incomplete(impl_id),
         ConformanceResolution::CoherenceConflict(impls) => GenericConformanceProof::CoherenceConflict(impls),
@@ -821,6 +827,50 @@ fn map_conformance_resolution_to_proof(res: ConformanceResolution) -> GenericCon
         ConformanceResolution::BudgetExceeded(report) => GenericConformanceProof::BudgetExceeded(report),
         ConformanceResolution::InternalFailure(msg) => GenericConformanceProof::InternalFailure(msg),
     }
+}
+
+fn prove_exact_trait_header_contract(
+    evidence: &ConformanceEvidence,
+    context: &mut ConformanceProofContext<'_>,
+) -> Result<BTreeMap<GenericConformanceKey, GenericConformanceEvidence>, GenericConformanceProof> {
+    let caller_evidence = context.lexical_evidence;
+    // An unconditional source conformance must establish its own trait
+    // contract. A caller's unrelated lexical assumptions cannot repair it.
+    context.lexical_evidence = None;
+    let result = (|| {
+        let empty_substitution = TypeSubstitution::new();
+        let mut conformance_proofs = BTreeMap::new();
+        for obligation in evidence.trait_header_contract.iter() {
+            match prove_constraint(obligation, &empty_substitution, context) {
+                GenericObligationProof::Conformance(GenericConformanceProof::Proven(proof)) => {
+                    if let GenericConstraint::Conforms { subject, trait_ref } = obligation {
+                        conformance_proofs.insert(GenericConformanceKey::new(subject.clone(), trait_ref.clone()), proof);
+                    }
+                }
+                GenericObligationProof::Conformance(proof) => return Err(proof),
+                GenericObligationProof::Equivalent(GenericEquivalenceProof::Proven) => {}
+                GenericObligationProof::Equivalent(proof) => return Err(map_equivalence_proof_to_conformance_proof(proof)),
+                GenericObligationProof::Subtype(outcome) if outcome.is_proven() => {}
+                GenericObligationProof::Subtype(outcome) => return Err(map_subtype_outcome_to_conformance_proof(outcome)),
+            }
+        }
+        Ok(conformance_proofs)
+    })();
+    context.lexical_evidence = caller_evidence;
+    result
+}
+
+fn complete_exact_conformance_evidence(
+    evidence: Arc<ConformanceEvidence>,
+    context: &mut ConformanceProofContext<'_>,
+) -> GenericConformanceProof {
+    let trait_header_conformance_proofs = match prove_exact_trait_header_contract(&evidence, context) {
+        Ok(proofs) => proofs,
+        Err(proof) => return proof,
+    };
+    let mut completed = (*evidence).clone();
+    completed.trait_header_conformance_proofs = Some(trait_header_conformance_proofs);
+    GenericConformanceProof::Proven(GenericConformanceEvidence::Exact(Arc::new(completed)))
 }
 
 fn map_equivalence_proof_to_conformance_proof(proof: GenericEquivalenceProof) -> GenericConformanceProof {
@@ -919,8 +969,13 @@ fn evaluate_conformance_goal(key: &GenericConformanceKey, context: &mut Conforma
                                         );
                                         match exact_res {
                                             crate::impls::ConformanceResolution::Proven(exact_ev) => {
-                                                conflicting_impls.push(head.impl_id.clone());
-                                                successes.push(GenericConformanceEvidence::Exact(exact_ev));
+                                                match complete_exact_conformance_evidence(exact_ev, context) {
+                                                    GenericConformanceProof::Proven(evidence) => {
+                                                        conflicting_impls.push(head.impl_id.clone());
+                                                        successes.push(evidence);
+                                                    }
+                                                    failure => failure_proofs.push(failure),
+                                                }
                                             }
                                             other => {
                                                 failure_proofs.push(map_conformance_resolution_to_proof(other));

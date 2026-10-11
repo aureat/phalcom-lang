@@ -230,3 +230,36 @@ RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core audit_probe
 
 The last command remains red only for the unfinished typed realization probe;
 the generic reification blocker is resolved and its focused regressions pass.
+
+## Latest continuation state — F4 exact trait-header proofs — 2026-10-11
+
+The older implementation order above predates F4 and is not the current
+handoff. Read the F4 amendments and implementation progress in
+`algebraic-literals-follow-on-plan.md` and `LANG007.C4-CHECKPOINT.md` first.
+
+F4 now records instantiated trait-header obligations (after associated-type
+normalization), proves them with no ambient lexical assumptions, and places
+their exact selected proofs in `ConformanceEvidence`. A context-independent
+`QueryKey::GenericConformance(GenericConformanceKey)` owns the direct proof
+result and exact-key fingerprints. Session updates refresh every known proof
+root before cached body replay; changed proof fingerprints seed the
+conformance-client reanalysis path. Do not replace this with dispatch-bucket
+identity: it loses target/TraitRef specificity and negative proof invalidation.
+
+Compiler `project_antecedent_slots` now consumes normalized exact proofs through
+the trait's canonical evidence layout. It supports one-level direct exact
+prerequisites with empty nested runtime conformance environments. Assumed,
+derived, incomplete, or recursively nested prerequisite environments remain
+typed failures. Recursive `DerivedConditional` VM environment materialization
+is still out of scope.
+
+Focused evidence acquired: the associated-projection decoy test with wrong
+target and wrong trait reference passed. Semantic/core crate checks and both
+`--tests` compile checks passed. The negative-to-positive invalidation test is
+now a cross-module provider/consumer fixture, but the final cross-module form
+has only been compile-checked; execute it next and inspect the reported
+recomputed consumer body. Then run the narrow compiler projection/runtime
+regression for proof-backed antecedent slots. Keep broader source, package, and
+workspace acceptance open unless separately authorized. `cargo fmt --all
+-- --check` currently reports formatting differences throughout the branch;
+avoid formatting unrelated files. `git diff --check` passed.

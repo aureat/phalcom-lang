@@ -99,7 +99,10 @@ fn prove(ctx: &mut CheckingContext<'_>, subject: TypeTerm, trait_ref: &TraitRef)
         Some(&mut *ctx.store),
     )
     .with_derived_rules(Some(view.derived_conformance_rules));
-    crate::generic_evidence::prove_conformance_with_context(&GenericConformanceKey::new(subject, trait_ref.clone()), &mut proof_context)
+    let key = GenericConformanceKey::new(subject, trait_ref.clone());
+    let proof = crate::generic_evidence::prove_conformance_with_context(&key, &mut proof_context);
+    ctx.record_exact_conformance_query_dependency(&key, &proof);
+    proof
 }
 
 fn evidence_status(evidence: &GenericConformanceEvidence) -> EvidenceStatus {

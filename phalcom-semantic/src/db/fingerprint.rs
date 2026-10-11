@@ -972,6 +972,22 @@ pub(crate) fn hash_generic_conformance_evidence(evidence: &crate::generic_eviden
             exact.source_impl.hash(hasher);
             exact.exact_target.hash(hasher);
             exact.exact_trait_ref.hash(hasher);
+            crate::generic_evidence::GenericConformanceKey::new(
+                crate::types::parameter::TypeTerm::Canonical(exact.exact_target),
+                exact.exact_trait_ref.clone(),
+            )
+            .hash(hasher);
+            match &exact.trait_header_conformance_proofs {
+                None => 0u8.hash(hasher),
+                Some(proofs) => {
+                    1u8.hash(hasher);
+                    proofs.len().hash(hasher);
+                    for (key, proof) in proofs {
+                        key.hash(hasher);
+                        hash_generic_conformance_evidence(proof, hasher);
+                    }
+                }
+            }
         }
         crate::generic_evidence::GenericConformanceEvidence::Assumed(assumed) => {
             1u8.hash(hasher);

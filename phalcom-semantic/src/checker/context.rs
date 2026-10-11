@@ -2347,6 +2347,25 @@ impl<'a> CheckingContext<'a> {
         record_query_dependency(&self.semantic_dependencies, dependency);
     }
 
+    /// Records the context-independent exact proof root when the checker
+    /// actually consults the global exact proof path or receives no proof.
+    /// Lexical assumptions and derived results stay attached to their owning
+    /// evidence and are not represented by a bare proposition key.
+    pub(crate) fn record_exact_conformance_query_dependency(
+        &self,
+        key: &crate::generic_evidence::GenericConformanceKey,
+        proof: &crate::generic_evidence::GenericConformanceProof,
+    ) {
+        use crate::generic_evidence::{GenericConformanceEvidence, GenericConformanceProof};
+        let context_sensitive = matches!(
+            proof,
+            GenericConformanceProof::Proven(GenericConformanceEvidence::Assumed(_) | GenericConformanceEvidence::Derived(_))
+        );
+        if !context_sensitive && matches!(key.subject, crate::types::parameter::TypeTerm::Canonical(_)) {
+            self.record_semantic_dependency(SemanticDependency::GenericConformance(key.clone()));
+        }
+    }
+
     pub(crate) fn semantic_dependencies_snapshot(&self) -> BTreeSet<SemanticDependency> {
         self.semantic_dependencies.borrow().clone()
     }

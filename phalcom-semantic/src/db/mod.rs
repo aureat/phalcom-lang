@@ -519,6 +519,7 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::SourceFormalAttachment(callable)
         | QueryKey::AdvisoryCallable(callable) => Some(callable.module()),
         QueryKey::ConformanceDispatch(impl_id) => Some(&impl_id.module),
+        QueryKey::GenericConformance(key) => Some(&key.trait_ref.declaration.module),
         QueryKey::TraitDispatchBucket(bucket) => match &bucket.target_family {
             crate::trait_dispatch::TraitDispatchTargetFamily::Declaration(decl) => Some(&decl.module),
             crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(variant) => Some(&variant.owner.module),

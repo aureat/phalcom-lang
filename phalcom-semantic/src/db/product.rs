@@ -176,6 +176,14 @@ pub struct PublicExportProduct {
     pub fact: PublicExportFact,
 }
 
+/// Context-independent canonical proof result for one exact generic
+/// conformance proposition. Lexical assumptions are intentionally excluded.
+#[derive(Clone, Debug)]
+pub struct GenericConformanceQueryProduct {
+    pub key: crate::generic_evidence::GenericConformanceKey,
+    pub proof: crate::generic_evidence::GenericConformanceProof,
+}
+
 /// Strongly-typed wrapper around semantic database product variants.
 #[derive(Clone, Debug)]
 pub enum SemanticProduct {
@@ -187,6 +195,7 @@ pub enum SemanticProduct {
     DeclarationSurface(Arc<DeclarationSurfaceProduct>),
     TraitHeader(Arc<TraitHeader>),
     TraitSurface(Arc<TraitSurface>),
+    GenericConformance(Arc<GenericConformanceQueryProduct>),
     CallableDefinition(Arc<crate::impls::EffectiveCallableDefinition>),
     HierarchyEdge(Arc<HierarchyEdgeProduct>),
     CallableSignature(Arc<CallableSemanticSignature>),
@@ -271,6 +280,13 @@ impl SemanticProduct {
     pub fn as_trait_surface(&self) -> Option<&Arc<TraitSurface>> {
         match self {
             Self::TraitSurface(surface) => Some(surface),
+            _ => None,
+        }
+    }
+
+    pub fn as_generic_conformance(&self) -> Option<&Arc<GenericConformanceQueryProduct>> {
+        match self {
+            Self::GenericConformance(product) => Some(product),
             _ => None,
         }
     }
@@ -491,6 +507,7 @@ impl SemanticProduct {
             Self::DeclarationSurface(_) => b"declaration-surface".as_slice(),
             Self::TraitHeader(_) => b"trait-header".as_slice(),
             Self::TraitSurface(_) => b"trait-surface".as_slice(),
+            Self::GenericConformance(_) => b"generic-conformance".as_slice(),
             Self::CallableDefinition(_) => b"callable-definition".as_slice(),
             Self::HierarchyEdge(_) => b"hierarchy-edge".as_slice(),
             Self::CallableSignature(_) => b"callable-signature".as_slice(),

@@ -60,6 +60,95 @@ Next action: resume contextual realization tasks (T4/T5 of the algebraic-literal
 follow-on) and subsequent source package acceptance. Evidence:
 [stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), §17.
 
+### Algebraic realization generic evidence projection boundary — 2026-10-11
+
+The read-only architecture advice bounded the generic forwarding repair to the
+established all-assumed `Derived` realization case. Contextual-realization
+projection now validates this evidence before constructing the ordinary trait
+invocation, so unsupported shapes cannot fall through to partial legacy
+antecedent projection. It accepts a selected conformance callable whose
+conformance prerequisites are caller-assumed, and fails closed for mixed or
+nested exact/derived prerequisites, derived proofs with no assumed prerequisite,
+unsupported derived selection forms, and trait-header conformance prerequisites
+that lack exact canonical proof slots.
+
+The fail-closed classifier regression covers all-assumed prerequisites alongside
+static equality/subtype proofs; mixed and nested exact/derived proofs; empty or
+static-only derived proofs; default, inherent, and data-component selections;
+and exact/derived trait-header constraints. It and the existing canonical
+caller-slot forwarding regression both pass (1/1 each); `git diff --check` also
+passes. This does not add recursive runtime
+materialization or publish exact trait-header proof products. At that gate F4
+remained deferred, and the bounded slice did not claim the broader F1–F4 audit
+closed. The follow-up F4 semantic-proof consultation and amendment below now
+govern continuation. The algebraic-literals follow-on remains
+`IN_PROGRESS / PARTIAL`; broad compiler/runtime and package acceptance gates
+remain open.
+
+### Algebraic realization F4 exact header proof publication consultation — 2026-10-11
+
+The read-only architectural consultation confirmed that exact witness resolution
+does not publish the selected proof for instantiated trait-header conformance
+obligations, so compiler declaration/nominal-family lookup is not authoritative.
+Keep exact witness resolution and associated-projection normalization in
+`phalcom-semantic::impls`, and prove normalized obligations in
+`generic_evidence` through the existing proof session, memo, and cycle handling.
+The first dependency proposal used dispatch buckets as prerequisite identity;
+the follow-up dependency review rejected that because buckets erase exact
+target/trait arguments, may not exist for zero-requirement traits, and cannot
+invalidate a negative proof when a new exact candidate is added. The canonical
+dependency owner is instead a `GenericConformance` query product keyed by the
+full proposition. Its exact-key input fingerprint covers matching source heads,
+relevant derived-rule candidates, and the current trait surface/header; its
+product fingerprint covers proof status and selected proof identities. Refresh
+known proof roots from rebuilt session inputs before cached body dependency
+replay. Do not globally cache context-sensitive assumed results under a bare
+key. The unconditional exact source contract must not use ambient caller
+assumptions.
+F4 is amended into semantic proof publication followed by compiler consumption
+of the published exact proof. Only direct exact runtime projection with a
+supported environment is in scope; assumed, derived, or recursive runtime
+shapes stay fail-closed, and recursive VM materialization is deferred. The
+focused decoy regression is `Box<Int> |= Gate<Int>` against wrong-target and
+wrong-trait-argument decoys, plus associated-projection normalization coverage.
+No spec decision is required. Add a focused negative-to-positive root-refresh
+regression. Broader compiler/runtime, package, and workspace acceptance remains
+open.
+
+### F4 implementation progress — 2026-10-11
+
+Semantic publication now normalizes the exact impl's instantiated trait-header
+contract after associated-type resolution and discharges it through the
+context-free `ConformanceProofContext`. Successful exact evidence carries a
+proof map keyed by the full normalized `GenericConformanceKey`; raw witnesses
+remain explicitly incomplete. The semantic DB now owns a typed
+`GenericConformance` query product. Its input fingerprint covers the exact
+matching source-head slice, trait surface/header signature, and trait-local
+derived-rule candidates; its product fingerprint covers proof status and
+selected evidence identities. The session refreshes previously observed proof
+roots after rebuilding conformance inputs and before cached-body dependency
+replay. Body consumers record exact/negative canonical proof dependencies, so
+new candidates can wake clients that previously observed a failed proof.
+
+The compiler's exact antecedent projection no longer scans conformance rows by
+trait declaration and nominal family. It matches normalized obligations to
+published exact proofs and projects their requirement selections through the
+trait signature's canonical evidence layout. It rejects raw, contextual,
+derived, or recursive prerequisite environments before legacy projection.
+One-level exact prerequisites with empty nested runtime layouts are the current
+bounded shape; recursive VM environment materialization remains deferred.
+
+Evidence at this checkpoint: the associated-projection/decoy semantic proof
+test passed (1 selected); `cargo check -p phalcom-semantic`,
+`cargo check -p phalcom-core`, and both package `--tests` checks passed. The
+negative-to-positive incremental regression was strengthened to use separate
+provider and consumer modules after its earlier same-module prototype passed;
+the final cross-module form was compile-checked but not executed. `git diff
+--check` passed. The repository-wide format check reports formatting diffs in
+multiple existing files, so no broad formatter rewrite was applied. F4 remains
+`IMPLEMENTED / PARTIAL / FOCUSED_TESTED` for semantic publication; compiler
+runtime acceptance and broader T4/T5/package/workspace gates remain open.
+
 ### Algebraic-literals P1-T incremental invalidation consultation — 2026-10-11
 
 P1-T's add/remove conformance updates fail with `SuppressedDependency` during

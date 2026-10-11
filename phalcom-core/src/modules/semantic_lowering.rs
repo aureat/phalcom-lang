@@ -698,6 +698,8 @@ impl ModuleLoweringSemantics {
 pub enum ProjectionError {
     #[error("generic evidence layout error: {0}")]
     GenericEvidenceLayout(String),
+    #[error("contextual realization cannot lower this generic evidence shape: {0}")]
+    UnsupportedContextualRealizationEvidence(&'static str),
     #[error("data type metadata projection failed: {0}")]
     DataTypeMetadata(String),
     #[error("ambiguous lowering site attachment at {0:?}")]
@@ -2981,16 +2983,15 @@ fn project_callable_reference_resolution(
     }
 }
 
-fn nominal_declaration_of_type(ty: TypeId, store: &TypeStore) -> Option<DeclarationId> {
-    match store.get(ty) {
-        TypeData::Nominal { declaration } => Some(declaration.clone()),
-        TypeData::Applied { origin, .. } => nominal_declaration_of_type(*origin, store),
-        TypeData::ClassObject { declaration } => Some(declaration.clone()),
-        _ => None,
-    }
-}
-
 type ProjectedAntecedentSlot = (u16, phalcom_semantic::impls::RequirementSelectionTemplate, phalcom_common::selector::Selector);
+
+fn exact_prerequisite_has_flat_runtime_environment(exact: &phalcom_semantic::impls::ConformanceEvidence) -> bool {
+    !exact
+        .trait_header_contract
+        .iter()
+        .any(|constraint| matches!(constraint, phalcom_semantic::types::parameter::GenericConstraint::Conforms { .. }))
+        && exact.trait_header_conformance_proofs.as_ref().is_some_and(BTreeMap::is_empty)
+}
 
 fn project_antecedent_slots(
     evidence: &phalcom_semantic::generic_evidence::GenericConformanceEvidence,
@@ -3050,8 +3051,23 @@ fn project_antecedent_slots(
                 .get(&exact.exact_trait_ref.declaration)
                 .and_then(|h| h.generic_signature.as_ref());
             let Some(trait_sig) = trait_sig else {
-                return Ok(Box::new([]));
+                if exact.trait_header_contract.is_empty() {
+                    return Ok(Box::new([]));
+                }
+                return Err(ProjectionError::GenericEvidenceLayout(
+                    "proof-complete exact evidence has trait-header obligations but no current trait signature".into(),
+                ));
             };
+            let Some(prerequisite_proofs) = exact.trait_header_conformance_proofs.as_ref() else {
+                return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                    "exact trait-header evidence was not proof-complete",
+                ));
+            };
+            if trait_sig.constraints.len() != exact.trait_header_contract.len() {
+                return Err(ProjectionError::GenericEvidenceLayout(
+                    "normalized exact trait-header contract does not align with its declared signature".into(),
+                ));
+            }
             let nested_layout = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
                 &trait_sig.constraints,
                 trait_sig.owner.clone(),
@@ -3059,58 +3075,70 @@ fn project_antecedent_slots(
             )
             .map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
 
+            let expected_proof_keys = exact
+                .trait_header_contract
+                .iter()
+                .filter_map(|constraint| match constraint {
+                    phalcom_semantic::types::parameter::GenericConstraint::Conforms { subject, trait_ref } => {
+                        Some(phalcom_semantic::generic_evidence::GenericConformanceKey::new(subject.clone(), trait_ref.clone()))
+                    }
+                    _ => None,
+                })
+                .collect::<std::collections::BTreeSet<_>>();
+            let published_proof_keys = prerequisite_proofs.keys().cloned().collect::<std::collections::BTreeSet<_>>();
+            if expected_proof_keys != published_proof_keys {
+                return Err(ProjectionError::GenericEvidenceLayout(
+                    "published exact trait-header proofs do not match the normalized obligations".into(),
+                ));
+            }
+
             let mut antecedent_slots = Vec::new();
-            for constraint in trait_sig.constraints.iter() {
-                if let phalcom_semantic::types::parameter::GenericConstraint::Conforms { subject, trait_ref } = constraint {
-                    let conformance_key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(subject.clone(), trait_ref.clone());
-                    let subject_type = match subject {
-                        phalcom_semantic::types::parameter::TypeTerm::Canonical(ty) => match snapshot.store.get(*ty) {
-                            phalcom_semantic::types::TypeData::AssociatedProjection(proj) => {
-                                exact.associated_types.get(&proj.requirement).and_then(|binding| match binding.value {
-                                    phalcom_semantic::impls::AssociatedTypeBindingValue::Type(ty) => Some(ty),
-                                    phalcom_semantic::impls::AssociatedTypeBindingValue::Dynamic => None,
-                                })
-                            }
-                            phalcom_semantic::types::TypeData::TypeMemberProjection(proj) => {
-                                let name = proj.selector.name();
-                                let assoc_id = snapshot
-                                    .trait_surfaces
-                                    .get(&exact.exact_trait_ref.declaration)
-                                    .and_then(|s| s.associated_type_by_name(name))
-                                    .map(|req| &req.requirement);
-                                assoc_id.and_then(|id| exact.associated_types.get(id)).and_then(|binding| match binding.value {
-                                    phalcom_semantic::impls::AssociatedTypeBindingValue::Type(ty) => Some(ty),
-                                    phalcom_semantic::impls::AssociatedTypeBindingValue::Dynamic => None,
-                                })
-                            }
-                            _ => Some(*ty),
+            for (declared, normalized) in trait_sig.constraints.iter().zip(exact.trait_header_contract.iter()) {
+                match (declared, normalized) {
+                    (
+                        phalcom_semantic::types::parameter::GenericConstraint::Conforms { subject, trait_ref },
+                        phalcom_semantic::types::parameter::GenericConstraint::Conforms {
+                            subject: normalized_subject,
+                            trait_ref: normalized_trait_ref,
                         },
-                        phalcom_semantic::types::parameter::TypeTerm::SelfType(_) => Some(exact.exact_target),
-                        _ => None,
-                    };
-
-                    if let Some(subject_ty) = subject_type {
-                        let subject_decl = nominal_declaration_of_type(subject_ty, &snapshot.store);
-
-                        let matching_plan = snapshot
-                            .conformance_index
-                            .iter()
-                            .find(|(_, contrib)| {
-                                contrib.trait_ref.declaration == trait_ref.declaration
-                                    && subject_decl.as_ref().is_some_and(|decl| contrib.target.declaration() == decl)
-                            })
-                            .and_then(|(impl_id, _)| snapshot.conformance_witness_plans.get(impl_id));
-
-                        for (slot_key, target_slot) in nested_layout.layout().slots.iter() {
-                            if slot_key.conformance != conformance_key {
-                                continue;
-                            }
-                            if let Some(plan) = matching_plan {
-                                if let Some(selection) = plan.requirements.get(&slot_key.requirement) {
-                                    antecedent_slots.push((*target_slot, selection.clone(), slot_key.requirement.selector.clone()));
-                                }
-                            }
+                    ) => {
+                        let layout_key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(subject.clone(), trait_ref.clone());
+                        let proof_key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+                            normalized_subject.clone(),
+                            normalized_trait_ref.clone(),
+                        );
+                        let prerequisite = prerequisite_proofs.get(&proof_key).ok_or_else(|| {
+                            ProjectionError::GenericEvidenceLayout(format!("missing published exact proof for {proof_key:?}"))
+                        })?;
+                        let phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(prerequisite) = prerequisite else {
+                            return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                                "exact trait-header projection requires direct exact prerequisite proofs",
+                            ));
+                        };
+                        if !exact_prerequisite_has_flat_runtime_environment(prerequisite) {
+                            return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                                "recursive exact trait-header runtime environments are not supported",
+                            ));
                         }
+                        for (slot_key, target_slot) in nested_layout.layout().slots.iter().filter(|(slot_key, _)| slot_key.conformance == layout_key) {
+                            let selection = prerequisite.requirements.get(&slot_key.requirement).cloned().ok_or_else(|| {
+                                ProjectionError::MissingTraitRequirementSlot(slot_key.requirement.clone())
+                            })?;
+                            antecedent_slots.push((*target_slot, selection, slot_key.requirement.selector.clone()));
+                        }
+                    }
+                    (
+                        phalcom_semantic::types::parameter::GenericConstraint::Equivalent { .. },
+                        phalcom_semantic::types::parameter::GenericConstraint::Equivalent { .. },
+                    )
+                    | (
+                        phalcom_semantic::types::parameter::GenericConstraint::Subtype { .. },
+                        phalcom_semantic::types::parameter::GenericConstraint::Subtype { .. },
+                    ) => {}
+                    _ => {
+                        return Err(ProjectionError::GenericEvidenceLayout(
+                            "normalized exact trait-header obligations changed constraint kind".into(),
+                        ));
                     }
                 }
             }
@@ -3194,8 +3222,12 @@ fn project_contextual_realization(
                     .nominal_origin_declaration(selection.exact_target)
                     .cloned()
                     .ok_or(ProjectionError::MissingContextualRealizationClass(expression))?;
+                // Validate the evidence shape before ordinary invocation projection. That
+                // projection still has a legacy partial antecedent path, which cannot
+                // represent every nested generic proof environment.
+                let call_environment_recipe = project_realization_prerequisite_recipe(selection, generic_evidence, snapshot, projects)?;
                 let mut invocation = project_trait_invocation_spec(selection, snapshot)?;
-                invocation.call_environment_recipe = project_realization_prerequisite_recipe(selection, generic_evidence, snapshot, projects)?;
+                invocation.call_environment_recipe = call_environment_recipe;
                 if invocation.call_environment_recipe.is_some() {
                     // The recipe supplies the selected impl's complete evidence
                     // layout, including forwarded assumptions. Do not overwrite
@@ -3299,6 +3331,86 @@ fn project_contextual_realization(
     })
 }
 
+fn classify_realization_prerequisite_projection(
+    selection: &phalcom_semantic::impls::RequirementSelectionTemplate,
+    evidence: &phalcom_semantic::generic_evidence::GenericConformanceEvidence,
+    trait_header_has_conformance_constraints: bool,
+) -> Result<bool, ProjectionError> {
+    use phalcom_semantic::generic_evidence::{GenericConformanceEvidence, NestedGenericEvidence};
+    use phalcom_semantic::impls::RequirementSelectionTemplate;
+
+    if trait_header_has_conformance_constraints {
+        let GenericConformanceEvidence::Exact(exact) = evidence else {
+            return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                "trait-header conformance prerequisites require exact canonical proof slots",
+            ));
+        };
+        let Some(proofs) = exact.trait_header_conformance_proofs.as_ref() else {
+            return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                "exact trait-header evidence was not proof-complete",
+            ));
+        };
+        let expected = exact
+            .trait_header_contract
+            .iter()
+            .filter(|constraint| matches!(constraint, phalcom_semantic::types::parameter::GenericConstraint::Conforms { .. }))
+            .count();
+        if expected == 0 || expected != proofs.len() {
+            return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                "exact trait-header proof slots do not match the declared contract",
+            ));
+        }
+        for proof in proofs.values() {
+            let GenericConformanceEvidence::Exact(prerequisite) = proof else {
+                return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                    "exact trait-header projection requires direct exact prerequisite proofs",
+                ));
+            };
+            if !exact_prerequisite_has_flat_runtime_environment(prerequisite) {
+                return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                    "recursive exact trait-header runtime environments are not supported",
+                ));
+            }
+        }
+    }
+
+    match evidence {
+        GenericConformanceEvidence::Exact(_) => Ok(false),
+        GenericConformanceEvidence::Assumed(_) => Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+            "assumed evidence must use the canonical assumed-capability projection",
+        )),
+        GenericConformanceEvidence::Derived(derived) => {
+            if !matches!(selection, RequirementSelectionTemplate::ConformanceCallable { .. }) {
+                return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                    "derived evidence requires a selected conformance callable",
+                ));
+            }
+
+            let mut has_assumed_prerequisite = false;
+            for nested in derived.nested.iter() {
+                match nested {
+                    NestedGenericEvidence::Conformance(GenericConformanceEvidence::Assumed(_)) => {
+                        has_assumed_prerequisite = true;
+                    }
+                    NestedGenericEvidence::Conformance(GenericConformanceEvidence::Exact(_) | GenericConformanceEvidence::Derived(_)) => {
+                        return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                            "only caller-assumed prerequisites can be forwarded safely",
+                        ));
+                    }
+                    NestedGenericEvidence::Equivalent | NestedGenericEvidence::Subtype => {}
+                }
+            }
+
+            if !has_assumed_prerequisite {
+                return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                    "derived evidence has no caller-assumed prerequisite to forward",
+                ));
+            }
+            Ok(true)
+        }
+    }
+}
+
 fn project_realization_prerequisite_recipe(
     selection: &phalcom_semantic::trait_dispatch::TraitDispatchSelection,
     caller_evidence: &phalcom_semantic::generic_evidence::GenericEvidenceEnvironment,
@@ -3312,22 +3424,30 @@ fn project_realization_prerequisite_recipe(
     use phalcom_semantic::impls::RequirementSelectionTemplate;
     use phalcom_semantic::types::parameter::GenericConstraint;
 
-    let RequirementSelectionTemplate::ConformanceCallable { callable } = &selection.selection else {
-        return Ok(None);
-    };
-    let GenericConformanceEvidence::Derived(evidence) = &selection.evidence else {
-        return Ok(None);
-    };
-    // Concrete antecedents already use the selected-trait projection. A
-    // caller-assumed prerequisite needs a call-entry recipe so its complete
-    // runtime slot (including environments) can be forwarded.
-    if !evidence
-        .nested
-        .iter()
-        .any(|nested| matches!(nested, NestedGenericEvidence::Conformance(GenericConformanceEvidence::Assumed(_))))
-    {
+    let trait_header_has_conformance_constraints = snapshot
+        .trait_headers
+        .get(&selection.exact_trait_ref.declaration)
+        .and_then(|header| header.generic_signature.as_ref())
+        .is_some_and(|signature| {
+            signature
+                .constraints
+                .iter()
+                .any(|constraint| matches!(constraint, GenericConstraint::Conforms { .. }))
+        });
+    let needs_recipe = classify_realization_prerequisite_projection(&selection.selection, &selection.evidence, trait_header_has_conformance_constraints)?;
+    if !needs_recipe {
         return Ok(None);
     }
+    let RequirementSelectionTemplate::ConformanceCallable { callable } = &selection.selection else {
+        return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+            "derived evidence requires a selected conformance callable",
+        ));
+    };
+    let GenericConformanceEvidence::Derived(evidence) = &selection.evidence else {
+        return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+            "forwarded prerequisites require derived evidence",
+        ));
+    };
     let signature = match &evidence.origin {
         DerivedConformanceOrigin::ConditionalSource { exact_source } => snapshot
             .conformance_witness_plans
@@ -3357,21 +3477,14 @@ fn project_realization_prerequisite_recipe(
                             })?;
                             RuntimeConformanceSlotRecipe::Forwarded(caller_slot)
                         }
-                        GenericConformanceEvidence::Exact(exact) => {
-                            let selected = exact
-                                .requirements
-                                .get(&key.requirement)
-                                .and_then(phalcom_semantic::trait_dispatch::selected_callable)
-                                .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(key.requirement.clone()))?;
-                            RuntimeConformanceSlotRecipe::Selection {
-                                callable: selected,
-                                selector: key.requirement.selector.clone(),
-                                nested_slots: Box::new([]),
-                            }
+                        GenericConformanceEvidence::Exact(_) => {
+                            return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                                "exact nested prerequisites require their complete canonical runtime environment",
+                            ));
                         }
                         GenericConformanceEvidence::Derived(_) => {
-                            return Err(ProjectionError::GenericEvidenceLayout(
-                                "nested derived realization prerequisite requires a further recipe".into(),
+                            return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                                "nested derived prerequisites require recursive runtime materialization",
                             ));
                         }
                     };
@@ -3547,14 +3660,214 @@ fn data_constructor_operation(snapshot: &SemanticSnapshot, constructor: &DataCon
 
 #[cfg(test)]
 mod tests {
-    use super::contains_exact_case;
+    use super::{ProjectionError, classify_realization_prerequisite_projection, contains_exact_case};
     use phalcom_common::selector::Selector;
     use phalcom_modules::identity::ModuleId;
-    use phalcom_semantic::identity::{DeclarationId, VariantId};
+    use phalcom_semantic::generic_evidence::{
+        AssumedConformanceEvidence, DerivedConformanceEvidence, DerivedConformanceOrigin, GenericConformanceEvidence, GenericConformanceKey,
+        NestedGenericEvidence,
+    };
+    use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, ImplId, ImplLocalId, VariantId};
+    use phalcom_semantic::impls::{ConformanceEvidence, RequirementSelectionTemplate};
+    use phalcom_semantic::traits::TraitRef;
+    use phalcom_semantic::types::environment::TypeEnvironment;
+    use phalcom_semantic::types::id::TypeId;
+    use phalcom_semantic::types::parameter::{TypeParameterOwner, TypeTerm};
     use phalcom_semantic::types::row::{RecordRowField, RecordRowTail, StructuralMemberPresence};
     use phalcom_semantic::types::store::StaticArgument;
     use phalcom_semantic::types::type_member::{ProjectionSubject, TypeLevelProjection, TypeMemberSelector};
     use phalcom_semantic::types::{KindId, ScopedTypeData, TypeStore};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    fn exact_conformance_evidence() -> Arc<ConformanceEvidence> {
+        let module = ModuleId::universe_root();
+        let trait_declaration = DeclarationId::new(module.clone(), "Prerequisite".into());
+        Arc::new(ConformanceEvidence {
+            source_impl: ImplId::new(module, ImplLocalId(0)),
+            exact_target: TypeId::DUMMY,
+            exact_trait_ref: TraitRef::new(trait_declaration, Box::<[TypeId]>::default()),
+            impl_environment: TypeEnvironment::default(),
+            requirement_views: BTreeMap::new(),
+            requirements: BTreeMap::new(),
+            associated_types: BTreeMap::new(),
+            trait_header_contract: Box::default(),
+            trait_header_conformance_proofs: None,
+            fingerprint: Default::default(),
+        })
+    }
+
+    fn assumed_prerequisite() -> NestedGenericEvidence {
+        let module = ModuleId::universe_root();
+        let owner = DeclarationId::new(module.clone(), "Caller".into());
+        let trait_declaration = DeclarationId::new(module, "Prerequisite".into());
+        let key = GenericConformanceKey::new(TypeTerm::Canonical(TypeId::DUMMY), TraitRef::new(trait_declaration, Box::<[TypeId]>::default()));
+        NestedGenericEvidence::Conformance(GenericConformanceEvidence::Assumed(AssumedConformanceEvidence {
+            key,
+            owner: TypeParameterOwner::Declaration(owner),
+        }))
+    }
+
+    fn derived_evidence(nested: Vec<NestedGenericEvidence>) -> GenericConformanceEvidence {
+        GenericConformanceEvidence::Derived(Arc::new(DerivedConformanceEvidence {
+            origin: DerivedConformanceOrigin::ConditionalSource {
+                exact_source: exact_conformance_evidence(),
+            },
+            impl_bindings: Default::default(),
+            nested: nested.into_boxed_slice(),
+        }))
+    }
+
+    fn conformance_callable() -> RequirementSelectionTemplate {
+        let owner = DeclarationId::new(ModuleId::universe_root(), "Realizable".into());
+        let callable = CallableId::method(owner, Selector::getter("basis").expect("selector"), DispatchSide::Class);
+        RequirementSelectionTemplate::ConformanceCallable { callable }
+    }
+
+    #[test]
+    fn contextual_realization_prerequisite_projection_fails_closed_outside_assumed_forwarding() {
+        let selection = conformance_callable();
+        assert_eq!(
+            classify_realization_prerequisite_projection(
+                &selection,
+                &derived_evidence(vec![
+                    assumed_prerequisite(),
+                    NestedGenericEvidence::Equivalent,
+                    assumed_prerequisite(),
+                    NestedGenericEvidence::Subtype,
+                ]),
+                false,
+            ),
+            Ok(true),
+            "all conformance prerequisites may be forwarded alongside static equality/subtype proofs"
+        );
+        for nested in [
+            vec![
+                assumed_prerequisite(),
+                NestedGenericEvidence::Conformance(GenericConformanceEvidence::Exact(exact_conformance_evidence())),
+            ],
+            vec![NestedGenericEvidence::Conformance(GenericConformanceEvidence::Exact(
+                exact_conformance_evidence(),
+            ))],
+            vec![NestedGenericEvidence::Conformance(derived_evidence(vec![assumed_prerequisite()]))],
+            vec![assumed_prerequisite(), NestedGenericEvidence::Conformance(derived_evidence(vec![]))],
+        ] {
+            assert_eq!(
+                classify_realization_prerequisite_projection(&selection, &derived_evidence(nested), false),
+                Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                    "only caller-assumed prerequisites can be forwarded safely"
+                )),
+                "mixed and nested exact/derived proofs must not reach partial legacy projection"
+            );
+        }
+        for nested in [vec![], vec![NestedGenericEvidence::Equivalent, NestedGenericEvidence::Subtype]] {
+            assert_eq!(
+                classify_realization_prerequisite_projection(&selection, &derived_evidence(nested), false),
+                Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                    "derived evidence has no caller-assumed prerequisite to forward"
+                )),
+                "derived evidence without a forwardable prerequisite must not use the legacy path"
+            );
+        }
+
+        let RequirementSelectionTemplate::ConformanceCallable { callable } = &selection else {
+            unreachable!();
+        };
+        for unsupported_selection in [
+            RequirementSelectionTemplate::TraitDefault { callable: callable.clone() },
+            RequirementSelectionTemplate::InherentCallable {
+                callable: callable.clone(),
+                conditional_impl: None,
+                applicability: None,
+            },
+            RequirementSelectionTemplate::DataComponent {
+                component: phalcom_semantic::identity::DataComponentId::new(DeclarationId::new(ModuleId::universe_root(), "Realizable".into()), 0),
+                specialized_type: TypeId::DUMMY,
+            },
+        ] {
+            assert_eq!(
+                classify_realization_prerequisite_projection(&unsupported_selection, &derived_evidence(vec![assumed_prerequisite()]), false),
+                Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                    "derived evidence requires a selected conformance callable"
+                )),
+                "unsupported selection forms must fail before invocation projection"
+            );
+        }
+
+        let exact = GenericConformanceEvidence::Exact(exact_conformance_evidence());
+        assert_eq!(classify_realization_prerequisite_projection(&selection, &exact, false), Ok(false));
+        assert_eq!(
+            classify_realization_prerequisite_projection(&selection, &exact, true),
+            Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                "exact trait-header evidence was not proof-complete"
+            )),
+            "a raw exact witness must not stand in for its trait-header proofs"
+        );
+        assert_eq!(
+            classify_realization_prerequisite_projection(&selection, &derived_evidence(vec![assumed_prerequisite()]), true),
+            Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                "trait-header conformance prerequisites require exact canonical proof slots"
+            )),
+            "derived parent evidence does not use the exact trait-header projection path"
+        );
+
+        let gate_ref = TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Gate".into()), Box::<[TypeId]>::default());
+        let gate_key = GenericConformanceKey::new(TypeTerm::Canonical(TypeId::DUMMY), gate_ref);
+        let mut completed_prerequisite = (*exact_conformance_evidence()).clone();
+        completed_prerequisite.trait_header_conformance_proofs = Some(BTreeMap::new());
+        let mut completed_parent = (*exact_conformance_evidence()).clone();
+        completed_parent.trait_header_contract = Box::new([phalcom_semantic::types::parameter::GenericConstraint::Conforms {
+            subject: TypeTerm::Canonical(TypeId::DUMMY),
+            trait_ref: gate_key.trait_ref.clone(),
+        }]);
+        completed_parent.trait_header_conformance_proofs = Some(BTreeMap::from([(
+            gate_key,
+            GenericConformanceEvidence::Exact(Arc::new(completed_prerequisite)),
+        )]));
+        assert_eq!(
+            classify_realization_prerequisite_projection(&selection, &GenericConformanceEvidence::Exact(Arc::new(completed_parent)), true),
+            Ok(false),
+            "one-level direct exact prerequisites with a complete empty nested environment are projectable"
+        );
+
+        let mut recursive_prerequisite = (*exact_conformance_evidence()).clone();
+        recursive_prerequisite.trait_header_conformance_proofs = Some(BTreeMap::from([(
+            GenericConformanceKey::new(
+                TypeTerm::Canonical(TypeId::DUMMY),
+                TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Nested".into()), Box::<[TypeId]>::default()),
+            ),
+            GenericConformanceEvidence::Exact(exact_conformance_evidence()),
+        )]));
+        let mut recursive_parent = (*exact_conformance_evidence()).clone();
+        recursive_parent.trait_header_contract = Box::new([phalcom_semantic::types::parameter::GenericConstraint::Conforms {
+            subject: TypeTerm::Canonical(TypeId::DUMMY),
+            trait_ref: TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Gate".into()), Box::<[TypeId]>::default()),
+        }]);
+        recursive_parent.trait_header_conformance_proofs = Some(BTreeMap::from([(
+            GenericConformanceKey::new(
+                TypeTerm::Canonical(TypeId::DUMMY),
+                TraitRef::new(DeclarationId::new(ModuleId::universe_root(), "Gate".into()), Box::<[TypeId]>::default()),
+            ),
+            GenericConformanceEvidence::Exact(Arc::new(recursive_prerequisite)),
+        )]));
+        assert_eq!(
+            classify_realization_prerequisite_projection(&selection, &GenericConformanceEvidence::Exact(Arc::new(recursive_parent)), true),
+            Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                "recursive exact trait-header runtime environments are not supported"
+            )),
+            "recursive exact environments remain fail-closed"
+        );
+        let NestedGenericEvidence::Conformance(assumed) = assumed_prerequisite() else {
+            unreachable!();
+        };
+        assert_eq!(
+            classify_realization_prerequisite_projection(&selection, &assumed, false),
+            Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                "assumed evidence must use the canonical assumed-capability projection"
+            )),
+            "top-level assumptions must use their established capability path"
+        );
+    }
 
     #[test]
     fn exact_case_detection_descends_into_type_lambda_free_types() {

@@ -142,6 +142,77 @@ fingerprints and diagnostics, absence of stale witness products, and refreshed
 dependent clients. This is a bounded P4-T6 lifecycle/scheduling correction;
 it does not alter language rules or require an ADR.
 
+## F4 exact trait-header proof publication amendment — 2026-10-11
+
+The audit's F4 premise is confirmed: exact `ConformanceEvidence` currently
+stores a selected source witness and associated bindings, but does not publish
+the canonical proof selected for each instantiated trait-header conformance.
+The compiler's declaration/nominal-family scan cannot stand in for that proof
+because it can select a different applied target or trait reference. The
+generic-constraints specification already requires the instantiated trait
+contract to be proven in the same evidence environment and rejects recursive
+cycles as proof; no language rule change is needed.
+
+F4 is amended into two serial implementation slices:
+
+1. **Semantic publication:** keep witness resolution and associated-projection
+   normalization in `phalcom-semantic::impls`; expose the normalized
+   instantiated trait-contract obligations there. Prove them in
+   `generic_evidence` with the existing `ConformanceProofContext`, memo, and
+   cycle handling. Add a canonical `GenericConformance` query/dependency
+   product keyed by the full proposition (`GenericConformanceKey`), with an
+   exact-key current-input fingerprint and a deterministic proof-result
+   fingerprint. Dispatch buckets are insufficient: they erase the applied
+   target and trait arguments, omit zero-requirement traits, and cannot detect
+   a new candidate after a negative proof. Refresh every previously known
+   proof root against the rebuilt semantic inputs before cached body dependency
+   replay. The root input covers the exact matching source-head slice, relevant
+   derived-rule candidates, and the trait surface/header contract; selected
+   source and nested proof identities determine the published proof
+   fingerprint. An unconditional exact source must not borrow ambient caller
+   assumptions to establish its own trait contract. Context-sensitive assumed
+   results are not globally cached under a bare key; recursive or failed exact
+   proofs publish no partial `Exact` evidence (the typed failed query row still
+   exists as an invalidation product).
+2. **Compiler consumption:** replace declaration-only conformance lookup in
+   contextual-realization lowering with the published exact prerequisite proof
+   and its canonical `GenericEvidenceSlotKey` requirement slot. Keep this
+   bounded to direct exact projection with a supported runtime environment.
+   Assumed, derived, or recursively materialized runtime environments that this
+   slice cannot represent fail with a typed projection error before any legacy
+   fallback. Recursive `DerivedConditional` VM materialization remains out of
+   scope.
+
+The minimum focused regression uses the intended `Box<Int> |= Gate<Int>` proof
+and decoys for `Box<Float> |= Gate<Int>` and `Box<Int> |= Gate<Float>`, checks
+that only the intended selected witness reaches the projected slot, and covers
+an associated-projection subject through the existing exact normalizer. Add a
+focused negative-to-positive incremental regression (including an exact-key
+or zero-requirement case) to prove root refresh catches candidates that did not
+exist when the negative proof was first published. Focused
+fingerprint/dependency checks are part of the semantic publication slice.
+Broader source, compiler/runtime, package, and workspace acceptance remains
+open under T6.
+
+### F4 exact proof-root invalidation amendment — 2026-10-11
+
+The dependency review rejects dispatch-bucket-only proof identity. A bucket
+does not retain a full `TraitRef` or applied target, can be absent for a
+zero-requirement trait, and a selected `ConformanceDispatch` edge cannot
+invalidate a prior negative proof when a competing exact candidate is added.
+F4 therefore owns a canonical `GenericConformance` query product keyed by the
+full `GenericConformanceKey`. Its current-input fingerprint must include the
+exact-key matching source-head slice, applicable derived-rule candidates, and
+current trait surface/header contract. Its product fingerprint must include
+proof status and selected source/proof identities. Preserve client edges when
+publishing a changed root, and refresh known proof roots from rebuilt inputs
+before cached body dependency replay and body reanalysis. Use no ambient
+lexical assumptions for the globally cached F4 exact proposition; any
+context-sensitive assumed result remains attached to its owning evidence and
+is not cached under the bare key. Add a focused negative-to-positive refresh
+regression. This amends the semantic publication slice only; broad acceptance
+remains open.
+
 ## Task ledger
 
 | Task | State | Established result / remaining acceptance |
@@ -149,8 +220,8 @@ it does not alter language rules or require an ADR.
 | T1 — Failing syntax and runtime probes | PARTIAL | Syntax, basis identity, Quaternion laws/unavailability, typed realization, and projection probes exist. Add `2i` versus `2*i`, context propagation, shadowing, effect-order, and rejection coverage. |
 | T2 — Lexer/parser and AST consumers | IMPLEMENTED / FOCUSED_TESTED | Dedicated coefficient/axis nodes, numeric grammar integration, atomic errors, and exhaustive consumers compile. Two focused syntax tests pass; all four new syntax tests passed in the larger AST run. |
 | T3 — Source-owned basis/Quaternion algebra | PARTIAL / UNVERIFIED | The class-side trait decision is resolved. Side-aware requirements/witnesses and `Zero`, `One`, `RealEmbeddable`, and `BasisRealizable` source APIs are implemented. Rust crates compile; source-level conformance and runtime acceptance remain unverified. |
-| T4 — Canonical semantic realization | PARTIAL / UNVERIFIED | Canonical products cover direct basis/suffix realization, `RealEmbeddable` scalar terms, and bounded arithmetic regions selected from canonical basis identities and known scalar types. Explicit targets win; completed bindings remain boundaries; unresolved scalar types fail closed. Source acceptance, inference boundaries, and incremental parity remain unverified. |
-| T5 — Compiler projection and lowering | PARTIAL / UNVERIFIED | Direct and assumed generic class-side operations project and lower. Expression coefficients support both `scalar * basis` and `basis * scalar`; the latter stages the basis value while preserving source order. Real embeddings lower through the checked class-side requirement. Source acceptance and compiler/runtime coverage remain outstanding. |
+| T4 — Canonical semantic realization | PARTIAL / UNVERIFIED | Canonical products cover direct basis/suffix realization, `RealEmbeddable` scalar terms, and bounded arithmetic regions selected from canonical basis identities and known scalar types. F4 semantic proof publication is implemented with exact-key query roots and pre-replay refresh. The decoy/associated-projection proof regression passed; the cross-module negative-to-positive regression is added and compile-checked but not executed. Broader source acceptance, inference boundaries, and incremental parity remain unverified. |
+| T5 — Compiler projection and lowering | PARTIAL / UNVERIFIED | Direct and assumed generic class-side operations project and lower. F4's compiler consumer now uses published exact trait-header proofs and canonical slot identities, with unsupported recursive/runtime shapes failing closed. Core and test targets compile; source/runtime acceptance remains outstanding. |
 | T6 — Acceptance and lifecycle | PARTIAL | Interim evidence and blocker records are delivered at the user-requested stop. Full feature acceptance is red. |
 
 ## Resume gates

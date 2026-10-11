@@ -417,3 +417,40 @@ certification was deliberately deferred. No numerical source rewrites,
 capability bypasses, or larger semantic stack were used as fixes.
 Diagnostic trace output is environment-gated by
 `PHALCOM_TRACE_SEMANTIC_BOOTSTRAP`.
+
+## 15. F4 exact trait-header proof publication and projection — 2026-10-11
+
+`phalcom-semantic::impls` now retains the normalized instantiated trait-header
+contract on raw exact witness evidence, including associated-projection
+normalization. The generic proof session proves that contract with lexical
+assumptions disabled and publishes the completed conformance proof map only on
+success. Fingerprinting includes the normalized contract and selected nested
+proof identities.
+
+Added the context-independent `GenericConformance` semantic query product keyed
+by the full `GenericConformanceKey`. Its current-input fingerprint includes
+exact matching source heads and substitutions, the current trait
+surface/header signature, and trait-local derived-rule candidates. Session
+updates refresh known proof roots after rebuilding conformance inputs and
+before body dependency replay. Callable consumers record exact and negative
+canonical proof dependencies. Changed proof fingerprints are included in the
+conformance-client reanalysis worklist, covering a prior negative proof that
+has no selected witness edge.
+
+Compiler projection now maps the normalized exact obligation to the published
+proof and uses the trait signature's `GenericEvidenceSlotKey` layout to project
+the selected requirement. The old scan by trait declaration and nominal
+family was removed. Only direct exact prerequisites whose own proof-complete
+runtime environment has no conformance slots are supported. Raw, assumed,
+derived, and recursive prerequisite environments return typed projection
+errors before legacy fallback. Recursive VM materialization remains deferred.
+
+The associated-projection/decoy semantic proof regression passed (1 selected).
+`cargo check -p phalcom-semantic` and `cargo check -p phalcom-core` passed; both
+packages' `--tests` targets compiled. A negative-to-positive incremental
+regression was added and strengthened to use separate provider/consumer
+modules, but that final form was only compile-checked. The repository-wide
+format check is red on formatting diffs across multiple existing files; no
+mass formatting was applied. `git diff --check` passed. F4 semantic proof
+publication is implemented with focused evidence; compiler runtime behavior
+and broader source, package, and workspace acceptance remain open.

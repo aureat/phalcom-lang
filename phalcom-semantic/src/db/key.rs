@@ -45,6 +45,10 @@ pub enum QueryKey {
     TraitSurface(DeclarationId),
     ConformanceDispatch(crate::identity::ImplId),
     TraitDispatchBucket(crate::trait_dispatch::TraitDispatchBucketKey),
+    /// Context-independent canonical proof query for one exact generic
+    /// conformance proposition. Lexical assumptions are never part of this
+    /// cached product; callers retain contextual evidence on their owner.
+    GenericConformance(crate::generic_evidence::GenericConformanceKey),
     /// Canonical accepted source definition for one callable.
     CallableDefinition(CallableId),
     HierarchyEdge(DeclarationId),

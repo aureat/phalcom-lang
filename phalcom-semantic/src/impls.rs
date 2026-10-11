@@ -22,7 +22,7 @@ use crate::types::evidence::{TypeKnowledge, UnknownReason};
 use crate::types::id::{KindId, RecordRowId, TypeId, TypeParameterId};
 use crate::types::instantiation::{GenericInstantiation, RowMaterializationMode, TypeMaterializationError, materialize_type};
 use crate::types::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationOutcome};
-use crate::types::parameter::{GenericParameterMode, GenericSignature, TypeParameterOwner, TypeTerm};
+use crate::types::parameter::{GenericConstraint, GenericParameterMode, GenericSignature, TypeParameterOwner, TypeTerm};
 use crate::types::row::RecordRowTail;
 use crate::types::store::{StaticArgument, TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
@@ -386,7 +386,6 @@ impl CoveringImplSubstitution {
     }
 }
 
-use crate::types::parameter::GenericConstraint;
 use crate::types::relation::{TypeHierarchy, check_subtype_bounded};
 
 /// First-class domain representing the specialized or constrained applicability scope of an inherent `impl` block.
@@ -1918,6 +1917,16 @@ pub struct ConformanceEvidence {
     pub requirement_views: BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
     pub requirements: BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
     pub associated_types: BTreeMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
+    /// Trait-header constraints instantiated for this exact target and trait
+    /// application, with exact associated projections normalized. The raw
+    /// witness resolver records these obligations; the generic proof session
+    /// must prove them before publishing `GenericConformanceEvidence::Exact`.
+    pub trait_header_contract: Box<[GenericConstraint]>,
+    /// Canonical proofs for conformance obligations in `trait_header_contract`.
+    /// `None` marks a raw witness that has not passed the generic proof session;
+    /// `Some(empty)` is a proof-complete exact witness with no conformance
+    /// prerequisites.
+    pub trait_header_conformance_proofs: Option<BTreeMap<crate::generic_evidence::GenericConformanceKey, crate::generic_evidence::GenericConformanceEvidence>>,
     pub fingerprint: ProductFingerprint,
 }
 
@@ -2357,6 +2366,7 @@ fn conformance_evidence_fingerprint(
     requirement_views: &BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
     requirements: &BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
     associated_types: &BTreeMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
+    trait_header_contract: &[GenericConstraint],
 ) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
     source_plan.hash(&mut hasher);
@@ -2376,7 +2386,60 @@ fn conformance_evidence_fingerprint(
         binding.value.hash(&mut hasher);
         binding.source_impl.hash(&mut hasher);
     }
+    trait_header_contract.hash(&mut hasher);
     ProductFingerprint::new(hasher.finish())
+}
+
+fn normalize_exact_contract_term(
+    store: &mut TypeStore,
+    term: TypeTerm,
+    normalization: &mut crate::types::ProjectionNormalizationContext<'_>,
+) -> Result<TypeTerm, crate::types::ProjectionNormalizationResult> {
+    let TypeTerm::Canonical(ty) = term else {
+        return Ok(term);
+    };
+    match crate::types::normalize_type(store, ty, normalization) {
+        crate::types::ProjectionNormalizationResult::Normalized(ty) | crate::types::ProjectionNormalizationResult::Symbolic(ty) => {
+            Ok(TypeTerm::Canonical(ty))
+        }
+        other => Err(other),
+    }
+}
+
+fn normalize_exact_contract_trait_ref(
+    store: &mut TypeStore,
+    trait_ref: TraitRef,
+    normalization: &mut crate::types::ProjectionNormalizationContext<'_>,
+) -> Result<TraitRef, crate::types::ProjectionNormalizationResult> {
+    let mut arguments = Vec::with_capacity(trait_ref.arguments.len());
+    for argument in trait_ref.arguments.iter().copied() {
+        match crate::types::normalize_type(store, argument, normalization) {
+            crate::types::ProjectionNormalizationResult::Normalized(ty) | crate::types::ProjectionNormalizationResult::Symbolic(ty) => arguments.push(ty),
+            other => return Err(other),
+        }
+    }
+    Ok(TraitRef::new(trait_ref.declaration, arguments))
+}
+
+fn normalize_exact_trait_contract_constraint(
+    store: &mut TypeStore,
+    constraint: GenericConstraint,
+    normalization: &mut crate::types::ProjectionNormalizationContext<'_>,
+) -> Result<GenericConstraint, crate::types::ProjectionNormalizationResult> {
+    match constraint {
+        GenericConstraint::Conforms { subject, trait_ref } => Ok(GenericConstraint::Conforms {
+            subject: normalize_exact_contract_term(store, subject, normalization)?,
+            trait_ref: normalize_exact_contract_trait_ref(store, trait_ref, normalization)?,
+        }),
+        GenericConstraint::Equivalent { left, right } => Ok(GenericConstraint::Equivalent {
+            left: normalize_exact_contract_term(store, left, normalization)?,
+            right: normalize_exact_contract_term(store, right, normalization)?,
+        }),
+        GenericConstraint::Subtype { lower, upper } => Ok(GenericConstraint::Subtype {
+            lower: normalize_exact_contract_term(store, lower, normalization)?,
+            upper: normalize_exact_contract_term(store, upper, normalization)?,
+        }),
+    }
 }
 
 /// Instantiates a complete source plan for one exact P1 head match without
@@ -2542,75 +2605,50 @@ pub fn resolve_conformance_evidence_with_surfaces(
         };
         associated_types.get_mut(requirement).expect("associated binding remains staged").value = AssociatedTypeBindingValue::Type(value);
     }
+    let mut trait_header_contract = Vec::new();
     if let Some(signature) = &trait_surface.generic_signature {
-        if !signature.constraints.is_empty() {
-            let contract_constraints = crate::traits::instantiate_trait_generic_contract_for_term(store, signature, &TypeTerm::Canonical(target), trait_ref);
-            for constraint in contract_constraints {
-                let mut budget = QueryBudget::default();
-                let cancel = CancellationToken::new();
-                let mut normalization_context = crate::types::ProjectionNormalizationContext::new(
-                    crate::types::ProjectionNormalizationMode::Exact {
-                        conformance_index: index,
-                        witness_plans: plans,
-                        trait_surfaces,
-                        derived_rules: None,
-                        declarations,
-                        hierarchy,
-                    },
-                    &mut budget,
-                    &cancel,
-                )
-                .with_current_exact_evidence(target, trait_ref, &associated_types);
+        let contract_constraints = crate::traits::instantiate_trait_generic_contract_for_term(store, signature, &TypeTerm::Canonical(target), trait_ref);
+        trait_header_contract.reserve(contract_constraints.len());
+        for constraint in contract_constraints {
+            let mut budget = QueryBudget::default();
+            let cancel = CancellationToken::new();
+            let mut normalization_context = crate::types::ProjectionNormalizationContext::new(
+                crate::types::ProjectionNormalizationMode::Exact {
+                    conformance_index: index,
+                    witness_plans: plans,
+                    trait_surfaces,
+                    derived_rules: None,
+                    declarations,
+                    hierarchy,
+                },
+                &mut budget,
+                &cancel,
+            )
+            .with_current_exact_evidence(target, trait_ref, &associated_types);
+            let constraint = match normalize_exact_trait_contract_constraint(store, constraint, &mut normalization_context) {
+                Ok(constraint) => constraint,
+                Err(result) => return projection_result_to_conformance_resolution(result, head.impl_id.clone()),
+            };
 
-                match constraint {
-                    GenericConstraint::Conforms {
-                        subject,
-                        trait_ref: c_trait_ref,
-                    } => {
-                        let norm_subject = match subject {
-                            TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut normalization_context) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t) | crate::types::ProjectionNormalizationResult::Symbolic(t) => {
-                                    TypeTerm::Canonical(t)
-                                }
-                                other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
-                            },
-                            other => other,
-                        };
-                        if let TypeTerm::Canonical(target_ty) = norm_subject {
-                            let matches = index.query_exact(store, target_ty, &c_trait_ref);
-                            if matches.is_empty() {
-                                return ConformanceResolution::InvalidSource(head.impl_id.clone());
-                            }
-                        }
+            match &constraint {
+                GenericConstraint::Conforms {
+                    subject: TypeTerm::Canonical(target_ty),
+                    trait_ref: prerequisite_trait,
+                } => {
+                    if index.query_exact(store, *target_ty, prerequisite_trait).is_empty() {
+                        return ConformanceResolution::InvalidSource(head.impl_id.clone());
                     }
-                    GenericConstraint::Equivalent { left, right } => {
-                        let norm_left = match left {
-                            TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut normalization_context) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t) | crate::types::ProjectionNormalizationResult::Symbolic(t) => {
-                                    TypeTerm::Canonical(t)
-                                }
-                                other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
-                            },
-                            other => other,
-                        };
-                        let norm_right = match right {
-                            TypeTerm::Canonical(ty) => match crate::types::normalize_type(store, ty, &mut normalization_context) {
-                                crate::types::ProjectionNormalizationResult::Normalized(t) | crate::types::ProjectionNormalizationResult::Symbolic(t) => {
-                                    TypeTerm::Canonical(t)
-                                }
-                                other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
-                            },
-                            other => other,
-                        };
-                        if norm_left != norm_right {
-                            return ConformanceResolution::InvalidSource(head.impl_id.clone());
-                        }
-                    }
-                    GenericConstraint::Subtype { .. } => {}
                 }
+                GenericConstraint::Conforms { .. } => return ConformanceResolution::InvalidSource(head.impl_id.clone()),
+                GenericConstraint::Equivalent { left, right } if left != right => {
+                    return ConformanceResolution::InvalidSource(head.impl_id.clone());
+                }
+                GenericConstraint::Equivalent { .. } | GenericConstraint::Subtype { .. } => {}
             }
+            trait_header_contract.push(constraint);
         }
     }
+    let trait_header_contract = trait_header_contract.into_boxed_slice();
     let mut requirement_views = trait_surface.instantiate(store, &environment);
     for (requirement, view) in &mut requirement_views {
         if !view.signature.declared_return.is_unknown() {
@@ -2649,6 +2687,7 @@ pub fn resolve_conformance_evidence_with_surfaces(
         &requirement_views,
         &requirements,
         &associated_types,
+        &trait_header_contract,
     );
     ConformanceResolution::Proven(Arc::new(ConformanceEvidence {
         source_impl: head.impl_id.clone(),
@@ -2658,6 +2697,8 @@ pub fn resolve_conformance_evidence_with_surfaces(
         requirement_views,
         requirements,
         associated_types,
+        trait_header_contract,
+        trait_header_conformance_proofs: None,
         fingerprint,
     }))
 }

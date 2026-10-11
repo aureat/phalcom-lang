@@ -5770,6 +5770,37 @@ impl SemanticWorkspaceSession {
             ))?;
         }
 
+        // Generic-conformance roots include negative proof rows and nested
+        // obligations whose own candidate slices may have changed. Refresh
+        // every previously observed exact proposition against the rebuilt
+        // conformance view before cached bodies replay their dependencies.
+        // This is necessary for negative-to-positive transitions: a missing
+        // proof has no selected ConformanceDispatch edge to seed its clients.
+        let generic_conformance_roots = self
+            .db
+            .query_keys()
+            .filter_map(|key| match key {
+                QueryKey::GenericConformance(conformance_key) => Some(conformance_key.clone()),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        let mut changed_generic_conformance_roots = BTreeSet::new();
+        for conformance_key in generic_conformance_roots {
+            let query_key = QueryKey::GenericConformance(conformance_key.clone());
+            let previous_fingerprint = self.db.ready_product_fingerprint(&query_key);
+            ready_or_error(crate::db::query::refresh_generic_conformance_root(
+                &mut self.db,
+                &conformance_key,
+                &conformance_semantics,
+                &declarations,
+                &hierarchy,
+                Arc::make_mut(&mut self.store),
+            ))?;
+            if previous_fingerprint != self.db.ready_product_fingerprint(&query_key) {
+                changed_generic_conformance_roots.insert(query_key);
+            }
+        }
+
         // Trait defaults are checked once against the complete abstract
         // contract. They receive the trait header directly instead of
         // looking for a nominal declaration entry, and their `Self` receiver
@@ -6702,6 +6733,7 @@ impl SemanticWorkspaceSession {
             .cloned()
             .map(QueryKey::ConformanceDispatch)
             .chain(changed_bucket_keys)
+            .chain(changed_generic_conformance_roots)
             .collect::<BTreeSet<_>>();
         let changed_plan_clients = self
             .db
@@ -10319,6 +10351,7 @@ fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::SourceFormalAttachment(callable)
         | QueryKey::AdvisoryCallable(callable) => Some(callable.module()),
         QueryKey::ConformanceDispatch(impl_id) => Some(&impl_id.module),
+        QueryKey::GenericConformance(key) => Some(&key.trait_ref.declaration.module),
         QueryKey::TraitDispatchBucket(bucket) => match &bucket.target_family {
             crate::trait_dispatch::TraitDispatchTargetFamily::Declaration(decl) => Some(&decl.module),
             crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(variant) => Some(&variant.owner.module),

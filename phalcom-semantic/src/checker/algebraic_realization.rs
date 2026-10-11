@@ -753,6 +753,7 @@ fn resolve_capability(
         return None;
     }
     let trait_ref = TraitRef::new(trait_declaration.clone(), trait_arguments.to_vec().into_boxed_slice());
+    let conformance_key = crate::generic_evidence::GenericConformanceKey::new(TypeTerm::Canonical(subject), trait_ref.clone());
     let proof = crate::generic_evidence::query_generic_conformance_proof(
         &TypeTerm::Canonical(subject),
         &trait_ref,
@@ -765,6 +766,7 @@ fn resolve_capability(
         Some(ctx.hierarchy.inner()),
         Some(&mut *ctx.store),
     );
+    ctx.record_exact_conformance_query_dependency(&conformance_key, &proof);
     let selection = match proof {
         GenericConformanceProof::Proven(evidence @ (GenericConformanceEvidence::Exact(_) | GenericConformanceEvidence::Derived(_))) => {
             let selected = crate::trait_dispatch::selection_from_proven_requirement(evidence, subject, requirement, ctx.store)?;

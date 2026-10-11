@@ -524,6 +524,9 @@ pub enum SemanticDependency {
     TraitSurface(DeclarationId),
     ConformanceDispatch(ImplId),
     TraitDispatchBucket(crate::trait_dispatch::TraitDispatchBucketKey),
+    /// Context-independent exact proof state for one canonical proposition.
+    /// Contextual assumed/derived results remain embedded in their owner.
+    GenericConformance(crate::generic_evidence::GenericConformanceKey),
     HierarchyEdge(DeclarationId),
     LinkedInterface(ModuleId),
     DataDeclaration(DeclarationId),
