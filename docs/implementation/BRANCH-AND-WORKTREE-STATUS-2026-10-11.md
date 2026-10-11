@@ -112,6 +112,7 @@ local, unpushed commits:
 | `9fede15a` | Add inference diagnostic-range and Record-row identity regressions; align the metadata fixture with its Symbol-only remainder domain. |
 | `fd5f7835` | Preserve compiler scratch bookkeeping across the loop-pattern failure branch; update iteration fixtures. |
 | `7cf72a78` | Migrate core Bytes/Path/reflection fixtures to explicit typed collections and current package exposure semantics. |
+| `51d09753` | Format only the changed Rust ranges after the separate commits were reviewed. |
 
 The `foundations::static_constants` filter changed from 21 passed / 3 failed
 on the baseline to 25/25 passed after the signature-owner correction. The
@@ -120,3 +121,8 @@ also passed. Core runtime tests were not run because the existing core
 test-target compile blocker at `phalcom-core/src/vm/send.rs:1960` remains.
 The follow-up branch remains local and has not been merged into `main` or
 pushed; the original unaccepted branch remains available for comparison.
+
+Targeted rustfmt checking passed for 47 changed Rust ranges across 20 files.
+The earlier workspace-wide `cargo fmt --all -- --check` reported formatting
+differences across many files outside this follow-up; no repository-wide
+formatting sweep was applied.
