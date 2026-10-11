@@ -116,7 +116,7 @@ fn build_canonical_universe_linked_program(provider: &phalcom_modules::UniverseS
 
     Arc::new(
         phalcom_modules::ModuleLinker::new(universe, interfaces)
-            .link(phalcom_modules::ModuleId::universe_root(), &resolved)
+            .link_all(phalcom_modules::ModuleId::universe_root(), &resolved)
             .unwrap_or_else(|error| panic!("failed to link canonical Universe semantic baseline: {error}")),
     )
 }
@@ -8391,7 +8391,7 @@ impl SemanticWorkspaceSession {
     }
 }
 
-fn canonical_erased_superclass_declaration(resolver: &dyn TypeResolver, module: &ModuleId, annotation: &TypeAnnotation) -> Option<DeclarationId> {
+pub(crate) fn canonical_erased_superclass_declaration(resolver: &dyn TypeResolver, module: &ModuleId, annotation: &TypeAnnotation) -> Option<DeclarationId> {
     let TypeAnnotationExpr::Reference(reference) = &annotation.expr else {
         return None;
     };

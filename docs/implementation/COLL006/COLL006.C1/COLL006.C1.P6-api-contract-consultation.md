@@ -129,3 +129,36 @@ Return a compact decision list with:
 
 P6 will record the approved decisions in the C1 checkpoint and amend its
 implementation plan before adding the new public collection surfaces.
+
+## T2 ruling — approved contract (2026-10-11)
+
+The architect ruling was transmitted by the user from the attached T2 decision
+and approves the recommendations in §3 of
+`COLL006.C1.P6-repository-grounded-implementation-plan.md` as the P6 contract.
+The user confirmed that repository-grounded plan as the implementation plan to
+execute. The complete normative contract is now recorded in
+[`docs/specs/collection-families.md`](../../../specs/collection-families.md).
+
+The adopted rules include total-occurrence `MutableBag.size`, saturating bag
+removal, expanded bag iteration, overwrite-in-place `IndexedDict`, exact
+negative positional indexing with final-index move semantics, idempotent
+`OrderedSet.add`, strict positional duplicate insertion, strict factories for
+IndexedDict/OrderedSet, fail-fast source-order construction, the specified
+existing error conventions, and the specified equality directions. The
+existing Map/Set behavior and key admission rules remain protected.
+
+One implementation-level question remained open in the plan's §4.6 and was
+resolved directly by the user: equality takes GC-rooted snapshots of both
+operands' logical contents before the first user equality callback. User
+callbacks may mutate the live collections; those mutations commit normally,
+but cannot affect the comparison already in progress. This policy is now part
+of the normative specification and is mandatory for all three types.
+
+The IndexedDict reentrant overwrite rule is also fixed: the outer operation
+reads the value present at its own commit point as `Some(previousValue)`, then
+commits the requested outer value; the outer write wins. If the outer operation
+fails before commit, an already committed inner value overwrite is not rolled
+back.
+
+T2 architectural approval is complete. G2 remains open only until source-level
+contract oracles have been added and observed failing before implementation.

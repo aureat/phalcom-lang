@@ -6,6 +6,7 @@ mod canonical_baseline;
 mod binding_contracts;
 mod binding_init;
 mod canonical_call_application;
+mod canonical_universe_source_hierarchy;
 mod causal;
 mod coll006_c1_p1_contextual_literals;
 mod coll006_c1_p2_array;

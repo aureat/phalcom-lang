@@ -9,7 +9,7 @@ use crate::associated::{AssociatedFamilyTable, AssociatedSurface, build_associat
 use crate::checker::context::CheckingContext;
 use crate::data_semantics::DataSemanticTable;
 use crate::db::product::{DataDeclarationProduct, EnumDeclarationProduct, EnumRequirementsProduct, TypeMemberDeclarationProduct};
-use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, bootstrap_universe_declarations};
+use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{DispatchSide, SurfaceDispatchResolver};
 use crate::enum_requirements::{EnumRequirementTable, check_enum_requirements};
@@ -53,6 +53,25 @@ pub struct CanonicalUniverseSemanticBaseline {
 }
 
 static CANONICAL_UNIVERSE_SEMANTIC_BASELINE: OnceLock<CanonicalUniverseSemanticBaseline> = OnceLock::new();
+
+fn canonical_source_class_supertype_template(
+    store: &mut TypeStore,
+    declaration: &DeclarationId,
+    class_def: &phalcom_ast::ast::ClassDef,
+    superclass: &DeclarationId,
+) -> Option<GenericSupertypeTemplate> {
+    let annotation = class_def.superclass.as_ref()?;
+    assert!(
+        matches!(&annotation.expr, phalcom_ast::ast::TypeAnnotationExpr::Reference(_)),
+        "canonical Universe class {declaration:?} has an applied or non-nominal superclass; generic template support must be reconciled before baselining it"
+    );
+    // All current explicit Universe superclass forms are nominal references.
+    // The resolved parent identity comes from the shared source hierarchy
+    // resolver; GenericSupertypeTemplate remains the canonical owner-relative
+    // representation, including when the child itself has generic parameters.
+    let supertype = store.nominal_type(superclass.clone());
+    Some(GenericSupertypeTemplate::from_type(store, declaration.clone(), supertype))
+}
 
 /// Returns the process-shared canonical semantic Universe baseline, building it on first access.
 pub fn canonical_universe_semantic_baseline() -> &'static CanonicalUniverseSemanticBaseline {
@@ -265,6 +284,65 @@ impl CanonicalUniverseSemanticBaseline {
         }
         let resolver = LinkedTypeResolver::new(canonical_linked.clone(), known_declarations, ModuleId::universe_root())
             .with_trait_associated_types(Arc::new(trait_associated_types.clone()));
+
+        // Universe source owns class inheritance. Native metadata contributes
+        // implementation attachment and native-only relations; add each
+        // source-authored class edge from the same canonical resolver used by
+        // workspace HierarchyEdge queries before publishing inherited class
+        // surfaces. The current source census has 68 explicit `is` clauses,
+        // none with applied generic parents. Type-form resolution below also
+        // preserves templates for generic classes and future applied forms.
+        for node in provider.nodes() {
+            let path = phalcom_modules::ModulePath::from_components(
+                node.path
+                    .iter()
+                    .map(|p| phalcom_modules::ModuleComponent::from_identifier(p).expect("valid component"))
+                    .collect::<Vec<_>>(),
+            );
+            let module_id = phalcom_modules::ModuleId::universe(path);
+            let parsed = provider
+                .load_parsed(&module_id)
+                .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
+            for stmt in &parsed.program.statements {
+                let Statement::Class(class_def) = stmt else { continue };
+                let declaration = base_declarations
+                    .iter()
+                    .find_map(|(declaration, _)| {
+                        (declaration.module == module_id && declaration.name.as_ref() == class_def.name).then(|| declaration.clone())
+                    })
+                    .unwrap_or_else(|| panic!("canonical Universe class declaration is missing: {module_id}::{}", class_def.name));
+                let (resolved_super_decl, _) = crate::checker::context::resolve_source_class_superclass(&declaration, class_def, &resolver);
+                let source_super_decl = resolved_super_decl.or_else(|| {
+                    // A few runtime-owned source classes spell a parent that
+                    // is also represented by an exact native-meta edge. The
+                    // canonical linked program may not expose that implicit
+                    // prelude name as an import; accept it only when the
+                    // existing edge exactly matches the source name's
+                    // canonical Universe identity.
+                    let super_ref = class_def.superclass_ref()?;
+                    let key = phalcom_native_meta::UniverseKey::from_name(&super_ref.root)?;
+                    let expected = crate::core_surface::universe_declaration(key);
+                    (base_hierarchy.superclasses.get(&declaration) == Some(&expected)).then_some(expected)
+                });
+                if class_def.superclass.is_some() && source_super_decl.is_none() {
+                    panic!("could not resolve canonical Universe superclass for {declaration:?}: {:?}", class_def.superclass);
+                }
+                if let Some(super_decl) = source_super_decl.as_ref() {
+                    base_hierarchy.insert(declaration.clone(), super_decl.clone());
+                }
+                if let Some(super_decl) = source_super_decl.as_ref()
+                    && let Some(template) = canonical_source_class_supertype_template(&mut store, &declaration, class_def, super_decl)
+                {
+                    let mut info = base_declarations
+                        .get(&declaration)
+                        .cloned()
+                        .unwrap_or_else(|| panic!("canonical Universe declaration form is missing for {declaration:?}"));
+                    info.supertype_template = Some(template.clone());
+                    base_declarations.replace_authoritative(info);
+                    base_hierarchy.insert_template(template);
+                }
+            }
+        }
 
         // Publish source-authored class members into the reusable baseline.
         // Native metadata remains authoritative for colliding native members;

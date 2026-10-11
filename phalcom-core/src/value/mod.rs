@@ -166,6 +166,10 @@ impl Value {
                 Object::Fiber(_) => vm.universe.classes.fiber_class,
                 Object::Map(_) => vm.universe.classes.map_class,
                 Object::Set(_) => vm.universe.classes.set_class,
+                Object::MutableBag(_) => vm.universe.classes.mutable_bag_class,
+                Object::IndexedDict(_) => vm.universe.classes.indexed_dict_class,
+                Object::OrderedSet(_) => vm.universe.classes.ordered_set_class,
+                Object::Bag(_) => vm.universe.classes.bag_class,
                 Object::Tuple(_) => vm.universe.classes.tuple_class,
                 Object::Record(_) => vm.universe.classes.record_class,
                 Object::Pack(_) => vm.universe.classes.pack_class,
@@ -212,6 +216,7 @@ impl Value {
                 Object::Upvalue(_) => panic!("upvalues are not surface values"),
                 Object::PackBuilder(_) => panic!("pack builders are not surface values"),
                 Object::RecordLiteralBuilder(_) => panic!("Record literal builders are not surface values"),
+                Object::PersistentHashNode(_) => panic!("persistent hash nodes are not surface values"),
             };
         }
         panic!("invalid Value tag in class()")
@@ -260,6 +265,10 @@ impl Value {
                 | Object::Fiber(_)
                 | Object::Map(_)
                 | Object::Set(_)
+                | Object::MutableBag(_)
+                | Object::IndexedDict(_)
+                | Object::OrderedSet(_)
+                | Object::Bag(_)
                 | Object::Tuple(_)
                 | Object::Record(_)
                 | Object::Pack(_)
@@ -290,6 +299,7 @@ impl Value {
                 | Object::Uri(_) => CallContext::Instance { instance: id },
                 Object::PackBuilder(_) => panic!("pack builders are not surface receivers"),
                 Object::RecordLiteralBuilder(_) => panic!("Record literal builders are not surface receivers"),
+                Object::PersistentHashNode(_) => panic!("persistent hash nodes are not surface receivers"),
                 Object::Class(_) => CallContext::Class { class: id },
                 Object::Module(_) => CallContext::Module { module: id },
                 Object::Upvalue(_) => panic!("upvalues are not surface receivers"),

@@ -32,17 +32,32 @@ use crate::primitive::int::{
     int_and, int_bit_at, int_bit_count, int_bit_length, int_class_new, int_class_raw_parse, int_not, int_or, int_raw_to_string_radix, int_shl, int_shr,
     int_trailing_zeros, int_xor,
 };
+use crate::primitive::indexed_dict::{
+    indexed_dict_class_new, indexed_dict_raw_clear, indexed_dict_raw_index_of_key, indexed_dict_raw_insert_at, indexed_dict_raw_key_at,
+    indexed_dict_raw_move, indexed_dict_raw_put, indexed_dict_raw_remove_at, indexed_dict_raw_size, indexed_dict_raw_value_at,
+};
 use crate::primitive::array::{array_raw_at, array_raw_length, array_raw_set, array_to_string};
 use crate::primitive::list::{
     list_class_new, list_class_with_capacity, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_replace_slice, list_to_string,
 };
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
+use crate::primitive::mutable_bag::{
+    mutable_bag_class_new, mutable_bag_raw_add, mutable_bag_raw_at, mutable_bag_raw_clear, mutable_bag_raw_count,
+    mutable_bag_raw_count_at, mutable_bag_raw_distinct_count, mutable_bag_raw_remove, mutable_bag_raw_size,
+};
+use crate::primitive::bag::{
+    bag_class_new, bag_raw_adding, bag_raw_count, bag_raw_distinct_count, bag_raw_keys, bag_raw_removing, bag_raw_size,
+};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on_shape, method_selector};
 use crate::primitive::method_family::{method_family_bind, method_family_method_for_shape, method_family_selectors, method_family_size};
 use crate::primitive::module::{module_class_new, module_does_not_understand};
 use crate::primitive::number::{
     float_class_raw_parse, number_add, number_class_new, number_compare, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt,
     number_mod, number_mul, number_negate, number_pow, number_sub, number_to_string, number_unary_plus,
+};
+use crate::primitive::ordered_set::{
+    ordered_set_class_new, ordered_set_raw_add, ordered_set_raw_at, ordered_set_raw_clear, ordered_set_raw_index_of,
+    ordered_set_raw_insert_at, ordered_set_raw_move, ordered_set_raw_remove_at, ordered_set_raw_replace_at, ordered_set_raw_size,
 };
 use crate::primitive::object::{
     message_args, message_labels, message_name, message_selector, object_class, object_does_not_understand, object_eq, object_hash, object_invariant_enter,
@@ -732,6 +747,50 @@ impl Universe {
         primitive_internal!(vm, set_cls, "rawRemove", SignatureKind::Method(1), set_raw_remove);
         primitive_internal!(vm, set_cls, "rawAt", SignatureKind::Method(1), set_raw_at);
 
+        let mutable_bag_cls = vm.universe.classes.mutable_bag_class;
+        primitive_static!(vm, mutable_bag_cls, "new", SignatureKind::Method(0), mutable_bag_class_new);
+        primitive_internal!(vm, mutable_bag_cls, "rawSize", SignatureKind::Getter, mutable_bag_raw_size);
+        primitive_internal!(vm, mutable_bag_cls, "rawDistinctCount", SignatureKind::Getter, mutable_bag_raw_distinct_count);
+        primitive_internal!(vm, mutable_bag_cls, "rawCount", SignatureKind::Method(1), mutable_bag_raw_count);
+        primitive_internal!(vm, mutable_bag_cls, "rawAdd", SignatureKind::Method(2), mutable_bag_raw_add);
+        primitive_internal!(vm, mutable_bag_cls, "rawRemove", SignatureKind::Method(2), mutable_bag_raw_remove);
+        primitive_internal!(vm, mutable_bag_cls, "rawAt", SignatureKind::Method(1), mutable_bag_raw_at);
+        primitive_internal!(vm, mutable_bag_cls, "rawCountAt", SignatureKind::Method(1), mutable_bag_raw_count_at);
+        primitive_internal!(vm, mutable_bag_cls, "rawClear", SignatureKind::Getter, mutable_bag_raw_clear);
+
+        let indexed_dict_cls = vm.universe.classes.indexed_dict_class;
+        primitive_static!(vm, indexed_dict_cls, "new", SignatureKind::Method(0), indexed_dict_class_new);
+        primitive_internal!(vm, indexed_dict_cls, "rawSize", SignatureKind::Getter, indexed_dict_raw_size);
+        primitive_internal!(vm, indexed_dict_cls, "rawPut", SignatureKind::Method(2), indexed_dict_raw_put);
+        primitive_internal!(vm, indexed_dict_cls, "rawKeyAt", SignatureKind::Method(1), indexed_dict_raw_key_at);
+        primitive_internal!(vm, indexed_dict_cls, "rawValueAt", SignatureKind::Method(1), indexed_dict_raw_value_at);
+        primitive_internal!(vm, indexed_dict_cls, "rawInsertAt", SignatureKind::Method(3), indexed_dict_raw_insert_at);
+        primitive_internal!(vm, indexed_dict_cls, "rawMove", SignatureKind::Method(2), indexed_dict_raw_move);
+        primitive_internal!(vm, indexed_dict_cls, "rawRemoveAt", SignatureKind::Method(1), indexed_dict_raw_remove_at);
+        primitive_internal!(vm, indexed_dict_cls, "rawIndexOfKey", SignatureKind::Method(1), indexed_dict_raw_index_of_key);
+        primitive_internal!(vm, indexed_dict_cls, "rawClear", SignatureKind::Getter, indexed_dict_raw_clear);
+
+        let ordered_set_cls = vm.universe.classes.ordered_set_class;
+        primitive_static!(vm, ordered_set_cls, "new", SignatureKind::Method(0), ordered_set_class_new);
+        primitive_internal!(vm, ordered_set_cls, "rawSize", SignatureKind::Getter, ordered_set_raw_size);
+        primitive_internal!(vm, ordered_set_cls, "rawAdd", SignatureKind::Method(1), ordered_set_raw_add);
+        primitive_internal!(vm, ordered_set_cls, "rawAt", SignatureKind::Method(1), ordered_set_raw_at);
+        primitive_internal!(vm, ordered_set_cls, "rawIndexOf", SignatureKind::Method(1), ordered_set_raw_index_of);
+        primitive_internal!(vm, ordered_set_cls, "rawInsertAt", SignatureKind::Method(2), ordered_set_raw_insert_at);
+        primitive_internal!(vm, ordered_set_cls, "rawReplaceAt", SignatureKind::Method(2), ordered_set_raw_replace_at);
+        primitive_internal!(vm, ordered_set_cls, "rawMove", SignatureKind::Method(2), ordered_set_raw_move);
+        primitive_internal!(vm, ordered_set_cls, "rawRemoveAt", SignatureKind::Method(1), ordered_set_raw_remove_at);
+        primitive_internal!(vm, ordered_set_cls, "rawClear", SignatureKind::Getter, ordered_set_raw_clear);
+
+        let bag_cls = vm.universe.classes.bag_class;
+        primitive_static!(vm, bag_cls, "new", SignatureKind::Method(0), bag_class_new);
+        primitive_internal!(vm, bag_cls, "rawSize", SignatureKind::Getter, bag_raw_size);
+        primitive_internal!(vm, bag_cls, "rawDistinctCount", SignatureKind::Getter, bag_raw_distinct_count);
+        primitive_internal!(vm, bag_cls, "rawCount", SignatureKind::Method(1), bag_raw_count);
+        primitive_internal!(vm, bag_cls, "rawAdding", SignatureKind::Method(2), bag_raw_adding);
+        primitive_internal!(vm, bag_cls, "rawRemoving", SignatureKind::Method(2), bag_raw_removing);
+        primitive_internal!(vm, bag_cls, "rawKeys", SignatureKind::Getter, bag_raw_keys);
+
         // Kernel `Tuple`: raw immutable lane observations only — no mutation.
         // immutability is structural (TupleObject's Box<[Value]>). `.ph`'s
         // `at(_)`/`size`/`each(_)`/`==`/`!=`/`hash` wrap these in `core.ph`.
@@ -909,6 +968,10 @@ fn validate_native_surface(vm: &VM) {
         classes.list_class,
         classes.map_class,
         classes.set_class,
+        classes.mutable_bag_class,
+        classes.indexed_dict_class,
+        classes.ordered_set_class,
+        classes.bag_class,
         classes.tuple_class,
         classes.pack_class,
         classes.record_class,

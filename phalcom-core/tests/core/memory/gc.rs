@@ -491,3 +491,93 @@ fn ensure_raised_error_survives_collecting_cleanup() {
         .verify_invariants(&vm.heap)
         .expect("kernel invariants must hold after the rooted-raise collection");
 }
+
+/// **Persistent hash trie nodes participate in precise mark/sweep GC (INV-11).**
+///
+/// Unaffected nodes shared across versions survive when one root is retained;
+/// unique nodes of dropped versions are reclaimed; all nodes reclaim when all roots drop.
+#[test]
+fn persistent_hash_nodes_participate_in_precise_gc_tracing_and_reclamation() {
+    use phalcom_core::heap::PersistentHashNode;
+
+    let (mut vm, _baseline) = settled_vm();
+
+    let string_child = vm.alloc_string_value("retained through shared persistent leaf".to_string());
+    let string_handle = string_child.as_obj().expect("string handle");
+
+    // Shared leaf
+    let shared_leaf = vm.heap.alloc_persistent_hash_node(PersistentHashNode::new_leaf(
+        100,
+        Value::int(1),
+        string_child,
+    ));
+
+    // Unique leaf for v1
+    let v1_unique = vm.heap.alloc_persistent_hash_node(PersistentHashNode::new_leaf(
+        200,
+        Value::int(2),
+        Value::int(20),
+    ));
+
+    // Unique leaf for v2
+    let v2_unique = vm.heap.alloc_persistent_hash_node(PersistentHashNode::new_leaf(
+        300,
+        Value::int(3),
+        Value::int(30),
+    ));
+
+    // Branch 1 (v1 root) sharing shared_leaf + v1_unique
+    let branch1 = vm.heap.alloc_persistent_hash_node(PersistentHashNode::new_branch(
+        (1 << 0) | (1 << 1),
+        Box::new([shared_leaf, v1_unique]),
+    ));
+
+    // Branch 2 (v2 root) sharing shared_leaf + v2_unique
+    let branch2 = vm.heap.alloc_persistent_hash_node(PersistentHashNode::new_branch(
+        (1 << 0) | (1 << 2),
+        Box::new([shared_leaf, v2_unique]),
+    ));
+
+    // Root both versions
+    vm.push_root_for_test(Value::obj(branch1));
+    vm.push_root_for_test(Value::obj(branch2));
+
+    vm.force_gc();
+
+    // Everything survives
+    assert!(vm.heap.try_get(branch1).is_some(), "branch1 survives while rooted");
+    assert!(vm.heap.try_get(branch2).is_some(), "branch2 survives while rooted");
+    assert!(vm.heap.try_get(shared_leaf).is_some(), "shared_leaf survives");
+    assert!(vm.heap.try_get(v1_unique).is_some(), "v1_unique survives");
+    assert!(vm.heap.try_get(v2_unique).is_some(), "v2_unique survives");
+    assert!(vm.heap.try_get(string_handle).is_some(), "string child traced through leaf survives");
+
+    // Drop v1 root (branch1 is popped)
+    // We pushed branch1 then branch2, so pop removes branch2, let's pop both and push only branch2
+    vm.pop_root_for_test(); // pops branch2
+    vm.pop_root_for_test(); // pops branch1
+    vm.push_root_for_test(Value::obj(branch2)); // re-root only branch2
+
+    vm.force_gc();
+
+    // v1 unique nodes are reclaimed
+    assert!(vm.heap.try_get(branch1).is_none(), "dropped branch1 is reclaimed");
+    assert!(vm.heap.try_get(v1_unique).is_none(), "v1_unique is reclaimed");
+
+    // v2 root, shared leaf, and child value survive
+    assert!(vm.heap.try_get(branch2).is_some(), "branch2 survives");
+    assert!(vm.heap.try_get(shared_leaf).is_some(), "shared_leaf survives via branch2");
+    assert!(vm.heap.try_get(v2_unique).is_some(), "v2_unique survives");
+    assert!(vm.heap.try_get(string_handle).is_some(), "string child survives");
+
+    // Drop v2 root as well
+    vm.pop_root_for_test();
+
+    vm.force_gc();
+
+    // All persistent nodes are reclaimed
+    assert!(vm.heap.try_get(branch2).is_none(), "branch2 reclaimed");
+    assert!(vm.heap.try_get(shared_leaf).is_none(), "shared_leaf reclaimed");
+    assert!(vm.heap.try_get(v2_unique).is_none(), "v2_unique reclaimed");
+    assert!(vm.heap.try_get(string_handle).is_none(), "string child reclaimed");
+}

@@ -736,24 +736,10 @@ pub fn query_hierarchy_edge(
         return query_failure(db, key, format!("source declaration {class_decl:?} was not found in its parsed module"));
     }
     let superclass_syntax = class_def.and_then(|class_def| superclass_source(&unit, class_def));
-    let mut captured_dependencies = BTreeSet::new();
-    let super_decl = if let Some(class_def) = class_def {
-        if let Some(super_ref) = class_def.superclass_ref() {
-            let members = super_ref.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
-            let (resolved, dependencies) =
-                crate::checker::context::resolve_type_name_with_dependencies(resolver, &class_decl.module, &super_ref.root, &members);
-            captured_dependencies.extend(dependencies);
-            resolved.or_else(|| match (super_ref.root.as_str(), members.is_empty()) {
-                ("Some", true) => Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Some)),
-                ("None", true) => Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::None)),
-                _ => None,
-            })
-        } else {
-            let object = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object);
-            (class_decl != object).then_some(object)
-        }
+    let (super_decl, captured_dependencies) = if let Some(class_def) = class_def {
+        crate::checker::context::resolve_source_class_superclass(&class_decl, class_def, resolver)
     } else {
-        Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object))
+        (Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object)), BTreeSet::new())
     };
     let input_fingerprint = if let Some(class_def) = class_def {
         crate::db::fingerprint::hierarchy_edge_input_fingerprint(&class_decl, superclass_source(&unit, class_def), &super_decl)

@@ -290,6 +290,33 @@ pub(crate) fn resolve_type_name_with_dependencies(
     (resolved, dependencies.borrow().clone())
 }
 
+/// Resolves the declaration-level parent of a source class using the same
+/// canonical name-resolution path used by formal hierarchy queries.
+///
+/// The returned dependencies are recorded by workspace queries. Immutable
+/// Universe baseline construction consumes the same declaration result but
+/// does not need workspace invalidation edges.
+pub(crate) fn resolve_source_class_superclass(
+    class_decl: &DeclarationId,
+    class_def: &phalcom_ast::ast::ClassDef,
+    resolver: &dyn TypeResolver,
+) -> (Option<DeclarationId>, BTreeSet<SemanticDependency>) {
+    let super_decl = if let Some(super_ref) = class_def.superclass_ref() {
+        let members = super_ref.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+        let (resolved, dependencies) = resolve_type_name_with_dependencies(resolver, &class_decl.module, &super_ref.root, &members);
+        let resolved = resolved.or_else(|| match (super_ref.root.as_str(), members.is_empty()) {
+            ("Some", true) => Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Some)),
+            ("None", true) => Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::None)),
+            _ => None,
+        });
+        return (resolved, dependencies);
+    } else {
+        let object = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object);
+        (class_decl != &object).then_some(object)
+    };
+    (super_decl, BTreeSet::new())
+}
+
 impl TypeResolver for TrackingTypeResolver<'_> {
     fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
         if is_query_owned_module(current_module) {

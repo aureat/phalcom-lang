@@ -122,6 +122,10 @@ impl Universe {
         // no `.ph` construct" load-order rationale as ADR-0020).
         let map_class = make_core_class(heap, "Map", collection_class, metaclass_class);
         let set_class = make_core_class(heap, "Set", collection_class, metaclass_class);
+        let mutable_bag_class = make_core_class(heap, "MutableBag", collection_class, metaclass_class);
+        let indexed_dict_class = make_core_class(heap, "IndexedDict", collection_class, metaclass_class);
+        let ordered_set_class = make_core_class(heap, "OrderedSet", collection_class, metaclass_class);
+        let bag_class = make_core_class(heap, "Bag", collection_class, metaclass_class);
 
         // Kernel `Tuple` (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 2): a fixed
         // immutable slice — the opposite mutability corner from `List`/`Map`/
@@ -237,6 +241,10 @@ impl Universe {
             buffer_class,
             map_class,
             set_class,
+            mutable_bag_class,
+            indexed_dict_class,
+            ordered_set_class,
+            bag_class,
             tuple_class,
             record_class,
             pack_class,
@@ -302,6 +310,10 @@ impl Universe {
             res.buffer_class,
             res.map_class,
             res.set_class,
+            res.mutable_bag_class,
+            res.indexed_dict_class,
+            res.ordered_set_class,
+            res.bag_class,
             res.tuple_class,
             res.record_class,
             res.pack_class,
@@ -479,6 +491,14 @@ pub struct CoreClasses {
     /// sharing [`crate::heap::MapObject`]'s backing struct (DEC-CT-B), reached
     /// through the distinct [`crate::heap::Object::Set`] heap variant.
     pub set_class: ClassId,
+    /// `MutableBag`, a mutable exact-multiplicity hash collection.
+    pub mutable_bag_class: ClassId,
+    /// `IndexedDict`, a mutable ordered mapping with explicit positional access.
+    pub indexed_dict_class: ClassId,
+    /// `OrderedSet`, a mutable unique collection whose order is semantic.
+    pub ordered_set_class: ClassId,
+    /// `Bag`, a persistent immutable multiset backed by persistent hash trie.
+    pub bag_class: ClassId,
     /// `Tuple`, the native fixed-arity immutable product
     /// ([ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
@@ -618,6 +638,10 @@ impl CoreClasses {
             UniverseKey::Buffer => self.buffer_class,
             UniverseKey::Map => self.map_class,
             UniverseKey::Set => self.set_class,
+            UniverseKey::MutableBag => self.mutable_bag_class,
+            UniverseKey::IndexedDict => self.indexed_dict_class,
+            UniverseKey::OrderedSet => self.ordered_set_class,
+            UniverseKey::Bag => self.bag_class,
             UniverseKey::Tuple => self.tuple_class,
             UniverseKey::Record => self.record_class,
             UniverseKey::Pack => self.pack_class,
@@ -713,6 +737,10 @@ impl CoreClasses {
             buffer_class,
             map_class,
             set_class,
+            mutable_bag_class,
+            indexed_dict_class,
+            ordered_set_class,
+            bag_class,
             tuple_class,
             record_class,
             pack_class,
@@ -783,6 +811,10 @@ impl CoreClasses {
             buffer_class,
             map_class,
             set_class,
+            mutable_bag_class,
+            indexed_dict_class,
+            ordered_set_class,
+            bag_class,
             tuple_class,
             record_class,
             pack_class,

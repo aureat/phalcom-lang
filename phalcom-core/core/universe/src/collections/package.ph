@@ -8,6 +8,10 @@ expose .slice
 expose .buffer
 expose .map
 expose .set
+expose .mutable_bag
+expose .indexed_dict
+expose .ordered_set
+expose .bag
 expose .tuple
 expose .pack
 expose .record

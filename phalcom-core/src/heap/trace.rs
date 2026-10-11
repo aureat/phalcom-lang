@@ -252,6 +252,44 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
                 trace_value(value, push);
             }
         }
+        Object::MutableBag(bag) => {
+            for (key, _) in bag.entries() {
+                trace_value(key, push);
+            }
+        }
+        Object::IndexedDict(dict) => {
+            for (key, value) in dict.entries() {
+                trace_value(key, push);
+                trace_value(value, push);
+            }
+        }
+        Object::OrderedSet(set) => {
+            for value in set.entries() {
+                trace_value(value, push);
+            }
+        }
+        Object::PersistentHashNode(node) => match &**node {
+            crate::heap::PersistentHashNode::Leaf { key, payload, .. } => {
+                trace_value(*key, push);
+                trace_value(*payload, push);
+            }
+            crate::heap::PersistentHashNode::Collision { entries, .. } => {
+                for (key, payload) in entries.iter() {
+                    trace_value(*key, push);
+                    trace_value(*payload, push);
+                }
+            }
+            crate::heap::PersistentHashNode::Branch { children, .. } => {
+                for &child in children.iter() {
+                    push(child);
+                }
+            }
+        },
+        Object::Bag(bag) => {
+            if let Some(root) = bag.root() {
+                push(root);
+            }
+        }
         // `Bytes` holds raw octets, never a `Value` — nothing to visit. An
         // explicit arm (not a `_` wildcard) so the match stays exhaustive and
         // the next variant's author is forced to decide (impl/bytes.md §2.3).

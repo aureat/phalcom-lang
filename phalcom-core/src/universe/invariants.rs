@@ -85,7 +85,7 @@ impl Universe {
         // `False` rows (both resolve to `Bool class`) and the absence /
         // collection / message rows. Any newly-added row that breaks the rule
         // fails boot rather than silently mis-dispatching statics.
-        let ordinary_rows: [(&str, ClassId); 40] = [
+        let ordinary_rows: [(&str, ClassId); 44] = [
             ("Number", c.number_class),
             ("Int", c.int_class),
             ("Float", c.float_class),
@@ -114,6 +114,10 @@ impl Universe {
             ("Vector", c.vector_class),
             ("Map", c.map_class),
             ("Set", c.set_class),
+            ("MutableBag", c.mutable_bag_class),
+            ("IndexedDict", c.indexed_dict_class),
+            ("OrderedSet", c.ordered_set_class),
+            ("Bag", c.bag_class),
             ("Tuple", c.tuple_class),
             ("Record", c.record_class),
             ("Pack", c.pack_class),

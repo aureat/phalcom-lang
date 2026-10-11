@@ -550,7 +550,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["collections"],
         kind: ModuleKind::Package,
-        children: &["collection", "iterator_laws", "list", "array", "vector", "slice", "buffer", "map", "set", "tuple", "record", "pack", "range", "bytes"],
+        children: &["collection", "iterator_laws", "list", "array", "vector", "slice", "buffer", "map", "set", "mutable_bag", "indexed_dict", "ordered_set", "bag", "tuple", "record", "pack", "range", "bytes"],
     },
     UniverseNodeSpec {
         path: &["collections", "collection"],
@@ -594,6 +594,26 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["collections", "set"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["collections", "mutable_bag"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["collections", "indexed_dict"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["collections", "ordered_set"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["collections", "bag"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -1120,6 +1140,18 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "collections" && m.as_str() == "set" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/set.ph")
+            }
+            [c, m] if c.as_str() == "collections" && m.as_str() == "mutable_bag" => {
+                include_str!("../../phalcom-core/core/universe/src/collections/mutable_bag.ph")
+            }
+            [c, m] if c.as_str() == "collections" && m.as_str() == "indexed_dict" => {
+                include_str!("../../phalcom-core/core/universe/src/collections/indexed_dict.ph")
+            }
+            [c, m] if c.as_str() == "collections" && m.as_str() == "ordered_set" => {
+                include_str!("../../phalcom-core/core/universe/src/collections/ordered_set.ph")
+            }
+            [c, m] if c.as_str() == "collections" && m.as_str() == "bag" => {
+                include_str!("../../phalcom-core/core/universe/src/collections/bag.ph")
             }
             [c, m] if c.as_str() == "collections" && m.as_str() == "tuple" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/tuple.ph")

@@ -251,6 +251,21 @@ fn collections() {
     support::check_pass("collections");
 }
 
+#[test]
+fn mutable_bag() {
+    support::check_pass("mutable-bag");
+}
+
+#[test]
+fn indexed_dict() {
+    support::check_pass("indexed-dict");
+}
+
+#[test]
+fn ordered_set() {
+    support::check_pass("ordered-set");
+}
+
 // NB: U-COLL's list/tuple/grouping/brace-disambiguation and bounded-expansion PASS
 // fixtures live in `tests/fixtures/language/collections/` and are exercised by
 // `collections()` above.

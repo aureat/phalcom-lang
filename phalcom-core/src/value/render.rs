@@ -91,6 +91,26 @@ impl Value {
                     let parts: Vec<String> = set.entries().map(|(k, _)| k.to_string(vm)).collect();
                     format!("Set({})", parts.join(", "))
                 }
+                Object::MutableBag(bag) => {
+                    let parts: Vec<String> = bag
+                        .entries()
+                        .map(|(value, count)| format!("{}: {}", value.to_string(vm), count))
+                        .collect();
+                    format!("MutableBag({})", parts.join(", "))
+                }
+                Object::IndexedDict(dict) => {
+                    let parts: Vec<String> = dict
+                        .entries()
+                        .map(|(key, value)| format!("{}: {}", key.to_string(vm), value.to_string(vm)))
+                        .collect();
+                    format!("IndexedDict({})", parts.join(", "))
+                }
+                Object::OrderedSet(set) => {
+                    let parts: Vec<String> = set.entries().map(|value| value.to_string(vm)).collect();
+                    format!("OrderedSet({})", parts.join(", "))
+                }
+                Object::Bag(bag) => format!("Bag(size={}, distinct={})", bag.total_count(), bag.distinct_count()),
+                Object::PersistentHashNode(_) => "<persistent hash node>".to_string(),
                 Object::Tuple(_) => {
                     let parts: Vec<String> = vm
                         .tuple_view(id)
@@ -231,6 +251,11 @@ impl Value {
                 Object::Fiber(_) => "<fiber>".to_string(),
                 Object::Map(_) => "<map>".to_string(),
                 Object::Set(_) => "<set>".to_string(),
+                Object::MutableBag(_) => "<mutable bag>".to_string(),
+                Object::IndexedDict(_) => "<indexed dict>".to_string(),
+                Object::OrderedSet(_) => "<ordered set>".to_string(),
+                Object::Bag(_) => "<bag>".to_string(),
+                Object::PersistentHashNode(_) => "<persistent hash node>".to_string(),
                 Object::Tuple(_) => "<tuple>".to_string(),
                 Object::Record(_) => "<record>".to_string(),
                 Object::Pack(_) => "<pack>".to_string(),

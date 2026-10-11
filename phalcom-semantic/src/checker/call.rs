@@ -1723,16 +1723,17 @@ fn apply_generic_callable_in_context(
             .then(|| promote_exact_return(&signature.return_type, ExactReturnOrigin::GenericInference, call_range))
     });
 
-    // Seed concrete expected-result evidence before checking arguments. This
-    // matters for constructors whose argument is a callable generic (for
-    // example `Pure<A>`): the result annotation fixes `A` to its callable
-    // shape, which gives an unannotated closure its parameter and return
-    // expectations. Without this first relation, closure analysis sees only
-    // an unresolved `A` and loses payload evidence before the later result
-    // relation is replayed.
+    // Seed contextual result evidence before checking data-constructor
+    // arguments. A generic variant's result parameters are invariant: the
+    // expected result must select those parameters before payload arguments
+    // contribute lower bounds (for example, `Result<Unit, Base> =
+    // Result::Error(Derived.new())`). The same early ordering is needed when
+    // the selected result parameter is callable, so an unannotated closure
+    // receives its parameter and return expectations before it is analyzed.
     let expected_result_seeded = if row_session.is_none() {
+        let is_variant_constructor = target.target.as_ref().is_some_and(|target| matches!(target, crate::identity::InvocationTargetId::VariantConstructor(_)));
         if let (Some(return_term), Some(expected_ty)) = (return_term.as_ref(), expected.ty())
-            && expected_type_contains_callable_payload(ctx.store, expected_ty)
+            && (is_variant_constructor || target.data_constructor_shape.is_some() || expected_type_contains_callable_payload(ctx.store, expected_ty))
         {
             let expected_term = InferenceTerm::Canonical(expected_ty);
             let term_to_constrain = session_handle.borrow().term_for_expected(return_term);

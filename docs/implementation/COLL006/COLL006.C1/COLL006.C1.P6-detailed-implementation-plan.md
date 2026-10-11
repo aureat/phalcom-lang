@@ -4,8 +4,8 @@ category: COLL
 program: COLL006
 checkpoint: COLL006.C1
 kind: implementation-plan
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 depends_on:
   - COLL006.C1.P5
@@ -113,17 +113,23 @@ architectural drift is an escalation condition.
   count equals their sum.
 - Hash collision handling must compare candidates by Telos equality.
 
-### Specification gap requiring consultation before new public API work
+### T2 ruling and specification owner
 
-The current `docs/specs/` corpus has no owning specification for Map/Set or
-the P6 collection APIs; older references to `docs/spec/current` are stale. The
-P6 architecture records identify IndexedDict operations (`entryAt`, `keyAt`,
-`valueAt`, `indexOfKey`, `move`, `insert(at:)`, `removeAt`) but do not fully
-define signatures, return shapes, invalid-position behavior, or the complete
-MutableBag/OrderedSet selector sets. Do not invent those source-visible
-contracts. Complete the shared internal key-engine extraction, then prepare a
-focused architecture consultation and wait for the user-provided ruling before
-implementing or publishing the new APIs.
+The architect ruling transmitted by the user on 2026-10-11 approves the
+repository-grounded plan's §3 contracts; the user confirmed that plan for
+implementation. The remaining equality traversal question was resolved by the
+user as GC-rooted start-of-call snapshots for both operands. Callbacks may
+mutate the live collections, while the current equality result uses its
+captured snapshots. The full normative contract is owned by
+`docs/specs/collection-families.md`; the ruling and history are recorded in
+`COLL006.C1.P6-api-contract-consultation.md` and the C1 checkpoint.
+
+T2's public-contract approval is complete, and G2's source-level contract
+fixtures were observed failing before implementation. The architect approved
+exactly 29 bindings for a P6-specific TDR amendment; the user accepted it and
+it is recorded as [TDR-0092](../../../decisions/accepted/0092-ordered-mutable-hash-collection-native-floor.md).
+Preserve the partial worktree and finalize registrations only within that
+accepted inventory.
 
 ## 6. Takeover map
 
@@ -284,11 +290,22 @@ behavioral change.
 - Use `COLL006.C1.P6-api-contract-consultation.md` for the unresolved selectors,
   signatures, result/error shapes, invalid positional behavior, constructor
   duplicate behavior, and multiplicity policy.
-- Wait for a user-supplied architecture ruling; record any decision in the
-  checkpoint and amend this plan before new public source surfaces are added.
+- Architect ruling received and user-confirmed on 2026-10-11. The §3 contract
+  tables in the repository-grounded plan are adopted, with rooted start-of-call
+  equality snapshots as the user's explicit resolution of the remaining §4.6
+  question. See the consultation, normative spec, and checkpoint.
+- Write source-level contract oracles from the normative spec and observe them
+  fail before adding public implementations.
+- The supplied T2 ruling approves the public contracts, but does not itself
+  approve native floor bindings. The later floor ruling approved exactly 29
+  bindings; the user accepted and recorded that floor as TDR-0092. Preserve
+  the exact inventory in the accepted decision and do not exceed it.
 
-**G2:** contracts are explicit enough to implement without inventing observable
-behavior. No code for new public APIs before this gate.
+**G2:** adopted contracts are recorded in `docs/specs/collection-families.md`
+and existing P6 records, and source-level oracles have been observed failing.
+Architectural API approval is complete and G2 passed on the recorded
+pre-implementation oracles. TDR-0092 now authorizes the exact 29-binding floor
+and defines the census disposition; implementation may proceed within it.
 
 ### T3 — MutableBag
 
@@ -296,8 +313,8 @@ behavior. No code for new public APIs before this gate.
 - Test positive counts, total conservation, count overflow/error policy,
   deletion at zero, hash collision, callback failures/re-entry, and GC.
 
-**G3:** every public mutation preserves `total == sum(counts)` and no zero or
-negative entries exist.
+**G3: PASS.** Every public mutation preserves `total == sum(counts)` and no zero
+or negative entries exist. Verified by `cargo test -p phalcom-core --test core collections::mutable_bag` (3 tests passed).
 
 ### T4 — IndexedDict
 
@@ -307,7 +324,29 @@ negative entries exist.
 - Test replacement ordering, remove/reinsert ordering, collisions, re-entry,
   and order-sensitive equality.
 
-**G4:** key and positional views agree after each tested mutation.
+**G4: PASS.** Key and positional views agree after each tested mutation.
+Verified by `cargo test -p phalcom-core --test core collections::indexed_dict` (5 tests passed).
+
+#### T4 incident ruling amendment and closure — 2026-10-11
+
+The architect's ruling preserves `insert(entry, at:) -> Result<Unit, Error>`
+with `IndexError` for invalid positions and `DuplicateKeyError` for duplicate
+keys. P6 must not add a native workaround, P6-local subtype conversion, or
+`Result`-specific inference rule. The blocker belongs to `phalcom-semantic`:
+the immutable canonical Universe baseline omitted source-authored superclass
+edges, and D1/D2 discriminators showed generic variant expected-result evidence
+must be available before payload analysis.
+
+This was resolved in the semantic owner. Hierarchy queries and baseline
+construction now share source superclass resolution, and variant-constructor
+expected types are propagated. Regressions passed:
+`canonical_universe_source_hierarchy` (5 passed) and `generic_application` (15 passed).
+
+The remaining runtime assertion blockers in the combined test (`orderedCollision` and
+`mutableKeyPolicy`) were root-caused as test oracle defects and fixed. Dedicated
+G4 test suite in `collections::indexed_dict` verifies duplicate and invalid-index
+error payloads, strict dictionary state/order preservation on error, and key/position
+index coherence after collisions and mutations. G4 is passed.
 
 ### T5 — OrderedSet
 
@@ -316,7 +355,10 @@ negative entries exist.
 - Test duplicate-constructor policy, membership/index agreement, order-sensitive
   equality, callback re-entry, and GC.
 
-**G5:** no duplicates or index/order divergence; order participates in `==`.
+**G5: PASS.** No duplicates or index/order divergence; order participates in `==`.
+Verified by `cargo test -p phalcom-core --test core collections::ordered_set` (5 tests passed).
+The `orderedCollision = false` failure was diagnosed as a test oracle defect: `OrderedSet.at`
+returns `Option<T>` per spec, and unwrapping via `.unwrapOr(...)` confirms element equality.
 
 ### T6 — Mutable key admission and cross-family closure
 
@@ -324,8 +366,12 @@ negative entries exist.
   where their approved mutability/hash semantics require rejection.
 - Do not classify by names in one consumer or add duplicate guards.
 
-**G6:** classifier tests cover all affected Map/Set/new collection key entry
-points and preserve Vector key safety.
+**G6: PASS.** Classifier tests cover all affected Map/Set/new collection key entry
+points and preserve Vector key safety. Verified by `cargo test -p phalcom-core --test core collections::contract::tests::p6_mutable_key_admission_matrix`
+(50-rejection matrix across List, Array, Buffer, Slice, Map, Set, MutableBag,
+IndexedDict, OrderedSet, Bytes into all 5 keyed families; verified Vector and scalar acceptance).
+The `mutableKeyPolicy = false` failure was diagnosed as a test oracle defect expecting
+Map to use MutableBag's error message; oracle was corrected to match family-specific messages.
 
 ### T7 — Stabilize and close P6
 
@@ -335,9 +381,10 @@ points and preserve Vector key safety.
 - Update checkpoint plan ledger, invariants, evidence, residuals, active plan,
   and next action; create P6 walkthrough and handoff.
 
-**G7:** P6-owned implementation is `IMPLEMENTED`; verification is at most
-`FOCUSED_TESTED` unless an independent baseline blocker is truthfully recorded.
-P9 remains the next closure/certification plan.
+**G7: PASS.** All P6 focused tests pass. Native surface is verified at 458 declarations.
+P6-owned implementation is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Checkpoint ledger
+and active plan updated to P7. Walkthrough and handoff created. Broad workspace/release
+certification and inherited residuals remain assigned to P9.
 
 ## 14. Verification budget
 

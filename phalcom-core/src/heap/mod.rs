@@ -32,6 +32,7 @@ mod accessors;
 pub mod adt;
 pub mod array;
 pub mod associated;
+pub mod bag;
 mod block;
 pub mod buffer;
 mod bytes;
@@ -40,12 +41,16 @@ mod closure;
 pub mod data;
 mod fiber;
 mod instance;
+mod indexed_dict;
 mod list;
 mod map;
+mod mutable_bag;
 mod module;
 mod object;
+mod ordered_set;
 pub mod pack;
 mod pack_builder;
+pub mod persistent_hash;
 mod range;
 mod record;
 mod record_literal_builder;
@@ -63,6 +68,7 @@ mod vector;
 pub use adt::AdtCaseObject;
 pub use array::{ArrayLiteralBuilderObject, ArrayMutationError, ArrayObject};
 pub use associated::AssociatedFamilyObject;
+pub use bag::BagObject;
 pub use block::BlockObject;
 pub use buffer::{BufferMutationError, BufferObject};
 pub use bytes::BytesObject;
@@ -71,12 +77,16 @@ pub use closure::ClosureObject;
 pub use data::DataObject;
 pub use fiber::{FiberConsumer, FiberConsumerMode, FiberObject, FiberStatus};
 pub use instance::InstanceObject;
+pub use indexed_dict::IndexedDictObject;
 pub use list::{ListCapacityError, ListObject, MAX_LIST_CAPACITY, MAX_LIST_CAPACITY_BYTES};
 pub use map::MapObject;
+pub use mutable_bag::MutableBagObject;
 pub use module::{MAIN_MODULE_NAME, MAX_GLOBALS, ModuleId, ModuleKind, ModuleObject, RuntimeExportRef};
 pub use object::{BoundMethodFamilyObject, BoundMethodObject, ConditionalFamilyDispatchEntry, FamilyObject, FamilySpec, MethodFamilyObject, Object};
+pub use ordered_set::OrderedSetObject;
 pub use pack::{PackObject, PackStorage};
 pub use pack_builder::{ArgumentPackBuilderObject, PackBuilderError};
+pub use persistent_hash::PersistentHashNode;
 pub use range::RangeObject;
 pub use record::RecordObject;
 pub use record_literal_builder::RecordLiteralBuilderObject;
@@ -353,6 +363,36 @@ impl Heap {
         self.insert(Object::Set(Box::new(MapObject::new())))
     }
 
+    /// Allocates an empty [`Object::MutableBag`].
+    pub fn alloc_mutable_bag(&mut self) -> ObjRef {
+        self.insert(Object::MutableBag(Box::new(MutableBagObject::new())))
+    }
+
+    /// Allocates an empty ordered dictionary.
+    pub fn alloc_indexed_dict(&mut self) -> ObjRef {
+        self.insert(Object::IndexedDict(Box::new(IndexedDictObject::new())))
+    }
+
+    /// Allocates an empty order-sensitive hash set.
+    pub fn alloc_ordered_set(&mut self) -> ObjRef {
+        self.insert(Object::OrderedSet(Box::new(OrderedSetObject::new())))
+    }
+
+    /// Allocates a GC-visible immutable persistent hash trie node.
+    pub fn alloc_persistent_hash_node(&mut self, node: PersistentHashNode) -> ObjRef {
+        self.insert(Object::PersistentHashNode(Box::new(node)))
+    }
+
+    /// Allocates an empty persistent Bag.
+    pub fn alloc_bag(&mut self) -> ObjRef {
+        self.insert(Object::Bag(Box::new(BagObject::new())))
+    }
+
+    /// Allocates a persistent Bag with root, total count, and distinct count.
+    pub fn alloc_bag_with(&mut self, root: Option<ObjRef>, total_count: num_bigint::BigInt, distinct_count: usize) -> ObjRef {
+        self.insert(Object::Bag(Box::new(BagObject::with_root(root, total_count, distinct_count))))
+    }
+
     /// Allocates an [`Object::Bytes`] and returns its [`ObjRef`]
     /// ([PDR-0011](../../../docs/decisions/0011-admit-bytes-native-octet-buffer.md)).
     pub fn alloc_bytes(&mut self, bytes: BytesObject) -> ObjRef {
@@ -488,6 +528,11 @@ impl Heap {
             Some(Object::Fiber(_)) => "Fiber",
             Some(Object::Map(_)) => "Map",
             Some(Object::Set(_)) => "Set",
+            Some(Object::MutableBag(_)) => "MutableBag",
+            Some(Object::IndexedDict(_)) => "IndexedDict",
+            Some(Object::OrderedSet(_)) => "OrderedSet",
+            Some(Object::Bag(_)) => "Bag",
+            Some(Object::PersistentHashNode(_)) => "PersistentHashNode",
             Some(Object::Bytes(_)) => "Bytes",
             Some(Object::Tuple(_)) => "Tuple",
             Some(Object::Record(_)) => "Record",

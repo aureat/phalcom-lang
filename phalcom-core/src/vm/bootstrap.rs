@@ -618,6 +618,9 @@ impl VM {
         // native heap arms mirroring `List`.
         add_class!(map_class);
         add_class!(set_class);
+        add_class!(mutable_bag_class);
+        add_class!(indexed_dict_class);
+        add_class!(ordered_set_class);
         // `Tuple` (ADR-0039, U-COLLTYPES Phase 2): ordinary class global,
         // native heap arm mirroring `List`.
         add_class!(tuple_class);
@@ -1058,6 +1061,9 @@ impl VM {
             c.list_class,
             c.map_class,
             c.set_class,
+            c.mutable_bag_class,
+            c.indexed_dict_class,
+            c.ordered_set_class,
             c.tuple_class,
             c.record_class,
             c.pack_class,

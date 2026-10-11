@@ -41,11 +41,11 @@ use phalcom_core::value::{Value, sentinel_to_option};
 use phalcom_core::vm::{ClassKey, VM};
 use std::collections::HashSet;
 
-/// The 36 named audited kernel classes (`CoreClasses` rows), paired with a stable name.
+/// The 40 named audited kernel classes (`CoreClasses` rows), paired with a stable name.
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
-fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 37] {
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 40] {
     let c = vm.universe.classes;
     [
         ("Object", c.object_class),
@@ -77,6 +77,10 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 37] {
         // U-COLLTYPES Phase 1 (ADR-0039): Map/Set join the audited census.
         ("Map", c.map_class),
         ("Set", c.set_class),
+        // COLL006.C1.P6 (TDR-0092): include every new mutable hash family.
+        ("MutableBag", c.mutable_bag_class),
+        ("IndexedDict", c.indexed_dict_class),
+        ("OrderedSet", c.ordered_set_class),
         // U-COLLTYPES Phase 2 (ADR-0039): Tuple joins the audited census.
         ("Tuple", c.tuple_class),
         ("Record", c.record_class),
@@ -95,7 +99,7 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 37] {
         // `Fiber` (ADR-0030) joins the audited census 2026-07-15 (DEFERRED
         // CB-5). It shipped with 11 primitives but was never listed here, so
         // `install_primitives` bound a whole kernel class that R-INV-0.1 did
-        // not audit and `floor-census.md` did not mention: the ADR-0019 freeze
+        // not audit and the retired `floor-census.md` did not mention: the ADR-0019 freeze
         // did not bind `Fiber`, and adding or dropping a fiber primitive
         // changed the floor with no red test. The census and the test agreed
         // with each other (125 = 125, green), which is exactly why nothing
@@ -704,10 +708,14 @@ fn resource_bootstrap_keeps_hidden_slot_without_source_field() {
 
 #[test]
 fn floor_census_matches_installed_bindings() {
-    // R-INV-0.1 — reconstruct the installed `(class, selector)` floor from a
-    // live `VM::new()` and assert it equals the census in
-    // `docs/spec/current/core/floor-census.md` (the current assertion is 235;
-    // the historical amendment progression below starts at count = 88 after ADR-0023's +7,
+    // R-INV-0.1 — reconstruct installed `(class, selector)` bindings from a
+    // live `VM::new()` and assert they equal this deliberately partial
+    // explicit audit. The historical `docs/spec/current/core/floor-census.md`
+    // path is retired; the generated native-surface catalog is the
+    // machine-readable descriptor inventory. This audit remains useful for
+    // its enumerated classes but is not a global native-floor census. Its
+    // pre-P6 assertion was 239. The historical amendment progression below
+    // starts at count = 88 after ADR-0023's +7,
     // ADR-0028's +5, U-CORE-4's +1, and U-CORE-6's own +2). Turns silent
     // floor drift — an accidental extra primitive, or a dropped one — into a
     // red test. The baseline is 73; the first +7 (marked NEW below) is the
@@ -764,7 +772,7 @@ fn floor_census_matches_installed_bindings() {
     // `Fiber` (ADR-0030) — admitted to the census 2026-07-15 (DEFERRED CB-5).
     // The first 11 were NOT a floor amendment: they had been installed since the
     // fiber work landed. What changed is that they became *audited*. Before
-    // this, `Fiber` was absent from `core_class_rows` and from
+    // this, `Fiber` was absent from `core_class_rows` and from the retired
     // `floor-census.md` entirely, so the ADR-0019 freeze did not bind it
     // (125 -> 136): `Fiber.new(_)`, `#call()`/`#call(_)`, `#try()`/`#try(_)`,
     // `Fiber.yield()`/`Fiber.yield(_)`, `Fiber.current`, `Fiber.abort(_)`,
@@ -1037,6 +1045,36 @@ fn floor_census_matches_installed_bindings() {
         (c.set_class, false, "rawHas(_)"),
         (c.set_class, false, "rawRemove(_)"),
         (c.set_class, false, "rawAt(_)"),
+        // COLL006.C1.P6, TDR-0092 — exactly the approved native inventory.
+        (c.mutable_bag_class, true, "new()"),
+        (c.mutable_bag_class, false, "rawSize"),
+        (c.mutable_bag_class, false, "rawDistinctCount"),
+        (c.mutable_bag_class, false, "rawCount(_)"),
+        (c.mutable_bag_class, false, "rawAdd(_,_)"),
+        (c.mutable_bag_class, false, "rawRemove(_,_)"),
+        (c.mutable_bag_class, false, "rawAt(_)"),
+        (c.mutable_bag_class, false, "rawCountAt(_)"),
+        (c.mutable_bag_class, false, "rawClear"),
+        (c.indexed_dict_class, true, "new()"),
+        (c.indexed_dict_class, false, "rawSize"),
+        (c.indexed_dict_class, false, "rawPut(_,_)"),
+        (c.indexed_dict_class, false, "rawKeyAt(_)"),
+        (c.indexed_dict_class, false, "rawValueAt(_)"),
+        (c.indexed_dict_class, false, "rawInsertAt(_,_,_)"),
+        (c.indexed_dict_class, false, "rawMove(_,_)"),
+        (c.indexed_dict_class, false, "rawRemoveAt(_)"),
+        (c.indexed_dict_class, false, "rawIndexOfKey(_)"),
+        (c.indexed_dict_class, false, "rawClear"),
+        (c.ordered_set_class, true, "new()"),
+        (c.ordered_set_class, false, "rawSize"),
+        (c.ordered_set_class, false, "rawAdd(_)"),
+        (c.ordered_set_class, false, "rawAt(_)"),
+        (c.ordered_set_class, false, "rawIndexOf(_)"),
+        (c.ordered_set_class, false, "rawInsertAt(_,_)"),
+        (c.ordered_set_class, false, "rawReplaceAt(_,_)"),
+        (c.ordered_set_class, false, "rawMove(_,_)"),
+        (c.ordered_set_class, false, "rawRemoveAt(_)"),
+        (c.ordered_set_class, false, "rawClear"),
         // Tuple (U-COLLTYPES Phase 2, ADR-0039) — NEW_TUPLE
         (c.tuple_class, true, "rawFromList(_)"),
         (c.tuple_class, false, "rawSize"),
@@ -1154,10 +1192,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        239,
-        "census must enumerate exactly 239 bindings after the Array primitives"
+        268,
+        "the explicit partial audit must enumerate 268 bindings after the P6 additions"
     );
-    assert_eq!(live.len(), 239, "the live floor must be exactly 239 bindings");
+    assert_eq!(live.len(), 268, "the audited live bindings must total 268");
 }
 
 #[test]

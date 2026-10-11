@@ -76,6 +76,14 @@ mod core_slice;
 mod core_symbol_selector;
 #[path = "collections/vector.rs"]
 mod core_vector;
+#[path = "collections/ordered_set.rs"]
+mod core_ordered_set;
+#[path = "collections/indexed_dict.rs"]
+mod core_indexed_dict;
+#[path = "collections/mutable_bag.rs"]
+mod core_mutable_bag;
+#[path = "collections/persistent_hash.rs"]
+mod core_persistent_hash;
 #[path = "execution/binding_init.rs"]
 mod execution_binding_init;
 #[path = "execution/compiler_authority.rs"]

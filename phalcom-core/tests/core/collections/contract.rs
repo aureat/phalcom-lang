@@ -432,6 +432,263 @@ let passed = mapCollisions and setCollisions and mapReentryRejected and setReent
     assert!(as_bool(passed), "shared Map/Set key engine must preserve collision and re-entry contracts");
 }
 
+/// P6's mutable families share collision handling and callback guards, while
+/// source equality compares GC-rooted snapshots despite callback mutation.
+#[test]
+fn p6_mutable_hash_families_preserve_callback_snapshot_and_gc_contracts() {
+    let source = r#"
+class CollisionPoint {
+  mut _x
+  mut _y
+  x { _x }
+  y { _y }
+  @constructor
+  new(_ x, _ y) { _x = x; _y = y }
+  hash { _x * 31 + _y }
+  ==(_ other) { _x == other.x and _y == other.y }
+}
+let first = CollisionPoint.new(1, 32)
+let second = CollisionPoint.new(2, 1)
+let duplicate = CollisionPoint.new(1, 32)
+let bag = MutableBag<CollisionPoint>.new()
+bag.add(first)
+bag.add(second)
+bag.add(duplicate)
+let bagCollision = bag.distinctCount == 2 and bag.count(first) == 2 and bag.count(second) == 1
+let dict = IndexedDict<CollisionPoint, String>.new()
+dict.insert("first", for: first)
+dict.insert("second", for: second)
+dict.insert("overwritten", for: duplicate)
+let dictCollision = dict.size == 2 and dict[first] == "overwritten" and dict[second] == "second"
+let mut errorDict = IndexedDict<Int, String>.new()
+errorDict.insert((key: 1, value: "one"), at: 0)
+let duplicateInsert = errorDict.insert((key: 1, value: "duplicate"), at: 0)
+let duplicateErrorPreserved = duplicateInsert.isErr and duplicateInsert.match(
+  ok: |value| { false },
+  err: |error| { error is DuplicateKeyError }
+)
+let invalidInsert = errorDict.insert((key: 2, value: "two"), at: 10)
+let indexErrorPreserved = invalidInsert.isErr and invalidInsert.match(
+  ok: |value| { false },
+  err: |error| { error is IndexError }
+)
+let ordered = OrderedSet<CollisionPoint>.new()
+ordered.add(first)
+ordered.add(second)
+ordered.add(duplicate)
+let fallbackPoint = CollisionPoint.new(0, 0)
+let orderedCollision = ordered.size == 2 and ordered.at(0).unwrapOr(fallbackPoint) == first and ordered.at(1).unwrapOr(fallbackPoint) == second
+
+let mutableMap = Map<Collection, Int>.new()
+let bagKeyError = || { mutableMap.at(bag, put: 1) }.on(Error) |e| { e.message }
+let dictKeyError = || { mutableMap.at(dict, put: 1) }.on(Error) |e| { e.message }
+let orderedKeyError = || { mutableMap.at(ordered, put: 1) }.on(Error) |e| { e.message }
+let mapRejectionPolicy = bagKeyError == "Map key must be immutable: mutable collections and Slice views are not admitted as keys (collection-protocol.md law 4)" and dictKeyError == "Map key must be immutable: mutable collections and Slice views are not admitted as keys (collection-protocol.md law 4)" and orderedKeyError == "Map key must be immutable: mutable collections and Slice views are not admitted as keys (collection-protocol.md law 4)"
+
+let rejectBag = MutableBag<Collection>.new()
+let rejectDict = IndexedDict<Collection, String>.new()
+let rejectOrdered = OrderedSet<Collection>.new()
+let bagAdmitError = || { rejectBag.add(mutableMap) }.on(Error) |e| { e.message }
+let dictAdmitError = || { rejectDict.insert("val", for: mutableMap) }.on(Error) |e| { e.message }
+let orderedAdmitError = || { rejectOrdered.add(mutableMap) }.on(Error) |e| { e.message }
+let newFamiliesRejectionPolicy = bagAdmitError == "MutableBag key must be immutable: mutable collections and Slice views are not admitted as keys (collection-protocol.md law 4)" and dictAdmitError == "IndexedDict key must be immutable: mutable collections and Slice views are not admitted as keys (collection-protocol.md law 4)" and orderedAdmitError == "OrderedSet key must be immutable: mutable collections and Slice views are not admitted as keys (collection-protocol.md law 4)"
+let mutableKeyPolicy = mapRejectionPolicy and newFamiliesRejectionPolicy
+
+class ReentrantHashKey {
+  mut _owner
+  mut _mode
+  @constructor
+  new(_ owner, _ mode) { _owner = owner; _mode = mode }
+  hash {
+    if _mode == 1 { _mode = 0; _owner.clear }
+    if _mode == 2 { throw Error.new("hash failed") }
+    0
+  }
+}
+let mut guardedBag = MutableBag<ReentrantHashKey>.new()
+guardedBag.add(ReentrantHashKey.new(guardedBag, 0))
+let bagError = || { guardedBag.add(ReentrantHashKey.new(guardedBag, 1)) }.on(Error) |e| { e.message }
+let bagRejected = bagError == "cannot mutate this MutableBag inside 'hash'/'==' of its own key (concurrent mutation)" and guardedBag.size == 1
+let bagHashError = || { guardedBag.add(ReentrantHashKey.new(guardedBag, 2)) }.on(Error) |e| { e.message }
+let bagErrorRecovered = bagHashError == "hash failed" and guardedBag.size == 1
+guardedBag.add(ReentrantHashKey.new(guardedBag, 0))
+let bagUnlocked = guardedBag.size == 2
+let mut guardedDict = IndexedDict<ReentrantHashKey, String>.new()
+guardedDict.insert("seed", for: ReentrantHashKey.new(guardedDict, 0))
+let dictError = || { guardedDict.insert("blocked", for: ReentrantHashKey.new(guardedDict, 1)) }.on(Error) |e| { e.message }
+let dictRejected = dictError == "cannot mutate this IndexedDict inside 'hash'/'==' of its own key (concurrent mutation)" and guardedDict.size == 1
+let dictHashError = || { guardedDict.insert("failed", for: ReentrantHashKey.new(guardedDict, 2)) }.on(Error) |e| { e.message }
+let dictErrorRecovered = dictHashError == "hash failed" and guardedDict.size == 1
+guardedDict.insert("recovered", for: ReentrantHashKey.new(guardedDict, 0))
+let dictUnlocked = guardedDict.size == 2
+let mut guardedOrdered = OrderedSet<ReentrantHashKey>.new()
+guardedOrdered.add(ReentrantHashKey.new(guardedOrdered, 0))
+let orderedError = || { guardedOrdered.add(ReentrantHashKey.new(guardedOrdered, 1)) }.on(Error) |e| { e.message }
+let orderedRejected = orderedError == "cannot mutate this OrderedSet inside 'hash'/'==' of its own key (concurrent mutation)" and guardedOrdered.size == 1
+let orderedHashError = || { guardedOrdered.add(ReentrantHashKey.new(guardedOrdered, 2)) }.on(Error) |e| { e.message }
+let orderedErrorRecovered = orderedHashError == "hash failed" and guardedOrdered.size == 1
+guardedOrdered.add(ReentrantHashKey.new(guardedOrdered, 0))
+let orderedUnlocked = guardedOrdered.size == 2
+
+class SnapshotMutationKey {
+  mut _left
+  mut _right
+  @constructor
+  new(_ left, _ right) { _left = left; _right = right }
+  hash { 0 }
+  ==(_ other) { _left.clear; _right.clear; true }
+}
+let mut bagLeft = MutableBag<SnapshotMutationKey>.new()
+let mut bagRight = MutableBag<SnapshotMutationKey>.new()
+bagLeft.add(SnapshotMutationKey.new(bagLeft, bagRight))
+bagRight.add(SnapshotMutationKey.new(bagLeft, bagRight))
+let bagSnapshot = bagLeft == bagRight and bagLeft.size == 0 and bagRight.size == 0
+let mut dictLeft = IndexedDict<SnapshotMutationKey, String>.new()
+let mut dictRight = IndexedDict<SnapshotMutationKey, String>.new()
+dictLeft.insert("same", for: SnapshotMutationKey.new(dictLeft, dictRight))
+dictRight.insert("same", for: SnapshotMutationKey.new(dictLeft, dictRight))
+let dictSnapshot = dictLeft == dictRight and dictLeft.size == 0 and dictRight.size == 0
+let mut orderedLeft = OrderedSet<SnapshotMutationKey>.new()
+let mut orderedRight = OrderedSet<SnapshotMutationKey>.new()
+orderedLeft.add(SnapshotMutationKey.new(orderedLeft, orderedRight))
+orderedRight.add(SnapshotMutationKey.new(orderedLeft, orderedRight))
+let orderedSnapshot = orderedLeft == orderedRight and orderedLeft.size == 0 and orderedRight.size == 0
+
+class GcCollectionKey {
+  mut _label
+  @constructor
+  new(_ label) { _label = label }
+  label { _label }
+  hash { 0 }
+  ==(_ other) { _label == other.label }
+}
+let mut gcBag = MutableBag<GcCollectionKey>.new()
+gcBag.add(GcCollectionKey.new("bag"))
+let mut gcDict = IndexedDict<GcCollectionKey, String>.new()
+gcDict.insert("dict-value", for: GcCollectionKey.new("dict-key"))
+let mut gcOrdered = OrderedSet<GcCollectionKey>.new()
+gcOrdered.add(GcCollectionKey.new("ordered"))
+System.gc
+let bagGc = gcBag.iterator.next.unwrapOr(GcCollectionKey.new("missing")).label == "bag"
+let dictGc = gcDict.keyAt(0).unwrapOr(GcCollectionKey.new("missing")).label == "dict-key" and gcDict.valueAt(0).unwrapOr("missing") == "dict-value"
+let orderedGc = gcOrdered.at(0).unwrapOr(GcCollectionKey.new("missing")).label == "ordered"
+let passed = bagCollision and dictCollision and duplicateErrorPreserved and indexErrorPreserved and orderedCollision and mutableKeyPolicy and bagRejected and bagErrorRecovered and bagUnlocked and dictRejected and dictErrorRecovered and dictUnlocked and orderedRejected and orderedErrorRecovered and orderedUnlocked and bagSnapshot and dictSnapshot and orderedSnapshot and bagGc and dictGc and orderedGc
+"#;
+    let (vm, module) = super::vm_support::run_inline(source).expect("P6 mutable-family source compiles and runs");
+    let passed_symbol = vm.interner.find("passed").expect("P6 result is interned");
+    let passed = vm.heap.module(module).get(passed_symbol).expect("P6 source publishes its result");
+    if !as_bool(passed) {
+        for name in [
+            "bagCollision", "dictCollision", "duplicateErrorPreserved", "indexErrorPreserved", "orderedCollision",
+            "mutableKeyPolicy", "bagRejected", "bagErrorRecovered", "bagUnlocked", "dictRejected", "dictErrorRecovered",
+            "dictUnlocked", "orderedRejected", "orderedErrorRecovered", "orderedUnlocked", "bagSnapshot", "dictSnapshot",
+            "orderedSnapshot", "bagGc", "dictGc", "orderedGc",
+        ] {
+            if let Some(symbol) = vm.interner.find(name)
+                && let Some(value) = vm.heap.module(module).get(symbol)
+            {
+                eprintln!("{name}: {value:?}");
+            }
+        }
+    }
+    assert!(as_bool(passed), "P6 collections preserve collisions, callback guards, snapshots, and GC roots");
+}
+
+#[test]
+fn p6_mutable_key_admission_matrix() {
+    let source = r#"
+let list = List<Int>.new()
+let array = <Int>[1, 2, 3]
+let buffer = Buffer<Int>.new(4)
+let slice = array.slice(0..2)
+let map = Map<String, Int>.new()
+let set = Set<Int>.new()
+let bag = MutableBag<Int>.new()
+let dict = IndexedDict<String, Int>.new()
+let ordered = OrderedSet<Int>.new()
+let bytes = Bytes.new(0)
+let vector = <Int, 3>[1, 2, 3]
+
+let candidates: Array<Collection> = <Collection>[list, array, buffer, slice, map, set, bag, dict, ordered, bytes]
+
+// 1. Map admission
+let mut testMap = Map<Collection, Int>.new()
+let mut mapRejections = 0
+let mut i = 0
+while i < candidates.size {
+  let cand = candidates[i]
+  let err = || { testMap.at(cand, put: 1) }.on(Error) |_| { true }
+  if err == true { mapRejections = mapRejections + 1 }
+  i = i + 1
+}
+let mapRejections10 = mapRejections == 10 and testMap.size == 0
+testMap.at(vector, put: 1)
+let mapAdmitsVector = testMap.size == 1
+
+// 2. Set admission
+let mut testSet = Set<Collection>.new()
+let mut setRejections = 0
+i = 0
+while i < candidates.size {
+  let cand = candidates[i]
+  let err = || { testSet.add(cand) }.on(Error) |_| { true }
+  if err == true { setRejections = setRejections + 1 }
+  i = i + 1
+}
+let setRejections10 = setRejections == 10 and testSet.size == 0
+testSet.add(vector)
+let setAdmitsVector = testSet.size == 1
+
+// 3. MutableBag admission
+let mut testBag = MutableBag<Collection>.new()
+let mut bagRejections = 0
+i = 0
+while i < candidates.size {
+  let cand = candidates[i]
+  let err = || { testBag.add(cand) }.on(Error) |_| { true }
+  if err == true { bagRejections = bagRejections + 1 }
+  i = i + 1
+}
+let bagRejections10 = bagRejections == 10 and testBag.size == 0
+testBag.add(vector)
+let bagAdmitsVector = testBag.size == 1
+
+// 4. IndexedDict admission
+let mut testDict = IndexedDict<Collection, Int>.new()
+let mut dictRejections = 0
+i = 0
+while i < candidates.size {
+  let cand = candidates[i]
+  let err = || { testDict.insert(1, for: cand) }.on(Error) |_| { true }
+  if err == true { dictRejections = dictRejections + 1 }
+  i = i + 1
+}
+let dictRejections10 = dictRejections == 10 and testDict.size == 0
+testDict.insert(1, for: vector)
+let dictAdmitsVector = testDict.size == 1
+
+// 5. OrderedSet admission
+let mut testOrdered = OrderedSet<Collection>.new()
+let mut orderedRejections = 0
+i = 0
+while i < candidates.size {
+  let cand = candidates[i]
+  let err = || { testOrdered.add(cand) }.on(Error) |_| { true }
+  if err == true { orderedRejections = orderedRejections + 1 }
+  i = i + 1
+}
+let orderedRejections10 = orderedRejections == 10 and testOrdered.size == 0
+testOrdered.add(vector)
+let orderedAdmitsVector = testOrdered.size == 1
+
+let passed = mapRejections10 and mapAdmitsVector and setRejections10 and setAdmitsVector and bagRejections10 and bagAdmitsVector and dictRejections10 and dictAdmitsVector and orderedRejections10 and orderedAdmitsVector
+"#;
+    let (vm, module) = super::vm_support::run_inline(source).expect("P6 admission matrix source compiles and runs");
+    let passed_symbol = vm.interner.find("passed").expect("passed interned");
+    let passed = vm.heap.module(module).get(passed_symbol).expect("passed published");
+    assert!(as_bool(passed), "Full 50-rejection admission matrix passes and admits Vector/scalars");
+}
+
 /// Builds a `Tuple` through its public product-literal syntax. The internal
 /// `Tuple.rawFromList(_)` bridge is intentionally inaccessible to callers.
 fn build_tuple(vm: &mut VM, elems: &[Value]) -> Value {
@@ -632,4 +889,86 @@ fn mutable_collection_key_is_rejected() {
     let sym_add = vm.get_or_intern("add(_)");
     let result2 = vm.send_dynamic(set, sym_add, &[mutable_key2]);
     assert!(result2.is_err(), "Set#add(_) with a mutable List key must raise, not silently admit it");
+}
+
+#[test]
+fn p7_numeric_same_value_zero_observed_behavior() {
+    let mut vm = VM::new();
+
+    let hash_of = |vm: &mut VM, v: Value| -> i64 {
+        let sym = vm.get_or_intern("hash");
+        let res = vm.send_dynamic(v, sym, &[]).expect("send hash");
+        res.as_int().expect("int hash")
+    };
+
+    // 1. 1 and 1.0 (passes SameValueZero and hash equality)
+    let one_int = Value::int(1);
+    let one_float = Value::float(1.0);
+    assert!(phalcom_core::value::same_value_zero(one_int, one_float, &vm.heap));
+    assert_eq!(
+        hash_of(&mut vm, one_int),
+        hash_of(&mut vm, one_float),
+        "1 and 1.0 must have identical hash"
+    );
+
+    // 2. 0 and -0.0 (passes SameValueZero and hash equality)
+    let zero_int = Value::int(0);
+    let neg_zero_float = Value::float(-0.0);
+    assert!(phalcom_core::value::same_value_zero(zero_int, neg_zero_float, &vm.heap));
+    assert_eq!(
+        hash_of(&mut vm, zero_int),
+        hash_of(&mut vm, neg_zero_float),
+        "0 and -0.0 must have identical hash"
+    );
+
+    // 3. integral Float at 2^53 when exactly representable (passes hash equality)
+    let pow53 = 9_007_199_254_740_992i64; // 2^53
+    let pow53_int = Value::int(pow53);
+    let pow53_float = Value::float(pow53 as f64);
+    assert!(phalcom_core::value::same_value_zero(pow53_int, pow53_float, &vm.heap));
+    assert_eq!(hash_of(&mut vm, pow53_int), hash_of(&mut vm, pow53_float));
+
+    // 4. integral Float at 2^53+2: SameValueZero is true, but Number#hash diverges (2 vs 1)
+    // Documented in R-P7-NUMERIC-HASH-LAW.
+    let pow53_plus_2 = 9_007_199_254_740_994i64; // 2^53 + 2
+    let pow53_plus_2_int = Value::int(pow53_plus_2);
+    let pow53_plus_2_float = Value::float(pow53_plus_2 as f64);
+    assert!(phalcom_core::value::same_value_zero(pow53_plus_2_int, pow53_plus_2_float, &vm.heap));
+    assert_eq!(hash_of(&mut vm, pow53_plus_2_int), 2);
+    assert_eq!(hash_of(&mut vm, pow53_plus_2_float), 1);
+
+    // 5. heap-backed LargeInt and equal integral Float: SameValueZero is true, but hashes diverge.
+    // Documented in R-P7-NUMERIC-HASH-LAW.
+    use num_bigint::BigInt;
+    let big_val_2_64 = BigInt::from(1u128 << 64);
+    let large_int_val = phalcom_core::value::normalize_bigint(big_val_2_64, &mut vm.heap);
+    let float_2_64_val = Value::float((1u128 << 64) as f64);
+    assert!(large_int_val.is_obj(), "2^64 must be LargeInt on heap");
+    assert!(phalcom_core::value::same_value_zero(large_int_val, float_2_64_val, &vm.heap));
+    assert_eq!(hash_of(&mut vm, large_int_val), 6323511191391134);
+    assert_eq!(hash_of(&mut vm, float_2_64_val), 4503599627370496);
+
+    // 6. multiple NaN payloads: SameValueZero is true, but Number#hash produces distinct values.
+    // Documented in R-P7-NUMERIC-HASH-LAW.
+    let nan1 = Value::float(f64::from_bits(0x7ff8_0000_0000_0001));
+    let nan2 = Value::float(f64::from_bits(0x7ff8_0000_0000_0002));
+    assert!(phalcom_core::value::same_value_zero(nan1, nan2, &vm.heap));
+    assert_eq!(hash_of(&mut vm, nan1), 6755399441055745);
+    assert_eq!(hash_of(&mut vm, nan2), 6755399441055746);
+}
+
+#[test]
+#[ignore = "R-P7-NUMERIC-HASH-LAW: SameValueZero vs Number#hash divergence for >2^53, LargeInt, and NaN payloads"]
+fn p7_numeric_same_value_zero_hash_law_strict_ideal() {
+    let mut vm = VM::new();
+
+    let hash_of = |vm: &mut VM, v: Value| -> i64 {
+        let sym = vm.get_or_intern("hash");
+        let res = vm.send_dynamic(v, sym, &[]).expect("send hash");
+        res.as_int().expect("int hash")
+    };
+
+    let pow53_plus_2_int = Value::int(9_007_199_254_740_994i64);
+    let pow53_plus_2_float = Value::float(9_007_199_254_740_994.0f64);
+    assert_eq!(hash_of(&mut vm, pow53_plus_2_int), hash_of(&mut vm, pow53_plus_2_float));
 }

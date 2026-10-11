@@ -26,6 +26,7 @@ They include:
 - [`bindings-and-fields.md`](bindings-and-fields.md) — runtime binding phase/mutability, uninitialized mutable storage, local initialization proof, and field initialization/mutability;
 - [`static-evaluation.md`](static-evaluation.md) — compile-time constants, executable static `type` definitions, static control, residualization, proof predicates, budgets, and materialization;
 - [`sequence-literals.md`](sequence-literals.md) — homogeneous bracket syntax, collection-family selection, contextual inference, and runtime/static defaults;
+- [`collection-families.md`](collection-families.md) — mutable hash-keyed collection semantics, including `MutableBag`, `IndexedDict`, and `OrderedSet`;
 - [`type-level-domains.md`](type-level-domains.md) — proper Types, static value domains, kinded pack domains, Pack-based Type collections, generic/static parameter domains, and canonical static terms;
 - [`type-members.md`](type-members.md) — type-member declarations, ownership, identity, lookup, application, result domains, and projection normalization;
 - [`structural-products.md`](structural-products.md) — Pack/Product/OrderedProduct/UnorderedProduct semantics, ordered/unordered shapes, FieldKey, tails, lookup, and structural iteration (companion: [`tuple-and-record-typing.md`](tuple-and-record-typing.md));

@@ -1,13 +1,18 @@
 use crate::heap::ArrayLiteralBuilderObject;
 use crate::heap::ArrayObject;
+use crate::heap::BagObject;
 use crate::heap::BlockObject;
 use crate::heap::BufferObject;
 use crate::heap::BytesObject;
 use crate::heap::ClassObject;
 use crate::heap::ClosureObject;
 use crate::heap::InstanceObject;
+use crate::heap::IndexedDictObject;
 use crate::heap::ListObject;
 use crate::heap::MapObject;
+use crate::heap::MutableBagObject;
+use crate::heap::OrderedSetObject;
+use crate::heap::PersistentHashNode;
 use crate::heap::ModuleObject;
 use crate::heap::PackObject;
 use crate::heap::RangeObject;
@@ -113,6 +118,17 @@ pub enum Object {
     ///
     /// **Boxed** (72 B) — see [`Object::Class`].
     Set(Box<MapObject>),
+    /// A mutable exact-multiplicity collection with ordered distinct members.
+    /// Boxed to keep the shared arena slot size stable.
+    MutableBag(Box<MutableBagObject>),
+    /// An insertion-ordered map with explicit positional operations.
+    IndexedDict(Box<IndexedDictObject>),
+    /// A mutable unique collection whose encounter order participates in equality.
+    OrderedSet(Box<OrderedSetObject>),
+    /// A private immutable node in a persistent hash trie. Boxed to keep arena slot size stable.
+    PersistentHashNode(Box<PersistentHashNode>),
+    /// A persistent immutable multiset with exact counts and HAMT backing. Boxed to keep arena slot size stable.
+    Bag(Box<BagObject>),
     /// A native, fixed-length, mutable octet buffer ([`BytesObject`],
     /// [PDR-0011](../../../docs/decisions/0011-admit-bytes-native-octet-buffer.md)).
     /// `Tuple`'s backing shape (`Box<[u8]>`, length fixed at construction)

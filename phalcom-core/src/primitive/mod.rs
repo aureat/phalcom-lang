@@ -1,5 +1,6 @@
 pub mod array;
 pub mod attribute;
+pub mod bag;
 pub mod block;
 pub mod boolean;
 pub mod buffer;
@@ -12,8 +13,10 @@ pub mod fiber;
 pub mod float;
 pub mod index;
 pub mod int;
+pub mod indexed_dict;
 pub mod list;
 pub mod map;
+pub mod mutable_bag;
 pub mod math;
 pub mod method;
 pub mod method_family;
@@ -21,10 +24,12 @@ pub mod module;
 pub mod number;
 pub mod object;
 pub mod option;
-mod ordered_hash;
+pub(crate) mod ordered_hash;
+pub mod persistent_hash;
 pub mod pack;
 pub mod random;
 pub mod range;
+pub mod ordered_set;
 pub mod record;
 pub mod reflection;
 pub mod resource;
@@ -401,6 +406,34 @@ pub(crate) fn expect_set(vm: &VM, value: &Value) -> PhResult<ObjRef> {
     .into())
 }
 
+pub(crate) fn expect_mutable_bag(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    value.as_obj().filter(|id| vm.heap.as_mutable_bag(*id).is_some()).ok_or_else(|| RuntimeError::Type {
+        expected: "MutableBag",
+        found: value.type_name(),
+    }.into())
+}
+
+pub(crate) fn expect_indexed_dict(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    value.as_obj().filter(|id| vm.heap.as_indexed_dict(*id).is_some()).ok_or_else(|| RuntimeError::Type {
+        expected: "IndexedDict",
+        found: value.type_name(),
+    }.into())
+}
+
+pub(crate) fn expect_ordered_set(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    value.as_obj().filter(|id| vm.heap.as_ordered_set(*id).is_some()).ok_or_else(|| RuntimeError::Type {
+        expected: "OrderedSet",
+        found: value.type_name(),
+    }.into())
+}
+
+pub(crate) fn expect_bag(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    value.as_obj().filter(|id| vm.heap.as_bag(*id).is_some()).ok_or_else(|| RuntimeError::Type {
+        expected: "Bag",
+        found: value.type_name(),
+    }.into())
+}
+
 /// Extracts a tuple's [`ObjRef`] handle from a receiver value.
 ///
 /// # Errors
@@ -517,7 +550,7 @@ pub(crate) fn send_eq(vm: &mut VM, a: Value, b: Value) -> PhResult<bool> {
 
 /// Returns `true` iff `value` is a native collection that the v1 key policy
 /// rejects because it is mutable or is a Slice view (`List`/`Array`/`Buffer`/
-/// `Slice`/`Map`/`Set`/`Bytes`).
+/// `Slice`/`Map`/`Set`/`MutableBag`/`IndexedDict`/`OrderedSet`/`Bytes`).
 pub(crate) fn is_mutable_collection_key(vm: &VM, value: &Value) -> bool {
     if let Some(id) = value.as_obj() {
         matches!(
@@ -528,6 +561,9 @@ pub(crate) fn is_mutable_collection_key(vm: &VM, value: &Value) -> bool {
                 | crate::heap::Object::Slice(_)
                 | crate::heap::Object::Map(_)
                 | crate::heap::Object::Set(_)
+                | crate::heap::Object::MutableBag(_)
+                | crate::heap::Object::IndexedDict(_)
+                | crate::heap::Object::OrderedSet(_)
                 | crate::heap::Object::Bytes(_)
         )
     } else {

@@ -463,6 +463,104 @@ impl Heap {
         }
     }
 
+    /// Borrows a native mutable bag.
+    pub fn mutable_bag(&self, id: ObjRef) -> &super::MutableBagObject {
+        match self.get(id) {
+            Object::MutableBag(bag) => bag,
+            _ => panic!("ObjRef {id:?} is not an Object::MutableBag"),
+        }
+    }
+
+    /// Mutably borrows a native mutable bag.
+    pub fn mutable_bag_mut(&mut self, id: ObjRef) -> &mut super::MutableBagObject {
+        match self.get_mut(id) {
+            Object::MutableBag(bag) => bag,
+            _ => panic!("ObjRef {id:?} is not an Object::MutableBag"),
+        }
+    }
+
+    /// Returns a native mutable bag, or `None` for another object arm.
+    pub fn as_mutable_bag(&self, id: ObjRef) -> Option<&super::MutableBagObject> {
+        match self.objects.get(id) {
+            Some(Object::MutableBag(bag)) => Some(bag),
+            _ => None,
+        }
+    }
+
+    pub fn indexed_dict(&self, id: ObjRef) -> &super::IndexedDictObject {
+        match self.get(id) {
+            Object::IndexedDict(dict) => dict,
+            _ => panic!("ObjRef {id:?} is not an Object::IndexedDict"),
+        }
+    }
+
+    pub fn indexed_dict_mut(&mut self, id: ObjRef) -> &mut super::IndexedDictObject {
+        match self.get_mut(id) {
+            Object::IndexedDict(dict) => dict,
+            _ => panic!("ObjRef {id:?} is not an Object::IndexedDict"),
+        }
+    }
+
+    pub fn as_indexed_dict(&self, id: ObjRef) -> Option<&super::IndexedDictObject> {
+        match self.objects.get(id) {
+            Some(Object::IndexedDict(dict)) => Some(dict),
+            _ => None,
+        }
+    }
+
+    pub fn ordered_set(&self, id: ObjRef) -> &super::OrderedSetObject {
+        match self.get(id) {
+            Object::OrderedSet(set) => set,
+            _ => panic!("ObjRef {id:?} is not an Object::OrderedSet"),
+        }
+    }
+
+    pub fn ordered_set_mut(&mut self, id: ObjRef) -> &mut super::OrderedSetObject {
+        match self.get_mut(id) {
+            Object::OrderedSet(set) => set,
+            _ => panic!("ObjRef {id:?} is not an Object::OrderedSet"),
+        }
+    }
+
+    pub fn as_ordered_set(&self, id: ObjRef) -> Option<&super::OrderedSetObject> {
+        match self.objects.get(id) {
+            Some(Object::OrderedSet(set)) => Some(set),
+            _ => None,
+        }
+    }
+
+    /// Borrows a private persistent hash trie node.
+    pub fn persistent_hash_node(&self, id: ObjRef) -> &super::PersistentHashNode {
+        match self.get(id) {
+            Object::PersistentHashNode(node) => node,
+            _ => panic!("ObjRef {id:?} is not an Object::PersistentHashNode"),
+        }
+    }
+
+    /// Returns a private persistent hash trie node, or `None` if not one.
+    pub fn as_persistent_hash_node(&self, id: ObjRef) -> Option<&super::PersistentHashNode> {
+        match self.objects.get(id) {
+            Some(Object::PersistentHashNode(node)) => Some(node),
+            _ => None,
+        }
+    }
+
+    /// Borrows a persistent Bag.
+    pub fn bag(&self, id: ObjRef) -> &super::BagObject {
+        match self.get(id) {
+            Object::Bag(bag) => bag,
+            _ => panic!("ObjRef {id:?} is not an Object::Bag"),
+        }
+    }
+
+    /// Returns a persistent Bag, or `None` for another object arm.
+    pub fn as_bag(&self, id: ObjRef) -> Option<&super::BagObject> {
+        match self.objects.get(id) {
+            Some(Object::Bag(bag)) => Some(bag),
+            _ => None,
+        }
+    }
+
     /// Borrows the [`TupleObject`] behind `id`.
     ///
     /// # Panics
