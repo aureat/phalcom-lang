@@ -731,8 +731,8 @@ mod tests {
                     arguments: Box::new([StaticArgumentRef::Term(TypeNodeId(1))]),
                 },
                 nominal("right", "Box"),
-                TypeNode::ConstInt(1),
-                TypeNode::ConstInt(2),
+                TypeNode::ConstInt(phalcom_type_meta::scalar::StaticInt::Small(1)),
+                TypeNode::ConstInt(phalcom_type_meta::scalar::StaticInt::Small(2)),
             ],
         );
         let right = pool(

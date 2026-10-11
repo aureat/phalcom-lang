@@ -1,8 +1,11 @@
-# Phalcom Branch and Worktree Status
+# Phalcom Branch and Worktree Status — Pre-Consolidation Inventory
 
 **Snapshot date:** 2026-10-11
 **Repository:** `/Users/altunhasanli/dev/phalcom/phalcom`
-**Purpose:** Map local branches and worktrees to their checkpoints, plans, and current blockers. This is a status inventory, not a test or release certification.
+**Purpose:** Preserve the pre-consolidation branch/worktree assessment and record the consolidation outcome below. This is not a test or release certification.
+
+> The inventory sections below describe the state before consolidation. See
+> **Consolidation outcome** at the end for the current repository state.
 
 ## At a glance
 
@@ -10,7 +13,7 @@
 - `main` and `codex/lang007-c4-p10` point to the **same commit** (`6e5287af`), but their separate worktrees contain different uncommitted work.
 - The collection branch is a separate, substantial work stream: it is **15 commits ahead and 25 behind `main`**, before counting its uncommitted P6 work.
 - The local records do not identify GitHub issue numbers. The issue names below are the repository's checkpoint/plan tasks and recorded blockers.
-- No merge or consolidation has been performed as part of this inventory.
+- No merge or consolidation had been performed when this inventory was written.
 
 ## Active work streams
 
@@ -62,3 +65,33 @@ These are checkouts without a named branch; they should not be mistaken for addi
 - `docs/implementation/LANG007/LANG007.C4/LANG007.C4-CHECKPOINT.md`, the P4 completion plan, and the P10 partial walkthrough/handoff in the P10 worktree
 - `docs/implementation/COLL006/COLL006.C1/COLL006.C1-CHECKPOINT.md`, the P6 plan and incident records in the collection worktree
 - Local branch refs, worktree status, and current task notes as of the snapshot date
+
+## Consolidation outcome
+
+Consolidation was performed on `main` on 2026-10-11. At the end of this record,
+the root checkout is clean and `main` is 20 commits ahead of `origin/main`.
+
+| Commit | Consolidated work |
+|---|---|
+| `2247e337` | Merged `feat/telos-collection-upgrade` into `main`; manually resolved the six reported conflicts. |
+| `5bed257e` | Applied the saved collection worktree delta as a separate P6/P7 source change. The accepted P6/P7 decision files and plans are included. |
+| `9afab8f4` | Applied the saved LANG007 worktree delta as a separate change, including the P10 implementation and its relocated planning records. |
+| `4838bc75` | Preserved the latest stash's proposed class-initialization plan as a separate documentation change. The stash remains in the stash list. |
+
+Conflict dispositions:
+
+- Kept both sides' semantic-checker changes in `analyze_expression_with_publication` and exported both the algebraic-realization and sequence-publication products.
+- Preserved `LoadTypeParameterClass` at its existing main-line opcode index 117 and assigned the newly merged collection opcodes indices 118–127. Updated the VM bytecode index table.
+- Regenerated `phalcom-native-surface/src/generated.rs` from merged primitive declarations. The generator reported 481 declarations after P6/P7 source integration.
+- Resolved the decision-number collision by retaining collection TDR-0091, TDR-0092, and TDR-0093, and renumbering the main primitive-classification decision to TDR-0094 with its registry path updated.
+- Adapted the existing runtime-typing identity test's `ConstInt` values to the merged `StaticInt` representation.
+
+Disposition of separately preserved work:
+
+- `codex/coll006-p4-followup-unaccepted` remains at `82725c90`, unchanged and unmerged. It remains a separately reviewable, explicitly unaccepted change.
+- The LANG007, collection, and math worktrees were left intact. Their pre-consolidation branch tips and full dirty worktree contents are recoverable under `refs/codex/consolidation-snapshots/20261011/`.
+- The three untracked math-worktree documents are exact copies of the P10 incident/census/plan files now under `LANG007.C4.P10/`; they were not added again at the alternate `C4P10/` path.
+- All 13 original stash entries remain present and each stash object has a snapshot ref. The latest class-initialization plan was copied into `main`; older stashes were preserved but not applied.
+- Detached comparison worktrees remain unchanged.
+
+No tests were executed. The native-surface artifact was regenerated and its consistency check passed at 481 declarations. Library-only compile checks passed for `phalcom-core`, `phalcom-semantic`, and `phalcom-lsp`. A core test-target compile check remains blocked by a call at `phalcom-core/src/vm/send.rs:1960` that omits the sixth argument added on the existing main line; the call is unchanged from the pre-consolidation main revision and was left as a baseline issue. The merge-caused `StaticInt` test mismatch was adapted and no longer appears in that check. Original plan records retain their prior focused-test evidence. COLL006 P7 is active: the saved source includes Bag implementation files, but its T5 gate has not been reconciled or newly verified; Bijection remains outstanding.

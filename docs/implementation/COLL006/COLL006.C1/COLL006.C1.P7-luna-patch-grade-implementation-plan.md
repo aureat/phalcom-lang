@@ -4,9 +4,9 @@ category: COLL
 program: COLL006
 checkpoint: COLL006.C1
 kind: implementation-plan
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 depends_on:
   - COLL006.C1.P6
 follows: COLL006.C1.P6

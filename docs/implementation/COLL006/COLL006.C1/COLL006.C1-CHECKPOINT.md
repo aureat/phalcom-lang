@@ -333,7 +333,7 @@ The ledger records current C1 execution state. Proposed successor plans retain t
 | `COLL006.C1.P4` | Static homogeneous sequence model; const Vector; const Array; materialization; repository-wide bracket-default cutover/migration | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T10/T11 cutover and stabilization complete; G7 focused evidence passes except inherited D4 static-constant failures |
 | `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 owned implementation and focused evidence complete; G6.A PASS; G6.B and aggregate G6 retain the parse-package baseline blocker |
 | `COLL006.C1.P6` | Reusable ordered-hash backing; preserve Map/Set; add `MutableBag`, `IndexedDict`, `OrderedSet` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T7 complete; exact 29 bindings (TDR-0092); G3 (MutableBag), G4 (IndexedDict), G5 (OrderedSet), G6 (mutable-key admission matrix) passed; oracles resolved; walkthrough and handoff created; P7 is next |
-| `COLL006.C1.P7` | Persistent hash substrate; `Bag<T>`; `Bijection<K,V>` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete persistent hash collections with structural sharing |
+| `COLL006.C1.P7` | Persistent hash substrate; `Bag<T>`; `Bijection<K,V>` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0–T4/G2–G4 have recorded focused evidence; Bag implementation files arrived in the consolidated snapshot but its T5 gate is not recorded; Bijection remains outstanding |
 | `COLL006.C1.P8` | `Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete generic interval-domain mapping |
 | `COLL006.C1.P9` | API/conversion convergence, `Entry<K,V>` migration boundary, diagnostics, property/GC/performance certification, docs/checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | Certify the complete C1 collection family |
 
@@ -916,14 +916,14 @@ The implementer cannot self-waive a triggered consultation.
 ## 18. Active plan and next action
 
 ```text
-active plan:           COLL006.C1.P7; P1–P6 complete; persistent hash substrate next
+active plan:           COLL006.C1.P7; P1–P6 complete; T0–T4/G2–G4 recorded; Bag source is present, Bijection remains outstanding
 latest completed plan: COLL006.C1.P6
 execution blockers:    none within P6 scope; P5 G6.A PASS, G6.B and aggregate G6 BASELINE_BLOCKED by associated-family invocation in token-backed Cursor use (assigned to P9)
 verification residuals: D4 — computed Record-key failures block a clean aggregate static_constants PASS;
                          D1 — metadata failure, still suspected unrelated;
                          D2 — reflection/module fixture failures, still suspected unrelated;
                          R-PARSE-ASSOCIATED-INVOKE — owning compiler-layer consultation prepared (assigned to P9)
-next action:           begin COLL006.C1.P7 under docs/implementation/COLL006/COLL006.C1/COLL006.C1.P7-luna-patch-grade-implementation-plan.md
+next action:           reconcile the consolidated Bag source against P7 T5, acquire its focused evidence, then continue with Bijection under the P7 plan
 ```
 
 ### P6 start — 2026-10-11
@@ -1959,6 +1959,31 @@ Tasks T0, T1, T2, T3, and T4 are complete; Gates G2, G3, and G4 are VERIFIED / P
    - Authored consultation packet `COLL006.C1.P7-api-and-floor-consultation.md`.
    - Ratified TDR-0093 (`docs/decisions/accepted/0093-persistent-hash-collection-native-floor.md`) amending TDR-0017 with exactly 14 native bindings (7 for `Bag`, 7 for `Bijection`).
    - Updated normative specification `docs/specs/collection-families.md` (§5 `Bag`, §6 `Bijection`, §7 error boundary).
-   - Target native surface catalog declaration count: 458 + 14 = **472**.
+   - P7 branch-baseline target was 458 + 14 = **472** declarations before main-line native declarations were consolidated.
 
-Next action: proceed with T5 (`Bag<T>` implementation).
+Next action at that checkpoint revision: proceed with T5 (`Bag<T>` implementation).
+
+### P7 worktree consolidation — 2026-10-11
+
+The saved collection worktree snapshot (`52b33170`) was applied to `main` as
+its own commit after the collection branch merge. It includes the P7 persistent
+hash substrate and `Bag<T>` source/runtime/test files. The snapshot contains no
+`Bijection<K,V>` implementation files; Bijection remains outstanding.
+
+The merged native-surface generator now emits 481 declarations: 445 from the
+combined pre-P6 main/collection source, 29 approved P6 bindings, and 7 of the
+14 P7 bindings approved by TDR-0093 for Bag. The remaining 7 Bijection bindings
+are not present yet. This count is a source inventory, not a completion claim.
+
+No runtime tests were executed as part of this consolidation. Library-only
+compile checks passed for `phalcom-core`, `phalcom-semantic`, and `phalcom-lsp`.
+The core test-target compile check remains blocked by the unchanged main-line
+call at `phalcom-core/src/vm/send.rs:1960`, which omits its sixth argument.
+The merged `StaticInt` test-value mismatch was adapted; the Bag files are
+present but have no new completion or verification claim here. Existing
+T0–T4/G2–G4 evidence remains the recorded evidence for those slices.
+
+The plan ledger now records P7 as `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` for
+the previously verified T0–T4 slices. Before closing T5, inspect the
+consolidated Bag implementation against the P7 contract and establish its own
+focused evidence. Then implement Bijection and complete the remaining P7 gates.
