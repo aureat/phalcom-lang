@@ -13,6 +13,7 @@ use crate::heap::PackObject;
 use crate::heap::RangeObject;
 use crate::heap::RecordLiteralBuilderObject;
 use crate::heap::RecordObject;
+use crate::heap::SliceObject;
 use crate::heap::StringObject;
 use crate::heap::TupleObject;
 use crate::heap::Upvalue;
@@ -277,6 +278,38 @@ impl Heap {
         }
     }
 
+    /// Borrows the [`BufferObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Buffer`].
+    pub fn buffer(&self, id: ObjRef) -> &super::BufferObject {
+        match self.get(id) {
+            Object::Buffer(buffer) => buffer,
+            _ => panic!("ObjRef {id:?} is not a BufferObject"),
+        }
+    }
+
+    /// Mutably borrows the [`BufferObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Buffer`].
+    pub fn buffer_mut(&mut self, id: ObjRef) -> &mut super::BufferObject {
+        match self.get_mut(id) {
+            Object::Buffer(buffer) => buffer,
+            _ => panic!("ObjRef {id:?} is not a BufferObject"),
+        }
+    }
+
+    /// Returns bounded storage when `id` has the expected object kind.
+    pub fn as_buffer(&self, id: ObjRef) -> Option<&super::BufferObject> {
+        match self.objects.get(id) {
+            Some(Object::Buffer(buffer)) => Some(buffer),
+            _ => None,
+        }
+    }
+
     /// Borrows immutable Vector storage. Panics only for an invalid internal handle.
     pub fn vector(&self, id: ObjRef) -> &super::VectorObject {
         match self.get(id) {
@@ -289,6 +322,22 @@ impl Heap {
     pub fn as_vector(&self, id: ObjRef) -> Option<&super::VectorObject> {
         match self.objects.get(id) {
             Some(Object::Vector(vector)) => Some(vector),
+            _ => None,
+        }
+    }
+
+    /// Borrows the normalized Slice view behind `id`.
+    pub fn slice(&self, id: ObjRef) -> &SliceObject {
+        match self.get(id) {
+            Object::Slice(slice) => slice,
+            _ => panic!("ObjRef {id:?} is not a SliceObject"),
+        }
+    }
+
+    /// Returns a Slice view when `id` has the expected object kind.
+    pub fn as_slice(&self, id: ObjRef) -> Option<&SliceObject> {
+        match self.objects.get(id) {
+            Some(Object::Slice(slice)) => Some(slice),
             _ => None,
         }
     }

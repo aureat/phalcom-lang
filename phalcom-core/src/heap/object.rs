@@ -1,6 +1,7 @@
 use crate::heap::ArrayLiteralBuilderObject;
 use crate::heap::ArrayObject;
 use crate::heap::BlockObject;
+use crate::heap::BufferObject;
 use crate::heap::BytesObject;
 use crate::heap::ClassObject;
 use crate::heap::ClosureObject;
@@ -11,6 +12,7 @@ use crate::heap::ModuleObject;
 use crate::heap::PackObject;
 use crate::heap::RangeObject;
 use crate::heap::RecordObject;
+use crate::heap::SliceObject;
 use crate::heap::StringObject;
 use crate::heap::TupleObject;
 use crate::heap::Upvalue;
@@ -77,6 +79,10 @@ pub enum Object {
     Array(ArrayObject),
     /// An intrinsically immutable dimensioned sequence.
     Vector(super::VectorObject),
+    /// Native owned bounded storage with an initialized prefix.
+    Buffer(BufferObject),
+    /// Read-only view retaining its Array, Vector, or Buffer owner.
+    Slice(SliceObject),
     /// A compiler-owned dynamic Array literal builder. Boxed to preserve arena slot size.
     ArrayLiteralBuilder(Box<ArrayLiteralBuilderObject>),
     /// A cooperative fiber — the sole concurrency primitive

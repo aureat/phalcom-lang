@@ -19,7 +19,7 @@ It combines the language-level homogeneous-sequence literal upgrade with the run
 
 This record is the **single durable shared state authority** for all numbered plans belonging to `COLL006.C1`.
 
-P1, P2, P3, and P4 are complete at their bounded implementation scope. P4 owns static sequence values/materialization and the bare-bracket default cutover; P5 is the next proposed plan for Slice/Buffer.
+P1, P2, P3, and P4 are complete at their bounded implementation scope. P4 owns static sequence values/materialization and the bare-bracket default cutover; P5 is active for Slice/Buffer implementation.
 
 ---
 
@@ -331,7 +331,7 @@ The ledger records current C1 execution state. Proposed successor plans retain t
 | `COLL006.C1.P2` | `Array<T>` runtime/native representation, explicit/contextual Array literals, direct lowering, iteration, GC | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Complete runtime fixed-after-construction homogeneous sequence |
 | `COLL006.C1.P3` | `Vector<T,N>` runtime/native representation, static extent inference/cardinality proof, constructors, equality/hash, direct lowering | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Vector runtime/static formation, solved-only publication, negative extent rejection, Array homogeneous contracts, union/deferred publication, incremental parity, and focused runtime/compiler gates pass |
 | `COLL006.C1.P4` | Static homogeneous sequence model; const Vector; const Array; materialization; repository-wide bracket-default cutover/migration | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T10/T11 cutover and stabilization complete; G7 focused evidence passes except inherited D4 static-constant failures |
-| `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | PROPOSED | NOT_STARTED | UNVERIFIED | Complete contiguous view/bounded-construction family |
+| `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | T0/G0 through T6/G5 complete; T7 `ListSource` migration and P14 lifecycle reconciliation are implemented, but G6 remains blocked by the unchanged parse-package baseline; T8/G7 conversion edges are focused-tested; T9 remains |
 | `COLL006.C1.P6` | Reusable ordered-hash backing; preserve Map/Set; add `MutableBag`, `IndexedDict`, `OrderedSet` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete mutable ordered/hash-indexed family without duplicating re-entry logic |
 | `COLL006.C1.P7` | Persistent hash substrate; `Bag<T>`; `Bijection<K,V>` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete persistent hash collections with structural sharing |
 | `COLL006.C1.P8` | `Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete generic interval-domain mapping |
@@ -916,18 +916,262 @@ The implementer cannot self-waive a triggered consultation.
 ## 18. Active plan and next action
 
 ```text
-active plan:           COLL006.C1.P5 (proposed)
+active plan:           COLL006.C1.P5 (IN_PROGRESS / PARTIAL / BASELINE_BLOCKED)
 latest completed plan: COLL006.C1.P4
-execution blockers:    none for P5
+execution blockers:    no T7 design/code blocker; G6 parser acceptance is blocked by inherited parse-package failures also present at G0
 verification residuals: D4 — computed Record-key failures block a clean aggregate static_constants PASS;
                          D1 — metadata failure, still suspected unrelated;
                          D2 — reflection/module fixture failures, still suspected unrelated
-next action:           begin P5 Slice/Buffer implementation from the completed P4 handoff
+next action:           continue T9 focused stabilization and remaining P5 gates; retain G6 as BASELINE_BLOCKED until the parse-package failures are resolved by their owning work
 ```
 
 Continue in the `telos-collections-upgrade` worktree from the completed P4 state.
 T10/G6 and T11/G7 are complete; live defaults are runtime Array and static
 Vector. Read the P4 walkthrough and handoff for the stable P5 takeover map.
+
+### P5 T0 entry — 2026-10-11
+
+P5 was started on `feat/telos-collection-upgrade` at the plan's recorded
+source revision `78cfd9202f5dea7dd2713bff71d3e475f20810d6` (tree
+`f05c4e428cea8eecfb3f367ee407b009ce481be2`). The P5 plan is now active. No
+production changes are included in the start state. The user-authored
+`TELOS-Class-Initialization-DataClass-Implementation-Plan.md` is present as an
+untracked file and is outside this plan's scope; preserve it.
+
+### P5 T7/G6 and T8/G7 progress — 2026-10-11
+
+T7 migrated `packages/parse/src/source/list-source.ph` from a private copied
+`List<T>` field to a private `Array<T>` snapshot retained by `Slice<T>`. The
+runtime fixture now mutates the caller List by append, indexed replacement, and
+removal, then checks snapshot size, cursor reads, `Parse.run`, and ordered
+`Parse.runAll` behavior. The parse README now describes the Array/Slice owner.
+
+The requested P14 lifecycle reconciliation is recorded in the LANG007.C4
+checkpoint and its follow-on proposal. The old proposal for a public
+`ImmutableSequence<T>` remains historical; C4's actual parser snapshot was a
+private List copy loop, while `Substring` is P12 text-view work. C1/P5 uses
+private Array plus read-only Slice; runtime-sized Vector snapshots and a new
+ImmutableSequence runtime type are not introduced. `ParseError.expected` and
+`.contexts` remain outside this P5 change.
+
+G6 remains `BASELINE_BLOCKED`. The named command
+`RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package
+-- --nocapture` was rerun after the T7 source/test edits and again selected two
+tests, both failing on the same pre-P5 issues recorded at G0: the parse entry
+reports `TextSource.slice` returning `Substring` where `String` is declared
+(`packages/parse/src/source/text-source.ph:40`), and runtime fixtures report
+that same mismatch plus the existing `Some`/`Int` comparison failure in
+`expr/operators-test.ph`. The modified `source-test.ph` has no remaining
+diagnostic of its own, but cannot run past the imported TextSource failure, so
+parser snapshot runtime behavior is not yet certified. The acceptance/ownership
+question is packaged in
+`COLL006.C1.P5-G6-parse-baseline-consultation.md`; no mandatory RED trigger or
+P5-caused defect has been established from this inherited failure.
+
+T8/G7's zero-copy edges are present and covered by the focused P5 source/runtime
+tests: Array, Vector, and Buffer create Slice views; Slice creates normalized
+subviews; the views retain their root owner and current Array/Buffer contents.
+Existing Array and Vector conversions remain in their owning APIs. G7 is
+`PASS`; T9 stabilization and broader P5 gates remain open.
+
+T9 workspace-check and diff-hygiene evidence acquired so far:
+
+| Gate | Command | Result |
+|---|---|---|
+| Native surface | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo run -p phalcom-native-surface-gen -- --root . --check` | 429 declarations current |
+| Workspace all-target check | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check --workspace --all-targets` | Passed in 1m13s |
+| Diff hygiene | `git diff --check` | Passed |
+
+This does not close T9: the G6 parse-package runtime behavior remains
+uncertified, and the remaining P5-focused gate inventory/lifecycle closeout is
+still in progress. Workspace tests, clippy, and release certification have not
+been run for P5.
+
+The branch also retains a separate unpushed local branch,
+`codex/coll006-p4-followup-unaccepted`, at `82725c90`, containing the parked
+P4 correctness experiment. Its three new semantic regressions pass on the clean
+P4 source revision and fail with that experiment: two declaration-surface
+annotation-diagnostic cases and one P3-mode-only Pack-binder invalidation case.
+Do not carry that patch into P5. The leading diagnosis is that canonical
+callable-signature products discard diagnostics emitted while forming fallback
+source annotations; this crosses semantic query-product/diagnostic ownership
+and needs an architectural ruling before that follow-up is resumed. D1/D2/D4
+remain verification residuals and do not block this P5 start.
+
+T0 is complete with G0 classified `BASELINE_BLOCKED`. The live source census
+and baseline measurements are complete, but the parse-package gate does not
+pass at the pre-P5 source revision.
+
+Initial T0 measurements and census:
+
+- `size_of::<Value>()` is 16 bytes and `size_of::<Object>()` is 48 bytes on
+  this host. P4's same-revision handoff records 417 native-surface declarations.
+- The exhaustive runtime object tracer is `phalcom-core/src/heap/trace.rs`;
+  Slice must trace its strong owner handle, and Buffer must trace each
+  initialized element. The other source match/reference sites are grouped by
+  responsibility: `heap/object.rs` (variant definition), `heap/mod.rs`
+  (allocation and kind name), `heap/accessors.rs` (typed access),
+  `value/mod.rs` (class mapping and heap-value classification),
+  `value/render.rs` (display/debug), `primitive/mod.rs` (mutable-key rejection),
+  `universe/core_classes.rs` (canonical runtime class rows),
+  `vm/dispatch.rs` (collection conversion/dispatch), and
+  `modules/static_constant.rs` (Array/Vector-only static materialization; do
+  not add Slice/Buffer static kinds). Additional reference-only sites are
+  `heap/list.rs`, `heap/bytes.rs`, and `primitive/attribute.rs`. Five test files
+  inspect collection variants or their class/key/materialization behavior:
+  Array, reflection, module parity, REPL session, and static constants.
+- `RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package`
+  selected 2 tests and both failed before any P5 production edit. The declared
+  project fails because `packages/parse/src/source/text-source.ph:40` declares
+  `String` while `String.slice` returns `Substring`; all 11 runtime fixtures
+  also fail from that shared return mismatch, and the operator fixture reports
+  a separate `Some`/`Int` comparison error. This is a pre-P5 parse-package
+  baseline failure, not evidence against Slice/Buffer storage. Keep it recorded
+  at G0 and do not change String/Substring or comparison semantics under P5
+  without a scoped owner decision.
+- Focused controls passed at this exact source revision: `core_array` 11/11,
+  `core_vector` 9/9, semantic `coll006` 54/54, and semantic
+  `static_sequence` 10/10. The native-surface check reports 417 declarations
+  current. The P4 handoff's `cargo check --workspace --all-targets` pass is
+  carried forward because it was run after the final source changes at this
+  same revision; it was not redundantly rebuilt at T0. `git diff --check`
+  passes for the P5 lifecycle edits.
+
+P5 proceeds to T1 with the parse-package blocker explicitly retained. No
+String/Substring or comparison change is included in the P5 scope decision.
+
+### P5 T1 canonical identities and G1 — 2026-10-11
+
+T1 adds canonical `Slice` and `Buffer` entries to the Universe metadata,
+declaration identities, runtime class table, and builtin source provider. The
+source shells live at `universe.collections.slice` and
+`universe.collections.buffer`, are exported by the collections package, and
+declare one Type-kinded parameter each. Both runtime class rows inherit from
+the canonical `Collection` class. Project-context analysis verifies imports
+through the public package paths and keeps `Slice<Int>` distinct from
+`Slice<String>` (and likewise for Buffer); the reflection test verifies each
+class retains unary generic kind/application behavior and reifies the expected
+applied type display.
+
+G1 is `PASS`. T1 is `IMPLEMENTED / FOCUSED_TESTED`. Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo test -p phalcom-native-meta slice_and_buffer` | 1 passed |
+| `cargo test -p phalcom-core --test core slice_and_buffer -- --nocapture` | 2 passed |
+| `cargo test -p phalcom-core --test core spec03_reifies_applied_type_forms_and_returns_bounded_results -- --nocapture` | 1 passed |
+
+P5 remains `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`: the unchanged parse
+package failures still block aggregate G0, while T1's canonical identity gate
+is complete. T2 is next; no Buffer storage or public capacity-exhaustion
+contract is implemented yet.
+
+### P5 T2 Buffer bounded storage and G2 — 2026-10-11
+
+T2 implements owned `BufferObject` storage with a semantic logical capacity
+separate from allocator capacity and a `Vec<Value>` containing only the
+initialized prefix. Construction uses `try_reserve_exact`; capacity exhaustion
+returns a recoverable `Result<Unit, Error>` from the Telos `push` API with the
+message `Buffer capacity exhausted`. Failed appends leave size and contents
+unchanged. Native reads/writes are limited to the initialized range, and Buffer
+is rejected as a Map/Set key from the moment its object arm is introduced.
+The tracer visits only initialized values.
+
+G2 is `PASS`. T2 is `IMPLEMENTED / FOCUSED_TESTED`. Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo test -p phalcom-core --lib heap::buffer::tests` | 4 passed; covers zero capacity, repeated atomic overflow, initialized-only replacement, and reservation failure |
+| `cargo test -p phalcom-core --test core buffer_is_bounded_typed_mutable_and_gc_traced -- --nocapture` | 1 passed; source API, invalid capacities, key rejection, initialized child tracing, and replaced-child collection |
+
+### P5 T3 owner-rooted Slice substrate and G3 — 2026-10-11
+
+`SliceObject` stores only a strong `ObjRef`, start, and runtime length. The
+canonical heap constructor accepts Array, Vector, Buffer, or Slice owners;
+Slice inputs are flattened to the original owner with checked offset/range
+arithmetic. Element reads resolve the current backing storage by direct index,
+so lookup is O(1) and zero-copy. Slice is included in Map/Set key rejection,
+and its tracer edge is exactly the backing owner.
+
+G3 is `PASS`. T3 is `IMPLEMENTED / FOCUSED_TESTED`. Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo test -p phalcom-core --lib heap::slice::tests` | 5 passed; Array/Vector/Buffer owners, range composition, empty/single ranges, negative index normalization, deep nesting, overflow, unsupported owner, and exact trace edge |
+| `cargo test -p phalcom-core --test core slice_and_buffer_are_canonical_collection_classes -- --nocapture` | 1 passed; source declarations boot, runtime class mapping, negative Slice read, Map/Set key rejection, and actual GC owner retention |
+| `cargo run -p phalcom-native-surface-gen -- --root . --check` | 425 primitive declarations current (417 at P5 start; +6 Buffer and +2 Slice native declarations) |
+| `git diff --check` | Passed |
+
+P5 remains `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED` because the unchanged
+parse-package failures remain at G0. P5 next proceeds to T4 typed source APIs;
+P4's three inherited D4 computed-Record-key failures remain outside this
+Slice/Buffer gate and do not block it.
+
+### P5 T4 typed source APIs and G4a — 2026-10-11
+
+T4 adds typed public methods for Slice and Buffer reads, `first`/`last`,
+optional `get`, iteration, range slicing, equality, `toList`, and the Buffer
+mutation/capacity surface. Array, Vector, Buffer, and nested Slice range methods
+all delegate bound interpretation to `Range.rawSliceBounds`; the shared native
+helper validates already-normalized coordinates and uses the T3 heap
+constructor. Slice exposes no mutation methods. Equality stays in Telos loops
+so element equality sends run without a held Rust heap borrow. Buffer equality
+compares initialized contents and ignores capacity.
+
+G4a is `PASS`. T4 is `IMPLEMENTED / FOCUSED_TESTED`. Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo check -p phalcom-core --lib` | Passed after adding the four source `rawSlice` primitives |
+| `cargo test -p phalcom-core --test core slice_and_buffer_source_apis_cover_views_iteration_and_equality -- --nocapture` | 1 passed; Array/Vector/Buffer views, negative/open/closed ranges, nested Slice, optional reads, iteration, cross-owner Slice equality, and capacity-insensitive Buffer equality |
+| `cargo run -p phalcom-native-surface-gen -- --root . --check` | 429 primitive declarations current (+12 from the P5 start count of 417) |
+| `git diff --check` | Passed |
+
+P5 remains `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED` at G0 due the two
+unchanged parse-package baseline failures. T5 is next; G4a does not yet certify
+live backing mutation, deep GC, or the Object arena slot ceiling.
+
+### P5 T5 cross-family behavior and G4 — 2026-10-11
+
+T5 confirms that Array element mutation and Buffer replacement are visible
+through extant Slices, while later Buffer append does not extend an existing
+view. A Vector-backed Slice reads the stable immutable Vector payload. The same
+runtime test verifies that Slice cannot mutate a frozen const Array through
+its owner and exposes no setter, that Map/Set reject Array-, Buffer-, and
+Vector-backed Slices plus Buffer, and that a Vector remains an accepted
+Map/Set key. The deep-GC case roots only the deepest nested Slice: its original
+Array owner and child survive, while the two intermediate Slice objects are
+collected. `Value` remains 16 bytes and `Object` remains 48 bytes, matching the
+P5-start measurements.
+
+G4 is `PASS`. T5 is `IMPLEMENTED / FOCUSED_TESTED`. Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo test -p phalcom-core --test core slice_buffer_cross_family_views_mutation_gc_and_representation_invariants -- --nocapture` | 1 passed; live backing changes, fixed Buffer view extent, frozen const Array alias protection, Slice/Buffer key rejection, deep GC ownership, and representation sizes |
+| `cargo test -p phalcom-core --test core vector_structural_keys_preserve_map_and_set_laws -- --nocapture` | 1 passed; immutable Vector remains a valid Map/Set key |
+
+P5 remains `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED` at G0 from the unchanged
+pre-P5 parse-package failures. T6 range/boundary certification is next.
+
+### P5 T6 Range and boundary certification / G5 — 2026-10-11
+
+The public `slice(range)` methods on Array, Vector, Buffer, and Slice all use
+the existing `Range.rawSliceBounds` implementation. The focused runtime matrix
+checks open/closed and inclusive ranges, negative bounds, negative bounds past
+the source start, lower/upper clamping, zero-length and reversed intervals,
+fractional-bound rejection, and full/one-element/empty sources for all four
+source families. Result slices retain a normalized root owner and composed
+offsets; range interpretation remains wholly in the Range source layer.
+
+G5 is `PASS`. T6 is `IMPLEMENTED / FOCUSED_TESTED`. Evidence:
+
+| Check | Result |
+|---|---|
+| `cargo test -p phalcom-core --test core slice_buffer_cross_family_views_mutation_gc_and_representation_invariants -- --nocapture` | 1 passed; full range matrix across Array, Vector, Buffer, and Slice, including empty and one-element sources |
+
+P5 remains `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED` at G0 from the unchanged
+pre-P5 parse-package failures. T7 parser/P14 convergence is next.
 
 
 ### P3 continuation consultation — symbolic identity construction (2026-10-08)

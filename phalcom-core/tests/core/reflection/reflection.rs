@@ -473,6 +473,28 @@ fn spec03_reifies_applied_type_forms_and_returns_bounded_results() {
     assert!(send0(&mut vm, list_kind, "result").is_some());
     assert_eq!(send0(&mut vm, Value::obj(list_class), "remainingParameterCount").as_int(), Some(1));
 
+    for (collection_class, expected_display) in [
+        (vm.universe.classes.slice_class, "Slice<Int>"),
+        (vm.universe.classes.buffer_class, "Buffer<Int>"),
+    ] {
+        let collection_kind = send0(&mut vm, Value::obj(collection_class), "kind");
+        assert_eq!(send0(&mut vm, collection_kind, "argumentCount").as_int(), Some(1));
+        assert_eq!(send0(&mut vm, Value::obj(collection_class), "remainingParameterCount").as_int(), Some(1));
+
+        let collection_arguments = tuple(&mut vm, vec![Value::obj(int_class)]);
+        let collection_known = send2(&mut vm, context, "apply(_,_)", Value::obj(collection_class), collection_arguments);
+        assert_eq!(collection_known.class(&vm), known_class);
+
+        let collection_descriptor = send0(&mut vm, collection_known, "value");
+        assert_eq!(collection_descriptor.class(&vm), descriptor_class);
+        assert_eq!(send0(&mut vm, collection_descriptor, "argumentCount").as_int(), Some(1));
+        let collection_display = send0(&mut vm, collection_descriptor, "display");
+        assert_eq!(
+            vm.heap.string(collection_display.as_obj().expect("applied collection type display")).as_str(),
+            expected_display
+        );
+    }
+
     let arguments = tuple(&mut vm, vec![Value::obj(int_class)]);
     let known = send2(&mut vm, context, "apply(_,_)", Value::obj(list_class), arguments);
     assert_eq!(known.class(&vm), known_class);

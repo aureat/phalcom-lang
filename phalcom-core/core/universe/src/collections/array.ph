@@ -4,6 +4,7 @@ native class Array<T> is Collection {
   internal native rawLength -> Int
   internal native rawAt(_ index: Int) -> Dynamic
   internal native rawSet(_ index: Int, _ value: Dynamic) -> Dynamic
+  internal native rawSlice(_ start: Int, _ end: Int) -> Slice<T>
   native toString -> String
 
   size { self.rawLength }
@@ -19,6 +20,18 @@ native class Array<T> is Collection {
   }
 
   iterator -> ArrayIterator<T> { ArrayIterator.new(self) }
+
+  slice(_ range: Range) -> Slice<T> {
+    return range.rawSliceBounds(self.size).match(
+      ok: |bounds| {
+        let mut start = bounds[0]
+        let mut end = bounds[1]
+        if start > end { end = start }
+        self.rawSlice(start, end)
+      },
+      err: |error| { error.raise() }
+    )
+  }
 
   at(_ i: Int) -> T | None {
     return self.rawAt(i)

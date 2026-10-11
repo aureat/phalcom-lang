@@ -50,6 +50,8 @@ pub enum UniverseKey {
     List,
     Array,
     Vector,
+    Slice,
+    Buffer,
     Map,
     Set,
     Tuple,
@@ -233,6 +235,14 @@ pub const UNIVERSE_CLASS_RELATIONS: &[UniverseClassRelationSpec] = &[
         superclass: Some(UniverseKey::Collection),
     },
     UniverseClassRelationSpec {
+        class: UniverseKey::Slice,
+        superclass: Some(UniverseKey::Collection),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Buffer,
+        superclass: Some(UniverseKey::Collection),
+    },
+    UniverseClassRelationSpec {
         class: UniverseKey::Map,
         superclass: Some(UniverseKey::Collection),
     },
@@ -393,6 +403,8 @@ impl UniverseKey {
             Self::List => &["collections", "list"],
             Self::Array => &["collections", "array"],
             Self::Vector => &["collections", "vector"],
+            Self::Slice => &["collections", "slice"],
+            Self::Buffer => &["collections", "buffer"],
             Self::Map => &["collections", "map"],
             Self::Set => &["collections", "set"],
             Self::Tuple => &["collections", "tuple"],
@@ -463,6 +475,8 @@ impl UniverseKey {
             Self::List => "List",
             Self::Array => "Array",
             Self::Vector => "Vector",
+            Self::Slice => "Slice",
+            Self::Buffer => "Buffer",
             Self::Map => "Map",
             Self::Set => "Set",
             Self::Tuple => "Tuple",
@@ -539,6 +553,8 @@ impl UniverseKey {
             "List" => Some(Self::List),
             "Array" => Some(Self::Array),
             "Vector" => Some(Self::Vector),
+            "Slice" => Some(Self::Slice),
+            "Buffer" => Some(Self::Buffer),
             "Map" => Some(Self::Map),
             "Set" => Some(Self::Set),
             "Tuple" => Some(Self::Tuple),
@@ -829,6 +845,20 @@ pub const UNIVERSE_BINDINGS: &[UniverseBindingSpec] = &[
         prelude: true,
     },
     UniverseBindingSpec {
+        key: UniverseKey::Slice,
+        name: "Slice",
+        kind: UniverseBindingKind::Class,
+        exported: true,
+        prelude: true,
+    },
+    UniverseBindingSpec {
+        key: UniverseKey::Buffer,
+        name: "Buffer",
+        kind: UniverseBindingKind::Class,
+        exported: true,
+        prelude: true,
+    },
+    UniverseBindingSpec {
         key: UniverseKey::Map,
         name: "Map",
         kind: UniverseBindingKind::Class,
@@ -1089,6 +1119,20 @@ pub const UNIVERSE_TYPE_FORMS: &[UniverseTypeFormSpec] = &[
         }],
     },
     UniverseTypeFormSpec {
+        owner: UniverseKey::Slice,
+        parameters: &[TypeParameterDeclSpec {
+            name: "T",
+            kind: KindSpec::Type,
+        }],
+    },
+    UniverseTypeFormSpec {
+        owner: UniverseKey::Buffer,
+        parameters: &[TypeParameterDeclSpec {
+            name: "T",
+            kind: KindSpec::Type,
+        }],
+    },
+    UniverseTypeFormSpec {
         owner: UniverseKey::Set,
         parameters: &[TypeParameterDeclSpec {
             name: "T",
@@ -1136,3 +1180,35 @@ pub const UNIVERSE_TYPE_FORMS: &[UniverseTypeFormSpec] = &[
         }],
     },
 ];
+
+#[cfg(test)]
+mod collection_tests {
+    use super::{UNIVERSE_BINDINGS, UNIVERSE_CLASS_RELATIONS, UNIVERSE_TYPE_FORMS, UniverseBindingKind, UniverseKey};
+    use crate::types::KindSpec;
+
+    #[test]
+    fn slice_and_buffer_have_canonical_collection_catalog_entries() {
+        for (key, name, path) in [
+            (UniverseKey::Slice, "Slice", &["collections", "slice"][..]),
+            (UniverseKey::Buffer, "Buffer", &["collections", "buffer"][..]),
+        ] {
+            assert_eq!(key.name(), name);
+            assert_eq!(UniverseKey::from_name(name), Some(key));
+            assert_eq!(key.source_path(), path);
+
+            let binding = UNIVERSE_BINDINGS.iter().find(|binding| binding.key == key).expect("canonical binding");
+            assert_eq!(binding.name, name);
+            assert_eq!(binding.kind, UniverseBindingKind::Class);
+            assert!(binding.exported);
+            assert!(binding.prelude);
+
+            let relation = UNIVERSE_CLASS_RELATIONS.iter().find(|relation| relation.class == key).expect("canonical class relation");
+            assert_eq!(relation.superclass, Some(UniverseKey::Collection));
+
+            let form = UNIVERSE_TYPE_FORMS.iter().find(|form| form.owner == key).expect("canonical generic type form");
+            assert_eq!(form.parameters.len(), 1);
+            assert_eq!(form.parameters[0].name, "T");
+            assert_eq!(form.parameters[0].kind, KindSpec::Type);
+        }
+    }
+}

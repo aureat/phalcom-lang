@@ -6,9 +6,13 @@
 use phalcom_core::modules::RuntimeLinkedRead;
 use phalcom_core::modules::compile::{EntrySelection, ProgramAnalyzer, ProgramCompileError, ProgramCompiler};
 use phalcom_core::native::NativeSourceIndex;
+use phalcom_core::primitive::map::map_raw_put;
+use phalcom_core::primitive::set::set_raw_add;
+use phalcom_core::primitive::slice::slice_raw_at;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use phalcom_modules::{DunderPolicy, DunderRole, ModuleId, ModulePath, ProjectError, ProjectUniverse};
+use phalcom_native_meta::UniverseKey;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -135,6 +139,127 @@ fn universe_package_intrinsics_match_provider_neutral_package_rules() {
     assert_eq!(vm.heap.module(root).package, Some(root));
     assert_eq!(vm.heap.module(collections).package, Some(collections));
     assert_eq!(vm.heap.module(list).package, Some(collections));
+}
+
+#[test]
+fn slice_and_buffer_are_canonical_collection_classes() {
+    let mut vm = VM::new();
+    let classes = vm.universe.classes;
+    let collection_class = classes.collection_class;
+
+    let collections_id = ModuleId::universe(ModulePath::from_components(vec![
+        phalcom_modules::ModuleComponent::from_identifier("collections").unwrap(),
+    ]));
+    let collections = vm.module_registry.get(&collections_id).expect("collections package materialized").object;
+
+    for (key, class, name, module_name) in [
+        (UniverseKey::Slice, classes.slice_class, "Slice", "slice"),
+        (UniverseKey::Buffer, classes.buffer_class, "Buffer", "buffer"),
+    ] {
+        assert_eq!(classes.resolve(key), class, "{name} uses the canonical runtime class row");
+        assert_eq!(vm.heap.class(class).superclass, Some(collection_class), "{name} inherits canonical Collection");
+        assert!(vm.heap.class(class).native_repr, "{name} uses its native heap representation");
+
+        let module_id = ModuleId::universe(ModulePath::from_components(vec![
+            phalcom_modules::ModuleComponent::from_identifier("collections").unwrap(),
+            phalcom_modules::ModuleComponent::from_identifier(module_name).unwrap(),
+        ]));
+        let module = vm.module_registry.get(&module_id).expect("collection declaration module materialized").object;
+        let class_symbol = vm.interner.intern(name);
+        assert_eq!(
+            vm.heap.module(module).get(class_symbol),
+            Some(Value::obj(class)),
+            "{name} source binding is canonical"
+        );
+        assert_eq!(vm.heap.module(module).package, Some(collections), "{name} belongs to the collections package");
+    }
+
+    let owner = vm.heap.alloc_array(vec![Value::int(31), Value::int(47)]);
+    let slice_id = vm.heap.alloc_slice_from_range(owner, 0, 2).expect("runtime Slice view");
+    let slice = Value::obj(slice_id);
+    assert_eq!(slice.class(&vm), classes.slice_class, "Slice values map to the canonical class");
+    assert_eq!(slice_raw_at(&mut vm, &slice, &[Value::int(-1)]).expect("negative Slice index"), Value::int(47));
+    let map = Value::obj(vm.heap.alloc_map());
+    assert!(map_raw_put(&mut vm, &map, &[slice, Value::int(1)]).is_err(), "Slice is rejected as a Map key");
+    let set = Value::obj(vm.heap.alloc_set());
+    assert!(set_raw_add(&mut vm, &set, &[slice]).is_err(), "Slice is rejected as a Set key");
+
+    let child = vm.alloc_string_value("retained by Slice owner".to_owned());
+    let child_id = child.as_obj().expect("child object handle");
+    let backing = vm.heap.alloc_array(vec![child]);
+    let rooted_slice = Value::obj(vm.heap.alloc_slice_from_range(backing, 0, 1).expect("rooted Slice view"));
+    vm.push_root_for_test(rooted_slice);
+    vm.force_gc();
+    assert!(vm.heap.try_get(backing).is_some(), "Slice traces its strong backing owner");
+    assert!(vm.heap.try_get(child_id).is_some(), "the retained owner traces its initialized values");
+    vm.pop_root_for_test();
+}
+
+#[test]
+fn slice_and_buffer_generic_arguments_have_distinct_canonical_types() {
+    let temporary = TempDir::new().expect("temporary Slice/Buffer type project");
+    let root = temporary.path();
+    fs::create_dir_all(root.join("src")).expect("create temporary project source directory");
+    fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"slice_buffer_type_test\"\nnamespace = \"slice_buffer_type_test\"\nversion = \"0.1.0\"\nentry = \"slice_buffer_type_test.main\"\n",
+    )
+    .expect("write temporary project manifest");
+    fs::write(root.join("src/package.ph"), "expose .main\n").expect("write temporary package manifest");
+    fs::write(
+        root.join("src/main.ph"),
+        r#"
+from universe.collections.slice import Slice as SliceFromPackage
+from universe.collections.buffer import Buffer as BufferFromPackage
+
+class CollectionTypeUse {
+    @class inspect(
+        _ slice_int: SliceFromPackage<Int>,
+        _ slice_string: SliceFromPackage<String>,
+        _ buffer_int: BufferFromPackage<Int>,
+        _ buffer_string: BufferFromPackage<String>
+    ) {}
+}
+"#,
+    )
+    .expect("write temporary entry module");
+
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Project(root.to_path_buf()))
+        .expect("canonical Slice and Buffer generic applications analyze through exposed collection modules");
+
+    let callable = analyzed
+        .semantic
+        .callable_analyses
+        .values()
+        .find(|callable| callable.bindings.values().any(|binding| binding.name == "slice_int"))
+        .expect("generic collection signature analysis");
+
+    for (first_name, second_name) in [("slice_int", "slice_string"), ("buffer_int", "buffer_string")] {
+        let first = callable
+            .bindings
+            .values()
+            .find(|binding| binding.name == first_name)
+            .expect("first parameter")
+            .current
+            .ty()
+            .expect("first type");
+        let second = callable
+            .bindings
+            .values()
+            .find(|binding| binding.name == second_name)
+            .expect("second parameter")
+            .current
+            .ty()
+            .expect("second type");
+        assert_ne!(first, second, "{first_name} and {second_name} retain distinct type arguments");
+
+        let (first_base, first_arguments) = analyzed.semantic.store.applied_nominal_parts(first).expect("first nominal application");
+        let (second_base, second_arguments) = analyzed.semantic.store.applied_nominal_parts(second).expect("second nominal application");
+        assert_eq!(first_base, second_base, "same collection constructor");
+        assert_eq!(first_arguments.len(), 1);
+        assert_eq!(second_arguments.len(), 1);
+        assert_ne!(first_arguments[0], second_arguments[0]);
+    }
 }
 
 #[test]

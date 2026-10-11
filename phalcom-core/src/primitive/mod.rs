@@ -2,6 +2,7 @@ pub mod array;
 pub mod attribute;
 pub mod block;
 pub mod boolean;
+pub mod buffer;
 pub mod bytes;
 pub mod char;
 pub mod class;
@@ -29,6 +30,7 @@ pub mod resource;
 pub mod selector;
 pub mod selector_pattern;
 pub mod set;
+pub mod slice;
 pub mod string;
 pub mod symbol;
 pub mod system;
@@ -337,6 +339,31 @@ pub(crate) fn expect_array(vm: &VM, value: &Value) -> PhResult<ObjRef> {
     .into())
 }
 
+/// Extracts a native bounded Buffer handle.
+pub(crate) fn expect_buffer(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    if let Some(id) = value.as_obj() {
+        if vm.heap.as_buffer(id).is_some() {
+            return Ok(id);
+        }
+    }
+    Err(RuntimeError::Type {
+        expected: "Buffer",
+        found: value.type_name(),
+    }
+    .into())
+}
+
+pub(crate) fn expect_slice(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    let Some(id) = value.as_obj().filter(|id| vm.heap.as_slice(*id).is_some()) else {
+        return Err(RuntimeError::Type {
+            expected: "Slice",
+            found: value.type_name(),
+        }
+        .into());
+    };
+    Ok(id)
+}
+
 /// Extracts a map's [`ObjRef`] handle from a receiver value.
 ///
 /// # Errors
@@ -487,15 +514,17 @@ pub(crate) fn send_eq(vm: &mut VM, a: Value, b: Value) -> PhResult<bool> {
     }
 }
 
-/// Returns `true` iff `value` is one of the native **mutable**
-/// collection arms (`List`/`Array`/`Map`/`Set`/`Bytes`) — the DEC-CT-C mutable-key rejection
-/// test.
+/// Returns `true` iff `value` is a native collection that the v1 key policy
+/// rejects because it is mutable or is a Slice view (`List`/`Array`/`Buffer`/
+/// `Slice`/`Map`/`Set`/`Bytes`).
 pub(crate) fn is_mutable_collection_key(vm: &VM, value: &Value) -> bool {
     if let Some(id) = value.as_obj() {
         matches!(
             vm.heap.get(id),
             crate::heap::Object::List(_)
                 | crate::heap::Object::Array(_)
+                | crate::heap::Object::Buffer(_)
+                | crate::heap::Object::Slice(_)
                 | crate::heap::Object::Map(_)
                 | crate::heap::Object::Set(_)
                 | crate::heap::Object::Bytes(_)
@@ -510,8 +539,8 @@ pub(crate) fn is_mutable_collection_key(vm: &VM, value: &Value) -> bool {
 /// [`RuntimeError::Raise`]/`.into()`.
 pub(crate) fn mutable_key_error(vm: &mut VM, class_name: &str) -> RuntimeError {
     let rendered = format!(
-        "{class_name} key must be immutable: a mutable collection key has identity hash, \
-         which is inconsistent with structural == (collection-protocol.md law 4)"
+        "{class_name} key must be immutable: mutable collections and Slice views are not admitted as keys \
+         (collection-protocol.md law 4)"
     );
     let error_class = vm.universe.classes.error_class;
     let field_count = vm.heap.class(error_class).field_count;

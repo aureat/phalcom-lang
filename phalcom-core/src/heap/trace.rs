@@ -197,6 +197,12 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
                 trace_value(*element, push);
             }
         }
+        Object::Buffer(buffer) => {
+            for element in buffer.elements() {
+                trace_value(*element, push);
+            }
+        }
+        Object::Slice(slice) => push(slice.owner()),
         Object::Array(array) => {
             for element in array.elements() {
                 trace_value(*element, push);

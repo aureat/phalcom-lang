@@ -58,20 +58,24 @@ mod compiler_declaration_dispatch;
 mod compiler_product_optimization;
 #[path = "compiler/static_const.rs"]
 mod compiler_static_const;
-#[path = "collections/contract.rs"]
-mod core_collections;
 #[path = "collections/array.rs"]
 mod core_array;
-#[path = "collections/vector.rs"]
-mod core_vector;
+#[path = "collections/buffer.rs"]
+mod core_buffer;
+#[path = "collections/contract.rs"]
+mod core_collections;
 #[path = "collections/outgoing_packs.rs"]
 mod core_outgoing_packs;
 #[path = "collections/outgoing_packs_completion.rs"]
 mod core_outgoing_packs_completion;
 #[path = "collections/pack.rs"]
 mod core_pack;
+#[path = "collections/slice.rs"]
+mod core_slice;
 #[path = "collections/symbol_selector.rs"]
 mod core_symbol_selector;
+#[path = "collections/vector.rs"]
+mod core_vector;
 #[path = "execution/binding_init.rs"]
 mod execution_binding_init;
 #[path = "execution/compiler_authority.rs"]

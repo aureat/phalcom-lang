@@ -4,6 +4,7 @@ from universe.collections.iterator_laws import Iterator as CanonicalIterator, It
 native class Vector<T, N: Int> is Collection {
   internal native rawLength -> Int
   internal native rawAt(_ index: Int) -> T
+  internal native rawSlice(_ start: Int, _ end: Int) -> Slice<T>
 
   size -> Int { self.rawLength }
 
@@ -34,6 +35,18 @@ native class Vector<T, N: Int> is Collection {
   }
 
   iterator -> VectorIterator<T, N> { VectorIterator<T, N>.new(self) }
+
+  slice(_ range: Range) -> Slice<T> {
+    return range.rawSliceBounds(self.size).match(
+      ok: |bounds| {
+        let mut start = bounds[0]
+        let mut end = bounds[1]
+        if start > end { end = start }
+        self.rawSlice(start, end)
+      },
+      err: |error| { error.raise() }
+    )
+  }
 
   ==(_ other) -> Bool {
     if other is Vector {

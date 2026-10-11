@@ -23,12 +23,28 @@ pub fn vector_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<
         found: receiver.type_name(),
     })?;
     match super::index::normalize_element_index(&vm.heap, &args[0], vm.heap.vector(id).len())? {
-        super::index::NormalizedIndex::Valid(index) => vm.heap.vector(id).get(index).ok_or_else(|| {
-            RuntimeError::Internal("normalized Vector index is outside storage".into()).into()
-        }),
+        super::index::NormalizedIndex::Valid(index) => vm
+            .heap
+            .vector(id)
+            .get(index)
+            .ok_or_else(|| RuntimeError::Internal("normalized Vector index is outside storage".into()).into()),
         super::index::NormalizedIndex::OutOfRange => Err(RuntimeError::Type {
             expected: "an in-range index",
             found: "an out-of-range Number",
-        }.into()),
+        }
+        .into()),
     }
+}
+
+/// Creates a zero-copy Slice from normalized range bounds.
+#[phalcom_native_macros::primitive(Vector, "rawSlice(_,_)" , types = "(Int, Int) -> Unknown", visibility = internal)]
+pub fn vector_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    if receiver.as_obj().filter(|id| vm.heap.as_vector(*id).is_some()).is_none() {
+        return Err(RuntimeError::Type {
+            expected: "Vector",
+            found: receiver.type_name(),
+        }
+        .into());
+    }
+    super::slice::make_slice(vm, receiver, args)
 }

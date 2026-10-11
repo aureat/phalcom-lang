@@ -732,6 +732,21 @@ Unicode scalars.
 
 ### S4 — Proposed `LANG007.C4.P14`: Immutable indexed snapshots
 
+#### Lifecycle reconciliation — 2026-10-11
+
+The contract below records the original proposal; it is not evidence that a
+dedicated `ImmutableSequence<T>` runtime type was implemented. The completed C4
+parser behavior copied caller membership into a private `List<T>` inside
+`ListSource<T>`. The zero-copy `Substring` work is a separate P12 text view.
+
+COLL006.C1.P5 is replacing that parser-specific copy loop with an owned
+`Array<T>` snapshot retained by a read-only `Slice<T>`. The accepted C1 `Vector`
+has a static dimension and is not the representation for runtime-sized parser
+snapshots. This convergence adds no `ImmutableSequence<T>` type and does not
+retroactively change the earlier implementation history. `ParseError.expected`
+and `.contexts` remain `List<String>` in the current package and are outside
+this P5 migration.
+
 **Purpose:** Replace parser-owned list copying and mutable error-value exposure.
 
 **Files/symbols:**

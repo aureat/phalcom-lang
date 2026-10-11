@@ -11,7 +11,7 @@ verification: BASELINE_BLOCKED
 
 COLL006 owns Telos's coherent extension of collection semantics across source syntax, contextual typing and inference, static evaluation, compiler lowering, native storage, collection protocols, persistent data structures, and standard-library collection APIs.
 
-The current program state is `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`. P1–P4 are complete at their bounded implementation scope; P5 Slice/Buffer is the next proposed plan. The inherited computed-Record-key static-constant failures are tracked as D4 in the checkpoint. The checkpoint record owns the detailed state and remaining gates.
+The current program state is `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`. P1–P4 are complete at their bounded implementation scope; P5 Slice/Buffer has completed range/boundary, cross-family mutation, key, GC, representation, and conversion gates. `ListSource` has migrated to Array + Slice and P14 records are reconciled, but the parser runtime gate remains blocked by unchanged pre-P5 parse-package failures. The inherited computed-Record-key static-constant failures are tracked as D4 in the checkpoint. The checkpoint record owns the detailed state and remaining gates.
 
 ## 1. Program ownership
 

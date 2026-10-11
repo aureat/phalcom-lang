@@ -48,20 +48,20 @@ pub fn array_raw_set(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<
     };
     match vm.heap.array_mut(id).set(index, args[1]) {
         Ok(()) => Ok(Value::unit()),
-        Err(crate::heap::ArrayMutationError::Frozen) => {
-            Err(RuntimeError::FrozenMutation {
-                collection: "Array",
-            }
-            .into())
+        Err(crate::heap::ArrayMutationError::Frozen) => Err(RuntimeError::FrozenMutation { collection: "Array" }.into()),
+        Err(crate::heap::ArrayMutationError::OutOfBounds) => Err(RuntimeError::Type {
+            expected: "an in-range index",
+            found: "an out-of-range Number",
         }
-        Err(crate::heap::ArrayMutationError::OutOfBounds) => {
-            Err(RuntimeError::Type {
-                expected: "an in-range index",
-                found: "an out-of-range Number",
-            }
-            .into())
-        }
+        .into()),
     }
+}
+
+/// Creates a zero-copy Slice from normalized range bounds.
+#[phalcom_native_macros::primitive(Array, "rawSlice(_,_)" , types = "(Int, Int) -> Unknown", visibility = internal)]
+pub fn array_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    expect_array(vm, receiver)?;
+    super::slice::make_slice(vm, receiver, args)
 }
 
 /// Signature: `Array::toString` — renders the array.

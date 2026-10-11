@@ -514,7 +514,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["collections"],
         kind: ModuleKind::Package,
-        children: &["collection", "iterator_laws", "list", "array", "vector", "map", "set", "tuple", "record", "pack", "range", "bytes"],
+        children: &["collection", "iterator_laws", "list", "array", "vector", "slice", "buffer", "map", "set", "tuple", "record", "pack", "range", "bytes"],
     },
     UniverseNodeSpec {
         path: &["collections", "collection"],
@@ -538,6 +538,16 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["collections", "vector"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["collections", "slice"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["collections", "buffer"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -1043,6 +1053,12 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "collections" && m.as_str() == "vector" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/vector.ph")
+            }
+            [c, m] if c.as_str() == "collections" && m.as_str() == "slice" => {
+                include_str!("../../phalcom-core/core/universe/src/collections/slice.ph")
+            }
+            [c, m] if c.as_str() == "collections" && m.as_str() == "buffer" => {
+                include_str!("../../phalcom-core/core/universe/src/collections/buffer.ph")
             }
             [c, m] if c.as_str() == "collections" && m.as_str() == "map" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/map.ph")

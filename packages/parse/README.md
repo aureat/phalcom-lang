@@ -30,7 +30,7 @@ src/
 │   └── rule.ph        class Rule<S, T> + all combinators
 ├── source/
 │   ├── text-source.ph  byte-oriented source over String (Token = Int)
-│   └── list-source.ph  snapshotting source over List<T> + leaf factories
+│   └── list-source.ph  owned Array snapshot retained by read-only Slice<T>
 ├── text.ph            Text: character-level factories over TextSource
 └── run.ph             Parse.run / Parse.runAll
 ```

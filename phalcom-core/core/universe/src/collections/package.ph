@@ -4,6 +4,8 @@ expose .iterator_laws
 expose .list
 expose .array
 expose .vector
+expose .slice
+expose .buffer
 expose .map
 expose .set
 expose .tuple

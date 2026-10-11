@@ -112,6 +112,8 @@ impl Universe {
         let list_class = make_core_class(heap, "List", collection_class, metaclass_class);
         let array_class = make_core_class(heap, "Array", collection_class, metaclass_class);
         let vector_class = make_core_class(heap, "Vector", collection_class, metaclass_class);
+        let slice_class = make_core_class(heap, "Slice", collection_class, metaclass_class);
+        let buffer_class = make_core_class(heap, "Buffer", collection_class, metaclass_class);
 
         // Kernel `Map`/`Set` (ADR-0032 §1, ADR-0039, U-COLLTYPES): native heap
         // variants over the shared `MapObject` ordered-hash backing struct
@@ -231,6 +233,8 @@ impl Universe {
             list_class,
             array_class,
             vector_class,
+            slice_class,
+            buffer_class,
             map_class,
             set_class,
             tuple_class,
@@ -294,6 +298,8 @@ impl Universe {
             res.list_class,
             res.array_class,
             res.vector_class,
+            res.slice_class,
+            res.buffer_class,
             res.map_class,
             res.set_class,
             res.tuple_class,
@@ -458,6 +464,10 @@ pub struct CoreClasses {
     pub array_class: ClassId,
     /// `Vector`, immutable storage with static dimension identity.
     pub vector_class: ClassId,
+    /// `Slice`, a read-only view over an owner-rooted collection range.
+    pub slice_class: ClassId,
+    /// `Buffer`, bounded mutable construction storage.
+    pub buffer_class: ClassId,
     /// `Map`, the native insertion-ordered hash map
     /// ([ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
@@ -604,6 +614,8 @@ impl CoreClasses {
             UniverseKey::List => self.list_class,
             UniverseKey::Array => self.array_class,
             UniverseKey::Vector => self.vector_class,
+            UniverseKey::Slice => self.slice_class,
+            UniverseKey::Buffer => self.buffer_class,
             UniverseKey::Map => self.map_class,
             UniverseKey::Set => self.set_class,
             UniverseKey::Tuple => self.tuple_class,
@@ -697,6 +709,8 @@ impl CoreClasses {
             list_class,
             array_class,
             vector_class,
+            slice_class,
+            buffer_class,
             map_class,
             set_class,
             tuple_class,
@@ -765,6 +779,8 @@ impl CoreClasses {
             list_class,
             array_class,
             vector_class,
+            slice_class,
+            buffer_class,
             map_class,
             set_class,
             tuple_class,
