@@ -141,13 +141,17 @@ bounded shape; recursive VM environment materialization remains deferred.
 Evidence at this checkpoint: the associated-projection/decoy semantic proof
 test passed (1 selected); `cargo check -p phalcom-semantic`,
 `cargo check -p phalcom-core`, and both package `--tests` checks passed. The
-negative-to-positive incremental regression was strengthened to use separate
-provider and consumer modules after its earlier same-module prototype passed;
-the final cross-module form was compile-checked but not executed. `git diff
---check` passed. The repository-wide format check reports formatting diffs in
-multiple existing files, so no broad formatter rewrite was applied. F4 remains
-`IMPLEMENTED / PARTIAL / FOCUSED_TESTED` for semantic publication; compiler
-runtime acceptance and broader T4/T5/package/workspace gates remain open.
+cross-module negative-to-positive incremental regression passed (1 selected):
+after adding the exact prerequisite, the incremental snapshot accepts the
+consumer call and its diagnostics match cold reconstruction. The focused core
+runtime regression also passed (1 selected), executing the default trait method
+through the exact `Box<Int> |= Gate<Int>` prerequisite despite wrong-target and
+wrong-trait-argument decoys. The new core test passes targeted rustfmt and
+`git diff --check`. The repository-wide format check still reports formatting
+diffs in multiple existing files, so no broad formatter rewrite was applied.
+F4 is `IMPLEMENTED / FOCUSED_TESTED` for its bounded semantic-publication and
+direct exact compiler-projection slice; recursive VM materialization and
+broader T4/T5 source/package/workspace acceptance remain open.
 The semantic-publication slice was delivered in `74ada549` on
 `feat/complex-math` and pushed to `origin/feat/complex-math`.
 

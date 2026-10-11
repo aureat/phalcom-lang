@@ -253,15 +253,16 @@ derived, incomplete, or recursively nested prerequisite environments remain
 typed failures. Recursive `DerivedConditional` VM environment materialization
 is still out of scope.
 
-Focused evidence acquired: the associated-projection decoy test with wrong
-target and wrong trait reference passed. Semantic/core crate checks and both
-`--tests` compile checks passed. The negative-to-positive invalidation test is
-now a cross-module provider/consumer fixture, but the final cross-module form
-has only been compile-checked; execute it next and inspect the reported
-recomputed consumer body. Then run the narrow compiler projection/runtime
-regression for proof-backed antecedent slots. Keep broader source, package, and
-workspace acceptance open unless separately authorized. `cargo fmt --all
--- --check` currently reports formatting differences throughout the branch;
-avoid formatting unrelated files. `git diff --check` passed. The semantic
-publication slice is delivered in commit `74ada549` on `feat/complex-math`,
-pushed to `origin/feat/complex-math`.
+Focused evidence acquired: the associated-projection/decoy proof regression and
+the cross-module negative-to-positive invalidation regression both passed. The
+incremental update accepts the formerly rejected consumer call, and its
+diagnostics match cold reconstruction. A focused core runtime regression also
+passed: a default trait method projected and invoked the exact
+`Box<Int> |= Gate<Int>` prerequisite despite wrong-target and wrong-trait-
+argument decoys. The targeted core test file passes rustfmt. Broader contextual
+realization source acceptance, remaining inference and incremental parity,
+recursive VM environment materialization, package, and workspace acceptance
+remain open. `cargo fmt --all -- --check` still reports formatting differences
+throughout the branch; avoid formatting unrelated files. The F4 semantic
+publication delivery is `74ada549`; this focused acceptance follow-up
+supersedes the earlier compile-only status for the two listed regressions.

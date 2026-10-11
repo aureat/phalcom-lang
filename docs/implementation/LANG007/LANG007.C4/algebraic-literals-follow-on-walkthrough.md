@@ -456,3 +456,21 @@ publication is implemented with focused evidence; compiler runtime behavior
 and broader source, package, and workspace acceptance remain open.
 This semantic-publication slice was delivered in commit `74ada549` on
 `feat/complex-math` and pushed to `origin/feat/complex-math`.
+
+## 16. F4 focused invalidation and runtime acceptance — 2026-10-11
+
+The cross-module negative-to-positive regression
+`incremental::derived_conformance::adding_exact_trait_header_prerequisite_refreshes_a_negative_conformance_root`
+passed (1 selected). The initial provider revision rejects the consumer call;
+adding the exact `Gate<Int>` conformance makes the incremental snapshot accept
+it, with diagnostics matching a cold reconstruction.
+
+Added and ran
+`language::generic_conformance::exact_trait_header_prerequisite_projects_and_executes_selected_witness`
+(1 selected). The source defines `Owner` with the header obligation
+`Self::Item |= Gate<Int>`, uses the inherited default method to invoke
+`Gate.marker`, and includes wrong-target and wrong-trait-argument decoys. Full
+Universe compilation and VM execution returned the intended exact witness's
+result. The changed test file passes targeted rustfmt. This verifies the
+bounded direct exact projection/runtime shape; recursive runtime environments
+and broader contextual algebraic-literal acceptance remain open.
