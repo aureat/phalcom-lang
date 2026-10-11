@@ -3515,6 +3515,8 @@ fn discharge_generic_conformance_obligations(
                         Some(ctx.hierarchy.inner()),
                         Some(&mut ctx.store),
                     );
+                    let conformance_key = crate::generic_evidence::GenericConformanceKey::new(instantiated_subject.clone(), instantiated_trait_ref.clone());
+                    ctx.record_exact_conformance_query_dependency(&conformance_key, &proof);
 
                     match proof {
                         crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::Exact(ev)) => {
@@ -3523,7 +3525,7 @@ fn discharge_generic_conformance_obligations(
                                 instantiated_trait_ref.declaration.clone(),
                             ));
                             conformances.push(crate::checker::analysis::GenericCallConformanceBinding {
-                                callee_conformance: crate::generic_evidence::GenericConformanceKey::new(instantiated_subject, instantiated_trait_ref),
+                                callee_conformance: conformance_key.clone(),
                                 source: crate::checker::analysis::GenericCallConformanceSource::Exact { evidence: ev },
                             });
                         }
@@ -3532,7 +3534,7 @@ fn discharge_generic_conformance_obligations(
                                 instantiated_trait_ref.declaration.clone(),
                             ));
                             conformances.push(crate::checker::analysis::GenericCallConformanceBinding {
-                                callee_conformance: crate::generic_evidence::GenericConformanceKey::new(instantiated_subject, instantiated_trait_ref),
+                                callee_conformance: conformance_key.clone(),
                                 source: crate::checker::analysis::GenericCallConformanceSource::Forwarded {
                                     caller_conformance: assumed.key,
                                 },
@@ -3567,7 +3569,7 @@ fn discharge_generic_conformance_obligations(
                                 }
                             }
                             conformances.push(crate::checker::analysis::GenericCallConformanceBinding {
-                                callee_conformance: crate::generic_evidence::GenericConformanceKey::new(instantiated_subject, instantiated_trait_ref),
+                                callee_conformance: conformance_key.clone(),
                                 source: crate::checker::analysis::GenericCallConformanceSource::Derived { evidence: derived },
                             });
                         }

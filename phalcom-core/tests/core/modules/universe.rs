@@ -11,10 +11,59 @@ use phalcom_core::vm::VM;
 use phalcom_modules::{DunderPolicy, DunderRole, ModuleId, ModulePath, ProjectError, ProjectUniverse};
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use tempfile::TempDir;
 
 fn fixture_path(sub: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/universe_v1").join(sub)
+}
+
+fn minimal_compile_project() -> TempDir {
+    let temp = TempDir::new().expect("temporary project");
+    let source = temp.path().join("src");
+    fs::create_dir_all(&source).expect("create source directory");
+    fs::write(
+        temp.path().join("project.toml"),
+        "[project]\nname = \"minimal_compile\"\nnamespace = \"minimal_compile\"\nversion = \"0.1.0\"\nsource = \"src\"\nentry = \"minimal_compile.main\"\n",
+    )
+    .expect("project manifest");
+    fs::write(source.join("package.ph"), "expose .main\n").expect("package source");
+    fs::write(source.join("main.ph"), "let value = 1\nexport value\n").expect("entry source");
+    temp
+}
+
+#[test]
+fn dependency_free_minimal_project_compiles_in_process() {
+    let temp = minimal_compile_project();
+    let result = ProgramCompiler::compile_entry_selection(EntrySelection::Project(temp.path().to_path_buf()));
+    assert!(result.is_ok(), "minimal project should compile: {result:#?}");
+}
+
+#[test]
+fn dependency_free_minimal_project_bootstraps_canonical_universe() {
+    let temp = minimal_compile_project();
+    let output = Command::new(env!("CARGO_BIN_EXE_phalcom"))
+        .arg(temp.path())
+        .env("PHALCOM_TRACE_SEMANTIC_BOOTSTRAP", "1")
+        .output()
+        .expect("launch CLI bootstrap regression");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr_tail = stderr
+        .lines()
+        .rev()
+        .take(60)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        output.status.success(),
+        "minimal project failed during canonical Universe bootstrap; status={:?}\nstdout:\n{}\nstderr tail:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        stderr_tail
+    );
 }
 
 #[test]

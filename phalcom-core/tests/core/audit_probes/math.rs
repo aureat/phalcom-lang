@@ -22,6 +22,26 @@ fn compile_package(source: &str) -> (TempDir, phalcom_core::modules::compile::Co
     (temp, program)
 }
 
+fn compile_numerics_package(source: &str) -> (TempDir, phalcom_core::modules::compile::CompiledProgram) {
+    let temp = TempDir::new().expect("temporary numerics client directory");
+    let source_root = temp.path().join("src");
+    fs::create_dir(&source_root).expect("numerics client source directory");
+    fs::write(source_root.join("package.ph"), "expose .main\n").expect("numerics client package");
+    let main = source_root.join("main.ph");
+    fs::write(&main, source).expect("numerics client source");
+    let numerics = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../packages/numerics");
+    fs::write(
+        temp.path().join("project.toml"),
+        format!(
+            "[project]\nname = \"numerics-tests\"\nnamespace = \"numerics_tests\"\nsource = \"src\"\n\n[dependencies]\nnumerics = {{ path = {:?} }}\n",
+            numerics.to_str().unwrap()
+        ),
+    )
+    .expect("numerics client manifest");
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Module(main)).expect("numerics client compiles");
+    (temp, program)
+}
+
 fn run_expression(expression: &str) -> (VM, Value) {
     let source = format!("import universe.math as math\nlet result = {expression}\n");
     let (_temp, program) = compile_package(&source);
@@ -582,7 +602,7 @@ fn exact_combinatorics_rejects_invalid_domains_and_honors_resource_limits() {
 
 #[test]
 fn special_functions_match_independent_high_precision_references() {
-    let mut source = String::from("import universe.math.special as special\n");
+    let mut source = String::from("import numerics.special as special\n");
     let mut references = Vec::new();
     for row in include_str!("../../fixtures/math_special_reference.tsv")
         .lines()
@@ -596,7 +616,7 @@ fn special_functions_match_independent_high_precision_references() {
         references.push((expression, expected, tolerance));
     }
     assert!(references.len() > 100, "reference fixture must select real cases");
-    let (_temp, program) = compile_package(&source);
+    let (_temp, program) = compile_numerics_package(&source);
     let mut vm = VM::new();
     vm.run_compiled(&program).expect("special-function reference matrix executes");
     let module = vm.module_registry.get(&program.entry).unwrap().object;
@@ -619,29 +639,10 @@ fn special_functions_match_independent_high_precision_references() {
     }
 }
 
-fn compile_probability(source: &str) -> (TempDir, phalcom_core::modules::compile::CompiledProgram) {
-    let temp = TempDir::new().unwrap();
-    fs::create_dir(temp.path().join("src")).unwrap();
-    let dependency = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../packages/probability");
-    fs::write(
-        temp.path().join("project.toml"),
-        format!(
-            "[project]\nname = \"probability-tests\"\nnamespace = \"probability_tests\"\nsource = \"src\"\n\n[dependencies]\nprobability = {{ path = {:?} }}\n",
-            dependency.to_str().unwrap()
-        ),
-    )
-    .unwrap();
-    fs::write(temp.path().join("src/package.ph"), "expose .main\n").unwrap();
-    let main = temp.path().join("src/main.ph");
-    fs::write(&main, source).unwrap();
-    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Module(main)).expect("probability client compiles");
-    (temp, program)
-}
-
 #[test]
 fn probability_helpers_normalize_extremes_without_replaying_or_mutating_inputs() {
     let source = r#"
-import probability as p
+import numerics.probability as p
 import universe.math as math
 let weights = [1.0e308, 1.0e308, 0.0]
 let normalized = p.normalizeWeights(weights.iterator)
@@ -669,7 +670,7 @@ let reductionIterator = [1000.0, 1000.0].iterator
 let reduction = math.logSumExp(reductionIterator)
 let reductionExhausted = reductionIterator.next.isNone
 "#;
-    let (_temp, program) = compile_probability(source);
+    let (_temp, program) = compile_numerics_package(source);
     let mut vm = VM::new();
     vm.run_compiled(&program).expect("probability helper client executes");
     let module = vm.module_registry.get(&program.entry).unwrap().object;
@@ -710,7 +711,7 @@ fn probability_helpers_preserve_distinct_error_categories() {
         ("p.normalizedLogWeights([1.0e308, -1.0e308])", "NumericalRangeError"),
         ("p.logit(1.1)", "ArgumentError"),
     ] {
-        let (_temp, program) = compile_probability(&format!("import probability as p\n{expression}\n"));
+        let (_temp, program) = compile_numerics_package(&format!("import numerics.probability as p\n{expression}\n"));
         let mut vm = VM::new();
         let failure = vm.run_compiled(&program).expect_err("invalid probability operation must raise");
         let RuntimeError::Raise { error, .. } = runtime_error(&failure) else {
@@ -735,7 +736,7 @@ fn special_functions_reject_invalid_domains_and_unrepresentable_log_results() {
         ("special.logChoose(9007199254740992, 1)", "NumericalRangeError"),
         ("special.Combinatorics.logChoose(9007199254740992, 1)", "NumericalRangeError"),
     ] {
-        let (_temp, program) = compile_package(&format!("import universe.math.special as special\n{expression}\n"));
+        let (_temp, program) = compile_numerics_package(&format!("import numerics.special as special\n{expression}\n"));
         let mut vm = VM::new();
         let failure = vm.run_compiled(&program).expect_err("invalid special-function operation must raise");
         let RuntimeError::Raise { error, .. } = runtime_error(&failure) else {
@@ -748,7 +749,7 @@ fn special_functions_reject_invalid_domains_and_unrepresentable_log_results() {
 #[test]
 fn special_function_families_public_facade_and_imports() {
     let source = r#"
-from universe.math.special import (
+from numerics.special import (
   Gamma,
   Beta,
   Normal,
@@ -794,7 +795,7 @@ let flatLogFact = logFactorial(5)
 let flatLogChoose = logChoose(5, 2)
 "#;
 
-    let (_temp, program) = compile_package(source);
+    let (_temp, program) = compile_numerics_package(source);
     let mut vm = VM::new();
     vm.run_compiled(&program).expect("special function structured facade executes");
     let module = vm.module_registry.get(&program.entry).unwrap().object;

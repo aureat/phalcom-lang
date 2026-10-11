@@ -7,6 +7,7 @@
 //! `??`/`?.` are desugared to ordinary `Option` message sends by the parser
 //! (see [`crate::parser`]).
 
+pub use crate::token::{ImaginaryAxis, ImaginaryCoefficient};
 pub use phalcom_common::modifier::{ImplementationKind, Visibility};
 pub use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorError, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot};
@@ -2519,6 +2520,12 @@ pub enum Expr {
         value: f64,
         range: SourceRange,
     },
+    /// Native numeric suffix syntax; never an identifier reference.
+    Imaginary {
+        coefficient: ImaginaryCoefficient,
+        axis: ImaginaryAxis,
+        range: SourceRange,
+    },
     String {
         value: String,
         range: SourceRange,
@@ -2616,6 +2623,7 @@ impl Expr {
             Expr::Char { range, .. }
             | Expr::Int { range, .. }
             | Expr::Float { range, .. }
+            | Expr::Imaginary { range, .. }
             | Expr::String { range, .. }
             | Expr::Boolean { range, .. }
             | Expr::Var { range, .. }

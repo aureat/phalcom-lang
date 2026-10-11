@@ -319,6 +319,271 @@ impl<'vm> Compiler<'vm> {
         owner.builtin && owner.get_by_slot(binding.slot as usize) == Some(Value::obj(self.vm.universe.classes.pack_class))
     }
 
+    fn emit_declaration_class_reference(&mut self, declaration: &phalcom_modules::DeclarationId, range: SourceRange) -> Result<(), CompilerError> {
+        let current_module = self.vm.heap.module(self.module).id.clone();
+        if declaration.module == current_module {
+            let symbol = self.vm.interner.intern(&declaration.name);
+            let index = self.add_constant(Value::symbol(symbol), range)?;
+            self.emit(Bytecode::GetGlobal(index), range);
+            return Ok(());
+        }
+
+        if let Some(bindings) = self.linked_bindings.as_ref() {
+            if let Some(import) = bindings.imports.values().find(|import| {
+                import
+                    .symbol
+                    .as_ref()
+                    .is_some_and(|symbol| symbol.module == declaration.module && symbol.name == declaration.name)
+            }) {
+                self.emit(Bytecode::GetLinked(import.binding.0 as u16), range);
+                return Ok(());
+            }
+            if let Some(import) = bindings
+                .imports
+                .values()
+                .find(|import| matches!(&import.target, phalcom_modules::LinkedReadSpec::Module(module) if module == &declaration.module))
+            {
+                self.emit(Bytecode::GetLinked(import.binding.0 as u16), range);
+                let member = self.vm.interner.intern(&declaration.name);
+                let index = self.add_constant(Value::symbol(member), range)?;
+                self.emit_invoke(0, index, range, InvocationAuthority::Ordinary)?;
+                return Ok(());
+            }
+        }
+
+        let symbol = self.vm.interner.intern(&declaration.name);
+        if let Some(binding) = self.vm.canonical_universe_binding(symbol)
+            && self.vm.heap.module(binding.module).id == declaration.module
+        {
+            let index = self.vm.heap.module(self.module).linked_reads.len();
+            self.vm
+                .heap
+                .module_mut(self.module)
+                .linked_reads
+                .push(crate::modules::RuntimeLinkedRead::Binding(binding));
+            self.emit(
+                Bytecode::GetLinked(u16::try_from(index).map_err(|_| CompilerError::Message("too many linked reads".into()))?),
+                range,
+            );
+            return Ok(());
+        }
+
+        Err(CompilerError::Message(format!(
+            "contextual realization cannot load canonical class `{}` from `{}`",
+            declaration.name, declaration.module
+        )))
+    }
+
+    fn emit_selected_trait_invocation(
+        &mut self,
+        invocation: crate::modules::semantic_lowering::TraitInvocationSpec,
+        arity: u8,
+        range: SourceRange,
+    ) -> Result<(), CompilerError> {
+        self.prepare_trait_invocation_methods(&invocation)?;
+        let selection = self
+            .functions
+            .last_mut()
+            .expect("compiler always has an active function")
+            .chunk
+            .executable_semantics
+            .add_trait_invocation(invocation, range)?;
+        self.emit(Bytecode::InvokeTraitSelected { selection, arity }, range);
+        Ok(())
+    }
+
+    fn emit_contextual_class_receiver(
+        &mut self,
+        receiver: &crate::modules::semantic_lowering::ContextualClassReceiver,
+        range: SourceRange,
+    ) -> Result<(), CompilerError> {
+        use crate::modules::semantic_lowering::ContextualClassReceiver;
+
+        match receiver {
+            ContextualClassReceiver::Declaration(declaration) => self.emit_declaration_class_reference(declaration, range),
+            ContextualClassReceiver::TypeParameter(parameter) => {
+                let index = self
+                    .functions
+                    .last_mut()
+                    .expect("compiler always has an active function")
+                    .chunk
+                    .executable_semantics
+                    .add_type_parameter_class_receiver(parameter.clone(), range)?;
+                self.emit(Bytecode::LoadTypeParameterClass(index), range);
+                Ok(())
+            }
+        }
+    }
+
+    fn emit_contextual_capability_invocation(
+        &mut self,
+        invocation: crate::modules::semantic_lowering::ForIterationRequirementSpec,
+        arity: u8,
+        range: SourceRange,
+    ) -> Result<(), CompilerError> {
+        use crate::modules::semantic_lowering::ForIterationRequirementSpec;
+
+        match invocation {
+            ForIterationRequirementSpec::Selected(invocation) => self.emit_selected_trait_invocation(invocation, arity, range),
+            ForIterationRequirementSpec::Requirement(invocation) => {
+                let index = self
+                    .functions
+                    .last_mut()
+                    .expect("compiler always has an active function")
+                    .chunk
+                    .executable_semantics
+                    .add_trait_requirement_invocation(invocation, range)?;
+                self.emit(Bytecode::InvokeTraitRequirement { slot: index, arity }, range);
+                Ok(())
+            }
+        }
+    }
+
+    fn compile_contextual_realization(
+        &mut self,
+        source: Expr,
+        spec: std::sync::Arc<crate::modules::semantic_lowering::ContextualRealizationLoweringSpec>,
+    ) -> Result<(), CompilerError> {
+        use phalcom_semantic::checker::analysis::{RealizationCoefficientSource, RealizationEvaluationPlan};
+        use crate::modules::semantic_lowering::ContextualRealizationOperationLowering;
+
+        let range = spec.source_range;
+        self.emit_contextual_class_receiver(&spec.target_receiver, range)?;
+
+        if let ContextualRealizationOperationLowering::RealEmbedding { value, .. } = &spec.operation {
+            if *value != spec.source_expression {
+                return Err(CompilerError::Message("real embedding value does not match its source expression".into()));
+            }
+            self.compile_expr_want_inner(source, true)?;
+            return self.emit_contextual_capability_invocation(spec.realization.clone(), 1, range);
+        }
+
+        let ContextualRealizationOperationLowering::Basis {
+            basis_construction,
+            coefficient,
+            evaluation,
+            coefficient_receiver,
+            coefficient_one,
+        } = &spec.operation
+        else {
+            unreachable!("real embedding was handled above")
+        };
+
+        match (coefficient, &source) {
+            (RealizationCoefficientSource::One { .. }, Expr::Imaginary { .. })
+            | (RealizationCoefficientSource::IntegerLiteral { .. } | RealizationCoefficientSource::FloatLiteral { .. }, Expr::Imaginary { .. }) => {
+                if !matches!(coefficient, RealizationCoefficientSource::One { .. }) {
+                    match coefficient {
+                        RealizationCoefficientSource::IntegerLiteral { digits, radix } => {
+                            let value = if *radix == 10 {
+                                digits.parse::<i64>().ok().map(Value::int).or_else(|| {
+                                    num_bigint::BigInt::parse_bytes(digits.as_bytes(), 10)
+                                        .map(|big| Value::obj(self.vm.heap.alloc(crate::heap::Object::LargeInt(big))))
+                                })
+                            } else {
+                                i64::from_str_radix(digits, *radix).ok().map(Value::int).or_else(|| {
+                                    num_bigint::BigInt::parse_bytes(digits.as_bytes(), *radix)
+                                        .map(|big| Value::obj(self.vm.heap.alloc(crate::heap::Object::LargeInt(big))))
+                                })
+                            }
+                            .ok_or_else(|| CompilerError::Message(format!("invalid imaginary integer coefficient: {digits}")))?;
+                            let constant = self.add_constant(value, range)?;
+                            self.emit(Bytecode::Constant(constant), range);
+                        }
+                        RealizationCoefficientSource::FloatLiteral { bits } => {
+                            let constant = self.add_constant(Value::float(f64::from_bits(*bits)), range)?;
+                            self.emit(Bytecode::Constant(constant), range);
+                        }
+                        RealizationCoefficientSource::One { .. } | RealizationCoefficientSource::Expression { .. } => {
+                            return Err(CompilerError::Message("unsupported contextual realization coefficient".into()));
+                        }
+                    }
+                } else {
+                    return Err(CompilerError::Message("imaginary suffix realization cannot use `One`".into()));
+                }
+
+                let construction = self
+                    .functions
+                    .last_mut()
+                    .expect("compiler always has an active function")
+                    .chunk
+                    .executable_semantics
+                    .add_data_construction(basis_construction.clone(), range)?;
+                self.emit(Bytecode::LoadDataSingleton(construction), range);
+            }
+            (RealizationCoefficientSource::One { .. }, _) => {
+                let scalar_receiver = coefficient_receiver
+                    .as_ref()
+                    .ok_or_else(|| CompilerError::Message("contextual realization is missing its scalar class receiver".into()))?;
+                self.emit_contextual_class_receiver(scalar_receiver, range)?;
+                let one = coefficient_one
+                    .as_ref()
+                    .ok_or_else(|| CompilerError::Message("contextual realization is missing its selected `One` capability".into()))?
+                    .clone();
+                self.emit_contextual_capability_invocation(one, 0, range)?;
+                self.compile_expr_want_inner(source, true)?;
+            }
+            (RealizationCoefficientSource::IntegerLiteral { .. } | RealizationCoefficientSource::FloatLiteral { .. }, _) => {
+                return Err(CompilerError::Message(
+                    "literal realization evidence is attached to a non-literal expression".into(),
+                ));
+            }
+            (RealizationCoefficientSource::Expression { expression, .. }, Expr::Binary(binary)) => {
+                let RealizationEvaluationPlan::SourceOperands {
+                    first,
+                    second,
+                    coefficient,
+                    basis,
+                } = evaluation
+                else {
+                    return Err(CompilerError::Message("expression coefficient is missing its source-operand plan".into()));
+                };
+                if !matches!(binary.op, phalcom_ast::ast::BinaryOp::Multiply)
+                    || expression != coefficient
+                    || !((*first == *coefficient && *second == *basis) || (*first == *basis && *second == *coefficient))
+                {
+                    return Err(CompilerError::Message(
+                        "expression coefficient order does not match its source-operand plan".into(),
+                    ));
+                }
+                if first == coefficient {
+                    self.compile_expr_want(binary.left.clone(), true)?;
+                    self.compile_expr_want(binary.right.clone(), true)?;
+                } else {
+                    let basis_slot = self.reserve_pack_scratch("$algebraic_basis", range)?;
+                    self.compile_expr_want(binary.left.clone(), true)?;
+                    self.emit(Bytecode::SetLocal(basis_slot), range);
+                    self.emit(Bytecode::Pop, range);
+                    self.compile_expr_want(binary.right.clone(), true)?;
+                    self.emit(Bytecode::GetLocal(basis_slot), range);
+                    self.release_pack_scratch_from(basis_slot, 1, range);
+                }
+            }
+            (RealizationCoefficientSource::Expression { .. }, _) => {
+                return Err(CompilerError::Message("expression coefficient is attached to a non-binary expression".into()));
+            }
+        }
+
+        if !matches!(
+            (coefficient, evaluation),
+            (
+                RealizationCoefficientSource::One { .. },
+                RealizationEvaluationPlan::MultiplicativeIdentityThenSourceBasis
+            ) | (
+                RealizationCoefficientSource::IntegerLiteral { .. } | RealizationCoefficientSource::FloatLiteral { .. },
+                RealizationEvaluationPlan::LiteralCoefficientThenAxis
+            ) | (
+                RealizationCoefficientSource::Expression { .. },
+                RealizationEvaluationPlan::SourceOperands { .. }
+            )
+        ) {
+            return Err(CompilerError::Message(
+                "contextual realization evaluation plan does not match its coefficient source".into(),
+            ));
+        }
+        self.emit_contextual_capability_invocation(spec.realization.clone(), 2, range)
+    }
+
     /// Compiles `expr`, always leaving exactly one value on the stack.
     /// Equivalent to `compile_expr_want(expr, true)` — see that method for
     /// `want_value`.
@@ -336,6 +601,16 @@ impl<'vm> Compiler<'vm> {
     /// [`Self::compile_sacred_call_want`]). Every other expression shape
     /// ignores `want_value` — it still pushes its one value as normal.
     pub(crate) fn compile_expr_want(&mut self, expr: Expr, want_value: bool) -> Result<(), CompilerError> {
+        if let Some(spec) = self
+            .lowering()
+            .and_then(|lowering| lowering.contextual_realizations.get(&expr.range()).cloned())
+        {
+            return self.compile_contextual_realization(expr, spec);
+        }
+        self.compile_expr_want_inner(expr, want_value)
+    }
+
+    fn compile_expr_want_inner(&mut self, expr: Expr, want_value: bool) -> Result<(), CompilerError> {
         match expr {
             Expr::UnqualifiedCall(call) => {
                 let call = *call;
@@ -942,7 +1217,7 @@ impl<'vm> Compiler<'vm> {
                 self.compile_expr(get_prop.object)?;
                 let selector_sym = self.vm.interner.intern(&get_prop.property);
                 let selector_idx = self.add_constant(Value::symbol(selector_sym), get_prop.range)?;
-                if !self.emit_trait_requirement_if_present(0, get_prop.range)? && !self.emit_trait_invoke_if_present(0, get_prop.range)? {
+                if !self.emit_proven_invoke_if_present(0, selector_idx, get_prop.range)? {
                     self.emit_invoke(0, selector_idx, get_prop.range, InvocationAuthority::Ordinary)?;
                 }
             }
@@ -1093,6 +1368,11 @@ impl<'vm> Compiler<'vm> {
             Expr::Float { value, range } => {
                 let idx = self.add_constant(Value::float(value), range)?;
                 self.emit(Bytecode::Constant(idx), range);
+            }
+            Expr::Imaginary { range, .. } => {
+                return Err(CompilerError::Message(format!(
+                    "imaginary literal lowering requires semantic algebra realization ({range:?})"
+                )));
             }
             Expr::String { value, range } => {
                 let string_obj = self.vm.alloc_string_value(value);
@@ -1433,6 +1713,19 @@ impl<'vm> Compiler<'vm> {
             Expr::Var { value, range } => {
                 if value == "nil" {
                     return Err(CompilerError::UndefinedVariable(value.clone()));
+                }
+                if let Some(spec) = self.lowering().and_then(|l| l.type_form_values.get(&range)).cloned() {
+                    match spec {
+                        crate::modules::semantic_lowering::RuntimeTypeFormValueSpec::ClassObject { declaration } => {
+                            let symbol = self.vm.interner.intern(&declaration.name);
+                            self.emit_global_reference(symbol, range)?;
+                            return Ok(());
+                        }
+                        crate::modules::semantic_lowering::RuntimeTypeFormValueSpec::TypeParameter { .. } => {
+                            self.emit(Bytecode::Nil, range);
+                            return Ok(());
+                        }
+                    }
                 }
                 let name_sym = self.vm.interner.intern(&value);
                 if self.is_static_constant(name_sym) {
@@ -1943,6 +2236,9 @@ impl<'vm> Compiler<'vm> {
                         let symbol = self.vm.interner.intern(&declaration.name);
                         self.emit_global_reference(symbol, type_annotation.range)?;
                     }
+                    Some(crate::modules::semantic_lowering::RuntimeTypeFormValueSpec::TypeParameter { .. }) => {
+                        self.emit(Bytecode::Nil, type_annotation.range);
+                    }
                     None => match &type_annotation.expr {
                         phalcom_ast::ast::TypeAnnotationExpr::Reference(sym_ref) => {
                             let sym = self.vm.interner.intern(sym_ref.leaf_name());
@@ -2080,15 +2376,7 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::Pop, range);
         self.emit(Bytecode::GetLocal(right_slot), range);
         self.emit(Bytecode::GetLocal(left_slot), range);
-        let reflected_try = self.chunk_len();
-        self.emit(
-            Bytecode::TryInvokeExact {
-                arity: 1,
-                selector: reflected,
-                missing_offset: 0,
-            },
-            range,
-        );
+        let reflected_try = self.emit_bilateral_candidate(reflected, range)?;
         let reflected_decline = self.emit_forward_jump(Bytecode::JumpIfUnsupported, range);
         if compare {
             self.emit(Bytecode::ValidateOrdering { reverse: true }, range);
@@ -2097,15 +2385,7 @@ impl<'vm> Compiler<'vm> {
 
         let direct_first_label = self.chunk_len();
         self.patch_forward_jump_to(direct_first, direct_first_label);
-        let direct_try = self.chunk_len();
-        self.emit(
-            Bytecode::TryInvokeExact {
-                arity: 1,
-                selector: direct,
-                missing_offset: 0,
-            },
-            range,
-        );
+        let direct_try = self.emit_bilateral_candidate(direct, range)?;
         let direct_decline = self.emit_forward_jump(Bytecode::JumpIfUnsupported, range);
         if compare {
             self.emit(Bytecode::ValidateOrdering { reverse: false }, range);
@@ -2117,15 +2397,7 @@ impl<'vm> Compiler<'vm> {
         self.patch_forward_jump_to(direct_decline, reflected_after_direct);
         self.emit(Bytecode::GetLocal(right_slot), range);
         self.emit(Bytecode::GetLocal(left_slot), range);
-        let reflected_second_try = self.chunk_len();
-        self.emit(
-            Bytecode::TryInvokeExact {
-                arity: 1,
-                selector: reflected,
-                missing_offset: 0,
-            },
-            range,
-        );
+        let reflected_second_try = self.emit_bilateral_candidate(reflected, range)?;
         let reflected_second_decline = self.emit_forward_jump(Bytecode::JumpIfUnsupported, range);
         if compare {
             self.emit(Bytecode::ValidateOrdering { reverse: true }, range);
@@ -2137,15 +2409,7 @@ impl<'vm> Compiler<'vm> {
         self.patch_forward_jump_to(reflected_decline, direct_after_reflected);
         self.emit(Bytecode::GetLocal(left_slot), range);
         self.emit(Bytecode::GetLocal(right_slot), range);
-        let direct_second_try = self.chunk_len();
-        self.emit(
-            Bytecode::TryInvokeExact {
-                arity: 1,
-                selector: direct,
-                missing_offset: 0,
-            },
-            range,
-        );
+        let direct_second_try = self.emit_bilateral_candidate(direct, range)?;
         let direct_second_decline = self.emit_forward_jump(Bytecode::JumpIfUnsupported, range);
         if compare {
             self.emit(Bytecode::ValidateOrdering { reverse: false }, range);
@@ -2156,10 +2420,16 @@ impl<'vm> Compiler<'vm> {
         for jump in [reflected_second_decline, direct_second_decline] {
             self.patch_forward_jump_to(jump, unsupported_label);
         }
-        self.patch_forward_jump_to(reflected_try, direct_after_reflected);
-        self.patch_forward_jump_to(direct_try, reflected_after_direct);
-        self.patch_forward_jump_to(reflected_second_try, unsupported_label);
-        self.patch_forward_jump_to(direct_second_try, unsupported_label);
+        for (candidate, missing_target) in [
+            (reflected_try, direct_after_reflected),
+            (direct_try, reflected_after_direct),
+            (reflected_second_try, unsupported_label),
+            (direct_second_try, unsupported_label),
+        ] {
+            if let Some(candidate) = candidate {
+                self.patch_forward_jump_to(candidate, missing_target);
+            }
+        }
         self.emit(Bytecode::GetLocal(left_slot), range);
         self.emit(Bytecode::GetLocal(right_slot), range);
         self.emit(
@@ -2176,6 +2446,24 @@ impl<'vm> Compiler<'vm> {
         }
         self.release_pack_scratch_from(left_slot, 2, range);
         Ok(())
+    }
+
+    /// A proven candidate uses its canonical evidence; other candidates retain
+    /// exact runtime lookup and the existing missing/Unsupported fallback paths.
+    fn emit_bilateral_candidate(&mut self, selector: u16, range: SourceRange) -> Result<Option<usize>, CompilerError> {
+        if self.emit_proven_invoke_if_present(1, selector, range)? {
+            return Ok(None);
+        }
+        let instruction = self.chunk_len();
+        self.emit(
+            Bytecode::TryInvokeExact {
+                arity: 1,
+                selector,
+                missing_offset: 0,
+            },
+            range,
+        );
+        Ok(Some(instruction))
     }
 
     fn compile_if_let(&mut self, node: phalcom_ast::ast::IfLetExpr) -> Result<(), CompilerError> {

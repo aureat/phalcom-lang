@@ -24,6 +24,49 @@ type RuntimeTraitEnvironmentRootSpec = (
     String,
 );
 
+/// A covering impl body uses impl-owned parameters while its public call
+/// specialization uses declaration-owned parameters. Keep both coordinates in
+/// the callee's executable environment without changing the semantic product.
+fn close_covering_body_bindings(
+    snapshot: &phalcom_semantic::SemanticSnapshot,
+    callee: &phalcom_semantic::identity::CallableId,
+    bindings: impl IntoIterator<Item = (phalcom_semantic::types::id::TypeParameterId, phalcom_semantic::types::id::TypeId)>,
+) -> Result<BTreeMap<phalcom_semantic::types::id::TypeParameterId, phalcom_semantic::types::id::TypeId>, ProgramCompileError> {
+    let mut closed = BTreeMap::new();
+    for (parameter, ty) in bindings {
+        if closed.insert(parameter, ty).is_some_and(|previous| previous != ty) {
+            return Err(ProgramCompileError::GenericEvidenceLayout(format!(
+                "conflicting runtime call binding for {parameter:?} at {callee:?}"
+            )));
+        }
+    }
+    let Some(covering) = snapshot
+        .callable_definitions
+        .get(callee)
+        .and_then(|definition| definition.inherent_body_context.as_ref())
+        .and_then(|context| context.covering.as_ref())
+    else {
+        return Ok(closed);
+    };
+    for (&impl_parameter, &declaration_parameter) in &covering.impl_to_decl {
+        match (closed.get(&impl_parameter), closed.get(&declaration_parameter)) {
+            (Some(impl_type), Some(declaration_type)) if impl_type != declaration_type => {
+                return Err(ProgramCompileError::GenericEvidenceLayout(format!(
+                    "conflicting covering-impl call bindings for {impl_parameter:?} and {declaration_parameter:?} at {callee:?}"
+                )));
+            }
+            (Some(&ty), None) => {
+                closed.insert(declaration_parameter, ty);
+            }
+            (None, Some(&ty)) => {
+                closed.insert(impl_parameter, ty);
+            }
+            _ => {}
+        }
+    }
+    Ok(closed)
+}
+
 fn add_runtime_trait_environment_roots(
     roots: &mut Vec<RuntimeTraitEnvironmentRootSpec>,
     seen: &mut BTreeSet<(
@@ -53,6 +96,59 @@ fn add_runtime_trait_environment_roots(
             parameter.index(),
         );
         roots.push((module.clone(), range, source_impl.clone(), requirement.clone(), parameter, ty, key));
+    }
+}
+
+fn add_contextual_realization_trait_roots(
+    roots: &mut Vec<RuntimeTraitEnvironmentRootSpec>,
+    seen: &mut BTreeSet<(
+        ModuleId,
+        SourceRange,
+        phalcom_semantic::identity::ImplId,
+        phalcom_semantic::traits::TraitRequirementId,
+        phalcom_semantic::types::id::TypeParameterId,
+    )>,
+    module: &ModuleId,
+    realization: &phalcom_semantic::checker::analysis::ContextualRealization,
+) {
+    use phalcom_semantic::checker::analysis::{
+        ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource,
+    };
+
+    let mut add_selection = |selection: &RealizationCapabilitySelection| {
+        let RealizationCapabilitySelection::Evidenced(selection) = selection else {
+            return;
+        };
+        let bindings = match &selection.evidence {
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(evidence) => evidence
+                .impl_environment
+                .bindings
+                .iter()
+                .map(|(&parameter, &ty)| (parameter, ty))
+                .collect::<Vec<_>>(),
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(evidence) => {
+                evidence.impl_bindings.bindings().iter().map(|(&parameter, &ty)| (parameter, ty)).collect()
+            }
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(_) => Vec::new(),
+        };
+        add_runtime_trait_environment_roots(
+            roots,
+            seen,
+            module,
+            realization.source_range,
+            &selection.source_impl,
+            &selection.requirement,
+            bindings,
+        );
+    };
+
+    add_selection(&realization.realization);
+    if let ContextualRealizationOperation::Basis {
+        coefficient: RealizationCoefficientSource::One { one, .. },
+        ..
+    } = &realization.operation
+    {
+        add_selection(one);
     }
 }
 
@@ -719,6 +815,9 @@ impl ProgramCompiler {
             }
             for (callable, analysis) in analyzed.semantic.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == id) {
                 for expression in analysis.expressions.values() {
+                    if let Some(realization) = expression.contextual_realization.as_ref() {
+                        add_contextual_realization_trait_roots(&mut runtime_trait_root_specs, &mut runtime_trait_root_seen, id, realization);
+                    }
                     let specialization = expression.call_specialization.as_ref();
                     let capability = expression.conditional_capability.as_ref();
                     if specialization.is_none() && capability.is_none() {
@@ -729,7 +828,9 @@ impl ProgramCompiler {
                         .or_else(|| capability.map(|capability| &capability.selection.callable))
                         .expect("a specialization or conditional capability was checked above");
                     if let Some(specialization) = specialization {
-                        for &(parameter, ty) in specialization.bindings.iter() {
+                        for (parameter, ty) in
+                            close_covering_body_bindings(&analyzed.semantic, &specialization.callable, specialization.bindings.iter().copied())?
+                        {
                             runtime_call_root_specs.push((
                                 id.clone(),
                                 expression.range,
@@ -767,7 +868,11 @@ impl ProgramCompiler {
                         }
                     }
                     if let Some(capability) = capability {
-                        for (&parameter, &ty) in &capability.applicability.bindings {
+                        for (parameter, ty) in close_covering_body_bindings(
+                            &analyzed.semantic,
+                            &capability.selection.callable,
+                            capability.applicability.bindings.iter().map(|(&parameter, &ty)| (parameter, ty)),
+                        )? {
                             runtime_call_root_specs.push((
                                 id.clone(),
                                 expression.range,
@@ -827,7 +932,11 @@ impl ProgramCompiler {
                         continue;
                     };
                     for capability in members.iter().filter_map(|member| member.conditional_capability.as_ref()) {
-                        for (&parameter, &ty) in &capability.applicability.bindings {
+                        for (parameter, ty) in close_covering_body_bindings(
+                            &analyzed.semantic,
+                            &capability.selection.callable,
+                            capability.applicability.bindings.iter().map(|(&parameter, &ty)| (parameter, ty)),
+                        )? {
                             runtime_call_root_specs.push((
                                 id.clone(),
                                 range,

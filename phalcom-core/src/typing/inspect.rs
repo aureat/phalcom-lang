@@ -596,25 +596,7 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
 }
 
 pub fn equivalent(context: &TypingContextData, registry: &RuntimeTypingRegistry, left: RuntimeTypeRef, right: RuntimeTypeRef) -> bool {
-    match (left, right) {
-        (RuntimeTypeRef::Overlay(left), RuntimeTypeRef::Overlay(right)) => left == right,
-        (
-            RuntimeTypeRef::Base {
-                pool: left_pool,
-                node: left_node,
-            },
-            RuntimeTypeRef::Base {
-                pool: right_pool,
-                node: right_node,
-            },
-        ) => {
-            let Some(left_pool) = registry.get_pool(left_pool) else { return false };
-            let Some(right_pool) = registry.get_pool(right_pool) else { return false };
-            left_pool.bundle.types.get(left_node.0 as usize).map(|entry| entry.structural_fingerprint)
-                == right_pool.bundle.types.get(right_node.0 as usize).map(|entry| entry.structural_fingerprint)
-        }
-        _ => false,
-    }
+    crate::typing::identity::equivalent(context, registry, left, right)
 }
 
 pub fn nominal_class(context: &TypingContextData, registry: &RuntimeTypingRegistry, handle: RuntimeTypeRef) -> Option<ClassId> {
@@ -630,6 +612,28 @@ pub fn nominal_class(context: &TypingContextData, registry: &RuntimeTypingRegist
                 registry.resolve_nominal(declaration)
             } else {
                 None
+            }
+        }
+    }
+}
+
+/// Resolves the nominal class object represented by a closed nominal or
+/// applied runtime type. Applied types contribute their nominal origin while
+/// retaining the full type identity in the type environment.
+pub fn nominal_origin_class(context: &TypingContextData, registry: &RuntimeTypingRegistry, handle: RuntimeTypeRef) -> Option<ClassId> {
+    match handle {
+        RuntimeTypeRef::Overlay(id) => match context.overlay.type_node(id)? {
+            RuntimeOverlayTypeNode::Nominal { class } => Some(*class),
+            RuntimeOverlayTypeNode::Applied { origin, .. } => nominal_class(context, registry, *origin),
+            _ => None,
+        },
+        RuntimeTypeRef::Base { pool, node } => {
+            let loaded = registry.get_pool(pool)?;
+            let entry = loaded.bundle.types.get(node.0 as usize)?;
+            match &entry.form {
+                TypeNode::Nominal { declaration } => registry.resolve_nominal(declaration),
+                TypeNode::Applied { origin, .. } => nominal_class(context, registry, RuntimeTypeRef::Base { pool, node: *origin }),
+                _ => None,
             }
         }
     }

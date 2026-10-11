@@ -944,6 +944,7 @@ impl<'a> ProductPlanner<'a> {
             | Expr::Ellipsis { .. }
             | Expr::Int { .. }
             | Expr::Float { .. }
+            | Expr::Imaginary { .. }
             | Expr::String { .. }
             | Expr::Char { .. }
             | Expr::Boolean { .. }

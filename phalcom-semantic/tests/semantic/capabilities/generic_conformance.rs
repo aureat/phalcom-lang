@@ -90,7 +90,13 @@ class Probe {
         .generic_signatures
         .iter()
         .flat_map(|record| record.constraints.iter())
-        .find(|constraint| matches!(constraint, GenericConstraintRef::Conforms { .. }))
+        .find(|constraint| {
+            matches!(
+                constraint,
+                GenericConstraintRef::Conforms { trait_application, .. }
+                    if trait_application.declaration.path.last().map(|name| name.as_ref()) == Some("Printable")
+            )
+        })
         .expect("direct conformance constraint");
     let GenericConstraintRef::Conforms { subject, trait_application } = constraint else {
         panic!("expected stable conformance relation, got {constraint:?}");

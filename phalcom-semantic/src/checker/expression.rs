@@ -23,7 +23,7 @@ use crate::checker::flow::FlowState;
 use crate::data_semantics::{DataInfo, DataShape};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature, ResolvedDispatch, ResolvedDispatchResult};
-use crate::identity::{DeclarationId, InvocationTargetId};
+use crate::identity::{DeclarationId, DispatchSide, InvocationTargetId};
 use crate::types::annotation::TypeResolver;
 use crate::types::denotation::{AssociatedValueDenotation, BehavioralFamilyDenotation, CapturedBehavioralMember, SemanticDenotation};
 use crate::types::environment::TypeView;
@@ -46,12 +46,16 @@ use std::collections::HashMap;
 
 /// Central entry point for bidirectional expression analysis (Spec 04.5 / E4).
 pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
+    let algebraic_expected = super::algebraic_realization::arithmetic_region_expected(ctx, expr, expected);
+    let effective_expected = algebraic_expected.as_ref().unwrap_or(expected);
     let expr_id = ctx.alloc_expression_id();
     ctx.push_expression_owner(expr_id);
-    let mut typed = analyze_expression_inner(ctx, expr, expected);
+    let mut typed = analyze_expression_inner(ctx, expr, effective_expected);
     if let Some(cause_id) = ctx.pop_expression_owner(expr_id) {
         typed.invalidate(cause_id);
     }
+
+    super::algebraic_realization::apply_contextual_realization(ctx, expr_id, expr, effective_expected, &mut typed);
 
     if let (Some(expected_ty), Some(origin)) = (expected.ty(), expected.origin()) {
         let requirement = crate::explain::ExplanationStep::TypeRequirement {
@@ -77,7 +81,7 @@ pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: 
         TypeKnowledge::Known(_) => {
             let ty = typed.knowledge.ty().expect("known expression has type");
             match expr {
-                Expr::Int { .. } | Expr::Float { .. } | Expr::String { .. } | Expr::Char { .. } | Expr::Boolean { .. } => {
+                Expr::Int { .. } | Expr::Float { .. } | Expr::Imaginary { .. } | Expr::String { .. } | Expr::Char { .. } | Expr::Boolean { .. } => {
                     crate::explain::ExplanationStep::Literal { expression: expr_id, ty }
                 }
                 Expr::Var { value, .. } => match ctx.lookup_binding_info(value) {
@@ -196,6 +200,16 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
 }
 
 fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
+    // Keep the recursive arithmetic dispatch outside the large match below.
+    // In debug builds its other branches' temporaries otherwise occupy every
+    // binary frame, even though those branches are never evaluated.
+    match expr {
+        Expr::Binary(binary) => synthesize_binary_expr(ctx, binary, expected),
+        _ => analyze_non_binary_expression(ctx, expr, expected),
+    }
+}
+
+fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
     match expr {
         // --- 1. Primitive Literals ---
         Expr::Int { range, .. } => {
@@ -214,6 +228,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
             }
         }
+        Expr::Imaginary { .. } => TypedExpression::unknown(UnknownReason::UncheckedExpression),
         Expr::String { range, .. } => {
             let string_decl = ctx.core_ids.string.clone();
             if let Some(ty) = ctx.core_type(&string_decl) {
@@ -958,7 +973,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         // --- 6. Message Sends and Invocations (Canonical Resolution E5) ---
         Expr::MethodCall(call) => synthesize_method_call(ctx, call, expected),
         Expr::UnqualifiedCall(call) => synthesize_unqualified_call(ctx, call, expected),
-        Expr::Binary(binary) => synthesize_binary_expr(ctx, binary, expected),
+        Expr::Binary(_) => unreachable!("binary expressions are dispatched before the non-binary analyzer"),
         Expr::Unary(unary) => synthesize_unary_expr(ctx, unary, expected),
 
         // --- 7. Member and Subscript Access ---
@@ -2194,6 +2209,13 @@ fn receiver_type_form(receiver: &TypedExpression) -> Option<TypeId> {
     }
 }
 
+fn receiver_trait_dispatch_side(receiver: &TypedExpression) -> DispatchSide {
+    match receiver.denotation.as_ref() {
+        Some(SemanticDenotation::TypeForm(_)) => DispatchSide::Class,
+        _ => DispatchSide::Instance,
+    }
+}
+
 /// Adds declaration-owned class parameters to a dispatch target while keeping
 /// them separate from callable-local binders. Applied type forms fix those
 /// parameters; raw forms leave them inferable and therefore reject
@@ -2212,7 +2234,16 @@ fn specialize_class_side_target(
     if callable.side != crate::identity::DispatchSide::Class {
         return target;
     }
-    let declaration_generics = ctx.declaration_generic_signature(callable.declaration_owner());
+    if matches!(target.authority, super::call::CallTargetAuthority::AbstractContract) {
+        return target;
+    }
+    // Conformance witnesses are already selected against their exact subject
+    // type. They have no declaration owner whose class parameters should be
+    // fixed from the receiver form.
+    let Some(declaration_owner) = callable.owner.try_declaration() else {
+        return target;
+    };
+    let declaration_generics = ctx.declaration_generic_signature(declaration_owner);
     if let Some(generics) = declaration_generics {
         if matches!(ctx.store.get(receiver_form), TypeData::Applied { .. } | TypeData::ExactCase { .. }) {
             if let Some(specialization) = target.specialization.as_ref() {
@@ -3376,6 +3407,7 @@ fn family_callable_application_target(
         let ResolvedDispatchResult::Found(resolved) = ctx.resolve_dispatch_target_with_specialization(
             behavioral.receiver_type,
             behavioral.receiver_application,
+            behavioral.receiver_application.map_or(DispatchSide::Instance, |_| DispatchSide::Class),
             &callable.selector,
             crate::dispatch::DispatchLookup::Normal,
         ) else {
@@ -3852,7 +3884,13 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
             .collect::<Vec<_>>();
         return apply_union_resolved_call(ctx, &premise, &arms, &arguments, expected, call.range, &selector).into();
     }
-    match ctx.resolve_dispatch_target_with_specialization(receiver_ty, receiver_form, &selector, recv_typed.dispatch_lookup.clone()) {
+    match ctx.resolve_dispatch_target_with_specialization(
+        receiver_ty,
+        receiver_form,
+        receiver_trait_dispatch_side(&recv_typed),
+        &selector,
+        recv_typed.dispatch_lookup.clone(),
+    ) {
         ResolvedDispatchResult::Found(resolved) => {
             let target = specialize_class_side_target(ctx, CallableApplicationTarget::from_dispatch(resolved), receiver_form);
             let result = apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range);
@@ -4388,8 +4426,130 @@ pub(crate) fn apply_binary_operation_from_typed(
 }
 
 fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, expected: &ExpectedType) -> TypedExpression {
+    let left_has_basis = super::algebraic_realization::contains_arithmetic_basis(ctx, &binary.left);
+    let right_has_basis = super::algebraic_realization::contains_arithmetic_basis(ctx, &binary.right);
+    let expects_algebra = expected
+        .ty()
+        .is_some_and(|target| super::algebraic_realization::is_canonical_algebra_type(ctx, target));
+    if !left_has_basis && !right_has_basis && !expects_algebra {
+        let has_binding_operand = matches!(binary.left.as_ref(), Expr::Var { .. } | Expr::GetProperty(_))
+            || matches!(binary.right.as_ref(), Expr::Var { .. } | Expr::GetProperty(_));
+        if matches!(binary.op, BinaryOp::Multiply) && has_binding_operand {
+            return synthesize_binding_binary_expr(ctx, binary, expected);
+        }
+        return synthesize_ordinary_binary_expr(ctx, binary, expected);
+    }
+
+    synthesize_algebraic_binary_expr(ctx, binary, expected, left_has_basis, right_has_basis)
+}
+
+fn synthesize_binding_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, expected: &ExpectedType) -> TypedExpression {
+    // A source-only region scan cannot always recover an imported value's
+    // canonical type. Analyze operands once, in source order, before trying
+    // their checked realization. Keep these temporaries out of the dispatcher:
+    // otherwise they occupy every recursive binary frame, including addition.
     let left_typed = analyze_expression(ctx, &binary.left, &ExpectedType::None);
     let right_typed = analyze_expression(ctx, &binary.right, &ExpectedType::None);
+    if let Some(realized) = super::algebraic_realization::realize_scalar_basis_product(ctx, binary, &left_typed, &right_typed, expected) {
+        return realized;
+    }
+    // Imports are not necessarily available during the first source pass.
+    // Avoid diagnosing ordinary multiplication against a temporary unresolved
+    // imported basis; the expression is revisited once the binding has its
+    // canonical type and can be realized.
+    if let TypeKnowledge::Unknown(UnknownReason::UnresolvedName(name)) = &left_typed.knowledge {
+        return TypedExpression::unknown(UnknownReason::UnresolvedName(name.clone()));
+    }
+    if let TypeKnowledge::Unknown(UnknownReason::UnresolvedName(name)) = &right_typed.knowledge {
+        return TypedExpression::unknown(UnknownReason::UnresolvedName(name.clone()));
+    }
+    apply_binary_operation_from_typed(
+        ctx,
+        &binary.left,
+        &left_typed,
+        binary.op.clone(),
+        &binary.right,
+        &right_typed,
+        expected,
+        binary.range,
+    )
+}
+
+fn synthesize_ordinary_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, expected: &ExpectedType) -> TypedExpression {
+    let left_typed = analyze_expression(ctx, &binary.left, &ExpectedType::None);
+    let right_typed = analyze_expression(ctx, &binary.right, &ExpectedType::None);
+    apply_binary_operation_from_typed(
+        ctx,
+        &binary.left,
+        &left_typed,
+        binary.op.clone(),
+        &binary.right,
+        &right_typed,
+        expected,
+        binary.range,
+    )
+}
+
+fn synthesize_algebraic_binary_expr(
+    ctx: &mut CheckingContext<'_>,
+    binary: &BinaryExpr,
+    expected: &ExpectedType,
+    left_has_basis: bool,
+    right_has_basis: bool,
+) -> TypedExpression {
+    let scalar_basis_product = matches!(binary.op, BinaryOp::Multiply)
+        && (super::algebraic_realization::is_basis_source(ctx, &binary.left) ^ super::algebraic_realization::is_basis_source(ctx, &binary.right));
+    let left_scalar = super::algebraic_realization::is_embeddable_scalar_source(ctx, &binary.left);
+    let right_scalar = super::algebraic_realization::is_embeddable_scalar_source(ctx, &binary.right);
+    let no_expected = ExpectedType::None;
+    let left_expected = if !scalar_basis_product && (left_has_basis || (right_has_basis && left_scalar)) {
+        expected
+    } else {
+        &no_expected
+    };
+    let right_expected = if !scalar_basis_product && (right_has_basis || (left_has_basis && right_scalar)) {
+        expected
+    } else {
+        &no_expected
+    };
+    let mut left_typed = analyze_expression(ctx, &binary.left, left_expected);
+    let mut right_typed = analyze_expression(ctx, &binary.right, right_expected);
+    if let Some(realized) = super::algebraic_realization::realize_scalar_basis_product(ctx, binary, &left_typed, &right_typed, expected) {
+        return realized;
+    }
+
+    // A concrete sibling may establish the algebra for a direct basis value.
+    // Retarget the already-checked child product without re-analyzing it, so
+    // semantic dependencies and runtime single-evaluation order stay intact.
+    let contextual_target = expected
+        .ty()
+        .filter(|ty| super::algebraic_realization::is_canonical_algebra_type(ctx, *ty))
+        .or_else(|| {
+            let left = left_typed.knowledge.ty()?;
+            let right = right_typed.knowledge.ty()?;
+            let left_algebra = super::algebraic_realization::is_canonical_algebra_type(ctx, left).then_some(left);
+            let right_algebra = super::algebraic_realization::is_canonical_algebra_type(ctx, right).then_some(right);
+            match (left_algebra, right_algebra) {
+                (Some(target), None) | (None, Some(target)) => Some(target),
+                (Some(left), Some(right)) if left == right => Some(left),
+                _ => None,
+            }
+        });
+    if let Some(target) = contextual_target {
+        let contextual = ExpectedType::proper_from(target, ExpectationOrigin::AlgebraicArithmetic);
+        if left_typed.contextual_realization.is_none() && super::algebraic_realization::is_basis_source(ctx, &binary.left) {
+            if let Some(expression_id) = left_typed.expression_id {
+                super::algebraic_realization::apply_contextual_realization(ctx, expression_id, &binary.left, &contextual, &mut left_typed);
+                ctx.sync_expression_outcome(&left_typed);
+            }
+        }
+        if right_typed.contextual_realization.is_none() && super::algebraic_realization::is_basis_source(ctx, &binary.right) {
+            if let Some(expression_id) = right_typed.expression_id {
+                super::algebraic_realization::apply_contextual_realization(ctx, expression_id, &binary.right, &contextual, &mut right_typed);
+                ctx.sync_expression_outcome(&right_typed);
+            }
+        }
+    }
     apply_binary_operation_from_typed(
         ctx,
         &binary.left,
@@ -4663,7 +4823,12 @@ fn reflected_binary_selector(op: &BinaryOp) -> Option<Selector> {
 }
 
 fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr, expected: &ExpectedType) -> TypedExpression {
-    let operand_typed = analyze_expression(ctx, &unary.expr, &ExpectedType::None);
+    let operand_expected = if matches!(unary.op, UnaryOp::Plus | UnaryOp::Minus) && super::algebraic_realization::contains_arithmetic_basis(ctx, &unary.expr) {
+        expected
+    } else {
+        &ExpectedType::None
+    };
+    let operand_typed = analyze_expression(ctx, &unary.expr, operand_expected);
     let premise = CallPremise::from_typed(ctx, &operand_typed);
 
     let op_name = match unary.op {
@@ -4849,7 +5014,13 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr,
 
     // 2. Check Getter selector
     if let Ok(sel) = Selector::getter(&get.property) {
-        match ctx.resolve_dispatch_target_with_specialization(recv_ty, receiver_form, &sel, recv_typed.dispatch_lookup.clone()) {
+        match ctx.resolve_dispatch_target_with_specialization(
+            recv_ty,
+            receiver_form,
+            receiver_trait_dispatch_side(&recv_typed),
+            &sel,
+            recv_typed.dispatch_lookup.clone(),
+        ) {
             ResolvedDispatchResult::Found(resolved) => {
                 let target = specialize_class_side_target(ctx, CallableApplicationTarget::from_dispatch(resolved), receiver_form);
                 let result = apply_resolved_callable(ctx, &target, &premise, &[], expected, get.range);
@@ -4962,7 +5133,13 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
 
     // 2. Check setter selector
     if let Ok(sel) = Selector::setter(&set.property) {
-        match ctx.resolve_dispatch_target_with_specialization(recv_ty, receiver_form, &sel, recv_typed.dispatch_lookup.clone()) {
+        match ctx.resolve_dispatch_target_with_specialization(
+            recv_ty,
+            receiver_form,
+            receiver_trait_dispatch_side(&recv_typed),
+            &sel,
+            recv_typed.dispatch_lookup.clone(),
+        ) {
             ResolvedDispatchResult::Found(resolved) => {
                 let arguments = vec![super::call::ApplicationArgument::Positional {
                     expression: &set.value,

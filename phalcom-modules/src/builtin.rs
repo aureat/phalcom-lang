@@ -37,6 +37,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
             "regex",
             "json",
             "math",
+            "numbers",
             "random",
             "time",
             "process",
@@ -139,10 +140,55 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["math"],
         kind: ModuleKind::Package,
-        children: &["float_kernel", "integer", "reduction", "numerical_errors", "special"],
+        children: &["float_kernel", "integer", "reduction", "numerical_errors", "complex"],
+    },
+    UniverseNodeSpec {
+        path: &["numbers"],
+        kind: ModuleKind::Package,
+        children: &["capabilities", "algebra", "complex", "quaternion", "float_complex", "rational"],
+    },
+    UniverseNodeSpec {
+        path: &["numbers", "capabilities"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["numbers", "complex"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["numbers", "algebra"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["numbers", "quaternion"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["numbers", "float_complex"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["numbers", "rational"],
+        kind: ModuleKind::Module,
+        children: &[],
     },
     UniverseNodeSpec {
         path: &["math", "float_kernel"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["math", "complex"],
+        kind: ModuleKind::Package,
+        children: &["kernel"],
+    },
+    UniverseNodeSpec {
+        path: &["math", "complex", "kernel"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -158,16 +204,6 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["math", "numerical_errors"],
-        kind: ModuleKind::Module,
-        children: &[],
-    },
-    UniverseNodeSpec {
-        path: &["math", "special"],
-        kind: ModuleKind::Package,
-        children: &["kernel"],
-    },
-    UniverseNodeSpec {
-        path: &["math", "special", "kernel"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -873,8 +909,33 @@ impl UniverseSourceProvider {
             [c] if c.as_str() == "regex" => include_str!("../../phalcom-core/core/universe/src/regex/package.ph"),
             [c] if c.as_str() == "json" => include_str!("../../phalcom-core/core/universe/src/json/package.ph"),
             [c] if c.as_str() == "math" => include_str!("../../phalcom-core/core/universe/src/math/package.ph"),
+            [c] if c.as_str() == "numbers" => include_str!("../../phalcom-core/core/universe/src/numbers/package.ph"),
+            [c, m] if c.as_str() == "numbers" && m.as_str() == "capabilities" => {
+                include_str!("../../phalcom-core/core/universe/src/numbers/capabilities.ph")
+            }
+            [c, m] if c.as_str() == "numbers" && m.as_str() == "algebra" => {
+                include_str!("../../phalcom-core/core/universe/src/numbers/algebra.ph")
+            }
+            [c, m] if c.as_str() == "numbers" && m.as_str() == "complex" => {
+                include_str!("../../phalcom-core/core/universe/src/numbers/complex.ph")
+            }
+            [c, m] if c.as_str() == "numbers" && m.as_str() == "quaternion" => {
+                include_str!("../../phalcom-core/core/universe/src/numbers/quaternion.ph")
+            }
+            [c, m] if c.as_str() == "numbers" && m.as_str() == "float_complex" => {
+                include_str!("../../phalcom-core/core/universe/src/numbers/float_complex.ph")
+            }
+            [c, m] if c.as_str() == "numbers" && m.as_str() == "rational" => {
+                include_str!("../../phalcom-core/core/universe/src/numbers/rational.ph")
+            }
             [c, m] if c.as_str() == "math" && m.as_str() == "float_kernel" => {
                 include_str!("../../phalcom-core/core/universe/src/math/float_kernel.ph")
+            }
+            [c, m] if c.as_str() == "math" && m.as_str() == "complex" => {
+                include_str!("../../phalcom-core/core/universe/src/math/complex/package.ph")
+            }
+            [c, m, k] if c.as_str() == "math" && m.as_str() == "complex" && k.as_str() == "kernel" => {
+                include_str!("../../phalcom-core/core/universe/src/math/complex/kernel.ph")
             }
             [c, m] if c.as_str() == "math" && m.as_str() == "integer" => {
                 include_str!("../../phalcom-core/core/universe/src/math/integer.ph")
@@ -884,12 +945,6 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "math" && m.as_str() == "numerical_errors" => {
                 include_str!("../../phalcom-core/core/universe/src/math/numerical_errors.ph")
-            }
-            [c, m] if c.as_str() == "math" && m.as_str() == "special" => {
-                include_str!("../../phalcom-core/core/universe/src/math/special/package.ph")
-            }
-            [c, m, k] if c.as_str() == "math" && m.as_str() == "special" && k.as_str() == "kernel" => {
-                include_str!("../../phalcom-core/core/universe/src/math/special/kernel.ph")
             }
             [c] if c.as_str() == "random" => include_str!("../../phalcom-core/core/universe/src/random/package.ph"),
             [c, m] if c.as_str() == "random" && m.as_str() == "generator" => include_str!("../../phalcom-core/core/universe/src/random/generator.ph"),

@@ -97,6 +97,10 @@ impl ConformanceSemanticView<'_> {
             .or_else(|| self.derived_conformance_rules.get_rule(impl_id).map(|rule| rule.fingerprint))
     }
 
+    pub fn bucket_fingerprint(&self, key: &TraitDispatchBucketKey) -> ProductFingerprint {
+        self.trait_dispatch.bucket_fingerprint(key)
+    }
+
     pub fn fingerprint(&self) -> ProductFingerprint {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.trait_dispatch.fingerprint().raw().hash(&mut hasher);
@@ -172,6 +176,15 @@ impl TraitDispatchIndex {
 
     pub fn buckets(&self) -> &BTreeMap<TraitDispatchBucketKey, Box<[TraitDispatchContribution]>> {
         &self.buckets
+    }
+
+    pub fn bucket_fingerprint(&self, key: &TraitDispatchBucketKey) -> ProductFingerprint {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut hasher);
+        if let Some(entries) = self.buckets.get(key) {
+            entries.hash(&mut hasher);
+        }
+        ProductFingerprint::new(hasher.finish())
     }
 
     pub fn fingerprint(&self) -> ProductFingerprint {
@@ -510,6 +523,32 @@ fn candidate_from_proof(
         signature,
         requirement_targets,
         convergence,
+    })
+}
+
+/// Materializes one ordinary selected trait requirement from proof evidence
+/// already obtained for an exact target and trait reference. This keeps
+/// callers that resolve a known capability on the canonical selection path
+/// without asking the broad selector-discovery index to choose among
+/// unrelated trait arguments.
+pub(crate) fn selection_from_proven_requirement(
+    evidence: GenericConformanceEvidence,
+    exact_target: TypeId,
+    requirement: &TraitRequirementId,
+    store: &mut TypeStore,
+) -> Option<TraitDispatchSelection> {
+    let candidate = candidate_from_proof(evidence, exact_target, requirement, store)?;
+    Some(TraitDispatchSelection {
+        source_impl: candidate.source_impl,
+        exact_target: candidate.exact_target,
+        exact_trait_ref: candidate.exact_trait_ref,
+        requirement: candidate.requirement,
+        callable: selected_callable(&candidate.selection),
+        signature: candidate.signature,
+        evidence_fingerprint: candidate.evidence_fingerprint,
+        evidence: candidate.evidence,
+        selection: candidate.selection,
+        requirement_targets: candidate.requirement_targets,
     })
 }
 

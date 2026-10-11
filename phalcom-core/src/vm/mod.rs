@@ -495,11 +495,22 @@ impl VM {
     /// For data values (both `DataSingleton` and heap `DataObject`), equality is
     /// representation-independent: exact semantic descriptor match and recursive
     /// component-wise `semantic_same`. Tuple and Record products likewise compare
-    /// through their VM-owned shape metadata and decoded logical values. All other
-    /// values retain representation identity semantics.
+    /// through their VM-owned shape metadata and decoded logical values.
+    /// Int values compare integer content across immediate and heap
+    /// representations, without numeric coercion. Other values retain
+    /// representation identity semantics.
     pub fn semantic_same(&self, lhs: Value, rhs: Value) -> bool {
         if lhs.same_as(&rhs) {
             return true;
+        }
+
+        let lhs_large_int = lhs.as_obj().and_then(|id| self.heap.as_large_int(id));
+        let rhs_large_int = rhs.as_obj().and_then(|id| self.heap.as_large_int(id));
+        match (lhs_large_int, rhs_large_int) {
+            (Some(left), Some(right)) => return left == right,
+            (Some(left), None) => return rhs.as_int().is_some_and(|right| left == &num_bigint::BigInt::from(right)),
+            (None, Some(right)) => return lhs.as_int().is_some_and(|left| &num_bigint::BigInt::from(left) == right),
+            (None, None) => {}
         }
 
         let lhs_tuple = lhs.as_obj().filter(|id| self.heap.as_tuple(*id).is_some());

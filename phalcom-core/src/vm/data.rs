@@ -147,7 +147,18 @@ impl VM {
             base_descriptor.runtime_id
         } else {
             self.data_registry
-                .register_with_component_slots(spec.constructor.owner.clone(), base, Some(exact_type), layout_id, component_slots)
+                .intern_exact_with_component_slots(
+                    crate::data::RuntimeDataSpecialization {
+                        semantic_owner: spec.constructor.owner.clone(),
+                        behavior_class: base,
+                        exact_type,
+                        layout: layout_id,
+                        component_slots,
+                    },
+                    &self.runtime_typing_context,
+                    &self.typing_registry,
+                )
+                .map_err(|message| RuntimeError::Internal(message.into()))?
         };
         Ok(descriptor)
     }

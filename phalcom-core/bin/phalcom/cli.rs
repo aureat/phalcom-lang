@@ -8,6 +8,12 @@ use serde::Serialize;
 use std::sync::Arc;
 use std::{fs, path::PathBuf};
 
+fn trace_semantic_bootstrap(message: &str) {
+    if std::env::var_os("PHALCOM_TRACE_SEMANTIC_BOOTSTRAP").is_some() {
+        eprintln!("[semantic bootstrap trace] {message}");
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, clap::ValueEnum)]
 pub enum DiagnosticDetailArg {
     Compact,
@@ -281,13 +287,17 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
         }
     };
 
+    trace_semantic_bootstrap("program compilation complete");
     let mut vm = VM::new();
+    trace_semantic_bootstrap("VM construction complete");
     vm.compile_mode = compile_mode;
     vm.strip_contract_metadata = strip_contract_metadata;
     vm.trace_core = cli.trace_core;
     vm.trace_format_json = cli.trace_format == "json";
     vm.trace_fibers = cli.trace.iter().any(|t| t == "fibers");
+    trace_semantic_bootstrap("VM execution started");
     let run_res = vm.run_compiled(&program);
+    trace_semantic_bootstrap("VM execution returned");
 
     let leaks = vm.resources.leaks();
     if !leaks.is_empty() {

@@ -1527,6 +1527,21 @@ See §20.
 
 See §13.
 
+### `LoadTypeParameterClass(index)`
+
+Pushes the nominal class object for the stable type parameter at `index` in the
+chunk's executable semantic pool. The active frame's runtime type environment
+MUST contain a closed binding for that parameter, and the binding MUST have a
+nominal class origin. Missing, erased, or non-nominal bindings fail closed.
+
+```text
+[...] → [..., class]
+```
+
+This instruction supplies the class-side receiver for a semantically selected
+generic trait requirement. It does not perform conformance lookup; the
+corresponding `InvokeTraitRequirement` consumes the active conformance slot.
+
 These instructions are grouped separately in the physical enum for historical/evolution reasons but remain governed by their semantic categories above.
 
 ---
@@ -2244,6 +2259,9 @@ It is **not** a serialized ABI.
 | 112 | `FinishPack` |
 | 113 | `BuildStaticPack` |
 | 114 | `BuildPack` |
+| 115 | `GuardFieldKey` |
+| 116 | `RecordLiteralCheckKey` |
+| 117 | `LoadTypeParameterClass` |
 
 ---
 

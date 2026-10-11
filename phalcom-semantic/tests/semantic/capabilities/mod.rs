@@ -1,3 +1,4 @@
+mod algebraic_realization;
 mod aliases;
 mod authority;
 mod bindings;

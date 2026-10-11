@@ -1,7 +1,8 @@
-# Positive-real special-function backend
+# `numerics.special` — positive-real special functions
 
-This is a source-authored binary64 implementation for proposal 13 A2. The
-public facade is `universe.math.special`; the implementation child (`kernel`) is hidden.
+This is a source-authored binary64 implementation migrated from the former
+`universe.math.special` surface. The public facade is `numerics.special`; the
+implementation child (`kernel`) is hidden.
 No native primitive, host special-function dependency, or numerical promotion
 is introduced. Ordinary `universe.math` does not import this backend.
 
@@ -11,7 +12,7 @@ The public API is structured around mathematical families rather than a flat nam
 of compound identifiers:
 
 ```telos
-from universe.math.special import (
+from numerics.special import (
   Gamma,
   Beta,
   Normal,

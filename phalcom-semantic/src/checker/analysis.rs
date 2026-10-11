@@ -60,6 +60,9 @@ pub struct ExpressionAnalysis {
     /// keeps requirement/evidence origins available to diagnostics and editor
     /// consumers without pretending one candidate was selected.
     pub trait_dispatch_candidates: Option<Box<[crate::trait_dispatch::TraitEvidencedMemberCandidate]>>,
+    /// Canonical target-side algebra operation selected for a contextualized
+    /// basis value, imaginary literal, or real scalar term.
+    pub contextual_realization: Option<Arc<ContextualRealization>>,
     pub denotation: Option<SemanticDenotation>,
     pub status: AnalysisStatus,
     pub causal_invalidity: CausalInvalidity,
@@ -84,6 +87,7 @@ impl ExpressionAnalysis {
             conditional_capability: None,
             trait_dispatch: None,
             trait_dispatch_candidates: None,
+            contextual_realization: None,
             denotation: None,
             status: AnalysisStatus::Ready,
             causal_invalidity: CausalInvalidity::Clean,
@@ -106,6 +110,7 @@ impl ExpressionAnalysis {
             conditional_capability: None,
             trait_dispatch: None,
             trait_dispatch_candidates: None,
+            contextual_realization: None,
             denotation: None,
             status: AnalysisStatus::Invalid(cause),
             causal_invalidity: CausalInvalidity::One(cause),
@@ -136,6 +141,86 @@ impl ExpressionAnalysis {
         self.status = status;
         self
     }
+}
+
+/// Canonical axis carried by a source basis value or imaginary suffix.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum AlgebraicBasisAxis {
+    I,
+    J,
+    K,
+}
+
+/// How a basis-component coefficient is supplied to the selected capability.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RealizationCoefficientSource {
+    /// A source basis unit supplies the multiplicative identity of the
+    /// capability's scalar type.
+    One { scalar_type: TypeId, one: RealizationCapabilitySelection },
+    /// Exact integer spelling and radix from a native imaginary literal.
+    IntegerLiteral { digits: Box<str>, radix: u32 },
+    /// Exact IEEE-754 payload from a native imaginary literal.
+    FloatLiteral { bits: u64 },
+    /// A scalar expression selected by a future bounded arithmetic region.
+    Expression { expression: ExpressionId, scalar_type: TypeId },
+}
+
+/// Durable semantic evidence that one basis value was realized in a target
+/// algebra. All type identities are canonical; inference-local variables are
+/// deliberately excluded.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContextualRealization {
+    /// Expression whose value is replaced by the realization operation.
+    pub source_expression: ExpressionId,
+    pub source_range: SourceRange,
+    /// Basis type for a basis realization, or scalar type for real embedding.
+    pub source_type: TypeId,
+    pub target_type: TypeId,
+    pub operation: ContextualRealizationOperation,
+    /// Selected class-side `BasisRealizable` or `RealEmbeddable` requirement.
+    pub realization: RealizationCapabilitySelection,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ContextualRealizationOperation {
+    Basis {
+        basis_type: TypeId,
+        axis: AlgebraicBasisAxis,
+        coefficient: RealizationCoefficientSource,
+        evaluation: RealizationEvaluationPlan,
+    },
+    RealEmbedding {
+        value: ExpressionId,
+        scalar_type: TypeId,
+    },
+}
+
+/// Source-order obligations for constructing a contextual realization.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RealizationEvaluationPlan {
+    /// Native suffix coefficient is a literal and the axis value is
+    /// materialized after it.
+    LiteralCoefficientThenAxis,
+    /// For a bare basis value, evaluate the selected `One` requirement, then
+    /// evaluate the original basis expression exactly once.
+    MultiplicativeIdentityThenSourceBasis,
+    /// Arithmetic-region elaboration records both source operands and their
+    /// original evaluation order explicitly.
+    SourceOperands {
+        first: ExpressionId,
+        second: ExpressionId,
+        coefficient: ExpressionId,
+        basis: ExpressionId,
+    },
+}
+
+/// Executable selection for a class-side realization capability.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RealizationCapabilitySelection {
+    /// Exact or derived source conformance evidence.
+    Evidenced(crate::trait_dispatch::TraitDispatchSelection),
+    /// A direct generic conformance bound carried by the active caller.
+    Assumed(crate::trait_dispatch::AssumedTraitDispatchSelection),
 }
 
 /// Provenance for one callee generic conformance bound discharged at a call site.
@@ -438,6 +523,10 @@ pub enum SemanticDependency {
     DeclarationSurface(DeclarationId),
     TraitSurface(DeclarationId),
     ConformanceDispatch(ImplId),
+    TraitDispatchBucket(crate::trait_dispatch::TraitDispatchBucketKey),
+    /// Context-independent exact proof state for one canonical proposition.
+    /// Contextual assumed/derived results remain embedded in their owner.
+    GenericConformance(crate::generic_evidence::GenericConformanceKey),
     HierarchyEdge(DeclarationId),
     LinkedInterface(ModuleId),
     DataDeclaration(DeclarationId),

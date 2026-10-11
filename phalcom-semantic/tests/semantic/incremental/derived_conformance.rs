@@ -89,6 +89,99 @@ let result = Worker.new().apply(Input.new())
 }
 
 #[test]
+fn adding_exact_trait_header_prerequisite_refreshes_a_negative_conformance_root() {
+    let root = tempfile::tempdir().expect("tempdir");
+    std::fs::write(root.path().join("package.ph"), "").expect("package marker");
+    let provider_path = root.path().join("provider.ph");
+    let consumer_path = root.path().join("consumer.ph");
+    let provider_source = location(&provider_path);
+    let consumer_source = location(&consumer_path);
+    let provider_without_gate = r#"
+trait Gate {}
+trait Owner where Self::Item |= Gate { type Item }
+class Box<T> {}
+class Carrier {}
+impl Owner for Carrier { type Item = Box<Int> }
+export Gate
+export Owner
+export Box
+export Carrier
+"#;
+    let consumer = r#"
+from .provider import Owner, Carrier
+class Caller {
+  @class require<T>(_ value: T) -> Int where T |= Owner { 1 }
+  @class run(_ value: Carrier) -> Int { Caller.require(value) }
+}
+"#;
+    let provider_with_gate = format!("{provider_without_gate}\nimpl Gate for Box<Int> {{}}\n");
+    let provider_mutation = |revision, text: &str| WorkspaceSourceBatchMutation::SetOverlay {
+        source: provider_source.clone(),
+        text: Arc::from(text),
+        revision: SourceRevision(revision),
+        recovered_program: None,
+    };
+    let consumer_mutation = WorkspaceSourceBatchMutation::SetOverlay {
+        source: consumer_source.clone(),
+        text: Arc::from(consumer),
+        revision: SourceRevision(1),
+        recovered_program: None,
+    };
+
+    let mut session = SemanticWorkspaceSession::new();
+    let initial = session
+        .apply_module_mutations([provider_mutation(1, provider_without_gate), consumer_mutation.clone()])
+        .expect("initial negative proof");
+    assert!(initial.snapshot.has_errors(), "the missing Gate proof should reject the call");
+    let consumer_module = initial.snapshot.module_for_display_path(&consumer_path).expect("consumer module");
+    let consumer_callable = initial
+        .snapshot
+        .callable_analyses
+        .keys()
+        .find(|callable| callable.module() == consumer_module && callable.selector.encode() == "run(_)")
+        .expect("Caller.run callable");
+    let consumer_body = phalcom_semantic::db::QueryKey::CallableBody(consumer_callable.clone());
+    let initial_body_revision = session.db().query_state(&consumer_body).and_then(|state| state.revision());
+    assert!(
+        initial_body_revision.is_some(),
+        "Caller.run body must have been analyzed under the negative prerequisite"
+    );
+
+    let incremental = session
+        .apply_module_mutations([provider_mutation(2, &provider_with_gate)])
+        .expect("incremental prerequisite addition");
+    let cold = SemanticWorkspaceSession::new()
+        .apply_module_mutations([provider_mutation(2, &provider_with_gate), consumer_mutation])
+        .expect("cold reconstruction after prerequisite addition");
+    assert!(
+        !incremental.snapshot.has_errors(),
+        "the new exact Gate proof should discharge Owner's trait contract: {:?}",
+        incremental.snapshot.diagnostics
+    );
+    assert!(
+        !cold.snapshot.has_errors(),
+        "cold reconstruction should accept the completed exact proof: {:?}",
+        cold.snapshot.diagnostics
+    );
+    assert_eq!(incremental.snapshot.diagnostics, cold.snapshot.diagnostics);
+    let updated_body_revision = session.db().query_state(&consumer_body).and_then(|state| state.revision());
+    assert!(
+        updated_body_revision.is_some(),
+        "Caller.run body query must exist after the antecedent is added"
+    );
+    assert_ne!(
+        initial_body_revision, updated_body_revision,
+        "adding the cross-module antecedent must recompute Caller.run's formerly rejected body; stats={:?}",
+        incremental.stats
+    );
+    assert!(
+        incremental.stats.callable_bodies_recomputed > 0,
+        "body recomputation count: {:?}",
+        incremental.stats
+    );
+}
+
+#[test]
 fn generic_conformance_stable_callable_is_source_owned_and_matches_cold_reconstruction() {
     use phalcom_semantic::identity::CallableOwnerId;
     use phalcom_semantic::metadata::stable_identity::{StableIdentityContext, to_stable_callable_with_context};

@@ -53,6 +53,49 @@ let res2 = Discharger.display_labeled(u)
 }
 
 #[test]
+fn exact_trait_header_prerequisite_projects_and_executes_selected_witness() {
+    let source = r#"
+trait Gate<T> {
+  marker -> String
+}
+
+class Box<T> {
+  @constructor new() {}
+}
+
+impl Gate<Int> for Box<Int> {
+  marker -> String { "int box / int gate" }
+}
+impl Gate<Int> for Box<Float> {
+  marker -> String { "float box / int gate decoy" }
+}
+impl Gate<Float> for Box<Int> {
+  marker -> String { "int box / float gate decoy" }
+}
+
+trait Owner where Self::Item |= Gate<Int> {
+  type Item
+  item -> Self::Item
+  inspect -> String { self.item.marker }
+}
+
+class Carrier {
+  @constructor new() {}
+}
+
+impl Owner for Carrier {
+  type Item = Box<Int>
+  item -> Box<Int> { Box<Int>.new() }
+}
+
+let carrier = Carrier.new()
+let result = carrier.inspect
+"#;
+    let (vm, module) = vm_support::run_inline(source).expect("exact trait-header proof compiles and executes");
+    assert_eq!(named(&vm, module, "result").expect("result").to_string(&vm), "int box / int gate");
+}
+
+#[test]
 fn bounded_generic_caller_forwards_evidence_to_bounded_callee_at_runtime() {
     let source = r#"
 trait Printable {

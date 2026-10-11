@@ -14,7 +14,7 @@ or per-distribution private seed.
 ```telos
 // Proposed library API; random currently has no such members.
 from universe.random import Pcg32
-from probability import Normal
+from numerics.probability import Normal
 
 let rng = Pcg32.new(seed: 42, stream: 7)
 let normal = Normal.new(mean: 0.0, stddev: 1.0)

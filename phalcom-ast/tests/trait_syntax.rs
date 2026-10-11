@@ -48,12 +48,34 @@ fn trait_members_share_behavior_syntax_and_body_representation() {
 }
 
 #[test]
+fn class_side_trait_requirements_preserve_the_class_attribute() {
+    let source = "trait Zero {\n  @class zero -> Self\n}\ntrait ClassValue {\n  @class value: Self\n}\n";
+    let program = parse_source(source, 0).expect("class-side trait requirement parses");
+    let Statement::Trait(trait_def) = &program.statements[0] else {
+        panic!("expected trait")
+    };
+    assert!(matches!(
+        &trait_def.members[0],
+        TraitMember::Behavior(BehaviorMember::Getter(getter))
+            if getter.attributes.iter().any(|attribute| attribute.name == "class")
+    ));
+    let Statement::Trait(class_value) = &program.statements[1] else {
+        panic!("expected class-side property trait")
+    };
+    assert!(matches!(
+        &class_value.members[0],
+        TraitMember::Property(property)
+            if property.attributes.iter().any(|attribute| attribute.name == "class")
+    ));
+}
+
+#[test]
 fn trait_rejects_storage_and_constructor_members() {
     for source in [
         "trait Invalid {\n  _state: Int\n}\n",
         "trait Invalid {\n  _state = 1\n}\n",
         "trait Invalid {\n  construct() {}\n}\n",
-        "trait Invalid {\n  @class create() {}\n}\n",
+        "trait Invalid {\n  @constructor create() {}\n}\n",
     ] {
         assert!(parse_source(source, 0).is_err(), "expected trait rejection: {source}");
     }

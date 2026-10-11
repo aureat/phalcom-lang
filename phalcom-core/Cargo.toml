@@ -32,6 +32,10 @@ path = "tests/language_corpus/mod.rs"
 name = "cli-smoke"
 path = "tests/cli_smoke/mod.rs"
 
+[[test]]
+name = "canonical-bootstrap-stack"
+path = "tests/canonical_bootstrap_stack.rs"
+
 
 
 

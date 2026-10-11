@@ -19,10 +19,281 @@ latest_completed_plan: LANG007.C4.P3
 next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-completion-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 4f11cb1a900d76c1d45db108aa8d856ee5940394
-last_updated: 2026-10-08
+last_updated: 2026-10-11
 ---
 
 # LANG007.C4 — Checkpoint Record
+
+## Algebraic-literals architect ruling and current stop — 2026-10-11
+
+For `LANG007.C4.algebraic-literals-follow-on`, the architect required three
+semantic repairs: gate contextual realization on a classified source and
+algebraic context before capability lookup; replace recursive arithmetic
+region discovery with an iterative post-order worklist; and preserve class
+side for ownerless generic type-form dispatch while binding trait `Self` to the
+conforming subject. Focused regressions now cover those rules, including a
+50,000-node region. The generic class-side tests pass 3/3; semantic crate check,
+minimal project compile-in-process, and direct canonical semantic baseline
+regressions pass.
+
+The follow-up architect ruling was received and applied: transient and durable
+realization carriers are `Option<Arc<ContextualRealization>>`; ordinary binary
+checking has separate frames from algebraic realization. LLDB measured a
+remaining 51,728-byte formal expression-match frame and, after separating its
+binary dispatch, an independent 18,928-byte advisory expression-match frame.
+Both now dispatch binary expressions through small helpers while retaining
+canonical publication, observer calls, and source order. The 760-byte carrier
+budget and 64-coefficient Float Horner regression on a 2 MiB semantic thread
+pass. This slice is `IMPLEMENTED / FOCUSED_TESTED`.
+
+The distinct intermediate compiler error (`AssociatedInvokeNotLoweredYet` in
+`universe:callable.function`) has also been resolved and verified. Investigation
+identified two distinct causes: (1) `CheckingContext::declaration_generic_signature`
+recorded nominal `DeclarationShell` dependencies on trait requirements (such as
+`Zero`), which blocked semantic queries with `SuppressedDependency` and collapsed
+the published snapshot to 0 callables; and (2) `semantic_lowering.rs` collected
+generic conformance evidence only for instance-side methods, starving class-side
+conformance witnesses of generic type evidence and causing `MissingTraitRequirementSlot`.
+With these corrected, the full Universe compiles, bootstraps, and runs cleanly
+(`canonical_bootstrap_stack.rs` passes). This slice is `IMPLEMENTED / FOCUSED_TESTED`.
+Next action: resume contextual realization tasks (T4/T5 of the algebraic-literals
+follow-on) and subsequent source package acceptance. Evidence:
+[stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), §17.
+
+### Algebraic realization generic evidence projection boundary — 2026-10-11
+
+The read-only architecture advice bounded the generic forwarding repair to the
+established all-assumed `Derived` realization case. Contextual-realization
+projection now validates this evidence before constructing the ordinary trait
+invocation, so unsupported shapes cannot fall through to partial legacy
+antecedent projection. It accepts a selected conformance callable whose
+conformance prerequisites are caller-assumed, and fails closed for mixed or
+nested exact/derived prerequisites, derived proofs with no assumed prerequisite,
+unsupported derived selection forms, and trait-header conformance prerequisites
+that lack exact canonical proof slots.
+
+The fail-closed classifier regression covers all-assumed prerequisites alongside
+static equality/subtype proofs; mixed and nested exact/derived proofs; empty or
+static-only derived proofs; default, inherent, and data-component selections;
+and exact/derived trait-header constraints. It and the existing canonical
+caller-slot forwarding regression both pass (1/1 each); `git diff --check` also
+passes. This does not add recursive runtime
+materialization or publish exact trait-header proof products. At that gate F4
+remained deferred, and the bounded slice did not claim the broader F1–F4 audit
+closed. The follow-up F4 semantic-proof consultation and amendment below now
+govern continuation. The algebraic-literals follow-on remains
+`IN_PROGRESS / PARTIAL`; broad compiler/runtime and package acceptance gates
+remain open.
+
+### Algebraic realization F4 exact header proof publication consultation — 2026-10-11
+
+The read-only architectural consultation confirmed that exact witness resolution
+does not publish the selected proof for instantiated trait-header conformance
+obligations, so compiler declaration/nominal-family lookup is not authoritative.
+Keep exact witness resolution and associated-projection normalization in
+`phalcom-semantic::impls`, and prove normalized obligations in
+`generic_evidence` through the existing proof session, memo, and cycle handling.
+The first dependency proposal used dispatch buckets as prerequisite identity;
+the follow-up dependency review rejected that because buckets erase exact
+target/trait arguments, may not exist for zero-requirement traits, and cannot
+invalidate a negative proof when a new exact candidate is added. The canonical
+dependency owner is instead a `GenericConformance` query product keyed by the
+full proposition. Its exact-key input fingerprint covers matching source heads,
+relevant derived-rule candidates, and the current trait surface/header; its
+product fingerprint covers proof status and selected proof identities. Refresh
+known proof roots from rebuilt session inputs before cached body dependency
+replay. Do not globally cache context-sensitive assumed results under a bare
+key. The unconditional exact source contract must not use ambient caller
+assumptions.
+F4 is amended into semantic proof publication followed by compiler consumption
+of the published exact proof. Only direct exact runtime projection with a
+supported environment is in scope; assumed, derived, or recursive runtime
+shapes stay fail-closed, and recursive VM materialization is deferred. The
+focused decoy regression is `Box<Int> |= Gate<Int>` against wrong-target and
+wrong-trait-argument decoys, plus associated-projection normalization coverage.
+No spec decision is required. Add a focused negative-to-positive root-refresh
+regression. Broader compiler/runtime, package, and workspace acceptance remains
+open.
+
+### F4 implementation progress — 2026-10-11
+
+Semantic publication now normalizes the exact impl's instantiated trait-header
+contract after associated-type resolution and discharges it through the
+context-free `ConformanceProofContext`. Successful exact evidence carries a
+proof map keyed by the full normalized `GenericConformanceKey`; raw witnesses
+remain explicitly incomplete. The semantic DB now owns a typed
+`GenericConformance` query product. Its input fingerprint covers the exact
+matching source-head slice, trait surface/header signature, and trait-local
+derived-rule candidates; its product fingerprint covers proof status and
+selected evidence identities. The session refreshes previously observed proof
+roots after rebuilding conformance inputs and before cached-body dependency
+replay. Body consumers record exact/negative canonical proof dependencies, so
+new candidates can wake clients that previously observed a failed proof.
+
+The compiler's exact antecedent projection no longer scans conformance rows by
+trait declaration and nominal family. It matches normalized obligations to
+published exact proofs and projects their requirement selections through the
+trait signature's canonical evidence layout. It rejects raw, contextual,
+derived, or recursive prerequisite environments before legacy projection.
+One-level exact prerequisites with empty nested runtime layouts are the current
+bounded shape; recursive VM environment materialization remains deferred.
+
+Evidence at this checkpoint: the associated-projection/decoy semantic proof
+test passed (1 selected); `cargo check -p phalcom-semantic`,
+`cargo check -p phalcom-core`, and both package `--tests` checks passed. The
+cross-module negative-to-positive incremental regression passed (1 selected):
+after adding the exact prerequisite, the incremental snapshot accepts the
+consumer call and its diagnostics match cold reconstruction. The focused core
+runtime regression also passed (1 selected), executing the default trait method
+through the exact `Box<Int> |= Gate<Int>` prerequisite despite wrong-target and
+wrong-trait-argument decoys. The new core test passes targeted rustfmt and
+`git diff --check`. The repository-wide format check still reports formatting
+diffs in multiple existing files, so no broad formatter rewrite was applied.
+F4 is `IMPLEMENTED / FOCUSED_TESTED` for its bounded semantic-publication and
+direct exact compiler-projection slice; recursive VM materialization and
+broader T4/T5 source/package/workspace acceptance remain open.
+The semantic-publication slice was delivered in `74ada549` on
+`feat/complex-math` and pushed to `origin/feat/complex-math`.
+
+### Algebraic-literals P1-T incremental invalidation consultation — 2026-10-11
+
+P1-T's add/remove conformance updates fail with `SuppressedDependency` during
+cached body replay. The read-only consultation found a direct code-confirmed
+stale `TraitDispatchBucket` path, but the current test output does not identify
+the exact blocked key. Decision: keep the bucket query as fingerprint owner;
+refresh stale current/removed bucket roots from the canonical current view
+before body work, and preserve incoming clients so fingerprint checks determine
+which consumers recompute. No semantic redesign or ADR is required. P1-T is
+amended to include this query/session refresh ordering; its A/B/C focused gate
+remains open. See the companion
+[follow-on plan](algebraic-literals-follow-on-plan.md).
+
+### Algebraic-literals P2 literal-scalar contract clarification — 2026-10-11
+
+The remaining-task P2 example expects `2i` to realize a Float coefficient,
+which conflicts with `cliteral.md` §10.4/§19 and the live exact-scalar checker.
+The read-only architect consultation confirmed that `2i` is Int and `2.0i` is
+Float; implicit Int-to-Float conversion is not part of this feature. The P2
+acceptance fixture is amended to use `2.0i` for `Strange<Tag, Float>` and may
+assert that `2i` fails that Float context. This resolves an example mismatch
+without changing accepted language behavior.
+
+### Algebraic-literals P4-T6 witness retirement consultation — 2026-10-11
+
+An incremental trait-side edit exposed a stale accepted conformance witness:
+the new Class-side requirement correctly made the old Instance-side member
+invalid, but its prior callable definition/signature/body remained available to
+current-revision replay. The read-only architectural consultation confirmed
+that the source method must not be republished as an independent callable.
+Dispatch side participates in requirement, callable, and witness identity, so
+the current plan must become incomplete while the nominal conformance head
+remains present.
+
+P4-T6 is amended to reconcile accepted witnesses at the session conformance
+boundary before retained-definition replay. Rebuild affected `ImplId`s even
+when their source shard is structurally reusable; retire rejected witness
+definition/signature/body products and body analyses; exclude them from
+signature/body refresh; and capture reverse dependents before retirement so
+current clients and diagnostics are refreshed. Preserve the nominal
+`ConformanceContribution`. Cold and incremental plan fingerprints, diagnostics,
+and dependent products must agree. This is bounded lifecycle/scheduling work,
+not a language-rule change or ADR. See the companion
+[follow-on plan](algebraic-literals-follow-on-plan.md).
+
+The lifecycle repair now retires affected witness definitions, signatures,
+bodies, and body analyses before retained-definition replay. Exact affected
+`ImplId`s are rebuilt even for structurally reused source modules; reverse
+clients are captured before query retirement and refreshed. Focused gates pass:
+the single-module and cross-module incremental invalidation regressions (2/2),
+`capabilities::dispatch` (25/25), and `capabilities::algebraic_realization`
+(9/9). The class-side default runtime probe passed 1/1 earlier in this
+continuation. P4 acceptance is `IMPLEMENTED / FOCUSED_TESTED`.
+
+## Historical algebraic-literals follow-on stop state (2026-10-08)
+
+The initial user-directed stop in `.worktrees/complex-math`, branch
+`feat/complex-math`, delivered partially at `f36f84fa` from starting revision
+`43a4f466` and pushed to `origin/feat/complex-math`:
+`BLOCKED / PARTIAL / FOCUSED_TESTED`. The user requested an implementation stop,
+durable handoff, commit, and push. C4's primary active plan metadata remains P4.
+The completed `LANG007.C4.P3` Pack plan is unchanged. Phase 3 of `cliteral.md`
+and T3 of the algebraic-literals plan are incomplete.
+
+Established slice: dedicated imaginary token/AST nodes; source-owned
+`Basis<Axis>`, I/J/K, immutable runtime basis bindings, and capability-gated
+Quaternion arithmetic; Universe source registration; AST consumer compilation.
+Runtime basis aliases/qualified access/generic identity and exact Quaternion
+laws/large Int/GC probes pass. The four-crate check and two focused AST tests
+pass. The aggregate runtime group was 3 PASS / 2 FAIL, with failures in typed
+realization/literal acceptance and generic `complexPart` exact identity.
+
+That historical next action has been completed through the owning-layer ruling
+and bounded generic compiler repair. Continue with realization capabilities,
+canonical semantic products, contextual arithmetic inference, and compiler
+lowering under the
+[tracked execution plan](algebraic-literals-follow-on-plan.md). The historical
+generic identity regression remains retained as an exact regression; its
+owning-layer ruling and repair are recorded below.
+
+## Generic reification repair (2026-10-09)
+
+The generic covering-impl runtime reification blocker is resolved as a bounded
+compiler projection repair. `ProgramCompiler::project_analyzed` now closes
+runtime call-entry bindings over both declaration-owned and source-impl-owned
+coordinates using the published semantic `CoveringImplSubstitution`. Semantic
+`CallSpecialization` remains declaration-canonical; stable owner identity,
+runtime `Dynamic` erasure fallback, and descriptor equality are unchanged.
+
+Focused regressions pass for the retained Quaternion `complexPart` exact
+descriptor, neutral covering-impl tuple construction, nested generic calls,
+outer generic forwarding across `Int`/`Float`, independent impl binders, and
+declaration-canonical semantic specialization. The conditional operator
+environment regression also passes. The aggregate algebraic-literals group
+still has the pre-existing typed `i`/`j` contextual-realization failure; that
+is T4 work, not a generic-reification failure.
+
+The user resolved the T3 boundary on 2026-10-10 by choosing **Add class-side
+traits**. The scope is `@class` behavioral requirements under ordinary
+nominal-target conformance evidence; no metatype conformance was added. Enum
+class-side trait conformances and class-side index requirements remain outside
+the supported boundary.
+
+The trait specification and semantic surface now preserve dispatch side for
+requirements, properties, defaults, and explicit witnesses. Data components
+remain instance-side witnesses. `universe.numbers` now declares `Zero`, `One`,
+`RealEmbeddable`, and `BasisRealizable`, with direct class-side realizations
+for Complex and Quaternion.
+
+Rust `cargo check -p phalcom-semantic -p phalcom-core` passed. The scoped
+`rustfmt --check` passed on the new realization module and touched semantic
+files other than `expression.rs`, which retains unrelated baseline formatting
+drift. No source-language acceptance probes or tests were run for the focused
+realization work. A later dependency-free CLI project exposed the historical
+semantic stack overflow described above. The carrier/frame correction now
+passes focused semantic gates, while missing associated invocation lowering in
+canonical bootstrap still blocks source acceptance. The follow-on remains
+`BLOCKED / PARTIAL / UNVERIFIED`. See the
+[stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
+T4 publishes canonical realization products for directly expected basis
+values, suffix literals, `RealEmbeddable` scalar terms, and bounded arithmetic
+regions selected from known basis and scalar types. Explicit target types take
+precedence; completed bindings are boundaries; unresolved scalar types do not
+select a default. T5 projects direct and assumed generic class-side selections
+and lowers them through selected/requirement trait calls and the canonical
+basis constructor. Expression coefficients work in either multiplication
+order while preserving source order. Assumed class receivers come from the
+active runtime type environment. Source acceptance remains unverified.
+See `algebraic-literals-t3-capability-boundary-incident.md` and the updated
+follow-on walkthrough/handoff.
+
+Compiler lowering still fails closed when canonical realization facts are
+missing. Broader semantic/incremental/compiler realization gates and workspace
+certification are deferred. Full AST integration reported
+304 PASS / 1 FAIL / 1 ignored; the unrelated Record-pattern failure is D by
+scoped inspection, not clean-predecessor confirmed. Existing rustfmt drift is
+preserved outside new blocks. Full executed evidence and takeover details are
+in the [walkthrough](algebraic-literals-follow-on-walkthrough.md) and
+[handoff](algebraic-literals-follow-on-handoff.md).
 
 ## Telos text model substrate consolidation (2026-10-08)
 
@@ -305,6 +576,7 @@ The intended C4 decomposition is:
 | `LANG007.C4.P14` | Owned immutable homogeneous indexed snapshots | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `Substring` non-allocating range view, zero-copy slicing, symmetric equality; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
 | `LANG007.C4.P15` | Typed integer/floating conversion | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `Utf8Error`, `IntParseError`, `FloatParseError`, `BoolParseError`, `String.fromUtf8*`, `Int.parse`, `Float.parse`, `Bool.parse`, `Int.toString(radix:)`; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
 | `LANG007.C4.P16` | StringBuilder, parse migration completion, TOML substrate proof | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `StringBuilder`, `TextWriter`, linear-time `rawJoin`, `TextCursor`, `LineMap`, `universe.text`; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
+| `LANG007.C4.algebraic-literals-follow-on` | User-directed contextual algebraic values, Quaternion source algebra, and `i`/`j`/`k` suffix literals | BLOCKED | PARTIAL | UNVERIFIED | generic runtime reification and focused semantic stack repair are implemented; source acceptance remains blocked by missing associated invocation lowering in canonical bootstrap; T4/T5 include bounded arithmetic-region selection, real embedding, and either-order expression coefficients; see [stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), [walkthrough](algebraic-literals-follow-on-walkthrough.md), and [handoff](algebraic-literals-follow-on-handoff.md) |
 
 ### P11 pattern decision — INC-6
 

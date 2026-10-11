@@ -214,7 +214,29 @@ impl<'input> Lexer<'input> {
     /// the full lexeme.
     fn scan_number(&mut self) -> Result<Token, LexicalError> {
         let start = self.pos;
-        let res = self.scan_number_body(start);
+        let res = self.scan_number_body(start).and_then(|token| {
+            let axis = match self.peek_at(0) {
+                Some(b'i') => Some(crate::token::ImaginaryAxis::I),
+                Some(b'j') => Some(crate::token::ImaginaryAxis::J),
+                Some(b'k') => Some(crate::token::ImaginaryAxis::K),
+                _ => None,
+            };
+            let token = if let Some(axis) = axis {
+                self.pos += 1;
+                let coefficient = match token {
+                    Token::Int { digits, radix } => crate::token::ImaginaryCoefficient::Int { digits, radix },
+                    Token::Float(value) => crate::token::ImaginaryCoefficient::Float(value),
+                    _ => unreachable!("numeric scanner returns Int or Float"),
+                };
+                Token::Imaginary { coefficient, axis }
+            } else {
+                token
+            };
+            if matches!(self.peek_at(0), Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')) {
+                return Err(LexicalError::NumericLiteral(start..self.pos));
+            }
+            Ok(token)
+        });
         if res.is_err() {
             // Consume remaining contiguous alphanumeric/underscore chars to form complete lexeme span
             while matches!(self.peek_at(0), Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'.')) {

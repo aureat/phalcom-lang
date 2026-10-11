@@ -1,0 +1,5 @@
+[project]
+name = "numerics"
+namespace = "numerics"
+version = "0.1.0"
+source = "src"

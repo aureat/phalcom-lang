@@ -15,6 +15,21 @@
 use std::num::{ParseFloatError, ParseIntError};
 use std::ops::Range;
 
+/// Canonical axis attached to a native imaginary numeric literal.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ImaginaryAxis {
+    I,
+    J,
+    K,
+}
+
+/// Numeric payload before the contiguous imaginary suffix.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ImaginaryCoefficient {
+    Int { digits: String, radix: u32 },
+    Float(f64),
+}
+
 /// A single lexical token of Phalcom source.
 ///
 /// Produced by [`crate::lexer::Lexer`] and matched by [`crate::parser`]. The
@@ -150,6 +165,8 @@ pub enum Token {
     Int { digits: String, radix: u32 },
     /// A floating-point literal payload.
     Float(f64),
+    /// A numeric coefficient followed immediately by lowercase `i`, `j`, or `k`.
+    Imaginary { coefficient: ImaginaryCoefficient, axis: ImaginaryAxis },
 
     /// The `#` selector/symbol prefix. The parser owns the selector-spec
     /// grammar, so the lexer leaves following identifiers, slots, labels,

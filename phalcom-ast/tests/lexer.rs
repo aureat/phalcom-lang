@@ -54,6 +54,71 @@ fn string_and_number_literals() {
 }
 
 #[test]
+fn imaginary_literals_keep_coefficient_and_axis() {
+    assert_eq!(
+        tokens("2i 2.5j 0xFFk 1e3i 0b101j 0o7k"),
+        vec![
+            Token::Imaginary {
+                coefficient: phalcom_ast::token::ImaginaryCoefficient::Int { digits: "2".into(), radix: 10 },
+                axis: phalcom_ast::token::ImaginaryAxis::I,
+            },
+            Token::Imaginary {
+                coefficient: phalcom_ast::token::ImaginaryCoefficient::Float(2.5),
+                axis: phalcom_ast::token::ImaginaryAxis::J,
+            },
+            Token::Imaginary {
+                coefficient: phalcom_ast::token::ImaginaryCoefficient::Int {
+                    digits: "ff".into(),
+                    radix: 16,
+                },
+                axis: phalcom_ast::token::ImaginaryAxis::K,
+            },
+            Token::Imaginary {
+                coefficient: phalcom_ast::token::ImaginaryCoefficient::Float(1000.0),
+                axis: phalcom_ast::token::ImaginaryAxis::I,
+            },
+            Token::Imaginary {
+                coefficient: phalcom_ast::token::ImaginaryCoefficient::Int {
+                    digits: "101".into(),
+                    radix: 2,
+                },
+                axis: phalcom_ast::token::ImaginaryAxis::J,
+            },
+            Token::Imaginary {
+                coefficient: phalcom_ast::token::ImaginaryCoefficient::Int { digits: "7".into(), radix: 8 },
+                axis: phalcom_ast::token::ImaginaryAxis::K,
+            },
+            Token::Eof,
+        ]
+    );
+}
+
+#[test]
+fn whitespace_keeps_identifier_separate_from_imaginary_suffix() {
+    assert_eq!(
+        tokens("2*i 2 i"),
+        vec![
+            Token::Int { digits: "2".into(), radix: 10 },
+            Token::Asterisk,
+            Token::Identifier("i".into()),
+            Token::Int { digits: "2".into(), radix: 10 },
+            Token::Identifier("i".into()),
+            Token::Eof,
+        ]
+    );
+}
+
+#[test]
+fn invalid_imaginary_suffix_is_one_lexical_error() {
+    use phalcom_ast::token::LexicalError;
+
+    assert!(matches!(
+        Lexer::new("2iq").next().unwrap(),
+        Err(LexicalError::NumericLiteral(range)) if range == (0..3)
+    ));
+}
+
+#[test]
 fn character_literal_valid_scalar_matrix() {
     let cases = [
         ("'a'", 'a', 3),

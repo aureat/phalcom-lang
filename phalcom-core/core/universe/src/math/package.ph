@@ -1,6 +1,6 @@
-@!documentation("Float-only IEEE binary64 functions and exact arbitrary-precision Int algorithms. Angles use radians except degrees/radians conversions. NaN, infinity, signed-zero, and domain results follow the Rust f64 backend; Int is never implicitly converted to Float.")
+@!documentation("Float-only IEEE binary64 functions, stable Float reductions, and exact arbitrary-precision Int algorithms. Advanced special functions are in the optional numerics package. Angles use radians except degrees/radians conversions. NaN, infinity, signed-zero, and domain results follow the Rust f64 backend; Int is never implicitly converted to Float.")
 
-expose .special
+expose .complex
 
 from .float_kernel import FloatMathKernel
 from .float_kernel import FloatAngleHelpers
@@ -43,6 +43,10 @@ let degrees = &FloatAngleHelpers.degrees(_)
 let radians = &FloatAngleHelpers.radians(_)
 
 let logSumExp = &FloatReduction.logSumExp(_)
+let sum = &FloatReduction.sum(_)
+let mean = &FloatReduction.mean(_)
+let logAddExp = &FloatReduction.logAddExp(_, _)
+let log1mexp = &FloatReduction.log1mexp(_)
 
 let factorial = &IntegerMath.factorial(_)
 let choose = &IntegerMath.choose(_, _)
@@ -58,6 +62,7 @@ export (
   sqrt, cbrt, exp, exp2, expm1, ln, ln1p, log, log2, log10,
   sin, cos, tan, asin, acos, atan, atan2,
   degrees, radians, sinh, cosh, tanh, asinh, acosh, atanh, hypot,
-  gcd, lcm, isqrt, logSumExp, factorial, choose, fallingFactorial, risingFactorial,
+  gcd, lcm, isqrt, sum, mean, logSumExp, logAddExp, log1mexp,
+  factorial, choose, fallingFactorial, risingFactorial,
   NumericalRangeError, NumericalEvaluationError
 )

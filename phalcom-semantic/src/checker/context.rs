@@ -1881,6 +1881,7 @@ impl<'a> CheckingContext<'a> {
         analysis.conditional_capability = self.resolved_conditional_capabilities.get(&id).cloned();
         analysis.trait_dispatch = self.resolved_trait_dispatches.get(&id).cloned();
         analysis.trait_dispatch_candidates = self.resolved_trait_dispatch_candidates.get(&id).cloned();
+        analysis.contextual_realization = typed.contextual_realization.clone();
         analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
@@ -1912,6 +1913,7 @@ impl<'a> CheckingContext<'a> {
         analysis.conditional_capability = self.resolved_conditional_capabilities.get(&id).cloned();
         analysis.trait_dispatch = self.resolved_trait_dispatches.get(&id).cloned();
         analysis.trait_dispatch_candidates = self.resolved_trait_dispatch_candidates.get(&id).cloned();
+        analysis.contextual_realization = typed.contextual_realization.clone();
         analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
@@ -2345,6 +2347,25 @@ impl<'a> CheckingContext<'a> {
         record_query_dependency(&self.semantic_dependencies, dependency);
     }
 
+    /// Records the context-independent exact proof root when the checker
+    /// actually consults the global exact proof path or receives no proof.
+    /// Lexical assumptions and derived results stay attached to their owning
+    /// evidence and are not represented by a bare proposition key.
+    pub(crate) fn record_exact_conformance_query_dependency(
+        &self,
+        key: &crate::generic_evidence::GenericConformanceKey,
+        proof: &crate::generic_evidence::GenericConformanceProof,
+    ) {
+        use crate::generic_evidence::{GenericConformanceEvidence, GenericConformanceProof};
+        let context_sensitive = matches!(
+            proof,
+            GenericConformanceProof::Proven(GenericConformanceEvidence::Assumed(_) | GenericConformanceEvidence::Derived(_))
+        );
+        if !context_sensitive && matches!(key.subject, crate::types::parameter::TypeTerm::Canonical(_)) {
+            self.record_semantic_dependency(SemanticDependency::GenericConformance(key.clone()));
+        }
+    }
+
     pub(crate) fn semantic_dependencies_snapshot(&self) -> BTreeSet<SemanticDependency> {
         self.semantic_dependencies.borrow().clone()
     }
@@ -2462,8 +2483,9 @@ impl<'a> CheckingContext<'a> {
 
     /// Reads declaration metadata while recording the declaration-shell dependency.
     pub fn declaration_info(&self, declaration: &DeclarationId) -> Option<&DeclarationTypeInfo> {
+        let info = self.declarations.get(declaration)?;
         record_declaration_shell_dependency(&self.semantic_dependencies, declaration);
-        self.declarations.get(declaration)
+        Some(info)
     }
 
     /// Returns whether a declaration's canonical result kind is a TypeOnly
@@ -2485,6 +2507,9 @@ impl<'a> CheckingContext<'a> {
 
     /// Reads a declaration generic signature while recording the declaration-shell dependency.
     pub fn declaration_generic_signature(&self, declaration: &DeclarationId) -> Option<crate::types::parameter::GenericSignature> {
+        if !self.declarations.contains(declaration) {
+            return None;
+        }
         record_declaration_shell_dependency(&self.semantic_dependencies, declaration);
         self.declarations.generic_signature(declaration).cloned()
     }
@@ -2616,6 +2641,43 @@ impl<'a> CheckingContext<'a> {
                         ));
                     }
                 }
+            }
+        }
+    }
+
+    /// Records the exact semantic inputs consumed by an algebraic
+    /// realization capability selection.
+    pub(crate) fn record_contextual_realization_dependencies(&mut self, selection: &crate::checker::analysis::RealizationCapabilitySelection) {
+        match selection {
+            crate::checker::analysis::RealizationCapabilitySelection::Evidenced(selection) => {
+                self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitHeader(
+                    selection.exact_trait_ref.declaration.clone(),
+                ));
+                self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                    selection.exact_trait_ref.declaration.clone(),
+                ));
+                match &selection.evidence {
+                    crate::generic_evidence::GenericConformanceEvidence::Exact(evidence) => {
+                        self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ConformanceDispatch(evidence.source_impl.clone()));
+                    }
+                    crate::generic_evidence::GenericConformanceEvidence::Derived(evidence) => self.record_derived_conformance_dependencies(evidence),
+                    crate::generic_evidence::GenericConformanceEvidence::Assumed(evidence) => {
+                        self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                            evidence.key.trait_ref.declaration.clone(),
+                        ));
+                    }
+                }
+                if let Some(callable) = &selection.callable {
+                    self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::CallableSignature(callable.clone()));
+                }
+            }
+            crate::checker::analysis::RealizationCapabilitySelection::Assumed(selection) => {
+                self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitHeader(
+                    selection.conformance.trait_ref.declaration.clone(),
+                ));
+                self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                    selection.conformance.trait_ref.declaration.clone(),
+                ));
             }
         }
     }
@@ -2790,7 +2852,7 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub(crate) fn resolve_dispatch_target(&mut self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> ResolvedDispatchResult {
-        self.resolve_dispatch_target_with_specialization(receiver, None, selector, lookup)
+        self.resolve_dispatch_target_with_specialization(receiver, None, DispatchSide::Instance, selector, lookup)
     }
 
     fn resolve_trait_contract_target(
@@ -2890,6 +2952,9 @@ impl<'a> CheckingContext<'a> {
             }
             let mut signature = crate::checker::declaration_signature::project_semantic_signature(&member.signature);
             let mut type_env = crate::types::environment::TypeEnvironment::default();
+            // The proven subject may be a rigid caller parameter. Trait
+            // `Self` denotes that subject for either requirement side.
+            type_env.bind_self(receiver);
             if let Some(generics) = &surface.generic_signature {
                 for (idx, &param) in generics.parameters.iter().enumerate() {
                     if let Some(&arg) = conformance_key.trait_ref.arguments.get(idx) {
@@ -3098,6 +3163,7 @@ impl<'a> CheckingContext<'a> {
         &mut self,
         dispatch_receiver: TypeId,
         specialization_receiver: Option<TypeId>,
+        fallback_side: DispatchSide,
         selector: &Selector,
         lookup: crate::dispatch::DispatchLookup,
     ) -> ResolvedDispatchResult {
@@ -3105,15 +3171,20 @@ impl<'a> CheckingContext<'a> {
             return result;
         }
         let Some((decl, side)) = self.dispatch_owner_for_lookup(dispatch_receiver, lookup.clone()) else {
-            if let Some(result) = self.resolve_assumed_trait_target(dispatch_receiver, selector, DispatchSide::Instance) {
+            if let Some(result) = self.resolve_assumed_trait_target(dispatch_receiver, selector, fallback_side) {
                 return result;
             }
-            if let Some(result) = self.resolve_evidenced_trait_target(dispatch_receiver, selector, DispatchSide::Instance) {
+            if let Some(result) = self.resolve_evidenced_trait_target(dispatch_receiver, selector, fallback_side) {
                 return result;
             }
             return ResolvedDispatchResult::Missing { visited_owners: Box::new([]) };
         };
 
+        // Keep the type form that identifies a conformance subject separate
+        // from the class-object receiver used for ordinary class-side lookup.
+        // A raw nominal form is not itself a runtime dispatch receiver, but
+        // it is the exact target needed to query a class-side witness.
+        let conformance_receiver = specialization_receiver.unwrap_or(dispatch_receiver);
         let result = self.dispatch.get().resolve_dispatch_with_trace(&self.hierarchy, &decl, side, selector);
         // A raw class type form carries declaration parameters only as a
         // template. Keep class-object `Self` formation for that case; applied
@@ -3271,7 +3342,7 @@ impl<'a> CheckingContext<'a> {
                     }
                 }
 
-                if let Some(result) = self.resolve_assumed_trait_target(specialization_receiver, selector, side) {
+                if let Some(result) = self.resolve_assumed_trait_target(conformance_receiver, selector, side) {
                     return result;
                 }
 
@@ -3286,7 +3357,7 @@ impl<'a> CheckingContext<'a> {
                         self.declarations,
                         self.store,
                         &self.hierarchy,
-                        specialization_receiver,
+                        conformance_receiver,
                         selector,
                         side,
                     );

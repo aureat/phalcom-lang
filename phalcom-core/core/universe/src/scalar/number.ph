@@ -70,6 +70,14 @@ native class Int is Number {
 
 native class Float is Number {
   @class
+  native epsilon -> Float
+  @class
+  native minPositiveSubnormal -> Float
+  @class
+  native minNormal -> Float
+  @class
+  native maxFinite -> Float
+  @class
   native new() -> Float
   @class
   native new(_ value: Dynamic) -> Float
@@ -97,4 +105,18 @@ native class Float is Number {
   native isNaN -> Bool
   native isFinite -> Bool
   native isInfinite -> Bool
+  native isNormal -> Bool
+  native isSubnormal -> Bool
+  native isPositiveZero -> Bool
+  native isNegativeZero -> Bool
+  native nextUp -> Float
+  native nextDown -> Float
+  native ulp -> Float
+  native totalCompare(_ other: Float) -> Ordering
+  /// Fused multiply-add with a single final rounding.
+  native fma(_ multiplier: Float, _ addend: Float) -> Float
+  /// Return this value's magnitude with the sign bit copied from `sign`.
+  native copySign(_ sign: Float) -> Float
+  /// Scale by an integer power of two, following IEEE overflow/underflow rules.
+  native scalePow2(_ exponent: Int) -> Float
 }

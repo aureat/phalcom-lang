@@ -972,6 +972,22 @@ pub(crate) fn hash_generic_conformance_evidence(evidence: &crate::generic_eviden
             exact.source_impl.hash(hasher);
             exact.exact_target.hash(hasher);
             exact.exact_trait_ref.hash(hasher);
+            crate::generic_evidence::GenericConformanceKey::new(
+                crate::types::parameter::TypeTerm::Canonical(exact.exact_target),
+                exact.exact_trait_ref.clone(),
+            )
+            .hash(hasher);
+            match &exact.trait_header_conformance_proofs {
+                None => 0u8.hash(hasher),
+                Some(proofs) => {
+                    1u8.hash(hasher);
+                    proofs.len().hash(hasher);
+                    for (key, proof) in proofs {
+                        key.hash(hasher);
+                        hash_generic_conformance_evidence(proof, hasher);
+                    }
+                }
+            }
         }
         crate::generic_evidence::GenericConformanceEvidence::Assumed(assumed) => {
             1u8.hash(hasher);
@@ -1788,6 +1804,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         expression.conditional_dispatch.hash(&mut hasher);
         hash_conditional_selected_call_capability(expression.conditional_capability.as_ref(), &mut hasher);
         hash_trait_dispatch_site(expression.trait_dispatch.as_ref(), &mut hasher);
+        hash_contextual_realization(expression.contextual_realization.as_deref(), &mut hasher);
         expression
             .trait_dispatch_candidates
             .as_ref()
@@ -1911,6 +1928,88 @@ fn hash_trait_dispatch_site(site: Option<&crate::trait_dispatch::TraitDispatchSi
             3u8.hash(hasher);
             selection.conformance.hash(hasher);
             selection.requirement.hash(hasher);
+        }
+    }
+}
+
+fn hash_contextual_realization(realization: Option<&crate::checker::ContextualRealization>, hasher: &mut impl Hasher) {
+    let Some(realization) = realization else {
+        0u8.hash(hasher);
+        return;
+    };
+    1u8.hash(hasher);
+    realization.source_expression.hash(hasher);
+    realization.source_range.hash(hasher);
+    realization.source_type.hash(hasher);
+    realization.target_type.hash(hasher);
+    match &realization.operation {
+        crate::checker::ContextualRealizationOperation::Basis {
+            basis_type,
+            axis,
+            coefficient,
+            evaluation,
+        } => {
+            0u8.hash(hasher);
+            basis_type.hash(hasher);
+            axis.hash(hasher);
+            match evaluation {
+                crate::checker::RealizationEvaluationPlan::LiteralCoefficientThenAxis => 0u8.hash(hasher),
+                crate::checker::RealizationEvaluationPlan::MultiplicativeIdentityThenSourceBasis => 1u8.hash(hasher),
+                crate::checker::RealizationEvaluationPlan::SourceOperands {
+                    first,
+                    second,
+                    coefficient,
+                    basis,
+                } => {
+                    2u8.hash(hasher);
+                    first.hash(hasher);
+                    second.hash(hasher);
+                    coefficient.hash(hasher);
+                    basis.hash(hasher);
+                }
+            }
+            match coefficient {
+                crate::checker::RealizationCoefficientSource::One { scalar_type, one } => {
+                    0u8.hash(hasher);
+                    scalar_type.hash(hasher);
+                    hash_realization_capability_selection(one, hasher);
+                }
+                crate::checker::RealizationCoefficientSource::IntegerLiteral { digits, radix } => {
+                    1u8.hash(hasher);
+                    digits.hash(hasher);
+                    radix.hash(hasher);
+                }
+                crate::checker::RealizationCoefficientSource::FloatLiteral { bits } => {
+                    2u8.hash(hasher);
+                    bits.hash(hasher);
+                }
+                crate::checker::RealizationCoefficientSource::Expression { expression, scalar_type } => {
+                    3u8.hash(hasher);
+                    expression.hash(hasher);
+                    scalar_type.hash(hasher);
+                }
+            }
+        }
+        crate::checker::ContextualRealizationOperation::RealEmbedding { value, scalar_type } => {
+            1u8.hash(hasher);
+            value.hash(hasher);
+            scalar_type.hash(hasher);
+        }
+    }
+    hash_realization_capability_selection(&realization.realization, hasher);
+}
+
+fn hash_realization_capability_selection(selection: &crate::checker::RealizationCapabilitySelection, hasher: &mut impl Hasher) {
+    match selection {
+        crate::checker::RealizationCapabilitySelection::Evidenced(selection) => {
+            0u8.hash(hasher);
+            hash_trait_dispatch_site(Some(&crate::trait_dispatch::TraitDispatchSite::Evidenced(selection.clone())), hasher);
+        }
+        crate::checker::RealizationCapabilitySelection::Assumed(selection) => {
+            1u8.hash(hasher);
+            selection.conformance.hash(hasher);
+            selection.requirement.hash(hasher);
+            hash_callable_semantic_signature(&selection.signature, false, hasher);
         }
     }
 }

@@ -408,11 +408,16 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
 
     for trait_member in &trait_def.members {
         if let TraitMember::Property(property) = trait_member {
+            let side = if property.attributes.iter().any(|attribute| attribute.name == "class") {
+                DispatchSide::Class
+            } else {
+                DispatchSide::Instance
+            };
             let mut property_diagnostics = Vec::new();
             let formation_site = crate::types::annotation::TypeFormationSite::trait_member(
                 ctx.current_module.clone(),
                 header.declaration.clone(),
-                DispatchSide::Instance,
+                side,
                 trait_ref.clone(),
                 associated_type_context.clone(),
             );
@@ -429,12 +434,12 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
             let source = SemanticSourceSpan::new(ctx.current_module.clone(), property.range);
             let visibility = trait_property_visibility(property);
             let mut generated = Vec::with_capacity(if property.mutable { 2 } else { 1 });
-            generated.push(trait_property_signature(ctx, &header.declaration, property, &declared_type, false));
+            generated.push(trait_property_signature(ctx, &header.declaration, property, &declared_type, side, false));
             if property.mutable {
-                generated.push(trait_property_signature(ctx, &header.declaration, property, &declared_type, true));
+                generated.push(trait_property_signature(ctx, &header.declaration, property, &declared_type, side, true));
             }
             for signature in generated {
-                let requirement = TraitRequirementId::new(header.declaration.clone(), signature.selector.clone(), DispatchSide::Instance);
+                let requirement = TraitRequirementId::new(header.declaration.clone(), signature.selector.clone(), side);
                 if surface.members.contains_key(&requirement) {
                     diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
@@ -467,7 +472,16 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
             continue;
         };
         let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
-        let side = DispatchSide::Instance;
+        let side = crate::semantic_shard::behavior_side(member);
+        if matches!(member, BehaviorMember::Index(_)) && side == DispatchSide::Class {
+            diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::TraitMemberConflict,
+                "class-side index requirements are not supported",
+                trait_member.range(),
+            ));
+            continue;
+        }
         let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(&owner, syntax, side) else {
             diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(
                 ctx.current_module.clone(),
@@ -538,6 +552,7 @@ fn trait_property_signature(
     owner: &DeclarationId,
     property: &TraitPropertyRequirement,
     declared_type: &DeclaredTypeFact,
+    side: DispatchSide,
     setter: bool,
 ) -> CallableSemanticSignature {
     let selector = if setter {
@@ -545,7 +560,7 @@ fn trait_property_signature(
     } else {
         Selector::getter(&property.name).expect("parser guarantees a valid property getter selector")
     };
-    let callable = CallableId::new(CallableOwnerId::Declaration(owner.clone()), selector.clone(), DispatchSide::Instance);
+    let callable = CallableId::new(CallableOwnerId::Declaration(owner.clone()), selector.clone(), side);
     let source = SemanticSourceSpan::new(ctx.current_module.clone(), property.range);
     let parameters = if setter {
         vec![
@@ -564,7 +579,7 @@ fn trait_property_signature(
     CallableSemanticSignature {
         callable,
         owner: owner.clone(),
-        side: DispatchSide::Instance,
+        side,
         selector,
         generics: None,
         parameters,

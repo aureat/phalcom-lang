@@ -80,6 +80,117 @@ trait Stream
 }
 
 #[test]
+fn exact_trait_header_proof_publishes_associated_normalized_target_and_trait_arguments() {
+    let fixture = Fixture::new(
+        r#"
+trait Gate<T> { marker -> String }
+trait Owner where Self::Item |= Gate<Int> {
+    type Item
+    owner -> String
+}
+
+class Int {}
+class Float {}
+class Box<T> {}
+class Carrier {}
+
+impl Gate<Int> for Box<Int> { marker -> String { "int box" } }
+impl Gate<Int> for Box<Float> { marker -> String { "float box" } }
+impl Gate<Float> for Box<Int> { marker -> String { "float gate" } }
+impl Owner for Carrier {
+    type Item = Box<Int>
+    owner -> String { "owner" }
+}
+"#,
+    );
+
+    let owner_ref = phalcom_semantic::traits::TraitRef::new(fixture.decl("Owner"), Vec::new());
+    let gate_int_ref = phalcom_semantic::traits::TraitRef::new(fixture.decl("Gate"), vec![fixture.ty("Int")]);
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let box_int = store
+        .apply_type_form(fixture.ty("Box"), &[fixture.ty("Int")])
+        .expect("Box<Int> application");
+    let box_float = store
+        .apply_type_form(fixture.ty("Box"), &[fixture.ty("Float")])
+        .expect("Box<Float> application");
+    let carrier = fixture.ty("Carrier");
+
+    let exact_int_gate = fixture
+        .analysis
+        .snapshot
+        .conformance_index
+        .query_exact(&mut store, box_int, &gate_int_ref);
+    let wrong_target_gate = fixture
+        .analysis
+        .snapshot
+        .conformance_index
+        .query_exact(&mut store, box_float, &gate_int_ref);
+    let wrong_trait_gate = fixture.analysis.snapshot.conformance_index.query_exact(
+        &mut store,
+        box_int,
+        &phalcom_semantic::traits::TraitRef::new(fixture.decl("Gate"), vec![fixture.ty("Float")]),
+    );
+    assert_eq!(exact_int_gate.len(), 1);
+    assert_eq!(wrong_target_gate.len(), 1);
+    assert_eq!(wrong_trait_gate.len(), 1);
+
+    let owner_key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+        TypeTerm::Canonical(carrier),
+        owner_ref.clone(),
+    );
+    let mut proof_context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
+        None,
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    );
+    let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&owner_key, &mut proof_context);
+    let phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
+        phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(owner_evidence),
+    ) = proof
+    else {
+        panic!("expected exact Owner proof with its trait contract discharged, got {proof:?}");
+    };
+
+    let normalized_obligation = owner_evidence
+        .trait_header_contract
+        .iter()
+        .find_map(|constraint| match constraint {
+            GenericConstraint::Conforms { subject, trait_ref } => Some((subject, trait_ref)),
+            _ => None,
+        })
+        .expect("instantiated Gate conformance obligation");
+    assert_eq!(normalized_obligation.0, &TypeTerm::Canonical(box_int));
+    assert_eq!(normalized_obligation.1, &gate_int_ref);
+
+    let header_proofs = owner_evidence
+        .trait_header_conformance_proofs
+        .as_ref()
+        .expect("proof-complete exact evidence publishes header proofs");
+    let expected_key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(TypeTerm::Canonical(box_int), gate_int_ref);
+    assert_eq!(header_proofs.len(), 1);
+    let phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(selected_gate) =
+        header_proofs.get(&expected_key).expect("canonical Box<Int> |= Gate<Int> proof")
+    else {
+        panic!("expected direct exact prerequisite evidence");
+    };
+    assert_eq!(selected_gate.source_impl, exact_int_gate[0].impl_id);
+    assert_ne!(selected_gate.source_impl, wrong_target_gate[0].impl_id);
+    assert_ne!(selected_gate.source_impl, wrong_trait_gate[0].impl_id);
+    assert!(!header_proofs.contains_key(&phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+        TypeTerm::Canonical(box_float),
+        expected_key.trait_ref.clone(),
+    )));
+    assert!(!header_proofs.contains_key(&phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+        TypeTerm::Canonical(box_int),
+        phalcom_semantic::traits::TraitRef::new(fixture.decl("Gate"), vec![fixture.ty("Float")]),
+    )));
+}
+
+#[test]
 fn trait_contract_qualified_nested_projection_forms() {
     let fixture = Fixture::new(
         r#"

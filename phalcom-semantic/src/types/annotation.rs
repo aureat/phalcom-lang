@@ -104,6 +104,13 @@ impl TypeFormationSite {
         self
     }
 
+    pub fn with_self_dispatch_side(mut self, side: DispatchSide) -> Self {
+        if let Some(self_term) = &mut self.self_term {
+            self_term.side = side;
+        }
+        self
+    }
+
     pub fn with_generic_evidence(mut self, generic_evidence: crate::generic_evidence::GenericEvidenceEnvironment) -> Self {
         self.generic_evidence = Some(generic_evidence);
         self

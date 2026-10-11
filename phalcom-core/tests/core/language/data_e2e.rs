@@ -235,6 +235,136 @@ let record_payload = record_direct.payload
 }
 
 #[test]
+fn data_canonical_identity_matches_direct_and_generic_construction_in_either_order() {
+    let (mut vm, module) = run_inline(
+        r#"
+data Box<T>(_ value: T)
+class Factory {
+  @class make<T>(value: T) -> Box<T> { Box(value) }
+}
+let generic_first = Factory.make(value: 7)
+let direct_second = Box(7)
+let direct_first = Box(true)
+let generic_second = Factory.make(value: true)
+let forward_same = generic_first === direct_second
+let reverse_same = direct_first === generic_second
+let forward_equal = generic_first == direct_second
+let reverse_equal = direct_first == generic_second
+let forward_hash = generic_first.hash == direct_second.hash
+let reverse_hash = direct_first.hash == generic_second.hash
+let nested_generic = Factory.make(value: Factory.make(value: 7))
+let nested_direct = Box(Box(7))
+let nested_same = nested_generic === nested_direct
+let nested_hash = nested_generic.hash == nested_direct.hash
+let different_argument = not (Factory.make(value: 7.0) === direct_second)
+"#,
+    )
+    .expect("generic construction executes");
+    vm.force_gc();
+    for name in [
+        "forward_same",
+        "reverse_same",
+        "forward_equal",
+        "reverse_equal",
+        "forward_hash",
+        "reverse_hash",
+        "nested_same",
+        "nested_hash",
+        "different_argument",
+    ] {
+        assert_eq!(vm.heap.module(module).get(vm.interner.find(name).unwrap()), Some(Value::bool(true)), "{name}");
+    }
+    let value = |name| vm.heap.module(module).get(vm.interner.find(name).unwrap()).unwrap();
+    assert!(vm.semantic_same(value("generic_first"), value("direct_second")));
+    assert!(vm.semantic_same(value("direct_first"), value("generic_second")));
+    assert!(vm.semantic_same(value("nested_generic"), value("nested_direct")));
+}
+
+#[test]
+fn data_canonical_identity_retains_phantom_and_row_arguments() {
+    let (mut vm, module) = run_inline(
+        r#"
+data Tag<T>()
+data PhantomRow<**Fs: RecordFields>()
+class Factory {
+  @class tag<T>(witness: T) -> Tag<T> { Tag() }
+  @class row<T>(witness: T) -> PhantomRow<**{ payload: T }> { PhantomRow() }
+}
+let int_tag = Factory.tag(witness: 1)
+let string_tag = Factory.tag(witness: "x")
+let tag_same = int_tag === Tag<Int>()
+let tag_different = not (int_tag === string_tag)
+let nested_tag = Factory.tag(witness: int_tag)
+let nested_same = nested_tag === Tag<Tag<Int>>()
+let nested_different = not (nested_tag === Tag<Tag<String>>())
+let int_row = Factory.row(witness: 1)
+let direct_row: PhantomRow<**{ payload: Int }> = PhantomRow()
+let other_row: PhantomRow<**{ other: Int }> = PhantomRow()
+let row_same = int_row === direct_row
+let row_different = not (int_row === other_row)
+let row_type_different = not (int_row === Factory.row(witness: "x"))
+"#,
+    )
+    .expect("phantom construction executes");
+    vm.force_gc();
+    for name in [
+        "tag_same",
+        "tag_different",
+        "nested_same",
+        "nested_different",
+        "row_same",
+        "row_different",
+        "row_type_different",
+    ] {
+        assert_eq!(vm.heap.module(module).get(vm.interner.find(name).unwrap()), Some(Value::bool(true)), "{name}");
+    }
+}
+
+#[test]
+fn data_canonical_identity_preserves_same_spelled_module_owners_and_arguments() {
+    let temp = tempfile::tempdir().expect("temporary package");
+    std::fs::write(temp.path().join("package.ph"), "expose .left\nexpose .right\nexpose .main\n").unwrap();
+    let provider = r#"
+data Box<T>(_ value: T)
+data Tag<T>()
+data Token()
+class Factory {
+  @class make<T>(value: T) -> Box<T> { Box(value) }
+  @class tag<T>(witness: T) -> Tag<T> { Tag() }
+}
+export Box, Tag, Token, Factory
+"#;
+    for name in ["left.ph", "right.ph"] {
+        std::fs::write(temp.path().join(name), provider).unwrap();
+    }
+    std::fs::write(
+        temp.path().join("main.ph"),
+        r#"
+from .left import Box as LeftBox, Tag as LeftTag, Token as LeftToken, Factory as LeftFactory
+from .right import Box as RightBox, Token as RightToken, Factory as RightFactory
+let left_box = LeftFactory.make(value: 7)
+let right_box = RightFactory.make(value: 7)
+let left_same = left_box === LeftBox(7)
+let right_same = right_box === RightBox(7)
+let owner_different = not (left_box === right_box)
+let left_tag = LeftFactory.tag(witness: LeftToken())
+let right_argument = LeftFactory.tag(witness: RightToken())
+let argument_same = left_tag === LeftTag<LeftToken>()
+let argument_different = not (left_tag === right_argument)
+"#,
+    )
+    .unwrap();
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Package(temp.path().to_path_buf())).expect("two providers compile");
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("two providers execute");
+    let module = vm.module_registry.get(&program.entry).unwrap().object;
+    vm.force_gc();
+    for name in ["left_same", "right_same", "owner_different", "argument_same", "argument_different"] {
+        assert_eq!(vm.heap.module(module).get(vm.interner.find(name).unwrap()), Some(Value::bool(true)), "{name}");
+    }
+}
+
+#[test]
 fn data_constructor_call_collision_preserves_explicit_and_runtime_call_paths() {
     let (vm, module) = run_inline(
         r#"
@@ -330,7 +460,7 @@ fn data_record_evaluates_arguments_in_source_order() {
     let (vm, module) = run_inline(
         r#"
 data Pair { first: Int, second: Int }
-let n = 0
+let mut n = 0
 let next = || { n = n + 1; n }
 let p = Pair { second: next(), first: next() }
 let first = p.first
@@ -576,7 +706,7 @@ data User {
   name: String
 }
 
-let order = 0
+let mut order = 0
 
 let get_id = || {
   order = order + 1
@@ -588,7 +718,7 @@ let fail_name = || {
   throw Error.new("fail")
 }
 
-let threw = false
+let mut threw = false
 try {
   let u = User { name: fail_name(), id: get_id() }
 } catch e {
@@ -767,8 +897,8 @@ class Factory {
   }
 }
 
-const int_record: MyRecord<**{ payload: Int }> = Factory.make_record(value: 42)
-const string_record: MyRecord<**{ payload: String }> = Factory.make_record(value: "text")
+let int_record: MyRecord<**{ payload: Int }> = Factory.make_record(value: 42)
+let string_record: MyRecord<**{ payload: String }> = Factory.make_record(value: "text")
 let same_class = int_record.class === string_record.class
 "#,
     )
@@ -800,9 +930,9 @@ class Factory {
   }
 }
 
-const int_row: PhantomRow<**{ payload: Int }> = Factory.make(value: 1)
-const string_row: PhantomRow<**{ payload: String }> = Factory.make(value: "text")
-const int_row_again: PhantomRow<**{ payload: Int }> = Factory.make(value: 2)
+let int_row: PhantomRow<**{ payload: Int }> = Factory.make(value: 1)
+let string_row: PhantomRow<**{ payload: String }> = Factory.make(value: "text")
+let int_row_again: PhantomRow<**{ payload: Int }> = Factory.make(value: 2)
 let same_class = int_row.class === string_row.class
 "#,
     )

@@ -31,6 +31,8 @@ skills-lock.json
 /.codex/
 /.claude/
 /.superpowers/
+/.planning/
+.planning
 
 # REPL history
 .phalcom_history

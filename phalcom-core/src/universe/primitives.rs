@@ -24,14 +24,17 @@ use crate::primitive::fiber::{
     fiber_resume_scheduled, fiber_terminal_value, fiber_try, fiber_yield,
 };
 use crate::primitive::float::{
-    float_abs, float_ceil, float_class_new, float_floor, float_is_finite, float_is_infinite, float_is_integer, float_is_nan, float_rounded, float_sign,
-    float_to_int_exact, float_truncated,
+    float_abs, float_ceil, float_class_new, float_epsilon, float_floor, float_is_finite, float_is_infinite, float_is_integer, float_is_nan,
+    float_is_negative_zero, float_is_normal, float_is_positive_zero, float_is_subnormal, float_max_finite, float_min_normal, float_min_positive_subnormal,
+    float_next_down, float_next_up, float_rounded, float_sign, float_to_int_exact, float_total_compare, float_truncated, float_ulp,
 };
 use crate::primitive::int::{
     int_and, int_bit_at, int_bit_count, int_bit_length, int_class_new, int_class_raw_parse, int_not, int_or, int_raw_to_string_radix, int_shl, int_shr,
     int_trailing_zeros, int_xor,
 };
-use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_replace_slice, list_to_string};
+use crate::primitive::list::{
+    list_class_new, list_class_with_capacity, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_replace_slice, list_to_string,
+};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on_shape, method_selector};
 use crate::primitive::method_family::{method_family_bind, method_family_method_for_shape, method_family_selectors, method_family_size};
@@ -208,6 +211,10 @@ impl Universe {
         let float_cls = vm.universe.classes.float_class;
         primitive_static!(vm, float_cls, "new", SignatureKind::Method(0), float_class_new);
         primitive_static!(vm, float_cls, "new", SignatureKind::Method(1), float_class_new);
+        primitive_static!(vm, float_cls, "epsilon", SignatureKind::Getter, float_epsilon);
+        primitive_static!(vm, float_cls, "minPositiveSubnormal", SignatureKind::Getter, float_min_positive_subnormal);
+        primitive_static!(vm, float_cls, "minNormal", SignatureKind::Getter, float_min_normal);
+        primitive_static!(vm, float_cls, "maxFinite", SignatureKind::Getter, float_max_finite);
         primitive_static_internal!(vm, float_cls, "rawParse", SignatureKind::Method(1), float_class_raw_parse);
         // Float protocol primitives (float-semantics spec):
         // `abs`/`sign` work on any finite-or-not receiver;
@@ -223,6 +230,14 @@ impl Universe {
         primitive!(vm, float_cls, "isNaN", SignatureKind::Getter, float_is_nan);
         primitive!(vm, float_cls, "isFinite", SignatureKind::Getter, float_is_finite);
         primitive!(vm, float_cls, "isInfinite", SignatureKind::Getter, float_is_infinite);
+        primitive!(vm, float_cls, "isNormal", SignatureKind::Getter, float_is_normal);
+        primitive!(vm, float_cls, "isSubnormal", SignatureKind::Getter, float_is_subnormal);
+        primitive!(vm, float_cls, "isPositiveZero", SignatureKind::Getter, float_is_positive_zero);
+        primitive!(vm, float_cls, "isNegativeZero", SignatureKind::Getter, float_is_negative_zero);
+        primitive!(vm, float_cls, "nextUp", SignatureKind::Getter, float_next_up);
+        primitive!(vm, float_cls, "nextDown", SignatureKind::Getter, float_next_down);
+        primitive!(vm, float_cls, "ulp", SignatureKind::Getter, float_ulp);
+        primitive!(vm, float_cls, "totalCompare", SignatureKind::Method(1), float_total_compare);
 
         let string_cls = vm.universe.classes.string_class;
         primitive!(vm, string_cls, "+", SignatureKind::Method(1), string_add);
@@ -650,6 +665,7 @@ impl Universe {
         // return contract for why `toString` is native this unit).
         let list_cls = vm.universe.classes.list_class;
         primitive_static!(vm, list_cls, "new", SignatureKind::Method(0), list_class_new);
+        primitive_static_internal!(vm, list_cls, "rawWithCapacity", SignatureKind::Method(1), list_class_with_capacity);
         primitive_internal!(vm, list_cls, "rawLength", SignatureKind::Getter, list_raw_length);
         primitive_internal!(vm, list_cls, "rawAt", SignatureKind::Method(1), list_raw_at);
         primitive_internal!(vm, list_cls, "rawSet", SignatureKind::Method(2), list_raw_set);

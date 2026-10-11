@@ -7,8 +7,9 @@ and tests belong to Phalcom.
 
 ## 12.1 Executive recommendation
 
-Build two optional consumer packages, `statistics` and `probability`, above the
-Phase 1 substrate. Keep distribution evaluation in `probability`; place bounded
+Build optional `numerics` consumer modules, `numerics.statistics` and
+`numerics.probability`, above the Phase 1 substrate. Keep distribution
+evaluation in `numerics.probability`; place bounded
 Bayesian updating and Monte Carlo helpers in its public `bayes` and `monte_carlo`
 modules. Strengthen the existing `universe.random` package independently.
 

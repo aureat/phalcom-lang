@@ -1,8 +1,13 @@
+use crate::semantic::support::Fixture;
 use phalcom_ast::parse_source;
+use phalcom_common::selector::Selector;
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::checker::check_program;
 use phalcom_semantic::declarations::{DeclarationTypeInfo, DeclarationTypeTable, bootstrap_universe_declarations};
-use phalcom_semantic::identity::DeclarationId;
+use phalcom_semantic::diagnostic::DiagnosticCode;
+use phalcom_semantic::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide};
+use phalcom_semantic::impls::{ConformanceCompleteness, RequirementSelectionTemplate};
+use phalcom_semantic::trait_dispatch::TraitDispatchSite;
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
@@ -198,4 +203,281 @@ class SubFactory is BaseFactory {
         "expected super send in class method to resolve to superclass class method, got: {:?}",
         report.diagnostics
     );
+}
+
+#[test]
+fn class_side_methods_getters_and_setters_share_semantic_and_source_index_identity() {
+    let fixture = Fixture::new(
+        r#"
+class DispatchSurface {
+  @class make() -> Int { 1 }
+  @class value -> Int { 2 }
+  @class value=(_ next: Int) {}
+}
+"#,
+    );
+    let owner = fixture.decl("DispatchSurface");
+    let callables = [
+        CallableId::new(owner.clone(), Selector::method("make", []).unwrap(), DispatchSide::Class),
+        CallableId::new(owner.clone(), Selector::getter("value").unwrap(), DispatchSide::Class),
+        CallableId::new(owner.clone(), Selector::setter("value").unwrap(), DispatchSide::Class),
+    ];
+
+    for callable in callables {
+        let signature = fixture
+            .analysis
+            .snapshot
+            .callable_signatures
+            .get(&callable)
+            .unwrap_or_else(|| panic!("semantic checker did not publish {callable:?}"));
+        assert_eq!(signature.side, DispatchSide::Class);
+        let indexed = fixture
+            .analysis
+            .snapshot
+            .source_index
+            .callable_source(&callable)
+            .unwrap_or_else(|| panic!("source index did not publish the same class-side identity {callable:?}"));
+        assert_eq!(indexed.id, callable);
+    }
+}
+
+#[test]
+fn class_side_trait_index_requirement_is_rejected_and_not_indexed_as_class_side() {
+    let fixture = Fixture::new_allowing_internal_incidents(
+        r#"
+trait Indexed {
+  @class [_ index: Int] -> Int
+}
+"#,
+    );
+    let trait_decl = fixture.decl("Indexed");
+    assert!(
+        fixture.analysis.snapshot.all_diagnostics().any(|diagnostic| {
+            diagnostic.code == DiagnosticCode::TraitMemberConflict && diagnostic.message.contains("class-side index requirements are not supported")
+        }),
+        "expected the class-side-index diagnostic, got {:?}",
+        fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>()
+    );
+
+    let class_side_index = fixture
+        .analysis
+        .snapshot
+        .source_index
+        .modules()
+        .flat_map(|(_, module)| module.structure.callable_sources.keys())
+        .any(|callable| callable.owner == CallableOwnerId::Declaration(trait_decl.clone()) && callable.side == DispatchSide::Class);
+    assert!(
+        !class_side_index,
+        "rejected class-side index requirement must not be published in the source index"
+    );
+}
+
+#[test]
+fn dual_side_selector_does_not_collide() {
+    let fixture = Fixture::new(
+        r#"
+trait Ambiguous {
+  foo() -> Int
+  @class foo() -> Int
+}
+data Both(_ value: Int)
+impl Ambiguous for Both {
+  foo() -> Int { self.value }
+  @class foo() -> Int { 2 }
+}
+class Caller {
+  @class classCall() -> Int { Both.foo() }
+  @class instanceCall(_ value: Both) -> Int { value.foo() }
+}
+"#,
+    );
+    let trait_decl = fixture.decl("Ambiguous");
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&trait_decl).expect("trait surface");
+    let selector = Selector::method("foo", []).expect("foo selector");
+    assert!(surface.get_by_selector(&selector, DispatchSide::Instance).is_some());
+    assert!(surface.get_by_selector(&selector, DispatchSide::Class).is_some());
+
+    let class_call = fixture.callable("Caller", "classCall", DispatchSide::Class);
+    let class_expression = fixture.expression(class_call, "Both.foo()");
+    let Some(TraitDispatchSite::Evidenced(class_selection)) = class_expression.trait_dispatch.as_ref() else {
+        panic!("class call must retain evidenced class-side trait dispatch: {class_expression:#?}");
+    };
+    assert_eq!(class_selection.requirement.side, DispatchSide::Class);
+
+    let instance_call = fixture.callable("Caller", "instanceCall", DispatchSide::Class);
+    let instance_expression = fixture.expression(instance_call, "value.foo()");
+    let Some(TraitDispatchSite::Evidenced(instance_selection)) = instance_expression.trait_dispatch.as_ref() else {
+        panic!("instance call must retain evidenced instance-side trait dispatch: {instance_expression:#?}");
+    };
+    assert_eq!(instance_selection.requirement.side, DispatchSide::Instance);
+}
+
+#[test]
+fn instance_witness_rejected_for_class_requirement() {
+    let fixture = Fixture::new_allowing_internal_incidents(
+        r#"
+trait ClassOnly { @class bar() -> Int }
+class InstanceWitness {}
+impl ClassOnly for InstanceWitness {
+  bar() -> Int { 1 }
+}
+"#,
+    );
+    let incomplete = fixture
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::ImplConformanceIncomplete)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        incomplete.len(),
+        1,
+        "an instance witness must leave the class-side conformance incomplete: {incomplete:#?}"
+    );
+    assert!(
+        incomplete.iter().all(|diagnostic| diagnostic
+            .labels
+            .iter()
+            .any(|label| label.message.contains("no explicit witness or trait default"))),
+        "a same-spelled instance witness must not satisfy a class-side requirement: {incomplete:#?}"
+    );
+}
+
+#[test]
+fn class_witness_rejected_for_instance_requirement() {
+    let fixture = Fixture::new_allowing_internal_incidents(
+        r#"
+trait InstanceOnly { bar() -> Int }
+class ClassWitness {}
+impl InstanceOnly for ClassWitness {
+  @class bar() -> Int { 2 }
+}
+"#,
+    );
+    let incomplete = fixture
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::ImplConformanceIncomplete)
+        .collect::<Vec<_>>();
+    assert_eq!(incomplete.len(), 1, "a class witness must leave the instance conformance incomplete: {incomplete:#?}");
+    assert!(
+        incomplete[0]
+            .labels
+            .iter()
+            .any(|label| label.message.contains("no explicit witness or trait default")),
+        "a same-spelled class witness must not satisfy an instance-side requirement: {incomplete:#?}"
+    );
+}
+
+#[test]
+fn explicit_class_witness_satisfies_requirement() {
+    let fixture = Fixture::new(
+        r#"
+trait ClassOnly { @class bar() -> Int }
+class Subject {}
+impl ClassOnly for Subject {
+  @class bar() -> Int { 9 }
+}
+"#,
+    );
+    let plan = fixture
+        .analysis
+        .snapshot
+        .conformance_witness_plans
+        .values()
+        .find(|plan| plan.source_module == fixture.module)
+        .expect("conformance witness plan");
+    assert!(matches!(plan.completeness, ConformanceCompleteness::Complete));
+    assert!(plan.requirements.iter().any(|(requirement, selection)| {
+        requirement.side == DispatchSide::Class && matches!(selection, RequirementSelectionTemplate::ConformanceCallable { .. })
+    }));
+}
+
+#[test]
+fn inherent_class_member_satisfies_trait_requirement() {
+    let fixture = Fixture::new(
+        r#"
+trait HasPi { @class pi -> Float }
+class Math {
+  @class pi -> Float { 3.14159 }
+}
+impl HasPi for Math {}
+"#,
+    );
+    let plan = fixture
+        .analysis
+        .snapshot
+        .conformance_witness_plans
+        .values()
+        .find(|plan| plan.source_module == fixture.module)
+        .expect("conformance witness plan");
+    assert!(matches!(plan.completeness, ConformanceCompleteness::Complete));
+    assert!(plan.requirements.iter().any(|(requirement, selection)| {
+        requirement.side == DispatchSide::Class && matches!(selection, RequirementSelectionTemplate::InherentCallable { .. })
+    }));
+}
+
+#[test]
+fn class_side_getter_setter_requirements_round_trip() {
+    let fixture = Fixture::new(
+        r#"
+trait HasVersion { @class mut version: Int }
+class Component {}
+impl HasVersion for Component {
+  @class version -> Int { 42 }
+  @class version=(_ next: Int) {}
+}
+class Caller {
+  @class read() -> Int { Component.version }
+  @class write() { Component.version = 7 }
+}
+"#,
+    );
+    let trait_decl = fixture.decl("HasVersion");
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&trait_decl).expect("trait surface");
+    let class_requirements = surface.iter().filter(|(requirement, _)| requirement.side == DispatchSide::Class).count();
+    assert_eq!(
+        class_requirements, 2,
+        "mutable class property publishes class-side getter and setter requirements"
+    );
+    let plan = fixture
+        .analysis
+        .snapshot
+        .conformance_witness_plans
+        .values()
+        .find(|plan| plan.source_module == fixture.module)
+        .expect("conformance witness plan");
+    assert!(matches!(plan.completeness, ConformanceCompleteness::Complete));
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "class-side getter/setter read/write must typecheck: {:?}",
+        fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn metadata_records_class_side() {
+    let fixture = Fixture::new("class Metadata { @class value() -> Int { 1 } }\n");
+    let callable = CallableId::new(fixture.decl("Metadata"), Selector::method("value", []).unwrap(), DispatchSide::Class);
+    let signature = fixture
+        .analysis
+        .snapshot
+        .callable_signatures
+        .get(&callable)
+        .expect("class-side callable metadata");
+    assert_eq!(signature.side, DispatchSide::Class);
+}
+
+#[test]
+fn source_index_records_class_side() {
+    let fixture = Fixture::new("class IndexedMetadata { @class value() -> Int { 1 } }\n");
+    let callable = CallableId::new(fixture.decl("IndexedMetadata"), Selector::method("value", []).unwrap(), DispatchSide::Class);
+    let source = fixture
+        .analysis
+        .snapshot
+        .source_index
+        .callable_source(&callable)
+        .expect("class-side source-index record");
+    assert_eq!(source.id.side, DispatchSide::Class);
 }

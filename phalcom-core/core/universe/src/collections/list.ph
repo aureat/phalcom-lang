@@ -4,12 +4,23 @@ from universe.text.builder import StringBuilder
 native class List<T> is Collection {
   @class
   native new() -> List<T>
+  @class
+  internal native rawWithCapacity(_ capacity: Int) -> List<T>
   internal native rawLength -> Int
   internal native rawAt(_ index: Int) -> Dynamic
   internal native rawSet(_ index: Int, _ value: Dynamic) -> Dynamic
   internal native rawPush(_ value: Dynamic) -> Dynamic
   internal native rawReplaceSlice(_ start: Int, _ end: Int, _ replacement: List<T>) -> Dynamic
   native toString -> String
+
+  /// Creates an empty list after reserving capacity under the shared List
+  /// backing-storage budget. The reservation happens before callers fill it.
+  @class
+  withCapacity(_ capacity: Int) -> List<T> {
+    if capacity < 0 { ArgumentError.new("List capacity must be nonnegative").raise() }
+    return self.rawWithCapacity(capacity)
+  }
+
   size { self.rawLength }
 
   first {

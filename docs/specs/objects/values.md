@@ -469,6 +469,16 @@ and
 
 The enclosing category determines what qualifies as matching outer identity or shape.
 
+### Integer exactness
+
+Int exactness compares the mathematical integer value. Equal integers remain
+`===` across independent arbitrary-precision allocations and across equivalent
+immediate and heap representations. Int/Float numeric equality does not imply
+exact sameness: `42 === 42.0` is false.
+
+This rule also applies when integers are components of a structural product or
+data object. Recursive exactness uses integer content without numeric coercion.
+
 ---
 
 ## Exactness and Ordinary Equality

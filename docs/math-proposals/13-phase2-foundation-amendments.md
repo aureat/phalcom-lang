@@ -57,9 +57,9 @@ scientific catalogs deferred:
 | Tail-aware inverse normal; safeguarded beta/gamma inversion | Quantiles and equal-tailed credible limits |
 | Stable `logFactorial(n)`/`logChoose(n,k)` using exact count validation | Count log probabilities without exact factorial construction |
 
-Names are proposed library contracts. Use `universe.math.special` as an optional
-public facade, backed by hidden source owners. Do not make importing the current
-`universe.math` require all special functions or any probability module.
+Names are proposed library contracts. The adopted optional public facade is
+`numerics.special`, backed by hidden source owners. Do not make importing
+`universe.math` require special functions or any probability module.
 
 The kernel contract must specify domains, endpoint values, convergence failure,
 accuracy by parameter region, and supported range. Direct log tails must survive
@@ -116,5 +116,6 @@ Rational, Complex, arbitrary-precision Float, numeric promotion relations,
 generic constants, differentiation, and static parameter refinements are not
 prerequisites for the recommended Float probability layer. Preserve extension
 space for them through explicit conversion and separate observation/sample
-types. `meanExact` over Int waits for Rational; no tuple masquerades as a new
-rational-number implementation.
+types. A named `meanExact` Family now exists over Int using the source-defined
+Rational type; both source slices still await Phalcom acceptance. No tuple
+masquerades as a rational-number implementation.

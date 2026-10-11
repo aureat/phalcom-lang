@@ -24,6 +24,16 @@ pub struct RuntimeDataDescriptor {
     pub component_slots: Option<Box<[u32]>>,
 }
 
+/// Complete specialization supplied to exact descriptor interning. Identity is
+/// assigned by the registry rather than by the caller.
+pub struct RuntimeDataSpecialization {
+    pub semantic_owner: DeclarationId,
+    pub behavior_class: ClassId,
+    pub exact_type: RuntimeTypeRef,
+    pub layout: ProductLayoutId,
+    pub component_slots: Option<Box<[u32]>>,
+}
+
 /// VM-level registry managing interned data descriptors.
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeDataRegistry {
@@ -82,6 +92,50 @@ impl RuntimeDataRegistry {
         self.descriptor_by_key.insert(key, runtime_id);
         self.descriptor_by_class.entry(behavior_class).or_insert(runtime_id);
         runtime_id
+    }
+
+    /// Interns an exact specialization across metadata/overlay representations.
+    /// The first descriptor remains the representative, so already-issued data
+    /// values retain their identity. Raw handles cache aliases only; runtime
+    /// typing's complete recursive comparison decides equivalence.
+    pub fn intern_exact_with_component_slots(
+        &mut self,
+        descriptor: RuntimeDataSpecialization,
+        context: &crate::typing::TypingContextData,
+        typing: &crate::typing::RuntimeTypingRegistry,
+    ) -> Result<RuntimeDataDescriptorId, &'static str> {
+        let exact_type = descriptor.exact_type;
+        let key = (descriptor.semantic_owner.clone(), Some(exact_type));
+        let existing = self.descriptor_by_key.get(&key).copied().or_else(|| {
+            self.descriptors
+                .iter()
+                .find(|candidate| {
+                    candidate.semantic_owner == descriptor.semantic_owner
+                        && candidate
+                            .exact_type
+                            .is_some_and(|ty| crate::typing::identity::equivalent(context, typing, ty, exact_type))
+                })
+                .map(|candidate| candidate.runtime_id)
+        });
+        if let Some(id) = existing {
+            let canonical = &self.descriptors[id.0 as usize];
+            // Direct closed lowering may use compact lanes while a generic
+            // body uses Value lanes. Construction consumes the representative's
+            // layout, as with the raw-handle interner, so physical layout is
+            // deliberately not part of exact type identity.
+            if canonical.component_slots != descriptor.component_slots {
+                return Err("equivalent exact data types have inconsistent component mappings");
+            }
+            self.descriptor_by_key.insert(key, id);
+            return Ok(id);
+        }
+        Ok(self.register_with_component_slots(
+            descriptor.semantic_owner,
+            descriptor.behavior_class,
+            Some(exact_type),
+            descriptor.layout,
+            descriptor.component_slots,
+        ))
     }
 
     /// Registers one declaration's shared behavior class independently of any

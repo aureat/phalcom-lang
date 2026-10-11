@@ -18,6 +18,9 @@ pub enum ExpectationOrigin {
     CollectionElement,
     ProductComponent,
     ExplicitCheck,
+    /// A bounded canonical algebra target selected for an arithmetic region
+    /// containing a source-owned basis value.
+    AlgebraicArithmetic,
 }
 
 /// Contextual type expectation propagated downward into an expression during bidirectional checking.
