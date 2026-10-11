@@ -4,9 +4,9 @@ category: STDL
 program: STDL001
 checkpoint: STDL001.C6
 kind: checkpoint-record
-status: BLOCKED
+status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 last_updated: 2026-10-11
 active_plan: STDL001.C6.P1
 ---
@@ -25,7 +25,7 @@ value equality and hashing, and compatibility with generic `Complex<T>` and
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 | --- | --- | --- | --- | --- | --- |
-| `STDL001.C6.P1` | Canonical Rational source type and numbers facade integration | BLOCKED | PARTIAL | UNVERIFIED | implementation is present; semantic stack regression passes, but canonical bootstrap rejects associated invocation lowering in `universe:callable.function`; see [incident report](../stack-overflow-incident-2026-10-11.md), §16 |
+| `STDL001.C6.P1` | Canonical Rational source type and numbers facade integration | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | implementation is present; semantic stack regression and canonical bootstrap both pass; see [incident report](../stack-overflow-incident-2026-10-11.md), §16–17 |
 
 ## Fixed invariants
 
@@ -49,14 +49,14 @@ value equality and hashing, and compatibility with generic `Complex<T>` and
 ## Verification and deferred work
 
 The source API and numbers-facade exports, plus exact `Complex<Rational>`
-division and powers, are present. The architect-directed carrier/frame repair
-passes the focused semantic stack regression. Rational source acceptance
-remains blocked by a distinct canonical bootstrap associated-lowering failure.
+division and powers, are present. Both the architect-directed carrier/frame repair
+and the canonical bootstrap associated-lowering repair pass their focused
+regressions (`algebraic_realization.rs` and `canonical_bootstrap_stack.rs`).
 Source syntax, runtime behavior, and generic
 `Complex<Rational>` / `Quaternion<Rational>` behavior remain unverified. See
-the [incident report](../stack-overflow-incident-2026-10-11.md).
+the [incident report](../stack-overflow-incident-2026-10-11.md), §16–17.
 
 ## Next action
 
-Resolve the missing associated-lowering attachment in canonical bootstrap and
-pass the minimal-project regression before focused Rational source acceptance.
+Resume focused Rational source acceptance now that the canonical bootstrap
+regression passes.

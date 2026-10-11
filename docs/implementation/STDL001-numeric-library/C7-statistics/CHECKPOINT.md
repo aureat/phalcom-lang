@@ -4,9 +4,9 @@ category: STDL
 program: STDL001
 checkpoint: STDL001.C7
 kind: checkpoint-record
-status: BLOCKED
+status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 last_updated: 2026-10-11
 active_plan: STDL001.C7.P1
 ---
@@ -24,7 +24,7 @@ mergeable streaming summaries, and a separate exact Int-to-Rational `meanExact`.
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 | --- | --- | --- | --- | --- | --- |
-| `STDL001.C7.P1` | Stable reductions and descriptive/statistical summary APIs | BLOCKED | PARTIAL | UNVERIFIED | source draft is present; semantic stack regression passes, but canonical bootstrap rejects associated invocation lowering in `universe:callable.function`; see [incident report](../stack-overflow-incident-2026-10-11.md), §16 |
+| `STDL001.C7.P1` | Stable reductions and descriptive/statistical summary APIs | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | source draft is present; semantic stack regression and canonical bootstrap both pass; see [incident report](../stack-overflow-incident-2026-10-11.md), §16–17 |
 
 ## Established invariants
 
@@ -43,16 +43,14 @@ mergeable streaming summaries, and a separate exact Int-to-Rational `meanExact`.
 
 ## Verification
 
-The statistics source remains unverified. The architect-directed carrier/frame
-correction passes the focused semantic stack regression. Dependency-free
-canonical bootstrap now reaches a distinct associated-lowering failure in
-`universe:callable.function`. Source acceptance remains blocked; Rust checks for
-the semantic/compiler algebraic-literal seam do not establish source-package
-acceptance. See the
-[incident report](../stack-overflow-incident-2026-10-11.md).
+The statistics source draft is present. Both the architect-directed carrier/frame
+repair and the canonical bootstrap repair pass their focused regressions
+(`algebraic_realization.rs` and `canonical_bootstrap_stack.rs`).
+Source-package acceptance remains open for parsing, generic capture, numerical
+behavior, and merge laws. See the
+[incident report](../stack-overflow-incident-2026-10-11.md), §16–17.
 
 ## Next action
 
-Resolve the missing canonical associated-lowering attachment and pass the
-minimal-project bootstrap regression. Then resume source acceptance; parsing, generic capture,
-numerical behavior, and merge laws remain unverified.
+Resume focused source acceptance for the descriptive statistics package now
+that canonical bootstrap passes.

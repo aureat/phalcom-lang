@@ -2,9 +2,9 @@
 id: LANG007.C4.algebraic-literals-follow-on
 kind: implementation-plan
 checkpoint: LANG007.C4
-status: BLOCKED
+status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 prepared_against_revision: 43a4f466
 last_updated: 2026-10-11
 ---
@@ -56,7 +56,7 @@ conformance slot responsible for method and environment evidence; do not copy
 the class receiver into that slot. Missing or non-nominal runtime bindings must
 fail closed. This is a clarification within T5, not a new plan.
 
-## Architect ruling and current blocker — 2026-10-11
+## Architect ruling and resolved blockers — 2026-10-11
 
 The architect directed three semantic repairs: gate contextual realization on
 classified source and algebraic context before capability lookup; summarize
@@ -74,13 +74,18 @@ measurement additionally required moving binary dispatch outside the formal
 and advisory analyzers' large variant matches; the unchanged 64-coefficient
 Float Horner regression now passes on a 2 MiB semantic thread.
 
-Source acceptance remains paused: minimal project compilation succeeds, then
-canonical runtime bootstrap rejects associated invocation lowering in
-`universe:callable.function`. This is a distinct branch-only bootstrap blocker,
-not the earlier semantic stack overflow. Preserve canonical lowering authority;
-do not add a compiler fallback or resume package acceptance until the
-minimal-project gate passes. See the cross-cutting
-[incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
+The intermediate bootstrap blocker (`AssociatedInvokeNotLoweredYet` in
+`universe:callable.function`) has also been resolved and verified:
+1. `CheckingContext::declaration_generic_signature` no longer records nominal
+   `DeclarationShell` dependencies on trait requirements, resolving query
+   suppression in `session.update_with_delta`.
+2. `semantic_lowering.rs` now provides generic evidence for class-side
+   conformance witnesses (`@class one`), resolving `MissingTraitRequirementSlot`.
+
+The full Universe bootstrap regression (`canonical_bootstrap_stack.rs`) passes.
+Next action: resume contextual realization tasks (T4/T5) and source package
+acceptance. See the cross-cutting
+[incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), §16–17.
 
 ## Task ledger
 

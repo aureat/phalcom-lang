@@ -2,9 +2,9 @@
 id: STDL001
 category: STDL
 kind: implementation
-status: BLOCKED
+status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 ---
 
 # STDL001 — numeric library
@@ -12,10 +12,8 @@ verification: UNVERIFIED
 This program owns the numeric contract, value model, literal syntax, integer
 and Float protocols, diagnostics, and integration verification.
 
-Source acceptance for the active Rational, statistics, and probability
-checkpoints remains paused by canonical Universe bootstrap. The architect's
-carrier/frame correction passes the focused semantic stack regression; the
-dependency-free project now reaches a distinct associated-invocation lowering
-failure in `universe:callable.function`. Diagnose the missing canonical
-attachment and obtain a green bootstrap gate before package acceptance; see
-[`stack-overflow-incident-2026-10-11.md`](stack-overflow-incident-2026-10-11.md).
+The semantic stack overflow and intermediate canonical Universe bootstrap blocker
+are both resolved and verified (§16–17 of [`stack-overflow-incident-2026-10-11.md`](stack-overflow-incident-2026-10-11.md)).
+The minimal project compiles, bootstraps, and runs under `VM::new()`. Focused
+source acceptance for the active Rational (`C6`), statistics (`C7`), and
+probability (`C8`) checkpoints can now proceed.

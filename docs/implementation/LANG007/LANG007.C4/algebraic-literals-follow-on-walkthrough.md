@@ -2,25 +2,35 @@
 id: LANG007.C4.algebraic-literals-follow-on-walkthrough
 kind: walkthrough
 checkpoint: LANG007.C4
-status: BLOCKED
+status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 created: 2026-10-08
 updated: 2026-10-11
 ---
 
 # Contextual algebraic literals — walkthrough
 
-## Current stop — 2026-10-11
+## Current status — 2026-10-11
 
-The architect-directed carrier/frame correction is implemented and focused
-semantic tests pass, including complete 64-coefficient Float Horner analysis
-on 2 MiB. Source acceptance remains blocked by a distinct bootstrap error:
-`AssociatedInvokeNotLoweredYet` for `Result::Ok(self.call())` in
-`universe:callable.function`, with an empty canonical associated-lowering map.
-Clean-main `c2dd635e` completes the same dependency-free project. The original
-stack-overflow trace and failed wrapper-relocation attempt are historical.
-See the current measurements and verification in §16 of the
+The architect-directed carrier/frame correction and the intermediate bootstrap
+issue are both resolved and verified:
+1. Recursive expression analysis frames in formal and advisory checkers are
+   shrunk via `Option<Arc<ContextualRealization>>` and binary dispatch split.
+   The 64-coefficient Float Horner test passes cleanly on a 2 MiB stack.
+2. The intermediate `AssociatedInvokeNotLoweredYet` bootstrap failure is resolved
+   by guarding `declaration_generic_signature` from recording `DeclarationShell`
+   for trait requirements (which previously caused query suppression and an empty
+   snapshot) and populating generic evidence for class-side conformance witnesses
+   in lowering.
+3. The dependency-free bootstrap regression (`canonical_bootstrap_stack.rs`)
+   passes, compiling Universe and executing under `VM::new()`.
+
+Verified with:
+- `cargo test -p phalcom-semantic --test semantic semantic::capabilities::algebraic_realization` (5/5 passed)
+- `cargo test -p phalcom-core --test canonical-bootstrap-stack` (1/1 passed)
+
+See §16 and §17 of the
 [incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
 
 This record covers the user-directed algebraic-literals follow-on performed in

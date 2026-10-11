@@ -2,9 +2,9 @@
 id: LANG007.C4.algebraic-literals-follow-on-handoff
 kind: handoff
 checkpoint: LANG007.C4
-status: BLOCKED
+status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
+verification: FOCUSED_TESTED
 created: 2026-10-08
 updated: 2026-10-11
 ---
@@ -23,22 +23,23 @@ updated: 2026-10-11
   pushed to `origin/feat/complex-math`. Delivery publishes partial implementation.
 - This continuation edits only the managed `complex-math` worktree.
 
-## Current stop — 2026-10-11
+## Current status — 2026-10-11
 
-The bounded semantic stack repair is implemented and focused-tested: shared
-realization carriers pass the 760-byte budget, and binary dispatch avoids large
-formal/advisory expression-match frames. The complete 64-coefficient Float
-Horner analysis passes on 2 MiB with Float type, no diagnostics, and no
-contextual realization products.
+The bounded semantic stack repair and the intermediate bootstrap blocker are
+both resolved and verified:
+1. Shared realization carriers pass the 760-byte budget, and binary dispatch
+   avoids large formal/advisory expression-match frames. The 64-coefficient
+   Float Horner regression passes on 2 MiB.
+2. The intermediate `AssociatedInvokeNotLoweredYet` failure is fixed at the
+   owning layers: trait declarations no longer register as nominal `DeclarationShell`
+   dependencies during class-side dispatch, and generic evidence is provided for
+   class-side conformance witnesses in lowering.
+3. The dedicated minimal-project bootstrap test (`canonical_bootstrap_stack.rs`)
+   passes, compiling Universe and executing under `VM::new()`.
 
-Do not resume package acceptance until the dedicated minimal-project bootstrap
-gate passes. Its current failure is a distinct `AssociatedInvokeNotLoweredYet`
-while compiling `Function.attempt`'s `Result::Ok(self.call())`, range 782..805;
-the compiler has lowering semantics with an empty associated-site map. The
-source and compiler associated-invoke implementation match clean-main
-`c2dd635e`; investigate canonical semantic attachment/projection rather than
-adding a lowering fallback. See the
-[incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), §16.
+Next action: The next implementer can resume directly with contextual
+realization (T4/T5 of the follow-on plan) and source package acceptance.
+See [incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), §16–17.
 
 ## Architect ruling — 2026-10-11
 

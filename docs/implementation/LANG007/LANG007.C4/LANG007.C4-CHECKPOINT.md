@@ -46,13 +46,19 @@ canonical publication, observer calls, and source order. The 760-byte carrier
 budget and 64-coefficient Float Horner regression on a 2 MiB semantic thread
 pass. This slice is `IMPLEMENTED / FOCUSED_TESTED`.
 
-The complete bootstrap gate remains red with a distinct compiler error:
-`AssociatedInvokeNotLoweredYet` in `universe:callable.function`, after minimal
-project compilation succeeds. Clean-main `c2dd635e` completes the same project.
-Do not treat this current failure as a stack overflow or promote T4/T5 package
-acceptance. Next action: diagnose the missing canonical associated-lowering
-attachment, rerun the bootstrap gate, then resume source acceptance. Evidence:
-[stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
+The distinct intermediate compiler error (`AssociatedInvokeNotLoweredYet` in
+`universe:callable.function`) has also been resolved and verified. Investigation
+identified two distinct causes: (1) `CheckingContext::declaration_generic_signature`
+recorded nominal `DeclarationShell` dependencies on trait requirements (such as
+`Zero`), which blocked semantic queries with `SuppressedDependency` and collapsed
+the published snapshot to 0 callables; and (2) `semantic_lowering.rs` collected
+generic conformance evidence only for instance-side methods, starving class-side
+conformance witnesses of generic type evidence and causing `MissingTraitRequirementSlot`.
+With these corrected, the full Universe compiles, bootstraps, and runs cleanly
+(`canonical_bootstrap_stack.rs` passes). This slice is `IMPLEMENTED / FOCUSED_TESTED`.
+Next action: resume contextual realization tasks (T4/T5 of the algebraic-literals
+follow-on) and subsequent source package acceptance. Evidence:
+[stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), §17.
 
 ## Historical algebraic-literals follow-on stop state (2026-10-08)
 
