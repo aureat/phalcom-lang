@@ -1,9 +1,8 @@
-from ..float_kernel import FloatMathKernel as F
-
-from ..numerical_errors import NumericalRangeError, NumericalEvaluationError
+import universe.math as math
+from universe.math import NumericalRangeError, NumericalEvaluationError
 
 /// Positive-real binary64 special functions. No host-library or native floor.
-/// Formula sources and supported parameter region: see math/special/README.md.
+/// Formula sources and supported parameter region: see numerics/special/README.md.
 class SpecialKernel {
   @class
   positive(_ x: Float) {
@@ -52,18 +51,18 @@ class SpecialKernel {
   logGamma(_ value: Float) -> Float {
     SpecialKernel.positive(value)
     if value == 1.0 or value == 2.0 { return 0.0 }
-    if value < 0.125 { return SpecialKernel.logGammaOnePlus(value) - F.ln(value) }
+    if value < 0.125 { return SpecialKernel.logGammaOnePlus(value) - math.ln(value) }
     if (value - 1.0).abs <= 0.125 { return SpecialKernel.logGammaOnePlus(value - 1.0) }
     if (value - 2.0).abs <= 0.125 {
-      return F.ln1p(value - 2.0) + SpecialKernel.logGammaOnePlus(value - 2.0)
+      return math.ln1p(value - 2.0) + SpecialKernel.logGammaOnePlus(value - 2.0)
     }
     let mut x = value
     let mut shift = 0.0
     while x < 16.0 {
-      shift = shift - F.ln(x)
+      shift = shift - math.ln(x)
       x = x + 1.0
     }
-    let result = (x - 0.5) * F.ln(x) - x + 0.9189385332046727 + SpecialKernel.correction(x) + shift
+    let result = (x - 0.5) * math.ln(x) - x + 0.9189385332046727 + SpecialKernel.correction(x) + shift
     if not result.isFinite { NumericalRangeError.new("logGamma result is outside Float range").raise() }
     return result
   }
@@ -77,16 +76,16 @@ class SpecialKernel {
     let mut shift = 0.0
     while x < 16.0 {
       // ln((x+y)/x), without overflowing y/x for subnormal x.
-      shift = shift + F.ln(x + y) - F.ln(x)
+      shift = shift + math.ln(x + y) - math.ln(x)
       x = x + 1.0
     }
     while y < 16.0 {
-      shift = shift + F.ln(x + y) - F.ln(y)
+      shift = shift + math.ln(x + y) - math.ln(y)
       y = y + 1.0
     }
     let total = x + y
     // Evaluate the entropy terms directly: avoid subtracting three logGammas.
-    return -x * F.ln1p(y / x) - y * F.ln1p(x / y) + 0.5 * (F.ln(total) - F.ln(x) - F.ln(y)) + 0.9189385332046727 + SpecialKernel.correction(x) + SpecialKernel.correction(y) - SpecialKernel.correction(total) + shift
+    return -x * math.ln1p(y / x) - y * math.ln1p(x / y) + 0.5 * (math.ln(total) - math.ln(x) - math.ln(y)) + 0.9189385332046727 + SpecialKernel.correction(x) + SpecialKernel.correction(y) - SpecialKernel.correction(total) + shift
   }
 
   @class
@@ -103,13 +102,13 @@ class SpecialKernel {
       let mut result = 0.0
       let mut i = 2
       while i <= n {
-        result = result + F.ln(Float.new(i))
+        result = result + math.ln(Float.new(i))
         i = i + 1
       }
       return result
     }
     let x = Float.new(n)
-    return x * (F.ln(x) - 1.0) + 0.5 * F.ln(x) + 0.9189385332046727 + SpecialKernel.correction(x)
+    return x * (math.ln(x) - 1.0) + 0.5 * math.ln(x) + 0.9189385332046727 + SpecialKernel.correction(x)
   }
 
   @class
@@ -123,7 +122,7 @@ class SpecialKernel {
       let mut correction = 0.0
       let mut i = 1
       while i <= count {
-        let term = F.ln(Float.new(n - count + i)) - F.ln(Float.new(i))
+        let term = math.ln(Float.new(n - count + i)) - math.ln(Float.new(i))
         let next = sum + term
         if sum >= term {
           correction = correction + ((sum - next) + term)
@@ -139,14 +138,14 @@ class SpecialKernel {
     let y = Float.new(n - count)
     let total = Float.new(n)
     // Entropy form with Stirling remainders: no subtraction of huge lgammas.
-    return x * (F.ln(total) - F.ln(x)) + y * F.ln1p(x / y) + 0.5 * (F.ln(total) - F.ln(x) - F.ln(y)) - 0.9189385332046727 + SpecialKernel.correction(total) - SpecialKernel.correction(x) - SpecialKernel.correction(y)
+    return x * (math.ln(total) - math.ln(x)) + y * math.ln1p(x / y) + 0.5 * (math.ln(total) - math.ln(x) - math.ln(y)) - 0.9189385332046727 + SpecialKernel.correction(total) - SpecialKernel.correction(x) - SpecialKernel.correction(y)
   }
 
   // log(1-exp(logValue)), stable on both sides of ln(1/2).
   @class
   logComplement(_ logValue: Float) -> Float {
-    if logValue < -0.6931471805599453 { return F.ln1p(-F.exp(logValue)) }
-    return F.ln(-F.expm1(logValue))
+    if logValue < -0.6931471805599453 { return math.ln1p(-math.exp(logValue)) }
+    return math.ln(-math.expm1(logValue))
   }
 
   @class
@@ -161,7 +160,7 @@ class SpecialKernel {
   // Stable a*ln(x)-x-lnGamma(a), avoiding cancellation near x=a.
   @class
   gammaLogScale(_ a: Float, _ x: Float) -> Float {
-    if a < 16.0 { return a * F.ln(x) - x - SpecialKernel.logGamma(a) }
+    if a < 16.0 { return a * math.ln(x) - x - SpecialKernel.logGamma(a) }
     let t = (x - a) / a
     let mut deviance = 0.0
     if t.abs < 0.125 {
@@ -177,9 +176,9 @@ class SpecialKernel {
       }
       deviance = a * sum
     } else {
-      deviance = (x - a) - a * (F.ln(x) - F.ln(a))
+      deviance = (x - a) - a * (math.ln(x) - math.ln(a))
     }
-    return -deviance + 0.5 * F.ln(a) - 0.9189385332046727 - SpecialKernel.correction(a)
+    return -deviance + 0.5 * math.ln(a) - 0.9189385332046727 - SpecialKernel.correction(a)
   }
 
   // Positive power series for P(a,x), with its leading term factored in logs.
@@ -194,7 +193,7 @@ class SpecialKernel {
       term = term * (x / denominator)
       total = total + term
       if term <= total * 0.0000000000000004 {
-        return SpecialKernel.boundedLog(SpecialKernel.gammaLogScale(a, x) - F.ln(a) + F.ln(total))
+        return SpecialKernel.boundedLog(SpecialKernel.gammaLogScale(a, x) - math.ln(a) + math.ln(total))
       }
       i = i + 1
     }
@@ -226,7 +225,7 @@ class SpecialKernel {
       let delta = c * d
       h = h * delta
       if (delta - 1.0).abs <= 0.0000000000000004 {
-        return SpecialKernel.boundedLog(SpecialKernel.gammaLogScale(a, x) + F.ln(h))
+        return SpecialKernel.boundedLog(SpecialKernel.gammaLogScale(a, x) + math.ln(h))
       }
       i = i + 1
     }
@@ -239,12 +238,12 @@ class SpecialKernel {
   @class
   gammaSmallUpperLog(_ a: Float, _ x: Float) -> Float {
     let ratio = if a <= 0.125 { SpecialKernel.logGammaOnePlusRatio(a) } else { SpecialKernel.logGammaOnePlus(a) / a }
-    let lRatio = F.ln(x) - ratio
+    let lRatio = math.ln(x) - ratio
     let logLeading = a * lRatio
     let first = if logLeading.abs < 0.00000001 {
       -lRatio * (1.0 + logLeading * (0.5 + logLeading / 6.0))
     } else {
-      -F.expm1(logLeading) / a
+      -math.expm1(logLeading) / a
     }
     let mut term = -x
     let mut sum = term / (a + 1.0)
@@ -255,7 +254,7 @@ class SpecialKernel {
       let next = term / (a + floatN)
       sum = sum + next
       if next.abs <= sum.abs * 0.0000000000000002 {
-        return SpecialKernel.boundedLog(F.ln(a) + F.ln(first - F.exp(logLeading) * sum))
+        return SpecialKernel.boundedLog(math.ln(a) + math.ln(first - math.exp(logLeading) * sum))
       }
       n = n + 1
     }
@@ -296,9 +295,9 @@ class SpecialKernel {
   }
 
   @class
-  regularizedGammaP(_ a: Float, _ x: Float) -> Float { F.exp(SpecialKernel.logRegularizedGammaP(a, x)) }
+  regularizedGammaP(_ a: Float, _ x: Float) -> Float { math.exp(SpecialKernel.logRegularizedGammaP(a, x)) }
   @class
-  regularizedGammaQ(_ a: Float, _ x: Float) -> Float { F.exp(SpecialKernel.logRegularizedGammaQ(a, x)) }
+  regularizedGammaQ(_ a: Float, _ x: Float) -> Float { math.exp(SpecialKernel.logRegularizedGammaQ(a, x)) }
 
   // DLMF 8.17.22, alternating even/odd coefficients, modified Lentz.
   @class
@@ -331,7 +330,7 @@ class SpecialKernel {
 
   @class
   betaLowerLog(_ a: Float, _ b: Float, _ x: Float) -> Float {
-    return SpecialKernel.boundedLog(a * F.ln(x) + b * F.ln1p(-x) - SpecialKernel.logBeta(a, b) + F.ln(SpecialKernel.betaFraction(a, b, x)) - F.ln(a))
+    return SpecialKernel.boundedLog(a * math.ln(x) + b * math.ln1p(-x) - SpecialKernel.logBeta(a, b) + math.ln(SpecialKernel.betaFraction(a, b, x)) - math.ln(a))
   }
 
   @class
@@ -359,9 +358,9 @@ class SpecialKernel {
   }
 
   @class
-  regularizedBeta(_ a: Float, _ b: Float, _ x: Float) -> Float { F.exp(SpecialKernel.logRegularizedBeta(a, b, x)) }
+  regularizedBeta(_ a: Float, _ b: Float, _ x: Float) -> Float { math.exp(SpecialKernel.logRegularizedBeta(a, b, x)) }
   @class
-  regularizedBetaComplement(_ a: Float, _ b: Float, _ x: Float) -> Float { F.exp(SpecialKernel.logRegularizedBetaComplement(a, b, x)) }
+  regularizedBetaComplement(_ a: Float, _ b: Float, _ x: Float) -> Float { math.exp(SpecialKernel.logRegularizedBetaComplement(a, b, x)) }
 
   @class
   erf(_ x: Float) -> Float {
@@ -396,7 +395,7 @@ class SpecialKernel {
     if x == 1.0 / 0.0 { return -1.0 / 0.0 }
     if x == -1.0 / 0.0 { return 0.6931471805599453 }
     if x.abs <= 0.5 {
-      return F.ln1p(-SpecialKernel.erf(x))
+      return math.ln1p(-SpecialKernel.erf(x))
     }
     let square = x * x
     if square.isInfinite {
@@ -405,13 +404,13 @@ class SpecialKernel {
     }
     let tail = SpecialKernel.logRegularizedGammaQ(0.5, square)
     if x > 0.0 { return tail }
-    return 0.6931471805599453 + F.ln1p(-0.5 * F.exp(tail))
+    return 0.6931471805599453 + math.ln1p(-0.5 * math.exp(tail))
   }
 
   @class
   erfc(_ x: Float) -> Float {
     if x > 28.0 { return 0.0 }
-    return F.exp(SpecialKernel.logErfc(x))
+    return math.exp(SpecialKernel.logErfc(x))
   }
 
   @class
@@ -421,11 +420,11 @@ class SpecialKernel {
     SpecialKernel.unit(p)
     if p == 0.0 or p == 1.0 { return p }
     let upper = p > 0.5
-    let target = if upper { F.ln1p(-p) } else { F.ln(p) }
+    let target = if upper { math.ln1p(-p) } else { math.ln(p) }
     let mut low = 0.0
     let mut high = 1.0
     if not upper {
-      let estimate = F.exp((target + F.ln(a) + SpecialKernel.logBeta(a, b)) / a)
+      let estimate = math.exp((target + math.ln(a) + SpecialKernel.logBeta(a, b)) / a)
       if estimate > 0.0 and estimate < 0.5 {
         high = estimate * 2.0
         while high < 1.0 and SpecialKernel.logRegularizedBeta(a, b, high) < target {
@@ -457,15 +456,15 @@ class SpecialKernel {
     if p == 0.0 { return 0.0 }
     if p == 1.0 { return 1.0 / 0.0 }
     let upper = p > 0.5
-    let target = if upper { F.ln1p(-p) } else { F.ln(p) }
+    let target = if upper { math.ln1p(-p) } else { math.ln(p) }
     let mut low = 0.0
     let mut high = if a > 1.0 { a } else { 1.0 }
     if not upper {
-      let estimate = F.exp((target + SpecialKernel.logGammaOnePlus(a)) / a)
+      let estimate = math.exp((target + SpecialKernel.logGammaOnePlus(a)) / a)
       if estimate > 0.0 and estimate < high { high = estimate * 2.0 }
     }
     let mut i = 0
-    while SpecialKernel.logRegularizedGammaP(a, high) < F.ln(p) {
+    while SpecialKernel.logRegularizedGammaP(a, high) < math.ln(p) {
       high = high * 2.0
       i = i + 1
       if i > 1024 or not high.isFinite { NumericalRangeError.new("gamma inverse could not bracket a finite result").raise() }
@@ -492,7 +491,7 @@ class SpecialKernel {
     if p == 0.0 { return -1.0 / 0.0 }
     if p == 1.0 { return 1.0 / 0.0 }
     if p == 0.5 { return 0.0 }
-    let target = if p < 0.5 { F.ln(p) } else { F.ln1p(-p) }
+    let target = if p < 0.5 { math.ln(p) } else { math.ln1p(-p) }
     let mut low = 0.0
     let mut high = 40.0
     let mut i = 0

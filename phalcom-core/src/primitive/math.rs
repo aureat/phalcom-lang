@@ -1,8 +1,11 @@
-//! Binary64 mathematical kernels declared in `universe.math.float_kernel`.
+//! Binary64 math kernels and Float-owned IEEE operations.
 
 use crate::error::{PhResult, RuntimeError};
+use crate::primitive::int::expect_int_big;
 use crate::value::Value;
 use crate::vm::VM;
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 fn float_argument(value: &Value) -> PhResult<f64> {
     value.as_float().ok_or_else(|| {
@@ -16,6 +19,59 @@ fn float_argument(value: &Value) -> PhResult<f64> {
 
 fn unary(args: &[Value], operation: fn(f64) -> f64) -> PhResult<Value> {
     Ok(Value::float(operation(float_argument(&args[0])?)))
+}
+
+/// Fused Float multiply-add: the product and sum are rounded once.
+#[phalcom_native_macros::primitive(
+    Float, "fma(_,_)", params = [Float, Float], returns = Float,
+    types = "(Float, Float) -> Float", effects = pure
+)]
+pub fn float_fma(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let value = float_argument(receiver)?;
+    Ok(Value::float(value.mul_add(float_argument(&args[0])?, float_argument(&args[1])?)))
+}
+
+/// Copy the sign bit of another Float while preserving this value's magnitude.
+#[phalcom_native_macros::primitive(
+    Float, "copySign(_)", params = [Float], returns = Float,
+    types = "(Float) -> Float", effects = pure
+)]
+pub fn float_copy_sign(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    Ok(Value::float(float_argument(receiver)?.copysign(float_argument(&args[0])?)))
+}
+
+/// Scale by an arbitrary-precision integer power of two with IEEE overflow and underflow.
+#[phalcom_native_macros::primitive(
+    Float, "scalePow2(_)", params = [Int], returns = Float,
+    types = "(Int) -> Float", effects = pure
+)]
+pub fn float_scale_pow2(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let value = float_argument(receiver)?;
+    if value == 0.0 || !value.is_finite() {
+        return Ok(Value::float(value));
+    }
+
+    let exponent = expect_int_big(&args[0], vm)?;
+    let limit = BigInt::from(2098i32);
+    if exponent > limit {
+        return Ok(Value::float(f64::INFINITY.copysign(value)));
+    }
+    if exponent < -limit {
+        return Ok(Value::float(0.0f64.copysign(value)));
+    }
+
+    let mut remaining = exponent.to_i32().expect("bounded Float scale exponent fits i32");
+    let mut result = value;
+    while remaining > 512 {
+        result *= 2.0f64.powi(512);
+        remaining -= 512;
+    }
+    while remaining < -512 {
+        result *= 2.0f64.powi(-512);
+        remaining += 512;
+    }
+    result *= 2.0f64.powi(remaining);
+    Ok(Value::float(result))
 }
 
 /// Binary64 square root.

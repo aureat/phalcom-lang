@@ -1,6 +1,5 @@
-@!documentation("Float-only IEEE binary64 functions and exact arbitrary-precision Int algorithms. Angles use radians except degrees/radians conversions. NaN, infinity, signed-zero, and domain results follow the Rust f64 backend; Int is never implicitly converted to Float.")
+@!documentation("Float-only IEEE binary64 functions, stable Float reductions, and exact arbitrary-precision Int algorithms. Advanced special functions are in the optional numerics package. Angles use radians except degrees/radians conversions. NaN, infinity, signed-zero, and domain results follow the Rust f64 backend; Int is never implicitly converted to Float.")
 
-expose .special
 expose .complex
 
 from .float_kernel import FloatMathKernel
@@ -46,53 +45,8 @@ let radians = &FloatAngleHelpers.radians(_)
 let logSumExp = &FloatReduction.logSumExp(_)
 let sum = &FloatReduction.sum(_)
 let mean = &FloatReduction.mean(_)
-
-/// Range-aware compensated mean for an already-collected List. The concrete
-/// entry point preserves the same numeric contract without asking callers to
-/// re-establish an Iterable associated-item equality for List<Float>.
-class MathReductions {
-  @class
-  meanList(_ values: List<Float>) -> Float {
-    if values.size == 0 { ArgumentError.new("mean requires a nonempty input").raise() }
-    let mut scale = 0.0
-    let mut total = 0.0
-    let mut correction = 0.0
-    let mut i = 0
-    while i < values.size {
-      let x: Float = values.at(i)
-      if not x.isFinite { ArgumentError.new("Float mean requires finite values").raise() }
-      let magnitude = x.abs
-      if magnitude > scale {
-        if scale != 0.0 {
-          let ratio = scale / magnitude
-          total = total * ratio
-          correction = correction * ratio
-        }
-        scale = magnitude
-      }
-      if scale != 0.0 {
-        let term = x / scale
-        let next = total + term
-        if total.abs >= term.abs {
-          correction = correction + ((total - next) + term)
-        } else {
-          correction = correction + ((term - next) + total)
-        }
-        total = next
-      }
-      i = i + 1
-    }
-    if scale == 0.0 { return 0.0 }
-    let normalized = (total + correction) / Float.new(values.size)
-    let result = scale * normalized
-    if not result.isFinite {
-      NumericalRangeError.new("Float mean is outside the finite binary64 range").raise()
-    }
-    return result
-  }
-}
-
-let meanList = &MathReductions.meanList(_)
+let logAddExp = &FloatReduction.logAddExp(_, _)
+let log1mexp = &FloatReduction.log1mexp(_)
 
 let factorial = &IntegerMath.factorial(_)
 let choose = &IntegerMath.choose(_, _)
@@ -108,6 +62,7 @@ export (
   sqrt, cbrt, exp, exp2, expm1, ln, ln1p, log, log2, log10,
   sin, cos, tan, asin, acos, atan, atan2,
   degrees, radians, sinh, cosh, tanh, asinh, acosh, atanh, hypot,
-  gcd, lcm, isqrt, sum, mean, meanList, logSumExp, factorial, choose, fallingFactorial, risingFactorial,
+  gcd, lcm, isqrt, sum, mean, logSumExp, logAddExp, log1mexp,
+  factorial, choose, fallingFactorial, risingFactorial,
   NumericalRangeError, NumericalEvaluationError
 )

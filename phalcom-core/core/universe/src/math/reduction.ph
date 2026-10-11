@@ -95,43 +95,81 @@ class FloatReduction {
     return result
   }
 
+  /// Stable two-term log-domain addition with explicit IEEE edge handling.
   @class
-  logSumExp(_ values: List<Float>) -> Float {
+  logAddExp(_ a: Float, _ b: Float) -> Float {
+    if a != a { return a }
+    if b != b { return b }
+    let infinity = 1.0 / 0.0
+    if a == infinity or b == infinity { return infinity }
+    if a == -infinity { return b }
+    if b == -infinity { return a }
+    let maximum = if a >= b { a } else { b }
+    return maximum + FloatMathKernel.ln1p(FloatMathKernel.exp(-(a - b).abs))
+  }
+
+  /// Stable logarithm of 1 - exp(x), defined for real x <= 0.
+  @class
+  log1mexp(_ x: Float) -> Float {
+    if x != x { return x }
+    let infinity = 1.0 / 0.0
+    if x > 0.0 { return 0.0 / 0.0 }
+    if x == 0.0 { return -infinity }
+    if x == -infinity { return 0.0 }
+    if x < -0.6931471805599453 {
+      return FloatMathKernel.ln1p(-FloatMathKernel.exp(x))
+    }
+    return FloatMathKernel.ln(-FloatMathKernel.expm1(x))
+  }
+
+  @class
+  logSumExp<I>(_ values: I) -> Float
+    where I |= Iterable, <I as Iterable>::Item == Float
+  {
     let infinity = 1.0 / 0.0
     let mut maximum = -infinity
-    let mut maximumIndex = -1
-    let mut i = 0
-    // Scan the entire input so NaN takes precedence over positive infinity.
-    while i < values.size {
-      let x: Float = values.at(i)
-      if x != x { return x }
-      if x > maximum {
-        maximum = x
-        maximumIndex = i
-      }
-      i = i + 1
-    }
-    if maximum == infinity or maximum == -infinity { return maximum }
-
-    // Omit one maximum term (exactly 1) and accumulate the residual using
-    // Neumaier compensation. ln1p preserves tiny corrections to that term.
     let mut total = 0.0
     let mut correction = 0.0
-    i = 0
-    while i < values.size {
-      if i != maximumIndex {
-        let x: Float = values.at(i)
-        let term = FloatMathKernel.exp(x - maximum)
-        let next = total + term
-        if total >= term {
-          correction = correction + ((total - next) + term)
+    let mut iterator = values.iterator
+    let mut step = iterator.next
+    while step.isSome {
+      let x: Float = step.match(some: |value| { value }, none: || { 0.0 })
+      if x != x { return x }
+      if x == infinity {
+        maximum = infinity
+        total = 0.0
+        correction = 0.0
+      } else if maximum != infinity and x != -infinity {
+        if maximum == -infinity {
+          maximum = x
+        } else if x > maximum {
+          let oldMaximum = maximum
+          let ratio = FloatMathKernel.exp(oldMaximum - x)
+          total = total * ratio
+          correction = correction * ratio
+          maximum = x
+          let term = ratio
+          let next = total + term
+          if total.abs >= term.abs {
+            correction = correction + ((total - next) + term)
+          } else {
+            correction = correction + ((term - next) + total)
+          }
+          total = next
         } else {
-          correction = correction + ((term - next) + total)
+          let term = FloatMathKernel.exp(x - maximum)
+          let next = total + term
+          if total.abs >= term.abs {
+            correction = correction + ((total - next) + term)
+          } else {
+            correction = correction + ((term - next) + total)
+          }
+          total = next
         }
-        total = next
       }
-      i = i + 1
+      step = iterator.next
     }
+    if maximum == infinity or maximum == -infinity { return maximum }
     return maximum + FloatMathKernel.ln1p(total + correction)
   }
 }

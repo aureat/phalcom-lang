@@ -1,7 +1,7 @@
 #![doc = r" Generated canonical native surface records."]
 #[doc = r" Number of authored `#[primitive]` declarations scanned by the surface"]
 #[doc = r" generator."]
-pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 424usize;
+pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 427usize;
 use crate::{NativeMemberKind, NativeReturnShape, NativeSurfaceRecord};
 use phalcom_native_meta::*;
 pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
@@ -2878,6 +2878,53 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             key: PrimitiveKey {
                 owner: UniverseKey::Float,
                 side: NativeDispatch::Instance,
+                selector: "copySign(_)",
+            },
+            visibility: NativeVisibility::Public,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float),
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float)],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float),
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Copy the sign bit of another Float while preserving this value's magnitude."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("Float"),
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Float,
+                side: NativeDispatch::Instance,
                 selector: "floor",
             },
             visibility: NativeVisibility::Public,
@@ -2919,6 +2966,59 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         kind: NativeMemberKind::Getter,
         abi: PrimitiveAbi::Value,
         return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Float,
+                side: NativeDispatch::Instance,
+                selector: "fma(_,_)",
+            },
+            visibility: NativeVisibility::Public,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[
+                    ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float),
+                    ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float),
+                ],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float),
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[
+                        ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float),
+                        ::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float),
+                    ],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float),
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Fused Float multiply-add: the product and sum are rounded once."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("Float"),
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {
@@ -3436,6 +3536,53 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         kind: NativeMemberKind::Getter,
         abi: PrimitiveAbi::Value,
         return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Float,
+                side: NativeDispatch::Instance,
+                selector: "scalePow2(_)",
+            },
+            visibility: NativeVisibility::Public,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float),
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Float),
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Pure,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Scale by an arbitrary-precision integer power of two with IEEE overflow and underflow."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("Float"),
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {

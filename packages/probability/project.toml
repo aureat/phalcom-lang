@@ -6,3 +6,4 @@ source = "src"
 
 [dependencies]
 statistics = { path = "../statistics" }
+numerics = { path = "../numerics" }

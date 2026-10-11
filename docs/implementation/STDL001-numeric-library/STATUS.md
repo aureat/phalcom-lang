@@ -25,5 +25,9 @@ The `STDL001.C8` probability source is partial and unverified. Its compatibility
 choices and remaining boundaries are in
 [`STDL001.C8`](C8-probability/CHECKPOINT.md).
 
+The `STDL001.C9` math-boundary/API implementation is present, with Rust/native
+surface checks complete. Phalcom package and numerical behavior acceptance
+remain unverified; see [`STDL001.C9`](C9-math-foundation/CHECKPOINT.md).
+
 With the runtime bootstrap and semantic carrier/frame blockers cleared, all
 three active checkpoints can resume focused source-language acceptance.

@@ -140,7 +140,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["math"],
         kind: ModuleKind::Package,
-        children: &["float_kernel", "integer", "reduction", "numerical_errors", "special", "complex"],
+        children: &["float_kernel", "integer", "reduction", "numerical_errors", "complex"],
     },
     UniverseNodeSpec {
         path: &["numbers"],
@@ -204,16 +204,6 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["math", "numerical_errors"],
-        kind: ModuleKind::Module,
-        children: &[],
-    },
-    UniverseNodeSpec {
-        path: &["math", "special"],
-        kind: ModuleKind::Package,
-        children: &["kernel"],
-    },
-    UniverseNodeSpec {
-        path: &["math", "special", "kernel"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -955,12 +945,6 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "math" && m.as_str() == "numerical_errors" => {
                 include_str!("../../phalcom-core/core/universe/src/math/numerical_errors.ph")
-            }
-            [c, m] if c.as_str() == "math" && m.as_str() == "special" => {
-                include_str!("../../phalcom-core/core/universe/src/math/special/package.ph")
-            }
-            [c, m, k] if c.as_str() == "math" && m.as_str() == "special" && k.as_str() == "kernel" => {
-                include_str!("../../phalcom-core/core/universe/src/math/special/kernel.ph")
             }
             [c] if c.as_str() == "random" => include_str!("../../phalcom-core/core/universe/src/random/package.ph"),
             [c, m] if c.as_str() == "random" && m.as_str() == "generator" => include_str!("../../phalcom-core/core/universe/src/random/generator.ph"),

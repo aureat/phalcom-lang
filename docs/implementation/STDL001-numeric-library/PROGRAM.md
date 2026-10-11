@@ -17,3 +17,8 @@ are both resolved and verified (§16–17 of [`stack-overflow-incident-2026-10-1
 The minimal project compiles, bootstraps, and runs under `VM::new()`. Focused
 source acceptance for the active Rational (`C6`), statistics (`C7`), and
 probability (`C8`) checkpoints can now proceed.
+
+The `STDL001.C9` math-boundary implementation is present: advanced special
+functions now live in the optional `numerics.special` package, and the
+foundational Float/reduction APIs have been consolidated. Its Phalcom source
+acceptance remains open; see [`C9`](C9-math-foundation/CHECKPOINT.md).

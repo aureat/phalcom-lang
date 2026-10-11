@@ -113,4 +113,10 @@ native class Float is Number {
   native nextDown -> Float
   native ulp -> Float
   native totalCompare(_ other: Float) -> Ordering
+  /// Fused multiply-add with a single final rounding.
+  native fma(_ multiplier: Float, _ addend: Float) -> Float
+  /// Return this value's magnitude with the sign bit copied from `sign`.
+  native copySign(_ sign: Float) -> Float
+  /// Scale by an integer power of two, following IEEE overflow/underflow rules.
+  native scalePow2(_ exponent: Int) -> Float
 }

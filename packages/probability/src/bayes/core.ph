@@ -1,5 +1,5 @@
 import universe.math as math
-import universe.math.special as special
+import numerics.special as special
 from universe.math import NumericalRangeError
 from universe.collections.iterator_laws import Iterable
 from ..bernoulli import Bernoulli

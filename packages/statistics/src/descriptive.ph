@@ -79,7 +79,7 @@ class Descriptive {
   {
     let values = Descriptive.snapshot(input)
     if values.size == 0 { EmptyInputError.new("mean requires a nonempty input").raise() }
-    return math.meanList(values)
+    return math.mean(values.iterator)
   }
 
   @class

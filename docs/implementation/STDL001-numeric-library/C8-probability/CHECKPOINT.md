@@ -40,6 +40,10 @@ likelihood helpers, bounded conjugate updates, and fixed-budget Monte Carlo.
 - `probability.monte_carlo` depends on the canonical `statistics` summaries.
   Probability root exports remain separate from Bayesian and Monte Carlo
   facades.
+- Advanced gamma/beta/error-function kernels are an explicit optional
+  `numerics.special` dependency. The probability package no longer imports
+  special functions through `universe.math`; `universe.math` remains its
+  foundational Float API.
 - The branch's `Generator.nextFloat` is a 53-bit grid draw. Samplers consume the
   caller's generator explicitly and retain this backend's reproducibility
   contract; the proposal's `Pcg32` stream contract is not substituted here.

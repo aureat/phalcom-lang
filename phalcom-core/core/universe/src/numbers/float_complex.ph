@@ -10,23 +10,6 @@ class FloatComplex {
   }
 
   @class
-  copySign(_ magnitude: Float, _ sign: Float) -> Float {
-    if FloatComplex.negative(sign) { return -magnitude.abs }
-    return magnitude.abs
-  }
-
-  // Exact binary scaling without an extra native primitive.
-  @class
-  scale(_ value: Float, _ exponent: Int) -> Float {
-    if value == 0.0 or not value.isFinite { return value }
-    let mut x = value
-    let mut n = exponent
-    while n > 512 { x = x * 1.3407807929942597e154; n = n - 512 }
-    while n < -512 { x = x * 7.458340731200207e-155; n = n + 512 }
-    return x * (2.0 ** Float.new(n))
-  }
-
-  @class
   normalize(_ value: Float) -> (Float, Int) {
     if value == 0.0 { return (value, 0) }
     let mut x = value
@@ -53,8 +36,8 @@ class FloatComplex {
     let ye = bb[1] + dd[1]
     if x == 0.0 { return (x + y, ye) }
     if y == 0.0 { return (x + y, xe) }
-    if xe >= ye { return (x + FloatComplex.scale(y, ye - xe), xe) }
-    return (FloatComplex.scale(x, xe - ye) + y, ye)
+    if xe >= ye { return (x + y.scalePow2(ye - xe), xe) }
+    return (x.scalePow2(xe - ye) + y, ye)
   }
 
   @class
@@ -62,24 +45,28 @@ class FloatComplex {
     let infinity = 1.0 / 0.0
     let nan = 0.0 / 0.0
     if c == 0.0 and d == 0.0 {
-      let pole = FloatComplex.copySign(infinity, c)
+      let pole = infinity.copySign(c)
       return (pole * a, pole * b)
     }
     if a.isFinite and b.isFinite and c.isFinite and d.isFinite {
       let denominator = FloatComplex.dot(c, c, d, d)
       let real = FloatComplex.dot(a, c, b, d)
       let imag = FloatComplex.dot(b, c, -a, d)
-      return (FloatComplex.scale(real[0] / denominator[0], real[1] - denominator[1]),
-              FloatComplex.scale(imag[0] / denominator[0], imag[1] - denominator[1]))
+      return ((real[0] / denominator[0]).scalePow2(real[1] - denominator[1]),
+              (imag[0] / denominator[0]).scalePow2(imag[1] - denominator[1]))
     }
     if (c.isInfinite or d.isInfinite) and a.isFinite and b.isFinite {
-      let cr = FloatComplex.copySign(if c.isInfinite { 1.0 } else { 0.0 }, c)
-      let di = FloatComplex.copySign(if d.isInfinite { 1.0 } else { 0.0 }, d)
+      let crMagnitude = if c.isInfinite { 1.0 } else { 0.0 }
+      let diMagnitude = if d.isInfinite { 1.0 } else { 0.0 }
+      let cr = crMagnitude.copySign(c)
+      let di = diMagnitude.copySign(d)
       return (0.0 * (a * cr + b * di), 0.0 * (b * cr - a * di))
     }
     if (a.isInfinite or b.isInfinite) and c.isFinite and d.isFinite {
-      let ar = FloatComplex.copySign(if a.isInfinite { 1.0 } else { 0.0 }, a)
-      let bi = FloatComplex.copySign(if b.isInfinite { 1.0 } else { 0.0 }, b)
+      let arMagnitude = if a.isInfinite { 1.0 } else { 0.0 }
+      let biMagnitude = if b.isInfinite { 1.0 } else { 0.0 }
+      let ar = arMagnitude.copySign(a)
+      let bi = biMagnitude.copySign(b)
       return (infinity * (ar * c + bi * d), infinity * (bi * c - ar * d))
     }
     return (nan, nan)
@@ -89,15 +76,18 @@ class FloatComplex {
   polar(_ radius: Float, _ angle: Float) -> (Float, Float) {
     let nan = 0.0 / 0.0
     if angle == 0.0 {
-      if radius.isInfinite { return (radius, FloatComplex.copySign(0.0, if FloatComplex.negative(radius) { -angle } else { angle })) }
+      if radius.isInfinite {
+        let zeroSign = if FloatComplex.negative(radius) { -angle } else { angle }
+        return (radius, 0.0.copySign(zeroSign))
+      }
       if radius.isNaN { return (radius, angle) }
       return (radius, radius * angle)
     }
     if radius == 0.0 and not angle.isFinite { return (0.0, 0.0) }
     if not angle.isFinite { return (nan, nan) }
     if radius.isInfinite {
-      return (FloatComplex.copySign(radius, F.cos(angle)) * (if radius < 0.0 { -1.0 } else { 1.0 }),
-              FloatComplex.copySign(radius, F.sin(angle)) * (if radius < 0.0 { -1.0 } else { 1.0 }))
+      return (radius.copySign(F.cos(angle)) * (if radius < 0.0 { -1.0 } else { 1.0 }),
+              radius.copySign(F.sin(angle)) * (if radius < 0.0 { -1.0 } else { 1.0 }))
     }
     return (radius * F.cos(angle), radius * F.sin(angle))
   }
