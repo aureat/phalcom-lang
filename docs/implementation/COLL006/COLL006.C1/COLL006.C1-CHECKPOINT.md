@@ -332,7 +332,7 @@ The ledger records current C1 execution state. Proposed successor plans retain t
 | `COLL006.C1.P3` | `Vector<T,N>` runtime/native representation, static extent inference/cardinality proof, constructors, equality/hash, direct lowering | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Vector runtime/static formation, solved-only publication, negative extent rejection, Array homogeneous contracts, union/deferred publication, incremental parity, and focused runtime/compiler gates pass |
 | `COLL006.C1.P4` | Static homogeneous sequence model; const Vector; const Array; materialization; repository-wide bracket-default cutover/migration | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T10/T11 cutover and stabilization complete; G7 focused evidence passes except inherited D4 static-constant failures |
 | `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 owned implementation and focused evidence complete; G6.A PASS; G6.B and aggregate G6 retain the parse-package baseline blocker |
-| `COLL006.C1.P6` | Reusable ordered-hash backing; preserve Map/Set; add `MutableBag`, `IndexedDict`, `OrderedSet` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete mutable ordered/hash-indexed family without duplicating re-entry logic |
+| `COLL006.C1.P6` | Reusable ordered-hash backing; preserve Map/Set; add `MutableBag`, `IndexedDict`, `OrderedSet` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Shared key-engine extraction passes focused regression; new public APIs wait on selector-contract consultation |
 | `COLL006.C1.P7` | Persistent hash substrate; `Bag<T>`; `Bijection<K,V>` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete persistent hash collections with structural sharing |
 | `COLL006.C1.P8` | `Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete generic interval-domain mapping |
 | `COLL006.C1.P9` | API/conversion convergence, `Entry<K,V>` migration boundary, diagnostics, property/GC/performance certification, docs/checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | Certify the complete C1 collection family |
@@ -916,18 +916,64 @@ The implementer cannot self-waive a triggered consultation.
 ## 18. Active plan and next action
 
 ```text
-active plan:           none; COLL006.C1.P5 complete, P6 next
+active plan:           COLL006.C1.P6; T1 shared key-engine extraction complete, T2 API consultation next
 latest completed plan: COLL006.C1.P5
 execution blockers:    no P5-owned implementation blocker; G6.A PASS; G6.B and aggregate G6 retain inherited parse-package failures
 verification residuals: D4 — computed Record-key failures block a clean aggregate static_constants PASS;
                          D1 — metadata failure, still suspected unrelated;
                          D2 — reflection/module fixture failures, still suspected unrelated
-next action:           plan/execute COLL006.C1.P6; retain G6.B/aggregate G6 BASELINE_BLOCKED and the P9 final package obligation
+next action:           obtain the public API ruling before implementing new collection surfaces; retain G6.B/aggregate G6 BASELINE_BLOCKED and the P9 final package obligation
 ```
 
-Continue in the `telos-collections-upgrade` worktree from the completed P4 state.
-T10/G6 and T11/G7 are complete; live defaults are runtime Array and static
-Vector. Read the P4 walkthrough and handoff for the stable P5 takeover map.
+### P6 start — 2026-10-11
+
+P6 is active on `feat/telos-collection-upgrade` at
+`dea2cd1d83b148e71b2ce0dd442e53636b3e8917`; the worktree was clean. The
+patch-grade plan is `COLL006.C1.P6-detailed-implementation-plan.md`.
+The plan begins with Map/Set key-engine extraction. Current `docs/specs/` has
+no owning Map/Set or P6 collection API specification, and the C1 architecture
+records do not fully define the new public selector/result/error contracts.
+Accordingly, T2 requires an architecture consultation before the three new
+public surfaces are implemented; the request is prepared in
+`COLL006.C1.P6-api-contract-consultation.md`. This did not block the
+behavior-preserving Map/Set extraction. P5 G6.B and aggregate G6 remain
+baseline-blocked for P9's full parse-package recheck.
+
+### P6 T0/T1 — Entry baseline and shared key engine — 2026-10-11
+
+T0 ran on the clean P6 start revision before source edits. The observed failures
+are not attributed to the P6 key-engine change:
+
+| Command | Result |
+|---|---|
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core core_collections` | 11 passed / 1 failed; the sole failure is `R-MAP-REMOVE` at `map_key_overwrite_and_remove_idempotence`, matching the P5 handoff. |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test language-corpus collections` | 0 passed / 2 failed. The positive lane hits `Range.toList` missing; the negative lane stops at `map_key_eq_mutates_same_map_during_overwrite_rejected` because unannotated `Map.new()` is underconstrained. These are recorded as pre-P6 observed failures; no main/predecessor comparison was done. |
+
+T1 moved candidate hashing, Telos equality, collision handling, numeric
+SameValueZero, callback propagation, and per-send re-entry bracketing into
+`phalcom-core/src/primitive/ordered_hash.rs`. Map and Set now route lookup
+through that shared engine while retaining their collection-specific heap
+accessors and mutation behavior. The source regression
+`shared_hash_engine_preserves_collisions_and_reentry` uses distinct custom
+keys with the same hash, duplicate keys, both Map/Set reentrant mutation
+errors, throwing hash/equality callbacks, and a subsequent operation after the
+callback failure.
+
+| Focused evidence | Result |
+|---|---|
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core core_collections::shared_hash_engine_preserves_collisions_and_reentry -- --nocapture` | 1 passed; exercises checked source through the full Universe compiler/VM path. |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core core_collections` after extraction | 11 passed / the same `R-MAP-REMOVE` failure; no new failure observed. |
+| `rustfmt --check --edition 2024` on the five changed Rust files | Passed. |
+| `cargo fmt --all -- --check` | Failed on pre-existing format differences across unrelated files; no broad formatting was applied. |
+| `git diff --check` | Passed. |
+
+T1 is `IMPLEMENTED / FOCUSED_TESTED`. T2 remains an architecture gate: obtain
+the missing public selector/result/error/ordering ruling before implementing
+`MutableBag`, `IndexedDict`, or `OrderedSet` source-visible APIs.
+
+Continue in the `telos-collections-upgrade` worktree from completed P5 at the
+P6 revision recorded above. Read the P5 walkthrough and handoff for the stable
+Slice/Buffer takeover map.
 
 ### P5 T0 entry — 2026-10-11
 

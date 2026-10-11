@@ -333,6 +333,105 @@ fn set_add_and_remove_idempotence() {
     assert!(!as_bool(send1(&mut vm, set, "includes(_)", Value::int(7))));
 }
 
+/// Map and Set must keep Telos equality as the collision disambiguator and
+/// reject structural re-entry while a key callback is running. Explicit
+/// Dynamic arguments keep this runtime regression independent from generic
+/// constructor inference.
+#[test]
+fn shared_hash_engine_preserves_collisions_and_reentry() {
+    let source = r#"
+class Pt {
+  mut _x
+  mut _y
+  x { _x }
+  y { _y }
+  @constructor
+  new(_ x, _ y) { _x = x; _y = y }
+  hash { _x * 31 + _y }
+  ==(_ other) { _x == other.x and _y == other.y }
+}
+
+let first = Pt.new(1, 32)
+let second = Pt.new(2, 1)
+let duplicate = Pt.new(1, 32)
+let map = Map<Dynamic, Dynamic>.new()
+map.at(first, put: "first")
+map.at(second, put: "second")
+map.at(duplicate, put: "overwritten")
+let mapCollisions = map.size == 2 and map[first] == "overwritten" and map[second] == "second"
+
+let set = Set<Dynamic>.new()
+set.add(first)
+set.add(second)
+set.add(duplicate)
+let setCollisions = set.size == 2 and set.at(0) == first and set.at(1) == second
+
+let mut guardedMap = Map<Dynamic, Dynamic>.new()
+class BadMapKey {
+  mut _triggered
+  @constructor
+  new() { _triggered = false }
+  hash { 0 }
+  ==(_ other) {
+    if not _triggered {
+      _triggered = true
+      guardedMap.remove(other)
+    }
+    return true
+  }
+}
+let mapKeyA = BadMapKey.new()
+let mapKeyB = BadMapKey.new()
+guardedMap.at(mapKeyA, put: 1)
+let mapReentry = || { guardedMap.at(mapKeyB, put: 2) }.on(Error) |e| { e.message }
+let mapReentryRejected = mapReentry == "cannot mutate this Map inside 'hash'/'==' of its own key (concurrent mutation)"
+
+let mut hashFailureMap = Map<Dynamic, Dynamic>.new()
+class ExplodingHashKey {
+  hash { throw Error.new("hash failed") }
+}
+let hashFailure = || { hashFailureMap.at(ExplodingHashKey.new(), put: 1) }.on(Error) |e| { e.message }
+hashFailureMap.at(#safe, put: 2)
+let hashFailureRecovered = hashFailure == "hash failed" and hashFailureMap.size == 1 and hashFailureMap[#safe] == 2
+
+let mut equalityFailureMap = Map<Dynamic, Dynamic>.new()
+class ExplodingEqualityKey {
+  hash { 0 }
+  ==(_ other) { throw Error.new("equality failed") }
+}
+equalityFailureMap.at(ExplodingEqualityKey.new(), put: 1)
+let equalityFailure = || { equalityFailureMap.at(ExplodingEqualityKey.new(), put: 2) }.on(Error) |e| { e.message }
+equalityFailureMap.at(#safe, put: 3)
+let equalityFailureRecovered = equalityFailure == "equality failed" and equalityFailureMap.size == 2 and equalityFailureMap[#safe] == 3
+
+let mut guardedSet = Set<Dynamic>.new()
+class BadSetKey {
+  mut _triggered
+  @constructor
+  new() { _triggered = false }
+  hash { 0 }
+  ==(_ other) {
+    if not _triggered {
+      _triggered = true
+      guardedSet.remove(other)
+    }
+    return true
+  }
+}
+let setKeyA = BadSetKey.new()
+let setKeyB = BadSetKey.new()
+guardedSet.add(setKeyA)
+let setReentry = || { guardedSet.add(setKeyB) }.on(Error) |e| { e.message }
+let setReentryRejected = setReentry == "cannot mutate this Set inside 'hash'/'==' of its own key (concurrent mutation)"
+
+let passed = mapCollisions and setCollisions and mapReentryRejected and setReentryRejected and hashFailureRecovered and equalityFailureRecovered
+"#;
+    let (vm, module) = super::vm_support::run_inline(source).expect("ordered-hash source compiles and runs");
+    let passed_symbol = vm.interner.find("passed").expect("ordered-hash result is interned");
+    let passed = vm.heap.module(module).get(passed_symbol).expect("ordered-hash source publishes its result");
+    assert!(as_bool(passed), "shared Map/Set key engine must preserve collision and re-entry contracts");
+}
+
 /// Builds a `Tuple` through its public product-literal syntax. The internal
 /// `Tuple.rawFromList(_)` bridge is intentionally inaccessible to callers.
 fn build_tuple(vm: &mut VM, elems: &[Value]) -> Value {

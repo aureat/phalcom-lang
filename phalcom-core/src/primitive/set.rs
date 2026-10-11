@@ -18,7 +18,8 @@
 
 use crate::error::{MapMutationError, PhResult, RuntimeError};
 use crate::heap::ObjRef;
-use crate::primitive::{expect_set, is_mutable_collection_key, mutable_key_error, send_eq, send_hash};
+use crate::primitive::ordered_hash::{self, KeyedCollectionKind};
+use crate::primitive::{expect_set, is_mutable_collection_key, mutable_key_error};
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -64,32 +65,7 @@ pub fn set_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
 ///
 /// Propagates any [`crate::error::RuntimeError`] raised by the `hash`/`==` sends.
 fn locate(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(i64, Option<usize>)> {
-    vm.heap.set_mut(id).enter_reentrant_send();
-    let bucket_result = send_hash(vm, key);
-    vm.heap.set_mut(id).exit_reentrant_send();
-    let bucket = bucket_result?;
-
-    let candidates: Vec<usize> = vm.heap.set(id).bucket(bucket).to_vec();
-    for slot in candidates {
-        let Some(candidate_key) = vm.heap.set(id).key_at(slot) else {
-            continue;
-        };
-        let is_num_key = key.is_int() || key.is_float() || key.as_obj().is_some_and(|oid| vm.heap.as_large_int(oid).is_some());
-        let is_num_cand = candidate_key.is_int() || candidate_key.is_float() || candidate_key.as_obj().is_some_and(|oid| vm.heap.as_large_int(oid).is_some());
-        if is_num_key || is_num_cand {
-            if crate::value::same_value_zero(candidate_key, key, &vm.heap) {
-                return Ok((bucket, Some(slot)));
-            }
-        } else {
-            vm.heap.set_mut(id).enter_reentrant_send();
-            let eq_result = send_eq(vm, candidate_key, key);
-            vm.heap.set_mut(id).exit_reentrant_send();
-            if eq_result? {
-                return Ok((bucket, Some(slot)));
-            }
-        }
-    }
-    Ok((bucket, None))
+    ordered_hash::locate_key(vm, id, key, KeyedCollectionKind::Set)
 }
 
 /// Signature: `Set::add_(_)` — inserts `key` if absent (idempotent),

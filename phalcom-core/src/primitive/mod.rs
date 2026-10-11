@@ -21,6 +21,7 @@ pub mod module;
 pub mod number;
 pub mod object;
 pub mod option;
+mod ordered_hash;
 pub mod pack;
 pub mod random;
 pub mod range;
