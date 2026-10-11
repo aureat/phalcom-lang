@@ -17,8 +17,9 @@ class Main {
     System.print("Num.ceil(-3.7) = " + Num.Num.ceil(-3.7).toString)
     System.print("Num.round(3.5) = " + Num.Num.round(3.5).toString)
     System.print("Num.abs(-5) = " + Num.Num.abs(-5).toString)
-    System.print("Num.min([3, 1, 4]) = " + Num.Num.min([3, 1, 4]).toString)
-    System.print("Num.max([3, 1, 4]) = " + Num.Num.max([3, 1, 4]).toString)
+    let numbers: List<Float> = [3, 1, 4]
+    System.print("Num.min([3, 1, 4]) = " + Num.Num.min(numbers).toString)
+    System.print("Num.max([3, 1, 4]) = " + Num.Num.max(numbers).toString)
     System.print("Num.isInt(3.0) = " + Num.Num.isInt(3.0).toString)
     System.print("Num.isInt(3.5) = " + Num.Num.isInt(3.5).toString)
     System.print("")

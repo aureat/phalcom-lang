@@ -5,15 +5,15 @@
 // routes through it rather than staying identity-based (the `==`/`!=`
 // decoupling hazard).
 
-let a = []
+let a: List<Int> = []
 a.append(1)
 a.append(2)
 a.append(3)
-let b = []
+let b: List<Int> = []
 b.append(1)
 b.append(2)
 b.append(3)
-let c = []
+let c: List<Int> = []
 c.append(1)
 c.append(9)
 c.append(3)

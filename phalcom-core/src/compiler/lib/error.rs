@@ -208,6 +208,10 @@ pub enum CompilerError {
     #[error("missing semantic positional expansion lowering at {0:?}")]
     MissingPositionalExpansionLowering(SourceRange),
 
+    /// Sequence literal lowering specification is missing from semantic lowering.
+    #[error("missing sequence literal lowering specification at {0:?}")]
+    MissingSequenceLiteralLowering(SourceRange),
+
     /// A second `class X` declaration in the same module, or a `class`
     /// whose name collides with an `import … as Name` already bound in this
     /// unit (PDR-0001 ruling 2, PDR-0002, U-CLASSCLOSE §2.1/§8).

@@ -108,7 +108,8 @@ A `*` date was inferred because the source lacked an explicit ratification date.
 | [TDR-0088](./accepted/0088-native-type-operations-use-closed-compiler-normalization.md) | 2026-09-21 | Native type operations use a closed compiler-normalized calculus, not VM execution | - | Accepted |
 | [TDR-0089](./accepted/0089-intrinsic-is-a-first-class-implementation-keyword.md) | 2026-09-22 | `intrinsic` Is a First-Class Implementation-Kind Keyword and `@intrinsic` Is Retired | - | Accepted |
 | [TDR-0090](./accepted/0090-structural-static-evaluation-packs-products-sums-and-binding-semantics.md) | 2026-10-04 | Structural static evaluation, Pack/Product/Sum reflection, and binding semantics | LANG007.C4 | Accepted |
-| [TDR-0091](./accepted/0091-primitive-is-a-declaration-classification.md) | 2026-10-11 | `primitive` is a declaration classification modifier | Source declarations | Accepted |
+| [TDR-0091](./accepted/0091-contextual-homogeneous-sequence-literals.md) | 2026-10-09 | Bracket literals form contextual homogeneous sequences | COLL006.C1 | Accepted |
+| [TDR-0094](./accepted/0094-primitive-is-a-declaration-classification.md) | 2026-10-11 | `primitive` is a declaration classification modifier | Source declarations | Accepted |
 
 ## Proposed registry
 

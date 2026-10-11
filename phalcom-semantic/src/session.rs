@@ -6988,7 +6988,7 @@ impl SemanticWorkspaceSession {
                     let Some(fact) = module_static_bindings.get(&symbol.module).and_then(|bindings| bindings.get(symbol)) else {
                         continue;
                     };
-                    ctx.declare_checked_binding(local_name.to_string(), &fact.state);
+                    ctx.declare_checked_binding(local_name.to_string(), &fact.state, fact.phase);
                 }
             }
 
@@ -7552,6 +7552,9 @@ impl SemanticWorkspaceSession {
                                 .then_some(binding.annotation.as_ref())
                                 .flatten()
                                 .and_then(|annotation| {
+                                    if crate::checker::annotation_elaboration::annotation_contains_inference_hole(annotation) {
+                                        return None;
+                                    }
                                     let mut annotation_diagnostics = Vec::new();
                                     let knowledge = crate::types::annotation::resolve_type_annotation(
                                         Arc::make_mut(&mut self.store),
@@ -7898,7 +7901,7 @@ impl SemanticWorkspaceSession {
                     // result types.
                     checked_constants.remove(&id);
                     let binding_states = static_constant_binding_states(catalog, &module_static_binding_runtime_states, Some(&static_constants_table));
-                    let (expected_type, key_expressions) = if decl.has_computed_record_keys {
+                    let (expected, key_expressions) = if decl.has_computed_record_keys {
                         let annotation = decl.annotation.expect("computed key annotation");
                         let owner = QueryKey::StaticConstant(id.clone());
                         let mut projections = crate::static_key::ProjectedRecordKeySet::new(owner);
@@ -7969,9 +7972,19 @@ impl SemanticWorkspaceSession {
                         )
                         .ty();
                         diagnostics_map.entry(decl.module_id.clone()).or_default().extend(annotation_diagnostics);
-                        (expected_type, key_expressions)
+                        (
+                            expected_type.map_or(crate::checker::expected::ExpectedType::None, |ty| {
+                                crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                            }),
+                            key_expressions,
+                        )
                     } else {
-                        (decl.expected_type, Vec::new())
+                        // Partial annotations are elaborated below in the checker
+                        // that owns initializer constraints and publication.
+                        let expected = decl.expected_type.map_or(crate::checker::expected::ExpectedType::None, |ty| {
+                            crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                        });
+                        (expected, Vec::new())
                     };
                     let mut context = CheckingContext::new_with_dispatch_ref(
                         Arc::make_mut(&mut self.store),
@@ -7989,17 +8002,35 @@ impl SemanticWorkspaceSession {
                     context.attach_data_semantics(&data_semantics);
                     context.attach_associated_families(&associated_surfaces_table);
                     context.attach_conformance_semantics(&conformance_semantics);
-                    let checked = crate::checker::static_body::analyze_static_constant_initializer(
+                    let diagnostic_start = context.diagnostics.len();
+                    let expected = if let Some(annotation) = decl.annotation.filter(|annotation| {
+                        !decl.has_computed_record_keys && crate::checker::annotation_elaboration::annotation_contains_inference_hole(annotation)
+                    }) {
+                        let (elaboration, _) = context.elaborate_type_annotation(&resolver, annotation);
+                        match elaboration {
+                            Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context: inf_ctx, term, .. }) => {
+                                crate::checker::expected::ExpectedType::inference_from(inf_ctx, term, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                            }
+                            Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
+                                crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                            }
+                            None => crate::checker::expected::ExpectedType::None,
+                        }
+                    } else {
+                        expected
+                    };
+                    let checked = crate::checker::static_body::analyze_static_constant_initializer_with_expected_and_diagnostic_start(
                         context,
                         &decl.id,
                         decl.declaration_range,
                         decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
                         decl.initializer,
                         decl.annotation,
-                        expected_type,
+                        expected,
                         catalog,
                         &binding_states,
                         &static_intrinsics,
+                        diagnostic_start,
                     );
                     let mut checked = checked;
                     if !key_expressions.is_empty() {
@@ -8372,6 +8403,7 @@ fn canonical_erased_superclass_declaration(resolver: &dyn TypeResolver, module: 
         key,
         phalcom_native_meta::UniverseKey::Collection
             | phalcom_native_meta::UniverseKey::List
+            | phalcom_native_meta::UniverseKey::Array
             | phalcom_native_meta::UniverseKey::Map
             | phalcom_native_meta::UniverseKey::Set
             | phalcom_native_meta::UniverseKey::Tuple
@@ -8413,7 +8445,8 @@ fn collect_alias_dependencies(
                             collect_alias_dependencies(constraint.as_ref(), module, resolver, aliases, dependencies);
                         }
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_)
+                    | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -8556,7 +8589,8 @@ fn collect_associated_projection_targets(
                             collect_associated_projection_targets(constraint.as_ref(), module, surface, targets);
                         }
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_)
+                    | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -8728,7 +8762,8 @@ fn collect_type_annotation_declarations(
                             collect_type_annotation_declarations(constraint.as_ref(), module, resolver, dependencies);
                         }
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_)
+                    | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -9112,7 +9147,8 @@ fn collect_static_case_signature_dependencies(
                             collect_static_case_signature_dependencies(constraint.as_ref(), module, resolver, catalogs, dependencies);
                         }
                     }
-                    GenericArgumentSyntax::Value(_) => {}
+                    GenericArgumentSyntax::Value(_)
+                    | GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -9510,7 +9546,8 @@ fn collect_source_member_projection_dependencies(
                             collect_source_member_projection_dependencies(constraint.as_ref(), module, resolver, members, dependencies);
                         }
                     }
-                    GenericArgumentSyntax::Value(_) => {}
+                    GenericArgumentSyntax::Value(_)
+                    | GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }

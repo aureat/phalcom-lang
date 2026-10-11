@@ -11,14 +11,18 @@ class Secret { toString { "<redacted>" }
 let s = Secret.new()
 
 // A `List` nested inside a `List`.
-System.print([[s]])
+let inner: List<Secret> = [s]
+let outer: List<List<Secret>> = [inner]
+System.print(outer)
 
 // A `Map` nested inside a `List`.
 let m = Map.new()
 m.at("k", put: s)
-System.print([m])
+let maps: List<Dynamic> = [m]
+System.print(maps)
 
 // A `List` nested inside a `Map`.
 let m2 = Map.new()
-m2.at("k", put: [s])
+let nested: List<Secret> = [s]
+m2.at("k", put: nested)
 System.print(m2)

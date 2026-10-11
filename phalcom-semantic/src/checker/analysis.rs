@@ -566,6 +566,54 @@ pub struct ConstructorSuperCallResolution {
 }
 
 /// Published semantic analysis product for a single callable body.
+/// Canonical collection family selected for a bracket literal.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SequenceLiteralFamily {
+    List,
+    Array,
+    Vector,
+}
+
+/// Construction plan for literal lowering.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SequenceConstructionPlan {
+    Fixed {
+        element_count: usize,
+    },
+    Expanded,
+    /// A lone native Vector spread with canonically identical symbolic extent.
+    /// This proof authorizes copying storage without interpreting a runtime N.
+    VectorIdentitySpread {
+        source_range: SourceRange,
+        extent: TypeId,
+    },
+}
+
+/// Checked semantic resolution product for a bracket literal (COLL006.C1.P1).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SequenceLiteralResolution {
+    pub source_expression: ExpressionId,
+    pub source_range: SourceRange,
+    pub family: SequenceLiteralFamily,
+    pub result_type: TypeId,
+    pub element_type: TypeId,
+    pub extent: Option<TypeId>,
+    pub construction: SequenceConstructionPlan,
+    /// Intrinsic positional execution lanes whose cardinality is proved.
+    pub exact_expansions: BTreeMap<SourceRange, SequenceExpansionResolution>,
+}
+
+/// Proof-preserving positional spread for dimensioned sequence construction.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum SequenceExpansionResolution {
+    /// Closed product positional lane; labeled entries are excluded.
+    TuplePositionals { extent: TypeId },
+    /// Native immutable Vector storage, independent from virtual iteration.
+    VectorStorage { extent: TypeId },
+}
+
+pub type SequenceLiteralResolutionIndex = BTreeMap<ExpressionId, SequenceLiteralResolution>;
+
 #[derive(Clone, Debug)]
 pub struct CallableAnalysis {
     pub callable: CallableId,
@@ -578,6 +626,8 @@ pub struct CallableAnalysis {
     pub positional_expansions: Arc<PositionalExpansionIterationResolutionIndex>,
     /// Known invalid positional expansion facts consumed by core lowering.
     pub known_invalid_positional_expansions: Arc<KnownInvalidPositionalExpansionIndex>,
+    /// Checked sequence literal resolution facts consumed by core lowering.
+    pub sequence_literals: Arc<SequenceLiteralResolutionIndex>,
     pub associated_resolutions: Arc<crate::checker::associated::AssociatedResolutionIndex>,
     pub callable_reference_resolutions: Arc<crate::checker::associated::CallableReferenceResolutionIndex>,
     pub family_applications: Arc<crate::checker::associated::FamilyApplicationResolutionIndex>,

@@ -5,7 +5,7 @@
 // duplicate second key aborts construction before either expression in the
 // third association can run.
 
-let mut trace = []
+let mut trace: List<String> = []
 let key1 = || { trace.append("key1"); #same }
 let value1 = || { trace.append("value1"); 1 }
 let key2 = || { trace.append("key2"); #same }

@@ -31,6 +31,120 @@ fn get_module_global(vm: &VM, mod_obj: phalcom_core::heap::ObjRef, name: &str) -
 }
 
 #[test]
+fn static_const_sequence_same_module_reads_are_canonical_and_do_not_rebuild() {
+    let source = r#"
+const V = <Int,3>[1,2,3]
+let v1 = V
+let v2 = V
+const A: Array<Int> = <Int>[4,5,6]
+let a1 = A
+let a2 = A
+"#;
+    let src: Arc<str> = source.into();
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(src)).expect("sequence constants compile");
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("same-module sequence constant reads run");
+    let entry_id = program.initialization_order.last().expect("entry module");
+    let mod_obj = vm.module_registry.get(entry_id).unwrap().object;
+    let module = vm.heap.module(mod_obj);
+
+    let vector_name = vm.interner.find("V").unwrap();
+    let array_name = vm.interner.find("A").unwrap();
+    let vector = module.static_constants[&vector_name].as_obj().expect("Vector constant object");
+    let array = module.static_constants[&array_name].as_obj().expect("Array constant object");
+    assert!(matches!(vm.heap.get(vector), Object::Vector(_)));
+    assert!(matches!(vm.heap.get(array), Object::Array(value) if value.is_frozen()));
+    assert_eq!(Value::obj(array).class(&vm), vm.universe.classes.array_class, "freezing preserves the Array runtime classifier");
+
+    let global = |name: &str| get_module_global(&vm, mod_obj, name).as_obj().expect("sequence read object");
+    assert_eq!(global("v1"), vector, "same-module Vector read uses canonical owner value");
+    assert_eq!(global("v2"), vector, "repeated Vector read does not allocate a copy");
+    assert_eq!(global("a1"), array, "same-module Array read uses canonical owner value");
+    assert_eq!(global("a2"), array, "repeated Array read does not allocate a copy");
+
+    let Object::Vector(vector_value) = vm.heap.get(vector) else { panic!("Vector object") };
+    assert_eq!(vector_value.elements().iter().map(|value| value.as_int().unwrap()).collect::<Vec<_>>(), [1, 2, 3]);
+    let Object::Array(array_value) = vm.heap.get(array) else { panic!("Array object") };
+    assert!(array_value.is_frozen());
+    assert_eq!(array_value.elements().iter().map(|value| value.as_int().unwrap()).collect::<Vec<_>>(), [4, 5, 6]);
+    assert!(!module.name_to_slot.contains_key(&vector_name), "static Vector has no ordinary global slot");
+    assert!(!module.name_to_slot.contains_key(&array_name), "static Array has no ordinary global slot");
+
+    let closure = module.closure.expect("module initializer closure");
+    let code = &vm.heap.closure(closure).callable.chunk.code;
+    assert!(
+        !code.iter().any(|op| matches!(
+            op,
+            Bytecode::BeginArrayLiteral
+                | Bytecode::FinishArrayLiteral
+                | Bytecode::BuildVector(_)
+                | Bytecode::BeginVectorLiteral
+                | Bytecode::FinishVectorLiteral(_)
+        )),
+        "static sequence constants must not run bracket construction bytecode in the module initializer"
+    );
+
+    vm.force_gc();
+    assert!(vm.heap.try_get(vector).is_some(), "canonical owner cache roots Vector across GC");
+    assert!(vm.heap.try_get(array).is_some(), "canonical owner cache roots Array across GC");
+}
+
+#[test]
+fn static_const_array_alias_stays_frozen_at_runtime() {
+    let source = "const values: Array<Int> = <Int>[1, 2]\nlet alias = values\nalias[0] = 3\n";
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("const Array alias compiles");
+    let mut vm = VM::new();
+    let error = vm.run_compiled(&program).expect_err("alias mutation must reach the frozen Array guard");
+    assert!(error.to_string().contains("cannot mutate frozen Array"), "expected FrozenMutation, got: {error}");
+}
+
+#[test]
+fn nested_static_arrays_are_frozen_through_aliases_and_survive_gc() {
+    let source = r#"
+const outer: Array<Array<Int>> = <Array<Int>>[
+    <Int>[1, 2],
+    <Int>[3, 4]
+]
+let outer_alias = outer
+let inner_alias = outer_alias[0]
+inner_alias[0] = 9
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("nested static Arrays compile");
+    let mut vm = VM::new();
+    let error = vm.run_compiled(&program).expect_err("recursively materialized nested Array must be frozen");
+    assert!(error.to_string().contains("cannot mutate frozen Array"), "expected FrozenMutation, got: {error}");
+
+    let entry = program.initialization_order.last().expect("entry module");
+    let module = vm.module_registry.get(entry).expect("entry module materialized").object;
+    let outer_name = vm.interner.find("outer").expect("constant symbol");
+    let outer_object = vm.heap.module(module).static_constants[&outer_name].as_obj().expect("outer Array");
+    let inner_object = get_module_global(&vm, module, "inner_alias").as_obj().expect("nested Array alias");
+    assert!(matches!(vm.heap.get(outer_object), Object::Array(array) if array.is_frozen()));
+    assert!(matches!(vm.heap.get(inner_object), Object::Array(array) if array.is_frozen()));
+
+    vm.force_gc();
+    assert!(matches!(vm.heap.get(outer_object), Object::Array(array) if array.is_frozen()), "owner cache roots outer Array");
+    assert!(matches!(vm.heap.get(inner_object), Object::Array(array) if array.is_frozen()), "nested graph survives collection");
+}
+
+#[test]
+fn static_const_vector_still_has_no_element_mutation_api() {
+    let source = "const values: Vector<Int, 2> = <Int, 2>[1, 2]\nvalues[0] = 3\n";
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("Vector assignment remains a dynamic selector");
+    let mut vm = VM::new();
+    let error = vm.run_compiled(&program).expect_err("Vector has no subscript setter or element mutator");
+    assert!(error.to_string().contains("does not understand"), "expected missing Vector mutation selector, got: {error}");
+}
+
+#[test]
+fn static_const_array_does_not_become_a_stable_map_key() {
+    let source = "const values: Array<Int> = <Int>[1, 2]\nlet map: Map<Array<Int>, Int> = Map<Array<Int>, Int>.new()\nmap.at(values, put: 9)\n";
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("static Array key fixture compiles");
+    let mut vm = VM::new();
+    assert!(vm.run_compiled(&program).is_err(), "a frozen Array retains the ordinary non-key Array policy");
+}
+
+#[test]
 fn test_unit_runtime_use() {
     let source = r#"
 const U: Unit = ()

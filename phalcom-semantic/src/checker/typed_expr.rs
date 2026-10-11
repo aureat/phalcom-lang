@@ -44,6 +44,8 @@ pub struct TypedExpression {
     /// Query-local type view. Never copied into durable expression metadata.
     pub(crate) local_type: Option<LocalType>,
     pub(crate) symbolic_result: Option<SymbolicInferenceResult>,
+    /// Query-local premises for executable construction; never serialized.
+    pub(crate) publication_dependencies: super::sequence_publication::PublicationDependencies,
     pub binding_read_safety: Option<crate::checker::flow::BindingReadSafety>,
 }
 
@@ -95,6 +97,7 @@ impl TypedExpression {
             binding_write: None,
             local_type: None,
             symbolic_result: None,
+            publication_dependencies: Default::default(),
             binding_read_safety: None,
         }
     }
@@ -119,6 +122,7 @@ impl TypedExpression {
             binding_write: None,
             local_type: None,
             symbolic_result: None,
+            publication_dependencies: Default::default(),
             binding_read_safety: None,
         }
     }
@@ -143,6 +147,7 @@ impl TypedExpression {
             binding_write: None,
             local_type: None,
             symbolic_result: None,
+            publication_dependencies: Default::default(),
             binding_read_safety: None,
         }
     }
@@ -164,6 +169,7 @@ impl TypedExpression {
             binding_write: None,
             local_type: None,
             symbolic_result: None,
+            publication_dependencies: Default::default(),
             binding_read_safety: None,
         }
     }
@@ -185,6 +191,7 @@ impl TypedExpression {
             binding_write: None,
             local_type: None,
             symbolic_result: None,
+            publication_dependencies: Default::default(),
             binding_read_safety: None,
         }
     }

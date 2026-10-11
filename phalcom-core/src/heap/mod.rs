@@ -30,8 +30,10 @@
 
 mod accessors;
 pub mod adt;
+pub mod array;
 pub mod associated;
 mod block;
+pub mod buffer;
 mod bytes;
 mod class;
 mod closure;
@@ -50,15 +52,19 @@ mod record_literal_builder;
 pub mod reflection;
 pub(crate) mod selector;
 pub(crate) mod selector_pattern;
+pub mod slice;
 mod string;
 mod trace;
 mod tuple;
 pub mod typing;
 mod upvalue;
+mod vector;
 
 pub use adt::AdtCaseObject;
+pub use array::{ArrayLiteralBuilderObject, ArrayMutationError, ArrayObject};
 pub use associated::AssociatedFamilyObject;
 pub use block::BlockObject;
+pub use buffer::{BufferMutationError, BufferObject};
 pub use bytes::BytesObject;
 pub use class::{ClassObject, is_strict_subclass, lookup_method_in_hierarchy, lookup_method_with_definer};
 pub use closure::ClosureObject;
@@ -80,11 +86,13 @@ pub use reflection::{
 };
 pub use selector::SelectorObject;
 pub use selector_pattern::SelectorPatternObject;
+pub use slice::{SliceError, SliceObject};
 pub use string::StringObject;
 pub use trace::{trace_frame, trace_object};
 pub use tuple::TupleObject;
 pub use typing::{TypingObject, TypingPayload};
 pub use upvalue::Upvalue;
+pub use vector::VectorObject;
 
 use slotmap::{Key, KeyData, SecondaryMap, SlotMap, new_key_type};
 
@@ -261,6 +269,75 @@ impl Heap {
         self.insert(Object::List(list))
     }
 
+    /// Allocates an [`ArrayObject`] from `elements` and returns its [`ObjRef`].
+    pub fn alloc_array(&mut self, elements: Vec<crate::value::Value>) -> ObjRef {
+        self.insert(Object::Array(ArrayObject::from_vec(elements)))
+    }
+
+    /// Allocates a bounded [`BufferObject`] and returns its [`ObjRef`].
+    pub fn alloc_buffer(&mut self, buffer: BufferObject) -> ObjRef {
+        self.insert(Object::Buffer(buffer))
+    }
+
+    /// Allocates a normalized Slice over an Array, Vector, Buffer, or Slice.
+    ///
+    /// A Slice owner is flattened to its original backing object, keeping
+    /// lookup O(1) regardless of how many nested views are created.
+    pub fn alloc_slice_from_range(&mut self, owner: ObjRef, start: usize, len: usize) -> Result<ObjRef, SliceError> {
+        let (root_owner, base_start, visible_len) = match self.objects.get(owner) {
+            Some(Object::Array(array)) => (owner, 0, array.len()),
+            Some(Object::Vector(vector)) => (owner, 0, vector.len()),
+            Some(Object::Buffer(buffer)) => (owner, 0, buffer.len()),
+            Some(Object::Slice(slice)) => (slice.owner(), slice.start(), slice.len()),
+            _ => return Err(SliceError::UnsupportedOwner),
+        };
+
+        let requested_end = start.checked_add(len).ok_or(SliceError::RangeOverflow)?;
+        if start > visible_len || requested_end > visible_len {
+            return Err(SliceError::OutOfBounds);
+        }
+
+        let root_start = base_start.checked_add(start).ok_or(SliceError::RangeOverflow)?;
+        let root_end = root_start.checked_add(len).ok_or(SliceError::RangeOverflow)?;
+        let root_len = match self.objects.get(root_owner) {
+            Some(Object::Array(array)) => array.len(),
+            Some(Object::Vector(vector)) => vector.len(),
+            Some(Object::Buffer(buffer)) => buffer.len(),
+            _ => return Err(SliceError::UnsupportedOwner),
+        };
+        if root_end > root_len {
+            return Err(SliceError::OutOfBounds);
+        }
+
+        Ok(self.insert(Object::Slice(SliceObject::new(root_owner, root_start, len))))
+    }
+
+    /// Reads a Slice element by non-negative relative index from current
+    /// backing storage. Returns `None` for an invalid index or corrupt backing.
+    pub fn slice_element(&self, slice_id: ObjRef, index: usize) -> Option<crate::value::Value> {
+        let slice = self.as_slice(slice_id)?;
+        if index >= slice.len() {
+            return None;
+        }
+        let backing_index = slice.start().checked_add(index)?;
+        match self.objects.get(slice.owner())? {
+            Object::Array(array) => array.get(backing_index),
+            Object::Vector(vector) => vector.get(backing_index),
+            Object::Buffer(buffer) => buffer.get(backing_index),
+            _ => None,
+        }
+    }
+
+    /// Allocates immutable Vector storage after checked construction.
+    pub fn alloc_vector(&mut self, elements: Vec<crate::value::Value>) -> ObjRef {
+        self.insert(Object::Vector(VectorObject::new(elements.into_boxed_slice())))
+    }
+
+    /// Allocates a compiler-owned dynamic Array literal builder.
+    pub(crate) fn alloc_array_literal_builder(&mut self) -> ObjRef {
+        self.insert(Object::ArrayLiteralBuilder(Box::new(ArrayLiteralBuilderObject::new())))
+    }
+
     /// Allocates an empty [`Object::Map`] and returns its [`ObjRef`].
     pub fn alloc_map(&mut self) -> ObjRef {
         self.insert(Object::Map(Box::new(MapObject::new())))
@@ -403,6 +480,11 @@ impl Heap {
             Some(Object::BoundMethod(_)) => "BoundMethod",
             Some(Object::Upvalue(_)) => "Upvalue",
             Some(Object::List(_)) => "List",
+            Some(Object::Array(_)) => "Array",
+            Some(Object::Vector(_)) => "Vector",
+            Some(Object::Buffer(_)) => "Buffer",
+            Some(Object::Slice(_)) => "Slice",
+            Some(Object::ArrayLiteralBuilder(_)) => "ArrayLiteralBuilder",
             Some(Object::Fiber(_)) => "Fiber",
             Some(Object::Map(_)) => "Map",
             Some(Object::Set(_)) => "Set",

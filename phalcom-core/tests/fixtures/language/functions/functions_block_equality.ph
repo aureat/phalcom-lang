@@ -26,7 +26,7 @@ System.print(f == f)
 System.print(f != f)
 
 // Closures for the same literal are not equal.
-let fns = []
+let fns = List<Dynamic>.new()
 let mut i = 0
 while (i < 2) {
   fns.append(|| { 123 })

@@ -3,11 +3,12 @@
 // status: PASS
 // The list literal `[…]` desugars in the parser to a `[…]`
 // construction chain (zero new primitives). Round-trips size/at and renders
-// via the landed `List.toString`; `[]` is the bare `[]`.
+// via the landed `List.toString`; both values select List explicitly.
 
-let l = [1, 2, 3]
+let l: List<Int> = [1, 2, 3]
 System.print(l.size)
 System.print(l.at(0))
 System.print(l.at(2))
 System.print(l.toString)
-System.print([].size)
+let empty: List<Int> = []
+System.print(empty.size)

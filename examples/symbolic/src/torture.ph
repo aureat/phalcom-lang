@@ -185,9 +185,9 @@ let one_tuple = (answer,)
 let tuple_with_spread = (1, 2, *point)
 let labeled_tuple = (x: 1, y: 2, ** {z: 3})
 
-let values = [1, 2, 3,]
-let empty_list = [0]
-let list_with_spread = [0, *values, 4]
+let values: List<Int> = [1, 2, 3,]
+let empty_list: List<Int> = [0]
+let list_with_spread: List<Int> = [0, *values, 4]
 
 let record = {
   name: "Alice",
@@ -206,8 +206,10 @@ let computed_map = Map {
 }
 
 let (x, y) = point
-let [first, second, *tail] = [1, 2, 3, 4]
-let [(nested_x, nested_y), last] = [(1, 2), 3]
+let destructured_values: List<Int> = [1, 2, 3, 4]
+let [first, second, *tail] = destructured_values
+let nested_values: List<Dynamic> = [(1, 2), 3]
+let [(nested_x, nested_y), last] = nested_values
 
 
 // ---------------------------------------------------------------------------

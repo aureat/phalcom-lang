@@ -2,7 +2,6 @@
 
 use super::context::{CallCapture, CheckingContext};
 use super::expected::{ExpectationOrigin, ExpectedType};
-use super::expression::analyze_expression;
 use super::inference::{ConstraintOrigin, InferenceLabeledTypePackElement, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm};
 use super::row_inference::{CombinedInferenceFailure, GenericApplicationSession, term_has_row_variables};
 use crate::checker::analysis::AnalysisStatus;
@@ -636,13 +635,20 @@ impl<'a> ApplicationArgument<'a> {
 }
 
 fn analyze_application_argument(ctx: &mut CheckingContext<'_>, argument: ApplicationArgument<'_>, expected: &ExpectedType) -> TypedExpression {
+    analyze_application_argument_owned(ctx, argument, expected, None)
+}
+
+fn analyze_application_argument_owned(ctx: &mut CheckingContext<'_>, argument: ApplicationArgument<'_>, expected: &ExpectedType, owner: Option<super::sequence_publication::PublicationOwner>) -> TypedExpression {
+    let mut dependencies = if owner.is_some() { ctx.sequence_dependencies() } else { Default::default() };
+    dependencies.extend(owner);
     let mut typed = match argument {
         ApplicationArgument::PreAnalyzed { typed, .. } => {
             ctx.record_call_dependency(typed.causal_invalidity, typed.expression_id.and_then(|id| ctx.explanation_for_expression(id)));
             (*typed).clone()
         }
-        _ => analyze_expression(ctx, argument.expression().expect("ordinary application argument has an expression"), expected),
+        _ => super::expression::analyze_expression_with_publication(ctx, argument.expression().expect("ordinary application argument has an expression"), expected, dependencies),
     };
+    ctx.record_sequence_dependencies(&typed.publication_dependencies);
     // Solver-local expectations are still inside the generic application
     // boundary. Preserve their local rigid evidence for inference and defer
     // escape checking until the resulting call crosses a concrete boundary.
@@ -1630,6 +1636,11 @@ fn apply_generic_callable_inner(
             (context, frame, true)
         }
     };
+    let owner = super::sequence_publication::PublicationOwner(context, root_frame);
+    if let Some(expression) = ctx.current_expression_id() {
+        ctx.call_publication_owners.entry(expression).or_default().push((owner, owns_context));
+        ctx.record_sequence_dependencies(&[owner].into_iter().collect());
+    }
     ctx.push_inference_frame(context, root_frame);
     let result = apply_generic_callable_in_context(
         ctx,
@@ -1647,9 +1658,6 @@ fn apply_generic_callable_inner(
     ctx.pop_inference_frame(context, root_frame);
     if let Some(session) = ctx.inference_session(context) {
         session.borrow_mut().close_frame(root_frame);
-    }
-    if owns_context {
-        ctx.finish_inference_context(context);
     }
     result
 }
@@ -1673,6 +1681,7 @@ fn apply_generic_callable_in_context(
         return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
     };
 
+    let publication_owner = super::sequence_publication::PublicationOwner(context, frame);
     let has_row_generics = domains.has_record_row_parameters(ctx) || !session_handle.borrow().row_parameter_terms_for_frame(frame).is_empty();
     let domain_signatures = domains.signatures().collect::<Vec<_>>();
     let mut var_map = domains.instantiate(&mut session_handle.borrow_mut(), ctx.store, frame, fixed_generics);
@@ -1780,6 +1789,7 @@ fn apply_generic_callable_in_context(
         }
     }
 
+    let mandatory_start = session_handle.borrow().constraint_count();
     for generic_sig in domains.signatures() {
         let generic_callable = match &generic_sig.owner {
             TypeParameterOwner::Callable(callable) => callable.clone(),
@@ -1828,6 +1838,7 @@ fn apply_generic_callable_in_context(
         }
     }
 
+    let mandatory_constraints = mandatory_start..session_handle.borrow().constraint_count();
     let mut lane_args_by_param: Vec<Vec<(usize, ApplicationArgument<'_>, TypedExpression)>> = vec![Vec::new(); signature.parameters.len()];
 
     for (argument_index, argument) in args.iter().copied().enumerate() {
@@ -1974,7 +1985,7 @@ fn apply_generic_callable_in_context(
             || ExpectedType::inference_from(context, expected_term, ExpectationOrigin::GenericArgument),
             |ty| ExpectedType::proper_from(ty, ExpectationOrigin::GenericArgument),
         );
-        let argument_typed = analyze_application_argument(ctx, argument, &argument_expected);
+        let argument_typed = analyze_application_argument_owned(ctx, argument, &argument_expected, Some(publication_owner));
         record_generic_argument_capture(ctx, &argument_typed);
         let explanation = argument_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id));
         let origin = argument_typed
@@ -2643,7 +2654,10 @@ fn apply_generic_callable_in_context(
                 | crate::checker::inference::InferenceFailureReason::UnresolvedSelf
                 | crate::checker::inference::InferenceFailureReason::InternalRowSolverFailure { .. } => None,
             };
-            let parents = session.constraint_explanation_roots(&conflict.constraint_indices);
+            let mut parents = session.constraint_explanation_roots(&conflict.constraint_indices);
+            parents.extend(ctx.current_call_explanations());
+            parents.sort_by_key(|id| id.0);
+            parents.dedup();
             let explanation = ctx.record_derivation(
                 crate::explain::ExplanationStep::GenericConflict {
                     parameter,
@@ -2712,6 +2726,23 @@ fn apply_generic_callable_in_context(
                 );
             }
         }
+    }
+
+    let deferred = row_pending_ancestor || matches!(outcome, crate::checker::inference::InferenceOutcome::Underconstrained(_));
+    if outcome.is_solved() || (deferred && session_handle.borrow().frame_parent(frame).is_some()) {
+        ctx.deferred_applications.insert(publication_owner, super::sequence_publication::DeferredApplicationRequirements {
+            owner: publication_owner,
+            expression: call_id,
+            range: call_range,
+            terms: var_map.clone(),
+            return_term: return_term.clone(),
+            signature_return: signature.return_type.clone(),
+            rows: row_session.as_ref().and_then(GenericApplicationSession::query_requirements),
+            mandatory_constraints,
+            signatures: domains.signatures().cloned().collect(),
+            exact_arguments: exact_argument_bindings.clone(),
+            deferred,
+        });
     }
 
     match &outcome {
@@ -3154,16 +3185,31 @@ fn conflict_source_range(
     conflict: &crate::checker::inference::InferenceConflict,
     fallback: SourceRange,
 ) -> SourceRange {
-    let argument = match conflict.origin.as_ref() {
-        Some(ConstraintOrigin::Argument { argument, .. }) => Some(*argument),
+    let range = match conflict.origin.as_ref() {
+        Some(ConstraintOrigin::Argument { argument, .. }) => ctx.expressions.get(argument).map(|analysis| analysis.range),
         _ => conflict.constraint_indices.iter().find_map(|index| match session.constraint_origin(*index) {
-            Some(ConstraintOrigin::Argument { argument, .. }) => Some(*argument),
+            Some(ConstraintOrigin::Argument { argument, .. }) => ctx.expressions.get(argument).map(|analysis| analysis.range),
             _ => None,
         }),
     };
-    argument
-        .and_then(|argument| ctx.expressions.get(&argument).map(|analysis| analysis.range))
-        .unwrap_or(fallback)
+    range.or_else(|| {
+        let ty = match &conflict.failure {
+            crate::checker::inference::InferenceFailureReason::StructuralMismatch { left, right } => [left.as_ref(), right.as_ref()]
+                .into_iter()
+                .find_map(|term| match term {
+                    crate::checker::inference::InferenceTerm::Canonical(ty) => Some(*ty),
+                    _ => None,
+                }),
+            crate::checker::inference::InferenceFailureReason::ConflictingBounds { lower, .. } => Some(*lower),
+            _ => None,
+        }?;
+        ctx.expressions
+            .values()
+            .filter(|expression| expression.range.start >= fallback.start && expression.range.end <= fallback.end)
+            .filter(|expression| expression.knowledge.ty() == Some(ty))
+            .min_by_key(|expression| (expression.range.end - expression.range.start, expression.range.start))
+            .map(|expression| expression.range)
+    }).unwrap_or(fallback)
 }
 
 fn generic_conflict_message(conflict: &crate::checker::inference::InferenceConflict) -> String {
@@ -3461,6 +3507,15 @@ fn discharge_generic_conformance_obligations(
         instantiation.bind_type(param, ty);
     }
 
+    discharge_generic_obligations_with_instantiation(ctx, domains, &instantiation, call_range)
+}
+
+fn discharge_generic_obligations_with_instantiation(
+    ctx: &mut CheckingContext<'_>,
+    domains: &GenericApplicationDomains<'_>,
+    instantiation: &crate::types::instantiation::GenericInstantiation,
+    call_range: SourceRange,
+) -> Option<Box<[crate::checker::analysis::GenericCallConformanceBinding]>> {
     let mut conformances = Vec::new();
     let mut failed = false;
 
@@ -3672,6 +3727,40 @@ fn discharge_generic_conformance_obligations(
     if failed { None } else { Some(conformances.into_boxed_slice()) }
 }
 
+fn exact_conformance_arguments(
+    store: &crate::types::store::TypeStore,
+    domains: &GenericApplicationDomains<'_>,
+    exact_arguments: &std::collections::BTreeMap<TypeParameterId, TypeId>,
+) -> Vec<(TypeParameterId, TypeId)> {
+    exact_arguments.iter().filter_map(|(&parameter, &exact_case)| {
+        domains.signatures().any(|signature| signature.constraints.iter().any(|constraint| {
+            matches!(constraint, GenericConstraint::Conforms { subject: TypeTerm::Canonical(subject), .. } if store.contains_type_parameter(*subject, parameter))
+        })).then_some((parameter, exact_case))
+    }).collect()
+}
+
+/// Reuses mandatory declaration proof rules after ancestor evidence arrives.
+pub(crate) fn validate_deferred_application_obligations(
+    ctx: &mut CheckingContext<'_>,
+    signatures: &[GenericSignature],
+    instantiation: &crate::types::instantiation::GenericInstantiation,
+    exact_arguments: &std::collections::BTreeMap<TypeParameterId, TypeId>,
+    range: SourceRange,
+) -> bool {
+    signatures.iter().all(|signature| {
+        // Scalar equalities/subtyping already have exact registered residual
+        // identities. Exact-case refinement supplies only conformance authority.
+        let mut conformances = signature.clone();
+        conformances.constraints = signature.constraints.iter().filter(|constraint| matches!(constraint, GenericConstraint::Conforms { .. })).cloned().collect();
+        let domains = GenericApplicationDomains { declaration: None, callable: Some(&conformances) };
+        let mut conformance_instantiation = instantiation.clone();
+        for (parameter, exact_case) in exact_conformance_arguments(ctx.store, &domains, exact_arguments) {
+            conformance_instantiation.bind_type(parameter, exact_case);
+        }
+        discharge_generic_obligations_with_instantiation(ctx, &domains, &conformance_instantiation, range).is_some()
+    })
+}
+
 fn publish_call_specialization(
     ctx: &mut CheckingContext<'_>,
     callable: Option<CallableId>,
@@ -3705,22 +3794,7 @@ fn publish_call_specialization(
         };
         bindings.insert(parameter, ty);
     }
-    for (&parameter, &exact_case) in exact_argument_bindings {
-        let has_conformance_obligation = domains.signatures().any(|signature| {
-            signature.constraints.iter().any(|constraint| {
-                matches!(
-                    constraint,
-                    GenericConstraint::Conforms {
-                        subject: TypeTerm::Canonical(subject),
-                        ..
-                    } if ctx.store.contains_type_parameter(*subject, parameter)
-                )
-            })
-        });
-        if has_conformance_obligation {
-            bindings.insert(parameter, exact_case);
-        }
-    }
+    bindings.extend(exact_conformance_arguments(ctx.store, domains, exact_argument_bindings));
 
     let Some(conformances) = discharge_generic_conformance_obligations(ctx, domains, &bindings, call_range) else {
         return;
@@ -3981,6 +4055,8 @@ pub(crate) fn apply_resolved_callable(
             _ => AnalysisStatus::Ready,
         });
     let local_type = local_type_from_arguments(ctx, knowledge.ty(), &local_types);
+    let mut status = status;
+    ctx.finish_call_sequence_publication(&mut status, causal_invalidity);
     let result = CallCheckResult {
         knowledge,
         status,
@@ -4078,12 +4154,28 @@ struct UnionGenericInferenceScope {
     context: crate::checker::inference::InferenceContextId,
     root: crate::checker::inference::InferenceFrameId,
     owns_context: bool,
+    probe_frame: crate::checker::inference::InferenceFrameId,
     typed_arguments: Vec<TypedExpression>,
     expected_for_arms: ExpectedType,
 }
 
 impl UnionGenericInferenceScope {
-    fn finish(self, ctx: &mut CheckingContext<'_>) {
+    fn finish(self, ctx: &mut CheckingContext<'_>, status: &mut AnalysisStatus, causal: CausalInvalidity, all_found: bool) {
+        let probe = super::sequence_publication::PublicationOwner(self.context, self.probe_frame);
+        let root = super::sequence_publication::PublicationOwner(self.context, self.root);
+        if all_found && status.is_ready() && matches!(causal, CausalInvalidity::Clean) {
+            if let Err(failure) = ctx.accept_sequence_owner(probe) {
+                *status = failure;
+            }
+            if self.owns_context && status.is_ready() {
+                if let Err(failure) = ctx.accept_sequence_owner(root) {
+                    *status = failure;
+                }
+            }
+        } else {
+            ctx.reject_sequence_owner(probe);
+            if self.owns_context { ctx.reject_sequence_owner(root); }
+        }
         if self.owns_context {
             ctx.pop_inference_frame(self.context, self.root);
             if let Some(session) = ctx.inference_session(self.context) {
@@ -4168,6 +4260,7 @@ fn prepare_union_generic_inference_in_context(
     let binding_plan = match bind_static_arguments(arguments, &target.signature.parameters) {
         Ok(plan) => plan,
         Err(_) => {
+            ctx.reject_sequence_owner(super::sequence_publication::PublicationOwner(context, probe_frame));
             ctx.pop_inference_frame(context, probe_frame);
             session_handle.borrow_mut().close_frame(probe_frame);
             if owns_context {
@@ -4185,6 +4278,7 @@ fn prepare_union_generic_inference_in_context(
         };
         let parameter = &target.signature.parameters[binding.parameter_index];
         let Some(parameter_ty) = parameter.ty.ty() else {
+            ctx.reject_sequence_owner(super::sequence_publication::PublicationOwner(context, probe_frame));
             ctx.pop_inference_frame(context, probe_frame);
             session_handle.borrow_mut().close_frame(probe_frame);
             if owns_context {
@@ -4199,7 +4293,7 @@ fn prepare_union_generic_inference_in_context(
             || ExpectedType::inference_from(context, expected_term, ExpectationOrigin::GenericArgument),
             |ty| ExpectedType::proper_from(ty, ExpectationOrigin::GenericArgument),
         );
-        let typed = analyze_application_argument(ctx, argument, &argument_expected);
+        let typed = analyze_application_argument_owned(ctx, argument, &argument_expected, Some(super::sequence_publication::PublicationOwner(context, probe_frame)));
         record_generic_argument_capture(ctx, &typed);
         let explanation = typed.expression_id.and_then(|id| ctx.explanation_for_expression(id));
         let origin = match (call_id, typed.expression_id) {
@@ -4257,6 +4351,7 @@ fn prepare_union_generic_inference_in_context(
         context,
         root,
         owns_context,
+        probe_frame,
         typed_arguments,
         expected_for_arms,
     })
@@ -4277,6 +4372,13 @@ pub(crate) fn apply_union_resolved_call(
     ctx.begin_call_causal_capture();
 
     let shared_scope = prepare_union_generic_inference(ctx, arms, arguments, expected);
+    // Ordinary arguments are also shared by every arm. Their construction
+    // capability waits for the aggregate call even when no shared solver is
+    // needed to supply a contextual closure expectation.
+    let argument_owner = shared_scope.is_none().then(|| {
+        let (context, frame) = ctx.create_inference_context();
+        super::sequence_publication::PublicationOwner(context, frame)
+    });
     let mut contextual_conflicts = Vec::new();
     let mut common_expectations = vec![None; arguments.len()];
     let mut expectation_counts = vec![0usize; arguments.len()];
@@ -4331,7 +4433,7 @@ pub(crate) fn apply_union_resolved_call(
             } else {
                 ExpectedType::None
             };
-            let typed = analyze_application_argument(ctx, argument, &argument_expected);
+            let typed = analyze_application_argument_owned(ctx, argument, &argument_expected, argument_owner);
             record_generic_argument_capture(ctx, &typed);
             typed_arguments.push(typed);
         }
@@ -4548,9 +4650,6 @@ pub(crate) fn apply_union_resolved_call(
             explanation_parents.push(premise_explanation);
         }
     }
-    if let Some(scope) = shared_scope {
-        scope.finish(ctx);
-    }
     let knowledge = join_type_knowledge(ctx.store, publication_inputs);
     let status = status.unwrap_or_else(|| match &knowledge {
         TypeKnowledge::Dynamic(reason) => AnalysisStatus::DynamicBoundary(reason.clone()),
@@ -4558,6 +4657,20 @@ pub(crate) fn apply_union_resolved_call(
     });
     if let AnalysisStatus::Invalid(cause) = status {
         causal_invalidity = causal_invalidity.join(CausalInvalidity::One(cause));
+    }
+    let mut status = status;
+    if let Some(scope) = shared_scope {
+        scope.finish(ctx, &mut status, causal_invalidity, all_found);
+    }
+    if let Some(owner) = argument_owner {
+        if all_found && status.is_ready() && matches!(causal_invalidity, CausalInvalidity::Clean) {
+            if let Err(failure) = ctx.accept_sequence_owner(owner) {
+                status = failure;
+            }
+        } else {
+            ctx.reject_sequence_owner(owner);
+        }
+        ctx.finish_inference_context(owner.0);
     }
     let local_type = local_type_from_arguments(ctx, knowledge.ty(), &local_types);
     let result = CallCheckResult {

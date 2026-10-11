@@ -127,6 +127,8 @@ pub enum CallShapeExplanation {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CollectionKind {
     List,
+    Array,
+    Vector,
     Set,
     Map,
     Tuple,

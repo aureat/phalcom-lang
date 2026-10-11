@@ -5,9 +5,9 @@ program: COLL006
 checkpoint: COLL006.C1
 kind: patch-grade-implementation-plan
 title: "Extended Collections Foundation and First-Generation Collection Family"
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 prepared_against_repository: aureat/phalcom-lang
 prepared_against_branch: main
 prepared_against_revision: ad1db231f5d866650e7ab169c377f28ffa602de9
@@ -22,6 +22,8 @@ source_records:
 # COLL006.C1 — Detailed Patch-Grade Implementation Plan
 
 ## 0. Purpose and authority
+
+Current execution: P1/P2 are complete; P3 is partial and paused at a user-requested delivery. This document retains the original intended architecture and acceptance obligations. The checkpoint and P3 walkthrough/handoff own current state and executed evidence.
 
 This plan converts the accepted `COLL006.C1` lifecycle architecture into an executable implementation sequence grounded in the live Telos/Phalcom repository at:
 
@@ -1941,6 +1943,79 @@ cold/incremental parity
 docs/decisions
 lifecycle records
 ```
+
+## 16.7 Residual classification and closure policy
+
+P9 owns final classification of the checkpoint residuals D1, D2, and D4. They
+are verification residuals, not P5 execution blockers. Do not absorb a failure
+into C1 merely because it appears in a broad suite; assign it to a C1 plan only
+when comparative evidence establishes C1 causality.
+
+For each residual still present at P9:
+
+1. Rerun the exact failing test or smallest reproducing filter on the P9
+   candidate.
+2. Run the same discriminator against contemporaneous `origin/main`.
+3. If main reproduces the same failure, classify it as `EXTERNAL_BASELINE` and
+   record the owner, reproducer, comparison result, and why C1 semantics are
+   unaffected. Historical comparison is unnecessary in that case.
+4. If main passes and the C1 candidate fails, compare at the earliest relevant
+   C1 change and identify the responsible plan. Reopen that plan or add a
+   bounded corrective C1 plan if C1 causality is established.
+5. Otherwise record `AMBIGUOUS`; do not close C1 while any residual remains in
+   this state.
+
+Use exactly these final residual states:
+
+```text
+RESOLVED          discriminator passes
+EXTERNAL_BASELINE same failure is reproduced on contemporaneous main
+C1_OWNED          comparative evidence identifies a C1 regression
+AMBIGUOUS         ownership remains unproven
+```
+
+Apply the policy to the known residuals as follows:
+
+- **D1:** rerun `structural_member_presence_and_remainder_affect_fingerprints`
+  and classify its `NonExportableRecordKeyDomain` result by the main comparison.
+  Keep its current status as suspected unrelated until then.
+- **D2:** rerun the reflection failures and split them by actual cause (Universe
+  export, module/package fixture, project fixture, or other observed cause).
+  Classify each distinct cause separately; do not assume all four share one
+  owner.
+- **D4:** rerun the three computed-Record-key `RecordKeyNotStatic` fixtures and
+  compare them against main. D4 blocks a clean aggregate `static_constants`
+  result while present, but does not block P5 or transfer ownership to P4.
+- **P5 parser residuals:** recheck `R-PARSE-TEXT` and `R-PARSE-BYTES`, verify
+  the owning parser-migration corrective work, and rerun
+  `RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package`.
+  Compare remaining failures against contemporaneous main and apply the same
+  residual policy. P5's approved G6.A/G6.B split establishes independent
+  snapshot correctness; it does not waive the complete-package gate or permit
+  full parser integration certification while that command fails.
+
+P9's broad repository gate is the current `scripts/verify.sh --full`, followed
+by the current CI lanes needed for parity. As of this plan amendment,
+`scripts/verify.sh --full` checks the generated native surface and native
+sentinel, workspace build, workspace nextest suite, doctests, and Clippy for
+all targets. It does not cover every CI lane. The current CI also runs
+all-target workspace build/test, VS Code extension E2E, rustfmt, warning-denied
+Clippy on the pinned nightly, and Miri for `phalcom-ast`. Re-read
+`.github/workflows/ci.yml` and `scripts/verify.sh` at P9 and use their then-current
+commands and toolchains; do not treat this list as frozen build policy.
+
+In addition to those repository gates, P9 must retain or acquire the C1-specific
+evidence listed in this plan: literal/family and inference behavior, collection
+laws, forced-GC ownership/rooting, callback re-entry, relevant cold/incremental
+parity, performance contracts, migration behavior, documentation/decision
+consistency, and lifecycle closure. Broad certification does not replace these
+focused C1 acceptance checks.
+
+P9 may close C1 with confirmed external residuals as
+`COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`; it must not claim a clean PASS or
+`RELEASE_COMPLETE` while the corresponding gate fails. A C1-owned residual must
+be repaired under its owner before closure. No `AMBIGUOUS` residual is allowed
+at closure.
 
 ---
 

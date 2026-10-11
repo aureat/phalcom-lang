@@ -1160,6 +1160,11 @@ Completes the set-literal construction protocol.
 
 ## 21.3 lists
 
+These instructions construct values only when semantic analysis has selected the
+`List` family for a sequence literal. They do not define the family of an unheaded
+bracket expression; family selection belongs to the source-language sequence
+literal specification and is carried into lowering by checked semantic products.
+
 ### `BuildList(count)`
 
 Consumes `count` statically known element values and constructs a list in source order.
@@ -2262,6 +2267,16 @@ It is **not** a serialized ABI.
 | 115 | `GuardFieldKey` |
 | 116 | `RecordLiteralCheckKey` |
 | 117 | `LoadTypeParameterClass` |
+| 118 | `BuildArray` |
+| 119 | `BeginArrayLiteral` |
+| 120 | `ArrayLiteralAppend` |
+| 121 | `FinishArrayLiteral` |
+| 122 | `ArrayTryExpandTuplePositionals` |
+| 123 | `BuildVector` |
+| 124 | `VectorExpandExactPositionals` |
+| 125 | `FinishVectorLiteral` |
+| 126 | `BeginVectorLiteral` |
+| 127 | `CopyVector` |
 
 ---
 

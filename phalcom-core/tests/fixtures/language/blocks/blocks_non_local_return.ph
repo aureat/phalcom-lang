@@ -16,7 +16,7 @@ class Finder {
     return None
   }
 }
-let numbers = []
+let numbers: List<Int> = []
 numbers.append(3)
 numbers.append(-5)
 numbers.append(8)

@@ -21,21 +21,16 @@ class TokenPicker<T, U>
 
 /// Stable snapshot source over a token list.
 ///
-/// The constructor copies the caller's list into private backing storage
-/// so a running parser observes an immutable sequence even if the caller
-/// later mutates the original list.
+/// The constructor copies the caller's list into a private Array and retains
+/// it through a read-only Slice, so a running parser observes stable membership
+/// even if the caller later mutates the original list.
 class ListSource<T> {
-  mut _items: List<T>
+  _items: Slice<T>
 
   @constructor
   new(_ items: List<T>) {
-    let backing = List<T>.new()
-    let mut i = 0
-    while i < items.size {
-      backing.append(items.at(i))
-      i = i + 1
-    }
-    _items = backing
+    let backing: Array<T> = <T>[*items]
+    _items = backing.slice(..)
   }
 
   /// Number of tokens.

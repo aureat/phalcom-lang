@@ -176,7 +176,7 @@ pub enum InferencePackProjectionLane {
 pub struct InferenceContextId(pub(crate) u32);
 
 /// Application frame inside one query-local inference context.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InferenceFrameId(pub u32);
 
 #[derive(Clone, Debug)]
@@ -678,6 +678,11 @@ impl InferenceSession {
         let mut obligations = self.residual_obligations.values().cloned().collect::<Vec<_>>();
         obligations.sort_by_key(|obligation| obligation.constraint_index);
         obligations
+    }
+
+    /// Stable append-only constraint position for application-local readiness.
+    pub(crate) fn constraint_count(&self) -> u32 {
+        self.constraints.len() as u32
     }
 
     fn defer_active_constraint(&mut self) {

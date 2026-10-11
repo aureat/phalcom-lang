@@ -1799,7 +1799,7 @@ impl<'a> MetadataExporter<'a> {
                             Ok(phalcom_type_meta::type_node::TypeMemberArgumentRef::Type(self.export_type_form(*arg_ty)?))
                         }
                         crate::types::type_member::TypeMemberArgument::Const(crate::types::type_member::ConstTerm::Int(i)) => {
-                            Ok(phalcom_type_meta::type_node::TypeMemberArgumentRef::ConstInt(*i))
+                            Ok(phalcom_type_meta::type_node::TypeMemberArgumentRef::ConstInt(i.clone()))
                         }
                         crate::types::type_member::TypeMemberArgument::RecordRow(_) => Err(MetadataExportError::NonExportableForm(ty)),
                     })
@@ -1817,7 +1817,7 @@ impl<'a> MetadataExporter<'a> {
                     }),
                 })
             }
-            TypeData::ConstInt(value) => TypeNode::ConstInt(value),
+            TypeData::ConstInt(value) => TypeNode::ConstInt(value.clone()),
             TypeData::StaticData(term) => {
                 let domain = self.export_static_domain(term.domain)?;
                 let constructor = self
@@ -1885,7 +1885,7 @@ impl<'a> MetadataExporter<'a> {
             TypeNode::Unit => fp_b.write_u8(2),
             TypeNode::ConstInt(value) => {
                 fp_b.write_u8(22);
-                fp_b.write_u64(*value as u64);
+                fp_b.write_str(&value.to_string());
             }
             TypeNode::StaticData(static_data) => {
                 fp_b.write_u8(23);
@@ -2149,7 +2149,7 @@ impl<'a> MetadataExporter<'a> {
                         }
                         phalcom_type_meta::type_node::TypeMemberArgumentRef::ConstInt(i) => {
                             fp_b.write_u8(1);
-                            fp_b.write_u64(*i as u64);
+                            fp_b.write_str(&i.to_string());
                         }
                     }
                 }

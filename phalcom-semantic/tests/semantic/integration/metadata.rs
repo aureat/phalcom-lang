@@ -157,7 +157,10 @@ fn metadata_exports_and_validates_static_domain_and_type_data_identity() {
             .iter()
             .any(|entry| matches!(entry.node, KindNode::StaticDomain(StaticDomainRef::ConstInt)))
     );
-    assert!(matches!(bundle.types[const_int_id.0 as usize].form, TypeNode::ConstInt(3)));
+    assert!(matches!(
+        bundle.types[const_int_id.0 as usize].form,
+        TypeNode::ConstInt(phalcom_type_meta::StaticInt::Small(3))
+    ));
     assert!(matches!(bundle.types[static_data_id.0 as usize].form, TypeNode::StaticData(_)));
     assert!(
         matches!(&bundle.types[tensor_value_id.0 as usize].form, TypeNode::Applied { arguments, .. } if matches!(arguments.as_ref(), [StaticArgumentRef::Term(_), StaticArgumentRef::Term(_)]))

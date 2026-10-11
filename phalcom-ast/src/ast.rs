@@ -1185,6 +1185,10 @@ pub enum GenericArgumentSyntax {
     Remainder(TypePackRemainderSyntax),
     /// Compile-time static value argument (e.g. `3`, `true`, `"foo"`, `#sym`).
     Value(Box<Expr>),
+    /// A scoped inference hole `_` requesting canonical solver inference.
+    InferenceHole {
+        range: SourceRange,
+    },
 }
 
 impl PartialEq for GenericArgumentSyntax {
@@ -1193,6 +1197,7 @@ impl PartialEq for GenericArgumentSyntax {
             (Self::Single(a), Self::Single(b)) => a == b,
             (Self::Expansion(a), Self::Expansion(b)) => a == b,
             (Self::Remainder(a), Self::Remainder(b)) => a == b,
+            (Self::InferenceHole { range: a }, Self::InferenceHole { range: b }) => a == b,
             (Self::Value(a), Self::Value(b)) => match (&**a, &**b) {
                 (Expr::Int { digits: d1, radix: r1, .. }, Expr::Int { digits: d2, radix: r2, .. }) => d1 == d2 && r1 == r2,
                 (Expr::Float { value: v1, .. }, Expr::Float { value: v2, .. }) => v1.to_bits() == v2.to_bits(),
@@ -1212,7 +1217,7 @@ impl GenericArgumentSyntax {
     pub fn as_single(&self) -> Option<&TypeAnnotation> {
         match self {
             Self::Single(ty) => Some(ty),
-            Self::Expansion(_) | Self::Remainder(_) | Self::Value(_) => None,
+            Self::Expansion(_) | Self::Remainder(_) | Self::Value(_) | Self::InferenceHole { .. } => None,
         }
     }
 
@@ -1229,6 +1234,7 @@ impl GenericArgumentSyntax {
             Self::Expansion(expansion) => expansion.range,
             Self::Remainder(rem) => rem.range,
             Self::Value(expr) => expr.range(),
+            Self::InferenceHole { range } => *range,
         }
     }
 }
@@ -2606,8 +2612,8 @@ pub enum Expr {
     MapLiteral(Box<MapLiteralExpr>),
     /// A Set literal written with `#{ value, ... }` syntax.
     SetLiteral(Box<SetLiteralExpr>),
-    /// A List literal written with `[ value, ... ]` syntax.
-    ListLiteral(Box<ListLiteralExpr>),
+    /// A bracket literal written with `[ value, ... ]` or `<...>[ value, ... ]` syntax.
+    BracketLiteral(Box<BracketLiteralExpr>),
     /// A membership test `left in right` or `left not in right`.
     Membership(Box<MembershipExpr>),
     /// A type membership test `left is in candidates` / `left is! in candidates` / `left is not in candidates` / `left is! not in candidates`.
@@ -2662,7 +2668,7 @@ impl Expr {
             Expr::RecordConstruction(e) => e.range,
             Expr::MapLiteral(e) => e.range,
             Expr::SetLiteral(e) => e.range,
-            Expr::ListLiteral(e) => e.range,
+            Expr::BracketLiteral(e) => e.range,
             Expr::Membership(e) => e.range,
             Expr::IsMembership(e) => e.range,
             Expr::TypeForm(t) => t.range,
@@ -3335,15 +3341,22 @@ pub enum SetLiteralEntry {
     Expansion { expr: Expr, range: SourceRange },
 }
 
-#[derive(Debug, Clone)]
-pub struct ListLiteralExpr {
-    pub elements: Vec<ListLiteralElement>,
+#[derive(Debug, Clone, PartialEq)]
+pub struct BracketLiteralHeadSyntax {
+    pub arguments: Vec<GenericArgumentSyntax>,
     pub range: SourceRange,
 }
 
-/// `Expansion` is reserved for Spec F, parallel to Map/Set literal elements/entries.
 #[derive(Debug, Clone)]
-pub enum ListLiteralElement {
+pub struct BracketLiteralExpr {
+    pub head: Option<BracketLiteralHeadSyntax>,
+    pub elements: Vec<BracketLiteralElement>,
+    pub range: SourceRange,
+}
+
+/// A bracket literal element: an evaluated expression or a spread expansion `*expr`.
+#[derive(Debug, Clone)]
+pub enum BracketLiteralElement {
     Element { expr: Expr, range: SourceRange },
     Expansion { expr: Expr, range: SourceRange },
 }

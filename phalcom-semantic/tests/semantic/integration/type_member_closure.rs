@@ -43,6 +43,7 @@ fn decl(name: &str) -> DeclarationId {
         "String" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::String),
         "Bool" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Bool),
         "List" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::List),
+        "Array" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Array),
         "Map" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Map),
         "Option" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Option),
         "TypePack" | "LabeledTypePack" | "CompleteTypePack" => DeclarationId::new(
@@ -1102,7 +1103,7 @@ fn test_symbolic_projection_survives_generic_substitution() {
         TypeLevelProjection {
             subject: ProjectionSubject::Type(sym_tuple),
             selector: TypeMemberSelector::Subscript,
-            arguments: Box::new([TypeMemberArgument::Const(ConstTerm::Int(0))]),
+            arguments: Box::new([TypeMemberArgument::Const(ConstTerm::Int(phalcom_semantic::StaticInt::from(0)))]),
             source_declaration: None,
         },
         KindId::TYPE,

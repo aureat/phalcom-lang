@@ -424,7 +424,7 @@ class Probe {
 
   @class
   run() {
-    let result = Probe.keep([1])
+    let result: List<Int> = Probe.keep([1])
   }
 }
 "#,

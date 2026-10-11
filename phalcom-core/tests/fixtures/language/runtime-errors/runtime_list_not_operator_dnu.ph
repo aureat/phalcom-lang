@@ -8,5 +8,5 @@
 // a `List` is a hard does-not-understand, never a silent `false`. (U-NEG:
 // prefix `!` retired; `not` is the sole prefix-negation surface.)
 
-let l = []
+let l: List<Int> = []
 System.print(not l)

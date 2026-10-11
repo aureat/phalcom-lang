@@ -47,7 +47,7 @@ class Vec {
 
   @class
   add(_ a, _ b) {
-    let mut out = []
+    let mut out: List<_> = []
     let mut i = 0
     while (i < a.size) {
       out.add(a[i] + b[i])

@@ -911,7 +911,7 @@ fn normalize_type_member_projection(
                 normalized_arguments.push(TypeMemberArgument::Type(norm_ty));
             }
             TypeMemberArgument::Const(super::type_member::ConstTerm::Int(value)) => {
-                normalized_arguments.push(TypeMemberArgument::Type(store.const_int(*value)));
+                normalized_arguments.push(TypeMemberArgument::Type(store.const_int(value.clone())));
             }
             TypeMemberArgument::RecordRow(r) => normalized_arguments.push(TypeMemberArgument::RecordRow(*r)),
         }
@@ -1021,7 +1021,7 @@ fn normalize_intrinsic_projection(
         IntrinsicTypeOperation::TupleAt => {
             let idx = match arguments.first()? {
                 TypeMemberArgument::Type(argument) => match store.get(*argument) {
-                    TypeData::ConstInt(value) => *value,
+                    TypeData::ConstInt(value) => value.to_bigint(),
                     _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
                 },
                 _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
@@ -1030,10 +1030,18 @@ fn normalize_intrinsic_projection(
                 TypeData::Tuple(tuple) => tuple,
                 _ => return Some(ProjectionNormalizationResult::Symbolic(symbolic_fallback)),
             };
-            let n = tuple.elements.len() as i64;
-            let actual_idx = if idx < 0 { n + idx } else { idx };
-            if actual_idx >= 0 && (actual_idx as usize) < tuple.elements.len() {
-                let target_ty = tuple.elements[actual_idx as usize].ty;
+            let n = tuple.elements.len();
+            let actual_idx = if idx.sign() == num_bigint::Sign::Minus {
+                num_bigint::BigInt::from(n) + &idx
+            } else {
+                idx.clone()
+            };
+            // Only convert to a host index when accessing this concrete tuple;
+            // retain the exact term for out-of-bounds diagnostics.
+            if let Ok(actual_idx) = usize::try_from(&actual_idx)
+                && actual_idx < n
+            {
+                let target_ty = tuple.elements[actual_idx].ty;
                 Some(normalize_type(store, target_ty, context))
             } else {
                 Some(ProjectionNormalizationResult::InternalFailure(

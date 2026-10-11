@@ -64,8 +64,9 @@ const config: CheckConfig =
     .examples(100)
     .seed(20260723)
 
+const properties: List<_> = [ArithmeticProperties]
 const run = PropertyRunner.run(
-  [ArithmeticProperties],
+  properties,
   with: config
 )
 

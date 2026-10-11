@@ -1,5 +1,8 @@
 use super::{StaticEvalError, StaticEvalOutcome, StaticEvalTraceFrame};
-use crate::checker::analysis::{BindingAnalysisIndex, ExpressionAnalysisIndex};
+use crate::checker::analysis::{
+    BindingAnalysisIndex, ExpressionAnalysisIndex, SequenceConstructionPlan, SequenceExpansionResolution, SequenceLiteralFamily,
+    SequenceLiteralResolution, SequenceLiteralResolutionIndex,
+};
 use crate::checker::associated::AssociatedResolutionIndex;
 use crate::db::{CancellationToken, QueryBudget};
 use crate::field_key::FieldKey;
@@ -11,8 +14,8 @@ use crate::static_value::{StaticValueData, StaticValueRef, StaticValueStore};
 use crate::types::id::TypeId;
 use num_bigint::BigInt;
 use phalcom_ast::ast::{
-    BinaryOp, Expr, GenericArgumentSyntax, IfElseBody, LexicalBlock, Pattern, ProductLabel, RecordLiteralEntry, Statement, SymbolLiteralKind,
-    TupleLiteralEntry, TypeAnnotationExpr,
+    BinaryOp, BracketLiteralElement, BracketLiteralExpr, Expr, GenericArgumentSyntax, IfElseBody, LexicalBlock, Pattern, ProductLabel,
+    RecordLiteralEntry, Statement, SymbolLiteralKind, TupleLiteralEntry, TypeAnnotationExpr,
 };
 use phalcom_common::range::SourceRange;
 use std::collections::BTreeMap;
@@ -79,6 +82,14 @@ impl<'a> EvaluatorBody<'a> {
             Self::Definition(d) => &d.static_constructions,
             Self::Constant(c) => &c.static_constructions,
             Self::Expression(expression) => &expression.static_constructions,
+        }
+    }
+
+    pub fn sequence_literals(&self) -> &'a SequenceLiteralResolutionIndex {
+        match self {
+            Self::Definition(d) => &d.sequence_literals,
+            Self::Constant(c) => &c.sequence_literals,
+            Self::Expression(expression) => &expression.sequence_literals,
         }
     }
 
@@ -206,6 +217,16 @@ enum Work<'a> {
     StoreAssignment(BindingId),
     AfterIf(&'a phalcom_ast::ast::IfExpr),
     FinishTuple(usize),
+    SequenceNext(&'a BracketLiteralExpr, &'a SequenceLiteralResolution, usize, Vec<StaticValueRef>),
+    SequenceElementReady(&'a BracketLiteralExpr, &'a SequenceLiteralResolution, usize, Vec<StaticValueRef>),
+    SequenceExpansionReady(
+        &'a BracketLiteralExpr,
+        &'a SequenceLiteralResolution,
+        usize,
+        Vec<StaticValueRef>,
+        SourceRange,
+        SequenceExpansionResolution,
+    ),
     RecordNext(Vec<&'a phalcom_ast::ast::RecordLiteralField>, usize, Vec<(FieldKey, StaticValueRef)>),
     RecordKeyReady(Vec<&'a phalcom_ast::ast::RecordLiteralField>, usize, Vec<(FieldKey, StaticValueRef)>, &'a Expr),
     RecordValueReady(Vec<&'a phalcom_ast::ast::RecordLiteralField>, usize, Vec<(FieldKey, StaticValueRef)>, FieldKey),
@@ -440,6 +461,7 @@ impl<'a> StaticEvaluator<'a> {
             Ok(StaticEvalResult::KindedTerm(term)) => StaticEvalOutcome::ReducedKinded(term),
             Err(Stop::Cancelled) => StaticEvalOutcome::Cancelled,
             Err(Stop::Recursive) => StaticEvalOutcome::Recursive,
+            Err(Stop::Symbolic) => StaticEvalOutcome::Symbolic,
             Err(Stop::Budget(report)) => StaticEvalOutcome::BudgetExceeded(report),
             Err(Stop::Invalid(error)) => StaticEvalOutcome::Invalid(error),
         }
@@ -562,6 +584,75 @@ impl<'a> StaticEvaluator<'a> {
                             for element in elements.into_iter().rev() {
                                 work.push(Work::Evaluate(element));
                             }
+                        }
+                        Expr::BracketLiteral(literal) => {
+                            let id = self.expression_id(literal.range)?;
+                            let resolution = self
+                                .body
+                                .sequence_literals()
+                                .get(&id)
+                                .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                            if resolution.source_expression != id || resolution.source_range != literal.range {
+                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                            }
+                            if !matches!(resolution.family, SequenceLiteralFamily::Array | SequenceLiteralFamily::Vector) {
+                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                            }
+                            match resolution.construction {
+                                SequenceConstructionPlan::Fixed { element_count } => {
+                                    if element_count != literal.elements.len()
+                                        || literal.elements.iter().any(|element| !matches!(element, BracketLiteralElement::Element { .. }))
+                                    {
+                                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                    }
+                                }
+                                SequenceConstructionPlan::Expanded => {
+                                    if !literal.elements.iter().any(|element| matches!(element, BracketLiteralElement::Expansion { .. })) {
+                                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                    }
+                                    for element in &literal.elements {
+                                        if let BracketLiteralElement::Expansion { range, .. } = element
+                                            && !resolution.exact_expansions.contains_key(range)
+                                        {
+                                            return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                        }
+                                    }
+                                }
+                                SequenceConstructionPlan::VectorIdentitySpread { source_range, extent } => {
+                                    if resolution.family != SequenceLiteralFamily::Vector
+                                        || resolution.extent != Some(extent)
+                                        || !matches!(
+                                            literal.elements.as_slice(),
+                                            [BracketLiteralElement::Expansion { range, .. }] if *range == source_range
+                                        )
+                                        || resolution.exact_expansions.get(&source_range)
+                                            != Some(&SequenceExpansionResolution::VectorStorage { extent })
+                                    {
+                                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                    }
+                                    let types = self.canonical_types.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                                    if canonical_vector_extent(types, resolution.result_type) != Some(extent) {
+                                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                    }
+                                    if !is_static_int_type(types, extent) {
+                                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                    }
+                                    match types.get(extent) {
+                                        crate::types::store::TypeData::ConstInt(value) => {
+                                            if value.to_bigint().sign() == num_bigint::Sign::Minus {
+                                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                            }
+                                        }
+                                        _ => return Err(Stop::Symbolic),
+                                    }
+                                }
+                            }
+                            let types = self.canonical_types.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                            if canonical_sequence_family(types, resolution.result_type) != Some(resolution.family) {
+                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                            }
+                            self.charge_variable_work(literal.elements.len())?;
+                            work.push(Work::SequenceNext(literal, resolution, 0, Vec::new()));
                         }
                         Expr::RecordLiteral(record) => {
                             let mut fields = Vec::with_capacity(record.entries.len());
@@ -736,6 +827,87 @@ impl<'a> StaticEvaluator<'a> {
                     };
                     let elements = stack.split_off(start);
                     stack.push(self.values.intern_tuple(elements).map_err(Stop::from)?);
+                }
+                Work::SequenceNext(literal, resolution, index, elements) => {
+                    let Some(element) = literal.elements.get(index) else {
+                        let expected_extent = match resolution.construction {
+                            SequenceConstructionPlan::Fixed { .. } => None,
+                            SequenceConstructionPlan::VectorIdentitySpread { extent, .. } => Some(extent),
+                            SequenceConstructionPlan::Expanded if resolution.family == SequenceLiteralFamily::Vector => {
+                                let types = self.canonical_types.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                                canonical_vector_extent(types, resolution.result_type)
+                            }
+                            SequenceConstructionPlan::Expanded => None,
+                        };
+                        let types = self.canonical_types.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                        if expected_extent.is_some_and(|extent| !static_extent_matches_count(types, extent, elements.len())) {
+                            return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                        }
+                        self.charge_variable_work(elements.len())?;
+                        stack.push(self.values.intern_sequence(resolution.result_type, elements, types).map_err(Stop::from)?);
+                        continue;
+                    };
+                    match element {
+                        BracketLiteralElement::Element { expr, .. } => {
+                            work.push(Work::SequenceElementReady(literal, resolution, index + 1, elements));
+                            work.push(Work::Evaluate(expr));
+                        }
+                        BracketLiteralElement::Expansion { expr, range } => {
+                            let proof = *resolution
+                                .exact_expansions
+                                .get(range)
+                                .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                            work.push(Work::SequenceExpansionReady(literal, resolution, index + 1, elements, *range, proof));
+                            work.push(Work::Evaluate(expr));
+                        }
+                    }
+                }
+                Work::SequenceElementReady(literal, resolution, next, mut elements) => {
+                    elements.push(stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?);
+                    work.push(Work::SequenceNext(literal, resolution, next, elements));
+                }
+                Work::SequenceExpansionReady(literal, resolution, next, mut elements, range, proof) => {
+                    let source = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let types = self.canonical_types.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let expanded = match (proof, self.values.get(source).map_err(Stop::from)?) {
+                        (SequenceExpansionResolution::TuplePositionals { extent }, StaticValueData::Unit) => {
+                            if !static_extent_matches_count(types, extent, 0) {
+                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                            }
+                            Vec::new()
+                        }
+                        (SequenceExpansionResolution::TuplePositionals { extent }, StaticValueData::Tuple(tuple)) => {
+                            let tuple = self.values.get_tuple(*tuple).map_err(Stop::from)?;
+                            if !static_extent_matches_count(types, extent, tuple.len()) {
+                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                            }
+                            tuple.to_vec()
+                        }
+                        (SequenceExpansionResolution::VectorStorage { extent }, StaticValueData::Sequence(sequence)) => {
+                            let sequence = self.values.get_sequence(*sequence).map_err(Stop::from)?;
+                            if canonical_vector_extent(types, sequence.result_type()) != Some(extent)
+                                || !static_extent_matches_count(types, extent, sequence.elements().len())
+                            {
+                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                            }
+                            sequence.elements().to_vec()
+                        }
+                        _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
+                    };
+                    // Expansion work is proportional to the number of copied
+                    // children and is charged before growing the destination.
+                    self.charge_variable_work(expanded.len())?;
+                    elements.extend(expanded);
+                    if let SequenceConstructionPlan::VectorIdentitySpread { source_range, extent } = resolution.construction {
+                        if source_range != range
+                            || resolution.extent != Some(extent)
+                            || canonical_vector_extent(types, resolution.result_type) != Some(extent)
+                            || !static_extent_matches_count(types, extent, elements.len())
+                        {
+                            return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                        }
+                    }
+                    work.push(Work::SequenceNext(literal, resolution, next, elements));
                 }
                 Work::RecordNext(fields, index, accumulated) => {
                     let Some(field) = fields.get(index).copied() else {
@@ -930,7 +1102,9 @@ impl<'a> StaticEvaluator<'a> {
                                         }
                                         _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
                                     },
-                                    GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) => {
+                                    GenericArgumentSyntax::Expansion(_)
+                                    | GenericArgumentSyntax::Remainder(_)
+                                    | GenericArgumentSyntax::InferenceHole { .. } => {
                                         return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                                     }
                                 }
@@ -948,7 +1122,9 @@ impl<'a> StaticEvaluator<'a> {
                                         Expr::TypeForm(annotation) => annotation.as_ref(),
                                         _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
                                     },
-                                    GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) => {
+                                    GenericArgumentSyntax::Expansion(_)
+                                    | GenericArgumentSyntax::Remainder(_)
+                                    | GenericArgumentSyntax::InferenceHole { .. } => {
                                         return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                                     }
                                 };
@@ -1371,9 +1547,70 @@ fn canonical_symbol_spelling(kind: &SymbolLiteralKind) -> Option<String> {
     }
 }
 
+fn canonical_sequence_family(types: &crate::types::store::TypeStore, ty: TypeId) -> Option<SequenceLiteralFamily> {
+    if ty.index() >= types.len() {
+        return None;
+    }
+    let crate::types::store::TypeData::Applied { origin, arguments } = types.get(ty) else {
+        return None;
+    };
+    if origin.index() >= types.len() {
+        return None;
+    }
+    let crate::types::store::TypeData::Nominal { declaration } = types.get(*origin) else {
+        return None;
+    };
+    let core = crate::core_surface::CoreDeclarationIds::default();
+    match declaration {
+        declaration if *declaration == core.array => {
+            (arguments.len() == 1 && matches!(arguments.first(), Some(crate::types::store::StaticArgument::Term(_))))
+                .then_some(SequenceLiteralFamily::Array)
+        }
+        declaration if *declaration == core.vector => {
+            (arguments.len() == 2
+                && matches!(arguments.first(), Some(crate::types::store::StaticArgument::Term(_)))
+                && matches!(arguments.get(1), Some(crate::types::store::StaticArgument::Term(_))))
+            .then_some(SequenceLiteralFamily::Vector)
+        }
+        _ => None,
+    }
+}
+
+fn canonical_vector_extent(types: &crate::types::store::TypeStore, ty: TypeId) -> Option<TypeId> {
+    if canonical_sequence_family(types, ty) != Some(SequenceLiteralFamily::Vector) {
+        return None;
+    }
+    let crate::types::store::TypeData::Applied { arguments, .. } = types.get(ty) else {
+        return None;
+    };
+    match arguments.get(1) {
+        Some(crate::types::store::StaticArgument::Term(extent)) => Some(*extent),
+        _ => None,
+    }
+}
+
+fn static_extent_matches_count(types: &crate::types::store::TypeStore, extent: TypeId, count: usize) -> bool {
+    if extent.index() >= types.len() {
+        return false;
+    }
+    matches!(types.get(extent), crate::types::store::TypeData::ConstInt(value) if value.to_bigint() == BigInt::from(count))
+}
+
+fn is_static_int_type(types: &crate::types::store::TypeStore, ty: TypeId) -> bool {
+    if ty.index() >= types.len() {
+        return false;
+    }
+    let kind = types.kind_of(ty);
+    matches!(
+        types.get_kind(kind),
+        crate::types::KindData::StaticDomain(domain) if *domain == types.const_int_domain()
+    )
+}
+
 enum Stop {
     Cancelled,
     Recursive,
+    Symbolic,
     Budget(crate::types::outcome::BudgetReport),
     Invalid(StaticEvalError),
 }

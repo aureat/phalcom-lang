@@ -1,4 +1,4 @@
-# TDR-0091 — `primitive` Is a Declaration Classification Modifier
+# TDR-0094 — `primitive` Is a Declaration Classification Modifier
 
 - Status: Accepted
 - Ratified: 2026-10-11

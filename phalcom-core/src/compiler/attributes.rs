@@ -156,7 +156,7 @@ pub trait AttributeExpander {
 }
 
 use phalcom_ast::ast::{
-    BindingKind, BlockExpr, LetBinding, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, Pattern, SetLiteralEntry,
+    BindingKind, BlockExpr, BracketLiteralElement, LetBinding, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, Pattern, SetLiteralEntry,
     Statement,
 };
 
@@ -214,9 +214,9 @@ fn is_pure_expr(expr: &Expr) -> bool {
             SetLiteralEntry::Element { expr, .. } => is_pure_expr(expr),
             SetLiteralEntry::Expansion { .. } => false,
         }),
-        Expr::ListLiteral(list) => list.elements.iter().all(|element| match element {
-            ListLiteralElement::Element { expr, .. } => is_pure_expr(expr),
-            ListLiteralElement::Expansion { .. } => false,
+        Expr::BracketLiteral(list) => list.elements.iter().all(|element| match element {
+            BracketLiteralElement::Element { expr, .. } => is_pure_expr(expr),
+            BracketLiteralElement::Expansion { .. } => false,
         }),
         Expr::Block(b) => b.body.iter().all(|s| match s {
             Statement::Expr { expr, .. } => is_pure_expr(expr),
@@ -273,8 +273,8 @@ fn contains_old_call(expr: &Expr) -> bool {
         Expr::SetLiteral(set) => set.entries.iter().any(|entry| match entry {
             SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => contains_old_call(expr),
         }),
-        Expr::ListLiteral(list) => list.elements.iter().any(|element| match element {
-            ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => contains_old_call(expr),
+        Expr::BracketLiteral(list) => list.elements.iter().any(|element| match element {
+            BracketLiteralElement::Element { expr, .. } | BracketLiteralElement::Expansion { expr, .. } => contains_old_call(expr),
         }),
         _ => false,
     }
@@ -567,10 +567,10 @@ fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>) -> Result<(
                 }
             }
         }
-        Expr::ListLiteral(list) => {
+        Expr::BracketLiteral(list) => {
             for element in &mut list.elements {
                 match element {
-                    ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => rewrite_old_calls(expr, old_lets)?,
+                    BracketLiteralElement::Element { expr, .. } | BracketLiteralElement::Expansion { expr, .. } => rewrite_old_calls(expr, old_lets)?,
                 }
             }
         }

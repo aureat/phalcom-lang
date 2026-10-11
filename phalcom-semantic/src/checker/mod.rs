@@ -1,6 +1,7 @@
 pub mod algebraic_declaration;
 pub(crate) mod algebraic_realization;
 pub mod analysis;
+pub mod annotation_elaboration;
 pub mod associated;
 pub mod binding;
 pub mod body;
@@ -28,6 +29,8 @@ pub(crate) mod loop_analysis;
 pub mod pattern;
 pub mod result;
 pub mod row_inference;
+pub(crate) mod sequence_literal;
+pub(crate) mod sequence_publication;
 pub mod statement;
 pub mod static_body;
 pub mod type_member_declaration;
@@ -35,9 +38,13 @@ pub mod typed_expr;
 
 pub use analysis::{
     AlgebraicBasisAxis, AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ContextualRealization,
-    ContextualRealizationOperation,
-    ExpressionAnalysis, ExpressionAnalysisIndex, FlowStateSummary, ForIterationLaneResolution, ForIterationLaneResolutionIndex,
-    ForIterationRequirementResolution, RealizationCapabilitySelection, RealizationCoefficientSource, RealizationEvaluationPlan,
+    ContextualRealizationOperation, ExpressionAnalysis, ExpressionAnalysisIndex, FlowStateSummary, ForIterationLaneResolution,
+    ForIterationLaneResolutionIndex, ForIterationRequirementResolution, RealizationCapabilitySelection, RealizationCoefficientSource,
+    RealizationEvaluationPlan,
+    SequenceConstructionPlan, SequenceExpansionResolution, SequenceLiteralFamily, SequenceLiteralResolution, SequenceLiteralResolutionIndex,
+};
+pub use annotation_elaboration::{
+    AnnotationElaboration, InferenceHoleOrigin, annotation_contains_inference_hole, elaborate_annotation,
 };
 pub use associated::{
     AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CallableReferenceResolution, CallableReferenceResolutionIndex,
@@ -51,7 +58,7 @@ pub use binding::{
 pub use body::analyze_callable_body;
 pub use call::CallCheckResult;
 pub use causal::{CausalInvalidity, SuppressionCause};
-pub use context::CheckingContext;
+pub use context::{CheckingContext, EvaluationPhase};
 pub use declaration::{check_class, check_class_bodies, register_class_surface};
 pub use enum_behavior::{EnumBehaviorProduct, build_enum_behavior};
 pub use expected::{ExpectationOrigin, ExpectedType};

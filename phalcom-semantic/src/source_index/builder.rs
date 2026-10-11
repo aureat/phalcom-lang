@@ -516,7 +516,8 @@ impl TypeReferenceTargetCollector<'_> {
                                 self.annotation(constraint, bound);
                             }
                         }
-                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_)
+                        | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                     }
                 }
             }
@@ -644,7 +645,8 @@ impl TypeReferenceTargetCollector<'_> {
                                 self.annotation(constraint, bound);
                             }
                         }
-                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_)
+                        | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                     }
                 }
             }
@@ -807,7 +809,8 @@ impl SourceScopeBuilder<'_> {
                                 self.visit_annotation_projection_targets(constraint);
                             }
                         }
-                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) => {}
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_)
+                        | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                     }
                 }
             }
@@ -1991,10 +1994,10 @@ impl SourceScopeBuilder<'_> {
                     }
                 }
             }
-            Expr::ListLiteral(list) => {
+            Expr::BracketLiteral(list) => {
                 for element in &list.elements {
                     match element {
-                        phalcom_ast::ast::ListLiteralElement::Element { expr, .. } | phalcom_ast::ast::ListLiteralElement::Expansion { expr, .. } => {
+                        phalcom_ast::ast::BracketLiteralElement::Element { expr, .. } | phalcom_ast::ast::BracketLiteralElement::Expansion { expr, .. } => {
                             self.visit_expr(scope, expr)
                         }
                     }

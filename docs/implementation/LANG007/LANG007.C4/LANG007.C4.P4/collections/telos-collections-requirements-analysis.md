@@ -7,6 +7,16 @@
 **Document status:** Requirements analysis / architecture investigation  
 **Implementation status:** No implementation performed by this document
 
+> **Architecture reconciliation (2026-10-11):** The P14/Vector convergence
+> recommendation below is historical and was superseded by the accepted
+> dimensioned `Vector<T,N>` architecture in `COLL006.C1`. Do not use a
+> runtime-sized Vector as a parser snapshot or introduce a parallel
+> `ImmutableSequence<T>` runtime type. The parser snapshot direction is a
+> private `Array<T>` copy retained through read-only `Slice<T>`, as recorded in
+> `COLL006.C1.P5` and the P14 lifecycle reconciliation. This note preserves the
+> original analysis rather than rewriting its conclusions as if they had not
+> been made.
+
 ---
 
 ## 0. Executive conclusion

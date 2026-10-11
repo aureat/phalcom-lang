@@ -962,10 +962,10 @@ fn collect_decl_names_in_expr(expr: &Expr, out: &mut Vec<DeclNameOverride>) {
                 }
             }
         }
-        Expr::ListLiteral(list) => {
+        Expr::BracketLiteral(list) => {
             for element in &list.elements {
                 match element {
-                    phalcom_ast::ast::ListLiteralElement::Element { expr, .. } | phalcom_ast::ast::ListLiteralElement::Expansion { expr, .. } => {
+                    phalcom_ast::ast::BracketLiteralElement::Element { expr, .. } | phalcom_ast::ast::BracketLiteralElement::Expansion { expr, .. } => {
                         collect_decl_names_in_expr(expr, out)
                     }
                 }

@@ -669,6 +669,44 @@ impl<'source> Parser<'source> {
         false
     }
 
+    /// Checks if an explicit bracket literal head `<...>` followed by `[` is immediately ahead.
+    fn is_bracket_literal_head_ahead(&self) -> bool {
+        if self.peek() != &Token::Less {
+            return false;
+        }
+        let mut depth: i32 = 0;
+        let mut i = self.pos;
+        while i < self.tokens.len() {
+            match &self.tokens[i].token {
+                Token::Less => depth += 1,
+                Token::ShiftLeft => depth += 2,
+                Token::Greater => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let next = self.skip_newlines_at(i + 1);
+                        return self.tokens.get(next).is_some_and(|lexeme| matches!(lexeme.token, Token::LBracket));
+                    } else if depth < 0 {
+                        return false;
+                    }
+                }
+                Token::ShiftRight => {
+                    depth -= 2;
+                    if depth == 0 {
+                        let next = self.skip_newlines_at(i + 1);
+                        return self.tokens.get(next).is_some_and(|lexeme| matches!(lexeme.token, Token::LBracket));
+                    } else if depth < 0 {
+                        return false;
+                    }
+                }
+                Token::Newline => {}
+                Token::Semicolon | Token::Eof | Token::LBrace | Token::RBrace => return false,
+                _ => {}
+            }
+            i += 1;
+        }
+        false
+    }
+
     /// Checks if a balanced angle bracket list `<...>` is ahead.
     fn is_type_arguments_ahead(&self) -> bool {
         let compact_type_lambda = matches!(self.peek(), Token::ShiftLeft);
@@ -2401,6 +2439,11 @@ impl<'source> Parser<'source> {
                 operand,
                 range,
             }))
+        } else if matches!(self.peek(), Token::Underscore) {
+            let start = self.cur_start();
+            self.advance();
+            let range = (start..self.prev_end).into();
+            Ok(GenericArgumentSyntax::InferenceHole { range })
         } else if self.is_value_generic_argument_ahead() {
             let expr = self.parse_generic_value_argument()?;
             Ok(GenericArgumentSyntax::Value(Box::new(expr)))
@@ -7871,7 +7914,10 @@ impl<'source> Parser<'source> {
                             .iter()
                             .map(|argument| match argument {
                                 GenericArgumentSyntax::Single(argument) => Some(argument.clone()),
-                                GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) | GenericArgumentSyntax::Value(_) => None,
+                                GenericArgumentSyntax::Expansion(_)
+                                | GenericArgumentSyntax::Remainder(_)
+                                | GenericArgumentSyntax::Value(_)
+                                | GenericArgumentSyntax::InferenceHole { .. } => None,
                             })
                             .collect::<Option<Vec<_>>>()?;
                         Some((sym.clone(), arguments))
@@ -9316,7 +9362,7 @@ impl<'source> Parser<'source> {
                 self.advance();
                 Ok(Expr::SuperVar { range })
             }
-            Token::LBracket => self.parse_list_literal(),
+            Token::LBracket => self.parse_bracket_literal(None),
             Token::LParen => self.parse_paren_or_tuple(),
             Token::SetLBrace => self.parse_set_literal(),
             Token::Pipe => self.parse_closure_literal(ClosureBodyRequirement::Any),
@@ -9324,6 +9370,11 @@ impl<'source> Parser<'source> {
             Token::Less if self.is_type_lambda_ahead() => {
                 let lambda = self.parse_type_lambda()?;
                 Ok(Expr::TypeForm(Box::new(lambda)))
+            }
+            Token::Less if self.is_bracket_literal_head_ahead() => {
+                let head = self.parse_bracket_literal_head()?;
+                self.skip_newlines();
+                self.parse_bracket_literal(Some(head))
             }
             _ => Err(self.error_here(primary_expected())),
         }
@@ -9363,6 +9414,29 @@ impl<'source> Parser<'source> {
         }
     }
 
+    /// Parses an explicit generic/static argument head `<T>` or `<T, N>` preceding a bracket literal.
+    fn parse_bracket_literal_head(&mut self) -> ParserResult<BracketLiteralHeadSyntax> {
+        let start = self.cur_start();
+        self.eat_less();
+        self.skip_newlines();
+        let mut arguments = Vec::new();
+        while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
+            arguments.push(self.parse_generic_argument()?);
+            self.skip_newlines();
+            if self.eat(&Token::Comma) {
+                self.skip_newlines();
+            } else {
+                break;
+            }
+        }
+        if arguments.is_empty() {
+            return Err(self.error_message_here("explicit bracket literal head requires at least one generic or static argument"));
+        }
+        self.expect_greater()?;
+        let range: SourceRange = (start..self.prev_end).into();
+        Ok(BracketLiteralHeadSyntax { arguments, range })
+    }
+
     /// Parses a List literal into its explicit AST representation and preserves
     /// positional `*` expansion entries for compiler lowering. Ordinary Lists
     /// compile directly through `BuildList`; spread-containing Lists use the
@@ -9373,19 +9447,19 @@ impl<'source> Parser<'source> {
     ///
     /// Propagates any [`SyntaxError`] from an element expression, or from a
     /// missing closing `]`.
-    fn parse_list_literal(&mut self) -> ParserResult<Expr> {
-        let start = self.cur_start();
+    fn parse_bracket_literal(&mut self, head: Option<BracketLiteralHeadSyntax>) -> ParserResult<Expr> {
+        let start = head.as_ref().map(|h| h.range.start).unwrap_or_else(|| self.cur_start());
         self.advance(); // '['
         self.skip_newlines();
         let mut elements = Vec::new();
         if matches!(self.peek(), Token::RBracket) {
             self.advance();
             let range: SourceRange = (start..self.prev_end).into();
-            return Ok(Expr::ListLiteral(Box::new(ListLiteralExpr { elements, range })));
+            return Ok(Expr::BracketLiteral(Box::new(BracketLiteralExpr { head, elements, range })));
         }
 
         loop {
-            elements.push(self.parse_list_literal_element()?);
+            elements.push(self.parse_bracket_literal_element()?);
             self.skip_newlines();
             if !self.eat(&Token::Comma) {
                 break;
@@ -9397,16 +9471,16 @@ impl<'source> Parser<'source> {
         }
         self.expect(&Token::RBracket, &["\"]\""])?;
         let range: SourceRange = (start..self.prev_end).into();
-        Ok(Expr::ListLiteral(Box::new(ListLiteralExpr { elements, range })))
+        Ok(Expr::BracketLiteral(Box::new(BracketLiteralExpr { head, elements, range })))
     }
 
-    fn parse_list_literal_element(&mut self) -> ParserResult<ListLiteralElement> {
+    fn parse_bracket_literal_element(&mut self) -> ParserResult<BracketLiteralElement> {
         let start = self.cur_start();
         match self.peek() {
             Token::Asterisk => {
                 self.advance();
                 let expr = self.parse_expr()?;
-                Ok(ListLiteralElement::Expansion {
+                Ok(BracketLiteralElement::Expansion {
                     expr,
                     range: (start..self.prev_end).into(),
                 })
@@ -9420,7 +9494,7 @@ impl<'source> Parser<'source> {
             _ => {
                 let expr = self.parse_expr()?;
                 let range = expr.range();
-                Ok(ListLiteralElement::Element { expr, range })
+                Ok(BracketLiteralElement::Element { expr, range })
             }
         }
     }
@@ -10807,13 +10881,13 @@ mod tests {
         let Statement::Expr { expr, .. } = only_statement("[first, *middle, last,]") else {
             panic!("expected a List literal expression");
         };
-        let Expr::ListLiteral(list) = expr else {
-            panic!("expected List literal, got {expr:?}");
+        let Expr::BracketLiteral(list) = expr else {
+            panic!("expected Bracket literal, got {expr:?}");
         };
         assert_eq!(list.elements.len(), 3);
-        assert!(matches!(&list.elements[0], ListLiteralElement::Element { .. }));
-        assert!(matches!(&list.elements[1], ListLiteralElement::Expansion { .. }));
-        assert!(matches!(&list.elements[2], ListLiteralElement::Element { .. }));
+        assert!(matches!(&list.elements[0], BracketLiteralElement::Element { .. }));
+        assert!(matches!(&list.elements[1], BracketLiteralElement::Expansion { .. }));
+        assert!(matches!(&list.elements[2], BracketLiteralElement::Element { .. }));
     }
 
     #[test]
@@ -10834,6 +10908,45 @@ mod tests {
             assert_eq!(error.range, range);
             assert!(error.to_string().contains(message), "unexpected diagnostic: {error}");
         }
+    }
+
+    #[test]
+    fn bracket_literal_parses_explicit_heads_and_inference_holes() {
+        let Statement::Expr { expr, .. } = only_statement("<Int>[1, 2]") else { panic!() };
+        let Expr::BracketLiteral(bracket) = expr else { panic!() };
+        let head = bracket.head.as_ref().expect("expected head");
+        assert_eq!(head.arguments.len(), 1);
+        assert!(matches!(&head.arguments[0], GenericArgumentSyntax::Single(_)));
+        assert_eq!(bracket.elements.len(), 2);
+
+        let Statement::Expr { expr, .. } = only_statement("<_>[1, 2]") else { panic!() };
+        let Expr::BracketLiteral(bracket) = expr else { panic!() };
+        let head = bracket.head.as_ref().expect("expected head");
+        assert_eq!(head.arguments.len(), 1);
+        assert!(matches!(&head.arguments[0], GenericArgumentSyntax::InferenceHole { .. }));
+
+        let Statement::Expr { expr, .. } = only_statement("<Int, 3>[1, 2, 3]") else { panic!() };
+        let Expr::BracketLiteral(bracket) = expr else { panic!() };
+        let head = bracket.head.as_ref().expect("expected head");
+        assert_eq!(head.arguments.len(), 2);
+        assert!(matches!(&head.arguments[0], GenericArgumentSyntax::Single(_)));
+        assert!(matches!(&head.arguments[1], GenericArgumentSyntax::Value(_)));
+
+        let Statement::Expr { expr, .. } = only_statement("<_, _>[1, 2, 3]") else { panic!() };
+        let Expr::BracketLiteral(bracket) = expr else { panic!() };
+        let head = bracket.head.as_ref().expect("expected head");
+        assert_eq!(head.arguments.len(), 2);
+        assert!(matches!(&head.arguments[0], GenericArgumentSyntax::InferenceHole { .. }));
+        assert!(matches!(&head.arguments[1], GenericArgumentSyntax::InferenceHole { .. }));
+
+        let Statement::Expr { expr, .. } = only_statement("<List<Int>>[]") else { panic!() };
+        let Expr::BracketLiteral(bracket) = expr else { panic!() };
+        assert!(bracket.head.is_some());
+
+        let Statement::Expr { expr, .. } = only_statement("<\n  Int,\n  3\n>[\n  1, 2, 3\n]") else { panic!() };
+        let Expr::BracketLiteral(bracket) = expr else { panic!() };
+        assert_eq!(bracket.head.as_ref().unwrap().arguments.len(), 2);
+        assert_eq!(bracket.elements.len(), 3);
     }
 
     #[test]

@@ -611,7 +611,20 @@ pub struct ModuleLoweringSemantics {
     pub for_iteration_lanes: BTreeMap<SourceRange, ForIterationLoweringSpec>,
     pub positional_expansions: BTreeMap<SourceRange, PositionalExpansionLoweringSpec>,
     pub known_invalid_positional_expansions: BTreeMap<SourceRange, TypeId>,
+    pub sequence_literals: BTreeMap<SourceRange, SequenceLiteralLoweringSpec>,
     pub detached_methods: BTreeMap<CallableId, DetachedMethodSpec>,
+}
+
+/// Checked sequence literal lowering specification (COLL006.C1.P1).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SequenceLiteralLoweringSpec {
+    pub family: phalcom_semantic::checker::SequenceLiteralFamily,
+    pub construction: phalcom_semantic::checker::SequenceConstructionPlan,
+    pub extent: Option<TypeId>,
+    pub exact_expansions: std::collections::BTreeMap<SourceRange, phalcom_semantic::checker::SequenceExpansionResolution>,
+    /// Checked host encoding of canonical extent for construction bytecodes.
+    pub expected_extent: Option<u32>,
+    pub exact_expansion_counts: BTreeMap<SourceRange, u32>,
 }
 
 pub(crate) fn attach_runtime_trait_environments(lowering: &mut ModuleLoweringSemantics, environments: &RuntimeTraitEnvironmentBindings) {
@@ -688,6 +701,7 @@ impl ModuleLoweringSemantics {
             for_iteration_lanes: BTreeMap::new(),
             positional_expansions: BTreeMap::new(),
             known_invalid_positional_expansions: BTreeMap::new(),
+            sequence_literals: BTreeMap::new(),
             detached_methods: BTreeMap::new(),
         }
     }
@@ -1232,6 +1246,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
     let mut for_iteration_lanes = BTreeMap::new();
     let mut positional_expansions = BTreeMap::new();
     let mut known_invalid_positional_expansions = BTreeMap::new();
+    let mut sequence_literals = BTreeMap::new();
     let mut detached_methods = BTreeMap::new();
 
     for definition in snapshot
@@ -1472,6 +1487,31 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         for expansion in analysis.known_invalid_positional_expansions.values() {
             known_invalid_positional_expansions.insert(expansion.source_range, expansion.source_type);
         }
+        for literal in analysis.sequence_literals.values() {
+            sequence_literals.insert(
+                literal.source_range,
+                SequenceLiteralLoweringSpec {
+                    family: literal.family,
+                    construction: literal.construction,
+                    extent: literal.extent,
+                    exact_expansions: literal.exact_expansions.clone(),
+                    expected_extent: literal.extent.and_then(|extent| match snapshot.store.get(extent) {
+                        TypeData::ConstInt(value) => u32::try_from(value.to_bigint()).ok(),
+                        _ => None,
+                    }),
+                    exact_expansion_counts: literal.exact_expansions.iter().filter_map(|(range, expansion)| {
+                        let extent = match expansion {
+                            phalcom_semantic::checker::SequenceExpansionResolution::TuplePositionals { extent }
+                            | phalcom_semantic::checker::SequenceExpansionResolution::VectorStorage { extent } => *extent,
+                        };
+                        match snapshot.store.get(extent) {
+                            TypeData::ConstInt(value) => u32::try_from(value.to_bigint()).ok().map(|count| (*range, count)),
+                            _ => None,
+                        }
+                    }).collect(),
+                },
+            );
+        }
         // Family-valued expressions
         for expression in analysis.expressions.values() {
             let is_associated_family = matches!(
@@ -1693,6 +1733,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
         for_iteration_lanes,
         positional_expansions,
         known_invalid_positional_expansions,
+        sequence_literals,
         detached_methods,
     })
 }
@@ -1939,7 +1980,7 @@ fn static_product_label(label: &phalcom_ast::ast::ProductLabel) -> Option<Box<st
 }
 
 fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<AnonymousProductSource>) {
-    use phalcom_ast::ast::{Expr, ListLiteralElement, MapLiteralEntry, RecordLiteralEntry, SetLiteralEntry, TupleLiteralEntry};
+    use phalcom_ast::ast::{BracketLiteralElement, Expr, MapLiteralEntry, RecordLiteralEntry, SetLiteralEntry, TupleLiteralEntry};
     match expr {
         Expr::TupleLiteral(tuple) => {
             let mut positional_len = 0u32;
@@ -2129,8 +2170,8 @@ fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<A
         Expr::SetLiteral(e) => e.entries.iter().for_each(|entry| match entry {
             SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => collect_anonymous_product_expr(expr, out),
         }),
-        Expr::ListLiteral(e) => e.elements.iter().for_each(|entry| match entry {
-            ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => collect_anonymous_product_expr(expr, out),
+        Expr::BracketLiteral(e) => e.elements.iter().for_each(|entry| match entry {
+            BracketLiteralElement::Element { expr, .. } | BracketLiteralElement::Expansion { expr, .. } => collect_anonymous_product_expr(expr, out),
         }),
         Expr::Match(e) => {
             collect_anonymous_product_expr(&e.value, out);

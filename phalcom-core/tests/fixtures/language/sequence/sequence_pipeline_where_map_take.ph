@@ -7,7 +7,7 @@ let mut coll = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 let mut view = coll.iter.filter |x| { x > 3 }
 let mut mapped = view.map |x| { x * 2 }
 let mut limited = mapped.take(3)
-let mut result = []
+let mut result: List<Int> = []
 for x in limited {
   result.append(x)
 }

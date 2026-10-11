@@ -30,7 +30,7 @@ src/
 │   └── rule.ph        class Rule<S, T> + all combinators
 ├── source/
 │   ├── text-source.ph  byte-oriented source over String (Token = Int)
-│   └── list-source.ph  snapshotting source over List<T> + leaf factories
+│   └── list-source.ph  owned Array snapshot retained by read-only Slice<T>
 ├── text.ph            Text: character-level factories over TextSource
 └── run.ph             Parse.run / Parse.runAll
 ```
@@ -150,3 +150,21 @@ Each fixture is run in an isolated `phalcom` process and must print a
 `PASS <name>` marker. Fixture compilation instantiates the generic
 library per module (tens of seconds each); the runner parallelizes over
 four workers.
+
+ListSource's Array/Slice snapshot contract is independently executable:
+
+```sh
+RUSTFLAGS='' cargo run -p phalcom-core --bin phalcom -- packages/parse/tests/runtime/src/core/list-source-snapshot-test.ph
+RUSTFLAGS='' cargo test -p phalcom-core --test core parse_list_source_snapshot -- --nocapture
+```
+
+The focused Rust filter selects the exact-marker fixture test and a native GC
+test. The latter collects the caller List, verifies the source's Slice has an
+Array owner, and reads/parses its retained heap-backed elements after GC.
+Snapshot independence covers membership, order, and retained references;
+mutable token payloads are not recursively cloned.
+
+The complete-package command remains the integration gate. As of the P5 audit
+continuation (2026-10-11), it is blocked by inherited TextSource String/Substring
+and optional-byte consumer incompatibilities. The independent ListSource PASS
+does not certify those text adapters or the complete parser package.

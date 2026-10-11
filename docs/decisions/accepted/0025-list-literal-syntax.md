@@ -3,7 +3,8 @@
 - Legacy record: `ADR-0029`
 - Ratified: 2026-07-12
 
-- Status: Accepted (ratified with the collections umbrella [TDR-0028](./0028-collections-representation-and-literals.md), 2026-07-12)
+- Status: Accepted; bracket family-selection and default semantics amended by [TDR-0091](./0091-contextual-homogeneous-sequence-literals.md)
+- Amended by: [TDR-0091](./0091-contextual-homogeneous-sequence-literals.md) for family selection and defaults
 - Date: 2026-07-12
 - Related: [TDR-0028](./0028-collections-representation-and-literals.md) (collections umbrella),
   `docs/spec/current/syntax/list-literals.md` (the design this ADR ratifies),
@@ -13,6 +14,13 @@
   [TDR-0014](./0014-hand-written-lexer-and-recursive-descent-parser.md) (lexer/parser),
   [TDR-0017](./0017-freeze-vm-blessed-primitive-floor.md) (frozen floor);
   DEFERRED #6
+
+> **Amendment note (TDR-0091, 2026-10-09):** This record's original rule that
+> every bare bracket literal constructs a `List` is historical. Brackets now
+> form contextual homogeneous sequence literals; explicit and contextual family
+> selection, runtime/static defaults, and the relation to subscript syntax are
+> governed by TDR-0091 and `docs/specs/sequence-literals.md`. The original
+> grammar, evaluation-order, and historical rationale below are retained.
 
 ## Context
 

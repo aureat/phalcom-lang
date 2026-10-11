@@ -122,6 +122,16 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "GuardFieldKey",
     "RecordLiteralCheckKey",
     "LoadTypeParameterClass",
+    "BuildArray",
+    "BeginArrayLiteral",
+    "ArrayLiteralAppend",
+    "FinishArrayLiteral",
+    "ArrayTryExpandTuplePositionals",
+    "BuildVector",
+    "VectorExpandExactPositionals",
+    "FinishVectorLiteral",
+    "BeginVectorLiteral",
+    "CopyVector",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -511,6 +521,30 @@ pub enum Bytecode {
     ///
     /// 0: number of arguments. 1: index of selector constant.
     InvokeCompilerInternal(u8, u16),
+    /// Builds an Array from the top `n` stack items.
+    BuildArray(u16),
+    /// Builds immutable Vector storage from exactly `n` operands.
+    BuildVector(u16),
+    /// Copies native immutable storage under a checked extent identity proof.
+    CopyVector,
+    /// Appends native Vector or closed product positional storage to a private
+    /// dense builder, checking the semantically projected expected count.
+    VectorExpandExactPositionals {
+        vector: bool,
+        expected: u32,
+    },
+    /// Finalizes immutable Vector storage, checking its proved dimension.
+    FinishVectorLiteral(u32),
+    /// Allocates a VM-private dense Vector construction buffer.
+    BeginVectorLiteral,
+    /// Allocates the compiler-owned native Array builder used by a spread-containing Array literal.
+    BeginArrayLiteral,
+    /// Appends one value to a compiler-owned Array literal builder.
+    ArrayLiteralAppend,
+    /// Validates and completes a compiler-owned Array literal builder.
+    FinishArrayLiteral,
+    /// Tries Unit/Tuple positional projection for an Array spread.
+    ArrayTryExpandTuplePositionals,
     /// Builds a List from the top `n` stack items.
     BuildList(u16),
     NewArgumentPack,
@@ -781,7 +815,7 @@ pub enum Bytecode {
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 118;
+    pub const VARIANTS: usize = 128;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -910,6 +944,16 @@ impl Bytecode {
             Bytecode::GuardFieldKey => 115,
             Bytecode::RecordLiteralCheckKey => 116,
             Bytecode::LoadTypeParameterClass(..) => 117,
+            Bytecode::BuildArray(..) => 118,
+            Bytecode::BeginArrayLiteral => 119,
+            Bytecode::ArrayLiteralAppend => 120,
+            Bytecode::FinishArrayLiteral => 121,
+            Bytecode::ArrayTryExpandTuplePositionals => 122,
+            Bytecode::BuildVector(..) => 123,
+            Bytecode::VectorExpandExactPositionals { .. } => 124,
+            Bytecode::FinishVectorLiteral(..) => 125,
+            Bytecode::BeginVectorLiteral => 126,
+            Bytecode::CopyVector => 127,
         }
     }
 

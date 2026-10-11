@@ -1,9 +1,9 @@
-//! Compile-time materialization descriptors for static constants (LANG007.C4.P2).
+//! Compile-time materialization descriptors for static constants (LANG007.C4).
 //!
 //! Bridges canonical semantic static values into closed, self-contained descriptors
 //! consumed by backend codegen / lowering without retaining VM or heap pointers.
 
-use crate::static_value::{StaticFloat, StaticInt, StaticValueData, StaticValueRef, StaticValueStore};
+use crate::static_value::{StaticFloat, StaticInt, StaticSequenceFamily, StaticValueData, StaticValueRef, StaticValueStore};
 use std::sync::Arc;
 
 /// Materialization capability classification.
@@ -11,20 +11,30 @@ use std::sync::Arc;
 pub enum MaterializationCapability {
     /// Primitive value materializable in P2 directly to bytecode constants.
     P2Primitive,
-    /// Structural or advanced value whose runtime materialization is deferred to P8.
+    /// Structural or advanced value whose runtime materialization is deferred to its owning plan.
     DeferredStructural,
+    /// Immutable sequence recursively materializable by the collections runtime path.
+    Sequence,
     /// Non-materializable runtime value (e.g. Type / StaticTerm without runtime term form).
     Unsupported,
 }
 
-/// Category of structural value deferred to P8.
+/// Category of structural value not yet projected into a runtime descriptor.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum DeferredStructuralKind {
     Tuple,
+    Sequence,
     Record,
     Data,
     Variant,
     Pack,
+}
+
+/// Runtime representation chosen from the canonical checked sequence family.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum SequenceMaterializationKind {
+    Vector,
+    FrozenArray,
 }
 
 /// Standalone materialization descriptor for one evaluated static constant value.
@@ -37,6 +47,10 @@ pub enum MaterializationDescriptor {
     Float(StaticFloat),
     String(Arc<str>),
     Symbol(Arc<str>),
+    Sequence {
+        kind: SequenceMaterializationKind,
+        elements: Arc<[MaterializationDescriptor]>,
+    },
     DeferredStructural(DeferredStructuralKind),
     Unsupported(String),
 }
@@ -47,6 +61,7 @@ impl MaterializationDescriptor {
             Self::Unit | Self::Bool(_) | Self::Char(_) | Self::Int(_) | Self::Float(_) | Self::String(_) | Self::Symbol(_) => {
                 MaterializationCapability::P2Primitive
             }
+            Self::Sequence { .. } => MaterializationCapability::Sequence,
             Self::DeferredStructural(_) => MaterializationCapability::DeferredStructural,
             Self::Unsupported(_) => MaterializationCapability::Unsupported,
         }
@@ -74,6 +89,28 @@ impl MaterializationDescriptor {
                 Self::Symbol(Arc::from(s))
             }
             StaticValueData::Tuple(_) => Self::DeferredStructural(DeferredStructuralKind::Tuple),
+            StaticValueData::Sequence(sequence_id) => {
+                let sequence = store.get_sequence(*sequence_id).ok()?;
+                let kind = match sequence.family() {
+                    StaticSequenceFamily::Vector => SequenceMaterializationKind::Vector,
+                    StaticSequenceFamily::Array => SequenceMaterializationKind::FrozenArray,
+                };
+                let mut elements = Vec::with_capacity(sequence.elements().len());
+                for child in sequence.elements() {
+                    let descriptor = Self::from_static_value(store, *child)?;
+                    if matches!(
+                        descriptor.capability(),
+                        MaterializationCapability::DeferredStructural | MaterializationCapability::Unsupported
+                    ) {
+                        return Some(Self::DeferredStructural(DeferredStructuralKind::Sequence));
+                    }
+                    elements.push(descriptor);
+                }
+                Self::Sequence {
+                    kind,
+                    elements: Arc::from(elements),
+                }
+            }
             StaticValueData::Record(_) => Self::DeferredStructural(DeferredStructuralKind::Record),
             StaticValueData::Data(_) => Self::DeferredStructural(DeferredStructuralKind::Data),
             StaticValueData::Variant(_) => Self::DeferredStructural(DeferredStructuralKind::Variant),

@@ -989,6 +989,7 @@ fn formal_products_attach_by_callable_and_checker_ids() {
         for_iteration_lanes: Arc::new(BTreeMap::new()),
         positional_expansions: Arc::new(BTreeMap::new()),
         known_invalid_positional_expansions: Arc::new(BTreeMap::new()),
+        sequence_literals: Arc::new(BTreeMap::new()),
         associated_resolutions: Arc::new(BTreeMap::new()),
         callable_reference_resolutions: Arc::new(BTreeMap::new()),
         family_applications: Arc::new(BTreeMap::new()),

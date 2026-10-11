@@ -3459,10 +3459,16 @@ pub fn resolve_conformance_head(
             let mut resolved = Vec::with_capacity(arguments.len());
             for argument in arguments {
                 let phalcom_ast::ast::GenericArgumentSyntax::Single(argument) = argument else {
+                    let message = match argument {
+                        phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {
+                            "`_` is not valid in conformance trait arguments; trait conformance requires a complete generic argument"
+                        }
+                        _ => "type-pack expansion is not available in conformance trait arguments",
+                    };
                     diagnostics.push(SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
                         DiagnosticCode::AnnotationUnsupported,
-                        "type-pack expansion is not available in conformance trait arguments",
+                        message,
                         argument.range(),
                     ));
                     continue;

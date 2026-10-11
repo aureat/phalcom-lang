@@ -62,6 +62,23 @@ impl Value {
                     let parts: Vec<String> = list.elements().iter().map(|v| v.to_string(vm)).collect();
                     format!("[{}]", parts.join(", "))
                 }
+                Object::Array(array) => {
+                    let parts: Vec<String> = array.elements().iter().map(|v| v.to_string(vm)).collect();
+                    format!("Array([{}])", parts.join(", "))
+                }
+                Object::ArrayLiteralBuilder(_) => "<array-builder>".to_string(),
+                Object::Vector(vector) => format!("Vector({:?})", vector.elements()),
+                Object::Buffer(buffer) => {
+                    let parts: Vec<String> = buffer.elements().iter().map(|value| value.to_string(vm)).collect();
+                    format!("Buffer([{}], capacity: {})", parts.join(", "), buffer.capacity())
+                }
+                Object::Slice(slice) => {
+                    let parts: Vec<String> = (0..slice.len())
+                        .filter_map(|index| vm.heap.slice_element(id, index))
+                        .map(|value| value.to_string(vm))
+                        .collect();
+                    format!("Slice([{}])", parts.join(", "))
+                }
                 // The `.ph` `Bytes#toString` (bytes.md §4) is the surface
                 // spelling; this is the same debug form for the raw-render
                 // path (echo of a receiver with no user override yet).
@@ -205,6 +222,11 @@ impl Value {
                 Object::Block(_) => "<closure>".to_string(),
                 Object::BoundMethod(_) => "<bound method>".to_string(),
                 Object::List(_) => "<list>".to_string(),
+                Object::Array(_) => "<array>".to_string(),
+                Object::Vector(_) => "<vector>".to_string(),
+                Object::Buffer(_) => "<buffer>".to_string(),
+                Object::Slice(_) => "<slice>".to_string(),
+                Object::ArrayLiteralBuilder(_) => "<array-builder>".to_string(),
                 Object::Bytes(_) => "<bytes>".to_string(),
                 Object::Fiber(_) => "<fiber>".to_string(),
                 Object::Map(_) => "<map>".to_string(),

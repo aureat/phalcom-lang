@@ -157,6 +157,11 @@ impl Value {
                 Object::Block(_) => vm.universe.classes.closure_class,
                 Object::BoundMethod(_) => vm.universe.classes.bound_method_class,
                 Object::List(_) => vm.universe.classes.list_class,
+                Object::Array(_) => vm.universe.classes.array_class,
+                Object::Vector(_) => vm.universe.classes.vector_class,
+                Object::Buffer(_) => vm.universe.classes.buffer_class,
+                Object::Slice(_) => vm.universe.classes.slice_class,
+                Object::ArrayLiteralBuilder(_) => vm.universe.classes.nil_class,
                 Object::Bytes(_) => vm.universe.classes.bytes_class,
                 Object::Fiber(_) => vm.universe.classes.fiber_class,
                 Object::Map(_) => vm.universe.classes.map_class,
@@ -246,6 +251,11 @@ impl Value {
                 | Object::Method(_)
                 | Object::BoundMethod(_)
                 | Object::List(_)
+                | Object::Array(_)
+                | Object::Vector(_)
+                | Object::Buffer(_)
+                | Object::Slice(_)
+                | Object::ArrayLiteralBuilder(_)
                 | Object::Bytes(_)
                 | Object::Fiber(_)
                 | Object::Map(_)

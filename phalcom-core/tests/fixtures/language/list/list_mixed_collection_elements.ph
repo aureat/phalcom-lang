@@ -5,7 +5,7 @@
 // (Tuple, Map, Set) — `at(_, put:)` overwriting one slot's element type
 // leaves neighboring elements/kinds untouched.
 
-let l = []
+let l = List<Dynamic>.new()
 l.append((1, 2))
 l.append(Map.new().at("k", put: 1))
 l.append(#{1, 2})

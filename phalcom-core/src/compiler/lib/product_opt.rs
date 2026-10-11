@@ -862,11 +862,11 @@ impl<'a> ProductPlanner<'a> {
                     }
                 }
             }
-            Expr::ListLiteral(l) => {
+            Expr::BracketLiteral(l) => {
                 for elem in &l.elements {
                     match elem {
-                        phalcom_ast::ast::ListLiteralElement::Element { expr, .. } => self.visit_expression(expr, UseContext::Value),
-                        phalcom_ast::ast::ListLiteralElement::Expansion { expr, .. } => self.visit_expression(expr, UseContext::Value),
+                        phalcom_ast::ast::BracketLiteralElement::Element { expr, .. } => self.visit_expression(expr, UseContext::Value),
+                        phalcom_ast::ast::BracketLiteralElement::Expansion { expr, .. } => self.visit_expression(expr, UseContext::Value),
                     }
                 }
             }

@@ -6,7 +6,7 @@
 // (string concatenation, not a numeric sum — the existing
 // `list_each_sums_elements` case already covers the numeric shape).
 
-let l = []
+let l: List<String> = []
 l.append("One")
 l.append("Two")
 l.append("Three")

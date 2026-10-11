@@ -5,7 +5,7 @@
 
 let mut map = Map {a: 1, b: 2, c: 3}
 let mut view = map.iter.map |x| { x }
-let mut result = []
+let mut result: List<Symbol> = []
 for x in view {
   result.append(x)
 }

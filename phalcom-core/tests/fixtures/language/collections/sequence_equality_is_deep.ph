@@ -5,15 +5,15 @@
 // order-sensitive, holds for two empty lists, and is `false` across kinds
 // (a `List` is never `==` to a non-`List`, without raising).
 
-let nestedA = []
-let innerA = []
+let nestedA = List<Dynamic>.new()
+let innerA: List<Int> = []
 innerA.append(1)
 innerA.append(2)
 nestedA.append(innerA)
 nestedA.append(3)
 
-let nestedB = []
-let innerB = []
+let nestedB = List<Dynamic>.new()
+let innerB: List<Int> = []
 innerB.append(1)
 innerB.append(2)
 nestedB.append(innerB)
@@ -21,8 +21,8 @@ nestedB.append(3)
 
 System.print(nestedA == nestedB)
 
-let reordered = []
-let innerC = []
+let reordered = List<Dynamic>.new()
+let innerC: List<Int> = []
 innerC.append(2)
 innerC.append(1)
 reordered.append(innerC)

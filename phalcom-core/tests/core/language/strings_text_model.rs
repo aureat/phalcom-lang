@@ -252,7 +252,7 @@ fn lazy_splitting_and_lines() {
 from universe.text import Substring, Split, SplitWhitespace, Lines
 
 let csv = "a,,b,c"
-let mut parts = []
+let mut parts: List<String> = []
 for p in csv.split(',') {
   parts.append(p.toString)
 }
@@ -263,18 +263,18 @@ let kStr = if kvSplit.isSome { kvSplit.unwrap.first.unwrap.toString } else { "" 
 let vStr = if kvSplit.isSome { kvSplit.unwrap.last.unwrap.toString } else { "" }
 
 let ws = "  foo   bar \n baz  "
-let mut words = []
+let mut words: List<String> = []
 for w in ws.splitWhitespace() {
   words.append(w.toString)
 }
 
 let multiline = "first\r\nsecond\nthird\rlast"
-let mut lineList = []
+let mut lineList: List<String> = []
 for l in multiline.lines() {
   lineList.append(l.toString)
 }
 
-let mut linesWithTerms = []
+let mut linesWithTerms: List<String> = []
 for l in multiline.lines(keepingTerminators: true) {
   linesWithTerms.append(l.toString)
 }

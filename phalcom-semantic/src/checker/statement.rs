@@ -24,6 +24,17 @@ use phalcom_ast::ast::{BindingKind, Pattern, Statement};
 pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> StatementControl {
     match statement {
         Statement::Let(binding) => {
+            // `const` initializers are checked in the static phase. Keep that
+            // phase visible to nested expression synthesis so phase-owned
+            // defaults (including bare sequence literals) agree with the
+            // canonical static-constant product. Runtime `let` bindings keep
+            // the caller's phase, which also preserves static-definition
+            // locals checked within an already-static body.
+            let previous_phase = ctx.phase;
+            if matches!(binding.kind, BindingKind::Const) {
+                ctx.phase = super::context::EvaluationPhase::Static;
+            }
+
             // A module static-constant owner forms annotations containing
             // computed Record keys only after its selected constants have
             // reduced. Resolving such an annotation in this generic pass
@@ -34,21 +45,28 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                     .annotation
                     .as_ref()
                     .is_some_and(|annotation| !crate::static_key::type_record_key_expressions(annotation, 0).is_empty());
-            let (declared_k, annotation_invalidity) = (!defer_computed_record_key_annotation)
-                .then_some(binding.annotation.as_ref())
-                .flatten()
-                .map(|annotation| {
-                    let resolver = ctx.resolver.clone();
-                    let (knowledge, causal_invalidity) = ctx.resolve_type_annotation(&resolver, annotation);
-                    (Some(knowledge), causal_invalidity)
-                })
-                .unwrap_or((None, crate::checker::causal::CausalInvalidity::Clean));
 
-            let expected_init = declared_k
-                .as_ref()
-                .and_then(TypeKnowledge::ty)
-                .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::DeclarationContract))
-                .unwrap_or_default();
+            let resolver = ctx.resolver.clone();
+            let (elaboration, mut annotation_invalidity) = if !defer_computed_record_key_annotation {
+                if let Some(annotation) = binding.annotation.as_ref() {
+                    ctx.elaborate_type_annotation(&resolver, annotation)
+                } else {
+                    (None, crate::checker::causal::CausalInvalidity::Clean)
+                }
+            } else {
+                (None, crate::checker::causal::CausalInvalidity::Clean)
+            };
+
+            let expected_init = match &elaboration {
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
+                    ExpectedType::proper_from(*ty, ExpectationOrigin::DeclarationContract)
+                }
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context, term, .. }) => {
+                    ExpectedType::inference_from(*context, term.clone(), ExpectationOrigin::DeclarationContract)
+                }
+                None => ExpectedType::None,
+            };
+
             let (mut val_typed, init_state) = if let Some(expr) = &binding.value {
                 (
                     analyze_expression(ctx, expr, &expected_init),
@@ -76,6 +94,65 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                     TypedExpression::unknown(UnknownReason::MissingInitializer),
                     crate::checker::flow::InitializationState::Uninitialized,
                 )
+            };
+            ctx.phase = previous_phase;
+
+            let annotation_owner = match &elaboration {
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context, frame, .. }) => {
+                    Some(super::sequence_publication::PublicationOwner(*context, *frame))
+                }
+                _ => None,
+            };
+            let declared_k = match elaboration {
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
+                    Some(TypeKnowledge::established(ty, EvidenceOrigin::ContextualDerivation))
+                }
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context, frame, term, holes }) => {
+                    let outcome = if let Some(session) = ctx.inference_session(context) {
+                        ctx.solve_inference_in_frame(&mut session.borrow_mut(), frame)
+                    } else {
+                        crate::checker::inference::InferenceOutcome::Cancelled
+                    };
+
+                    let solved_ty = if outcome.is_solved() {
+                        if let Some(session) = ctx.inference_session(context) {
+                            session.borrow().materialize(&term, ctx.store).ok()
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some(ty) = solved_ty {
+                        Some(TypeKnowledge::established(ty, EvidenceOrigin::ContextualDerivation))
+                    } else {
+                        for hole in holes.iter() {
+                            let diag_code = match &outcome {
+                                crate::checker::inference::InferenceOutcome::Conflicting(_) => DiagnosticCode::GenericInferenceConflict,
+                                _ => DiagnosticCode::GenericInferenceUnderconstrained,
+                            };
+                            let msg = match &outcome {
+                                crate::checker::inference::InferenceOutcome::Conflicting(_) => {
+                                    "conflicting type constraints for inference hole `_`".to_string()
+                                }
+                                _ => {
+                                    "inference hole `_` could not be solved; insufficient type evidence from initializer".to_string()
+                                }
+                            };
+                            ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                                ctx.current_module.clone(),
+                                diag_code,
+                                msg,
+                                hole.range,
+                            ));
+                        }
+                        let cause = ctx.alloc_diagnostic_cause();
+                        annotation_invalidity = annotation_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause));
+                        None
+                    }
+                }
+                None => None,
             };
 
             let contract = if let Some(declared_k) = declared_k.as_ref().and_then(TypeKnowledge::ty) {
@@ -162,6 +239,18 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 }
             }
             ctx.sync_expression_outcome(&val_typed);
+            if let Some(owner) = annotation_owner {
+                if declared_k.is_some() && val_typed.status.is_ready() && matches!(causal_invalidity, CausalInvalidity::Clean) {
+                    if let Err(status) = ctx.accept_sequence_owner(owner) {
+                        val_typed.status = status;
+                        ctx.sync_expression_outcome(&val_typed);
+                    }
+                } else {
+                    ctx.reject_sequence_owner(owner);
+                }
+                ctx.pop_inference_frame(owner.0, owner.1);
+                ctx.finish_inference_context(owner.0);
+            }
 
             validate_declaration_pattern(ctx, &binding.pattern);
             bind_declaration_pattern(
@@ -174,6 +263,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 contract,
                 causal_invalidity,
                 binding.kind.is_mutable(),
+                binding.kind.phase(),
                 init_state,
                 binding.range,
                 val_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id)),
@@ -493,6 +583,7 @@ fn bind_declaration_pattern(
     contract: Option<BindingContract>,
     causal_invalidity: crate::checker::causal::CausalInvalidity,
     mutable: bool,
+    phase: phalcom_ast::ast::BindingPhase,
     initialization: crate::checker::flow::InitializationState,
     range: phalcom_common::range::SourceRange,
     explanation: Option<crate::identity::ExplanationId>,
@@ -516,6 +607,9 @@ fn bind_declaration_pattern(
                 crate::checker::binding::BindingDeclarationResult::Inserted(binding) => (binding, true),
                 crate::checker::binding::BindingDeclarationResult::Redeclared(binding) => (binding, false),
             };
+            if inserted {
+                ctx.record_binding_phase(binding_id, phase);
+            }
             if let Some(local_type) = local_type {
                 ctx.set_local_binding_type(binding_id, local_type);
             }
@@ -550,6 +644,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    phase,
                     initialization,
                     range,
                     component_explanation,
@@ -573,6 +668,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    phase,
                     initialization,
                     range,
                     explanation,
@@ -590,6 +686,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    phase,
                     initialization,
                     range,
                     explanation,
@@ -619,6 +716,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    phase,
                     initialization,
                     range,
                     explanation,
@@ -655,6 +753,7 @@ fn bind_declaration_pattern(
                     None,
                     causal_invalidity,
                     mutable,
+                    phase,
                     initialization,
                     range,
                     explanation,

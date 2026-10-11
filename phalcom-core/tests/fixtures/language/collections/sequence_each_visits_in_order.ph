@@ -3,7 +3,7 @@
 // status: PASS
 // `each(_:)` visits `at(0)..at(size-1)` exactly once, in insertion order.
 
-let l = []
+let l: List<Int> = []
 l.append(10)
 l.append(20)
 l.append(30)

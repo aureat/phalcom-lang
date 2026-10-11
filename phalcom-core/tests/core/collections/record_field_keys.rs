@@ -139,7 +139,7 @@ fn construction_computed_duplicate_key_fails() {
 #[test]
 fn evaluation_order_rejects_invalid_key_before_field_value() {
     let source = r#"
-let trace = []
+let trace: List<Int> = []
 class Probe {
   @class
   badKey(_ value: Dynamic) -> Dynamic { value }
@@ -167,7 +167,7 @@ let record = { [Probe.badKey(1.5)]: Probe.sideEffect() }
 #[test]
 fn evaluation_order_rejects_duplicate_dynamic_key_before_field_value() {
     let source = r#"
-let trace = []
+let trace: List<Int> = []
 class Probe {
   @class
   dynamicKey(_ value: Dynamic) -> Dynamic { value }
@@ -470,7 +470,7 @@ let labels = Receiver.new().collect(**record)
 #[test]
 fn spread_duplicate_prevents_later_record_field_value() {
     let source = r#"
-let trace = []
+let trace: List<Int> = []
 class Builder {
   @class
   make(_ key: Dynamic) -> Dynamic { {[key]: 1} }

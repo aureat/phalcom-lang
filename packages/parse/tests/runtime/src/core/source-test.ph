@@ -57,7 +57,13 @@ let tokenSource = ListSource<Token>.new(tokens)
 
 // The caller's list may mutate afterwards; the source is a snapshot.
 tokens.append(Token::Integer(99))
+tokens.at(0, put: Token::Integer(7))
+tokens.remove(at: 3)
 Testing.Test.expect(tokenSource.size == 3, "ListSource snapshots its backing list")
+
+let tokenCursor = Cursor.new(tokenSource)
+Testing.Test.expect(tokenCursor.current == Some(Token::Integer(3)), "cursor current reads snapshot token")
+Testing.Test.expect(tokenCursor.advance.current == Some(Token::Comma), "cursor advance reads next snapshot token")
 
 let integerToken = ListSource<Token>.select("integer") |token| {
   let picked: Option<Int> = match token {
@@ -79,6 +85,14 @@ let commaToken = ListSource<Token>.satisfy("comma") |token| {
   }
 }
 
+let wordToken = ListSource<Token>.select("word") |token| {
+  let picked: Option<String> = match token {
+    Token::Word(text) => { Some(text) }
+    _ => { None }
+  }
+  picked
+}
+
 Testing.Test.expect(
   Testing.Test.show(Parse.run(commaToken, tokenSource)).contains("err:"),
   "comma does not match the first token"
@@ -97,6 +111,11 @@ let wordOrInteger = integerToken.orElse(
 Testing.Test.expectEqual(
   Testing.Test.show(Parse.run(wordOrInteger, tokenSource)),
   "ok:3"
+)
+
+Testing.Test.expectEqual(
+  Testing.Test.show(Parse.runAll(integerToken.then(commaToken).then(wordToken), tokenSource)),
+  "ok:four"
 )
 
 Testing.Test.pass("core-source")

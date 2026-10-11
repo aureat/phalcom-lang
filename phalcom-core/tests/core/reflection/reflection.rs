@@ -372,6 +372,54 @@ fn metadata_loader_preserves_parameter_mode_and_kind_independently() {
 }
 
 #[test]
+fn exact_static_integer_metadata_reflection_preserves_signed_values_and_identity() {
+    use phalcom_core::heap::Heap;
+    use phalcom_core::typing::loader::load_metadata_bundle;
+    use phalcom_core::typing::registry::RuntimeTypingRegistry;
+    use phalcom_modules::{DeclarationId, ModuleId};
+    use phalcom_semantic::KindId;
+    use phalcom_semantic::metadata::MetadataExporter;
+    use phalcom_semantic::types::store::{StaticArgument, TypeStore};
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+    use phalcom_type_meta::validate::ValidationLimits;
+
+    let decimal = "12345678901234567890123456789012345678901234567890";
+    let mut store = TypeStore::new();
+    let positive = store.const_int(phalcom_type_meta::StaticInt::new(decimal.parse().unwrap()));
+    let negative = store.const_int(phalcom_type_meta::StaticInt::new(format!("-{decimal}").parse().unwrap()));
+    let integer_kind = store.kind_of(positive);
+    let constructor_kind = store.arrow_kind(Box::new([integer_kind]), KindId::TYPE);
+    let constructor = store.nominal_form(DeclarationId::new(ModuleId::universe_root(), "SizedEvidence".into()), constructor_kind);
+    let positive_application = store.apply_static_form(constructor, &[StaticArgument::Term(positive)]).unwrap();
+    let negative_application = store.apply_static_form(constructor, &[StaticArgument::Term(negative)]).unwrap();
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let positive_node = exporter.export_type_form(positive_application).unwrap();
+    let negative_node = exporter.export_type_form(negative_application).unwrap();
+    let bundle = exporter.build_bundle(&[]).unwrap();
+    let json = encode_metadata_json(&bundle).unwrap();
+    let limits = ValidationLimits::default();
+    let mut registry = RuntimeTypingRegistry::new();
+    let pool = registry.register_pool(load_metadata_bundle(MetadataPoolId(0), Arc::new(decode_metadata_json(&json, &limits).unwrap()), &limits).unwrap());
+    let other_pool = registry.register_pool(load_metadata_bundle(MetadataPoolId(1), Arc::new(bundle), &limits).unwrap());
+    let context = TypingContextData::new(Box::new([pool, other_pool]));
+    let heap = Heap::new();
+    let positive = RuntimeTypeRef::Base { pool, node: positive_node };
+    let negative = RuntimeTypeRef::Base { pool, node: negative_node };
+    assert_eq!(inspect::display(&context, &registry, &heap, positive), format!("SizedEvidence<{decimal}>"));
+    assert_eq!(inspect::display(&context, &registry, &heap, negative), format!("SizedEvidence<-{decimal}>"));
+    assert!(!inspect::equivalent(&context, &registry, positive, negative));
+    assert!(inspect::equivalent(
+        &context,
+        &registry,
+        positive,
+        RuntimeTypeRef::Base {
+            pool: other_pool,
+            node: positive_node
+        }
+    ));
+}
+
+#[test]
 fn spec03_bootstraps_typing_surface_and_context_capabilities() {
     let mut vm = VM::new();
     let typing_class = vm.universe.typing_classes.get("Typing").expect("Typing class");
@@ -424,6 +472,28 @@ fn spec03_reifies_applied_type_forms_and_returns_bounded_results() {
     assert_eq!(send0(&mut vm, list_kind, "argumentCount").as_int(), Some(1));
     assert!(send0(&mut vm, list_kind, "result").is_some());
     assert_eq!(send0(&mut vm, Value::obj(list_class), "remainingParameterCount").as_int(), Some(1));
+
+    for (collection_class, expected_display) in [
+        (vm.universe.classes.slice_class, "Slice<Int>"),
+        (vm.universe.classes.buffer_class, "Buffer<Int>"),
+    ] {
+        let collection_kind = send0(&mut vm, Value::obj(collection_class), "kind");
+        assert_eq!(send0(&mut vm, collection_kind, "argumentCount").as_int(), Some(1));
+        assert_eq!(send0(&mut vm, Value::obj(collection_class), "remainingParameterCount").as_int(), Some(1));
+
+        let collection_arguments = tuple(&mut vm, vec![Value::obj(int_class)]);
+        let collection_known = send2(&mut vm, context, "apply(_,_)", Value::obj(collection_class), collection_arguments);
+        assert_eq!(collection_known.class(&vm), known_class);
+
+        let collection_descriptor = send0(&mut vm, collection_known, "value");
+        assert_eq!(collection_descriptor.class(&vm), descriptor_class);
+        assert_eq!(send0(&mut vm, collection_descriptor, "argumentCount").as_int(), Some(1));
+        let collection_display = send0(&mut vm, collection_descriptor, "display");
+        assert_eq!(
+            vm.heap.string(collection_display.as_obj().expect("applied collection type display")).as_str(),
+            expected_display
+        );
+    }
 
     let arguments = tuple(&mut vm, vec![Value::obj(int_class)]);
     let known = send2(&mut vm, context, "apply(_,_)", Value::obj(list_class), arguments);

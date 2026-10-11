@@ -5,7 +5,7 @@
 // Tuple whose elements are a Range and a Set — every combinator composes
 // with every other native collection with no special-casing.
 
-let pairs = []
+let pairs: List<(Int, Int)> = []
 pairs.append((1, 2))
 pairs.append((3, 4))
 System.print(pairs.size)

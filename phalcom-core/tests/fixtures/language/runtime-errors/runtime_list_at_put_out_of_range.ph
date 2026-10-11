@@ -7,7 +7,7 @@
 // shares the same "index must be in range" law as Wren's `insert` — writing
 // past the end is a hard type error, never a silent grow or panic.
 
-let l = []
+let l: List<Int> = []
 l.append(1)
 l.append(2)
 l.append(3)

@@ -36,7 +36,7 @@ fn static_anonymous_product_lowering_is_projected_for_module_roots() {
 
 #[test]
 fn static_anonymous_products_compile_and_execute_through_program_path() {
-    let source = "let trace = []\nclass Probe {\n  @class\n  mark(_ value: Int) -> Int { trace.append(value); value }\n}\nconst tuple: (Int, Int) = (Probe.mark(1), Probe.mark(2))\nconst record: {a: Int, b: Int} = {b: Probe.mark(3), a: Probe.mark(4)}\n";
+    let source = "let trace: List<Int> = []\nclass Probe {\n  @class\n  mark(_ value: Int) -> Int { trace.append(value); value }\n}\nconst tuple: (Int, Int) = (Probe.mark(1), Probe.mark(2))\nconst record: {a: Int, b: Int} = {b: Probe.mark(3), a: Probe.mark(4)}\n";
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source.into())).expect("inline program compiles");
     let lowering = &program.modules.get(&program.entry).expect("entry module").lowering;
     assert_eq!(lowering.anonymous_products.len(), 2);

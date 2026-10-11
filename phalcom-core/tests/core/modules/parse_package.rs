@@ -1,4 +1,7 @@
+use phalcom_core::heap::Object;
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
+use phalcom_core::value::Value;
+use phalcom_core::vm::VM;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -107,6 +110,84 @@ fn parse_runtime_fixtures_pass() {
     });
 }
 
+/// The P5 parser snapshot contract must be executable without importing the
+/// unrelated TextSource migration surface.
+#[test]
+fn parse_list_source_snapshot_fixture_passes() {
+    let fixture = package_root().join("tests/runtime/src/core/list-source-snapshot-test.ph");
+    let binary = PathBuf::from(env!("CARGO_BIN_EXE_phalcom"));
+
+    run_fixture_with_marker(&binary, &fixture, Some("PASS core-list-source-snapshot")).expect("ListSource snapshot fixture must pass");
+}
+
+#[test]
+fn parse_list_source_snapshot_owner_survives_gc() {
+    let fixture = package_root().join("tests/runtime/src/core/list-source-snapshot-test.ph");
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Module(fixture)).expect("independent ListSource fixture compiles");
+    let mut vm = VM::new();
+    vm.run_compiled(&program).expect("independent ListSource fixture runs");
+    let source_module = program
+        .modules
+        .keys()
+        .find(|id| id.path.to_string() == "source.list_source")
+        .expect("real ListSource module");
+    let module = vm.module_registry.get(source_module).expect("loaded source module").object;
+    let list_source = vm
+        .heap
+        .module(module)
+        .get(vm.interner.find("ListSource").expect("ListSource symbol"))
+        .expect("ListSource class");
+
+    let first = vm.alloc_string_value("first heap token".to_owned());
+    vm.push_root_for_test(first);
+    let second = vm.alloc_string_value("second heap token".to_owned());
+    let caller = vm.heap.alloc_list(vec![first, second]);
+    vm.pop_root_for_test();
+    vm.push_root_for_test(Value::obj(caller));
+    let new = vm.get_or_intern("new(_)");
+    let source = vm
+        .send_dynamic(list_source, new, &[Value::obj(caller)])
+        .expect("real ListSource constructor snapshots the caller List");
+    vm.pop_root_for_test();
+    vm.push_root_for_test(source);
+
+    let Object::Instance(instance) = vm.heap.get(source.as_obj().expect("ListSource instance")) else {
+        panic!("ListSource must be a source instance");
+    };
+    assert_eq!(instance.slots.len(), 1, "no independently rooted backing Array field");
+    let slice_id = instance.slots[0].as_obj().expect("source field is heap-backed");
+    let Object::Slice(slice) = vm.heap.get(slice_id) else {
+        panic!("ListSource must retain the canonical Slice");
+    };
+    let owner = slice.owner();
+    assert!(matches!(vm.heap.get(owner), Object::Array(_)), "Slice owner is Array, not List or Vector");
+    assert_ne!(owner, caller, "snapshot has independent storage");
+    assert_eq!(slice.start(), 0);
+    assert_eq!(slice.len(), 2);
+
+    // ObjRef/Value locals are not roots. Only the ListSource root retains this
+    // freshly allocated Slice -> Array -> String graph during collection.
+    vm.force_gc();
+    assert!(vm.heap.try_get(caller).is_none(), "caller List is unreachable and collected");
+    assert!(vm.heap.try_get(slice_id).is_some(), "source retains Slice");
+    assert!(vm.heap.try_get(owner).is_some(), "Slice retains private Array");
+    for token in [first, second] {
+        assert!(vm.heap.try_get(token.as_obj().expect("heap token")).is_some(), "Array retains heap token");
+    }
+    let entry = vm.module_registry.get(&program.entry).expect("fixture entry").object;
+    let factory = vm
+        .heap
+        .module(entry)
+        .get(vm.interner.find("SourceFactory").expect("factory symbol"))
+        .expect("fixture factory");
+    let verify = vm.get_or_intern("verifyStrings(_)");
+    assert_eq!(
+        vm.send_dynamic(factory, verify, &[source]).expect("post-GC Cursor and parser reads"),
+        Value::bool(true)
+    );
+    vm.pop_root_for_test();
+}
+
 fn partition_into_chunks(items: Vec<PathBuf>, groups: usize) -> Vec<Vec<PathBuf>> {
     let mut chunks: Vec<Vec<PathBuf>> = vec![Vec::new(); groups.max(1)];
     for (index, item) in items.into_iter().enumerate() {
@@ -116,13 +197,21 @@ fn partition_into_chunks(items: Vec<PathBuf>, groups: usize) -> Vec<Vec<PathBuf>
 }
 
 fn run_fixture(binary: &Path, fixture: &Path) -> Result<String, String> {
+    run_fixture_with_marker(binary, fixture, None)
+}
+
+fn run_fixture_with_marker(binary: &Path, fixture: &Path, expected_marker: Option<&str>) -> Result<String, String> {
     let output = Command::new(binary)
         .arg(fixture)
         .output()
         .unwrap_or_else(|error| panic!("spawn phalcom for {}: {error}", fixture.display()));
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    if !output.status.success() || !stdout.lines().any(|line| line.starts_with("PASS ")) {
+    let passed = stdout.lines().any(|line| match expected_marker {
+        Some(marker) => line == marker,
+        None => line.starts_with("PASS "),
+    });
+    if !output.status.success() || !passed {
         Err(format!("fixture {} failed\nstdout:\n{stdout}\nstderr:\n{stderr}", fixture.display()))
     } else {
         Ok(fixture.display().to_string())

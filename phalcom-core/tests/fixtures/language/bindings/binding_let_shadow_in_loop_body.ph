@@ -7,8 +7,9 @@
 // and the outer binding is untouched once the loop finishes.
 
 let x = 100
-let mut seen = []
-for i in [1, 2] {
+let mut seen: List<Int> = []
+let input: Array<Int> = [1, 2]
+for i in input {
   let x = i
   seen.append(x)
 }

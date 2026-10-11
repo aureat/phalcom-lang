@@ -46,7 +46,7 @@ fn context<'a>(
 
 #[test]
 fn analyzer_preserves_exact_collection_shapes_with_canonical_builtin_ids() {
-    let parsed = parse("[1, 2]", 0);
+    let parsed = parse("let value: List<Int> = [1, 2]", 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
     let source = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &SourceIndexContext::default());
     let builtins = AdvisoryBuiltins {
@@ -63,9 +63,10 @@ fn analyzer_preserves_exact_collection_shapes_with_canonical_builtin_ids() {
         })
     };
     let no_call = |_range: SourceRange| None;
-    let Statement::Expr { expr, .. } = &parsed.program.statements[0] else {
-        panic!("expected expression")
+    let Statement::Let(binding) = &parsed.program.statements[0] else {
+        panic!("expected List binding")
     };
+    let expr = binding.value.as_ref().expect("List binding initializer");
 
     let fact = analyze_expr(expr, &context(&source, &bindings, &fields, &returns, &builtins, &site_for_range, &no_call));
 
@@ -76,7 +77,7 @@ fn analyzer_preserves_exact_collection_shapes_with_canonical_builtin_ids() {
 
 #[test]
 fn analyzer_resolves_locals_through_compiler_scope_identity() {
-    let parsed = parse("let value = [1, 2]\nvalue", 0);
+    let parsed = parse("let value: List<Int> = [1, 2]\nvalue", 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
     let source = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &SourceIndexContext::default());
     let binding = source
@@ -162,7 +163,7 @@ fn analyzer_does_not_fabricate_missing_builtin_identity() {
 
 #[test]
 fn flow_product_shares_binding_environment_across_initializer_and_use() {
-    let parsed = parse("let values = [1, 2]\nvalues", 0);
+    let parsed = parse("let values: List<Int> = [1, 2]\nvalues", 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
     let source = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &SourceIndexContext::default());
     let fields = BTreeMap::new();

@@ -538,6 +538,14 @@ pub struct FlowProbeResult<T> {
     pub flow: FlowState,
 }
 
+/// Scoped evaluation phase fact distinguishing runtime execution from static evaluation (COLL006.C1.P1).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum EvaluationPhase {
+    #[default]
+    Runtime,
+    Static,
+}
+
 /// The active context during semantic type checking.
 pub struct CheckingContext<'a> {
     pub store: &'a mut TypeStore,
@@ -547,6 +555,7 @@ pub struct CheckingContext<'a> {
     pub current_module: ModuleId,
     pub caller_package: Option<ModuleId>,
     pub access_topology: Option<&'a phalcom_modules::topology::ModuleTopology>,
+    pub phase: EvaluationPhase,
     /// Checked module value facts available to this body. These facts retain
     /// canonical source `SymbolId`s even when reached through an import alias.
     module_value_bindings: Option<&'a BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>>,
@@ -572,6 +581,8 @@ pub struct CheckingContext<'a> {
     pub(crate) throw_exit_flows: Vec<crate::checker::analysis::FlowStateSummary>,
     /// Binding products remain queryable after a branch-local scope closes.
     pub binding_history: BTreeMap<BindingId, crate::checker::analysis::BindingState>,
+    /// Query-local declaration phase retained by stable lexical binding identity.
+    binding_phases: BTreeMap<BindingId, phalcom_ast::ast::BindingPhase>,
     pub(crate) loop_frames: Vec<LoopFlowFrame>,
     pub body_id: BodyId,
     pub next_local_expr_id: u32,
@@ -584,6 +595,10 @@ pub struct CheckingContext<'a> {
     pub for_iteration_lanes: crate::checker::analysis::ForIterationLaneResolutionIndex,
     pub positional_expansions: crate::checker::analysis::PositionalExpansionIterationResolutionIndex,
     pub known_invalid_positional_expansions: crate::checker::analysis::KnownInvalidPositionalExpansionIndex,
+    pub sequence_literals: crate::checker::analysis::SequenceLiteralResolutionIndex,
+    pub(crate) sequence_publication: super::sequence_publication::SequencePublication,
+    pub(crate) deferred_applications: BTreeMap<super::sequence_publication::PublicationOwner, super::sequence_publication::DeferredApplicationRequirements>,
+    pub(crate) call_publication_owners: BTreeMap<ExpressionId, Vec<(super::sequence_publication::PublicationOwner, bool)>>,
     pub associated_resolutions: crate::checker::associated::AssociatedResolutionIndex,
     pub callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex,
     pub family_applications: crate::checker::associated::FamilyApplicationResolutionIndex,
@@ -686,6 +701,7 @@ impl<'a> CheckingContext<'a> {
             current_module,
             caller_package: None,
             access_topology: None,
+            phase: EvaluationPhase::Runtime,
             module_value_bindings: None,
             module_value_exports: None,
             current_class: None,
@@ -702,6 +718,7 @@ impl<'a> CheckingContext<'a> {
             normal_return_exits: Vec::new(),
             throw_exit_flows: Vec::new(),
             binding_history: BTreeMap::new(),
+            binding_phases: BTreeMap::new(),
             loop_frames: Vec::new(),
             body_id: BodyId(0),
             next_local_expr_id: 0,
@@ -714,6 +731,10 @@ impl<'a> CheckingContext<'a> {
             for_iteration_lanes: BTreeMap::new(),
             positional_expansions: BTreeMap::new(),
             known_invalid_positional_expansions: BTreeMap::new(),
+            sequence_literals: BTreeMap::new(),
+            sequence_publication: Default::default(),
+            call_publication_owners: BTreeMap::new(),
+            deferred_applications: BTreeMap::new(),
             associated_resolutions: crate::checker::associated::AssociatedResolutionIndex::new(),
             callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex::new(),
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
@@ -796,6 +817,7 @@ impl<'a> CheckingContext<'a> {
             current_module,
             caller_package: None,
             access_topology: None,
+            phase: EvaluationPhase::Runtime,
             module_value_bindings: None,
             module_value_exports: None,
             current_class: None,
@@ -812,6 +834,7 @@ impl<'a> CheckingContext<'a> {
             normal_return_exits: Vec::new(),
             throw_exit_flows: Vec::new(),
             binding_history: BTreeMap::new(),
+            binding_phases: BTreeMap::new(),
             loop_frames: Vec::new(),
             body_id: BodyId(0),
             next_local_expr_id: 0,
@@ -824,6 +847,10 @@ impl<'a> CheckingContext<'a> {
             for_iteration_lanes: BTreeMap::new(),
             positional_expansions: BTreeMap::new(),
             known_invalid_positional_expansions: BTreeMap::new(),
+            sequence_literals: BTreeMap::new(),
+            sequence_publication: Default::default(),
+            call_publication_owners: BTreeMap::new(),
+            deferred_applications: BTreeMap::new(),
             associated_resolutions: crate::checker::associated::AssociatedResolutionIndex::new(),
             callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex::new(),
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
@@ -885,6 +912,7 @@ impl<'a> CheckingContext<'a> {
             current_module: self.current_module.clone(),
             caller_package: self.caller_package.clone(),
             access_topology: self.access_topology,
+            phase: self.phase,
             module_value_bindings: self.module_value_bindings,
             module_value_exports: self.module_value_exports,
             current_class: self.current_class.clone(),
@@ -901,6 +929,7 @@ impl<'a> CheckingContext<'a> {
             normal_return_exits: self.normal_return_exits.clone(),
             throw_exit_flows: self.throw_exit_flows.clone(),
             binding_history: self.binding_history.clone(),
+            binding_phases: self.binding_phases.clone(),
             loop_frames: self.loop_frames.clone(),
             body_id: self.body_id,
             next_local_expr_id: self.next_local_expr_id,
@@ -913,6 +942,10 @@ impl<'a> CheckingContext<'a> {
             for_iteration_lanes: self.for_iteration_lanes.clone(),
             positional_expansions: self.positional_expansions.clone(),
             known_invalid_positional_expansions: self.known_invalid_positional_expansions.clone(),
+            sequence_literals: self.sequence_literals.clone(),
+            sequence_publication: self.sequence_publication.clone(),
+            call_publication_owners: self.call_publication_owners.clone(),
+            deferred_applications: self.deferred_applications.clone(),
             associated_resolutions: self.associated_resolutions.clone(),
             callable_reference_resolutions: self.callable_reference_resolutions.clone(),
             family_applications: self.family_applications.clone(),
@@ -1007,7 +1040,7 @@ impl<'a> CheckingContext<'a> {
                 local_name.to_string(),
             ));
             self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(symbol.module.clone()));
-            self.declare_checked_binding(local_name.to_string(), &fact.state);
+            self.declare_checked_binding(local_name.to_string(), &fact.state, fact.phase);
         }
     }
 
@@ -1098,6 +1131,7 @@ impl<'a> CheckingContext<'a> {
         probe.associated_table = self.associated_table;
         probe.trait_surface = self.trait_surface;
         probe.binding_history = self.binding_history.clone();
+        probe.binding_phases = self.binding_phases.clone();
         probe.next_binding_id = self.next_binding_id;
         probe.next_local_expr_id = self.next_local_expr_id;
         probe.next_diagnostic_cause = self.next_diagnostic_cause;
@@ -1105,6 +1139,7 @@ impl<'a> CheckingContext<'a> {
         probe.inference_contexts = self.inference_contexts.clone();
         probe.next_inference_context_id = self.next_inference_context_id;
         probe.inference_frames = self.inference_frames.clone();
+        probe.sequence_publication = self.sequence_publication.probe();
         probe.symbolic_inference_results = self.symbolic_inference_results.clone();
         probe.rigids = self.rigids.clone();
         probe.active_local_constraints = self.active_local_constraints.clone();
@@ -1280,6 +1315,7 @@ impl<'a> CheckingContext<'a> {
         let mut session = crate::checker::inference::InferenceCoordinator::new();
         let frame = session.root_frame();
         self.inference_contexts.insert(context, Rc::new(RefCell::new(session)));
+        self.sequence_publication.register(super::sequence_publication::PublicationOwner(context, frame), None);
         (context, frame)
     }
 
@@ -1293,7 +1329,7 @@ impl<'a> CheckingContext<'a> {
 
     /// Begins a child application frame in an existing query-local graph.
     pub(crate) fn begin_inference_frame(
-        &self,
+        &mut self,
         context: crate::checker::inference::InferenceContextId,
         parent: crate::checker::inference::InferenceFrameId,
     ) -> Option<crate::checker::inference::InferenceFrameId> {
@@ -1303,7 +1339,12 @@ impl<'a> CheckingContext<'a> {
             return None;
         }
         drop(session_state);
-        Some(session.borrow_mut().begin_frame(Some(parent)))
+        let frame = session.borrow_mut().begin_frame(Some(parent));
+        self.sequence_publication.register(
+            super::sequence_publication::PublicationOwner(context, frame),
+            Some(super::sequence_publication::PublicationOwner(context, parent)),
+        );
+        Some(frame)
     }
 
     pub(crate) fn current_inference_frame(
@@ -1341,7 +1382,125 @@ impl<'a> CheckingContext<'a> {
     /// Drops a completed query-local graph. No solver-local identity survives
     /// this boundary into snapshots or other durable semantic products.
     pub(crate) fn finish_inference_context(&mut self, context: crate::checker::inference::InferenceContextId) {
+        self.sequence_publication.dispose(context, &mut self.sequence_literals);
+        self.deferred_applications.retain(|owner, _| owner.0 != context);
         self.inference_contexts.remove(&context);
+    }
+
+    pub(crate) fn sequence_dependencies(&self) -> super::sequence_publication::PublicationDependencies {
+        self.current_expression_id()
+            .and_then(|expression| self.sequence_publication.expression_dependencies.get(&expression))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn stage_sequence(&mut self, resolution: super::analysis::SequenceLiteralResolution, mut dependencies: super::sequence_publication::PublicationDependencies) {
+        dependencies.extend(self.sequence_dependencies());
+        self.sequence_publication.stage(resolution, dependencies, &mut self.sequence_literals);
+    }
+
+    pub(crate) fn sequence_local_resolution(&self, expression: ExpressionId) -> Option<&super::analysis::SequenceLiteralResolution> {
+        self.sequence_literals.get(&expression).or_else(|| self.sequence_publication.local_resolution(expression))
+    }
+
+    pub(crate) fn reject_sequence_expression(&mut self, expression: ExpressionId) {
+        self.sequence_publication.discard_expression(expression);
+        self.sequence_literals.remove(&expression);
+    }
+
+    pub(crate) fn reject_all_sequence_products(&mut self) {
+        let expressions = self.sequence_literals.keys().copied().collect::<Vec<_>>();
+        for expression in expressions {
+            self.reject_sequence_expression(expression);
+        }
+        let contexts = self.inference_contexts.keys().copied().collect::<Vec<_>>();
+        for context in contexts {
+            self.finish_inference_context(context);
+        }
+    }
+
+    pub(crate) fn accept_sequence_owner(&mut self, owner: super::sequence_publication::PublicationOwner) -> Result<(), AnalysisStatus> {
+        let requirements = self.deferred_applications.values()
+            .filter(|requirements| self.sequence_publication.requires_owner(owner) && self.sequence_publication.depends_on(requirements.owner, owner))
+            .cloned().collect::<Vec<_>>();
+        for requirements in &requirements {
+            if let Err(status) = requirements.validate(self) {
+                self.reject_sequence_owner(owner);
+                if matches!(status, AnalysisStatus::Blocked(_)) {
+                    self.emit_diagnostic(SemanticDiagnostic::error_in(
+                        self.current_module.clone(),
+                        crate::diagnostic::DiagnosticCode::GenericInferenceUnderconstrained,
+                        "required generic application is not ready for construction publication",
+                        requirements.range,
+                    ));
+                }
+                if let Some(expression) = self.expressions.get_mut(&requirements.expression) {
+                    expression.status = status.clone();
+                }
+                self.record_terminal_status(status.clone());
+                return Err(status);
+            }
+        }
+        // Readiness validation completes for every required child before any
+        // terminal owner receipt can flush a product into the committed map.
+        for requirements in requirements {
+            self.sequence_publication.locally_ready(requirements.owner, &mut self.sequence_literals);
+        }
+        self.sequence_publication.locally_ready(owner, &mut self.sequence_literals);
+        Ok(())
+    }
+
+    pub(crate) fn reject_sequence_owner(&mut self, owner: super::sequence_publication::PublicationOwner) {
+        self.sequence_publication.reject(owner, &mut self.sequence_literals);
+        self.deferred_applications.remove(&owner);
+    }
+
+    pub(crate) fn finish_call_sequence_publication(&mut self, status: &mut AnalysisStatus, causal: super::causal::CausalInvalidity) {
+        let Some(expression) = self.current_expression_id() else { return; };
+        let owners = self.call_publication_owners.remove(&expression).unwrap_or_default();
+        for (owner, owns_context) in owners {
+            let readiness = self.deferred_applications.get(&owner);
+            if status.is_ready() && matches!(causal, super::causal::CausalInvalidity::Clean) && readiness.is_some() {
+                if readiness.is_some_and(|requirements| !requirements.deferred) {
+                    if let Err(failure) = self.accept_sequence_owner(owner) {
+                        *status = failure;
+                    }
+                }
+            } else {
+                self.reject_sequence_owner(owner);
+            }
+            if owns_context {
+                self.finish_inference_context(owner.0);
+            }
+        }
+    }
+
+    pub(crate) fn record_sequence_dependencies(&mut self, dependencies: &super::sequence_publication::PublicationDependencies) {
+        if let Some(expression) = self.current_expression_id() {
+            self.sequence_publication.expression_dependencies.entry(expression).or_default().extend(dependencies.iter().copied());
+        }
+    }
+
+    /// Durable artifacts cannot be marked ready while executable facts still
+    /// await an owner decision. Existing source errors remain the primary cause.
+    pub(crate) fn ensure_sequence_publication_settled(&mut self, range: SourceRange) -> bool {
+        if !self.sequence_publication.has_pending() {
+            return true;
+        }
+        if !self.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::DiagnosticSeverity::Error) {
+            self.publish_analysis_incident("sequence construction reached artifact extraction with an unsettled inference owner");
+            self.emit_diagnostic(SemanticDiagnostic::error_in(
+                self.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::AnalysisInternalFailure,
+                "sequence construction inference has not completed",
+                range,
+            ));
+        }
+        let contexts = self.inference_contexts.keys().copied().collect::<Vec<_>>();
+        for context in contexts {
+            self.finish_inference_context(context);
+        }
+        false
     }
 
     pub fn alloc_expression_id(&mut self) -> ExpressionId {
@@ -1473,6 +1632,13 @@ impl<'a> CheckingContext<'a> {
 
     pub(crate) fn call_status_is_recorded(&self) -> bool {
         self.call_dependency_frames.last().is_some_and(|frame| frame.status.is_some())
+    }
+
+    pub(crate) fn current_call_explanations(&self) -> Vec<crate::identity::ExplanationId> {
+        self.call_dependency_frames
+            .last()
+            .map(|frame| frame.explanations.clone())
+            .unwrap_or_default()
     }
 
     pub(crate) fn record_terminal_status(&mut self, status: AnalysisStatus) {
@@ -1644,6 +1810,22 @@ impl<'a> CheckingContext<'a> {
         let knowledge = crate::types::annotation::resolve_type_annotation(self.store, self.declarations, resolver, &site, annotation, &mut diagnostics);
         let causal_invalidity = self.publish_diagnostics(diagnostics);
         (knowledge, causal_invalidity)
+    }
+
+    /// Elaborates one source annotation, supporting inference holes in authorized
+    /// initializer contexts (COLL006.C1.P1).
+    pub fn elaborate_type_annotation(
+        &mut self,
+        resolver: &dyn TypeResolver,
+        annotation: &phalcom_ast::ast::TypeAnnotation,
+    ) -> (Option<crate::checker::annotation_elaboration::AnnotationElaboration>, crate::checker::causal::CausalInvalidity) {
+        match crate::checker::annotation_elaboration::elaborate_annotation(self, resolver, annotation) {
+            Ok(elaboration) => (Some(elaboration), crate::checker::causal::CausalInvalidity::Clean),
+            Err(diagnostics) => {
+                let causal = self.publish_diagnostics(diagnostics);
+                (None, causal)
+            }
+        }
     }
 
     /// Resolves one expression type form without enforcing proper `Type` kind.
@@ -2020,9 +2202,24 @@ impl<'a> CheckingContext<'a> {
         BindingDeclarationResult::Inserted(binding_id)
     }
 
+    pub(crate) fn record_binding_phase(&mut self, binding: BindingId, phase: phalcom_ast::ast::BindingPhase) {
+        if phase == phalcom_ast::ast::BindingPhase::Static {
+            self.binding_phases.insert(binding, phase);
+        }
+    }
+
+    pub(crate) fn is_static_binding(&self, binding: BindingId) -> bool {
+        self.binding_phases.get(&binding) == Some(&phalcom_ast::ast::BindingPhase::Static)
+    }
+
     /// Imports an already checked binding fact into the current lexical scope
     /// with a fresh body-local identity, without rerunning contract inference.
-    pub(crate) fn declare_checked_binding(&mut self, name: String, source: &crate::checker::analysis::BindingState) -> BindingDeclarationResult {
+    pub(crate) fn declare_checked_binding(
+        &mut self,
+        name: String,
+        source: &crate::checker::analysis::BindingState,
+        phase: crate::module_bindings::ModuleBindingPhase,
+    ) -> BindingDeclarationResult {
         let Some(scope) = self.scopes.last() else {
             return BindingDeclarationResult::Redeclared(BindingId(u32::MAX));
         };
@@ -2041,6 +2238,9 @@ impl<'a> CheckingContext<'a> {
         }
 
         let binding_id = self.alloc_binding();
+        if phase == crate::module_bindings::ModuleBindingPhase::StaticConstant {
+            self.record_binding_phase(binding_id, phalcom_ast::ast::BindingPhase::Static);
+        }
         let seed = BindingSeed {
             name: name.clone(),
             parameter: None,
@@ -3694,6 +3894,13 @@ impl<'a> CheckingContext<'a> {
         status: crate::checker::analysis::CallableAnalysisStatus,
         normal_returns: Vec<crate::checker::analysis::NormalReturnFact>,
     ) -> crate::checker::analysis::CallableAnalysis {
+        let mut status = status;
+        if !self.ensure_sequence_publication_settled(body_range) && matches!(status, super::analysis::CallableAnalysisStatus::Complete) {
+            status = match self.terminal_status {
+                Some(AnalysisStatus::InternalFailure(incident)) => super::analysis::CallableAnalysisStatus::InternalFailure(incident),
+                _ => super::analysis::CallableAnalysisStatus::Blocked,
+            };
+        }
         let return_validation = self.validate_return_contract(status, &normal_returns);
         let semantic_dependencies = self.semantic_dependencies_snapshot();
         let entry_flow = self.current_flow_summary();
@@ -3725,6 +3932,7 @@ impl<'a> CheckingContext<'a> {
             for_iteration_lanes: std::sync::Arc::new(self.for_iteration_lanes),
             positional_expansions: std::sync::Arc::new(self.positional_expansions),
             known_invalid_positional_expansions: std::sync::Arc::new(self.known_invalid_positional_expansions),
+            sequence_literals: std::sync::Arc::new(self.sequence_literals),
             bindings: {
                 let mut bindings = self.binding_history;
                 bindings.extend(self.flow.bindings);

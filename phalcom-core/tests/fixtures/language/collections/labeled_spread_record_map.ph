@@ -29,7 +29,7 @@ System.print(Map { **recordSource }.toString)
 System.print(Map { **mapSource }.toString)
 System.print(Map { **() }.toString)
 
-let mut trace = []
+let mut trace: List<String> = []
 let laterKey = || { trace.append("later-key"); #later }
 let laterValue = || { trace.append("later-value"); 9 }
 let duplicate = || {
@@ -38,7 +38,7 @@ let duplicate = || {
 System.print(duplicate)
 System.print(trace)
 
-let mut recordTrace = []
+let mut recordTrace: List<String> = []
 let recordLaterKey = || { recordTrace.append("record-later-key"); #recordLater }
 let recordLaterValue = || { recordTrace.append("record-later-value"); 10 }
 let recordDuplicate = || {

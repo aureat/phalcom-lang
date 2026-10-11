@@ -2,16 +2,16 @@
 id: COLL006
 category: COLL
 kind: implementation
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: BASELINE_BLOCKED
 ---
 
 # COLL006 — Extended collection semantics, storage, and contextual sequence literals
 
 COLL006 owns Telos's coherent extension of collection semantics across source syntax, contextual typing and inference, static evaluation, compiler lowering, native storage, collection protocols, persistent data structures, and standard-library collection APIs.
 
-Publishing this program record claims **no implementation and no verification**. The current program state is `PROPOSED / NOT_STARTED / UNVERIFIED`.
+The current program state is `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`. P1–P5 are complete at their bounded implementation scope. P5 supplies Slice/Buffer views/storage and independent ListSource snapshot acceptance: G6.A passes, while G6.B and aggregate G6 retain unchanged pre-P5 parser migration failures. P6 is next. The checkpoint owns exact verification evidence, the parser recheck obligation for P9, and inherited D1/D2/D4 residuals.
 
 ## 1. Program ownership
 
@@ -89,7 +89,7 @@ let explicitVector = <_, _>[1, 2, 3]
 
 ### COLL006.C1 — Extended collections foundation and first-generation collection family
 
-**State:** `PROPOSED / NOT_STARTED / UNVERIFIED`
+**State:** `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`
 
 C1 owns the first complete extended-collections generation:
 

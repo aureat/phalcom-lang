@@ -96,7 +96,35 @@ fn callable_owner_v11_roundtrips_and_v10_declaration_owner_decodes() {
             assert_eq!(decoded.callables[0].callable, callable);
         }
     }
-    assert_eq!(TYPE_METADATA_SCHEMA_VERSION, 11);
+    assert!(TYPE_METADATA_SCHEMA_VERSION >= 11);
+}
+
+#[test]
+fn schema_v12_exact_integers_round_trip_and_legacy_numeric_terms_decode() {
+    use phalcom_type_meta::StaticInt;
+    let mut bundle = sample_bundle(12, false);
+    bundle.header.features.static_domains = true;
+    bundle.kinds = Box::new([KindNodeEntry {
+        node: KindNode::StaticDomain(StaticDomainRef::ConstInt),
+        structural_fingerprint: Fingerprint128::ZERO,
+    }]);
+    bundle.types = ["1234567890123456789012345678901234567890", "-1234567890123456789012345678901234567890", "7"]
+        .map(|text| TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::ConstInt(StaticInt::new(text.parse().unwrap())),
+            structural_fingerprint: Fingerprint128::ZERO,
+        })
+        .into();
+    let json = encode_metadata_json(&bundle).unwrap();
+    assert_eq!(decode_metadata_json(&json, &ValidationLimits::default()).unwrap(), bundle);
+
+    let mut legacy = serde_json::to_value(&bundle).unwrap();
+    legacy["header"]["schema_version"] = serde_json::json!(11);
+    legacy["types"] = serde_json::json!([{
+        "kind": 0, "form": {"ConstInt": -7}, "structural_fingerprint": vec![0_u8; 16]
+    }]);
+    let decoded = decode_metadata_json(&legacy.to_string(), &ValidationLimits::default()).unwrap();
+    assert_eq!(decoded.types[0].form, TypeNode::ConstInt(StaticInt::Small(-7)));
 }
 
 fn sample_bundle(version: u32, record_rows: bool) -> SemanticMetadataBundle {
@@ -652,7 +680,7 @@ fn schema_v8_validates_static_data_case_membership_arity_and_payload_kind() {
         wrong_kind.types[0].clone(),
         TypeNodeEntry {
             kind: KindNodeId(2),
-            form: TypeNode::ConstInt(7),
+            form: TypeNode::ConstInt(phalcom_type_meta::StaticInt::from(7)),
             structural_fingerprint: Fingerprint128::ZERO,
         },
         static_data,
@@ -739,7 +767,7 @@ fn schema_v5_static_domain_nodes_require_the_feature_and_matching_kinds() {
     }]);
     missing_feature.types = Box::new([TypeNodeEntry {
         kind: KindNodeId(0),
-        form: TypeNode::ConstInt(3),
+        form: TypeNode::ConstInt(phalcom_type_meta::StaticInt::from(3)),
         structural_fingerprint: Fingerprint128::ZERO,
     }]);
     assert!(validate_metadata_bundle(&missing_feature, &limits).is_err());

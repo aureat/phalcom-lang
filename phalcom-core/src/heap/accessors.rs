@@ -1,4 +1,6 @@
 use crate::heap::ArgumentPackBuilderObject;
+use crate::heap::ArrayLiteralBuilderObject;
+use crate::heap::ArrayObject;
 use crate::heap::BlockObject;
 use crate::heap::BytesObject;
 use crate::heap::ClassObject;
@@ -11,6 +13,7 @@ use crate::heap::PackObject;
 use crate::heap::RangeObject;
 use crate::heap::RecordLiteralBuilderObject;
 use crate::heap::RecordObject;
+use crate::heap::SliceObject;
 use crate::heap::StringObject;
 use crate::heap::TupleObject;
 use crate::heap::Upvalue;
@@ -239,6 +242,123 @@ impl Heap {
     pub fn as_list(&self, id: ObjRef) -> Option<&ListObject> {
         match self.objects.get(id) {
             Some(Object::List(list)) => Some(list),
+            _ => None,
+        }
+    }
+
+    /// Borrows the [`ArrayObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Array`].
+    pub fn array(&self, id: ObjRef) -> &ArrayObject {
+        match self.get(id) {
+            Object::Array(array) => array,
+            _ => panic!("ObjRef {id:?} is not an ArrayObject"),
+        }
+    }
+
+    /// Mutably borrows the [`ArrayObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Array`].
+    pub fn array_mut(&mut self, id: ObjRef) -> &mut ArrayObject {
+        match self.get_mut(id) {
+            Object::Array(array) => array,
+            _ => panic!("ObjRef {id:?} is not an ArrayObject"),
+        }
+    }
+
+    /// Returns the [`ArrayObject`] behind `id`, or `None` if it is not one.
+    pub fn as_array(&self, id: ObjRef) -> Option<&ArrayObject> {
+        match self.objects.get(id) {
+            Some(Object::Array(array)) => Some(array),
+            _ => None,
+        }
+    }
+
+    /// Borrows the [`BufferObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Buffer`].
+    pub fn buffer(&self, id: ObjRef) -> &super::BufferObject {
+        match self.get(id) {
+            Object::Buffer(buffer) => buffer,
+            _ => panic!("ObjRef {id:?} is not a BufferObject"),
+        }
+    }
+
+    /// Mutably borrows the [`BufferObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Buffer`].
+    pub fn buffer_mut(&mut self, id: ObjRef) -> &mut super::BufferObject {
+        match self.get_mut(id) {
+            Object::Buffer(buffer) => buffer,
+            _ => panic!("ObjRef {id:?} is not a BufferObject"),
+        }
+    }
+
+    /// Returns bounded storage when `id` has the expected object kind.
+    pub fn as_buffer(&self, id: ObjRef) -> Option<&super::BufferObject> {
+        match self.objects.get(id) {
+            Some(Object::Buffer(buffer)) => Some(buffer),
+            _ => None,
+        }
+    }
+
+    /// Borrows immutable Vector storage. Panics only for an invalid internal handle.
+    pub fn vector(&self, id: ObjRef) -> &super::VectorObject {
+        match self.get(id) {
+            Object::Vector(vector) => vector,
+            _ => panic!("ObjRef {id:?} is not a VectorObject"),
+        }
+    }
+
+    /// Returns immutable Vector storage when the handle has the expected kind.
+    pub fn as_vector(&self, id: ObjRef) -> Option<&super::VectorObject> {
+        match self.objects.get(id) {
+            Some(Object::Vector(vector)) => Some(vector),
+            _ => None,
+        }
+    }
+
+    /// Borrows the normalized Slice view behind `id`.
+    pub fn slice(&self, id: ObjRef) -> &SliceObject {
+        match self.get(id) {
+            Object::Slice(slice) => slice,
+            _ => panic!("ObjRef {id:?} is not a SliceObject"),
+        }
+    }
+
+    /// Returns a Slice view when `id` has the expected object kind.
+    pub fn as_slice(&self, id: ObjRef) -> Option<&SliceObject> {
+        match self.objects.get(id) {
+            Some(Object::Slice(slice)) => Some(slice),
+            _ => None,
+        }
+    }
+
+    pub fn array_literal_builder(&self, id: ObjRef) -> &ArrayLiteralBuilderObject {
+        match self.get(id) {
+            Object::ArrayLiteralBuilder(builder) => builder,
+            _ => panic!("ObjRef {id:?} is not an ArrayLiteralBuilderObject"),
+        }
+    }
+
+    pub fn array_literal_builder_mut(&mut self, id: ObjRef) -> &mut ArrayLiteralBuilderObject {
+        match self.get_mut(id) {
+            Object::ArrayLiteralBuilder(builder) => builder,
+            _ => panic!("ObjRef {id:?} is not an ArrayLiteralBuilderObject"),
+        }
+    }
+
+    pub fn as_array_literal_builder(&self, id: ObjRef) -> Option<&ArrayLiteralBuilderObject> {
+        match self.objects.get(id) {
+            Some(Object::ArrayLiteralBuilder(builder)) => Some(builder),
             _ => None,
         }
     }

@@ -786,6 +786,7 @@ fn canonical_universe_declaration(name: &str) -> Option<DeclarationId> {
         "Result" => UniverseKey::Result,
         "Ordering" => UniverseKey::Ordering,
         "List" => UniverseKey::List,
+        "Array" => UniverseKey::Array,
         "Map" => UniverseKey::Map,
         "Set" => UniverseKey::Set,
         "Function" => UniverseKey::Function,

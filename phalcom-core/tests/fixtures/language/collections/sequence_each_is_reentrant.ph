@@ -4,10 +4,10 @@
 // `each(_:)` holds its cursor locally, never on the collection, so nested
 // (self-)iteration composes with no shared/global cursor (concurrency.md §1).
 
-let outer = []
+let outer: List<Int> = []
 outer.append(1)
 outer.append(2)
-let inner = []
+let inner: List<Int> = []
 inner.append(10)
 inner.append(20)
 let mut total = 0

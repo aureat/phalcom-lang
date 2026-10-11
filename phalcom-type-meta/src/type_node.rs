@@ -4,6 +4,7 @@ use crate::fingerprint::Fingerprint128;
 use crate::generic::{StableAssociatedTypeRequirementRef, StableTraitApplicationRef, StableTypeParameterRef};
 use crate::identity::{StableDeclarationRef, StableDispatchSide};
 use crate::kind::{KindNodeId, StaticDomainRef};
+use crate::scalar::StaticInt;
 use crate::scoped_type::TypeLambdaRef;
 use serde::{Deserialize, Serialize};
 
@@ -110,7 +111,7 @@ pub enum TypeMemberSelectorRef {
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub enum TypeMemberArgumentRef {
     Type(TypeNodeId),
-    ConstInt(i64),
+    ConstInt(StaticInt),
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -167,7 +168,7 @@ pub struct PackTypeRef {
 pub enum TypeNode {
     Never,
     Unit,
-    ConstInt(i64),
+    ConstInt(StaticInt),
     StaticData(StaticDataRef),
     Nominal {
         declaration: StableDeclarationRef,

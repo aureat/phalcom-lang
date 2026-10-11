@@ -195,7 +195,7 @@ impl ExpectedType {
     }
 }
 
-fn canonical_collection_arguments(store: &crate::types::store::TypeStore, ty: TypeId, collection_decl: &DeclarationId, arity: usize) -> Option<Vec<TypeId>> {
+pub(crate) fn canonical_collection_arguments(store: &crate::types::store::TypeStore, ty: TypeId, collection_decl: &DeclarationId, arity: usize) -> Option<Vec<TypeId>> {
     let (declaration, _) = store.applied_nominal_parts(ty)?;
     if &declaration != collection_decl {
         return None;
@@ -208,7 +208,7 @@ fn canonical_collection_arguments(store: &crate::types::store::TypeStore, ty: Ty
     }
 }
 
-fn inference_origin_matches(store: &crate::types::store::TypeStore, expected: &ExpectedType, collection_decl: &DeclarationId) -> bool {
+pub(crate) fn inference_origin_matches(store: &crate::types::store::TypeStore, expected: &ExpectedType, collection_decl: &DeclarationId) -> bool {
     let ExpectedType::Inference {
         term: InferenceTerm::Applied { origin, .. },
         ..
