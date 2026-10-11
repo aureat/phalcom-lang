@@ -29,7 +29,7 @@ class TextSource {
   /// Byte value at `index`, or `-1` when out of bounds.
   at(_ index: Int) -> Int {
     if index >= 0 and index < _view.size {
-      _view.at(index)
+      _view.at(index).unwrapOr(-1)
     } else {
       -1
     }
@@ -37,7 +37,7 @@ class TextSource {
 
   /// Substring by half-open byte range, for span rendering.
   slice(_ start: Int, _ end: Int) -> String {
-    _text.slice(start, end)
+    _text.slice(start, end).toString
   }
 
   /// Human-oriented position for an offset: line and column, both
@@ -47,7 +47,7 @@ class TextSource {
     let mut lastBreak = -1
     let mut i = 0
     while i < offset and i < _view.size {
-      if _view.at(i) == 10 {
+      if _view.at(i).unwrapOr(-1) == 10 {
         line = line + 1
         lastBreak = i
       }

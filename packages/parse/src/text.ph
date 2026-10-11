@@ -38,7 +38,8 @@ class Text {
   /// Matches the single byte of the one-byte string `c`.
   @class
   char(_ c: String) -> Rule<TextSource, Int> {
-    Text.satisfy(c) |byte| { byte == c.bytes.at(0) }
+    let expected = c.bytes.at(0).unwrapOr(-1)
+    Text.satisfy(c) |byte| { byte == expected }
   }
 
   /// Matches any one of the bytes in `chars`.
@@ -48,7 +49,7 @@ class Text {
       let mut found = false
       let mut i = 0
       while i < chars.size {
-        if chars.bytes.at(i) == byte {
+        if chars.bytes.at(i).unwrapOr(-1) == byte {
           found = true
         }
         i = i + 1
@@ -64,7 +65,7 @@ class Text {
       let mut found = false
       let mut i = 0
       while i < chars.size {
-        if chars.bytes.at(i) == byte {
+        if chars.bytes.at(i).unwrapOr(-1) == byte {
           found = true
         }
         i = i + 1
@@ -84,7 +85,7 @@ class Text {
         let mut matched = true
         let mut i = 0
         while i < width {
-          if source.at(cursor.offset + i) != s.bytes.at(i) {
+          if source.at(cursor.offset + i) != s.bytes.at(i).unwrapOr(-1) {
             matched = false
           }
           i = i + 1

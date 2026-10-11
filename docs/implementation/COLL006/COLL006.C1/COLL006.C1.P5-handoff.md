@@ -12,7 +12,10 @@ verification: BASELINE_BLOCKED
 
 P5 is COMPLETE / IMPLEMENTED / BASELINE_BLOCKED on feat/telos-collection-upgrade
 in `.worktrees/telos-collections-upgrade`. Bulk implementation is `f3403d70`;
-the audit continuation is uncommitted. C1 checkpoint remains the shared authority.
+the audit continuation was committed and pushed as `dea2cd1d`. A later
+user-directed audit follow-up began from P6 T1 revision `80a889f0` and is
+recorded in the walkthrough and C1 checkpoint. The C1 checkpoint remains the
+shared authority.
 
 ## Stable takeover interfaces
 
@@ -59,31 +62,41 @@ Both pass. The native test constructs a real ListSource, inspects Slice/Array
 storage, collects the caller List with only source rooted, and reads/parses the
 retained heap tokens after forced GC. Do not replace it with generic heap tests.
 
+The user-directed audit follow-up corrected the String/Substring adapter and
+all identified `Option<Int>` byte consumers. It also corrected the stale Rust
+Map contract assertion. On that follow-up tree, `core_collections` passes 13/13;
+`modules_parse_package` selects four tests and passes three, with 11/12 runtime
+fixtures passing. The remaining failure is the associated-family invocation
+lowering path in the token-backed Cursor assertions in `source-test.ph`. The
+exact individual assertion is not isolated; see [the consultation packet](COLL006.C1.P5-G6B-associated-family-invocation-consultation.md).
+
 ## Retained residuals / P9 obligation
 
-- R-PARSE-TEXT: TextSource.slice promises String but String.slice returns
-  Substring. The audit recommends initial preservation of the String promise,
-  materializing views in a bounded P16 parser-migration follow-up.
-- R-PARSE-BYTES: rawByteAt/String.bytes.at return Option<Int>; TextSource,
-  parse.text, and operator-fixture consumers treat bytes as Int. Include at,
-  lineColAt, optional presence handling, and String+Substring fixture use in that
-  follow-up. The comparator is not the established root cause.
-- R-MAP-REMOVE: collection-contract absent-key removal assertion fails identically
-  on pre-P5 `78cfd920`. Keep unrelated; P9 applies the final main-comparison policy.
+- R-PARSE-TEXT: corrected in the user-directed follow-up by materializing the
+  returned Substring to String at the adapter boundary.
+- R-PARSE-BYTES: corrected in the user-directed follow-up with explicit
+  `Option<Int>` handling in parser and operator-fixture consumers.
+- R-PARSE-ASSOCIATED-INVOKE: full-package execution remains blocked when the
+  token-backed Cursor assertions invoke `current`/`advance` for `Option<Token>`;
+  the compiler reports associated-family invocation lowering is not implemented
+  until associated semantic resolution lands. See the consultation packet and
+  preserve this as an owning compiler-layer issue.
+- R-MAP-REMOVE: the implementation already returns the Map from public
+  `remove(_)`. The old Rust assertions expected the internal `rawRemove`
+  Option result and were corrected. `core_collections` now passes 13/13; remove
+  this from active failures while retaining the earlier baseline observation as
+  history in the checkpoint.
 - Global format drift and P4 D1/D2/D4 remain inherited verification residuals.
 
-The exact complete package gate was rerun: 2 Rust passes/2 failures, 11 of 12
-runtime fixtures fail at the inherited sites. Keep its true failure status.
+The updated complete package gate passes its declared project compile and the
+independent snapshot/owner tests, but remains blocked by the associated-family
+invocation failure above. P9 must rerun
+`RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package`
+after the owning compiler work and classify any surviving failures against
+contemporaneous main. G6.A never waives G6.B. Do not claim full parser-package
+certification until the complete command passes.
 
-P9 must recheck both parser residuals, verify owning corrective work, rerun
-`RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package`,
-compare surviving failures with contemporaneous main, and classify each under
-the checkpoint policy. The current parser provenance is PRE_P5_BASELINE with
-audit-confirmed unchanged source compatibility; main runtime reproduction is
-not verified. G6.A never waives G6.B. Do not claim full parser-package certification
-until the complete command passes.
-
-Next: plan P6 ordered-hash/associative collections using established collection
-storage and key boundaries. Do not absorb parser/text baseline repairs into it.
-Broad tests, Clippy, release certification, and final residual classification
-remain P9 responsibilities.
+Next: continue P6 only after the public API contract consultation returns its
+decision. Do not absorb the associated-family compiler issue or additional
+parser changes into P6. Broad tests, Clippy, release certification, and final
+residual classification remain P9 responsibilities.

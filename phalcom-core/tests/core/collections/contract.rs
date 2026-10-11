@@ -272,9 +272,9 @@ fn set_satisfies_sequence_contract() {
 }
 
 /// `Map` extras (map-and-set.md §6): key overwrite leaves `size` unchanged
-/// and updates the stored value; `remove` is idempotent (removing an absent
-/// key is a no-op returning `self`); a missing key's `at(_)` is the `None`
-/// singleton; `keys`/`values` agree with iteration order.
+/// and updates the stored value; `remove` is idempotent and returns the Map;
+/// a missing key's `at(_)` is the `None` singleton; `keys`/`values` agree
+/// with iteration order.
 #[test]
 fn map_key_overwrite_and_remove_idempotence() {
     let mut vm = VM::new();
@@ -300,14 +300,14 @@ fn map_key_overwrite_and_remove_idempotence() {
     let missing = send1(&mut vm, map, "get(_)", Value::int(999));
     assert!(missing.is_none());
 
-    // remove(absent) is a no-op returning None.
+    // The public remove(_) wrapper is a no-op returning the Map.
     let returned = send1(&mut vm, map, "remove(_)", Value::int(999));
-    assert_eq!(returned, Value::none(), "remove(absent) returns None");
+    assert_eq!(returned, map, "remove(absent) returns the Map");
     assert_eq!(as_number(send0(&mut vm, map, "size")), 1.0, "remove(absent) must not shrink size");
 
-    // remove(present) actually deletes and returns Some(value).
+    // remove(present) deletes the association and returns the Map.
     let removed_present = send1(&mut vm, map, "remove(_)", Value::int(1));
-    assert_eq!(removed_present, Value::int(20).wrap_some().unwrap(), "remove(present) returns Some(value)");
+    assert_eq!(removed_present, map, "remove(present) returns the Map");
     assert_eq!(as_number(send0(&mut vm, map, "size")), 0.0, "remove(present) must shrink size");
 }
 

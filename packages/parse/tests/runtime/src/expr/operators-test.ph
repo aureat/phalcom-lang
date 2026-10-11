@@ -107,11 +107,11 @@ let tokenize = |text: String| {
   let mut index = 0
   let tokens = List<Token>.new()
   while index < text.size {
-    let byte = text.bytes.at(index)
+    let byte = text.bytes.at(index).unwrapOr(-1)
     if byte >= 48 and byte <= 57 {
       let mut value = 0
       while index < text.size {
-        let b = text.bytes.at(index)
+        let b = text.bytes.at(index).unwrapOr(-1)
         if b >= 48 and b <= 57 {
           value = value * 10 + (b - 48)
           index = index + 1
@@ -123,9 +123,9 @@ let tokenize = |text: String| {
     } else if byte >= 97 and byte <= 122 {
       let mut name = ""
       while index < text.size {
-        let b = text.bytes.at(index)
+        let b = text.bytes.at(index).unwrapOr(-1)
         if b >= 97 and b <= 122 {
-          name = name + text.slice(index, index + 1)
+          name = name + text.slice(index, index + 1).toString
           index = index + 1
         } else {
           break

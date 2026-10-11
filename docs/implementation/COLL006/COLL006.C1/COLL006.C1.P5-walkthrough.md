@@ -48,11 +48,12 @@ List is collected while Slice/Array/elements survive forced GC, and executes
 real Cursor and Parse.runAll after collection. This establishes the complete
 source graph rather than relying solely on generic Slice tracing tests.
 
-The continuation also adds Buffer reservation reuse coverage required by P5's
-remaining performance checklist. There are no production behavior changes in
-this continuation. Snapshotting preserves references, not recursive deep copies.
+The audit continuation also adds Buffer reservation reuse coverage required by
+P5's remaining performance checklist. Snapshotting preserves references, not
+recursive deep copies. That continuation was committed and pushed as
+`dea2cd1d`; the audit follow-up below is a later, user-directed correction.
 
-## Verification — 2026-10-11
+## Initial P5 T9 verification snapshot — 2026-10-11
 
 All Cargo commands used `RUSTFLAGS=''` and the pinned toolchain.
 
@@ -98,14 +99,54 @@ T7 is IMPLEMENTED / FOCUSED_TESTED and G6.A is PASS. T9's P5-owned stabilization
 is complete. P5 is COMPLETE / IMPLEMENTED / BASELINE_BLOCKED; G6.B and aggregate
 G6 remain BASELINE_BLOCKED. C1 remains IN_PROGRESS / PARTIAL / BASELINE_BLOCKED.
 
-R-PARSE-TEXT and R-PARSE-BYTES belong to the bounded parser-migration follow-up
-recommended by the audit (LANG007.C4.P16). Source compatibility with main is
-audit evidence; main runtime reproduction was not performed here. They remain
-PRE_P5_BASELINE, not certified EXTERNAL_BASELINE. P9 must verify their corrective
-work, rerun the complete package gate, and compare surviving residuals against
-contemporaneous main. Full parser certification requires a clean package result.
+At the initial P5 T9 closeout, R-PARSE-TEXT and R-PARSE-BYTES were assigned to
+the bounded parser-migration follow-up recommended by the audit
+(LANG007.C4.P16), and their main runtime reproduction had not been verified.
+The user-directed follow-up below later corrected both adapter issues. P9 must
+still rerun the complete package gate after the associated-invocation owner
+decision and compare any surviving residuals against contemporaneous main.
+Full parser certification requires a clean package result.
 
 Full owning-crate/workspace tests, Clippy, release/performance certification,
-and unrelated baseline repairs are deferred to their named owners/P9. No commit
-or push is made in this continuation. P6 inherits the stable interfaces in the
-[handoff](COLL006.C1.P5-handoff.md).
+and unrelated baseline repairs are deferred to their named owners/P9. P6
+inherits the stable interfaces in the [handoff](COLL006.C1.P5-handoff.md).
+
+## User-directed audit follow-up — 2026-10-11
+
+On the clean P6 T1 revision `80a889f0`, the user requested that all remaining
+items in the supplied P5 implementation audit be addressed. The parser adapter
+defects were local contract mismatches, so the follow-up now:
+
+- materializes `String.slice`'s `Substring` in `TextSource.slice`, preserving
+  the declared `String` result;
+- handles `Option<Int>` explicitly in `TextSource.at`, `lineColAt`, the
+  `Text` combinators, and the operator fixture (using `-1` for absent bytes);
+- materializes the operator fixture's byte-sized slice before String
+  concatenation;
+- corrects `map_key_overwrite_and_remove_idempotence` to match the existing
+  public `Map.remove(_)` wrapper, which returns the Map for both absent and
+  present keys while still removing a present association.
+
+Verification on this follow-up:
+
+| Command/filter | Result |
+|---|---|
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core core_collections` | 13 passed, including `map_key_overwrite_and_remove_idempotence` |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package` | 4 Rust tests selected: 3 passed, 1 failed; 11 of 12 runtime fixtures passed |
+
+The original project compile errors from the String/Substring and
+`Option<Int>`/`Int` mismatches are cleared. The remaining package failure is in
+`packages/parse/tests/runtime/src/core/source-test.ph`, in the token-backed
+Cursor `current`/`advance` assertions involving `Option<Token>`. The compiler
+reports `associated family invocation lowering is not implemented until
+associated semantic resolution lands` from the associated-invocation lowering
+fallback. The exact single expression was not isolated from the paired cursor
+assertions. This is an owning compiler-layer blocker, not a P5 collection
+representation change; the follow-up consultation is recorded separately.
+
+P5 remains `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`: G6.A is `PASS`, while
+G6.B and aggregate G6 remain blocked by this remaining full-package failure.
+The earlier `R-PARSE-TEXT` and `R-PARSE-BYTES` adapter issues are corrected;
+P9 must rerun the package gate after the associated-invocation owner work and
+complete its residual comparison. Workspace tests, Clippy, and release
+certification remain deferred to P9.

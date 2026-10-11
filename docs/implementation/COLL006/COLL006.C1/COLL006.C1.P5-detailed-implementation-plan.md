@@ -2090,9 +2090,22 @@ The original command remains mandatory:
 RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package
 ```
 
-Track inherited String/Substring adapter mismatches separately from optional
-bytes consumed as integers. G6.B remains `BASELINE_BLOCKED` while those failures
-remain; a P5-caused failure is active responsibility rather than a baseline waiver.
+The initial package failures included String/Substring adapter mismatches and
+optional bytes consumed as integers; the user-directed follow-up below records
+their correction. G6.B remains `BASELINE_BLOCKED` until the complete package
+gate passes. A P5-caused failure is active responsibility rather than a
+baseline waiver.
+
+**User-directed audit follow-up (2026-10-11):** The String/Substring and
+optional-byte adapter mismatches were corrected at their parser/fixture
+consumers. The complete package command now compiles the declared project and
+passes 3 of 4 Rust tests; 11 of 12 runtime fixtures pass. The remaining
+`source-test.ph` token-backed Cursor `current`/`advance` path reaches the
+compiler's explicit associated-family invocation lowering error. Keep G6.B and
+aggregate G6 `BASELINE_BLOCKED`; do not redesign compiler associated
+resolution/lowering or weaken the fixture under P5. The ownership decision is
+requested in `COLL006.C1.P5-G6B-associated-family-invocation-consultation.md`.
+P9 retains the full package rerun after the owning-layer disposition.
 
 #### Aggregate disposition and retained P9 obligation
 

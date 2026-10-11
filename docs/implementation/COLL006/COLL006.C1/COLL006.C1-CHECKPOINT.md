@@ -916,13 +916,14 @@ The implementer cannot self-waive a triggered consultation.
 ## 18. Active plan and next action
 
 ```text
-active plan:           COLL006.C1.P6; T1 shared key-engine extraction complete, T2 API consultation next
+active plan:           COLL006.C1.P6; T1 shared key-engine extraction complete, T2 API consultation in progress
 latest completed plan: COLL006.C1.P5
-execution blockers:    no P5-owned implementation blocker; G6.A PASS; G6.B and aggregate G6 retain inherited parse-package failures
+execution blockers:    P5 G6.A PASS; G6.B and aggregate G6 BASELINE_BLOCKED by associated-family invocation in token-backed Cursor use; P6 public API decision pending
 verification residuals: D4 — computed Record-key failures block a clean aggregate static_constants PASS;
                          D1 — metadata failure, still suspected unrelated;
-                         D2 — reflection/module fixture failures, still suspected unrelated
-next action:           obtain the public API ruling before implementing new collection surfaces; retain G6.B/aggregate G6 BASELINE_BLOCKED and the P9 final package obligation
+                         D2 — reflection/module fixture failures, still suspected unrelated;
+                         R-PARSE-ASSOCIATED-INVOKE — owning compiler-layer consultation prepared
+next action:           wait for P6 public API ruling before new collection surfaces; obtain associated-invocation owner decision; retain G6.B/aggregate G6 BASELINE_BLOCKED and the P9 full-package obligation
 ```
 
 ### P6 start — 2026-10-11
@@ -937,7 +938,9 @@ Accordingly, T2 requires an architecture consultation before the three new
 public surfaces are implemented; the request is prepared in
 `COLL006.C1.P6-api-contract-consultation.md`. This did not block the
 behavior-preserving Map/Set extraction. P5 G6.B and aggregate G6 remain
-baseline-blocked for P9's full parse-package recheck.
+baseline-blocked for P9's full parse-package recheck. The user has confirmed
+that the P6 API consultation is in progress; no new public collection APIs may
+be implemented until its decision is recorded.
 
 ### P6 T0/T1 — Entry baseline and shared key engine — 2026-10-11
 
@@ -1691,3 +1694,65 @@ They remain a verification residual that prevents a clean aggregate
 `static_constants` PASS; they were not changed. Workspace tests, clippy, and
 release certification remain outside this bounded follow-up. P5 remains the
 next plan and has no execution blocker from D4.
+
+
+### P5 user-directed audit follow-up — parser adapters and Map regression — 2026-10-11
+
+After the P5 audit identified remaining parser adapter mismatches and stale
+lifecycle wording, the user requested that the items be addressed on
+`feat/telos-collection-upgrade`. Work began from clean P6 T1 revision
+`80a889f0`; P6's three new public collection APIs remain gated on the separate
+API-contract consultation, which the user says is in progress.
+
+The adapter corrections preserve existing declared contracts: `TextSource.slice`
+materializes the `Substring` result as String, and byte consumers explicitly
+handle `Option<Int>` (retaining `-1` for absent/out-of-bounds bytes). The
+operator fixture also materializes its byte-sized substring before
+concatenation. No comparison semantics, associated-type model, compiler
+lowering, or collection representation was changed.
+
+The `core_collections` failure was an incorrect Rust test oracle, not a runtime
+Map defect. Public `Map.remove(_)` discards `rawRemove`'s optional removed value
+and returns the Map; the test had expected the internal `Option` result. The
+assertions now match the public source wrapper while still checking idempotence
+and size changes.
+
+| Focused gate | Result |
+|---|---|
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core core_collections` | 13 passed, 0 failed |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package` | 4 tests selected: 3 passed, 1 failed; declared project compiles; 11/12 runtime fixtures pass |
+
+The prior `R-PARSE-TEXT` and `R-PARSE-BYTES` defects are corrected. The
+remaining parse-package failure is the token-backed Cursor path in
+`packages/parse/tests/runtime/src/core/source-test.ph`, where `Cursor.current`
+and `advance.current` produce an associated-family invocation lowering error.
+The exact individual expression is not isolated. The compiler's unsupported
+fallback is in `phalcom-core/src/compiler/lib/associated.rs`; the issue crosses
+the parser test and compiler associated-resolution/lowering boundary. The
+consultation request is
+`COLL006.C1.P5-G6B-associated-family-invocation-consultation.md`.
+
+Current disposition:
+
+```yaml
+COLL006.C1.P5:
+  status: COMPLETE
+  completion: IMPLEMENTED
+  verification: BASELINE_BLOCKED
+  G6.A: PASS
+  G6.B: BASELINE_BLOCKED
+  aggregate_G6: BASELINE_BLOCKED
+resolved_follow-up-items:
+  R-PARSE-TEXT: adapter contract corrected
+  R-PARSE-BYTES: optional-byte consumers corrected
+  R-MAP-REMOVE: stale test oracle corrected; core_collections passes
+remaining:
+  R-PARSE-ASSOCIATED-INVOKE: awaiting owner decision; preserve full package gate
+```
+
+Workspace tests, Clippy, release/performance certification, and P4 D1/D2/D4
+re-certification were not run. P9 must rerun the complete parse-package gate
+after the associated-invocation owner decision/work, classify any remaining
+failures against contemporaneous main, and retain broad certification in its
+own scope. No new P6 public APIs may be implemented until its separate
+consultation decision is recorded.
