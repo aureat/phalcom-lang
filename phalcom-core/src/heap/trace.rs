@@ -290,6 +290,14 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
                 push(root);
             }
         }
+        Object::Bijection(b) => {
+            if let Some(root) = b.forward_root() {
+                push(root);
+            }
+            if let Some(root) = b.reverse_root() {
+                push(root);
+            }
+        }
         // `Bytes` holds raw octets, never a `Value` — nothing to visit. An
         // explicit arm (not a `_` wildcard) so the match stays exhaustive and
         // the next variant's author is forced to decide (impl/bytes.md §2.3).

@@ -1,6 +1,7 @@
 use crate::heap::ArrayLiteralBuilderObject;
 use crate::heap::ArrayObject;
 use crate::heap::BagObject;
+use crate::heap::BijectionObject;
 use crate::heap::BlockObject;
 use crate::heap::BufferObject;
 use crate::heap::BytesObject;
@@ -129,6 +130,8 @@ pub enum Object {
     PersistentHashNode(Box<PersistentHashNode>),
     /// A persistent immutable multiset with exact counts and HAMT backing. Boxed to keep arena slot size stable.
     Bag(Box<BagObject>),
+    /// A persistent bidirectional map backed by dual persistent hash tries. Boxed to keep arena slot size stable.
+    Bijection(Box<BijectionObject>),
     /// A native, fixed-length, mutable octet buffer ([`BytesObject`],
     /// [PDR-0011](../../../docs/decisions/0011-admit-bytes-native-octet-buffer.md)).
     /// `Tuple`'s backing shape (`Box<[u8]>`, length fixed at construction)

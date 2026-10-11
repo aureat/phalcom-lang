@@ -1957,7 +1957,14 @@ mod tests {
         );
 
         let outcome = vm
-            .dispatch_conditional_family_entry(0, receiver, &entry, view, phalcom_common::range::SourceRange::default())
+            .dispatch_conditional_family_entry(
+                0,
+                receiver,
+                &entry,
+                view,
+                phalcom_common::range::SourceRange::default(),
+                None,
+            )
             .expect("strict subclass override should activate");
 
         assert_eq!(outcome, CallOutcome::EnteredFrame);

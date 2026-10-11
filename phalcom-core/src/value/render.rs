@@ -110,6 +110,7 @@ impl Value {
                     format!("OrderedSet({})", parts.join(", "))
                 }
                 Object::Bag(bag) => format!("Bag(size={}, distinct={})", bag.total_count(), bag.distinct_count()),
+                Object::Bijection(b) => format!("Bijection(size={})", b.len()),
                 Object::PersistentHashNode(_) => "<persistent hash node>".to_string(),
                 Object::Tuple(_) => {
                     let parts: Vec<String> = vm
@@ -255,6 +256,7 @@ impl Value {
                 Object::IndexedDict(_) => "<indexed dict>".to_string(),
                 Object::OrderedSet(_) => "<ordered set>".to_string(),
                 Object::Bag(_) => "<bag>".to_string(),
+                Object::Bijection(_) => "<bijection>".to_string(),
                 Object::PersistentHashNode(_) => "<persistent hash node>".to_string(),
                 Object::Tuple(_) => "<tuple>".to_string(),
                 Object::Record(_) => "<record>".to_string(),

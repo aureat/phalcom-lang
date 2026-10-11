@@ -58,6 +58,7 @@ pub enum UniverseKey {
     IndexedDict,
     OrderedSet,
     Bag,
+    Bijection,
     Tuple,
     Pack,
     Record,
@@ -271,6 +272,10 @@ pub const UNIVERSE_CLASS_RELATIONS: &[UniverseClassRelationSpec] = &[
         superclass: Some(UniverseKey::Collection),
     },
     UniverseClassRelationSpec {
+        class: UniverseKey::Bijection,
+        superclass: Some(UniverseKey::Collection),
+    },
+    UniverseClassRelationSpec {
         class: UniverseKey::Tuple,
         superclass: Some(UniverseKey::Collection),
     },
@@ -431,6 +436,7 @@ impl UniverseKey {
             Self::IndexedDict => &["collections", "indexed_dict"],
             Self::OrderedSet => &["collections", "ordered_set"],
             Self::Bag => &["collections", "bag"],
+            Self::Bijection => &["collections", "bijection"],
             Self::Tuple => &["collections", "tuple"],
             Self::Pack => &["collections", "pack"],
             Self::Record | Self::EmptyRecord => &["collections", "record"],
@@ -507,6 +513,7 @@ impl UniverseKey {
             Self::IndexedDict => "IndexedDict",
             Self::OrderedSet => "OrderedSet",
             Self::Bag => "Bag",
+            Self::Bijection => "Bijection",
             Self::Tuple => "Tuple",
             Self::Pack => "Pack",
             Self::Record => "Record",
@@ -589,6 +596,7 @@ impl UniverseKey {
             "IndexedDict" => Some(Self::IndexedDict),
             "OrderedSet" => Some(Self::OrderedSet),
             "Bag" => Some(Self::Bag),
+            "Bijection" => Some(Self::Bijection),
             "Tuple" => Some(Self::Tuple),
             "Pack" => Some(Self::Pack),
             "Record" => Some(Self::Record),
@@ -933,6 +941,13 @@ pub const UNIVERSE_BINDINGS: &[UniverseBindingSpec] = &[
         prelude: true,
     },
     UniverseBindingSpec {
+        key: UniverseKey::Bijection,
+        name: "Bijection",
+        kind: UniverseBindingKind::Class,
+        exported: true,
+        prelude: true,
+    },
+    UniverseBindingSpec {
         key: UniverseKey::Tuple,
         name: "Tuple",
         kind: UniverseBindingKind::Class,
@@ -1220,6 +1235,13 @@ pub const UNIVERSE_TYPE_FORMS: &[UniverseTypeFormSpec] = &[
     UniverseTypeFormSpec {
         owner: UniverseKey::Bag,
         parameters: &[TypeParameterDeclSpec { name: "T", kind: KindSpec::Type }],
+    },
+    UniverseTypeFormSpec {
+        owner: UniverseKey::Bijection,
+        parameters: &[
+            TypeParameterDeclSpec { name: "K", kind: KindSpec::Type },
+            TypeParameterDeclSpec { name: "V", kind: KindSpec::Type },
+        ],
     },
     UniverseTypeFormSpec {
         owner: UniverseKey::Map,

@@ -12,6 +12,7 @@ expose .mutable_bag
 expose .indexed_dict
 expose .ordered_set
 expose .bag
+expose .bijection
 expose .tuple
 expose .pack
 expose .record

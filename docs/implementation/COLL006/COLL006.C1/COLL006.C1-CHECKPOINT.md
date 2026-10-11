@@ -19,7 +19,7 @@ It combines the language-level homogeneous-sequence literal upgrade with the run
 
 This record is the **single durable shared state authority** for all numbered plans belonging to `COLL006.C1`.
 
-P1–P6 are complete at their bounded implementation scope. P5 supplies Slice/Buffer and independent parser snapshot acceptance; its complete-package integration residual remains outstanding for P9. P6 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED, fulfilling requirements for `MutableBag`, `IndexedDict`, and `OrderedSet`, with exact 29 bindings per TDR-0092, resolved test oracles for `orderedCollision` and `mutableKeyPolicy`, and passing focused suites (semantic, core collections, object model, native surface 458). Active plan transitions to `COLL006.C1.P7`.
+P1–P7 are complete at their bounded implementation scope. P5 supplies Slice/Buffer and independent parser snapshot acceptance; its complete-package integration residual remains outstanding for P9. P6 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED (`MutableBag`, `IndexedDict`, `OrderedSet`). P7 is COMPLETE / IMPLEMENTED / FOCUSED_TESTED, fulfilling requirements for `PersistentHashNode`, `Bag<T>`, and `Bijection<K,V>`, with exact 14 approved bindings per TDR-0093, passing focused test suites (G2 PersistentHashNode GC, G3 persistent hash HAMT engine, G5 Bag, G6 Bijection, G7 collections aggregate), and current native surface at 488 declarations. Active plan transitions to `COLL006.C1.P8`.
 
 ---
 
@@ -333,7 +333,7 @@ The ledger records current C1 execution state. Proposed successor plans retain t
 | `COLL006.C1.P4` | Static homogeneous sequence model; const Vector; const Array; materialization; repository-wide bracket-default cutover/migration | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T10/T11 cutover and stabilization complete; G7 focused evidence passes except inherited D4 static-constant failures |
 | `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 owned implementation and focused evidence complete; G6.A PASS; G6.B and aggregate G6 retain the parse-package baseline blocker |
 | `COLL006.C1.P6` | Reusable ordered-hash backing; preserve Map/Set; add `MutableBag`, `IndexedDict`, `OrderedSet` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T7 complete; exact 29 bindings (TDR-0092); G3 (MutableBag), G4 (IndexedDict), G5 (OrderedSet), G6 (mutable-key admission matrix) passed; oracles resolved; walkthrough and handoff created; P7 is next |
-| `COLL006.C1.P7` | Persistent hash substrate; `Bag<T>`; `Bijection<K,V>` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0–T4/G2–G4 have recorded focused evidence; Bag implementation files arrived in the consolidated snapshot but its T5 gate is not recorded; Bijection remains outstanding |
+| `COLL006.C1.P7` | Persistent hash substrate; `Bag<T>`; `Bijection<K,V>` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T8 complete; exact 14 bindings (TDR-0093); G2 (PersistentHashNode), G3 (persistent_hash HAMT), G4 (TDR-0093 floor), G5 (Bag), G6 (Bijection), G7 (collections aggregate) passed; native surface 488; walkthrough and handoff created; P8 is next |
 | `COLL006.C1.P8` | `Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete generic interval-domain mapping |
 | `COLL006.C1.P9` | API/conversion convergence, `Entry<K,V>` migration boundary, diagnostics, property/GC/performance certification, docs/checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | Certify the complete C1 collection family |
 
@@ -916,14 +916,15 @@ The implementer cannot self-waive a triggered consultation.
 ## 18. Active plan and next action
 
 ```text
-active plan:           COLL006.C1.P7; P1–P6 complete; T0–T4/G2–G4 recorded; Bag source is present, Bijection remains outstanding
-latest completed plan: COLL006.C1.P6
-execution blockers:    none within P6 scope; P5 G6.A PASS, G6.B and aggregate G6 BASELINE_BLOCKED by associated-family invocation in token-backed Cursor use (assigned to P9)
+active plan:           COLL006.C1.P8; P1–P7 complete; P8 (Interval / RangeMap) is next
+latest completed plan: COLL006.C1.P7
+execution blockers:    none within P7 scope; P5 G6.A PASS, G6.B and aggregate G6 BASELINE_BLOCKED by associated-family invocation in token-backed Cursor use (assigned to P9)
 verification residuals: D4 — computed Record-key failures block a clean aggregate static_constants PASS;
                          D1 — metadata failure, still suspected unrelated;
                          D2 — reflection/module fixture failures, still suspected unrelated;
-                         R-PARSE-ASSOCIATED-INVOKE — owning compiler-layer consultation prepared (assigned to P9)
-next action:           reconcile the consolidated Bag source against P7 T5, acquire its focused evidence, then continue with Bijection under the P7 plan
+                         R-PARSE-ASSOCIATED-INVOKE — owning compiler-layer consultation prepared (assigned to P9);
+                         R-P7-NUMERIC-HASH-LAW — numeric hash divergence for >= 2^53, LargeInt, and NaN payloads documented and isolated
+next action:           draft/review patch-grade implementation plan for COLL006.C1.P8
 ```
 
 ### P6 start — 2026-10-11
@@ -1983,7 +1984,39 @@ The merged `StaticInt` test-value mismatch was adapted; the Bag files are
 present but have no new completion or verification claim here. Existing
 T0–T4/G2–G4 evidence remains the recorded evidence for those slices.
 
-The plan ledger now records P7 as `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` for
-the previously verified T0–T4 slices. Before closing T5, inspect the
-consolidated Bag implementation against the P7 contract and establish its own
-focused evidence. Then implement Bijection and complete the remaining P7 gates.
+The plan ledger now records P7 as `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+T5 and T6 are complete, and all P7 gates have established focused verification.
+
+### P7 completion — 2026-10-11
+
+P7 is **`COMPLETE`** (`IMPLEMENTED` / `FOCUSED_TESTED`) directly on `main`:
+
+1. **Persistent Hash Substrate & G2/G3**:
+   - `PersistentHashNode` (`Leaf`, `Collision`, `Branch`) in `phalcom-core/src/heap/persistent_hash.rs` with full GC mark-sweep tracing (Gate G2 PASSED).
+   - Reusable HAMT engine in `phalcom-core/src/primitive/persistent_hash.rs` with Phase A preflight under VM temp roots and Phase B zero-callback atomic commit on `&mut Heap`.
+   - Verified across CV-01 through CV-17 and randomized property model conformance in `tests/core/collections/persistent_hash.rs` (Gate G3 PASSED).
+
+2. **Native Floor & Governance (TDR-0093 / Gate G4)**:
+   - Authored consultation packet `COLL006.C1.P7-api-and-floor-consultation.md` and ratified TDR-0093.
+   - Authorized exactly 14 native primitives (7 for `Bag`, 7 for `Bijection`).
+   - Updated normative language specification in `docs/specs/collection-families.md` (§5 `Bag`, §6 `Bijection`, §7 error boundary).
+
+3. **`Bag<T>` Persistent Multiset (Gate G5)**:
+   - `BagObject` (`root`, `total_count: BigInt`, `distinct_count: usize`), `alloc_bag`, `as_bag`, GC tracing, and Universe registration.
+   - 7 approved primitive bindings in `primitive/bag.rs`: `new()`, `rawSize`, `rawDistinctCount`, `rawCount(_)`, `rawAdding(_,_)`, `rawRemoving(_,_)`, `rawKeys`.
+   - Telos class `Bag<T>` and lazy iterator `BagIterator<T>` in `bag.ph`.
+   - Verified with `tests/core/collections/bag.rs` (5/5 tests PASSED: construction/immutability, removals/saturation/ArgumentError, multiset algebra `+`/`union`/`intersection`/`difference`, commutative equality and hash, lazy iteration).
+
+4. **`Bijection<K, V>` Persistent Bidirectional Mapping (Gate G6)**:
+   - Defined `BijectionConflictError` in `argument.ph` and re-exported in `errors/package.ph`.
+   - `BijectionObject` (`forward_root`, `reverse_root`, `len: usize`), GC tracing both roots, Universe registration.
+   - 7 approved primitive bindings in `primitive/bijection.rs`: `new()`, `rawSize`, `rawGet(_)`, `rawAssociate(_,_)`, `rawRemoveKey(_)`, `rawInverse`, `rawKeys`.
+   - Strict conflict detection on existing keys or values; idempotent re-association of identical pairs; O(1) inverse root swap.
+   - Telos class `Bijection<K, V>` and iterator `BijectionIterator<K, V>` in `bijection.ph`.
+   - Verified with `tests/core/collections/bijection.rs` (6/6 tests PASSED: construction/lookup, conflict detection/idempotence, inverse symmetry, symmetric removals, order-independent equality/hash, and iteration).
+
+5. **Cross-Family Invariants & Native Surface (Gate G7)**:
+   - Native surface generator regenerated and certified current at **488 declarations** (`cargo run -p phalcom-native-surface-gen -- --root . --check`).
+   - Aggregate collection suite `tests/core/collections/contract.rs` verified (16 passed, 1 ignored for numeric hash law) with zero regressions across `List`, `Array`, `Vector`, `Slice`, `Buffer`, `Map`, `Set`, `MutableBag`, `IndexedDict`, `OrderedSet`, `Bag`, and `Bijection`.
+
+Active plan transitions to `COLL006.C1.P8` (`Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>`).

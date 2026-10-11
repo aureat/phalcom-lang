@@ -126,6 +126,7 @@ impl Universe {
         let indexed_dict_class = make_core_class(heap, "IndexedDict", collection_class, metaclass_class);
         let ordered_set_class = make_core_class(heap, "OrderedSet", collection_class, metaclass_class);
         let bag_class = make_core_class(heap, "Bag", collection_class, metaclass_class);
+        let bijection_class = make_core_class(heap, "Bijection", collection_class, metaclass_class);
 
         // Kernel `Tuple` (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 2): a fixed
         // immutable slice — the opposite mutability corner from `List`/`Map`/
@@ -245,6 +246,7 @@ impl Universe {
             indexed_dict_class,
             ordered_set_class,
             bag_class,
+            bijection_class,
             tuple_class,
             record_class,
             pack_class,
@@ -314,6 +316,7 @@ impl Universe {
             res.indexed_dict_class,
             res.ordered_set_class,
             res.bag_class,
+            res.bijection_class,
             res.tuple_class,
             res.record_class,
             res.pack_class,
@@ -499,6 +502,8 @@ pub struct CoreClasses {
     pub ordered_set_class: ClassId,
     /// `Bag`, a persistent immutable multiset backed by persistent hash trie.
     pub bag_class: ClassId,
+    /// `Bijection`, a persistent bidirectional mapping backed by dual persistent hash tries.
+    pub bijection_class: ClassId,
     /// `Tuple`, the native fixed-arity immutable product
     /// ([ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
@@ -642,6 +647,7 @@ impl CoreClasses {
             UniverseKey::IndexedDict => self.indexed_dict_class,
             UniverseKey::OrderedSet => self.ordered_set_class,
             UniverseKey::Bag => self.bag_class,
+            UniverseKey::Bijection => self.bijection_class,
             UniverseKey::Tuple => self.tuple_class,
             UniverseKey::Record => self.record_class,
             UniverseKey::Pack => self.pack_class,
@@ -741,6 +747,7 @@ impl CoreClasses {
             indexed_dict_class,
             ordered_set_class,
             bag_class,
+            bijection_class,
             tuple_class,
             record_class,
             pack_class,
@@ -815,6 +822,7 @@ impl CoreClasses {
             indexed_dict_class,
             ordered_set_class,
             bag_class,
+            bijection_class,
             tuple_class,
             record_class,
             pack_class,

@@ -170,6 +170,7 @@ impl Value {
                 Object::IndexedDict(_) => vm.universe.classes.indexed_dict_class,
                 Object::OrderedSet(_) => vm.universe.classes.ordered_set_class,
                 Object::Bag(_) => vm.universe.classes.bag_class,
+                Object::Bijection(_) => vm.universe.classes.bijection_class,
                 Object::Tuple(_) => vm.universe.classes.tuple_class,
                 Object::Record(_) => vm.universe.classes.record_class,
                 Object::Pack(_) => vm.universe.classes.pack_class,
@@ -269,6 +270,7 @@ impl Value {
                 | Object::IndexedDict(_)
                 | Object::OrderedSet(_)
                 | Object::Bag(_)
+                | Object::Bijection(_)
                 | Object::Tuple(_)
                 | Object::Record(_)
                 | Object::Pack(_)

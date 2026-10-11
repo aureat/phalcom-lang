@@ -33,6 +33,7 @@ pub mod adt;
 pub mod array;
 pub mod associated;
 pub mod bag;
+pub mod bijection;
 mod block;
 pub mod buffer;
 mod bytes;
@@ -69,6 +70,7 @@ pub use adt::AdtCaseObject;
 pub use array::{ArrayLiteralBuilderObject, ArrayMutationError, ArrayObject};
 pub use associated::AssociatedFamilyObject;
 pub use bag::BagObject;
+pub use bijection::BijectionObject;
 pub use block::BlockObject;
 pub use buffer::{BufferMutationError, BufferObject};
 pub use bytes::BytesObject;
@@ -393,6 +395,25 @@ impl Heap {
         self.insert(Object::Bag(Box::new(BagObject::with_root(root, total_count, distinct_count))))
     }
 
+    /// Allocates an empty persistent Bijection.
+    pub fn alloc_bijection(&mut self) -> ObjRef {
+        self.insert(Object::Bijection(Box::new(BijectionObject::new())))
+    }
+
+    /// Allocates a persistent Bijection with forward and reverse roots and length.
+    pub fn alloc_bijection_with(
+        &mut self,
+        forward_root: Option<ObjRef>,
+        reverse_root: Option<ObjRef>,
+        len: usize,
+    ) -> ObjRef {
+        self.insert(Object::Bijection(Box::new(BijectionObject::with_roots(
+            forward_root,
+            reverse_root,
+            len,
+        ))))
+    }
+
     /// Allocates an [`Object::Bytes`] and returns its [`ObjRef`]
     /// ([PDR-0011](../../../docs/decisions/0011-admit-bytes-native-octet-buffer.md)).
     pub fn alloc_bytes(&mut self, bytes: BytesObject) -> ObjRef {
@@ -532,6 +553,7 @@ impl Heap {
             Some(Object::IndexedDict(_)) => "IndexedDict",
             Some(Object::OrderedSet(_)) => "OrderedSet",
             Some(Object::Bag(_)) => "Bag",
+            Some(Object::Bijection(_)) => "Bijection",
             Some(Object::PersistentHashNode(_)) => "PersistentHashNode",
             Some(Object::Bytes(_)) => "Bytes",
             Some(Object::Tuple(_)) => "Tuple",

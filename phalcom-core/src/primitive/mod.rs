@@ -1,6 +1,7 @@
 pub mod array;
 pub mod attribute;
 pub mod bag;
+pub mod bijection;
 pub mod block;
 pub mod boolean;
 pub mod buffer;
@@ -430,6 +431,13 @@ pub(crate) fn expect_ordered_set(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 pub(crate) fn expect_bag(vm: &VM, value: &Value) -> PhResult<ObjRef> {
     value.as_obj().filter(|id| vm.heap.as_bag(*id).is_some()).ok_or_else(|| RuntimeError::Type {
         expected: "Bag",
+        found: value.type_name(),
+    }.into())
+}
+
+pub(crate) fn expect_bijection(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    value.as_obj().filter(|id| vm.heap.as_bijection(*id).is_some()).ok_or_else(|| RuntimeError::Type {
+        expected: "Bijection",
         found: value.type_name(),
     }.into())
 }

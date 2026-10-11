@@ -48,6 +48,10 @@ use crate::primitive::mutable_bag::{
 use crate::primitive::bag::{
     bag_class_new, bag_raw_adding, bag_raw_count, bag_raw_distinct_count, bag_raw_keys, bag_raw_removing, bag_raw_size,
 };
+use crate::primitive::bijection::{
+    bijection_class_new, bijection_raw_associate, bijection_raw_get, bijection_raw_inverse, bijection_raw_keys,
+    bijection_raw_remove_key, bijection_raw_size,
+};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on_shape, method_selector};
 use crate::primitive::method_family::{method_family_bind, method_family_method_for_shape, method_family_selectors, method_family_size};
 use crate::primitive::module::{module_class_new, module_does_not_understand};
@@ -791,6 +795,15 @@ impl Universe {
         primitive_internal!(vm, bag_cls, "rawRemoving", SignatureKind::Method(2), bag_raw_removing);
         primitive_internal!(vm, bag_cls, "rawKeys", SignatureKind::Getter, bag_raw_keys);
 
+        let bijection_cls = vm.universe.classes.bijection_class;
+        primitive_static!(vm, bijection_cls, "new", SignatureKind::Method(0), bijection_class_new);
+        primitive_internal!(vm, bijection_cls, "rawSize", SignatureKind::Getter, bijection_raw_size);
+        primitive_internal!(vm, bijection_cls, "rawGet", SignatureKind::Method(1), bijection_raw_get);
+        primitive_internal!(vm, bijection_cls, "rawAssociate", SignatureKind::Method(2), bijection_raw_associate);
+        primitive_internal!(vm, bijection_cls, "rawRemoveKey", SignatureKind::Method(1), bijection_raw_remove_key);
+        primitive_internal!(vm, bijection_cls, "rawInverse", SignatureKind::Getter, bijection_raw_inverse);
+        primitive_internal!(vm, bijection_cls, "rawKeys", SignatureKind::Getter, bijection_raw_keys);
+
         // Kernel `Tuple`: raw immutable lane observations only — no mutation.
         // immutability is structural (TupleObject's Box<[Value]>). `.ph`'s
         // `at(_)`/`size`/`each(_)`/`==`/`!=`/`hash` wrap these in `core.ph`.
@@ -972,6 +985,7 @@ fn validate_native_surface(vm: &VM) {
         classes.indexed_dict_class,
         classes.ordered_set_class,
         classes.bag_class,
+        classes.bijection_class,
         classes.tuple_class,
         classes.pack_class,
         classes.record_class,

@@ -22,4 +22,7 @@ class DuplicateKeyError is Error {
   key { _key }
 }
 
-export ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError
+// Raised when associating a pair in a Bijection conflicts with an existing key or value mapping.
+class BijectionConflictError is Error {}
+
+export ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError, BijectionConflictError

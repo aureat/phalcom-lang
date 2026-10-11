@@ -561,6 +561,22 @@ impl Heap {
         }
     }
 
+    /// Borrows a persistent Bijection.
+    pub fn bijection(&self, id: ObjRef) -> &super::BijectionObject {
+        match self.get(id) {
+            Object::Bijection(b) => b,
+            _ => panic!("ObjRef {id:?} is not an Object::Bijection"),
+        }
+    }
+
+    /// Returns a persistent Bijection, or `None` for another object arm.
+    pub fn as_bijection(&self, id: ObjRef) -> Option<&super::BijectionObject> {
+        match self.objects.get(id) {
+            Some(Object::Bijection(b)) => Some(b),
+            _ => None,
+        }
+    }
+
     /// Borrows the [`TupleObject`] behind `id`.
     ///
     /// # Panics

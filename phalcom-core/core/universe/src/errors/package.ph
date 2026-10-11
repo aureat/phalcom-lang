@@ -9,5 +9,5 @@ expose .contracts
 expose .unsupported
 expose .unimplemented
 
-from .argument import ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError
-export ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError
+from .argument import ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError, BijectionConflictError
+export ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError, BijectionConflictError

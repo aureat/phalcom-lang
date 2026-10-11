@@ -84,6 +84,10 @@ mod core_indexed_dict;
 mod core_mutable_bag;
 #[path = "collections/persistent_hash.rs"]
 mod core_persistent_hash;
+#[path = "collections/bag.rs"]
+mod core_bag;
+#[path = "collections/bijection.rs"]
+mod core_bijection;
 #[path = "execution/binding_init.rs"]
 mod execution_binding_init;
 #[path = "execution/compiler_authority.rs"]
