@@ -454,3 +454,5 @@ format check is red on formatting diffs across multiple existing files; no
 mass formatting was applied. `git diff --check` passed. F4 semantic proof
 publication is implemented with focused evidence; compiler runtime behavior
 and broader source, package, and workspace acceptance remain open.
+This semantic-publication slice was delivered in commit `74ada549` on
+`feat/complex-math` and pushed to `origin/feat/complex-math`.

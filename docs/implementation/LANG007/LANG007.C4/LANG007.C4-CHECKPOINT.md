@@ -148,6 +148,8 @@ the final cross-module form was compile-checked but not executed. `git diff
 multiple existing files, so no broad formatter rewrite was applied. F4 remains
 `IMPLEMENTED / PARTIAL / FOCUSED_TESTED` for semantic publication; compiler
 runtime acceptance and broader T4/T5/package/workspace gates remain open.
+The semantic-publication slice was delivered in `74ada549` on
+`feat/complex-math` and pushed to `origin/feat/complex-math`.
 
 ### Algebraic-literals P1-T incremental invalidation consultation — 2026-10-11
 

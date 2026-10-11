@@ -262,4 +262,6 @@ recomputed consumer body. Then run the narrow compiler projection/runtime
 regression for proof-backed antecedent slots. Keep broader source, package, and
 workspace acceptance open unless separately authorized. `cargo fmt --all
 -- --check` currently reports formatting differences throughout the branch;
-avoid formatting unrelated files. `git diff --check` passed.
+avoid formatting unrelated files. `git diff --check` passed. The semantic
+publication slice is delivered in commit `74ada549` on `feat/complex-math`,
+pushed to `origin/feat/complex-math`.
