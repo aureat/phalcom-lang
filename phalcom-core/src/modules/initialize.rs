@@ -12,6 +12,7 @@ impl VM {
     pub fn initialize_program(&mut self, program: &CompiledProgram) -> PhResult<()> {
         for module_id in &program.initialization_order {
             self.initialize_single_module(program, module_id)?;
+            self.bind_non_universe_metadata_callables(program)?;
         }
         Ok(())
     }

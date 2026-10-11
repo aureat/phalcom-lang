@@ -790,9 +790,18 @@ impl ProgramAnalyzer {
         let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, pending, None)?;
 
         let linker = ModuleLinker::new(universe.clone(), discovered.interfaces);
-        let linked = Arc::new(linker.link(entry.clone(), &discovered.resolved)?);
+        let linked = Arc::new(linker.link_all(entry.clone(), &discovered.resolved)?);
 
-        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0));
+        let semantic_input = phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0);
+        let mut semantic_session = phalcom_semantic::SemanticWorkspaceSession::new();
+        let analysis = semantic_session
+            .update_with_budget_and_cancel(
+                semantic_input,
+                phalcom_semantic::db::QueryBudget::default(),
+                &phalcom_semantic::db::CancellationToken::new(),
+            )
+            .map_err(|error| ProgramCompileError::SemanticUpdate(format!("{error:?}")))?
+            .snapshot;
 
         Ok(AnalyzedProgram {
             project_universe: universe,
@@ -802,7 +811,7 @@ impl ProgramAnalyzer {
             // state when an ordinary package is run in a full VM.
             runtime_modules: linked.modules.keys().filter(|id| !id.project.is_universe()).cloned().collect(),
             linked,
-            semantic: analysis.snapshot,
+            semantic: analysis,
             sources: discovered.sources,
             entry,
         })
@@ -843,9 +852,6 @@ impl ProgramCompiler {
         let mut runtime_trait_root_specs = Vec::<RuntimeTraitEnvironmentRootSpec>::new();
         let mut runtime_trait_root_seen = BTreeSet::new();
         for id in analyzed.linked.modules.keys() {
-            if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
-                eprintln!("compile module id={id} runtime={} analyses={} total={}", analyzed.runtime_modules.contains(id), analyzed.semantic.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == id).count(), analyzed.semantic.callable_analyses.len());
-            }
             if !analyzed.runtime_modules.contains(id) {
                 continue;
             }
@@ -856,9 +862,6 @@ impl ProgramCompiler {
             }
             for (callable, analysis) in analyzed.semantic.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == id) {
                 for expression in analysis.expressions.values() {
-                    if std::env::var_os("PHALCOM_CALL_TRACE").is_some() && id.path.to_string() == "main" {
-                        eprintln!("compile expression id={:?} range={:?} spec={:?} capability={:?} family={:?}", expression.id, expression.range, expression.call_specialization, expression.conditional_capability, analysis.family_applications.get(&expression.id));
-                    }
                     if let Some(realization) = expression.contextual_realization.as_ref() {
                         add_contextual_realization_trait_roots(&mut runtime_trait_root_specs, &mut runtime_trait_root_seen, id, realization);
                     }
@@ -1083,9 +1086,6 @@ impl ProgramCompiler {
         .with_algebraic_semantics(&analyzed.semantic.data_semantics, &analyzed.semantic.enum_semantics)
         .with_associated_static_domains(analyzed.semantic.associated_static_domains.as_ref())
         .with_aliases(analyzed.semantic.type_aliases.as_ref());
-        if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
-            eprintln!("metadata export callables={}", analyzed.semantic.callable_signatures().len());
-        }
         let mut stable_call_root_specs = Vec::with_capacity(runtime_call_root_specs.len());
         let mut exporter = exporter;
         for (module, range, callable, parameter, ty, key) in &runtime_call_root_specs {

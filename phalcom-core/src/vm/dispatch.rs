@@ -1835,26 +1835,28 @@ impl VM {
         method: crate::heap::ObjRef,
     ) -> Result<(), RuntimeError> {
         let selected_selector = self.resolve_symbol(self.heap.method(method).signature.selector);
-        if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
-            eprintln!("specialized call: recipe={:?} selected_method={method:?} selector={selected_selector}", recipe.callable);
-        }
         if selected_selector != recipe.callable.selector.as_ref() {
             return Err(RuntimeError::Internal(format!(
                 "specialized call selected `{selected_selector}` for `{}`",
                 recipe.callable.selector
             )));
         }
-        if let Some(call_ref) = self.typing_registry.method_semantics.get(method) {
-            let actual = self
-                .typing_registry
-                .get_pool(call_ref.pool)
-                .and_then(|pool| pool.bundle.callables.get(call_ref.record.0 as usize))
-                .ok_or_else(|| RuntimeError::Internal("specialized call metadata reference is unavailable".into()))?;
-            if actual.callable != recipe.callable {
-                return Err(RuntimeError::Internal("specialized call canonical callable identity mismatch".into()));
+        let Some(call_ref) = self.typing_registry.method_semantics.get(method) else {
+            if matches!(
+                recipe.callable.owner.enclosing_declaration().map(|declaration| &declaration.module.project),
+                Some(phalcom_type_meta::identity::StableProjectRef::Builtin { .. })
+            ) {
+                return Ok(());
             }
-        } else if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
-            eprintln!("specialized call: selected method has no canonical runtime callable metadata");
+            return Err(RuntimeError::Internal("specialized call: selected method has no canonical runtime callable metadata".into()));
+        };
+        let actual = self
+            .typing_registry
+            .get_pool(call_ref.pool)
+            .and_then(|pool| pool.bundle.callables.get(call_ref.record.0 as usize))
+            .ok_or_else(|| RuntimeError::Internal("specialized call metadata reference is unavailable".into()))?;
+        if actual.callable != recipe.callable {
+            return Err(RuntimeError::Internal("specialized call canonical callable identity mismatch".into()));
         }
         Ok(())
     }
@@ -2604,6 +2606,7 @@ impl VM {
                         self.finalize_class_base_names(class_id);
                         let meta_id = self.heap.class(class_id).class;
                         self.finalize_class_base_names(meta_id);
+                        self.bind_metadata_for_class(class_id)?;
                     }
                 }
                 Bytecode::SuperSend(argc, selector_idx) => {

@@ -128,6 +128,7 @@ impl VM {
             product_optimization_mode: _,
             typing_registry: _,
             pending_metadata_pool: _,
+            pending_metadata_project_universe: _,
             runtime_type_environments: _,
             runtime_conformance_environments,
             detached_method_objects: _,

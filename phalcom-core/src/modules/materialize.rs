@@ -588,6 +588,7 @@ impl VM {
             // Non-Universe class objects are created by module initializers, so
             // their callable metadata is bound after initialization below.
             self.pending_metadata_pool = Some((metadata_pool_id, metadata_bundle.clone()));
+            self.pending_metadata_project_universe = Some(program.project_universe.clone());
         }
 
         Ok(())
@@ -595,16 +596,74 @@ impl VM {
 
     /// Binds runtime callable metadata for non-Universe declarations after
     /// module initializers have populated their class-object slots.
+    pub(crate) fn bind_metadata_for_class(&mut self, class_id: crate::heap::ClassId) -> PhResult<()> {
+        let Some((metadata_pool_id, metadata_bundle)) = self.pending_metadata_pool.clone() else {
+            return Ok(());
+        };
+        let Some(module_id) = self
+            .classes
+            .iter()
+            .find(|(_, candidate)| **candidate == class_id)
+            .map(|(key, _)| self.heap.module(key.module).id.clone())
+        else {
+            return Ok(());
+        };
+        if module_id.project.is_universe() {
+            return Ok(());
+        }
+
+        let class_name = self.heap.class(class_id).name.clone();
+        let stable_module = phalcom_semantic::metadata::stable_identity::to_stable_module_with_context(
+            &module_id,
+            &phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(
+                self.pending_metadata_project_universe.as_ref().expect("pending metadata project universe"),
+            ),
+        );
+        let instance_methods = self.heap.class(class_id).methods.clone();
+        let metaclass_id = self.heap.class(class_id).class;
+        let class_methods = self.heap.class(metaclass_id).methods.clone();
+        for declaration in metadata_bundle
+            .declarations
+            .iter()
+            .filter(|record| record.declaration.module == stable_module && record.declaration.path.last().is_some_and(|name| name.as_ref() == class_name))
+        {
+            let mut method_semantics = Vec::new();
+            for (record, callable) in metadata_bundle.callables.iter().enumerate() {
+                let target_methods = if declaration.instance_callables.iter().any(|candidate| candidate == &callable.callable) {
+                    &instance_methods
+                } else if declaration.class_callables.iter().any(|candidate| candidate == &callable.callable) {
+                    &class_methods
+                } else {
+                    continue;
+                };
+                let selector = self.interner.intern(&callable.callable.selector);
+                if let Some(method) = target_methods.get(&selector) {
+                    method_semantics.push((
+                        *method,
+                        crate::typing::side_table::RuntimeCallableRef {
+                            pool: metadata_pool_id,
+                            record: phalcom_type_meta::declaration::CallableRecordId(record as u32),
+                        },
+                    ));
+                }
+            }
+            self.typing_registry.register_nominal_binding(declaration.declaration.clone(), class_id);
+            for (method, callable) in method_semantics {
+                self.typing_registry.method_semantics.insert(method, callable);
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn bind_non_universe_metadata_callables(&mut self, program: &CompiledProgram) -> PhResult<()> {
         let Some(ref metadata_bundle) = program.semantic_metadata else {
             return Ok(());
         };
-        let Some((metadata_pool_id, _)) = self.pending_metadata_pool.take() else {
+        let Some((_, metadata_bundle)) = self.pending_metadata_pool.clone() else {
             return Ok(());
         };
 
         let identity_context = phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(&program.project_universe);
-        let mut source_metadata_bindings = Vec::new();
         for module_id in program.modules.keys() {
             if module_id.project.is_universe() {
                 continue;
@@ -627,39 +686,7 @@ impl VM {
                     continue;
                 }
 
-                let instance_methods = self.heap.class(class_id).methods.clone();
-                let metaclass_id = self.heap.class(class_id).class;
-                let class_methods = self.heap.class(metaclass_id).methods.clone();
-                let mut method_semantics = Vec::new();
-                for (record, callable) in metadata_bundle.callables.iter().enumerate() {
-                    let target_methods = if declaration.instance_callables.iter().any(|candidate| candidate == &callable.callable) {
-                        &instance_methods
-                    } else if declaration.class_callables.iter().any(|candidate| candidate == &callable.callable) {
-                        &class_methods
-                    } else {
-                        continue;
-                    };
-                    let selector = self.interner.intern(&callable.callable.selector);
-                    if let Some(method) = target_methods.get(&selector) {
-                        if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
-                            eprintln!("materialize callable {:?} -> method {:?}", callable.callable, method);
-                        }
-                        method_semantics.push((
-                            *method,
-                            crate::typing::side_table::RuntimeCallableRef {
-                                pool: metadata_pool_id,
-                                record: phalcom_type_meta::declaration::CallableRecordId(record as u32),
-                            },
-                        ));
-                    }
-                }
-                source_metadata_bindings.push((declaration.declaration.clone(), class_id, method_semantics));
-            }
-        }
-        for (declaration, class_id, method_semantics) in source_metadata_bindings {
-            self.typing_registry.register_nominal_binding(declaration, class_id);
-            for (method, callable) in method_semantics {
-                self.typing_registry.method_semantics.insert(method, callable);
+                self.bind_metadata_for_class(class_id)?;
             }
         }
         Ok(())

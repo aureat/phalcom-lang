@@ -4,9 +4,9 @@ category: LANG
 program: LANG005
 checkpoint: LANG005.C6
 kind: implementation-plan
-status: IN_PROGRESS
-completion: PARTIAL
-verification: UNVERIFIED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 depends_on:
   - LANG005.C6.P2
   - LANG005.C6.P3
@@ -253,7 +253,34 @@ therefore not proven and remains open. Verify that the altered recipe reaches
 runtime and that selected source methods have canonical runtime identity
 metadata; do not mark T4 or G2 complete from the positive path alone.
 
-Separately, Float list-literal calls still fail the generic Iterable
-associated-equality discriminator with `GenericConstraintUnsatisfied`; the
-one exact-evidence normalization correction did not resolve it. P7 remains
-`IN_PROGRESS / PARTIAL / UNVERIFIED`; no walkthrough or handoff is due yet.
+Separately, Float list-literal calls were rechecked after the package closure
+correction and the focused generic Iterable reproducer passed for typed Lists,
+iterators, Float literals, and literal iterators.
+
+### Completion amendment — package publication and callable metadata closure (2026-10-11)
+
+Package discovery now retains seeded Universe source modules through complete
+linking. Package semantic publication uses the fallible session API, so failed
+updates become `ProgramCompileError::SemanticUpdate` rather than silently
+publishing a baseline snapshot with callable signatures but no callable body
+analyses.
+
+Runtime metadata export publishes canonical callable records and declaration
+callable membership. Non-Universe callable references are bound at class
+finalization and again after module initialization. Specialized validation
+fails closed for missing non-Universe metadata and rejects selector-compatible
+canonical identity mismatches; bootstrapped Universe methods retain their
+native identity floor.
+
+Focused verification passed:
+
+```text
+RUSTFLAGS='' cargo check -p phalcom-core
+Issue A generic Iterable reproducer
+Issue B positive/negative Family reproducer
+Issue A + Issue B combined serial run
+```
+
+The Issue B negative control reports the expected canonical callable identity
+mismatch. Workspace/release certification remains deferred, and P5/P6
+stateful-iteration work remains independent.

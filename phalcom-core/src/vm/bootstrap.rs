@@ -84,6 +84,7 @@ impl VM {
             module_registry: crate::modules::ModuleRegistry::new(),
             typing_registry: crate::typing::RuntimeTypingRegistry::new(),
             pending_metadata_pool: None,
+            pending_metadata_project_universe: None,
             runtime_type_environments: crate::typing::RuntimeTypeEnvironmentRegistry::new(),
             runtime_conformance_environments: crate::typing::RuntimeConformanceEnvironmentRegistry::new(),
             detached_method_objects: HashMap::new(),

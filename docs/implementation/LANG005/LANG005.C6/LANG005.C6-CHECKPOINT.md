@@ -9,9 +9,9 @@ completion: PARTIAL
 verification: FOCUSED_TESTED
 requires:
   - LANG005.C5
-active_plan: LANG005.C6.P7
-latest_completed_plan: LANG005.C6.P5
-next_plan: LANG005.C6.P7
+active_plan: LANG005.C6.P6
+latest_completed_plan: LANG005.C6.P7
+next_plan: LANG005.C6.P6
 next_checkpoint: null
 planning_baseline_revision: 14352f3824e8dcfc9f5b3f46d9f4a4bb5cf48709
 prepared: 2026-09-16
@@ -326,7 +326,7 @@ C6 must not migrate production `for`, collections, Range, Map, lazy adapters, ru
 | `LANG005.C6.P4` | Iterator/Iterable generic laws, canonical Universe migration, explicit blanket/derived implication decision | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 complete; canonical law and focused gates pass; positive legacy iteration corpus is reproduced baseline-blocked at clean HEAD |
 | `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Part I & Part II complete: stateful iterators across Set, Map, Range, Bytes, String views, canonical one-shot lazy adapters (T9), Iterable default terminals (T10), and compiler boundedness updates (T11) implemented and unit-tested |
 | `LANG005.C6.P6` | Stateful-iteration corrective closure from the P5 audit | PROPOSED | NOT_STARTED | UNVERIFIED | Existing corrective plan remains open; independent of P7 |
-| `LANG005.C6.P7` | Source/native generic signature preservation, canonical Iterable inference, helper forwarding, and executable evidence transport needed by numeric clients | IN_PROGRESS | PARTIAL | UNVERIFIED | Adviser-directed correction; T1 found `Option.match` loses its source generics at native signature publication; see P7 amendment |
+| `LANG005.C6.P7` | Source/native generic signature preservation, canonical Iterable inference, helper forwarding, and executable evidence transport needed by numeric clients | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Package semantic publication, canonical callable metadata, class/post-initialization binding, and fail-closed Family identity validation complete; focused Issue A/B gates pass |
 
 The precise numbering/content of P2–P6 may be amended by later live repository analysis. The dependency structure is more authoritative than the placeholder plan names.
 

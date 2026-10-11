@@ -285,6 +285,8 @@ pub struct VM {
     pub typing_registry: crate::typing::RuntimeTypingRegistry,
     /// Metadata pool awaiting post-initialization binding to non-Universe classes.
     pub(crate) pending_metadata_pool: Option<(crate::typing::MetadataPoolId, Arc<phalcom_type_meta::SemanticMetadataBundle>)>,
+    /// Project identity context retained while non-Universe metadata bindings are pending.
+    pub(crate) pending_metadata_project_universe: Option<Arc<phalcom_modules::ProjectUniverse>>,
     /// Interned generic substitutions used to instantiate runtime type recipes.
     pub runtime_type_environments: crate::typing::RuntimeTypeEnvironmentRegistry,
     /// Interned executable conformance environments selected by semantics.

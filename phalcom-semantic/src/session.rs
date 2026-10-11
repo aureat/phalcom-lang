@@ -1129,9 +1129,6 @@ impl SemanticWorkspaceSession {
             self.db.retire_query(&QueryKey::AdvisoryCallable(callable.clone()));
         }
         let current_modules = self.semantic_structure_shards.keys().cloned().collect::<BTreeSet<_>>();
-        if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
-            eprintln!("semantic session sources={} shards={} current_modules={:?}", input.sources.len(), self.semantic_structure_shards.len(), current_modules);
-        }
         let mut removed_modules = delta_removed_modules;
         if !delta_driven {
             // Direct SemanticWorkspaceInput publication is a full-workspace
@@ -1603,9 +1600,6 @@ impl SemanticWorkspaceSession {
         if let Some(requested) = requested_deep_modules {
             semantic_work_modules.extend(requested.into_iter().filter(|module| current_modules.contains(module)));
         }
-        if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
-            eprintln!("semantic work modules before closure={} {:?}", semantic_work_modules.len(), semantic_work_modules);
-        }
         // Complete a requested Local frontier through linked reads. This is
         // the deep dependency closure only; unrelated discovered modules stay
         // available for navigation and linking without body analysis.
@@ -1753,9 +1747,6 @@ impl SemanticWorkspaceSession {
             })
             .cloned()
             .collect::<BTreeSet<_>>();
-        if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
-            eprintln!("semantic structural work modules={} {:?}", structural_work_modules.len(), structural_work_modules);
-        }
         let mut conformance_witness_rebuild_impls = BTreeSet::new();
         if let Some(previous) = previous_snapshot.as_ref() {
             conformance_witness_rebuild_impls.extend(
@@ -5958,10 +5949,6 @@ impl SemanticWorkspaceSession {
                 for (stmt_idx, stmt) in parsed_unit.program.statements.iter().enumerate() {
                     if let Statement::Class(class_def) = stmt {
                         let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                        let trace_callable = std::env::var_os("PHALCOM_CALL_TRACE").is_some() && class_def.name.as_ref() == "Descriptive";
-                        if trace_callable {
-                            eprintln!("semantic class body module={} members={}", module_id, class_def.members.len());
-                        }
                         if blocked_declarations.contains(&decl_id) {
                             continue;
                         }
@@ -6036,9 +6023,6 @@ impl SemanticWorkspaceSession {
 
                             if let (Some(selector), Some(body), Some(range)) = (selector_opt, body_opt, range_opt) {
                                 let callable_id = crate::identity::CallableId::new(decl_id.clone(), selector, side);
-                                if trace_callable {
-                                    eprintln!("semantic callable candidate={callable_id:?} signature={} body_range={range:?}", callable_signatures.get(&callable_id).is_some());
-                                }
                                 let query_key = QueryKey::CallableBody(callable_id.clone());
 
                                 let formal_inputs = FormalQueryInputs {
@@ -6105,9 +6089,6 @@ impl SemanticWorkspaceSession {
 
                                 match outcome {
                                     QueryOutcome::Ready(analysis) => {
-                                        if trace_callable {
-                                            eprintln!("semantic callable ready={callable_id:?}");
-                                        }
                                         if self.db.query_state(&query_key).is_some_and(|state| {
                                             state.revision() == Some(self.db.revision()) && previous_computation_revision != Some(self.db.revision())
                                         }) {
