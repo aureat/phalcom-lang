@@ -2056,6 +2056,78 @@ fn test_rejected_duplicate_impl_definition_is_not_published() {
 }
 
 #[test]
+fn test_rejected_duplicate_inherent_impl_keeps_accepted_computed_key_owner() {
+    let module = test_module();
+    let callable = impl_callable("User", Selector::method("project", [phalcom_common::selector::SelectorSlot::Positional]).unwrap());
+    let source = r#"
+const AcceptedKey: Symbol = #accepted
+const RejectedKey: Symbol = #rejected
+class User {}
+impl User {
+  project(_ value: { [AcceptedKey]: Int }) -> { [AcceptedKey]: Int } { value }
+}
+impl User {
+  project(_ value: { [RejectedKey]: Int }) -> { [RejectedKey]: Int } { value }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(
+        output.snapshot
+            .diagnostics
+            .values()
+            .flat_map(|diagnostics| diagnostics.iter())
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::ImplMemberConflict),
+        "duplicate source must keep its existing conflict diagnostic: {:?}",
+        output.snapshot.diagnostics
+    );
+
+    let definition = session
+        .db()
+        .product(&QueryKey::CallableDefinition(callable.clone()))
+        .and_then(|product| product.as_callable_definition())
+        .expect("accepted inherent definition");
+    assert!(matches!(
+        &definition.origin,
+        CallableDefinitionOrigin::InherentImpl(impl_id) if impl_id.local.0 == 3
+    ));
+    assert_eq!(definition.source_member_index, 0);
+
+    let signature = output.snapshot.callable_signatures.get(&callable).expect("accepted callable signature");
+    let assert_accepted_key = |ty: phalcom_semantic::types::id::TypeId| {
+        let phalcom_semantic::types::store::TypeData::Record(row) = output.snapshot.store.get(ty) else {
+            panic!("accepted inherent signature should contain a Record type")
+        };
+        assert_eq!(
+            output.snapshot.store.record_row(*row).fields[0].key,
+            phalcom_semantic::field_key::FieldKey::symbol("accepted")
+        );
+    };
+    assert_accepted_key(signature.parameters[0].declared_type.to_knowledge().ty().expect("parameter Record type"));
+    assert_accepted_key(signature.declared_return.to_knowledge().ty().expect("return Record type"));
+
+    let dependencies = session.db().index().dependencies_of(&QueryKey::CallableSignature(callable));
+    assert!(
+        dependencies.is_some_and(|dependencies| {
+            dependencies.iter().any(|edge| {
+                edge.dependency
+                    == QueryKey::StaticConstant(phalcom_semantic::static_constant::StaticConstantId::new(
+                        module.clone(),
+                        "AcceptedKey",
+                    ))
+            }) && !dependencies.iter().any(|edge| {
+                edge.dependency
+                    == QueryKey::StaticConstant(phalcom_semantic::static_constant::StaticConstantId::new(
+                        module.clone(),
+                        "RejectedKey",
+                    ))
+            })
+        }),
+        "the canonical owner must depend on the accepted source only: {dependencies:?}"
+    );
+}
+
+#[test]
 fn incremental_impl_edit_matches_cold_effective_surfaces() {
     let source_v1 = "class Alpha {}\nclass Beta {}\nimpl Alpha { ping() -> String { \"a\" } }\nimpl Beta { ping() -> Int { 1 } }\n";
     let source_v2 = "class Alpha {}\nclass Beta {}\nimpl Alpha { ping() -> String { \"changed\" } }\nimpl Beta { ping() -> Int { 2 } }\n";

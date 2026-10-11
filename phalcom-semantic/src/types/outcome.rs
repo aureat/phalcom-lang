@@ -191,6 +191,10 @@ pub enum BlockReason {
     InferenceDidNotConverge,
     OpaqueNative(Box<str>),
     ReflectionBoundary,
+    /// A downstream semantic query cannot publish while this canonical owner
+    /// product is unavailable. The exact owner lets the session report or
+    /// schedule the missing prerequisite without reconstructing it locally.
+    UnavailableSemanticOwner(crate::db::key::QueryKey),
     BudgetExceeded(BudgetReport),
     SuppressedDependency,
 }

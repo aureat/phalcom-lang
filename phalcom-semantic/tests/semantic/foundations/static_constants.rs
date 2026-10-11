@@ -372,6 +372,8 @@ const Key: Symbol = #token
 class Box {
   @class transform(_ value: { [Key]: Int }) -> { [Key]: Int } { value }
 }
+
+
 "#;
     let update = session.update(single_module_input(module.clone(), source_a, 1));
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
@@ -441,6 +443,95 @@ class Box {
         cold.snapshot.store.record_row(*cold_row).fields[0].key,
         "incremental callable projection must match cold analysis"
     );
+}
+
+#[test]
+fn test_inherent_impl_callable_signature_projects_parameter_and_return_record_keys() {
+    let module = test_module();
+    let owner = DeclarationId::new(module.clone(), "Box".into());
+    let callable = phalcom_semantic::identity::CallableId::new(
+        owner.clone(),
+        Selector::method("echo", [SelectorSlot::Positional]).expect("valid selector"),
+        DispatchSide::Instance,
+    );
+    let source_a = r#"
+const Key: Symbol = #first
+class Box {}
+impl Box {
+  echo(_ value: { [Key]: Int }) -> { [Key]: Int } { value }
+}
+"#;
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session.update(single_module_input(module.clone(), source_a, 1));
+    assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
+
+    let assert_key = |store: &phalcom_semantic::types::store::TypeStore, ty: phalcom_semantic::types::id::TypeId, expected: &str| {
+        let TypeData::Record(row) = store.get(ty) else {
+            panic!("inherent impl annotation should publish a Record type")
+        };
+        assert_eq!(
+            store.record_row(*row).fields[0].key,
+            phalcom_semantic::field_key::FieldKey::symbol(expected)
+        );
+    };
+    let signature_a = first.snapshot.callable_signatures.get(&callable).expect("inherent callable signature").clone();
+    assert_key(
+        &first.snapshot.store,
+        signature_a.parameters[0].declared_type.to_knowledge().ty().expect("parameter Record type"),
+        "first",
+    );
+    assert_key(
+        &first.snapshot.store,
+        signature_a.declared_return.to_knowledge().ty().expect("return Record type"),
+        "first",
+    );
+    let dependencies = session
+        .db()
+        .index()
+        .dependencies_of(&phalcom_semantic::db::QueryKey::CallableSignature(callable.clone()));
+    assert!(
+        dependencies.is_some_and(|dependencies| {
+            dependencies.iter().any(|edge| {
+                edge.dependency == phalcom_semantic::db::QueryKey::StaticConstant(StaticConstantId::new(module.clone(), "Key"))
+            })
+        }),
+        "inherent callable owner must retain its exact static-constant dependency: {dependencies:?}"
+    );
+    let surface_signature = first
+        .snapshot
+        .dispatch
+        .get_surface(&owner)
+        .and_then(|surface| surface.get_callable(DispatchSide::Instance, &callable.selector))
+        .expect("effective surface must include the accepted inherent callable");
+    assert_key(&first.snapshot.store, surface_signature.parameters[0].ty.ty().expect("surface parameter type"), "first");
+    assert_key(&first.snapshot.store, surface_signature.return_type.ty().expect("surface return type"), "first");
+
+    let source_b = source_a.replace("#first", "#second");
+    let updated = session.update(single_module_input(module.clone(), &source_b, 2));
+    assert!(!updated.snapshot.has_errors(), "incremental diagnostics: {:?}", updated.snapshot.diagnostics);
+    let signature_b = updated.snapshot.callable_signatures.get(&callable).expect("updated inherent callable signature");
+    assert_ne!(signature_a, *signature_b, "the owner signature must change with its selected key");
+    assert_key(
+        &updated.snapshot.store,
+        signature_b.parameters[0].declared_type.to_knowledge().ty().expect("updated parameter Record type"),
+        "second",
+    );
+    assert_key(
+        &updated.snapshot.store,
+        signature_b.declared_return.to_knowledge().ty().expect("updated return Record type"),
+        "second",
+    );
+
+    let cold = SemanticWorkspaceSession::new().update(single_module_input(module, &source_b, 1));
+    assert!(!cold.snapshot.has_errors(), "cold diagnostics: {:?}", cold.snapshot.diagnostics);
+    let cold_signature = cold.snapshot.callable_signatures.get(&callable).expect("cold inherent callable signature");
+    for (store, signature) in [(&updated.snapshot.store, signature_b), (&cold.snapshot.store, cold_signature)] {
+        assert_key(
+            store,
+            signature.declared_return.to_knowledge().ty().expect("return Record type"),
+            "second",
+        );
+    }
 }
 
 #[test]

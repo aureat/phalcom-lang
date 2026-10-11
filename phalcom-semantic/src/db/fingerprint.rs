@@ -638,6 +638,10 @@ fn hash_block_reason(reason: &BlockReason, hasher: &mut impl Hasher) {
             name.hash(hasher);
         }
         BlockReason::ReflectionBoundary => 5u8.hash(hasher),
+        BlockReason::UnavailableSemanticOwner(owner) => {
+            9u8.hash(hasher);
+            owner.hash(hasher);
+        }
         BlockReason::BudgetExceeded(report) => {
             6u8.hash(hasher);
             hash_budget_report(report, hasher);

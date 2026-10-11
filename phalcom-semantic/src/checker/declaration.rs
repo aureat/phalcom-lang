@@ -343,8 +343,25 @@ pub fn build_declared_class_surface(
         match member {
             ClassMember::Field(field) => {
                 let side = member_side(member);
-                let lowered_signature = super::declaration_signature::semantic_field_signature_for_member(ctx, &decl_id, member);
-                let signature = ctx.resolve_field_signature(&decl_id, side, &field.name).cloned().or(lowered_signature);
+                let signature = ctx.resolve_field_signature(&decl_id, side, &field.name).cloned().or_else(|| {
+                    if field
+                        .annotation
+                        .as_ref()
+                        .is_some_and(super::declaration_signature::annotation_has_computed_record_key)
+                    {
+                        let owner = crate::db::key::QueryKey::FieldSignature(
+                            super::declaration_signature::field_id_for_member(&decl_id, member)?,
+                        );
+                        ctx.diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::AnnotationUnresolved,
+                            format!("declaration surface requires canonical signature owner {owner:?}"),
+                            field.range,
+                        ));
+                        return None;
+                    }
+                    super::declaration_signature::semantic_field_signature_for_member(ctx, &decl_id, member)
+                });
                 let Some(signature) = signature else { continue };
                 surface.add_field_with_visibility(
                     signature.side,
@@ -357,8 +374,22 @@ pub fn build_declared_class_surface(
                 let Some(callable) = super::declaration_signature::callable_id_for_member(&decl_id, member) else {
                     continue;
                 };
-                let lowered_signature = super::declaration_signature::semantic_signature_for_member(ctx, &decl_id, member);
-                let signature = ctx.resolve_callable_signature(&callable).cloned().or(lowered_signature);
+                let signature = ctx.resolve_callable_signature(&callable).cloned().or_else(|| {
+                    if super::declaration_signature::callable_type_annotations(member)
+                        .into_iter()
+                        .any(super::declaration_signature::annotation_has_computed_record_key)
+                    {
+                        let owner = crate::db::key::QueryKey::CallableSignature(callable.clone());
+                        ctx.diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::AnnotationUnresolved,
+                            format!("declaration surface requires canonical signature owner {owner:?}"),
+                            member.range(),
+                        ));
+                        return None;
+                    }
+                    super::declaration_signature::semantic_signature_for_member(ctx, &decl_id, member)
+                });
                 let Some(signature) = signature else { continue };
                 let side = signature.side;
                 let projection = super::declaration_signature::project_semantic_signature(&signature);

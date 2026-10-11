@@ -90,6 +90,38 @@ fn test_primary_vs_impl_duplicate_rejected() {
 }
 
 #[test]
+fn direct_surface_registration_withholds_computed_key_members_without_owner_signature() {
+    let module = test_module();
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut declarations = DeclarationTypeTable::new();
+    let user_decl = DeclarationId::new(module.clone(), "User".into());
+    register_nominal(&mut store, &mut declarations, user_decl.clone());
+    let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
+    resolver.insert("User", user_decl.clone());
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
+
+    let parsed = phalcom_ast::parse("class User {\n  _value: { [#token]: Int }\n}\n", 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let phalcom_ast::ast::Statement::Class(class_def) = &parsed.program.statements[0] else {
+        panic!("expected class declaration")
+    };
+
+    let signatures = register_class_surface(&mut ctx, class_def);
+    let surface = ctx.dispatch_ref().get_surface(&user_decl).expect("surface is registered");
+    assert!(signatures.is_empty(), "a missing canonical computed-key owner must not be synthesized");
+    assert!(surface.get_field(DispatchSide::Instance, "_value").is_none());
+    assert!(ctx
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnresolved));
+    assert!(!ctx
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == DiagnosticCode::RecordKeyNotStatic));
+}
+
+#[test]
 fn test_impl_vs_impl_duplicate_rejected() {
     let module = test_module();
     let mut store = TypeStore::new();

@@ -3195,6 +3195,88 @@ The P4 status remains `IN_PROGRESS / PARTIAL / UNVERIFIED`. This plan update
 records architectural direction; it does not claim implementation or T7.0E
 verification.
 
+### P4 T0 rebaseline — 2026-10-10
+
+The current `feat/telos-collection-upgrade` revision is
+`78cfd9202f5dea7dd2713bff71d3e475f20810d6`; clean `main` is
+`c2dd635ee34f2cef3e64e86c87a5e77992f29fa7`. All three D4 static-constant
+fixtures reproduce `RecordKeyNotStatic` on both revisions (collection branch:
+21/24 passed; main: 15/18 passed). A focused trace established that the
+projection driver selects `Key`, reduces it to `Concrete(Symbol("token"))`,
+and the `FieldSignature` query receives one owner-matching projection.
+
+The diagnostic instead originates earlier while `query_declaration_surface`
+calls `register_class_surface` and `build_declared_class_surface`. That builder
+eagerly calls `semantic_field_signature_for_member` and
+`semantic_signature_for_member` before consulting the canonical signatures
+already attached to its `CheckingContext`; the surface query has no key
+projection input. The field path therefore re-forms `[Key]` without the
+projection and emits the recorded diagnostic. This disproves the T0 assumption
+that `DeclarationSurface` is only a consumer of canonical signatures and
+expands the owner matrix. Temporary diagnostic instrumentation was removed.
+
+**Consultation and amendment:** The 2026-10-10 `D4 declaration-surface
+owner-order` consultation returned **PLAN NEEDS MATERIAL AMENDMENT (Level 2)**.
+The active plan's §12.2 now records the decision: the workspace session must
+ensure projection-bearing `FieldSignature` and `CallableSignature` owners
+through the existing owner path before querying `DeclarationSurface`; the
+surface consumes attached canonical products and records exact signature
+dependencies; a missing required owner withholds the surface; direct/bootstrap
+fallback remains limited to projection-free members; cache replay refreshes
+signatures through the same owner path. The surface query must not add a second
+scheduler.
+
+T0 is complete under the amended owner matrix. T1 may resume, followed by T2
+and T3 with the surface-currentness gate. No D4 production change had been made
+at the time of this rebaseline. P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+
+### P4 inherent-implementation signature amendment — 2026-10-11
+
+Follow-up source tracing found that the inherent-implementation path lowers a
+`BehaviorMember` in `build_inherent_impl_contribution` before the later
+`CallableSignature` query. It uses only the impl-scoped `ScopedTypeResolver`,
+so supplying projections to the later query would be too late. The existing
+`/root/d4_surface_advice` consultation returned **PLAN NEEDS MATERIAL
+AMENDMENT (Level 2)**. Amendment B is recorded in P4 plan §12.3.
+
+T2/T3 now include accepted inherent-implementation callables: prepare their
+source signature through the same bounded owner path, retain the impl-scoped
+resolver and exact dependencies, form the contribution from the canonical
+signature, and preserve existing conflict selection. The amendment requires
+focused tests for parameter+return computed keys, constant edit invalidation
+and cold/incremental parity, and rejected duplicate ownership. No
+implementation decision has changed `CallableId`, conflict semantics, or
+introduced a second scheduler. Continue under the amended plan; P4 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+### P4 computed-signature owner slice — 2026-10-11
+
+The follow-up was replayed against consolidated `main` (`170792cd`) on the
+isolated branch `codex/coll006-p4-followup-review`. The starting
+`foundations::static_constants` filter reproduced the three recorded D4
+`RecordKeyNotStatic` failures (21 passed, 3 failed). After the owner-order
+correction, the same filter passed 25/25, including cold field/callable
+signatures, computed keys in inherent-implementation parameters and returns,
+constant-edit invalidation/cold parity, and the accepted-duplicate owner case.
+
+The slice makes declaration-surface formation prefer current canonical
+signatures, withholds a surface when a required computed-key owner is missing,
+and fails closed when field/callable signature queries lack required
+projections. Inherent-implementation signatures project keys before forming
+the contribution, retaining the existing `CallableId` owner and using the
+source member index only as local lookup plumbing. This is partial T2/T3 work;
+it does not complete owner-executor convergence, computed-key aliases, T7.0E,
+Record patterns, or the remaining P4 gates.
+
+Focused evidence on the review branch:
+
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::static_constants -- --nocapture` — 25 passed.
+- The exact regressions for unknown qualified-module calls, generic-inference diagnostic ranges, canonical Record-row identity, rejected inherent-impl selection, missing computed-signature owners, direct-surface withholding, and metadata fingerprints each passed (one selected test per command).
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --lib` — passed.
+- Core runtime tests were not run. The consolidated-main test-target compile has the previously recorded unrelated `phalcom-core/src/vm/send.rs:1960` missing-argument blocker.
+
+P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; these focused results do not close T3 or the checkpoint.
 
 ### R1 progress consolidated on local main — 2026-10-06
 

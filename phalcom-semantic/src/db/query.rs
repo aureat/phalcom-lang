@@ -225,6 +225,45 @@ fn class_definition_for<'a>(unit: &'a ParsedModuleUnit, declaration: &Declaratio
     })
 }
 
+fn callable_source_has_computed_record_key(
+    unit: &ParsedModuleUnit,
+    callable: &CallableId,
+    effective_definition: Option<&crate::impls::EffectiveCallableDefinition>,
+) -> bool {
+    if let Some(declaration_owner) = callable.try_declaration_owner()
+        && let Some(class_def) = class_definition_for(unit, declaration_owner)
+        && class_def.members.iter().any(|member| {
+            crate::checker::declaration_signature::callable_id_for_member(declaration_owner, member).as_ref() == Some(callable)
+                && crate::checker::declaration_signature::callable_type_annotations(member)
+                    .into_iter()
+                    .any(crate::checker::declaration_signature::annotation_has_computed_record_key)
+        })
+    {
+        return true;
+    }
+
+    let Some(effective_definition) = effective_definition else {
+        return false;
+    };
+    let crate::impls::CallableDefinitionOrigin::InherentImpl(impl_id) = &effective_definition.origin else {
+        return false;
+    };
+    if impl_id.module != unit.id {
+        return false;
+    }
+    let Some(Statement::Impl(impl_def)) = unit.program.statements.get(impl_id.local.0 as usize) else {
+        return false;
+    };
+    let Some(member) = impl_def.members.get(effective_definition.source_member_index).and_then(phalcom_ast::ast::ImplMember::behavior) else {
+        return false;
+    };
+    let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
+    crate::checker::declaration_signature::callable_id_for_syntax(&callable.owner, syntax, callable.side).as_ref() == Some(callable)
+        && crate::checker::declaration_signature::callable_syntax_type_annotations(syntax)
+            .into_iter()
+            .any(crate::checker::declaration_signature::annotation_has_computed_record_key)
+}
+
 fn enum_definition_for<'a>(unit: &'a ParsedModuleUnit, declaration: &DeclarationId) -> Option<&'a phalcom_ast::ast::EnumDef> {
     if unit.id != declaration.module {
         return None;
@@ -1635,6 +1674,48 @@ pub struct DeclarationSurfaceQuery<'a> {
     pub import_products: Option<&'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
 }
 
+fn unavailable_computed_signature_owner(
+    db: &SemanticDb,
+    declaration: &DeclarationId,
+    class_def: &ClassDef,
+    field_signatures: Option<&crate::signature::FieldSignatureTable>,
+    callable_signatures: Option<&crate::signature::CallableSignatureTable>,
+) -> Option<QueryKey> {
+    for member in &class_def.members {
+        let owner = match member {
+            phalcom_ast::ast::ClassMember::Field(field)
+                if field
+                    .annotation
+                    .as_ref()
+                    .is_some_and(crate::checker::declaration_signature::annotation_has_computed_record_key) =>
+            {
+                let field = crate::checker::declaration_signature::field_id_for_member(declaration, member)?;
+                let key = QueryKey::FieldSignature(field.clone());
+                let published = field_signatures.and_then(|signatures| signatures.get(&field)).is_some();
+                Some((published, key))
+            }
+            _ if crate::checker::declaration_signature::callable_id_for_member(declaration, member).is_some()
+                && crate::checker::declaration_signature::callable_type_annotations(member)
+                    .into_iter()
+                    .any(crate::checker::declaration_signature::annotation_has_computed_record_key) =>
+            {
+                let callable = crate::checker::declaration_signature::callable_id_for_member(declaration, member)?;
+                let published = callable_signatures.and_then(|signatures| signatures.get(&callable)).is_some();
+                Some((published, QueryKey::CallableSignature(callable)))
+            }
+            _ => None,
+        };
+        let Some((present_in_table, key)) = owner else {
+            continue;
+        };
+        let current_in_db = db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision());
+        if !present_in_table || !current_in_db {
+            return Some(key);
+        }
+    }
+    None
+}
+
 fn ensure_semantic_dependency_current(
     db: &mut SemanticDb,
     dependency: &crate::checker::analysis::SemanticDependency,
@@ -2360,6 +2441,11 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
     let Some(declaration_info) = declarations.get(&decl_id).cloned() else {
         return query_failure(db, key, format!("declaration metadata was not found for {decl_id:?}"));
     };
+    if let Some(class_def) = class_def
+        && let Some(owner) = unavailable_computed_signature_owner(db, &decl_id, class_def, field_signatures, callable_signatures)
+    {
+        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(owner));
+    }
     let input_fingerprint = if let Some(class_def) = class_def {
         crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def)
     } else if let Some(enum_def) = enum_def {
@@ -2608,6 +2694,16 @@ pub fn query_callable_signature_with_inputs(
         import_products,
     } = inputs;
     let key = QueryKey::CallableSignature(callable.clone());
+    let effective_definition = db
+        .product(&QueryKey::CallableDefinition(callable.clone()))
+        .and_then(|product| product.as_callable_definition())
+        .cloned();
+    if db.query_state(&key).and_then(QueryState::validated_revision) != Some(db.revision())
+        && record_key_projections.is_none()
+        && callable_source_has_computed_record_key(&unit, &callable, effective_definition.as_deref())
+    {
+        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(key));
+    }
     let projected_resolver = match signature_projection_resolver(resolver, record_key_projections, &key) {
         Ok(projected_resolver) => projected_resolver,
         Err(error) => return query_failure(db, key, error),
@@ -2663,15 +2759,7 @@ pub fn query_callable_signature_with_inputs(
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
 
-    let effective_definition = db
-        .product(&QueryKey::CallableDefinition(callable.clone()))
-        .and_then(|product| product.as_callable_definition())
-        .cloned();
     let uses_effective_definition = effective_definition.is_some();
-    if uses_effective_definition && record_key_projections.is_some() {
-        return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
-    }
-
     let (signature, mut captured_dependencies) = if let Some(definition) = effective_definition {
         (Arc::new(definition.signature.clone()), BTreeSet::new())
     } else if let Some(class_def) = class_definition_for(&unit, callable.declaration_owner()) {
@@ -2891,6 +2979,16 @@ pub fn query_field_signature_with_inputs(
     else {
         return query_failure(db, key, format!("missing source declaration for field {field:?}"));
     };
+    if db.query_state(&key).and_then(QueryState::validated_revision) != Some(db.revision())
+        && record_key_projections.is_none()
+        && let phalcom_ast::ast::ClassMember::Field(field_member) = member
+        && field_member
+            .annotation
+            .as_ref()
+            .is_some_and(crate::checker::declaration_signature::annotation_has_computed_record_key)
+    {
+        return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(key));
+    }
 
     let mut context = crate::checker::CheckingContext::new(store, hierarchy, resolver, declarations, field.owner.module.clone());
     let Some(signature) = crate::checker::declaration_signature::semantic_field_signature_for_member(&mut context, &field.owner, member) else {

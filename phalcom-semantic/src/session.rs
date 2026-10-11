@@ -4623,6 +4623,10 @@ impl SemanticWorkspaceSession {
         }
 
         let mut inherent_contributions_by_module: BTreeMap<ModuleId, Vec<crate::impls::InherentImplContribution>> = BTreeMap::new();
+        let mut inherent_callable_record_key_projections: HashMap<
+            (crate::identity::ImplId, usize),
+            crate::static_key::ProjectedRecordKeySet<'_>,
+        > = HashMap::new();
         let mut conformance_index = previous_snapshot
             .as_ref()
             .map(|snapshot| (*snapshot.conformance_index).clone())
@@ -5081,7 +5085,132 @@ impl SemanticWorkspaceSession {
                     context.attach_field_signatures(&field_signatures);
                     context.attach_data_semantics(&data_semantics);
                     context.attach_enum_semantics(&enum_semantics);
-                    let contribution = crate::impls::build_inherent_impl_contribution(&mut context, &impl_id, impl_def);
+                    let resolved_target = crate::impls::resolve_inherent_impl_target(&mut context, &impl_id, impl_def);
+                    if let Ok(target) = &resolved_target {
+                        let target_owner = target.target.to_callable_owner();
+                        for (member_index, impl_member) in impl_def.members.iter().enumerate() {
+                            let Some(member) = impl_member.behavior() else {
+                                continue;
+                            };
+                            let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
+                            let annotations = crate::checker::declaration_signature::callable_syntax_type_annotations(syntax);
+                            if !annotations.iter().any(|annotation| {
+                                crate::checker::declaration_signature::annotation_has_computed_record_key(annotation)
+                            }) {
+                                continue;
+                            }
+                            let is_class_side = syntax.attributes().iter().any(|attribute| attribute.name == "class")
+                                || match member {
+                                    phalcom_ast::ast::BehaviorMember::Method(method) => method.is_static,
+                                    phalcom_ast::ast::BehaviorMember::Getter(getter) => getter.is_static,
+                                    phalcom_ast::ast::BehaviorMember::Setter(setter) => setter.is_static,
+                                    phalcom_ast::ast::BehaviorMember::Index(_) => false,
+                                };
+                            let side = if is_class_side {
+                                crate::identity::DispatchSide::Class
+                            } else {
+                                crate::identity::DispatchSide::Instance
+                            };
+                            let Some(callable_id) = crate::checker::declaration_signature::callable_id_for_syntax(&target_owner, syntax, side) else {
+                                continue;
+                            };
+
+                            let projections = loop {
+                                let projection = {
+                                    let mut driver = crate::static_constant_demand::StaticConstantDemandDriver {
+                                        db: &mut self.db,
+                                        store: context.store,
+                                        values: Arc::make_mut(&mut self.static_values),
+                                        constants: &mut static_constants_table,
+                                        definitions: &static_definitions_table,
+                                        catalogs: &module_static_binding_catalogs,
+                                        sources: &retained_sources,
+                                        linked: input.linked.as_ref(),
+                                        topology: semantic_topology.as_ref(),
+                                        import_products: &input.import_products,
+                                        source_resolution_input,
+                                        linked_component_product,
+                                        hierarchy: &hierarchy,
+                                        resolver: &resolver,
+                                        declarations: &declarations,
+                                        type_aliases: &type_aliases,
+                                        dispatch: &dispatch,
+                                        field_signatures: &field_signatures,
+                                        callable_signatures: &callable_signatures,
+                                        data_semantics: &early_data_semantics,
+                                        enum_semantics: &early_enum_semantics,
+                                        associated_families: &associated_surfaces_table,
+                                        deferred_static_definitions: &no_deferred_static_definitions,
+                                        intrinsics: &static_intrinsics,
+                                        budget,
+                                        cancel,
+                                        active_constants: Vec::new(),
+                                    };
+                                    driver.project_annotations(
+                                        QueryKey::CallableSignature(callable_id.clone()),
+                                        module_id,
+                                        annotations.iter().copied(),
+                                    )
+                                };
+                                match projection {
+                                    crate::static_constant_demand::StaticDemandOutcome::Ready(projections) => break Some(projections),
+                                    crate::static_constant_demand::StaticDemandOutcome::Awaiting(demands) => {
+                                        match service_type_member_demands(
+                                            &mut self.db,
+                                            context.store,
+                                            &resolver,
+                                            &demands,
+                                            &signature_graph,
+                                            &alias_sources,
+                                            &type_aliases,
+                                            &declarations,
+                                            &associated_surfaces_table,
+                                            &mut type_member_declarations_table,
+                                            &static_case_signatures_table,
+                                            &type_signature_cycle_members,
+                                            &member_definitions,
+                                            &retained_sources,
+                                            &mut diags_by_module,
+                                        )? {
+                                            TypeMemberDemandService::Current => continue,
+                                            TypeMemberDemandService::Cycle => break None,
+                                            TypeMemberDemandService::NoProgress => {
+                                                return Err(QueryOutcome::Failed(format!(
+                                                    "type-member demand for inherent callable signature {callable_id:?} could not progress: {demands:?}"
+                                                )));
+                                            }
+                                        }
+                                    }
+                                    crate::static_constant_demand::StaticDemandOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                    crate::static_constant_demand::StaticDemandOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                    crate::static_constant_demand::StaticDemandOutcome::BudgetExceeded(report) => {
+                                        return Err(QueryOutcome::BudgetExceeded(report));
+                                    }
+                                    crate::static_constant_demand::StaticDemandOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                                }
+                            };
+                            if let Some(projections) = projections {
+                                inherent_callable_record_key_projections.insert((impl_id.clone(), member_index), projections);
+                            }
+                        }
+                    }
+                    let projections_by_member = impl_def
+                        .members
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(member_index, _)| {
+                            inherent_callable_record_key_projections
+                                .get(&(impl_id.clone(), member_index))
+                                .map(|projections| (member_index, projections))
+                        })
+                        .collect::<BTreeMap<_, _>>();
+                    let contribution = crate::impls::build_inherent_impl_contribution_with_prepared_target_and_record_keys(
+                        &mut context,
+                        &impl_id,
+                        impl_def,
+                        resolved_target,
+                        &projections_by_member,
+                    );
                     if !contribution.diagnostics.is_empty() {
                         diags_by_module
                             .entry(module_id.clone())
@@ -5342,6 +5471,31 @@ impl SemanticWorkspaceSession {
                         if previous_snapshot.is_some() && !callable_signature_work.contains(&callable_id) {
                             continue;
                         }
+                        let (impl_id, source_member_index) = match &definition.origin {
+                            crate::impls::CallableDefinitionOrigin::InherentImpl(impl_id) => (impl_id, definition.source_member_index),
+                            _ => unreachable!("inherent definition branch must retain its impl source"),
+                        };
+                        let type_params_map = definition
+                            .inherent_body_context
+                            .as_ref()
+                            .and_then(|context| context.generic_signature.as_ref())
+                            .map(|signature| {
+                                signature
+                                    .parameters
+                                    .iter()
+                                    .map(|parameter_id| {
+                                        let name = self.store.type_parameter(*parameter_id).name.to_string();
+                                        let binding = type_level_binding_for_parameter(Arc::make_mut(&mut self.store), *parameter_id);
+                                        (name, binding)
+                                    })
+                                    .collect::<HashMap<_, _>>()
+                            })
+                            .unwrap_or_default();
+                        let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
+                            parent: &resolver,
+                            type_parameters: type_params_map,
+                        };
+                        let record_key_projections = inherent_callable_record_key_projections.get(&(impl_id.clone(), source_member_index));
                         match query_callable_signature_with_inputs(
                             &mut self.db,
                             callable_id.clone(),
@@ -5349,8 +5503,8 @@ impl SemanticWorkspaceSession {
                             SignatureQueryInputs {
                                 store: Arc::make_mut(&mut self.store),
                                 hierarchy: &hierarchy,
-                                resolver: &resolver,
-                                record_key_projections: None,
+                                resolver: &scoped_resolver,
+                                record_key_projections,
                                 declarations: &declarations,
                                 linked: Some(input.linked.as_ref()),
                                 type_aliases: Some(&type_aliases),
@@ -6296,10 +6450,12 @@ impl SemanticWorkspaceSession {
                         ctx.attach_field_signatures(&field_signatures);
                         ctx.attach_data_semantics(&data_semantics);
                         ctx.attach_enum_semantics(&enum_semantics);
-                        let contribution = crate::impls::build_inherent_impl_contribution(&mut ctx, &impl_id, impl_def);
-                        let target_owner = contribution.target.to_callable_owner();
+                        let Ok(resolved_impl_target) = crate::impls::resolve_inherent_impl_target(&mut ctx, &impl_id, impl_def) else {
+                            continue;
+                        };
+                        let target_owner = resolved_impl_target.target.to_callable_owner();
 
-                        let type_params_map = if let Some(sig) = contribution.generic_signature.as_ref() {
+                        let type_params_map = if let Some(sig) = resolved_impl_target.generic_signature.as_ref() {
                             let mut map = std::collections::HashMap::new();
                             for &param_id in sig.parameters.iter() {
                                 let name = self.store.type_parameter(param_id).name.to_string();
@@ -10270,41 +10426,7 @@ fn compute_module_fingerprint(unit: &ParsedModuleUnit) -> u64 {
 }
 
 fn callable_type_annotations(member: &phalcom_ast::ast::ClassMember) -> Vec<&phalcom_ast::ast::TypeAnnotation> {
-    use phalcom_ast::ast::{ClassMember, IndexAccessor};
-
-    fn add_parameter<'a>(annotations: &mut Vec<&'a phalcom_ast::ast::TypeAnnotation>, parameter: &'a phalcom_ast::ast::ParameterDef) {
-        if let Some(annotation) = parameter.type_annotation() {
-            annotations.push(annotation);
-        } else if let Some(lane) = parameter.rest_lane_annotation() {
-            annotations.push(&lane.operand);
-        }
-    }
-
-    let mut annotations = Vec::new();
-    match member {
-        ClassMember::Method(method) => {
-            for parameter in &method.params {
-                add_parameter(&mut annotations, parameter);
-            }
-            annotations.extend(method.return_annotation.as_ref());
-        }
-        ClassMember::Getter(getter) => annotations.extend(getter.return_annotation.as_ref()),
-        ClassMember::Setter(setter) => {
-            add_parameter(&mut annotations, &setter.param);
-            annotations.extend(setter.return_annotation.as_ref());
-        }
-        ClassMember::Index(index) => {
-            for parameter in &index.params {
-                add_parameter(&mut annotations, parameter);
-            }
-            if let IndexAccessor::Set { value } = &index.accessor {
-                add_parameter(&mut annotations, value);
-            }
-            annotations.extend(index.return_annotation.as_ref());
-        }
-        ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => {}
-    }
-    annotations
+    crate::checker::declaration_signature::callable_type_annotations(member)
 }
 
 fn field_lifecycle_source_fingerprint(unit: &ParsedModuleUnit) -> u64 {

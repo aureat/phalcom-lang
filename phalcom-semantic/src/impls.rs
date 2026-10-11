@@ -5888,10 +5888,24 @@ fn abi_erased_native_anchor_error(
 
 /// Builds the canonical `InherentImplContribution` from an `ImplDef`.
 pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: &ImplId, impl_def: &ImplDef) -> InherentImplContribution {
+    let resolved_target = resolve_inherent_impl_target(ctx, impl_id, impl_def);
+    build_inherent_impl_contribution_with_prepared_target_and_record_keys(ctx, impl_id, impl_def, resolved_target, &BTreeMap::new())
+}
+
+/// Builds an inherent contribution from a selected target and owner-prepared
+/// computed Record-key projections. The member index is only source-location
+/// plumbing; canonical ownership remains the existing `CallableId`.
+pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
+    ctx: &mut CheckingContext<'_>,
+    impl_id: &ImplId,
+    impl_def: &ImplDef,
+    resolved_target: Result<ResolvedInherentImplTarget, Vec<SemanticDiagnostic>>,
+    projected_record_keys: &BTreeMap<usize, &crate::static_key::ProjectedRecordKeySet<'_>>,
+) -> InherentImplContribution {
     let mut diagnostics = Vec::new();
     let source = SemanticSourceSpan::new(ctx.current_module.clone(), impl_def.range);
 
-    let resolved_target = match resolve_inherent_impl_target(ctx, impl_id, impl_def) {
+    let resolved_target = match resolved_target {
         Ok(target) => {
             diagnostics.extend(target.diagnostics.clone().into_vec());
             target
@@ -6176,7 +6190,14 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
         };
 
         let diagnostic_start = ctx.diagnostics.len();
-        let raw_sig = semantic_signature_for_syntax_with_resolver(ctx, &target_owner, &impl_resolver, syntax, side);
+        let projected_resolver = projected_record_keys.get(&source_member_idx).map(|projections| crate::types::annotation::ProjectedRecordKeyResolver {
+            parent: &impl_resolver,
+            projections,
+        });
+        let signature_resolver: &dyn TypeResolver = projected_resolver
+            .as_ref()
+            .map_or(&impl_resolver, |resolver| resolver as &dyn TypeResolver);
+        let raw_sig = semantic_signature_for_syntax_with_resolver(ctx, &target_owner, signature_resolver, syntax, side);
         // Signature formation owns annotation errors even when the body never
         // reads the invalid parameter. Publish them with the contribution.
         diagnostics.extend(ctx.diagnostics[diagnostic_start..].iter().cloned());

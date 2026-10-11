@@ -15,8 +15,8 @@ use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::id::KindId;
 use crate::types::parameter::{TypeParameterOwner, TypeTerm};
 use phalcom_ast::ast::{
-    BehaviorMember, ClassMember, DelegatedAccessorDef, DelegatedAccessorKind, ExpansionMode, GetterDef, IndexMethodDef, MethodDef, ParameterAnnotationSyntax,
-    ParameterDef, RestMode, SetterDef,
+    BehaviorMember, ClassMember, DelegatedAccessorDef, DelegatedAccessorKind, ExpansionMode, GetterDef, IndexAccessor, IndexMethodDef, MethodDef,
+    ParameterAnnotationSyntax, ParameterDef, RestMode, SetterDef,
 };
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
@@ -237,6 +237,56 @@ pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember
         ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => return None,
     };
     callable_id_for_syntax(&CallableOwnerId::Declaration(owner.clone()), syntax, declared_side)
+}
+
+pub(crate) fn callable_type_annotations(member: &ClassMember) -> Vec<&phalcom_ast::ast::TypeAnnotation> {
+    let syntax = match member {
+        ClassMember::Method(method) => CallableSyntaxRef::Method(method),
+        ClassMember::Getter(getter) => CallableSyntaxRef::Getter(getter),
+        ClassMember::Setter(setter) => CallableSyntaxRef::Setter(setter),
+        ClassMember::Index(index) => CallableSyntaxRef::Index(index),
+        ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => return Vec::new(),
+    };
+    callable_syntax_type_annotations(syntax)
+}
+
+pub(crate) fn callable_syntax_type_annotations(syntax: CallableSyntaxRef<'_>) -> Vec<&phalcom_ast::ast::TypeAnnotation> {
+    fn add_parameter<'a>(annotations: &mut Vec<&'a phalcom_ast::ast::TypeAnnotation>, parameter: &'a ParameterDef) {
+        if let Some(annotation) = parameter.type_annotation() {
+            annotations.push(annotation);
+        } else if let Some(lane) = parameter.rest_lane_annotation() {
+            annotations.push(&lane.operand);
+        }
+    }
+
+    let mut annotations = Vec::new();
+    match syntax {
+        CallableSyntaxRef::Method(method) => {
+            for parameter in &method.params {
+                add_parameter(&mut annotations, parameter);
+            }
+            annotations.extend(method.return_annotation.as_ref());
+        }
+        CallableSyntaxRef::Getter(getter) => annotations.extend(getter.return_annotation.as_ref()),
+        CallableSyntaxRef::Setter(setter) => {
+            add_parameter(&mut annotations, &setter.param);
+            annotations.extend(setter.return_annotation.as_ref());
+        }
+        CallableSyntaxRef::Index(index) => {
+            for parameter in &index.params {
+                add_parameter(&mut annotations, parameter);
+            }
+            if let IndexAccessor::Set { value } = &index.accessor {
+                add_parameter(&mut annotations, value);
+            }
+            annotations.extend(index.return_annotation.as_ref());
+        }
+    }
+    annotations
+}
+
+pub(crate) fn annotation_has_computed_record_key(annotation: &phalcom_ast::ast::TypeAnnotation) -> bool {
+    !crate::static_key::type_record_key_expressions(annotation, 0).is_empty()
 }
 
 fn annotation_fact(

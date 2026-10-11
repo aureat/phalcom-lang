@@ -369,6 +369,62 @@ class Owner {
 }
 
 #[test]
+fn declaration_surface_reports_exact_missing_computed_signature_owner() {
+    let module = module_id();
+    let source = "const Key: Symbol = #token\nclass Box {\n  _value: { [Key]: Int }\n}\n";
+    let input = single_module_input(module.clone(), source, 1);
+    let unit = input.sources.get(&module).cloned().expect("source unit");
+    let linked_interface = Arc::new(input.linked.modules[&module].interface.clone());
+
+    let mut store = TypeStore::new();
+    let mut declarations = bootstrap_universe_declarations(&mut store, &phalcom_semantic::core_surface::universe_declaration);
+    let owner = DeclarationId::new(module.clone(), "Box".into());
+    declarations.insert(DeclarationTypeInfo {
+        declaration: owner.clone(),
+        form: store.nominal_type(owner.clone()),
+        class_object_type: store.class_object_type(owner.clone()),
+        kind: KindId::TYPE,
+        binding: phalcom_semantic::declarations::DeclarationTypeBinding::ordinary(),
+        generic_binder_header: None,
+        generic_signature: None,
+        supertype_template: None,
+    });
+    let resolver = SimpleTypeResolver::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut db = phalcom_semantic::db::SemanticDb::new();
+    let key = QueryKey::FieldSignature(phalcom_semantic::identity::FieldId::new(
+        owner.clone(),
+        "_value",
+        DispatchSide::Instance,
+    ));
+
+    let outcome = query_declaration_surface(
+        &mut db,
+        DeclarationSurfaceQuery {
+            decl_id: owner.clone(),
+            unit,
+            linked_interface,
+            store: &mut store,
+            hierarchy: &hierarchy,
+            resolver: &resolver,
+            declarations: &declarations,
+            field_signatures: None,
+            callable_signatures: None,
+            type_aliases: None,
+            linked: Some(&input.linked),
+            import_products: Some(&input.import_products),
+        },
+    );
+    assert!(matches!(
+        outcome,
+        phalcom_semantic::db::QueryOutcome::Blocked(
+            phalcom_semantic::types::outcome::BlockReason::UnavailableSemanticOwner(missing)
+        ) if missing == key
+    ));
+    assert!(db.product(&QueryKey::DeclarationSurface(owner)).is_none());
+}
+
+#[test]
 fn partial_source_signature_is_canonical_and_body_depends_on_it() {
     let module = module_id();
     let source = r#"

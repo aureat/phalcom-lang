@@ -934,21 +934,138 @@ The implementer may adapt:
 
 # 12. Required live owner matrix
 
-Before architecture edits, freeze a repository-grounded matrix:
+Before architecture edits, freeze a repository-grounded matrix. The 2026-10-10
+T0 rebaseline was performed on `feat/telos-collection-upgrade` at
+`78cfd9202f5dea7dd2713bff71d3e475f20810d6`, before any D4 production change.
+The focused D4 fixtures reproduce the same three `RecordKeyNotStatic`
+failures on both this branch and clean `main` at
+`c2dd635ee34f2cef3e64e86c87a5e77992f29fa7`; this classifies the current
+failures as an inherited semantic defect, not a P4 collection regression. The
+test coverage is still required for the static-key/signature owner work below.
 
-| Source construct | Can carry computed Record key now? | Canonical `QueryKey` | Current formation | P4 action |
+| Source owner / construct | Computed Record key reachable? | Canonical `QueryKey` | Live formation and forwarding path | T0 status and required action |
 |---|---:|---|---|---|
-| field annotation | yes | `FieldSignature` | signature query | canonical replay/preparation |
-| callable parameter/return | yes | `CallableSignature` | signature query | canonical replay/preparation |
-| `const` declared type | yes | `StaticConstant` | duplicated | collapse to one owner |
-| type alias TypeForm | yes | `StaticDefinition` | early ordinary alias path | deferred exact owner |
-| type-member prerequisite | checker can demand it | `TypeMemberDeclaration` | `publish_type_member_owner` | service through executor |
-| declaration shell/surface | verify | existing | live builder | include only if source reachability proves it |
-| trait header/surface | verify | existing | live builder | include only if proven |
-| static-case signature | verify | existing | live builder | include only if proven |
-| associated static-domain declaration | verify | existing | live builder | include only if proven |
+| Declaration surface field projection | Yes | `DeclarationSurface` consumes `FieldSignature` | `build_declared_class_surface` first eagerly calls `semantic_field_signature_for_member`, then checks `ctx.resolve_field_signature(...).cloned().or(lowered_signature)`. Workspace session supplies canonical field signatures to the surface query, but eager lowering already formed the same annotation without the projection. | Confirmed cold D4 diagnostic source. This contradicts the assumption that surfaces only project canonical signatures. Stop P4 edits and consult on canonical owner ordering and missing-product behavior. |
+| Declaration surface callable projection | Yes | `DeclarationSurface` consumes `CallableSignature` | The callable branch has the same eager `semantic_signature_for_member` before checking the attached canonical callable signature. | Same authority/order issue; consultation must cover both field and callable members. |
+| Class field annotation | Yes | `FieldSignature` | `SemanticWorkspaceSession` field loop calls `StaticConstantDemandDriver::project_annotation`, services `Awaiting` through `service_type_member_demands`, then calls `query_field_signature_with_inputs` with `Some(projections)`. | Cold path is projection-aware but uses the separate type-member scheduler; formal dependency replay in `ensure_formal_semantic_dependency_current` calls the low-level query with `None`. T2/T3 must route cold and replay through one owner entry. |
+| Declaration callable parameter/return annotations | Yes | `CallableSignature` | Session callable loop projects all annotations with `project_annotations`, services `Awaiting` through `service_type_member_demands`, then calls `query_callable_signature_with_inputs` with `Some(projections)`. | Cold path is projection-aware but uses the separate scheduler; formal dependency replay passes `None`. T2/T3 must use the canonical callable owner entry. |
+| Inherent-implementation callable annotations | Yes, if the source signature contains a computed key | `CallableSignature` | `build_inherent_impl_contribution` in `impls.rs` forms each `BehaviorMember` with `semantic_signature_for_syntax_with_resolver` and a `ScopedTypeResolver`; later the effective-surface loop calls `query_callable_signature_with_inputs` with `record_key_projections: None`. | Unprepared source is lowered before the nominal query owner runs. Amendment B extends T2/T3 owner routing to accepted inherent-impl members while preserving the impl-scoped resolver and duplicate selection. |
+| `const` declared type | Yes | `StaticConstant` | Session constant phase separately checks/discovers dependencies, forms computed-key projections and publishes through `query_static_constant`; `StaticConstantDemandDriver::compute` also projects, checks/evaluates and publishes through the same DB query. | Duplicated owner formation. T1 must converge both routes before adding more scheduling behavior. |
+| Type alias TypeForm | Syntax can contain the same Record-key form; current scheduling is incomplete | `StaticDefinition` | Ordinary alias path forms and publishes with `query_static_definition`; `query_static_definition_with_record_key_projections` exists but has no live caller. | Deferred/unimplemented computed-key owner. Keep out of T0 production edits; implement only after T1–T3 through the plan's later alias task. |
+| Type-member prerequisite | Reachable as an exact demand while checking static key expressions | `TypeMemberDeclaration` | `service_type_member_demands` services prerequisites separately from the constant driver. | Current exact owner exists, but a sibling scheduler remains. T2 routes it through the bounded owner executor. |
+| Declaration shell, trait header/surface, static-case signature, associated static-domain declaration | No direct computed-key projection consumer established by the current source traversal | Existing owner products | They can be semantic prerequisites, but the current signature key projection set does not call their formation APIs directly. | Remain theoretical unless a concrete owner source is found; T0 does not add them to dispatch based on type-bearing status alone. |
 
-The old T7.0C plan text is not a mandate to integrate every theoretical type-bearing query. Integrate actual reachable owners only.
+## 12.1 Enumerated call sites and focused selectors
+
+The live search covered `type_record_key_expressions`,
+`project_annotation(s)`, `query_field_signature_with_inputs`,
+`query_callable_signature_with_inputs`, both static-definition publishers,
+and `query_static_constant` in `session.rs`, `db/query.rs`,
+`static_constant_demand.rs`, and `static_definition.rs`. Important direct
+re-entry sites are:
+
+- `db/query.rs::ensure_formal_semantic_dependency_current` for both field and
+  callable signatures, with projections set to `None`;
+- `db/query.rs::ensure_callable_signature_with_inputs`, also with projections
+  set to `None`;
+- the inherent-implementation callable loop in `session.rs`, also with
+  projections set to `None`;
+- `session.rs` and `StaticConstantDemandDriver` as separate
+  `StaticConstant` check/evaluate/publication routes;
+- no caller of `query_static_definition_with_record_key_projections`.
+
+The discriminating D4 selectors are:
+
+```text
+semantic::foundations::static_constants::test_field_signature_projects_a_cold_computed_record_key
+semantic::foundations::static_constants::test_callable_signature_projects_all_parameter_and_return_record_keys
+semantic::foundations::static_constants::test_field_signature_key_edit_matches_cold_surface_and_invalidates_exactly
+```
+
+The owning `static_constants` filter selected 24 tests on the collection
+branch (21 passed, 3 failed) and 18 on the clean `main` baseline (15 passed,
+the same 3 failed). The three named failures are the entire D4 blocker; this is
+not evidence of a P4 sequence regression.
+
+T0 identified a plan-premise conflict in `DeclarationSurface` formation. The
+2026-10-10 advisory decision is recorded in §12.2 and the C4 checkpoint. No D4
+production code was changed during the rebaseline. T0 is complete under the
+amended matrix; resume with T1, then T2/T3 with the surface gate below.
+
+## 12.2 Amendment A — declaration surfaces consume canonical signatures
+
+**Consultation:** `D4 declaration-surface owner-order` on 2026-10-10.
+**Verdict:** PLAN NEEDS MATERIAL AMENDMENT.
+
+The previous matrix treated `DeclarationSurface` as a projection of canonical
+signatures, but `build_declared_class_surface` eagerly lowered fields and
+callables before consulting signature tables. The required architecture is:
+
+1. T2's session owner executor ensures each projection-bearing
+   `FieldSignature`/`CallableSignature` before the workspace queries its
+   `DeclarationSurface`.
+2. Workspace surface formation consumes attached canonical signatures and
+   records the existing exact signature dependencies. It does not form
+   projection-bearing signatures, demand their keys, or add a second scheduler.
+3. If a projection-bearing owner is unavailable, withhold the surface product
+   (or report the exact unavailable owner); do not lower that member with the
+   base resolver or publish a complete-looking surface.
+4. Direct/bootstrap `register_class_surface` callers may retain source fallback
+   only for projection-free members. Computed-key members without their
+   canonical owner are withheld/reported. Callers requiring them must prepare
+   owners through the same session owner path.
+5. Query cache replay must refresh a stale projection-bearing signature through
+   the same owner path before validating or publishing the surface.
+
+This amendment does not add `DeclarationSurface` to the exact-owner executor;
+it remains a downstream product. It adds the surface-currentness gate to T2,
+and the canonical-first/no-unprepared-fallback rule to T3. Preserve fallback
+behavior for projection-free direct and bootstrap callers.
+
+The old T7.0C plan text is not a mandate to integrate every theoretical
+type-bearing query. Integrate actual reachable owners only.
+
+## 12.3 Amendment B — inherent implementation callables use the canonical owner
+
+**Consultation:** `D4 inherent-implementation callable owner-order` on 2026-10-11.
+**Verdict:** PLAN NEEDS MATERIAL AMENDMENT (Level 2).
+
+The original T0 matrix identified the later inherent-implementation
+`CallableSignature` query as projection-unaware, but the live path has an
+earlier formation point: `session.rs::build_inherent_impl_contribution`
+constructs each `BehaviorMember` through
+`impls.rs::semantic_signature_for_syntax_with_resolver` using only the
+impl-scoped `ScopedTypeResolver`. By the time the effective-surface loop asks
+for `CallableSignature`, the source signature has already been lowered without
+computed-key projections. Adding projections only at that later query cannot
+repair the member or its effective surface.
+
+Extend the T2/T3 canonical owner route to accepted inherent-implementation
+callables:
+
+1. Prepare the accepted impl source signature through the same bounded owner
+   executor before publishing its contribution or effective surface.
+2. Collect parameter and return annotation keys under the existing stable
+   `CallableSignature` `QueryKey`, preserving the impl-scoped resolver; service
+   exact prerequisites and retry from fresh state after suspension.
+3. Publish the canonical signature with its exact projection dependencies;
+   form the `BehaviorMember` and effective definition from that product.
+4. Preserve conflict selection. If selection needs to precede signature
+   formation, factor source selection from `BehaviorMember` construction, or
+   otherwise prove the selected source remains the existing accepted member.
+   A source locator may use `ImplId` plus member index but must not become a
+   second durable owner identity.
+5. Do not add a second scheduler or alter `CallableId`, duplicate behavior, or
+   semantic authority. Stop for another consultation if one of those changes
+   becomes necessary.
+
+Add focused coverage for: a computed key in both parameter and return
+annotations of an inherent-impl callable (canonical signature, effective
+surface, and exact static-constant dependency); editing that constant and
+proving invalidation plus cold/incremental parity; and duplicate/rejected impl
+selection preserving the accepted signature owner. Retain existing inherent
+impl query tests. The T3 entry-path table and acceptance gate must include this
+owner before aliases or Record-pattern work proceeds.
 
 ---
 
@@ -1421,6 +1538,21 @@ FieldSignature
 CallableSignature
 ```
 
+### Workspace surface ordering
+
+`DeclarationSurface` is a downstream consumer, not another owner-dispatch
+kind. Before `query_declaration_surface`, the session executor must ensure all
+computed-key field and callable signature owners belonging to that declaration
+are current. The surface query must use those attached products without
+eagerly forming a duplicate source signature. If a required owner is not
+available, the surface query is withheld and its unavailable owner is
+propagated to the session; the surface must not be published as current.
+
+Direct/bootstrap callers that do not have workspace owner products may only
+source-form projection-free members. A computed-key member with no canonical
+signature must remain unpublished/explicitly unavailable. `query_declaration_surface`
+must not introduce a second projection scheduler.
+
 Do not make this a universal query framework.
 
 ## Ready-product reconciliation
@@ -1527,6 +1659,12 @@ It is acceptable for `query_*_signature_with_inputs` to remain low-level if its 
 > An owner containing computed Record keys must be called with the matching prepared projection set.
 
 Generic formal replay may not call it unprepared.
+
+`build_declared_class_surface` follows the same boundary: attached canonical
+field/callable signatures are selected before any fallback computation. A
+computed-key member without its canonical signature is not source-lowered by
+the surface builder. Replay may not treat the base resolver as an implicit
+projection-free fallback for a known computed-key owner.
 
 ## Mechanically acceptable designs
 
