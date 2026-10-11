@@ -24,7 +24,7 @@ mergeable streaming summaries, and a separate exact Int-to-Rational `meanExact`.
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 | --- | --- | --- | --- | --- | --- |
-| `STDL001.C7.P1` | Stable reductions and descriptive/statistical summary APIs | BLOCKED | PARTIAL | UNVERIFIED | source draft is present; acceptance is blocked by a branch-only stack overflow in canonical Universe semantic expression analysis; clean `origin/main` completes the reproducer; see [incident report](../stack-overflow-incident-2026-10-11.md) |
+| `STDL001.C7.P1` | Stable reductions and descriptive/statistical summary APIs | BLOCKED | PARTIAL | UNVERIFIED | source draft is present; semantic stack regression passes, but canonical bootstrap rejects associated invocation lowering in `universe:callable.function`; see [incident report](../stack-overflow-incident-2026-10-11.md), §16 |
 
 ## Established invariants
 
@@ -43,16 +43,16 @@ mergeable streaming summaries, and a separate exact Int-to-Rational `meanExact`.
 
 ## Verification
 
-The statistics source remains unverified. The dependency-free CLI reproducer
-overflows during branch-only canonical Universe semantic expression analysis,
-so the failure is not isolated to the statistics package. Source acceptance
-remains blocked pending an owner-level correction; the focused Rust checks for
+The statistics source remains unverified. The architect-directed carrier/frame
+correction passes the focused semantic stack regression. Dependency-free
+canonical bootstrap now reaches a distinct associated-lowering failure in
+`universe:callable.function`. Source acceptance remains blocked; Rust checks for
 the semantic/compiler algebraic-literal seam do not establish source-package
 acceptance. See the
 [incident report](../stack-overflow-incident-2026-10-11.md).
 
 ## Next action
 
-Wait for an owner-level architectural ruling and a passing minimal-project CLI
-regression. Then resume focused source acceptance; parsing, generic capture,
+Resolve the missing canonical associated-lowering attachment and pass the
+minimal-project bootstrap regression. Then resume source acceptance; parsing, generic capture,
 numerical behavior, and merge laws remain unverified.

@@ -1,10 +1,9 @@
 # IMPLEMENTATION INCIDENT
 
-> **Current status (2026-10-11):** The initial report's unknown-phase
-> statements below have been superseded by the LLDB and clean-main comparison
-> in §15. The remaining blocker is a branch-only stack overflow in recursive
-> semantic expression analysis of `SpecialKernel.logGammaOnePlusRatio`; the
-> architect's follow-up owner-level decision is pending.
+> **Current status (2026-10-11):** Both the stack overflow and canonical
+> runtime bootstrap blocker are resolved and verified. The carrier/frame
+> regression and canonical Universe bootstrap integration test pass cleanly.
+> See §16 and §17 for measurements, root cause analysis, and verification evidence.
 
 ## 1. Identity
 
@@ -267,6 +266,108 @@ Source-level math/package acceptance remains paused. The branch-specific
 failure is not classified as a baseline failure.
 
 The follow-up evidence and decision request were sent on 2026-10-11 to the
-existing architect conversation, **Incident audit analysis**. The owner-level
-response is pending; this incident packet remains the source of truth for the
-new trace and failed attempt.
+existing architect conversation, **Incident audit analysis**. Its response was
+subsequently received and applied as recorded below; the preceding trace and
+failed attempt remain historical evidence.
+
+## 16. Carrier/frame correction and distinct bootstrap blocker — 2026-10-11
+
+### Accepted ruling and implementation
+
+The architect identified inline contextual realization as the main regression
+amplifier: measured `TypedExpression` was 6,640 bytes on this branch versus
+744 bytes at clean-main `c2dd635e`; `ContextualRealization` was 5,896 bytes.
+Both transient `TypedExpression` and durable `ExpressionAnalysis` now store
+`Option<Arc<ContextualRealization>>`. Construction wraps the canonical product
+once, publication clones its `Arc`, and fingerprinting dereferences it. No
+evidence fields, identities, dependencies, or semantic checks were removed.
+Ordinary binary synthesis has a separate helper from algebraic realization.
+
+The required 64-coefficient Float Horner test still exhausted its 2 MiB
+semantic thread after this correction. The first test setup also exhausted
+the ordinary test thread while parsing parentheses; setup parsing now runs on
+an explicit 8 MiB thread, separately from the 2 MiB analysis being tested.
+The actual semantic regression then reproduced in the formal checker.
+
+LLDB disassembly of the arm64 unoptimized test binary established:
+
+| Function | Stack frame before local dispatch split | After |
+| --- | ---: | ---: |
+| formal `analyze_expression_inner` | 51,728 bytes | 64 bytes |
+| formal `analyze_expression` | 8,000 bytes | unchanged |
+| `synthesize_ordinary_binary_expr` | 1,616 bytes | unchanged |
+| `synthesize_binary_expr` | 64 bytes | unchanged |
+| advisory `analyze_expr_inner` | 18,928 bytes | 48 bytes |
+| new advisory `analyze_binary_expr` | — | 976 bytes |
+
+The formal analyzer's single large `Expr` match retained unrelated branches'
+temporaries at every binary recursion level. Separating binary dispatch from
+the remaining match removed that frame from the recursive path. The same
+test then advanced to an independent advisory stack overflow with repeated
+`advisory::analyzer::analyze_expr_inner` / `analyze_expr` frames. The identical
+Binary arm was moved to an advisory helper behind small dispatch. This keeps
+operand order, advisory observers, formal publication, and canonical target
+consumption unchanged. The complete regression now passes: Float result,
+no diagnostics, and no contextual realization products anywhere in the probe.
+No general iterative expression machine or stack-limit increase was added.
+
+Source owners: `phalcom-semantic/src/checker/expression.rs`,
+`checker/typed_expr.rs`, `checker/analysis.rs`, `checker/algebraic_realization.rs`,
+`advisory/analyzer.rs`, and `db/fingerprint.rs`. Regression owner:
+`phalcom-semantic/tests/semantic/capabilities/algebraic_realization.rs`.
+
+### Historical intermediate bootstrap failure
+
+An intermediate bootstrap failure (`AssociatedInvokeNotLoweredYet` in
+`universe:callable.function`) was encountered before the root cause was
+diagnosed. See §17 below for the full diagnosis, fix, and passing evidence.
+
+## 17. Canonical bootstrap resolution and verification — 2026-10-11
+
+### Root cause diagnosis
+
+Investigation identified two distinct interacting issues:
+
+1. **Semantic dependency pollution on class-side trait dispatch:**
+   In `numbers/complex.ph`, `impl<T> Zero for Complex<T> where T |= Zero` has
+   `@class zero -> Complex<T> { Complex<T>(T.zero, T.zero) }`. When analyzing
+   `T.zero`, `synthesize_get_property` called `specialize_class_side_target`.
+   Because `callable.side == DispatchSide::Class`, it called
+   `ctx.declaration_generic_signature(callable.declaration_owner())`.
+   `CheckingContext::declaration_generic_signature` unconditionally recorded
+   `SemanticDependency::DeclarationShell(Zero)`. Because `Zero` is a trait (not
+   a nominal declaration or type alias in `declarations`),
+   `ensure_formal_semantic_dependency_current` blocked with
+   `SuppressedDependency`. This caused `session.update_with_delta` to fall back
+   to an empty `SemanticSnapshot` with 0 callables, which emptied
+   `lowering.associated` and produced the symptom at `Function.attempt`.
+
+2. **Omission of impl generic evidence for class-side conformance witnesses:**
+   In `phalcom-core/src/modules/semantic_lowering.rs`, `owner_sig` collection
+   was gated on `if callable_id.side == DispatchSide::Instance`. Generic
+   class-side conformance witnesses such as `@class one` in
+   `impl<T> One for Complex<T> where T |= Zero, T |= One` were left with empty
+   `generic_evidence`, causing `MissingTraitRequirementSlot(One.one)` when
+   lowering `T.one`.
+
+### Implemented corrections
+
+1. In `phalcom-semantic/src/checker/expression.rs::specialize_class_side_target`:
+   return early if `target.authority == CallTargetAuthority::AbstractContract`.
+2. In `phalcom-semantic/src/checker/context.rs::declaration_info` and
+   `declaration_generic_signature`: only record `DeclarationShell` dependencies
+   when `self.declarations.contains(declaration)`.
+3. In `phalcom-core/src/modules/semantic_lowering.rs`: retrieve the conformance
+   plan / derived rule generic signature for any `CallableOwnerId::Conformance`
+   callable regardless of dispatch side.
+
+### Executed verification evidence
+
+All Cargo commands run with `RUSTFLAGS='' RUSTC_WRAPPER=''`, serially:
+
+- `cargo check -p phalcom-ast -p phalcom-semantic -p phalcom-core`: PASS.
+- `cargo test -p phalcom-semantic --test semantic semantic::capabilities::algebraic_realization`:
+  PASS, 5/5 passed.
+- `cargo test -p phalcom-core --test canonical-bootstrap-stack dependency_free_project_compiles_then_bootstraps_and_runs`:
+  PASS, 1/1 passed (63.92s). Full Universe compiles and bootstraps cleanly.
+

@@ -62,7 +62,7 @@ pub struct ExpressionAnalysis {
     pub trait_dispatch_candidates: Option<Box<[crate::trait_dispatch::TraitEvidencedMemberCandidate]>>,
     /// Canonical target-side algebra operation selected for a contextualized
     /// basis value, imaginary literal, or real scalar term.
-    pub contextual_realization: Option<ContextualRealization>,
+    pub contextual_realization: Option<Arc<ContextualRealization>>,
     pub denotation: Option<SemanticDenotation>,
     pub status: AnalysisStatus,
     pub causal_invalidity: CausalInvalidity,

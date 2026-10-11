@@ -11,6 +11,7 @@ use crate::types::evidence::{EvidenceOrigin, EvidenceSet, TypeKnowledge, Unknown
 use crate::types::id::TypeId;
 use crate::types::rigid::LocalType;
 use phalcom_common::range::SourceRange;
+use std::sync::Arc;
 
 /// Solver-local result retained while one expression is checked inside a live
 /// generic application. It never enters durable expression analysis products.
@@ -31,7 +32,7 @@ pub struct TypedExpression {
     pub denotation: Option<SemanticDenotation>,
     /// Solver-local carrier for a canonical algebraic realization selected
     /// during bidirectional expression checking.
-    pub contextual_realization: Option<crate::checker::analysis::ContextualRealization>,
+    pub contextual_realization: Option<Arc<crate::checker::analysis::ContextualRealization>>,
     pub dispatch_lookup: DispatchLookup,
     pub constraints: Vec<TypeConstraint>,
     pub provenance: EvidenceSet,

@@ -25,16 +25,20 @@ updated: 2026-10-11
 
 ## Current stop — 2026-10-11
 
-Do not resume source-level acceptance until the branch-only expression-analysis
-stack overflow is repaired and the minimal-project CLI regression passes. The
-overflow occurs while canonical Universe semantics analyze
-`SpecialKernel.logGammaOnePlusRatio`, with repeated
-`analyze_expression_inner -> analyze_expression -> synthesize_binary_expr`
-frames. The same project completes on clean `origin/main`. The algebraic
-scanner is now iterative and its deep-input test passes, but moving inference
-out of the central expression wrapper did not resolve the overflow. The
-remaining general expression-analysis correction requires an architectural
-ruling; see the [incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
+The bounded semantic stack repair is implemented and focused-tested: shared
+realization carriers pass the 760-byte budget, and binary dispatch avoids large
+formal/advisory expression-match frames. The complete 64-coefficient Float
+Horner analysis passes on 2 MiB with Float type, no diagnostics, and no
+contextual realization products.
+
+Do not resume package acceptance until the dedicated minimal-project bootstrap
+gate passes. Its current failure is a distinct `AssociatedInvokeNotLoweredYet`
+while compiling `Function.attempt`'s `Result::Ok(self.call())`, range 782..805;
+the compiler has lowering semantics with an empty associated-site map. The
+source and compiler associated-invoke implementation match clean-main
+`c2dd635e`; investigate canonical semantic attachment/projection rather than
+adding a lowering fallback. See the
+[incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), §16.
 
 ## Architect ruling — 2026-10-11
 
@@ -42,13 +46,11 @@ Applied the ruling's contextual-candidate gate, iterative arithmetic summary,
 explicit generic dispatch side, and conforming-subject `Self` binding. Focused
 semantic tests pass for `T.zero`/`T.one`, wrong-side rejection, ordinary `Int`
 candidate rejection, arithmetic facts, and the 50,000-node region. The
-dependency-free compile-in-process and semantic-baseline probes pass. The CLI
-subprocess probe still exits 6 with stack overflow after 26.18s; clean
-`origin/main` completes the same project. A focused expression-wrapper
-relocation was tried, remained red, and was reverted. Package acceptance
-therefore remains blocked. The focused follow-up decision request was sent to
-the existing architect conversation on 2026-10-11; its owner-level response is
-pending.
+dependency-free compile-in-process and semantic-baseline probes pass. The
+follow-up architect response was received and applied: preserve canonical
+realization evidence behind `Arc` and separate ordinary/algebraic binary
+frames. The earlier wrapper-relocation failure is historical. Current stack
+measurements and the remaining bootstrap error are recorded in incident §16.
 
 ## T3 architecture ruling and current implementation
 

@@ -36,16 +36,22 @@ conforming subject. Focused regressions now cover those rules, including a
 minimal project compile-in-process, and direct canonical semantic baseline
 regressions pass.
 
-The actual CLI bootstrap regression remains red. LLDB and an environment-gated
-trace place the stack overflow in recursive semantic expression analysis of
-`universe:math.special.kernel::SpecialKernel.logGammaOnePlusRatio`. A clean
-`origin/main` checkout at `c2dd635e` completes the same dependency-free
-project, confirming this is a branch regression. One targeted relocation of
-arithmetic inference out of the central wrapper did not fix it. Do not resume
-LANG007 source acceptance until the general expression-analysis owner is
-resolved. The follow-up evidence and owner-level decision request were sent to
-the existing architect conversation on 2026-10-11; the response is pending.
-The evidence is in the
+The follow-up architect ruling was received and applied: transient and durable
+realization carriers are `Option<Arc<ContextualRealization>>`; ordinary binary
+checking has separate frames from algebraic realization. LLDB measured a
+remaining 51,728-byte formal expression-match frame and, after separating its
+binary dispatch, an independent 18,928-byte advisory expression-match frame.
+Both now dispatch binary expressions through small helpers while retaining
+canonical publication, observer calls, and source order. The 760-byte carrier
+budget and 64-coefficient Float Horner regression on a 2 MiB semantic thread
+pass. This slice is `IMPLEMENTED / FOCUSED_TESTED`.
+
+The complete bootstrap gate remains red with a distinct compiler error:
+`AssociatedInvokeNotLoweredYet` in `universe:callable.function`, after minimal
+project compilation succeeds. Clean-main `c2dd635e` completes the same project.
+Do not treat this current failure as a stack overflow or promote T4/T5 package
+acceptance. Next action: diagnose the missing canonical associated-lowering
+attachment, rerun the bootstrap gate, then resume source acceptance. Evidence:
 [stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
 
 ## Historical algebraic-literals follow-on stop state (2026-10-08)
@@ -107,10 +113,11 @@ Rust `cargo check -p phalcom-semantic -p phalcom-core` passed. The scoped
 `rustfmt --check` passed on the new realization module and touched semantic
 files other than `expression.rs`, which retains unrelated baseline formatting
 drift. No source-language acceptance probes or tests were run for the focused
-realization work. A later dependency-free CLI project now reproduces a native
-stack overflow during canonical Universe semantic expression analysis of
-`SpecialKernel.logGammaOnePlusRatio`, blocking source acceptance across the
-worktree. The follow-on is `BLOCKED / PARTIAL / UNVERIFIED`. See the
+realization work. A later dependency-free CLI project exposed the historical
+semantic stack overflow described above. The carrier/frame correction now
+passes focused semantic gates, while missing associated invocation lowering in
+canonical bootstrap still blocks source acceptance. The follow-on remains
+`BLOCKED / PARTIAL / UNVERIFIED`. See the
 [stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
 T4 publishes canonical realization products for directly expected basis
 values, suffix literals, `RealEmbeddable` scalar terms, and bounded arithmetic
@@ -414,7 +421,7 @@ The intended C4 decomposition is:
 | `LANG007.C4.P14` | Owned immutable homogeneous indexed snapshots | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `Substring` non-allocating range view, zero-copy slicing, symmetric equality; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
 | `LANG007.C4.P15` | Typed integer/floating conversion | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `Utf8Error`, `IntParseError`, `FloatParseError`, `BoolParseError`, `String.fromUtf8*`, `Int.parse`, `Float.parse`, `Bool.parse`, `Int.toString(radix:)`; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
 | `LANG007.C4.P16` | StringBuilder, parse migration completion, TOML substrate proof | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `StringBuilder`, `TextWriter`, linear-time `rawJoin`, `TextCursor`, `LineMap`, `universe.text`; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
-| `LANG007.C4.algebraic-literals-follow-on` | User-directed contextual algebraic values, Quaternion source algebra, and `i`/`j`/`k` suffix literals | BLOCKED | PARTIAL | UNVERIFIED | generic runtime reification is repaired; T3 class-side source capabilities are implemented but source acceptance is blocked by the dependency-free CLI stack overflow; T4/T5 include bounded arithmetic-region selection, real embedding, and either-order expression coefficients; see [stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), [walkthrough](algebraic-literals-follow-on-walkthrough.md), and [handoff](algebraic-literals-follow-on-handoff.md) |
+| `LANG007.C4.algebraic-literals-follow-on` | User-directed contextual algebraic values, Quaternion source algebra, and `i`/`j`/`k` suffix literals | BLOCKED | PARTIAL | UNVERIFIED | generic runtime reification and focused semantic stack repair are implemented; source acceptance remains blocked by missing associated invocation lowering in canonical bootstrap; T4/T5 include bounded arithmetic-region selection, real embedding, and either-order expression coefficients; see [stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), [walkthrough](algebraic-literals-follow-on-walkthrough.md), and [handoff](algebraic-literals-follow-on-handoff.md) |
 
 ### P11 pattern decision — INC-6
 

@@ -18,6 +18,7 @@ use crate::types::parameter::TypeTerm;
 use phalcom_ast::ast::{BinaryExpr, BinaryOp, Expr, ImaginaryAxis, ImaginaryCoefficient};
 use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath};
+use std::sync::Arc;
 
 #[derive(Clone)]
 enum RealizationSource {
@@ -445,7 +446,7 @@ pub(crate) fn apply_contextual_realization(
                 true => TypeKnowledge::assumed(target_type, EvidenceOrigin::ContextualDerivation).with_range(expression.range()),
                 false => TypeKnowledge::established(target_type, EvidenceOrigin::ContextualDerivation).with_range(expression.range()),
             };
-            typed.contextual_realization = Some(ContextualRealization {
+            typed.contextual_realization = Some(Arc::new(ContextualRealization {
                 source_expression: expression_id,
                 source_range: expression.range(),
                 source_type,
@@ -457,7 +458,7 @@ pub(crate) fn apply_contextual_realization(
                     evaluation,
                 },
                 realization,
-            });
+            }));
             return;
         }
     };
@@ -479,7 +480,7 @@ pub(crate) fn apply_contextual_realization(
         true => TypeKnowledge::assumed(target_type, EvidenceOrigin::ContextualDerivation).with_range(expression.range()),
         false => TypeKnowledge::established(target_type, EvidenceOrigin::ContextualDerivation).with_range(expression.range()),
     };
-    typed.contextual_realization = Some(ContextualRealization {
+    typed.contextual_realization = Some(Arc::new(ContextualRealization {
         source_expression: expression_id,
         source_range: expression.range(),
         source_type: scalar_type,
@@ -489,7 +490,7 @@ pub(crate) fn apply_contextual_realization(
             scalar_type,
         },
         realization,
-    });
+    }));
 }
 
 enum RealizationCandidate {
@@ -588,7 +589,7 @@ pub(crate) fn realize_scalar_basis_product(
         false => TypeKnowledge::established(target_type, EvidenceOrigin::ContextualDerivation),
     });
     typed.knowledge = typed.knowledge.with_range(binary.range);
-    typed.contextual_realization = Some(ContextualRealization {
+    typed.contextual_realization = Some(Arc::new(ContextualRealization {
         source_expression: expression,
         source_range: binary.range,
         source_type: scalar_type,
@@ -605,7 +606,7 @@ pub(crate) fn realize_scalar_basis_product(
             },
         },
         realization,
-    });
+    }));
     Some(typed)
 }
 

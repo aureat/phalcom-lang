@@ -66,16 +66,20 @@ binding trait `Self` to the conforming subject type. These repairs and focused
 semantic regressions are present. The 50,000-node summary test and focused
 class-side tests pass.
 
-Source acceptance remains paused. LLDB and an environment-gated callable trace
-place the branch-only stack overflow in repeated `analyze_expression_inner`
-frames while analyzing `SpecialKernel.logGammaOnePlusRatio` during canonical
-Universe construction. The same dependency-free project completes on clean
-`origin/main`; the feature worktree still overflows after one focused attempt
-to reduce recursive expression-hook overhead. This is not a confirmed baseline
-failure, and the general expression-analysis owner repair needs a further
-architectural ruling. The focused follow-up question was sent on 2026-10-11
-and the response is pending. Do not resume package acceptance until that
-ruling and the minimal-project gate are green. See the cross-cutting
+The follow-up architect ruling was received: keep contextual realization in
+`Option<Arc<ContextualRealization>>` on transient and published expressions and
+separate ordinary binary checking from realization-specific locals. The
+744-byte clean-main carrier baseline and 760-byte budget now pass. Debug frame
+measurement additionally required moving binary dispatch outside the formal
+and advisory analyzers' large variant matches; the unchanged 64-coefficient
+Float Horner regression now passes on a 2 MiB semantic thread.
+
+Source acceptance remains paused: minimal project compilation succeeds, then
+canonical runtime bootstrap rejects associated invocation lowering in
+`universe:callable.function`. This is a distinct branch-only bootstrap blocker,
+not the earlier semantic stack overflow. Preserve canonical lowering authority;
+do not add a compiler fallback or resume package acceptance until the
+minimal-project gate passes. See the cross-cutting
 [incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
 
 ## Task ledger

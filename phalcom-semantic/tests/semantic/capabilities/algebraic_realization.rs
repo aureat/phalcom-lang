@@ -1,8 +1,10 @@
 use crate::semantic::support::Fixture;
 use phalcom_semantic::identity::DispatchSide;
+use phalcom_semantic::checker::{ContextualRealization, TypedExpression};
 use phalcom_semantic::trait_dispatch::TraitDispatchSite;
 use phalcom_semantic::types::denotation::SemanticDenotation;
 use phalcom_semantic::types::parameter::TypeTerm;
+use std::sync::Arc;
 
 #[test]
 fn assumed_generic_class_side_zero_and_one_preserve_type_form_and_self() {
@@ -90,4 +92,75 @@ class Probe {
         !matches!(expression.trait_dispatch, Some(TraitDispatchSite::Assumed(_))),
         "wrong-side dispatch must fail closed: {expression:#?}"
     );
+}
+
+#[test]
+fn typed_expression_remains_a_lightweight_recursive_carrier() {
+    // Measured at origin/main c2dd635e. Contextual semantic products must
+    // remain indirect so extending their evidence cannot enlarge recursive
+    // expression-checking frames.
+    const MAIN_C2DD635E_SIZE: usize = 744;
+
+    let current = std::mem::size_of::<TypedExpression>();
+    let allowance = 2 * std::mem::size_of::<usize>();
+    assert!(
+        current <= MAIN_C2DD635E_SIZE + allowance,
+        "TypedExpression grew beyond its recursive-carrier budget: main={MAIN_C2DD635E_SIZE}, current={current}"
+    );
+    assert_eq!(
+        std::mem::size_of::<Option<Arc<ContextualRealization>>>(),
+        std::mem::size_of::<Arc<ContextualRealization>>(),
+        "the optional realization product must stay pointer-sized"
+    );
+}
+
+#[test]
+fn ordinary_float_horner_expression_is_stack_safe_without_realization() {
+    let _ = phalcom_semantic::CanonicalUniverseSemanticBaseline::build();
+    let type_fixture = Fixture::new("class Probe { @class calculate(_ x: Float) -> Float { return x } }\n");
+    let float_type = type_fixture.ty("Float");
+    let mut expression = "64.0".to_owned();
+    for coefficient in (1..64).rev() {
+        expression = format!("{coefficient}.0 + x * ({expression})");
+    }
+    let source = format!("class Probe {{ @class calculate(_ x: Float) -> Float {{ return ({expression}) }} }}\n");
+    let source_for_parse = source.clone();
+    let parsed = std::thread::Builder::new()
+        .name("ordinary-expression-parse-regression".into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(move || phalcom_ast::parse(&source_for_parse, 0))
+        .expect("spawn parser setup thread")
+        .join()
+        .expect("bounded-depth source must parse on the setup stack");
+    assert!(parsed.errors.is_empty(), "Horner regression must parse: {:#?}", parsed.errors);
+    let module = phalcom_semantic::ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(source);
+    let program = Arc::new(parsed.program);
+    std::thread::Builder::new()
+        .name("ordinary-expression-stack-regression".into())
+        .stack_size(2 * 1024 * 1024)
+        .spawn(move || {
+            let analysis = phalcom_semantic::analyze_single_module(module, source.clone(), program);
+            assert!(!analysis.snapshot.has_errors(), "unexpected diagnostics: {:?}", analysis.snapshot.all_diagnostics().collect::<Vec<_>>());
+            let analyzed = analysis
+                .snapshot
+                .callable_analyses
+                .values()
+                .flat_map(|callable| callable.expressions.values())
+                .find(|analysis| source.get(analysis.range.start..analysis.range.end) == Some(expression.as_str()))
+                .expect("the Horner expression has a published semantic product");
+            assert_eq!(analyzed.knowledge.ty(), Some(float_type));
+            assert!(
+                analysis
+                    .snapshot
+                    .callable_analyses
+                    .values()
+                    .flat_map(|callable| callable.expressions.values())
+                    .all(|expression| expression.contextual_realization.is_none()),
+                "ordinary Float arithmetic must not publish algebraic realization products"
+            );
+        })
+        .expect("spawn bounded-stack semantic regression")
+        .join()
+        .expect("ordinary nested Float arithmetic must not overflow the checker stack");
 }

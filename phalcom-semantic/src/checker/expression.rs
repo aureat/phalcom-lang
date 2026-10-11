@@ -200,6 +200,16 @@ pub fn synthesize_typed_expr(ctx: &mut CheckingContext<'_>, expr: &Expr) -> Type
 }
 
 fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
+    // Keep the recursive arithmetic dispatch outside the large match below.
+    // In debug builds its other branches' temporaries otherwise occupy every
+    // binary frame, even though those branches are never evaluated.
+    match expr {
+        Expr::Binary(binary) => synthesize_binary_expr(ctx, binary, expected),
+        _ => analyze_non_binary_expression(ctx, expr, expected),
+    }
+}
+
+fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
     match expr {
         // --- 1. Primitive Literals ---
         Expr::Int { range, .. } => {
@@ -963,7 +973,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         // --- 6. Message Sends and Invocations (Canonical Resolution E5) ---
         Expr::MethodCall(call) => synthesize_method_call(ctx, call, expected),
         Expr::UnqualifiedCall(call) => synthesize_unqualified_call(ctx, call, expected),
-        Expr::Binary(binary) => synthesize_binary_expr(ctx, binary, expected),
+        Expr::Binary(_) => unreachable!("binary expressions are dispatched before the non-binary analyzer"),
         Expr::Unary(unary) => synthesize_unary_expr(ctx, unary, expected),
 
         // --- 7. Member and Subscript Access ---
@@ -2222,6 +2232,9 @@ fn specialize_class_side_target(
         return target;
     };
     if callable.side != crate::identity::DispatchSide::Class {
+        return target;
+    }
+    if matches!(target.authority, super::call::CallTargetAuthority::AbstractContract) {
         return target;
     }
     let declaration_generics = ctx.declaration_generic_signature(callable.declaration_owner());
@@ -4407,10 +4420,42 @@ pub(crate) fn apply_binary_operation_from_typed(
 }
 
 fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, expected: &ExpectedType) -> TypedExpression {
-    let scalar_basis_product = matches!(binary.op, BinaryOp::Multiply)
-        && (super::algebraic_realization::is_basis_source(ctx, &binary.left) ^ super::algebraic_realization::is_basis_source(ctx, &binary.right));
     let left_has_basis = super::algebraic_realization::contains_arithmetic_basis(ctx, &binary.left);
     let right_has_basis = super::algebraic_realization::contains_arithmetic_basis(ctx, &binary.right);
+    let expects_algebra = expected
+        .ty()
+        .is_some_and(|target| super::algebraic_realization::is_canonical_algebra_type(ctx, target));
+    if !left_has_basis && !right_has_basis && !expects_algebra {
+        return synthesize_ordinary_binary_expr(ctx, binary, expected);
+    }
+
+    synthesize_algebraic_binary_expr(ctx, binary, expected, left_has_basis, right_has_basis)
+}
+
+fn synthesize_ordinary_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, expected: &ExpectedType) -> TypedExpression {
+    let left_typed = analyze_expression(ctx, &binary.left, &ExpectedType::None);
+    let right_typed = analyze_expression(ctx, &binary.right, &ExpectedType::None);
+    apply_binary_operation_from_typed(
+        ctx,
+        &binary.left,
+        &left_typed,
+        binary.op.clone(),
+        &binary.right,
+        &right_typed,
+        expected,
+        binary.range,
+    )
+}
+
+fn synthesize_algebraic_binary_expr(
+    ctx: &mut CheckingContext<'_>,
+    binary: &BinaryExpr,
+    expected: &ExpectedType,
+    left_has_basis: bool,
+    right_has_basis: bool,
+) -> TypedExpression {
+    let scalar_basis_product = matches!(binary.op, BinaryOp::Multiply)
+        && (super::algebraic_realization::is_basis_source(ctx, &binary.left) ^ super::algebraic_realization::is_basis_source(ctx, &binary.right));
     let left_scalar = super::algebraic_realization::is_embeddable_scalar_source(ctx, &binary.left);
     let right_scalar = super::algebraic_realization::is_embeddable_scalar_source(ctx, &binary.right);
     let no_expected = ExpectedType::None;

@@ -2464,8 +2464,9 @@ impl<'a> CheckingContext<'a> {
 
     /// Reads declaration metadata while recording the declaration-shell dependency.
     pub fn declaration_info(&self, declaration: &DeclarationId) -> Option<&DeclarationTypeInfo> {
+        let info = self.declarations.get(declaration)?;
         record_declaration_shell_dependency(&self.semantic_dependencies, declaration);
-        self.declarations.get(declaration)
+        Some(info)
     }
 
     /// Returns whether a declaration's canonical result kind is a TypeOnly
@@ -2487,6 +2488,9 @@ impl<'a> CheckingContext<'a> {
 
     /// Reads a declaration generic signature while recording the declaration-shell dependency.
     pub fn declaration_generic_signature(&self, declaration: &DeclarationId) -> Option<crate::types::parameter::GenericSignature> {
+        if !self.declarations.contains(declaration) {
+            return None;
+        }
         record_declaration_shell_dependency(&self.semantic_dependencies, declaration);
         self.declarations.generic_signature(declaration).cloned()
     }

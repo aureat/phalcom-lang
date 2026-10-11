@@ -13,7 +13,9 @@ This program owns the numeric contract, value model, literal syntax, integer
 and Float protocols, diagnostics, and integration verification.
 
 Source acceptance for the active Rational, statistics, and probability
-checkpoints is paused by a branch-only stack overflow during canonical
-Universe semantic analysis in a dependency-free CLI project. The exact
-owner-level correction remains under architectural review; see
+checkpoints remains paused by canonical Universe bootstrap. The architect's
+carrier/frame correction passes the focused semantic stack regression; the
+dependency-free project now reaches a distinct associated-invocation lowering
+failure in `universe:callable.function`. Diagnose the missing canonical
+attachment and obtain a green bootstrap gate before package acceptance; see
 [`stack-overflow-incident-2026-10-11.md`](stack-overflow-incident-2026-10-11.md).

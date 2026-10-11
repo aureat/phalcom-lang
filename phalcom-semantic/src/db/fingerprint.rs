@@ -1788,7 +1788,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         expression.conditional_dispatch.hash(&mut hasher);
         hash_conditional_selected_call_capability(expression.conditional_capability.as_ref(), &mut hasher);
         hash_trait_dispatch_site(expression.trait_dispatch.as_ref(), &mut hasher);
-        hash_contextual_realization(expression.contextual_realization.as_ref(), &mut hasher);
+        hash_contextual_realization(expression.contextual_realization.as_deref(), &mut hasher);
         expression
             .trait_dispatch_candidates
             .as_ref()

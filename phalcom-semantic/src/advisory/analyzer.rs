@@ -140,6 +140,36 @@ pub fn analyze_expr(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> Adv
 }
 
 fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
+    // Binary recursion must not retain the other variants' large debug-frame
+    // temporaries. Keep observers in analyze_expr and preserve operand order.
+    match expr {
+        Expr::Binary(binary) => analyze_binary_expr(binary, context),
+        _ => analyze_non_binary_expr(expr, context),
+    }
+}
+
+fn analyze_binary_expr(binary: &phalcom_ast::ast::BinaryExpr, context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
+    let _ = analyze_expr(&binary.left, context);
+    let _ = analyze_expr(&binary.right, context);
+    if matches!(binary.op, phalcom_ast::ast::BinaryOp::Same | phalcom_ast::ast::BinaryOp::Compare) {
+        let shape = if matches!(binary.op, phalcom_ast::ast::BinaryOp::Compare) {
+            context.builtins.ordering.clone().map(ValueShape::Instance)
+        } else {
+            context.builtins.boolean.clone().map(ValueShape::Instance)
+        };
+        return literal(
+            context,
+            shape.map(|shape| match shape {
+                ValueShape::Instance(id) => id,
+                _ => unreachable!(),
+            }),
+            binary.range,
+        );
+    }
+    resolved_call_or_unknown(binary.range, context)
+}
+
+fn analyze_non_binary_expr(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> AdvisoryFact {
     let range = expr.range();
     match expr {
         Expr::Int { .. } => literal(context, context.builtins.int.clone(), range),
@@ -357,26 +387,7 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
             }
             resolved_call_or_unknown(range, context)
         }
-        Expr::Binary(binary) => {
-            let _ = analyze_expr(&binary.left, context);
-            let _ = analyze_expr(&binary.right, context);
-            if matches!(binary.op, phalcom_ast::ast::BinaryOp::Same | phalcom_ast::ast::BinaryOp::Compare) {
-                let shape = if matches!(binary.op, phalcom_ast::ast::BinaryOp::Compare) {
-                    context.builtins.ordering.clone().map(ValueShape::Instance)
-                } else {
-                    context.builtins.boolean.clone().map(ValueShape::Instance)
-                };
-                return literal(
-                    context,
-                    shape.map(|shape| match shape {
-                        ValueShape::Instance(id) => id,
-                        _ => unreachable!(),
-                    }),
-                    range,
-                );
-            }
-            resolved_call_or_unknown(range, context)
-        }
+        Expr::Binary(_) => unreachable!("binary expressions are dispatched before the non-binary analyzer"),
         Expr::Membership(membership) => {
             let _ = analyze_expr(&membership.left, context);
             let _ = analyze_expr(&membership.right, context);

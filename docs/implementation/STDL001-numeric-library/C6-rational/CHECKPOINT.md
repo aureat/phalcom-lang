@@ -25,7 +25,7 @@ value equality and hashing, and compatibility with generic `Complex<T>` and
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 | --- | --- | --- | --- | --- | --- |
-| `STDL001.C6.P1` | Canonical Rational source type and numbers facade integration | BLOCKED | PARTIAL | UNVERIFIED | implementation is present; acceptance is blocked by a branch-only stack overflow in canonical Universe semantic expression analysis; clean `origin/main` completes the reproducer; see [incident report](../stack-overflow-incident-2026-10-11.md) |
+| `STDL001.C6.P1` | Canonical Rational source type and numbers facade integration | BLOCKED | PARTIAL | UNVERIFIED | implementation is present; semantic stack regression passes, but canonical bootstrap rejects associated invocation lowering in `universe:callable.function`; see [incident report](../stack-overflow-incident-2026-10-11.md), §16 |
 
 ## Fixed invariants
 
@@ -49,13 +49,14 @@ value equality and hashing, and compatibility with generic `Complex<T>` and
 ## Verification and deferred work
 
 The source API and numbers-facade exports, plus exact `Complex<Rational>`
-division and powers, are present. Rational source acceptance is blocked by a
-branch-only stack overflow in recursive semantic analysis of a canonical
-Universe expression. Source syntax, runtime behavior, and generic
+division and powers, are present. The architect-directed carrier/frame repair
+passes the focused semantic stack regression. Rational source acceptance
+remains blocked by a distinct canonical bootstrap associated-lowering failure.
+Source syntax, runtime behavior, and generic
 `Complex<Rational>` / `Quaternion<Rational>` behavior remain unverified. See
 the [incident report](../stack-overflow-incident-2026-10-11.md).
 
 ## Next action
 
-Wait for the owner-level architectural ruling and a passing minimal-project
-CLI regression before resuming focused Rational source acceptance.
+Resolve the missing associated-lowering attachment in canonical bootstrap and
+pass the minimal-project regression before focused Rational source acceptance.

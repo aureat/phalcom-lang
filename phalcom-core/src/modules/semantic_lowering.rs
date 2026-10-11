@@ -1342,31 +1342,27 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
             callable_references.insert(site, spec);
         }
 
-        let owner_sig = if callable_id.side == phalcom_semantic::identity::DispatchSide::Instance {
-            callable_id
+        let owner_sig = match &callable_id.owner {
+            phalcom_semantic::identity::CallableOwnerId::Conformance(impl_id) => snapshot
+                .conformance_witness_plans
+                .get(impl_id)
+                .and_then(|plan| plan.generic_signature.as_ref())
+                .or_else(|| {
+                    snapshot
+                        .derived_conformance_rules
+                        .iter()
+                        .find(|r| &r.impl_id == impl_id)
+                        .map(|r| &r.generic_signature)
+                }),
+            _ if callable_id.side == phalcom_semantic::identity::DispatchSide::Instance => callable_id
                 .try_declaration_owner()
                 .and_then(|owner| {
                     snapshot
                         .declarations
                         .generic_signature(owner)
                         .or_else(|| snapshot.trait_headers.get(owner).and_then(|h| h.generic_signature.as_ref()))
-                })
-                .or_else(|| match &callable_id.owner {
-                    phalcom_semantic::identity::CallableOwnerId::Conformance(impl_id) => snapshot
-                        .conformance_witness_plans
-                        .get(impl_id)
-                        .and_then(|plan| plan.generic_signature.as_ref())
-                        .or_else(|| {
-                            snapshot
-                                .derived_conformance_rules
-                                .iter()
-                                .find(|r| &r.impl_id == impl_id)
-                                .map(|r| &r.generic_signature)
-                        }),
-                    _ => None,
-                })
-        } else {
-            None
+                }),
+            _ => None,
         };
         let mut generic_evidence = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::empty();
         if let Some(owner_sig) = owner_sig {

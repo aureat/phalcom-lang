@@ -13,12 +13,14 @@ updated: 2026-10-11
 
 ## Current stop — 2026-10-11
 
-The source-acceptance continuation is blocked by a feature-branch CLI stack
-overflow during canonical Universe semantic analysis. LLDB showed repeated
-`analyze_expression_inner -> analyze_expression -> synthesize_binary_expr`
-frames while checking `SpecialKernel.logGammaOnePlusRatio`; clean
-`origin/main` completes the same dependency-free project. The first targeted
-expression-wrapper reduction did not clear the failure. See the
+The architect-directed carrier/frame correction is implemented and focused
+semantic tests pass, including complete 64-coefficient Float Horner analysis
+on 2 MiB. Source acceptance remains blocked by a distinct bootstrap error:
+`AssociatedInvokeNotLoweredYet` for `Result::Ok(self.call())` in
+`universe:callable.function`, with an empty canonical associated-lowering map.
+Clean-main `c2dd635e` completes the same dependency-free project. The original
+stack-overflow trace and failed wrapper-relocation attempt are historical.
+See the current measurements and verification in §16 of the
 [incident report](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md).
 
 This record covers the user-directed algebraic-literals follow-on performed in
@@ -369,7 +371,39 @@ modules_universe::dependency_free_minimal_project_bootstraps_canonical_universe 
 ```
 
 The same CLI project passes on clean `origin/main` at `c2dd635e` (status 0,
-about 65s). Source acceptance and T4/T5 package gates remain paused pending the
-architectural ruling on the general semantic expression-analysis owner.
+about 65s). At this historical stop, source acceptance and T4/T5 package gates
+were paused pending the owner-level architectural ruling.
+
+## Carrier/frame ruling implementation — 2026-10-11
+
+The follow-up ruling was received and implemented without changing the public
+realization contract. `TypedExpression` and `ExpressionAnalysis` now retain
+canonical realization evidence through `Arc`; fingerprinting consumes the
+same fields. Ordinary and algebraic binary synthesis use separate helpers.
+The remaining debug-frame problem was measured in two expression dispatchers:
+formal `analyze_expression_inner` used 51,728 bytes per recursive frame and
+advisory `analyze_expr_inner` used 18,928. Binary dispatch now bypasses the
+large unrelated-variant frames, using 64 and 48 bytes respectively. Advisory
+binary behavior was moved unchanged to a 976-byte helper.
+
+The 64-coefficient Float Horner test passes on its unchanged 2 MiB semantic
+thread and verifies Float type, no diagnostics, and no realization products.
+Parsing is performed separately on an 8 MiB setup thread to isolate the
+semantic contract. The carrier budget, generic class-side `zero`/`one`, both
+wrong-side rejection tests, canonical semantic baseline, and three-crate check
+pass. Incident §16 records exact commands and the remaining gate results.
+
+A new explicitly registered `canonical-bootstrap-stack` integration target
+compiles a dependency-free project before constructing `VM::new()` and running
+the compiled result. It currently fails with `AssociatedInvokeNotLoweredYet`
+at `Function.attempt`'s `Result::Ok(self.call())`; temporary instrumentation
+confirmed lowering is present but the associated-site map is empty. That
+instrumentation was removed. This distinct bootstrap blocker requires canonical
+attachment/projection diagnosis before package gates resume.
+
+The carrier/frame slice is `IMPLEMENTED / FOCUSED_TESTED`; overall T3/T4/T5 and
+package source acceptance remain `PARTIAL / UNVERIFIED`. Workspace/release
+certification was deliberately deferred. No numerical source rewrites,
+capability bypasses, or larger semantic stack were used as fixes.
 Diagnostic trace output is environment-gated by
 `PHALCOM_TRACE_SEMANTIC_BOOTSTRAP`.
