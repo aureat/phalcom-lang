@@ -4,8 +4,8 @@ title: Slice<T> and Buffer<T> — Detailed Implementation Plan
 program: COLL006
 checkpoint: COLL006.C1
 plan: P5
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: BASELINE_BLOCKED
 repository: aureat/phalcom-lang
 branch: feat/telos-collection-upgrade
@@ -2041,6 +2041,75 @@ Do not rewrite history to claim the earlier proposal existed as a runtime type.
 
 Parser snapshot use case works on the canonical P5 collection model.
 
+### G6 acceptance amendment — inherited parser-package failures (2026-10-11)
+
+The incident audit supplied by the user selects disposition 2: independently
+prove P5-owned snapshot behavior while retaining the original complete-package
+integration obligation. This amendment supersedes the indivisible G6 acceptance
+interpretation; T7.4's command remains mandatory and its failures remain visible.
+
+#### G6.A — P5 parser snapshot acceptance
+
+G6.A requires executable evidence that:
+
+1. `ListSource<T>` constructs a private Array snapshot retained by canonical Slice;
+2. caller append, replacement, and middle removal independently preserve original
+   membership, order, and retained references;
+3. empty, singleton, and populated sources support Cursor, satisfy/select,
+   `Parse.run`, and ordered `Parse.runAll`, including predicate/selection rejection,
+   incomplete input, and trailing input;
+4. after releasing the caller List, Slice retains the constructor-local Array
+   and its heap-backed elements through a forced GC cycle;
+5. the fixture uses the real parser and collection implementation, without mocks
+   or replacement collection types.
+
+The standalone fixture is
+`packages/parse/tests/runtime/src/core/list-source-snapshot-test.ph`. It must not
+import TextSource or `parse.text`. Require normal exit and the exact marker
+`PASS core-list-source-snapshot` through both:
+
+```bash
+RUSTFLAGS='' cargo run -p phalcom-core --bin phalcom -- packages/parse/tests/runtime/src/core/list-source-snapshot-test.ph
+RUSTFLAGS='' cargo test -p phalcom-core --test core parse_list_source_snapshot_fixture_passes -- --nocapture
+```
+
+The separately selectable native ownership test
+`parse_list_source_snapshot_owner_survives_gc` must inspect the real source field,
+prove its owner is Array rather than List/Vector, collect the unrooted caller,
+and exercise Cursor/parser consumption after collection. Generic Slice tests
+alone do not establish this complete object graph. Run the `parse_list_source_snapshot`
+filter for both focused tests.
+
+G6.A may pass and T7 may close only when all of this evidence passes.
+
+#### G6.B — Complete parse-package certification
+
+The original command remains mandatory:
+
+```bash
+RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package
+```
+
+Track inherited String/Substring adapter mismatches separately from optional
+bytes consumed as integers. G6.B remains `BASELINE_BLOCKED` while those failures
+remain; a P5-caused failure is active responsibility rather than a baseline waiver.
+
+#### Aggregate disposition and retained P9 obligation
+
+Record G6.A (`PASS | FAIL | NOT_VERIFIED`) and G6.B
+(`PASS | BASELINE_BLOCKED | FAIL`) independently. Aggregate G6 remains
+`BASELINE_BLOCKED` while G6.B fails, even if T7 is `IMPLEMENTED / FOCUSED_TESTED`.
+This does not block T9 or authorize parser/text repairs under P5.
+
+No String/Substring contract, Option extraction behavior, comparison dispatch,
+operator-fixture expectation, or Array/Slice architecture is changed by this
+amendment. Snapshots provide structural independence, not recursive deep copying.
+
+P9 must recheck both parser residuals, verify their owning corrective work, rerun
+the complete package command, and compare any remaining failure against
+contemporaneous main under the checkpoint residual policy. It must not claim
+full parser integration certification without the clean complete-package result.
+
 ---
 
 # T8 — Conversion/API convergence within P5 bounds
@@ -2705,8 +2774,9 @@ Do not force this exact history if the branch workflow prefers fewer commits. Th
 - [x] no runtime-sized Vector snapshot
 - [x] `ListSource` owns/retains Slice
 - [x] backing is independent Array snapshot
-- [ ] caller mutation isolation retained
-- [ ] complete parse package passes
+- [x] caller mutation isolation retained (independent G6.A fixture)
+- [x] G6.A parser snapshot/GC acceptance passes
+- [ ] G6.B complete parse package passes (retained inherited integration blocker)
 - [x] P14 lifecycle wording amended
 
 ## Representation/performance
@@ -2715,19 +2785,19 @@ Do not force this exact history if the branch workflow prefers fewer commits. Th
 - [x] `Object` slot ceiling unchanged
 - [x] Slice construction representation proves zero-copy
 - [x] nested views remain direct-root
-- [ ] Buffer push does not allocate after successful initial reserve under ordinary allowed use
+- [x] Buffer push does not allocate after successful initial reserve under ordinary allowed use
 
 ## Regression
 
-- [ ] Array tests
-- [ ] Vector tests
-- [ ] COLL006 semantic tests
-- [ ] static_sequence tests
-- [ ] frozen const Array controls
+- [x] Array tests
+- [x] Vector tests
+- [x] COLL006 semantic tests
+- [x] static_sequence tests
+- [x] frozen const Array controls
 - [x] native surface
 - [x] workspace all-target check
 - [x] diff check
-- [ ] scoped formatting
+- [x] scoped formatting
 
 ---
 
@@ -2787,7 +2857,9 @@ parser_snapshot:
   backing: "private Array<T>"
   consumer_view: "Slice<T>"
   caller_list_mutation_isolated: true
-  parse_package_gate: pass
+  snapshot_acceptance_g6_a: pass
+  parse_package_gate_g6_b: BASELINE_BLOCKED # permitted by the G6 amendment; retain original gate
+  aggregate_g6: BASELINE_BLOCKED
 
 runtime:
   value_size_regressed: false

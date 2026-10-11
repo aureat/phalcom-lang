@@ -19,7 +19,7 @@ It combines the language-level homogeneous-sequence literal upgrade with the run
 
 This record is the **single durable shared state authority** for all numbered plans belonging to `COLL006.C1`.
 
-P1, P2, P3, and P4 are complete at their bounded implementation scope. P4 owns static sequence values/materialization and the bare-bracket default cutover; P5 is active for Slice/Buffer implementation.
+P1–P5 are complete at their bounded implementation scope. P5 supplies Slice/Buffer and independent parser snapshot acceptance; its complete-package integration residual remains outstanding. P6 is next.
 
 ---
 
@@ -331,7 +331,7 @@ The ledger records current C1 execution state. Proposed successor plans retain t
 | `COLL006.C1.P2` | `Array<T>` runtime/native representation, explicit/contextual Array literals, direct lowering, iteration, GC | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Complete runtime fixed-after-construction homogeneous sequence |
 | `COLL006.C1.P3` | `Vector<T,N>` runtime/native representation, static extent inference/cardinality proof, constructors, equality/hash, direct lowering | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Vector runtime/static formation, solved-only publication, negative extent rejection, Array homogeneous contracts, union/deferred publication, incremental parity, and focused runtime/compiler gates pass |
 | `COLL006.C1.P4` | Static homogeneous sequence model; const Vector; const Array; materialization; repository-wide bracket-default cutover/migration | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T10/T11 cutover and stabilization complete; G7 focused evidence passes except inherited D4 static-constant failures |
-| `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | T0/G0 through T6/G5 complete; T7 `ListSource` migration and P14 lifecycle reconciliation are implemented, but G6 remains blocked by the unchanged parse-package baseline; T8/G7 conversion edges are focused-tested; T9 remains |
+| `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 owned implementation and focused evidence complete; G6.A PASS; G6.B and aggregate G6 retain the parse-package baseline blocker |
 | `COLL006.C1.P6` | Reusable ordered-hash backing; preserve Map/Set; add `MutableBag`, `IndexedDict`, `OrderedSet` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete mutable ordered/hash-indexed family without duplicating re-entry logic |
 | `COLL006.C1.P7` | Persistent hash substrate; `Bag<T>`; `Bijection<K,V>` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete persistent hash collections with structural sharing |
 | `COLL006.C1.P8` | `Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete generic interval-domain mapping |
@@ -916,13 +916,13 @@ The implementer cannot self-waive a triggered consultation.
 ## 18. Active plan and next action
 
 ```text
-active plan:           COLL006.C1.P5 (IN_PROGRESS / PARTIAL / BASELINE_BLOCKED)
-latest completed plan: COLL006.C1.P4
-execution blockers:    no T7 design/code blocker; G6 parser acceptance is blocked by inherited parse-package failures also present at G0
+active plan:           none; COLL006.C1.P5 complete, P6 next
+latest completed plan: COLL006.C1.P5
+execution blockers:    no P5-owned implementation blocker; G6.A PASS; G6.B and aggregate G6 retain inherited parse-package failures
 verification residuals: D4 — computed Record-key failures block a clean aggregate static_constants PASS;
                          D1 — metadata failure, still suspected unrelated;
                          D2 — reflection/module fixture failures, still suspected unrelated
-next action:           continue T9 focused stabilization and remaining P5 gates; retain G6 as BASELINE_BLOCKED until the parse-package failures are resolved by their owning work
+next action:           plan/execute COLL006.C1.P6; retain G6.B/aggregate G6 BASELINE_BLOCKED and the P9 final package obligation
 ```
 
 Continue in the `telos-collections-upgrade` worktree from the completed P4 state.
@@ -939,6 +939,9 @@ production changes are included in the start state. The user-authored
 untracked file and is outside this plan's scope; preserve it.
 
 ### P5 T7/G6 and T8/G7 progress — 2026-10-11
+
+This is the pre-audit evidence snapshot. The split acceptance ruling and
+independent G6.A evidence below supersede its indivisible G6 interpretation.
 
 T7 migrated `packages/parse/src/source/list-source.ph` from a private copied
 `List<T>` field to a private `Array<T>` snapshot retained by `Slice<T>`. The
@@ -1065,6 +1068,118 @@ P5 remains `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`: the unchanged parse
 package failures still block aggregate G0, while T1's canonical identity gate
 is complete. T2 is next; no Buffer storage or public capacity-exhaustion
 contract is implemented yet.
+
+### P5 audit ruling and independent T7/G6.A acceptance — 2026-10-11
+
+The user supplied the T7/G6 incident audit and approved disposition 2. The P5
+plan's T7/G6 contract is amended to separate independently executable P5-owned
+snapshot acceptance from full parse-package certification. The original T7.4
+command remains mandatory. The audit resolves the incident consultation; no
+collection ownership or representation redesign is required.
+
+Starting continuation revision: `f3403d70c6d3171c42904f446735b8e892db0946` on
+`feat/telos-collection-upgrade`, clean feature worktree. Main's unrelated working
+changes are preserved.
+
+```yaml
+COLL006.C1.P5.T7:
+  implementation: COMPLETE
+  verification: FOCUSED_TESTED
+COLL006.C1.P5.G6:
+  snapshot_acceptance: PASS
+  parse_package_integration: BASELINE_BLOCKED
+  aggregate_verification: BASELINE_BLOCKED
+```
+
+The standalone `core/list-source-snapshot-test.ph` imports no TextSource/text
+parser module. It proves populated, empty, and singleton sources; separately
+observable caller append/replacement/middle-removal isolation; Cursor current,
+advance, offsets and end boundaries; satisfy/select success and rejection;
+prefix parsing, ordered complete input, incomplete input, and trailing rejection.
+A constructor-local caller List with a heap-backed ADT token expires before
+`System.gc`; source reads and parsing succeed afterwards.
+
+The native integration test invokes the real `ListSource` constructor on a
+fresh List of two allocated Strings. Its sole source field is canonical Slice
+with an Array owner, not List/Vector. Only the source is rooted; forced GC
+collects the caller List and retains Slice, Array, and both Strings. The real
+Cursor and parser then consume the retained values in order. This proves the
+complete ownership chain, beyond generic Slice tracing tests. Structural
+snapshotting preserves element references; it does not promise deep copying.
+
+| Evidence | Completed result |
+|---|---|
+| `RUSTFLAGS='' cargo run -p phalcom-core --bin phalcom -- packages/parse/tests/runtime/src/core/list-source-snapshot-test.ph` | Normal exit; exact `PASS core-list-source-snapshot` |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core parse_list_source_snapshot -- --nocapture` | 2 passed: exact-marker CLI fixture and native owner/GC test |
+
+#### Independently tracked integration residuals
+
+| Residual | Established cause / follow-up | Current disposition |
+|---|---|---|
+| `COLL006.C1.P5.R-PARSE-TEXT` | TextSource promises String but String.slice returns Substring; Text combinators rely on the String promise. Bounded LANG007.C4.P16 parser-migration follow-up should initially materialize with Substring.toString and audit consumers. | `PRE_P5_BASELINE`; no P5 regression demonstrated; source compatibility with main confirmed by supplied audit; main runtime reproduction not independently verified |
+| `COLL006.C1.P5.R-PARSE-BYTES` | String.bytes.at delegates to rawByteAt and returns Option<Int>; TextSource.at/lineColAt, parse.text, and operator fixture consume it as Int. Explicit presence handling belongs to the same parser-migration/fixture follow-up. This is established optional-byte misuse, not an established comparator defect. | `PRE_P5_BASELINE`; no P5 regression demonstrated; source compatibility with main confirmed by supplied audit; main runtime reproduction not independently verified |
+
+G6.B remains `BASELINE_BLOCKED` under the inherited G0 execution evidence until
+the current full-package rerun and owning repairs establish otherwise. Neither
+residual is promoted to `EXTERNAL_BASELINE` without the checkpoint's actual
+main control-run requirement. Keep `String + Substring` fixture use in the text
+follow-up audit as well. No String/Substring, Option, comparison, or fixture
+oracle repair is included in this P5 continuation.
+
+P9 must recheck both residuals, verify the corrective owner work, rerun
+`RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package`,
+compare remaining failures against contemporaneous main, and classify them by
+the established residual policy. Full parser integration certification requires
+the clean package command; G6.A is not a permanent waiver.
+
+### P5 T9 stabilization and closeout — 2026-10-11
+
+P5 is `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`. T7 is independently
+`IMPLEMENTED / FOCUSED_TESTED`; G6.A is `PASS`. G6.B and aggregate G6 remain
+`BASELINE_BLOCKED`. C1 remains `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED`; P6
+is next. The audit's approved amendment permits this bounded completion while
+retaining full parser-package certification as outstanding integration work.
+
+| Completed stabilization command/filter (Cargo uses `RUSTFLAGS=''`) | Result |
+|---|---|
+| core lib `heap::buffer::tests` | 5 passed; includes successful pushes retaining initial allocation/reservation |
+| core lib `heap::slice::tests` | 5 passed |
+| core `slice` | 9 passed; includes P5 canonical identities, cross-family range/mutation/GC/object-size evidence |
+| core `core_buffer` | 1 passed |
+| core `core_array` | 11 passed |
+| core `core_vector` | 9 passed; includes Map/Set stable-key control |
+| core `static_const` | 24 passed; includes frozen Array and nested GC controls |
+| semantic `coll006` | 54 passed |
+| semantic `static_sequence` | 10 passed |
+| native meta `slice_and_buffer` | 1 passed |
+| native surface `--root . --check` | 429 declarations current, +12 over 417 baseline |
+| `cargo check --workspace --all-targets` | Passed |
+| scoped rustfmt of changed Rust files; `git diff --check` | Passed |
+| core `core_collections` | 11 passed / 1 pre-P5 baseline failure |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package` | 4 actual tests: 2 new focused passes / 2 inherited failures |
+
+The exact original package command completed: declared project compilation
+fails at TextSource.slice's String/Substring mismatch; the runtime corpus has
+12 fixtures with the new snapshot fixture passing and 11 failing (10 return
+mismatches, one optional-byte Some/Int comparison). This is fresh G6.B failure
+evidence, not merely an inherited report. No failing gate is promoted to PASS.
+
+`R-MAP-REMOVE`: `core_collections::map_key_overwrite_and_remove_idempotence`
+fails the absent-key None assertion identically on clean predecessor
+`78cfd920` in `/private/tmp/phalcom-coll006-base-78cfd`. Class D,
+`PRE_P5_BASELINE`, no P5 regression demonstrated. P9 must apply the final
+main-comparison classification policy if it survives; no Map repair belongs to
+this continuation. `cargo fmt --all -- --check` reports inherited drift in
+unchanged files (including semantic test suites); changed files pass scoped
+formatting. Existing D1/D2/D4 are carried forward without re-certification.
+
+The continuation adds only focused tests and lifecycle/documentation changes.
+No String/Substring, optional-byte, comparison-dispatch, or operator-oracle
+change is included. Full owning-crate/workspace tests, Clippy, release gates,
+and unrelated baseline repairs are deliberately deferred to P9/their owners.
+The only acceptance amendment is the user-approved G6 split; no new architecture
+consultation is required. Walkthrough and handoff are now recorded as
+`COLL006.C1.P5-walkthrough.md` and `COLL006.C1.P5-handoff.md`.
 
 ### P5 T2 Buffer bounded storage and G2 — 2026-10-11
 

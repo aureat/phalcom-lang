@@ -747,6 +747,14 @@ retroactively change the earlier implementation history. `ParseError.expected`
 and `.contexts` remain `List<String>` in the current package and are outside
 this P5 migration.
 
+P5's 2026-10-11 audit continuation establishes independent G6.A acceptance:
+the standalone ListSource fixture and native owner/GC integration test pass.
+The constructor-local Array and heap elements survive with only ListSource
+retained, and Cursor/Parse consume the snapshot after GC. This is new C1
+evidence, not a revision of P14 history. G6.B and aggregate G6 remain
+BASELINE_BLOCKED at inherited TextSource/String/Substring and optional-byte
+consumer failures. C1/P9 retains the complete-package certification obligation.
+
 **Purpose:** Replace parser-owned list copying and mutable error-value exposure.
 
 **Files/symbols:**

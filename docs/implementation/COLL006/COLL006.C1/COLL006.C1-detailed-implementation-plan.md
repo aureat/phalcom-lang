@@ -1986,6 +1986,13 @@ Apply the policy to the known residuals as follows:
 - **D4:** rerun the three computed-Record-key `RecordKeyNotStatic` fixtures and
   compare them against main. D4 blocks a clean aggregate `static_constants`
   result while present, but does not block P5 or transfer ownership to P4.
+- **P5 parser residuals:** recheck `R-PARSE-TEXT` and `R-PARSE-BYTES`, verify
+  the owning parser-migration corrective work, and rerun
+  `RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parse_package`.
+  Compare remaining failures against contemporaneous main and apply the same
+  residual policy. P5's approved G6.A/G6.B split establishes independent
+  snapshot correctness; it does not waive the complete-package gate or permit
+  full parser integration certification while that command fails.
 
 P9's broad repository gate is the current `scripts/verify.sh --full`, followed
 by the current CI lanes needed for parity. As of this plan amendment,

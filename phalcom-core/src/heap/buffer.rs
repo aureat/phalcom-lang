@@ -115,6 +115,19 @@ mod tests {
     }
 
     #[test]
+    fn successful_pushes_reuse_the_initial_reservation() {
+        let mut buffer = BufferObject::try_new(64).expect("bounded reservation");
+        let allocation = buffer.elements.as_ptr();
+        let reserved = buffer.elements.capacity();
+        assert!(reserved >= buffer.capacity());
+        for index in 0..64 {
+            buffer.push(Value::int(index)).expect("in-capacity append");
+            assert_eq!(buffer.elements.as_ptr(), allocation, "push retains backing allocation");
+            assert_eq!(buffer.elements.capacity(), reserved, "push does not reserve again");
+        }
+    }
+
+    #[test]
     fn set_replaces_only_initialized_values() {
         let mut buffer = BufferObject::try_new(3).expect("three-value reservation");
         buffer.push(Value::int(1)).expect("first append");

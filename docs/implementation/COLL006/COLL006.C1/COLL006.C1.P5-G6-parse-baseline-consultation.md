@@ -1,5 +1,13 @@
 # IMPLEMENTATION INCIDENT
 
+> Historical incident packet at `78cfd920`; implementation was subsequently
+> committed as `f3403d70`. Resolved by the user-supplied 2026-10-11 audit and
+> approved disposition 2: split G6.A snapshot acceptance from retained G6.B
+> package certification. The amended P5 plan and C1 checkpoint own current
+> acceptance and evidence. The audit establishes Option<Int> byte misuse as the
+> Some/Int failure's cause; this packet's earlier comparator uncertainty is
+> superseded.
+
 ## 1. Identity
 
 - Program: `COLL006`
