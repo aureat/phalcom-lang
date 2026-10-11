@@ -127,6 +127,7 @@ impl VM {
             anonymous_product_descriptors: _,
             product_optimization_mode: _,
             typing_registry: _,
+            pending_metadata_pool: _,
             runtime_type_environments: _,
             runtime_conformance_environments,
             detached_method_objects: _,

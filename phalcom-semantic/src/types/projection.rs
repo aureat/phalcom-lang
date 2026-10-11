@@ -662,6 +662,16 @@ fn normalize_projection(
                         .is_some()
                 });
 
+            if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() {
+                eprintln!(
+                    "projection subject={} trait={} requirement={:?} rewritten={} assumed={has_assumed}",
+                    store.format_type(subject),
+                    trait_ref.declaration.name,
+                    projection.requirement,
+                    store.format_type(rewritten),
+                );
+            }
+
             if has_assumed {
                 // 2. Check if there is a unique lexical refinement for this projection
                 let proj_term = TypeTerm::Canonical(rewritten);
@@ -696,6 +706,9 @@ fn normalize_projection(
                         subject,
                         &trait_ref,
                     );
+                    if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() {
+                        eprintln!("projection exact fallback resolution={resolution:?}");
+                    }
                     if let ConformanceResolution::Proven(exact_evidence) = resolution {
                         let Some(binding) = exact_evidence.associated_types.get(&projection.requirement) else {
                             return ProjectionNormalizationResult::Incomplete;
@@ -717,6 +730,9 @@ fn normalize_projection(
             // 1b. Check if assumed evidence or candidate rules entail conformance via a derived rule
             if let Some(rules) = derived_rules {
                 let candidate_rules = rules.rules_for_trait(&trait_ref.declaration);
+                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() {
+                    eprintln!("projection derived candidates={} for {}", candidate_rules.len(), trait_ref.declaration.name);
+                }
                 for rule in candidate_rules {
                     let mut impl_bindings = crate::types::substitution::TypeSubstitution::new();
                     impl_bindings.bind(rule.target_parameter, subject);
@@ -737,6 +753,9 @@ fn normalize_projection(
                         let mut all_satisfied = true;
                         for constraint in &rule.generic_signature.constraints {
                             let proof = crate::generic_evidence::prove_constraint(constraint, &impl_bindings, &mut proof_context);
+                            if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() {
+                                eprintln!("projection derived rule {:?} constraint {:?} proof={proof:?}", rule.trait_ref, constraint);
+                            }
                             if !proof.is_proven() {
                                 all_satisfied = false;
                                 break;
@@ -780,6 +799,14 @@ fn normalize_projection(
                     subject,
                     &trait_ref,
                 );
+                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() {
+                    let matches = conformance_index.query_exact(store, subject, &trait_ref);
+                    eprintln!("projection canonical fallback subject={} trait={:?} resolution={resolution:?}", store.format_type(subject), trait_ref.declaration);
+                    eprintln!("projection canonical matches={matches:?}");
+                    for (impl_id, contribution) in conformance_index.iter().filter(|(_, contribution)| contribution.trait_ref.declaration == trait_ref.declaration) {
+                        eprintln!("projection candidate impl={impl_id:?} trait={:?} head={:?} target={:?} authorized={} eligible={}", contribution.trait_ref, contribution.target_head, contribution.target, contribution.authorized, contribution.eligible);
+                    }
+                }
                 match resolution {
                     ConformanceResolution::Proven(exact_evidence) => {
                         let Some(binding) = exact_evidence.associated_types.get(&projection.requirement) else {

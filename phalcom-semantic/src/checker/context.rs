@@ -1248,6 +1248,9 @@ impl<'a> CheckingContext<'a> {
                     };
                     match norm_progress {
                         Ok(changed) => {
+                            if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() {
+                                eprintln!("inference frame {:?}: projection rewrite changed={changed} residual={:?}", frame, session.residual_obligations());
+                            }
                             // Rewrites, including reflexive equalities with no
                             // new binding, require a canonical residual retry.
                             progress |= changed;

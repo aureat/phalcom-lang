@@ -740,13 +740,51 @@ impl ProgramAnalyzer {
         entry: ModuleId,
     ) -> Result<AnalyzedProgram, ProgramCompileError> {
         let mut resolver = ModuleResolver::new(&universe, &source_provider);
-        let interfaces = BTreeMap::new();
-        let sources = BTreeMap::new();
-        let resolved = BTreeMap::new();
+        let mut interfaces = BTreeMap::new();
+        let mut sources = BTreeMap::new();
+        let mut resolved = BTreeMap::new();
         let mut pending = vec![entry.clone()];
         if let Some(project_id) = entry.project.as_resolved() {
             let root_id = ModuleId::resolved(project_id, ModulePath::root());
             pending.push(root_id);
+        }
+
+        // Package compilation has the same implicit Universe runtime as inline
+        // and standalone execution. Include the source-authored collection and
+        // scalar conformance modules even when the entry module does not import
+        // the module that declares the canonical conformance.
+        let universe_provider = UniverseSourceProvider::new();
+        for node in universe_provider
+            .nodes()
+            .iter()
+            .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", ..] | ["text", ..] | ["option", "unit"]))
+        {
+            let path = ModulePath::from_components(
+                node.path
+                    .iter()
+                    .map(|component| ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+                    .collect::<Vec<_>>(),
+            );
+            let module = ModuleId::universe(path);
+            interfaces.insert(module.clone(), universe_provider.load_interface(&module)?);
+            sources.insert(module.clone(), universe_provider.load_parsed(&module)?);
+        }
+
+        // Resolve imports among the seeded Universe modules before discovery so
+        // the linker can retain their cross-module dependency edges.
+        for (module, interface) in &interfaces {
+            if !module.project.is_universe() {
+                continue;
+            }
+            for import in &interface.imports {
+                let path = match import {
+                    ImportSurface::Module(decl) => &decl.path,
+                    ImportSurface::Selective(decl) => &decl.path,
+                    ImportSurface::ReExport(decl) => &decl.path,
+                };
+                let target = resolver.resolve_import(module, path)?;
+                resolved.insert((module.clone(), path.to_string()), target.id);
+            }
         }
 
         let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, pending, None)?;
@@ -805,6 +843,9 @@ impl ProgramCompiler {
         let mut runtime_trait_root_specs = Vec::<RuntimeTraitEnvironmentRootSpec>::new();
         let mut runtime_trait_root_seen = BTreeSet::new();
         for id in analyzed.linked.modules.keys() {
+            if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
+                eprintln!("compile module id={id} runtime={} analyses={} total={}", analyzed.runtime_modules.contains(id), analyzed.semantic.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == id).count(), analyzed.semantic.callable_analyses.len());
+            }
             if !analyzed.runtime_modules.contains(id) {
                 continue;
             }
@@ -815,6 +856,9 @@ impl ProgramCompiler {
             }
             for (callable, analysis) in analyzed.semantic.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == id) {
                 for expression in analysis.expressions.values() {
+                    if std::env::var_os("PHALCOM_CALL_TRACE").is_some() && id.path.to_string() == "main" {
+                        eprintln!("compile expression id={:?} range={:?} spec={:?} capability={:?} family={:?}", expression.id, expression.range, expression.call_specialization, expression.conditional_capability, analysis.family_applications.get(&expression.id));
+                    }
                     if let Some(realization) = expression.contextual_realization.as_ref() {
                         add_contextual_realization_trait_roots(&mut runtime_trait_root_specs, &mut runtime_trait_root_seen, id, realization);
                     }
@@ -1031,7 +1075,7 @@ impl ProgramCompiler {
         let exporter = phalcom_semantic::metadata::MetadataExporter::new(
             analyzed.semantic.store(),
             Some(analyzed.semantic.declarations()),
-            None,
+            Some(analyzed.semantic.callable_signatures().as_ref()),
             None,
             phalcom_type_meta::header::MetadataProfile::RuntimePublic,
         )
@@ -1039,6 +1083,9 @@ impl ProgramCompiler {
         .with_algebraic_semantics(&analyzed.semantic.data_semantics, &analyzed.semantic.enum_semantics)
         .with_associated_static_domains(analyzed.semantic.associated_static_domains.as_ref())
         .with_aliases(analyzed.semantic.type_aliases.as_ref());
+        if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
+            eprintln!("metadata export callables={}", analyzed.semantic.callable_signatures().len());
+        }
         let mut stable_call_root_specs = Vec::with_capacity(runtime_call_root_specs.len());
         let mut exporter = exporter;
         for (module, range, callable, parameter, ty, key) in &runtime_call_root_specs {

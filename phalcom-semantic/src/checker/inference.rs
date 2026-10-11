@@ -5362,7 +5362,11 @@ impl InferenceSession {
             let rep = self.find_var(var);
             if !self.substitutions.contains_key(&rep) {
                 if let Ok(ty) = self.materialize(&term, store) {
-                    if let Some(norm_ty) = normalizer(store, ty) {
+                    let normalized = normalizer(store, ty);
+                    if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() {
+                        eprintln!("inference var {:?}: term={term:?} materialized={ty:?} normalized={normalized:?}", var);
+                    }
+                    if let Some(norm_ty) = normalized {
                         if norm_ty != ty || !self.term_has_unresolved_variables(&term) {
                             let effect = self.bind(rep, norm_ty, store)?;
                             progress |= effect.is_changed();
@@ -5380,14 +5384,22 @@ impl InferenceSession {
                     let mut new_left = None;
                     let mut new_right = None;
                     if let Ok(left_ty) = self.materialize(left, store) {
-                        if let Some(norm_ty) = normalizer(store, left_ty) {
+                        let normalized = normalizer(store, left_ty);
+                        if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() {
+                            eprintln!("inference constraint left={left:?} materialized={left_ty:?} normalized={normalized:?}");
+                        }
+                        if let Some(norm_ty) = normalized {
                             if norm_ty != left_ty {
                                 new_left = Some(InferenceTerm::Canonical(norm_ty));
                             }
                         }
                     }
                     if let Ok(right_ty) = self.materialize(right, store) {
-                        if let Some(norm_ty) = normalizer(store, right_ty) {
+                        let normalized = normalizer(store, right_ty);
+                        if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() {
+                            eprintln!("inference constraint right={right:?} materialized={right_ty:?} normalized={normalized:?}");
+                        }
+                        if let Some(norm_ty) = normalized {
                             if norm_ty != right_ty {
                                 new_right = Some(InferenceTerm::Canonical(norm_ty));
                             }
@@ -5406,14 +5418,22 @@ impl InferenceSession {
                     let mut new_sub = None;
                     let mut new_sup = None;
                     if let Ok(sub_ty) = self.materialize(sub, store) {
-                        if let Some(norm_ty) = normalizer(store, sub_ty) {
+                        let normalized = normalizer(store, sub_ty);
+                        if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() {
+                            eprintln!("inference subtype sub={sub:?} materialized={sub_ty:?} normalized={normalized:?}");
+                        }
+                        if let Some(norm_ty) = normalized {
                             if norm_ty != sub_ty {
                                 new_sub = Some(InferenceTerm::Canonical(norm_ty));
                             }
                         }
                     }
                     if let Ok(sup_ty) = self.materialize(sup, store) {
-                        if let Some(norm_ty) = normalizer(store, sup_ty) {
+                        let normalized = normalizer(store, sup_ty);
+                        if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() {
+                            eprintln!("inference subtype sup={sup:?} materialized={sup_ty:?} normalized={normalized:?}");
+                        }
+                        if let Some(norm_ty) = normalized {
                             if norm_ty != sup_ty {
                                 new_sup = Some(InferenceTerm::Canonical(norm_ty));
                             }

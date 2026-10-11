@@ -1835,6 +1835,9 @@ impl VM {
         method: crate::heap::ObjRef,
     ) -> Result<(), RuntimeError> {
         let selected_selector = self.resolve_symbol(self.heap.method(method).signature.selector);
+        if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
+            eprintln!("specialized call: recipe={:?} selected_method={method:?} selector={selected_selector}", recipe.callable);
+        }
         if selected_selector != recipe.callable.selector.as_ref() {
             return Err(RuntimeError::Internal(format!(
                 "specialized call selected `{selected_selector}` for `{}`",
@@ -1850,6 +1853,8 @@ impl VM {
             if actual.callable != recipe.callable {
                 return Err(RuntimeError::Internal("specialized call canonical callable identity mismatch".into()));
             }
+        } else if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
+            eprintln!("specialized call: selected method has no canonical runtime callable metadata");
         }
         Ok(())
     }

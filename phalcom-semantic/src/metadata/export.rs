@@ -7,7 +7,7 @@ use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeS
 use crate::declarations::DeclarationTypeTable;
 use crate::enum_semantics::EnumSemanticTable;
 use crate::field_key::{FieldKey, FieldKeyKind};
-use crate::identity::AssociatedStaticDomainDeclarationId;
+use crate::identity::{AssociatedStaticDomainDeclarationId, CallableOwnerId, DispatchSide};
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::type_alias::TypeAliasTable;
 use crate::types::id::{AlgebraicStaticConstructorId, KindId, ScopedTypeId, StaticDomainId, TypeId, TypeParameterId};
@@ -2420,6 +2420,19 @@ impl<'a> MetadataExporter<'a> {
                 } else {
                     None
                 };
+                let mut instance_callables = Vec::new();
+                let mut class_callables = Vec::new();
+                if let Some(callables) = self.callables {
+                    for (callable, _) in callables.iter() {
+                        if !matches!(&callable.owner, CallableOwnerId::Declaration(owner) if owner == decl_id) {
+                            continue;
+                        }
+                        match callable.side {
+                            DispatchSide::Instance => instance_callables.push(self.stable_callable(callable)),
+                            DispatchSide::Class => class_callables.push(self.stable_callable(callable)),
+                        }
+                    }
+                }
 
                 out_declarations.push(DeclarationTypeRecord {
                     declaration: self.stable_declaration(decl_id),
@@ -2427,8 +2440,8 @@ impl<'a> MetadataExporter<'a> {
                     kind: kind_id,
                     generic_signature: sig_id,
                     superclass_template: sup_template,
-                    instance_callables: Box::new([]),
-                    class_callables: Box::new([]),
+                    instance_callables: instance_callables.into_boxed_slice(),
+                    class_callables: class_callables.into_boxed_slice(),
                     instance_fields: Box::new([]),
                     class_fields: Box::new([]),
                     flags: DeclarationTypeFlags::default(),

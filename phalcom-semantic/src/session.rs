@@ -1129,6 +1129,9 @@ impl SemanticWorkspaceSession {
             self.db.retire_query(&QueryKey::AdvisoryCallable(callable.clone()));
         }
         let current_modules = self.semantic_structure_shards.keys().cloned().collect::<BTreeSet<_>>();
+        if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
+            eprintln!("semantic session sources={} shards={} current_modules={:?}", input.sources.len(), self.semantic_structure_shards.len(), current_modules);
+        }
         let mut removed_modules = delta_removed_modules;
         if !delta_driven {
             // Direct SemanticWorkspaceInput publication is a full-workspace
@@ -1600,6 +1603,9 @@ impl SemanticWorkspaceSession {
         if let Some(requested) = requested_deep_modules {
             semantic_work_modules.extend(requested.into_iter().filter(|module| current_modules.contains(module)));
         }
+        if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
+            eprintln!("semantic work modules before closure={} {:?}", semantic_work_modules.len(), semantic_work_modules);
+        }
         // Complete a requested Local frontier through linked reads. This is
         // the deep dependency closure only; unrelated discovered modules stay
         // available for navigation and linking without body analysis.
@@ -1747,6 +1753,9 @@ impl SemanticWorkspaceSession {
             })
             .cloned()
             .collect::<BTreeSet<_>>();
+        if std::env::var_os("PHALCOM_CALL_TRACE").is_some() {
+            eprintln!("semantic structural work modules={} {:?}", structural_work_modules.len(), structural_work_modules);
+        }
         let mut conformance_witness_rebuild_impls = BTreeSet::new();
         if let Some(previous) = previous_snapshot.as_ref() {
             conformance_witness_rebuild_impls.extend(
@@ -4670,6 +4679,11 @@ impl SemanticWorkspaceSession {
                 if let Statement::Impl(impl_def) = statement {
                     let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(idx as u32));
                     let is_conformance = matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Conformance { .. });
+                    if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some()
+                        && module_id.path.to_string().contains("collections.list")
+                    {
+                        eprintln!("conformance candidate {:?} module={} is_conformance={is_conformance}", impl_id, module_id);
+                    }
                     if is_conformance && !conformance_witness_rebuild_impls.contains(&impl_id) {
                         continue;
                     }
@@ -4683,6 +4697,11 @@ impl SemanticWorkspaceSession {
                         context.attach_enum_semantics(&enum_semantics);
                         match crate::impls::resolve_conformance_head(&mut context, &trait_headers, &impl_id, impl_def) {
                             Ok(crate::impls::ResolvedConformanceDeclaration::Nominal(head)) => {
+                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some()
+                                    && module_id.path.to_string().contains("collections.list")
+                                {
+                                    eprintln!("conformance resolved {:?} target={:?} trait={:?} eligible={}", impl_id, head.target, head.trait_ref, head.eligible);
+                                }
                                 let authorized = crate::impls::conformance_is_authorized(&head.source_module, &head.trait_ref, &head.target);
                                 let target_owner = head.target.declaration().clone();
                                 let impl_signature = head.generic_signature.clone();
@@ -4872,6 +4891,11 @@ impl SemanticWorkspaceSession {
                                 conformance_index.insert(contribution);
                             }
                             Ok(crate::impls::ResolvedConformanceDeclaration::GuardedRule(rule_head)) => {
+                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some()
+                                    && module_id.path.to_string().contains("collections.list")
+                                {
+                                    eprintln!("conformance guarded {:?} target={:?} trait={:?}", impl_id, rule_head.target_template, rule_head.trait_ref);
+                                }
                                 let Some(surface) = trait_surfaces.get(&rule_head.trait_ref.declaration) else {
                                     continue;
                                 };
@@ -5048,6 +5072,11 @@ impl SemanticWorkspaceSession {
                                 derived_conformance_rules.insert(rule);
                             }
                             Err(diagnostics) => {
+                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some()
+                                    && module_id.path.to_string().contains("collections.list")
+                                {
+                                    eprintln!("conformance rejected {:?}: {:?}", impl_id, diagnostics);
+                                }
                                 diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
                             }
                         }
@@ -5929,6 +5958,10 @@ impl SemanticWorkspaceSession {
                 for (stmt_idx, stmt) in parsed_unit.program.statements.iter().enumerate() {
                     if let Statement::Class(class_def) = stmt {
                         let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                        let trace_callable = std::env::var_os("PHALCOM_CALL_TRACE").is_some() && class_def.name.as_ref() == "Descriptive";
+                        if trace_callable {
+                            eprintln!("semantic class body module={} members={}", module_id, class_def.members.len());
+                        }
                         if blocked_declarations.contains(&decl_id) {
                             continue;
                         }
@@ -6003,6 +6036,9 @@ impl SemanticWorkspaceSession {
 
                             if let (Some(selector), Some(body), Some(range)) = (selector_opt, body_opt, range_opt) {
                                 let callable_id = crate::identity::CallableId::new(decl_id.clone(), selector, side);
+                                if trace_callable {
+                                    eprintln!("semantic callable candidate={callable_id:?} signature={} body_range={range:?}", callable_signatures.get(&callable_id).is_some());
+                                }
                                 let query_key = QueryKey::CallableBody(callable_id.clone());
 
                                 let formal_inputs = FormalQueryInputs {
@@ -6069,6 +6105,9 @@ impl SemanticWorkspaceSession {
 
                                 match outcome {
                                     QueryOutcome::Ready(analysis) => {
+                                        if trace_callable {
+                                            eprintln!("semantic callable ready={callable_id:?}");
+                                        }
                                         if self.db.query_state(&query_key).is_some_and(|state| {
                                             state.revision() == Some(self.db.revision()) && previous_computation_revision != Some(self.db.revision())
                                         }) {

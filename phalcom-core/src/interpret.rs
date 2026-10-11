@@ -140,7 +140,8 @@ impl VM {
             }
         }
 
-        self.initialize_program(program)
+        self.initialize_program(program)?;
+        self.bind_non_universe_metadata_callables(program)
     }
 
     /// Runs a top-level `closure` within `module` on a fresh frame.

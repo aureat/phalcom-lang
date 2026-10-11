@@ -33,6 +33,7 @@ use crate::value::Value;
 use indexmap::IndexMap;
 use phalcom_common::range::SourceRange;
 use phalcom_semantic::identity::CallableId;
+use std::sync::Arc;
 use std::time::Instant;
 use std::{collections::BTreeMap, collections::HashMap, collections::VecDeque};
 
@@ -282,6 +283,8 @@ pub struct VM {
     pub module_registry: crate::modules::ModuleRegistry,
     /// Runtime typing registry for loaded metadata pools and descriptors.
     pub typing_registry: crate::typing::RuntimeTypingRegistry,
+    /// Metadata pool awaiting post-initialization binding to non-Universe classes.
+    pub(crate) pending_metadata_pool: Option<(crate::typing::MetadataPoolId, Arc<phalcom_type_meta::SemanticMetadataBundle>)>,
     /// Interned generic substitutions used to instantiate runtime type recipes.
     pub runtime_type_environments: crate::typing::RuntimeTypeEnvironmentRegistry,
     /// Interned executable conformance environments selected by semantics.
