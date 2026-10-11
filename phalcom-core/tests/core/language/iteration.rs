@@ -144,7 +144,7 @@ let tuple: Tuple<***(Int, String)> = (1, "value")
 let element: Tuple<***(Int, String)>::Element = tuple[0]
 let elementFromUnion: Int | String = element
 let next: Option<Tuple<***(Int, String)>::Element> = tuple.iterator.next
-let iterated = 0
+let mut iterated = 0
 for value in tuple {
   let protocolItem: Tuple<***(Int, String)>::Element = value
   iterated = iterated + 1
@@ -502,7 +502,7 @@ let result = sum
 #[test]
 fn canonical_parallel_lanes_advance_in_lockstep() {
     let source = r#"
-let total = 0
+let mut total = 0
 for left at leftIndex in [1, 2], right at rightIndex in [10, 20] {
   total = total + left + right + leftIndex + rightIndex
 }
@@ -536,7 +536,7 @@ for left in [1, 2], right in [10] {
 #[test]
 fn canonical_single_lane_preserves_pattern_and_ordinal_bindings() {
     let source = r#"
-let total = 0
+let mut total = 0
 for (left, right) at index in [(1, 10), (2, 20)] {
   total = total + left + right + index
 }
@@ -553,13 +553,12 @@ let result = total
 #[test]
 fn iterable_to_map_preserves_all_distinct_entries() {
     let source = r#"
-const entries = [
-  Entry.new("a", 11),
-  Entry.new("b", 22),
-  Entry.new("c", 33),
-  Entry.new("d", 44)
-]
-const map = entries.toMap.unwrap
+let entries = List<Dynamic>.new()
+entries.append(Entry.new("a", 11))
+entries.append(Entry.new("b", 22))
+entries.append(Entry.new("c", 33))
+entries.append(Entry.new("d", 44))
+let map = entries.toMap.unwrap
 let result = map.size == 4 and map["a"] == 11 and map["b"] == 22 and map["c"] == 33 and map["d"] == 44
 "#;
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("toMap source compiles");
@@ -606,18 +605,18 @@ let result = value.is(Box)
 #[test]
 fn canonical_set_iterator_is_fresh_sticky_and_ordered() {
     let source = r#"
-const values = Set<Int>.new()
+let values: Set<Int> = Set<Int>.new()
 values.add(3).add(1).add(2)
-const it = values.iterator
+let it = values.iterator
 let directFirst = it.next.isSome
 let directSecond = it.next.isSome
 let directThird = it.next.isSome
 let done = it.next
 let doneAgain = it.next
-const fresh = values.iterator
+let fresh = values.iterator
 let freshFirst = fresh.next.isSome
-let sum = 0
-let count = 0
+let mut sum = 0
+let mut count = 0
 for value in values {
   sum = sum + value
   count = count + 1
@@ -635,7 +634,8 @@ let result = sum == 6 and count == 3 and directFirst and directSecond and direct
 #[test]
 fn canonical_bytes_and_string_views_iterate_their_stateful_surfaces() {
     let source = r#"
-let bytes = Bytes.fromList([7, 8, 9])
+let bytesSource: List<Int> = [7, 8, 9]
+let bytes = Bytes.fromList(bytesSource)
 let bytesIterator = bytes.iterator
 let directFirst = bytesIterator.next.isSome
 let directSecond = bytesIterator.next.isSome
@@ -667,7 +667,7 @@ let result = byteSum == 24 and directFirst and directSecond and directThird and 
 #[test]
 fn canonical_range_for_publishes_semantic_iteration_lane() {
     let source = r#"
-let sum = 0
+let mut sum = 0
 for value in (1..4) { sum = sum + value }
 "#;
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("canonical Range iteration compiles");
@@ -699,10 +699,10 @@ let entryView = values.entries.iterator
 let keyFirst = keyView.next.isSome
 let valueFirst = valueView.next.isSome
 let viewFirst = entryView.next.isSome
-let count = 0
-let keySum = 0
-let valueSum = 0
-let entrySum = 0
+let mut count = 0
+let mut keySum = 0
+let mut valueSum = 0
+let mut entrySum = 0
 for entry in values {
   count = count + 1
   if (entry.key == "a") { keySum = keySum + 1 }
@@ -734,9 +734,9 @@ let inclusiveFirst = inclusive.next.isSome
 let inclusiveSecond = inclusive.next.isSome
 let inclusiveThird = inclusive.next.isSome
 let inclusiveDone = inclusive.next
-let exclusiveSum = 0
+let mut exclusiveSum = 0
 for value in (1..4) { exclusiveSum = exclusiveSum + value }
-let inclusiveSum = 0
+let mut inclusiveSum = 0
 for value in (1..=3) { inclusiveSum = inclusiveSum + value }
 let result = exclusiveSum == 6 and inclusiveSum == 6 and directFirst and directSecond and directThird and directDone.isNone and inclusiveFirst and inclusiveSecond and inclusiveThird and inclusiveDone.isNone
 "#;

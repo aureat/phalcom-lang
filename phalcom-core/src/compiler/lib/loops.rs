@@ -297,7 +297,9 @@ impl<'vm> Compiler<'vm> {
             self.patch_forward_jump_to(jump, pattern_failure);
         }
         let temporary_count = self.functions.last().unwrap().num_locals - temporary_base;
-        self.release_pack_scratch_from(temporary_base as u16, temporary_count, range);
+        // This branch is emitted before the success path; keep compiler-local
+        // bookkeeping intact until the success-path cleanup below.
+        self.emit_release_scratch_range(temporary_base as u16, temporary_count, range);
         self.emit_pattern_mismatch_raise("for pattern did not match iterable value".into(), range)?;
         self.patch_forward_jump_to(after_pattern, self.chunk_len());
 
