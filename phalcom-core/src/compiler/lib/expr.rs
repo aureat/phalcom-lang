@@ -454,7 +454,7 @@ impl<'vm> Compiler<'vm> {
             if *value != spec.source_expression {
                 return Err(CompilerError::Message("real embedding value does not match its source expression".into()));
             }
-            self.compile_expr_want(source, true)?;
+            self.compile_expr_want_inner(source, true)?;
             return self.emit_contextual_capability_invocation(spec.realization.clone(), 1, range);
         }
 
@@ -1714,6 +1714,19 @@ impl<'vm> Compiler<'vm> {
                 if value == "nil" {
                     return Err(CompilerError::UndefinedVariable(value.clone()));
                 }
+                if let Some(spec) = self.lowering().and_then(|l| l.type_form_values.get(&range)).cloned() {
+                    match spec {
+                        crate::modules::semantic_lowering::RuntimeTypeFormValueSpec::ClassObject { declaration } => {
+                            let symbol = self.vm.interner.intern(&declaration.name);
+                            self.emit_global_reference(symbol, range)?;
+                            return Ok(());
+                        }
+                        crate::modules::semantic_lowering::RuntimeTypeFormValueSpec::TypeParameter { .. } => {
+                            self.emit(Bytecode::Nil, range);
+                            return Ok(());
+                        }
+                    }
+                }
                 let name_sym = self.vm.interner.intern(&value);
                 if self.is_static_constant(name_sym) {
                     let has_lowering = self.lowering().is_some();
@@ -2222,6 +2235,9 @@ impl<'vm> Compiler<'vm> {
                     Some(crate::modules::semantic_lowering::RuntimeTypeFormValueSpec::ClassObject { declaration }) => {
                         let symbol = self.vm.interner.intern(&declaration.name);
                         self.emit_global_reference(symbol, type_annotation.range)?;
+                    }
+                    Some(crate::modules::semantic_lowering::RuntimeTypeFormValueSpec::TypeParameter { .. }) => {
+                        self.emit(Bytecode::Nil, type_annotation.range);
                     }
                     None => match &type_annotation.expr {
                         phalcom_ast::ast::TypeAnnotationExpr::Reference(sym_ref) => {

@@ -122,6 +122,17 @@ fn remap_lowering_metadata_pool(lowering: &mut crate::modules::semantic_lowering
         remap_for_requirement(&mut spec.iterator, pool_id);
         remap_for_requirement(&mut spec.next, pool_id);
     }
+    for realization in lowering.contextual_realizations.values_mut() {
+        let spec = Arc::make_mut(realization);
+        remap_for_requirement(&mut spec.realization, pool_id);
+        if let crate::modules::semantic_lowering::ContextualRealizationOperationLowering::Basis {
+            coefficient_one: Some(invocation),
+            ..
+        } = &mut spec.operation
+        {
+            remap_for_requirement(invocation, pool_id);
+        }
+    }
 }
 
 impl VM {

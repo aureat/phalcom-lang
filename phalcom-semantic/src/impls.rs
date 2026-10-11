@@ -961,6 +961,9 @@ fn normalize_source_signature_in_store(
     };
     for parameter in &mut signature.parameters {
         normalize_fact(store, &mut parameter.declared_type);
+        if matches!(parameter.contract, crate::signature::ParameterContract::Fixed(_)) {
+            parameter.contract = crate::signature::ParameterContract::Fixed(parameter.declared_type.clone());
+        }
     }
     normalize_fact(store, &mut signature.declared_return);
     if let Some(inferred_return) = &mut signature.inferred_return {
@@ -1042,6 +1045,9 @@ fn normalize_exact_requirement_signature(
     };
     for parameter in &mut signature.parameters {
         normalize_fact(&mut parameter.declared_type)?;
+        if matches!(parameter.contract, crate::signature::ParameterContract::Fixed(_)) {
+            parameter.contract = crate::signature::ParameterContract::Fixed(parameter.declared_type.clone());
+        }
     }
     normalize_fact(&mut signature.declared_return)?;
     if let Some(inferred_return) = &mut signature.inferred_return {

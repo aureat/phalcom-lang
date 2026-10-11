@@ -1090,7 +1090,7 @@ impl SourceScopeBuilder<'_> {
                 let Some(member) = impl_member.behavior() else {
                     continue;
                 };
-                self.visit_behavior_member(parent, owner.clone(), member, behavior_side(member));
+                self.visit_behavior_member(parent, owner.clone(), member, crate::semantic_shard::behavior_side(member));
             }
             return;
         }
@@ -1183,7 +1183,7 @@ impl SourceScopeBuilder<'_> {
             let Some(member) = impl_member.behavior() else {
                 continue;
             };
-            let side = behavior_side(member);
+            let side = crate::semantic_shard::behavior_side(member);
             self.visit_behavior_member(parent, owner.clone(), member, side);
         }
     }
@@ -1253,7 +1253,7 @@ impl SourceScopeBuilder<'_> {
             let Some(member) = trait_member.behavior() else {
                 continue;
             };
-            self.visit_behavior_member(parent, CallableOwnerId::Declaration(declaration.clone()), member, behavior_side(member));
+            self.visit_behavior_member(parent, CallableOwnerId::Declaration(declaration.clone()), member, crate::semantic_shard::behavior_side(member));
         }
     }
 
@@ -2074,35 +2074,6 @@ fn parameter_slot(parameter: &phalcom_ast::ast::ParameterDef) -> SelectorSlot {
         .map_or(SelectorSlot::Positional, |label| SelectorSlot::Label(label.clone()))
 }
 
-fn behavior_side(member: &phalcom_ast::ast::BehaviorMember) -> DispatchSide {
-    if member.attributes().iter().any(|attribute| attribute.name == "class") {
-        return DispatchSide::Class;
-    }
-    match member {
-        phalcom_ast::ast::BehaviorMember::Method(method) => {
-            if method.is_static {
-                DispatchSide::Class
-            } else {
-                DispatchSide::Instance
-            }
-        }
-        phalcom_ast::ast::BehaviorMember::Getter(getter) => {
-            if getter.is_static {
-                DispatchSide::Class
-            } else {
-                DispatchSide::Instance
-            }
-        }
-        phalcom_ast::ast::BehaviorMember::Setter(setter) => {
-            if setter.is_static {
-                DispatchSide::Class
-            } else {
-                DispatchSide::Instance
-            }
-        }
-        phalcom_ast::ast::BehaviorMember::Index(_) => DispatchSide::Instance,
-    }
-}
 
 fn statements_range(statements: &[Statement]) -> SourceRange {
     statements

@@ -6559,10 +6559,27 @@ impl SemanticWorkspaceSession {
             )
             .collect::<BTreeSet<_>>();
         diagnostic_work_modules.extend(changed_conformance_plans.iter().map(|impl_id| impl_id.module.clone()));
+        let changed_bucket_keys = if let Some(previous) = previous_snapshot.as_ref() {
+            let mut changed = BTreeSet::new();
+            for (bucket_key, _) in trait_dispatch_index.buckets() {
+                if trait_dispatch_index.bucket_fingerprint(bucket_key) != previous.trait_dispatch_index.bucket_fingerprint(bucket_key) {
+                    changed.insert(QueryKey::TraitDispatchBucket(bucket_key.clone()));
+                }
+            }
+            for (bucket_key, _) in previous.trait_dispatch_index.buckets() {
+                if !trait_dispatch_index.buckets().contains_key(bucket_key) {
+                    changed.insert(QueryKey::TraitDispatchBucket(bucket_key.clone()));
+                }
+            }
+            changed
+        } else {
+            BTreeSet::new()
+        };
         let changed_plan_keys = changed_conformance_plans
             .iter()
             .cloned()
             .map(QueryKey::ConformanceDispatch)
+            .chain(changed_bucket_keys)
             .collect::<BTreeSet<_>>();
         let changed_plan_clients = self
             .db
@@ -10180,6 +10197,10 @@ fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::SourceFormalAttachment(callable)
         | QueryKey::AdvisoryCallable(callable) => Some(callable.module()),
         QueryKey::ConformanceDispatch(impl_id) => Some(&impl_id.module),
+        QueryKey::TraitDispatchBucket(bucket) => match &bucket.target_family {
+            crate::trait_dispatch::TraitDispatchTargetFamily::Declaration(decl) => Some(&decl.module),
+            crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(variant) => Some(&variant.owner.module),
+        },
     }
 }
 

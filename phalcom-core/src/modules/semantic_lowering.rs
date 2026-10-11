@@ -89,6 +89,7 @@ pub enum ExecutableInvocationTarget {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RuntimeTypeFormValueSpec {
     ClassObject { declaration: DeclarationId },
+    TypeParameter { parameter: phalcom_semantic::types::id::TypeParameterId },
 }
 
 /// Target of a member entry in an executable family descriptor.
@@ -1709,10 +1710,11 @@ fn project_type_form_values(module: &ModuleId, snapshot: &SemanticSnapshot) -> B
             let Some(SemanticDenotation::TypeForm(form)) = expression.denotation.as_ref() else {
                 continue;
             };
-            let Some(declaration) = snapshot.store.nominal_origin_declaration(*form).cloned() else {
-                continue;
-            };
-            projected.insert(expression.range, RuntimeTypeFormValueSpec::ClassObject { declaration });
+            if let Some(declaration) = snapshot.store.nominal_origin_declaration(*form).cloned() {
+                projected.insert(expression.range, RuntimeTypeFormValueSpec::ClassObject { declaration });
+            } else if let phalcom_semantic::types::store::TypeData::Parameter(parameter) = snapshot.store.get(*form) {
+                projected.insert(expression.range, RuntimeTypeFormValueSpec::TypeParameter { parameter: *parameter });
+            }
         }
     }
     projected

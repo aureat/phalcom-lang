@@ -1501,7 +1501,12 @@ impl VM {
             }
         }
         let type_environment = self.materialize_type_bindings(&bindings.into_iter().collect::<Vec<_>>())?;
-        let max_req_slot = spec.requirement_slots.iter().map(|(_, slot)| *slot as usize + 1).max().unwrap_or(0);
+        let is_trait_default = matches!(spec.selection.selection, phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. });
+        let max_req_slot = if is_trait_default {
+            spec.requirement_slots.iter().map(|(_, slot)| *slot as usize + 1).max().unwrap_or(0)
+        } else {
+            0
+        };
         let max_ant_slot = spec.antecedent_slots.iter().map(|(slot, _, _)| *slot as usize + 1).max().unwrap_or(0);
         let mut slots = vec![None; max_req_slot.max(max_ant_slot)];
         if let Some(recipe) = &spec.call_environment_recipe {
@@ -1533,15 +1538,17 @@ impl VM {
             }
         }
 
-        for (requirement, slot) in spec.requirement_slots.iter() {
-            if let Some(target) = spec.selection.requirement_targets.get(requirement) {
-                let method = self.trait_method_for_selection(receiver, target, &requirement.selector)?;
-                if (*slot as usize) < slots.len() {
-                    slots[*slot as usize] = Some(crate::typing::RuntimeConformanceSlot {
-                        method,
-                        type_environment,
-                        conformance_environment: crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
-                    });
+        if is_trait_default {
+            for (requirement, slot) in spec.requirement_slots.iter() {
+                if let Some(target) = spec.selection.requirement_targets.get(requirement) {
+                    let method = self.trait_method_for_selection(receiver, target, &requirement.selector)?;
+                    if (*slot as usize) < slots.len() {
+                        slots[*slot as usize] = Some(crate::typing::RuntimeConformanceSlot {
+                            method,
+                            type_environment,
+                            conformance_environment: crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+                        });
+                    }
                 }
             }
         }
@@ -1596,7 +1603,16 @@ impl VM {
             .len()
             .checked_sub(arity as usize + 1)
             .ok_or(RuntimeError::Internal("trait requirement stack underflow".into()))?;
-        let receiver = self.stack[receiver_idx];
+        let receiver = if spec.requirement.side == phalcom_semantic::identity::DispatchSide::Class {
+            if let Some(holder) = self.heap.method(method).holder {
+                self.stack[receiver_idx] = Value::obj(holder);
+                Value::obj(holder)
+            } else {
+                self.stack[receiver_idx]
+            }
+        } else {
+            self.stack[receiver_idx]
+        };
         let selector = self.interner.intern(&spec.requirement.selector.encode());
         let layout = self.invocation_layout_for_selector(selector, arity as usize)?;
         let type_environment = if slot_entry.type_environment != crate::typing::RuntimeTypeEnvironmentId::EMPTY {

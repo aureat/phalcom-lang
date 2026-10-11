@@ -138,6 +138,7 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => QueryKey::DeclarationSurface(declaration.clone()),
         crate::checker::analysis::SemanticDependency::TraitSurface(declaration) => QueryKey::TraitSurface(declaration.clone()),
         crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) => QueryKey::ConformanceDispatch(impl_id.clone()),
+        crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket) => QueryKey::TraitDispatchBucket(bucket.clone()),
         crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => QueryKey::HierarchyEdge(declaration.clone()),
         crate::checker::analysis::SemanticDependency::LinkedInterface(module) => QueryKey::LinkedInterface(module.clone()),
         crate::checker::analysis::SemanticDependency::DataDeclaration(declaration) => QueryKey::DataDeclaration(declaration.clone()),
@@ -166,6 +167,7 @@ fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::
         QueryKey::DeclarationSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration.clone())),
         QueryKey::TraitSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::TraitSurface(declaration.clone())),
         QueryKey::ConformanceDispatch(impl_id) => Some(crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id.clone())),
+        QueryKey::TraitDispatchBucket(bucket) => Some(crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket.clone())),
         QueryKey::HierarchyEdge(declaration) => Some(crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration.clone())),
         QueryKey::LinkedInterface(module) => Some(crate::checker::analysis::SemanticDependency::LinkedInterface(module.clone())),
         QueryKey::DataDeclaration(declaration) => Some(crate::checker::analysis::SemanticDependency::DataDeclaration(declaration.clone())),
@@ -1233,6 +1235,11 @@ pub fn query_checked_static_body(
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
             recorder.record(dependency_key, fingerprint);
+        } else if let crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket_key) = &semantic_dependency {
+            let Some(fingerprint) = inputs.conformance_semantics.map(|view| view.bucket_fingerprint(bucket_key)) else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            recorder.record(dependency_key, fingerprint);
         } else if let Err(error) = db.record_dependency(&mut recorder, dependency_key) {
             return query_failure(db, key, error);
         }
@@ -1338,6 +1345,11 @@ pub fn query_static_constant(
                     return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
                 };
                 recorder.record(dependency_key, fingerprint);
+            } else if let crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket_key) = semantic_dependency {
+                let Some(fingerprint) = inputs.conformance_semantics.map(|view| view.bucket_fingerprint(bucket_key)) else {
+                    return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+                };
+                recorder.record(dependency_key, fingerprint);
             } else if let Err(error) = db.record_dependency(&mut recorder, dependency_key) {
                 return query_failure(db, key, error);
             }
@@ -1435,6 +1447,10 @@ pub fn query_static_definition_with_record_key_projections(
             if conformance_semantics.and_then(|view| view.fingerprint_for(&impl_id)).is_none() {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             }
+        } else if let crate::checker::analysis::SemanticDependency::TraitDispatchBucket(_) = dependency {
+            if conformance_semantics.is_none() {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            }
         } else if db.query_state(&dependency_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
             return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
         }
@@ -1462,6 +1478,11 @@ pub fn query_static_definition_with_record_key_projections(
         let dependency_key = semantic_dependency_query_key(&dependency);
         if let crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) = dependency {
             let Some(fingerprint) = conformance_semantics.and_then(|view| view.fingerprint_for(&impl_id)) else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            recorder.record(dependency_key, fingerprint);
+        } else if let crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket_key) = dependency {
+            let Some(fingerprint) = conformance_semantics.map(|view| view.bucket_fingerprint(&bucket_key)) else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
             recorder.record(dependency_key, fingerprint);
@@ -1906,6 +1927,34 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                 QueryOutcome::Ready(())
             } else {
                 QueryOutcome::Blocked(BlockReason::SuppressedDependency)
+            }
+        }
+        crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket_key) => {
+            let Some(view) = inputs.conformance_semantics else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            let fingerprint = view.bucket_fingerprint(bucket_key);
+            if db.query_state(&key).is_some() {
+                if db.ready_product_fingerprint(&key) == Some(fingerprint) && db.validate_ready(&key) {
+                    QueryOutcome::Ready(())
+                } else {
+                    QueryOutcome::Blocked(BlockReason::SuppressedDependency)
+                }
+            } else {
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                bucket_key.hash(&mut hasher);
+                let input_fingerprint = crate::db::InputFingerprint::new(hasher.finish());
+                if let Err(error) = db.publish_ready(
+                    key.clone(),
+                    db.revision(),
+                    input_fingerprint,
+                    fingerprint,
+                    crate::db::state::QueryValue::from_bytes([]),
+                    Vec::new(),
+                ) {
+                    return query_failure(db, key, format!("{error:?}"));
+                }
+                QueryOutcome::Ready(())
             }
         }
         crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => {
@@ -3408,6 +3457,15 @@ fn query_callable_body_with_requirement(
                             let Some(fingerprint) = view.fingerprint_for(impl_id) else {
                                 return query_failure(db, key, format!("missing current conformance view for {dependency:?}"));
                             };
+                            recorder.record(dependency, fingerprint);
+                            continue;
+                        }
+                    }
+                }
+                if let crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket_key) = sem_dep {
+                    if let Some(inputs) = formal_inputs {
+                        if let Some(view) = inputs.conformance_semantics {
+                            let fingerprint = view.bucket_fingerprint(bucket_key);
                             recorder.record(dependency, fingerprint);
                             continue;
                         }

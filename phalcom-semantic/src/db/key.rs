@@ -44,6 +44,7 @@ pub enum QueryKey {
     TraitHeader(DeclarationId),
     TraitSurface(DeclarationId),
     ConformanceDispatch(crate::identity::ImplId),
+    TraitDispatchBucket(crate::trait_dispatch::TraitDispatchBucketKey),
     /// Canonical accepted source definition for one callable.
     CallableDefinition(CallableId),
     HierarchyEdge(DeclarationId),

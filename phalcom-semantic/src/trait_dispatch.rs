@@ -97,6 +97,10 @@ impl ConformanceSemanticView<'_> {
             .or_else(|| self.derived_conformance_rules.get_rule(impl_id).map(|rule| rule.fingerprint))
     }
 
+    pub fn bucket_fingerprint(&self, key: &TraitDispatchBucketKey) -> ProductFingerprint {
+        self.trait_dispatch.bucket_fingerprint(key)
+    }
+
     pub fn fingerprint(&self) -> ProductFingerprint {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.trait_dispatch.fingerprint().raw().hash(&mut hasher);
@@ -172,6 +176,15 @@ impl TraitDispatchIndex {
 
     pub fn buckets(&self) -> &BTreeMap<TraitDispatchBucketKey, Box<[TraitDispatchContribution]>> {
         &self.buckets
+    }
+
+    pub fn bucket_fingerprint(&self, key: &TraitDispatchBucketKey) -> ProductFingerprint {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut hasher);
+        if let Some(entries) = self.buckets.get(key) {
+            entries.hash(&mut hasher);
+        }
+        ProductFingerprint::new(hasher.finish())
     }
 
     pub fn fingerprint(&self) -> ProductFingerprint {

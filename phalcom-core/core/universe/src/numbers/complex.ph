@@ -15,26 +15,26 @@ data Complex<T>(_ real: T, _ imag: T)
 /// environment.
 trait ComplexDivision {
   divideComplexComponents(
-    _ real: Self, _ imag: Self, _ otherReal: Self, _ otherImag: Self
+    _ imag: Self, _ otherReal: Self, _ otherImag: Self
   ) -> Tuple<***(Self, Self)>
 }
 
 impl ComplexDivision for Float {
   divideComplexComponents(
-    _ real: Float, _ imag: Float, _ otherReal: Float, _ otherImag: Float
+    _ imag: Float, _ otherReal: Float, _ otherImag: Float
   ) -> Tuple<***(Float, Float)> {
-    FC.divide(real, imag, otherReal, otherImag)
+    FC.divide(self, imag, otherReal, otherImag)
   }
 }
 
 impl ComplexDivision for Rational {
   divideComplexComponents(
-    _ real: Rational, _ imag: Rational,
+    _ imag: Rational,
     _ otherReal: Rational, _ otherImag: Rational
   ) -> Tuple<***(Rational, Rational)> {
     let denominator = otherReal * otherReal + otherImag * otherImag
-    let quotientReal = (real * otherReal + imag * otherImag) / denominator
-    let quotientImag = (imag * otherReal - real * otherImag) / denominator
+    let quotientReal = (self * otherReal + imag * otherImag) / denominator
+    let quotientImag = (imag * otherReal - self * otherImag) / denominator
     return (quotientReal, quotientImag)
   }
 }

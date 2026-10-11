@@ -523,6 +523,7 @@ pub enum SemanticDependency {
     DeclarationSurface(DeclarationId),
     TraitSurface(DeclarationId),
     ConformanceDispatch(ImplId),
+    TraitDispatchBucket(crate::trait_dispatch::TraitDispatchBucketKey),
     HierarchyEdge(DeclarationId),
     LinkedInterface(ModuleId),
     DataDeclaration(DeclarationId),

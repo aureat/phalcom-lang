@@ -84,7 +84,7 @@ pub(crate) fn arithmetic_region_expected(ctx: &mut CheckingContext<'_>, expressi
     }
 
     if let Some(target) = expected.ty()
-        && is_canonical_algebra_type(ctx, target)
+        && (expected_is_concrete(expected) || is_canonical_algebra_type(ctx, target))
     {
         return Some(expected.clone());
     }
@@ -506,18 +506,26 @@ fn classify_realization_candidate(
     typed: &TypedExpression,
 ) -> Option<RealizationCandidate> {
     if let Some(source) = realization_source(ctx, expression, typed) {
-        return realization_context_is_algebraic(ctx, expected, target_type).then_some(RealizationCandidate::Basis(source));
+        return (expected_is_concrete(expected) || realization_context_is_algebraic(ctx, expected, target_type))
+            .then_some(RealizationCandidate::Basis(source));
     }
 
-    if !is_embeddable_scalar_source(ctx, expression) || !realization_context_is_algebraic(ctx, expected, target_type) {
+    if !is_embeddable_scalar_source(ctx, expression) {
         return None;
     }
     let scalar_type = typed.knowledge.ty()?;
+    if scalar_type == target_type {
+        return None;
+    }
+    if !expected_is_concrete(expected) && !realization_context_is_algebraic(ctx, expected, target_type) {
+        return None;
+    }
     (known_value_type(ctx, expression) == Some(scalar_type)).then_some(RealizationCandidate::RealScalar { scalar_type })
 }
 
 fn realization_context_is_algebraic(ctx: &mut CheckingContext<'_>, expected: &ExpectedType, target_type: crate::identity::TypeId) -> bool {
-    is_canonical_algebra_type(ctx, target_type) || expected.origin() == Some(crate::checker::expected::ExpectationOrigin::AlgebraicArithmetic)
+    is_canonical_algebra_type(ctx, target_type)
+        || expected.origin() == Some(crate::checker::expected::ExpectationOrigin::AlgebraicArithmetic)
 }
 
 /// Selects the class-side basis operation for a source-ordered scalar-times-
@@ -551,22 +559,24 @@ pub(crate) fn realize_scalar_basis_product(
     let basis_expression = basis_typed.expression_id?;
     let basis_type = canonical_basis_type(ctx, axis)?;
 
-    let target_type = if expected_is_concrete(expected) {
-        expected.ty()?
+    let (target_type, is_explicit) = if expected_is_concrete(expected) {
+        (expected.ty()?, true)
     } else if expected.is_none() {
-        canonical_algebra_type(ctx, scalar_type, axis)?
+        (canonical_algebra_type(ctx, scalar_type, axis)?, false)
     } else {
         return None;
     };
-    let (target_declaration, target_arguments) = ctx.store.applied_nominal_parts(target_type)?;
-    let complex_declaration = standard_math_declaration(&["numbers", "complex"], "Complex")?;
-    let quaternion_declaration = standard_math_declaration(&["numbers", "quaternion"], "Quaternion")?;
-    if target_arguments.len() != 1
-        || (target_declaration != complex_declaration && target_declaration != quaternion_declaration)
-        || target_arguments[0] != scalar_type
-        || (target_declaration == complex_declaration && axis != AlgebraicBasisAxis::I)
-    {
-        return None;
+    if !is_explicit {
+        let (target_declaration, target_arguments) = ctx.store.applied_nominal_parts(target_type)?;
+        let complex_declaration = standard_math_declaration(&["numbers", "complex"], "Complex")?;
+        let quaternion_declaration = standard_math_declaration(&["numbers", "quaternion"], "Quaternion")?;
+        if target_arguments.len() != 1
+            || (target_declaration != complex_declaration && target_declaration != quaternion_declaration)
+            || target_arguments[0] != scalar_type
+            || (target_declaration == complex_declaration && axis != AlgebraicBasisAxis::I)
+        {
+            return None;
+        }
     }
 
     let realization = resolve_capability(ctx, target_type, &[basis_type], "along", 2)?;
@@ -726,6 +736,15 @@ fn resolve_capability(
     } else {
         Selector::method(member_name, vec![SelectorSlot::Positional; positional_arguments]).ok()?
     };
+    if let Some(target_family) = crate::trait_dispatch::target_family_for_receiver(ctx.store, subject) {
+        ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitDispatchBucket(
+            crate::trait_dispatch::TraitDispatchBucketKey {
+                target_family,
+                selector: selector.clone(),
+                side: DispatchSide::Class,
+            },
+        ));
+    }
     let mut matching = surface
         .iter()
         .filter(|(_, member)| member.requirement.selector == selector && member.requirement.side == DispatchSide::Class);
