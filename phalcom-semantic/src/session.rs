@@ -4623,10 +4623,8 @@ impl SemanticWorkspaceSession {
         }
 
         let mut inherent_contributions_by_module: BTreeMap<ModuleId, Vec<crate::impls::InherentImplContribution>> = BTreeMap::new();
-        let mut inherent_callable_record_key_projections: HashMap<
-            (crate::identity::ImplId, usize),
-            crate::static_key::ProjectedRecordKeySet<'_>,
-        > = HashMap::new();
+        let mut inherent_callable_record_key_projections: HashMap<(crate::identity::ImplId, usize), crate::static_key::ProjectedRecordKeySet<'_>> =
+            HashMap::new();
         let mut conformance_index = previous_snapshot
             .as_ref()
             .map(|snapshot| (*snapshot.conformance_index).clone())

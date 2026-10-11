@@ -224,18 +224,9 @@ class Probe {
 #[test]
 fn labeled_generic_conflicts_keep_the_failing_argument_range_at_each_position() {
     let cases = [
-        (
-            "Probe.constrained(first: \"bad\", middle: 1, last: 2)",
-            "\"bad\"",
-        ),
-        (
-            "Probe.constrained(first: 1, middle: \"bad\", last: 2)",
-            "\"bad\"",
-        ),
-        (
-            "Probe.constrained(first: 1, middle: 2, last: \"bad\")",
-            "\"bad\"",
-        ),
+        ("Probe.constrained(first: \"bad\", middle: 1, last: 2)", "\"bad\""),
+        ("Probe.constrained(first: 1, middle: \"bad\", last: 2)", "\"bad\""),
+        ("Probe.constrained(first: 1, middle: 2, last: \"bad\")", "\"bad\""),
     ];
 
     for (call_source, failing_argument) in cases {

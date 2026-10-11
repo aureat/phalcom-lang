@@ -2058,7 +2058,10 @@ fn test_rejected_duplicate_impl_definition_is_not_published() {
 #[test]
 fn test_rejected_duplicate_inherent_impl_keeps_accepted_computed_key_owner() {
     let module = test_module();
-    let callable = impl_callable("User", Selector::method("project", [phalcom_common::selector::SelectorSlot::Positional]).unwrap());
+    let callable = impl_callable(
+        "User",
+        Selector::method("project", [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+    );
     let source = r#"
 const AcceptedKey: Symbol = #accepted
 const RejectedKey: Symbol = #rejected
@@ -2073,7 +2076,8 @@ impl User {
     let mut session = SemanticWorkspaceSession::new();
     let output = session.update(single_module_input(module.clone(), source));
     assert!(
-        output.snapshot
+        output
+            .snapshot
             .diagnostics
             .values()
             .flat_map(|diagnostics| diagnostics.iter())
@@ -2110,17 +2114,9 @@ impl User {
     assert!(
         dependencies.is_some_and(|dependencies| {
             dependencies.iter().any(|edge| {
-                edge.dependency
-                    == QueryKey::StaticConstant(phalcom_semantic::static_constant::StaticConstantId::new(
-                        module.clone(),
-                        "AcceptedKey",
-                    ))
+                edge.dependency == QueryKey::StaticConstant(phalcom_semantic::static_constant::StaticConstantId::new(module.clone(), "AcceptedKey"))
             }) && !dependencies.iter().any(|edge| {
-                edge.dependency
-                    == QueryKey::StaticConstant(phalcom_semantic::static_constant::StaticConstantId::new(
-                        module.clone(),
-                        "RejectedKey",
-                    ))
+                edge.dependency == QueryKey::StaticConstant(phalcom_semantic::static_constant::StaticConstantId::new(module.clone(), "RejectedKey"))
             })
         }),
         "the canonical owner must depend on the accepted source only: {dependencies:?}"

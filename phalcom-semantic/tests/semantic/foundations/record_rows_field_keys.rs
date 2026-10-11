@@ -78,7 +78,11 @@ fn anonymous_record_key_domains_retain_distinct_canonical_row_and_type_identitie
         let tail = RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type });
         let row = store.record_row_checked(Vec::new(), tail).expect("FieldKey member domain is a valid row tail");
         rows.push(row);
-        records.push(store.record_row_type_checked(Vec::new(), tail).expect("proper key domain forms a canonical Record type"));
+        records.push(
+            store
+                .record_row_type_checked(Vec::new(), tail)
+                .expect("proper key domain forms a canonical Record type"),
+        );
         assert_eq!(store.record_row_checked(Vec::new(), tail).unwrap(), row, "row identity remains canonical");
     }
     for left in 0..rows.len() {

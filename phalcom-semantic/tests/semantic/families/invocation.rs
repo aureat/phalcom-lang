@@ -232,10 +232,7 @@ export transform, value
         .module_static_binding(&transform_symbol)
         .expect("canonical exported closure binding");
     assert_eq!(transform_fact.symbol, transform_symbol);
-    assert_eq!(
-        transform_fact.phase,
-        phalcom_semantic::module_bindings::ModuleBindingPhase::Runtime
-    );
+    assert_eq!(transform_fact.phase, phalcom_semantic::module_bindings::ModuleBindingPhase::Runtime);
     assert!(
         transform_fact.state.current.is_unknown(),
         "an unannotated exported closure has no complete canonical callable type: {:?}",
@@ -280,10 +277,7 @@ export transform, value
         unresolved_call.knowledge.is_unknown(),
         "unknown exported call must remain unresolved: {unresolved_call:#?}"
     );
-    assert!(matches!(
-        unresolved_call.status,
-        phalcom_semantic::checker::analysis::AnalysisStatus::Ready
-    ));
+    assert!(matches!(unresolved_call.status, phalcom_semantic::checker::analysis::AnalysisStatus::Ready));
 
     let known_noncallable_call = expression_for("api.value(1)");
     assert!(
@@ -297,11 +291,7 @@ export transform, value
         .all_diagnostics()
         .filter(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::NotCallable)
         .collect::<Vec<_>>();
-    assert_eq!(
-        not_callable.len(),
-        1,
-        "only the known integer export should be rejected: {not_callable:#?}"
-    );
+    assert_eq!(not_callable.len(), 1, "only the known integer export should be rejected: {not_callable:#?}");
     assert_eq!(
         client_source.get(not_callable[0].primary_range.start..not_callable[0].primary_range.end),
         Some("api.value(1)")

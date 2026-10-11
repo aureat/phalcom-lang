@@ -392,11 +392,7 @@ fn declaration_surface_reports_exact_missing_computed_signature_owner() {
     let resolver = SimpleTypeResolver::new();
     let hierarchy = MapTypeHierarchy::new();
     let mut db = phalcom_semantic::db::SemanticDb::new();
-    let key = QueryKey::FieldSignature(phalcom_semantic::identity::FieldId::new(
-        owner.clone(),
-        "_value",
-        DispatchSide::Instance,
-    ));
+    let key = QueryKey::FieldSignature(phalcom_semantic::identity::FieldId::new(owner.clone(), "_value", DispatchSide::Instance));
 
     let outcome = query_declaration_surface(
         &mut db,

@@ -254,7 +254,11 @@ fn callable_source_has_computed_record_key(
     let Some(Statement::Impl(impl_def)) = unit.program.statements.get(impl_id.local.0 as usize) else {
         return false;
     };
-    let Some(member) = impl_def.members.get(effective_definition.source_member_index).and_then(phalcom_ast::ast::ImplMember::behavior) else {
+    let Some(member) = impl_def
+        .members
+        .get(effective_definition.source_member_index)
+        .and_then(phalcom_ast::ast::ImplMember::behavior)
+    else {
         return false;
     };
     let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);

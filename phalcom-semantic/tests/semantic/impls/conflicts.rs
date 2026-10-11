@@ -111,14 +111,8 @@ fn direct_surface_registration_withholds_computed_key_members_without_owner_sign
     let surface = ctx.dispatch_ref().get_surface(&user_decl).expect("surface is registered");
     assert!(signatures.is_empty(), "a missing canonical computed-key owner must not be synthesized");
     assert!(surface.get_field(DispatchSide::Instance, "_value").is_none());
-    assert!(ctx
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnresolved));
-    assert!(!ctx
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.code == DiagnosticCode::RecordKeyNotStatic));
+    assert!(ctx.diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnresolved));
+    assert!(!ctx.diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::RecordKeyNotStatic));
 }
 
 #[test]
