@@ -899,7 +899,7 @@ impl<'a> StaticEvaluator<'a> {
     }
 
     pub(crate) fn validate_specialization_argument(
-        &self,
+        &mut self,
         domain: StaticValueDomain,
         argument: StaticSpecializationArgument,
     ) -> Result<StaticEvalTerm, Stop> {
@@ -921,10 +921,62 @@ impl<'a> StaticEvaluator<'a> {
                     ));
                 }
                 self.values.get(value).map_err(Stop::from)?;
+                if let StaticValueDomain::ValueType(expected) = domain {
+                    self.validate_specialization_value_type(value, expected)?;
+                }
                 Ok(StaticEvalTerm::Value(value))
             }
             _ => Err(Stop::from(
                 crate::static_eval::application::StaticSpecializationEnvironmentError::ArgumentDomainMismatch,
+            )),
+        }
+    }
+
+    fn validate_specialization_value_type(&mut self, value: StaticValueRef, expected: TypeId) -> Result<(), Stop> {
+        let types = evaluator_type_store_mut(&mut self.canonical_types)
+            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+        let actual = if let Some((data, enums)) = self.semantic_tables {
+            self.values.static_value_type(value, types, data, enums).map_err(Stop::from)?
+        } else {
+            match self.values.domain_of(value, types).map_err(Stop::from)? {
+                StaticValueDomain::ValueType(actual) => actual,
+                StaticValueDomain::Kind(_) => {
+                    return Err(Stop::from(
+                        crate::static_eval::application::StaticSpecializationEnvironmentError::ArgumentDomainMismatch,
+                    ));
+                }
+            }
+        };
+        if actual == expected {
+            return Ok(());
+        }
+        let Some(hierarchy) = self.hierarchy else {
+            return Err(Stop::from(
+                crate::static_eval::application::StaticSpecializationEnvironmentError::ArgumentDomainMismatch,
+            ));
+        };
+        let actual = crate::types::evidence::TypeKnowledge::established(
+            actual,
+            crate::types::evidence::EvidenceOrigin::ContextualDerivation,
+        );
+        match crate::types::relation::check_knowledge_against_type_bounded(
+            types,
+            hierarchy,
+            &actual,
+            expected,
+            self.budget,
+            self.cancellation,
+        ) {
+            RelationOutcome::Proven { .. } => Ok(()),
+            RelationOutcome::Refuted(_) => Err(Stop::from(
+                crate::static_eval::application::StaticSpecializationEnvironmentError::ArgumentDomainMismatch,
+            )),
+            RelationOutcome::Blocked(reason) => Err(Stop::Blocked(reason)),
+            RelationOutcome::DynamicBoundary(obligation) => Err(Stop::Dynamic(obligation)),
+            RelationOutcome::Cancelled => Err(Stop::Cancelled),
+            RelationOutcome::BudgetExceeded(report) => Err(Stop::Budget(report)),
+            RelationOutcome::InternalFailure(_) => Err(Stop::from(
+                crate::static_eval::application::StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution,
             )),
         }
     }
