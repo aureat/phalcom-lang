@@ -1,0 +1,36 @@
+# BASELINE_HEAD=b00d75b3ac9f50d37cf9abfddfde00917e099031
+# BRANCH=perf/universe-characterization
+
+running 1 test
+[TIMING] booleans/bool_and_or_return_operand.ph - io: 66.958µs, parse: 46.75µs, discovery+link: 306.417µs, semantic_session_init: 200.550959ms, semantic_update: 1.367339833s, user_projection: 19.950084ms, canonical_universe_product: 0ns, kernel+native: 0ns, universe_vm_compile: 0ns, universe_initializers: 0ns, user_execution: 0ns
+
+thread 'corpus::booleans' (29576911) panicked at phalcom-core/tests/language_corpus/../support/mod.rs:364:5:
+booleans/bool_and_or_return_operand.ph failed: program compile failure: io error: metadata export error: legacy metadata cannot represent a Record remainder outside the Symbol key domain
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test corpus::booleans ... FAILED
+
+failures:
+
+failures:
+    corpus::booleans
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 69 filtered out; finished in 1.68s
+
+        1.68 real         1.59 user         0.08 sys
+           316882944  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               19569  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   2  voluntary context switches
+                 769  involuntary context switches
+         18002357463  instructions retired
+          5323152452  cycles elapsed
+           293651056  peak memory footprint

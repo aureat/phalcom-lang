@@ -1,0 +1,36 @@
+# BASELINE_HEAD=b00d75b3ac9f50d37cf9abfddfde00917e099031
+# BRANCH=perf/universe-characterization
+
+running 1 test
+[TIMING] classes/class_arity_overload_construction.ph - io: 32.333µs, parse: 111.583µs, discovery+link: 718.75µs, semantic_session_init: 212.952875ms, semantic_update: 1.498466125s, user_projection: 21.937791ms, canonical_universe_product: 0ns, kernel+native: 0ns, universe_vm_compile: 0ns, universe_initializers: 0ns, user_execution: 0ns
+
+thread 'corpus::classes' (29576369) panicked at phalcom-core/tests/language_corpus/../support/mod.rs:364:5:
+classes/class_arity_overload_construction.ph failed: program compile failure: io error: metadata export error: legacy metadata cannot represent a Record remainder outside the Symbol key domain
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test corpus::classes ... FAILED
+
+failures:
+
+failures:
+    corpus::classes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 69 filtered out; finished in 1.83s
+
+        1.84 real         1.71 user         0.09 sys
+           319782912  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               19746  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   9  voluntary context switches
+                 937  involuntary context switches
+         19352054567  instructions retired
+          5697009549  cycles elapsed
+           296108656  peak memory footprint

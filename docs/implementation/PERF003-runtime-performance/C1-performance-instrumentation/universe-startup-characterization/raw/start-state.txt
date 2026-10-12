@@ -1,0 +1,8 @@
+Investigation start state (provided by parent orchestration and rechecked before work):
+- Worktree: /Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization
+- Branch: perf/universe-characterization
+- HEAD: b00d75b3ac9f50d37cf9abfddfde00917e099031
+- Initial git status --short: empty (clean)
+- Active dirty main worktree: out of scope and not read or modified
+
+At report completion, the task's report/harness/evidence files are uncommitted in this dedicated worktree. HEAD remains pinned to the same baseline SHA.

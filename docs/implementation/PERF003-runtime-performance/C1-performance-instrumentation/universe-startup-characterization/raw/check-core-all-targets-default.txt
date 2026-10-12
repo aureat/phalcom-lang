@@ -1,0 +1,92 @@
+# BASELINE_HEAD=b00d75b3ac9f50d37cf9abfddfde00917e099031
+# BRANCH=perf/universe-characterization
+    Checking utf8parse v0.2.2
+    Checking is_terminal_polyfill v1.70.1
+    Checking serde_core v1.0.228
+    Checking libc v0.2.174
+    Checking anstyle-query v1.1.3
+    Checking equivalent v1.0.2
+    Checking once_cell v1.21.4
+    Checking thiserror v2.0.12
+    Checking anstyle-parse v0.2.7
+    Checking colorchoice v1.0.4
+    Checking anstyle v1.0.11
+    Checking hashbrown v0.15.4
+    Checking phalcom-common v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-common)
+    Checking num-traits v0.2.19
+    Checking clap_lex v0.7.5
+    Checking toml_write v0.1.2
+    Checking anstream v0.6.19
+    Checking typenum v1.20.1
+    Checking strsim v0.11.1
+    Checking winnow v0.7.15
+    Checking cfg-if v1.0.4
+    Checking phalcom-native-meta v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-native-meta)
+    Checking clap_builder v4.5.42
+    Checking tracing-core v0.1.34
+    Checking indexmap v2.10.0
+    Checking num-integer v0.1.46
+    Checking zmij v1.0.23
+    Checking memchr v2.7.5
+    Checking bitmaps v2.1.0
+    Checking regex-syntax v0.8.5
+    Checking log v0.4.27
+    Checking itoa v1.0.18
+    Checking rand_core v0.6.4
+    Checking regex-syntax v0.6.29
+    Checking rand_xoshiro v0.6.0
+    Checking num-bigint v0.4.8
+    Checking phalcom-ast v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-ast)
+    Checking sized-chunks v0.6.5
+    Checking unicode-width v0.2.1
+    Checking overload v0.1.1
+    Checking pin-project-lite v0.2.16
+    Checking lazy_static v1.5.0
+    Checking tracing v0.1.41
+    Checking sharded-slab v0.1.7
+    Checking nu-ansi-term v0.46.0
+    Checking serde v1.0.228
+    Checking clap v4.5.42
+    Checking serde_json v1.0.150
+    Checking regex-automata v0.4.9
+    Checking phalcom-diagnostics v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-diagnostics)
+    Checking im v15.1.0
+    Checking getrandom v0.3.3
+    Checking tracing-log v0.2.0
+    Checking phalcom-native-surface v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-native-surface)
+    Checking serde_spanned v0.6.9
+    Checking toml_datetime v0.6.11
+    Checking thread_local v1.1.9
+    Checking toml_edit v0.22.27
+    Checking jiff-tzdb v0.1.8
+    Checking smallvec v1.15.1
+    Checking regex-automata v0.1.10
+    Checking jiff-core v0.1.1
+    Checking phalcom-type-meta v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-type-meta)
+    Checking linkme v0.3.37
+    Checking slotmap v1.1.1
+    Checking matchers v0.1.0
+    Checking anyhow v1.0.98
+    Checking mio v1.0.4
+    Checking ryu v1.0.23
+    Checking bitflags v2.9.1
+    Checking errno v0.3.13
+    Checking fastrand v2.4.1
+    Checking rustix v1.0.8
+    Checking jiff v0.2.37
+    Checking regex v1.11.1
+    Checking tracing-subscriber v0.3.19
+    Checking toml v0.8.23
+    Checking tempfile v3.23.0
+    Checking phalcom-modules v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-modules)
+    Checking phalcom-semantic v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic)
+    Checking phalcom-core v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-core)
+error[E0601]: `main` function not found in crate `perf_universe_characterization`
+   --> phalcom-core/examples/perf_universe_characterization.rs:236:2
+    |
+236 | }
+    |  ^ consider adding a `main` function to `phalcom-core/examples/perf_universe_characterization.rs`
+
+For more information about this error, try `rustc --explain E0601`.
+error: could not compile `phalcom-core` (example "perf_universe_characterization") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
