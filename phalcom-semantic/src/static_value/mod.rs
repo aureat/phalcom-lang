@@ -3,7 +3,8 @@
 mod store;
 
 pub use store::{
-    StaticDataValueId, StaticFloat, StaticInt, StaticPackBacking, StaticPackBackingId, StaticPackData, StaticPackId, StaticRecordId,
-    StaticSequenceData, StaticSequenceFamily, StaticSequenceId, StaticStringId, StaticSymbolId, StaticTupleId, StaticValueData, StaticValueId, StaticValueRef,
-    StaticValueStore, StaticValueStoreError, StaticValueStoreId, StaticVariantValueId, static_float_eq, static_float_hash,
+    StaticDataValue, StaticDataValueId, StaticFloat, StaticInt, StaticPackBacking, StaticPackBackingId, StaticPackData, StaticPackId,
+    StaticRecordField, StaticRecordId, StaticSequenceData, StaticSequenceFamily, StaticSequenceId, StaticStringId, StaticSymbolId,
+    StaticTupleId, StaticValueData, StaticValueId, StaticValueRef, StaticValueStore, StaticValueStoreError, StaticValueStoreId,
+    StaticVariantValue, StaticVariantValueId, static_float_eq, static_float_hash,
 };

@@ -2835,6 +2835,11 @@ impl<'a> CheckingContext<'a> {
                 crate::checker::analysis::GenericCallConformanceSource::Derived { evidence } => {
                     self.record_derived_conformance_dependencies(evidence);
                 }
+                crate::checker::analysis::GenericCallConformanceSource::CompilerDerived { evidence } => {
+                    self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                        evidence.key.trait_ref.declaration.clone(),
+                    ));
+                }
             }
         }
         Some(crate::dispatch::ConditionalSelectedCallCapability { selection, applicability })
@@ -2870,6 +2875,11 @@ impl<'a> CheckingContext<'a> {
                             evidence.key.trait_ref.declaration.clone(),
                         ));
                     }
+                    crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(evidence) => {
+                        self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                            evidence.key.trait_ref.declaration.clone(),
+                        ));
+                    }
                 }
             }
         }
@@ -2892,6 +2902,11 @@ impl<'a> CheckingContext<'a> {
                     }
                     crate::generic_evidence::GenericConformanceEvidence::Derived(evidence) => self.record_derived_conformance_dependencies(evidence),
                     crate::generic_evidence::GenericConformanceEvidence::Assumed(evidence) => {
+                        self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                            evidence.key.trait_ref.declaration.clone(),
+                        ));
+                    }
+                    crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(evidence) => {
                         self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
                             evidence.key.trait_ref.declaration.clone(),
                         ));

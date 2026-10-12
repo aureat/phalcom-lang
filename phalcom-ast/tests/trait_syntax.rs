@@ -113,6 +113,27 @@ fn c5p1_trait_property_requirements_preserve_mutability_and_annotation() {
 fn c5p1_trait_associated_type_default_is_rejected() {
     let source = "trait Iterable { type Item = Int }\n";
     assert!(parse_source(source, 0).is_err(), "trait associated type defaults are not P1 syntax");
+    let source2 = "trait Product { type Shape: ProductShape = Int }\n";
+    assert!(parse_source(source2, 0).is_err(), "trait associated type defaults with domain are rejected");
+}
+
+#[test]
+fn lang007_c4_p5_associated_type_declaration_with_result_domain() {
+    let source = "trait Product { type Shape: ProductShape }\n";
+    let program = parse_source(source, 0).expect("associated type with domain parses");
+    let Statement::Trait(trait_def) = &program.statements[0] else {
+        panic!("expected trait");
+    };
+    let TraitMember::AssociatedType(declaration) = &trait_def.members[0] else {
+        panic!("expected associated type declaration");
+    };
+    assert_eq!(declaration.name, "Shape");
+    assert!(declaration.result_domain.is_some());
+    let domain = declaration.result_domain.as_ref().unwrap();
+    assert_eq!(&source[domain.range.start..domain.range.end], "ProductShape");
+
+    let malformed = "trait Product { type Shape: }\n";
+    assert!(parse_source(malformed, 0).is_err(), "malformed type Shape: is rejected");
 }
 
 #[test]

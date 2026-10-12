@@ -153,6 +153,7 @@ pub enum DiagnosticCode {
     DerivedConformanceUnguarded,
     DerivedConformanceUnauthorized,
     DerivedConformanceOverlap,
+    ConformanceCompilerDerivedTrait,
 }
 
 impl DiagnosticCode {
@@ -292,6 +293,7 @@ impl DiagnosticCode {
             Self::DerivedConformanceUnguarded => "impl.derived_conformance.unguarded",
             Self::DerivedConformanceUnauthorized => "impl.derived_conformance.unauthorized",
             Self::DerivedConformanceOverlap => "impl.derived_conformance.overlap",
+            Self::ConformanceCompilerDerivedTrait => "impl.conformance.compiler_derived",
         }
     }
 }

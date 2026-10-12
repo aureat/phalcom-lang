@@ -4167,8 +4167,20 @@ fn resolve_type_member_projection(
             ));
             return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
         }
-        let super::type_member::TypeMemberDomain::Kind(result_kind) = product.signature.result_domain;
-        kind = result_kind;
+        match product.signature.result_domain {
+            super::type_member::TypeMemberDomain::Kind(result_kind) => {
+                kind = result_kind;
+            }
+            super::type_member::TypeMemberDomain::ValueType(_) => {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    current_module.clone(),
+                    DiagnosticCode::AnnotationUnsupported,
+                    "type-member with static value result domain cannot be used as a type annotation",
+                    range,
+                ));
+                return TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch);
+            }
+        }
         Some(product.id.clone())
     } else {
         None

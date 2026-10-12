@@ -3559,7 +3559,19 @@ fn discharge_generic_obligations_with_instantiation(
                     }
                     let instantiated_trait_ref = crate::traits::TraitRef::new(trait_ref.declaration.clone(), instantiated_args);
 
-                    let proof = crate::generic_evidence::query_generic_conformance_proof(
+                    let structural_ctx = match (ctx.data_table, ctx.enum_table) {
+                        (Some(data), Some(enums)) => {
+                            static IDS: std::sync::OnceLock<crate::core_surface::identity::StructuralUniverseIds> = std::sync::OnceLock::new();
+                            let ids = IDS.get_or_init(crate::core_surface::identity::StructuralUniverseIds::new);
+                            Some(crate::generic_evidence::StructuralConformanceContext {
+                                classifier: crate::structural::StructuralClassifier::new(data, enums),
+                                ids,
+                            })
+                        }
+                        _ => None,
+                    };
+
+                    let proof = crate::generic_evidence::query_generic_conformance_proof_with_structural(
                         &instantiated_subject,
                         &instantiated_trait_ref,
                         Some(&ctx.generic_evidence),
@@ -3570,6 +3582,7 @@ fn discharge_generic_obligations_with_instantiation(
                         Some(ctx.declarations),
                         Some(ctx.hierarchy.inner()),
                         Some(&mut ctx.store),
+                        structural_ctx,
                     );
                     let conformance_key = crate::generic_evidence::GenericConformanceKey::new(instantiated_subject.clone(), instantiated_trait_ref.clone());
                     ctx.record_exact_conformance_query_dependency(&conformance_key, &proof);
@@ -3627,6 +3640,15 @@ fn discharge_generic_obligations_with_instantiation(
                             conformances.push(crate::checker::analysis::GenericCallConformanceBinding {
                                 callee_conformance: conformance_key.clone(),
                                 source: crate::checker::analysis::GenericCallConformanceSource::Derived { evidence: derived },
+                            });
+                        }
+                        crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(ev)) => {
+                            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                                instantiated_trait_ref.declaration.clone(),
+                            ));
+                            conformances.push(crate::checker::analysis::GenericCallConformanceBinding {
+                                callee_conformance: conformance_key.clone(),
+                                source: crate::checker::analysis::GenericCallConformanceSource::CompilerDerived { evidence: ev },
                             });
                         }
                         _ => {

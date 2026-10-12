@@ -107,7 +107,7 @@ fn prove(ctx: &mut CheckingContext<'_>, subject: TypeTerm, trait_ref: &TraitRef)
 
 fn evidence_status(evidence: &GenericConformanceEvidence) -> EvidenceStatus {
     match evidence {
-        GenericConformanceEvidence::Exact(_) => EvidenceStatus::Established,
+        GenericConformanceEvidence::Exact(_) | GenericConformanceEvidence::CompilerDerived(_) => EvidenceStatus::Established,
         GenericConformanceEvidence::Assumed(_) | GenericConformanceEvidence::Derived(_) => EvidenceStatus::Assumed,
     }
 }
@@ -123,6 +123,11 @@ fn record_evidence_dependencies(ctx: &mut CheckingContext<'_>, evidence: &Generi
         GenericConformanceEvidence::Assumed(assumed) => {
             ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
                 assumed.key.trait_ref.declaration.clone(),
+            ));
+        }
+        GenericConformanceEvidence::CompilerDerived(compiler_derived) => {
+            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(
+                compiler_derived.key.trait_ref.declaration.clone(),
             ));
         }
         GenericConformanceEvidence::Derived(derived) => {
@@ -168,7 +173,7 @@ fn requirement_resolution(
             .get(&requirement)
             .map(|view| view.signature.clone())
             .unwrap_or(fallback_signature),
-        GenericConformanceEvidence::Assumed(_) => fallback_signature,
+        GenericConformanceEvidence::Assumed(_) | GenericConformanceEvidence::CompilerDerived(_) => fallback_signature,
     };
     ForIterationRequirementResolution::Evidence {
         conformance,

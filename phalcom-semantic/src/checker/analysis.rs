@@ -235,6 +235,9 @@ pub enum GenericCallConformanceSource {
     Derived {
         evidence: Arc<crate::generic_evidence::DerivedConformanceEvidence>,
     },
+    CompilerDerived {
+        evidence: Arc<crate::generic_evidence::CompilerDerivedConformanceEvidence>,
+    },
 }
 
 /// Binding for one callee generic conformance obligation discharged during callable application.

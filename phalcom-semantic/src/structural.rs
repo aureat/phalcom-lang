@@ -8,8 +8,10 @@
 use crate::data_semantics::{DataProductShapeMaterializationError, DataProductShapeState, DataSemanticTable, DataShape, materialize_data_product_shape};
 use crate::enum_semantics::{AlgebraicCasePayloadKind, EnumSemanticTable};
 use crate::identity::{DataComponentId, DeclarationId, VariantId};
+use crate::field_key::FieldKey;
 use crate::reflection::{ExactCaseTypeReflection, VariantReflection};
 use crate::types::id::{KindId, TypeId};
+use crate::types::row::{RecordRowTail, StructuralMemberPresence};
 use crate::types::store::{AnonymousTupleRemainder, TypeData, TypeStore};
 use thiserror::Error;
 
@@ -30,6 +32,15 @@ pub enum OrderedProductForm {
     Data { owner: DeclarationId },
 }
 
+/// The canonical unordered form represented by an exact semantic type.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum UnorderedProductForm {
+    /// A finalized Record type.
+    Record,
+    /// A nominal record-shaped data declaration, preserving its owner identity.
+    Data { owner: DeclarationId },
+}
+
 /// Shared, lower-level structural classification for a canonical type.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StructuralClassification {
@@ -37,6 +48,8 @@ pub enum StructuralClassification {
     Unsupported,
     /// The type has an ordered product form.
     OrderedProduct(OrderedProductForm),
+    /// The type has an unordered product form.
+    UnorderedProduct(UnorderedProductForm),
     /// The type is a declared sum, identified by its canonical owner.
     Sum { owner: DeclarationId },
 }
@@ -90,6 +103,32 @@ pub struct OrderedProductStructure {
     pub state: DataProductShapeState,
 }
 
+/// Canonical origin of a classified unordered product.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum UnorderedProductOrigin {
+    Record,
+    Data { owner: DeclarationId },
+}
+
+/// One field entry within a shallow unordered product descriptor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnorderedProductEntry {
+    pub component: Option<DataComponentId>,
+    pub key: FieldKey,
+    pub ty: Option<TypeId>,
+    pub presence: StructuralMemberPresence,
+}
+
+/// Shallow structural facts for one exact unordered product type.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnorderedProductStructure {
+    pub ty: TypeId,
+    pub origin: UnorderedProductOrigin,
+    pub fields: Box<[UnorderedProductEntry]>,
+    pub tail: RecordRowTail,
+    pub state: DataProductShapeState,
+}
+
 /// One declaration-ordered Variant specialized against an exact Sum type.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SpecializedVariantStructure {
@@ -127,6 +166,7 @@ pub enum SumStructureError {
 ///
 /// This facade does not create a query product or retain state. Callers that
 /// need a durable or incremental product must own that dependency explicitly.
+#[derive(Clone, Copy)]
 pub struct StructuralClassifier<'a> {
     data: &'a DataSemanticTable,
     enums: &'a EnumSemanticTable,
@@ -149,10 +189,23 @@ impl<'a> StructuralClassifier<'a> {
             TypeData::TupleFromPacks { .. } => StructuralClassification::OrderedProduct(OrderedProductForm::TupleFromPacks),
             TypeData::Pack(_) => StructuralClassification::OrderedProduct(OrderedProductForm::Pack),
             TypeData::PackFromPacks { .. } => StructuralClassification::OrderedProduct(OrderedProductForm::PackFromPacks),
+            TypeData::Record(_) => StructuralClassification::UnorderedProduct(UnorderedProductForm::Record),
             TypeData::Nominal { .. } | TypeData::Applied { .. } => {
                 let Some((owner, _)) = types.applied_nominal_static_parts(ty) else {
                     return StructuralClassification::Unsupported;
                 };
+
+                if owner.module.project.is_universe() {
+                    if owner.name.as_ref() == "Record" && owner.module == crate::core_surface::identity::universe_module(&["collections", "record"]) {
+                        return StructuralClassification::UnorderedProduct(UnorderedProductForm::Record);
+                    }
+                    if owner.name.as_ref() == "Tuple" && owner.module == crate::core_surface::identity::universe_module(&["collections", "tuple"]) {
+                        return StructuralClassification::OrderedProduct(OrderedProductForm::Tuple);
+                    }
+                    if owner.name.as_ref() == "Pack" && owner.module == crate::core_surface::identity::universe_module(&["collections", "pack"]) {
+                        return StructuralClassification::OrderedProduct(OrderedProductForm::Pack);
+                    }
+                }
 
                 if self.enums.enum_info(&owner).is_some() {
                     return StructuralClassification::Sum { owner };
@@ -160,6 +213,7 @@ impl<'a> StructuralClassifier<'a> {
 
                 match self.data.data_info(&owner) {
                     Some(info) if info.shape == DataShape::Tuple => StructuralClassification::OrderedProduct(OrderedProductForm::Data { owner }),
+                    Some(info) if info.shape == DataShape::Record => StructuralClassification::UnorderedProduct(UnorderedProductForm::Data { owner }),
                     _ => StructuralClassification::Unsupported,
                 }
             }
@@ -175,7 +229,7 @@ impl<'a> StructuralClassifier<'a> {
     pub fn ordered_product(&self, types: &mut TypeStore, ty: TypeId) -> Result<Option<OrderedProductStructure>, DataProductShapeMaterializationError> {
         let classification = self.classify(types, ty);
         let mut structure = match classification {
-            StructuralClassification::Unsupported | StructuralClassification::Sum { .. } => return Ok(None),
+            StructuralClassification::Unsupported | StructuralClassification::Sum { .. } | StructuralClassification::UnorderedProduct(_) => return Ok(None),
             StructuralClassification::OrderedProduct(OrderedProductForm::Unit) => OrderedProductStructureBuilder::new(ty, OrderedProductOrigin::Unit),
             StructuralClassification::OrderedProduct(OrderedProductForm::Tuple) => match types.get(ty).clone() {
                 TypeData::Tuple(tuple) => {
@@ -239,6 +293,101 @@ impl<'a> StructuralClassifier<'a> {
             structure.structure.labeled_remainder = AnonymousTupleRemainder::None;
         }
         Ok(Some(structure.finish()))
+    }
+
+    /// Forms shallow unordered facts for an exact unordered product type.
+    pub fn unordered_product(
+        &self,
+        types: &mut TypeStore,
+        ty: TypeId,
+    ) -> Result<Option<UnorderedProductStructure>, DataProductShapeMaterializationError> {
+        let classification = self.classify(types, ty);
+        match classification {
+            StructuralClassification::UnorderedProduct(UnorderedProductForm::Record) => {
+                match types.get(ty).clone() {
+                    TypeData::Record(row_id) => {
+                        let row = types.record_row(row_id).clone();
+                        let fields = row
+                            .fields
+                            .iter()
+                            .map(|f| UnorderedProductEntry {
+                                component: None,
+                                key: f.key.clone(),
+                                ty: Some(f.ty),
+                                presence: f.presence,
+                            })
+                            .collect::<Vec<_>>()
+                            .into_boxed_slice();
+                        Ok(Some(UnorderedProductStructure {
+                            ty,
+                            origin: UnorderedProductOrigin::Record,
+                            fields,
+                            tail: row.tail,
+                            state: DataProductShapeState::Concrete,
+                        }))
+                    }
+                    _ => {
+                        if let Some((owner, arguments)) = types.applied_nominal_static_parts(ty) {
+                            if owner.module.project.is_universe()
+                                && owner.name.as_ref() == "Record"
+                                && owner.module == crate::core_surface::identity::universe_module(&["collections", "record"])
+                            {
+                                if let Some(crate::types::store::StaticArgument::RecordRow(row_id)) = arguments.first() {
+                                    let row = types.record_row(*row_id).clone();
+                                    let fields = row
+                                        .fields
+                                        .iter()
+                                        .map(|f| UnorderedProductEntry {
+                                            component: None,
+                                            key: f.key.clone(),
+                                            ty: Some(f.ty),
+                                            presence: f.presence,
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .into_boxed_slice();
+                                    return Ok(Some(UnorderedProductStructure {
+                                        ty,
+                                        origin: UnorderedProductOrigin::Record,
+                                        fields,
+                                        tail: row.tail,
+                                        state: DataProductShapeState::Concrete,
+                                    }));
+                                }
+                            }
+                        }
+                        Ok(None)
+                    }
+                }
+            }
+            StructuralClassification::UnorderedProduct(UnorderedProductForm::Data { owner }) => {
+                let Some(info) = self.data.data_info(&owner) else {
+                    return Ok(None);
+                };
+                let materialized = materialize_data_product_shape(types, info, ty)?;
+                let fields = materialized
+                    .components
+                    .iter()
+                    .map(|c| {
+                        let key = FieldKey::symbol(c.label.as_deref().or(c.local_name.as_deref()).unwrap_or(""));
+                        UnorderedProductEntry {
+                            component: c.component.clone(),
+                            key,
+                            ty: c.ty,
+                            presence: StructuralMemberPresence::Required,
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                Ok(Some(UnorderedProductStructure {
+                    ty,
+                    origin: UnorderedProductOrigin::Data { owner },
+                    fields,
+                    tail: RecordRowTail::Closed,
+                    state: materialized.state,
+                }))
+            }
+            _ => Ok(None),
+        }
     }
 
     /// Forms shallow declaration-ordered Variant facts for an exact Sum type.

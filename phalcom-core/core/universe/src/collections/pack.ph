@@ -27,6 +27,7 @@ export PositionalPackView
 export LabeledPackView
 export PositionalTypePackView
 export LabeledTypePackView
+export Pack, PositionalPack, LabeledPack, CompletePack
 
 impl<***Es: CompleteTypePack> Pack<***Es> {
   internal native rawPositionalSize -> Int

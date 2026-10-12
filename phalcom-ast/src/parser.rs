@@ -5476,13 +5476,18 @@ impl<'source> Parser<'source> {
         Ok(range)
     }
 
-    /// Parses a trait-owned associated type declaration (`type Item`).
+    /// Parses a trait-owned associated type declaration (`type Item` or `type Shape: ProductShape`).
     fn parse_associated_type_declaration(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<TraitMember> {
         let start = self.cur_start();
         self.expect(&Token::TypeKw, &["\"type\""])?;
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["associated type name"])?;
         let name_range = (name_start..self.prev_end).into();
+        let result_domain = if self.eat(&Token::Colon) {
+            Some(self.parse_static_domain()?)
+        } else {
+            None
+        };
         if self.eat(&Token::Equal) {
             return Err(SyntaxError {
                 kind: SyntaxErrorKind::Message("associated type declarations cannot have defaults in P1".to_string()),
@@ -5493,6 +5498,7 @@ impl<'source> Parser<'source> {
         Ok(TraitMember::AssociatedType(crate::ast::AssociatedTypeDeclaration {
             name,
             name_range,
+            result_domain,
             attributes: pending_attrs,
             range,
         }))

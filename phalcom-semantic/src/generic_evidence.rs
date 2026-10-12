@@ -87,6 +87,23 @@ impl DerivedConformanceEvidence {
     }
 }
 
+/// Exact category of compiler-derived capability proved from structural facts.
+#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CompilerDerivedConformanceKind {
+    Product,
+    OrderedProduct,
+    UnorderedProduct,
+    Sum,
+}
+
+/// Proven compiler-derived conformance evidence for sealed structural capabilities.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompilerDerivedConformanceEvidence {
+    pub key: GenericConformanceKey,
+    pub kind: CompilerDerivedConformanceKind,
+    pub classification: crate::structural::StructuralClassification,
+}
+
 /// Proven generic conformance evidence: exact (unconditional source impl with
 /// its instantiated trait-header obligations proved), assumed (derived from a
 /// lexical generic bound), or derived (instantiated conditional conformance).
@@ -95,6 +112,7 @@ pub enum GenericConformanceEvidence {
     Exact(Arc<ConformanceEvidence>),
     Assumed(AssumedConformanceEvidence),
     Derived(Arc<DerivedConformanceEvidence>),
+    CompilerDerived(Arc<CompilerDerivedConformanceEvidence>),
 }
 
 /// Status of an active or completed proof goal in the recursive memo table.
@@ -530,6 +548,13 @@ impl GenericEvidenceEnvironment {
     }
 }
 
+/// Structural capability context providing lower-level classification authority.
+#[derive(Clone)]
+pub struct StructuralConformanceContext<'a> {
+    pub classifier: crate::structural::StructuralClassifier<'a>,
+    pub ids: &'a crate::core_surface::identity::StructuralUniverseIds,
+}
+
 /// Recursive proof session context owning memoization, cycle tracking,
 /// query budget, cancellation, and semantic authorities.
 pub struct ConformanceProofContext<'a> {
@@ -541,6 +566,7 @@ pub struct ConformanceProofContext<'a> {
     pub declarations: Option<&'a DeclarationTypeTable>,
     pub hierarchy: Option<&'a dyn TypeHierarchy>,
     pub store: Option<&'a mut TypeStore>,
+    pub structural: Option<StructuralConformanceContext<'a>>,
     pub memo: BTreeMap<GenericConformanceKey, ProofMemoState>,
     pub stack: Vec<GenericConformanceKey>,
     pub budget: QueryBudget,
@@ -566,6 +592,7 @@ impl<'a> ConformanceProofContext<'a> {
             declarations,
             hierarchy,
             store,
+            structural: None,
             memo: BTreeMap::new(),
             stack: Vec::new(),
             budget: QueryBudget::default(),
@@ -575,6 +602,11 @@ impl<'a> ConformanceProofContext<'a> {
 
     pub fn with_derived_rules(mut self, derived_rules: Option<&'a crate::derived_conformance::DerivedConformanceRuleIndex>) -> Self {
         self.derived_rules = derived_rules;
+        self
+    }
+
+    pub fn with_structural(mut self, structural: Option<StructuralConformanceContext<'a>>) -> Self {
+        self.structural = structural;
         self
     }
 
@@ -929,6 +961,68 @@ fn evaluate_conformance_goal(key: &GenericConformanceKey, context: &mut Conforma
         }
     }
 
+    // 1B. Check compiler-derived structural capabilities for concrete canonical subjects
+    if let TypeTerm::Canonical(target_type) = key.subject {
+        let decl = &key.trait_ref.declaration;
+        static IDS: std::sync::OnceLock<crate::core_surface::identity::StructuralUniverseIds> = std::sync::OnceLock::new();
+        let structural_ids = IDS.get_or_init(crate::core_surface::identity::StructuralUniverseIds::new);
+
+        let matching_kind = if decl == &structural_ids.product {
+            Some(CompilerDerivedConformanceKind::Product)
+        } else if decl == &structural_ids.ordered_product {
+            Some(CompilerDerivedConformanceKind::OrderedProduct)
+        } else if decl == &structural_ids.unordered_product {
+            Some(CompilerDerivedConformanceKind::UnorderedProduct)
+        } else if decl == &structural_ids.sum {
+            Some(CompilerDerivedConformanceKind::Sum)
+        } else {
+            None
+        };
+
+        if let Some(kind) = matching_kind {
+            if !key.trait_ref.arguments.is_empty() {
+                return GenericConformanceProof::Missing;
+            }
+
+            let classification = if let Some(structural) = &context.structural {
+                if let Some(store) = context.store.as_deref() {
+                    structural.classifier.classify(store, target_type)
+                } else {
+                    crate::structural::StructuralClassification::Unsupported
+                }
+            } else if let Some(store) = context.store.as_deref() {
+                static EMPTY_DATA: std::sync::OnceLock<crate::data_semantics::DataSemanticTable> = std::sync::OnceLock::new();
+                static EMPTY_ENUMS: std::sync::OnceLock<crate::enum_semantics::EnumSemanticTable> = std::sync::OnceLock::new();
+                let data = EMPTY_DATA.get_or_init(crate::data_semantics::DataSemanticTable::new);
+                let enums = EMPTY_ENUMS.get_or_init(crate::enum_semantics::EnumSemanticTable::new);
+                let classifier = crate::structural::StructuralClassifier::new(data, enums);
+                classifier.classify(store, target_type)
+            } else {
+                crate::structural::StructuralClassification::Unsupported
+            };
+
+            let is_satisfied = match (kind, &classification) {
+                (CompilerDerivedConformanceKind::Product, crate::structural::StructuralClassification::OrderedProduct(_))
+                | (CompilerDerivedConformanceKind::Product, crate::structural::StructuralClassification::UnorderedProduct(_)) => true,
+                (CompilerDerivedConformanceKind::OrderedProduct, crate::structural::StructuralClassification::OrderedProduct(_)) => true,
+                (CompilerDerivedConformanceKind::UnorderedProduct, crate::structural::StructuralClassification::UnorderedProduct(_)) => true,
+                (CompilerDerivedConformanceKind::Sum, crate::structural::StructuralClassification::Sum { .. }) => true,
+                _ => false,
+            };
+
+            if is_satisfied {
+                let evidence = Arc::new(CompilerDerivedConformanceEvidence {
+                    key: key.clone(),
+                    kind,
+                    classification,
+                });
+                return GenericConformanceProof::Proven(GenericConformanceEvidence::CompilerDerived(evidence));
+            } else {
+                return GenericConformanceProof::Missing;
+            }
+        }
+    }
+
     // 2. Candidate collection across exact/conditional nominal sources and guarded derived rules
     let mut successes = Vec::new();
     let mut failure_proofs = Vec::new();
@@ -1225,8 +1319,37 @@ pub fn query_generic_conformance_proof(
     hierarchy: Option<&dyn TypeHierarchy>,
     store: Option<&mut TypeStore>,
 ) -> GenericConformanceProof {
+    query_generic_conformance_proof_with_structural(
+        subject,
+        trait_ref,
+        environment,
+        conformance_index,
+        witness_plans,
+        trait_surfaces,
+        derived_rules,
+        declarations,
+        hierarchy,
+        store,
+        None,
+    )
+}
+
+pub fn query_generic_conformance_proof_with_structural(
+    subject: &TypeTerm,
+    trait_ref: &TraitRef,
+    environment: Option<&GenericEvidenceEnvironment>,
+    conformance_index: Option<&ConformanceIndex>,
+    witness_plans: Option<&BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
+    trait_surfaces: Option<&TraitSurfaceTable>,
+    derived_rules: Option<&crate::derived_conformance::DerivedConformanceRuleIndex>,
+    declarations: Option<&DeclarationTypeTable>,
+    hierarchy: Option<&dyn TypeHierarchy>,
+    store: Option<&mut TypeStore>,
+    structural: Option<StructuralConformanceContext<'_>>,
+) -> GenericConformanceProof {
     let mut context = ConformanceProofContext::new(environment, conformance_index, witness_plans, trait_surfaces, declarations, hierarchy, store)
-        .with_derived_rules(derived_rules);
+        .with_derived_rules(derived_rules)
+        .with_structural(structural);
     let key = GenericConformanceKey::new(subject.clone(), trait_ref.clone());
     prove_conformance_with_context(&key, &mut context)
 }

@@ -129,7 +129,8 @@ fn add_contextual_realization_trait_roots(
             phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(evidence) => {
                 evidence.impl_bindings.bindings().iter().map(|(&parameter, &ty)| (parameter, ty)).collect()
             }
-            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(_) => Vec::new(),
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(_)
+            | phalcom_semantic::generic_evidence::GenericConformanceEvidence::CompilerDerived(_) => Vec::new(),
         };
         add_runtime_trait_environment_roots(
             roots,
@@ -1063,7 +1064,8 @@ impl ProgramCompiler {
                                     );
                                 }
                             },
-                            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(_) => {}
+                            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(_)
+                            | phalcom_semantic::generic_evidence::GenericConformanceEvidence::CompilerDerived(_) => {}
                         }
                     }
                 }
@@ -1781,6 +1783,7 @@ impl ProgramCompiler {
                                                                         None
                                                                     }
                                                                 }
+                                                                phalcom_semantic::generic_evidence::GenericConformanceEvidence::CompilerDerived(_) => None,
                                                             };
                                                             if let Some(nested_recipe) = nested_recipe {
                                                                 nested_slots.push((*target_slot, nested_recipe));
@@ -1815,6 +1818,7 @@ impl ProgramCompiler {
                                     }
                                 }
                             }
+                            phalcom_semantic::checker::analysis::GenericCallConformanceSource::CompilerDerived { .. } => {}
                         }
                     }
                 }

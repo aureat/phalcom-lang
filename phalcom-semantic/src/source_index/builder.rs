@@ -1248,6 +1248,9 @@ impl SourceScopeBuilder<'_> {
                     SourceSiteKind::AssociatedType(requirement.clone()),
                 );
                 self.index.register_target(site, SemanticTargetId::AssociatedType(requirement));
+                if let Some(result_domain) = &declaration_member.result_domain {
+                    self.visit_annotation_projection_targets(&result_domain.form);
+                }
                 continue;
             }
             if let phalcom_ast::ast::TraitMember::Property(property) = trait_member {

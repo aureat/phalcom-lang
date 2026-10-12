@@ -51,12 +51,10 @@ impl StaticValueDomain {
         }
     }
 
-    /// Adapter to existing type-member domain representation if this domain is a kind.
+    /// Converts to the equivalent type-member domain representation.
+    #[inline]
     pub fn to_type_member_domain(&self) -> Option<TypeMemberDomain> {
-        match self {
-            Self::Kind(k) => Some(TypeMemberDomain::Kind(*k)),
-            Self::ValueType(_) => None,
-        }
+        Some((*self).into())
     }
 }
 
@@ -64,17 +62,6 @@ impl From<KindId> for StaticValueDomain {
     #[inline]
     fn from(kind: KindId) -> Self {
         Self::Kind(kind)
-    }
-}
-
-impl TryFrom<StaticValueDomain> for TypeMemberDomain {
-    type Error = StaticValueDomain;
-
-    fn try_from(domain: StaticValueDomain) -> Result<Self, Self::Error> {
-        match domain {
-            StaticValueDomain::Kind(k) => Ok(TypeMemberDomain::Kind(k)),
-            other => Err(other),
-        }
     }
 }
 

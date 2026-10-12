@@ -5,10 +5,11 @@ use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::identity::{DeclarationId, DispatchSide, ModuleId};
 use crate::types::annotation::{
-    KindResolution, TypeFormResolution, TypeFormationSite, resolve_contextual_kind_syntax, resolve_type_form, static_domain_kind_of_form,
+    KindResolution, TypeFormationSite, resolve_contextual_kind_syntax,
 };
 use crate::types::type_member::{
-    TypeMemberDeclarationId, TypeMemberDomain, TypeMemberParameter, TypeMemberSelector, TypeMemberSignature, lookup_intrinsic_type_operation,
+    IntrinsicTypeOperation, TypeMemberDeclarationId, TypeMemberDomain, TypeMemberParameter, TypeMemberSelector, TypeMemberSignature,
+    lookup_intrinsic_type_operation,
 };
 use crate::types::{KindId, TypeResolver, TypeStore};
 use phalcom_ast::ast::{TypeMemberDef, TypeMemberParameterDomainSyntax, TypeMemberResultSyntax};
@@ -49,7 +50,7 @@ pub fn build_type_member_declaration(
         let domain = match &parameter.domain {
             TypeMemberParameterDomainSyntax::Kind(syntax) => {
                 match resolve_contextual_kind_syntax(store, Some(declarations), Some(resolver), &site, syntax, &mut diagnostics) {
-                    KindResolution::Ready(kind) => Some(kind),
+                    KindResolution::Ready(kind) => Some(TypeMemberDomain::Kind(kind)),
                     other => {
                         diagnostics.push(SemanticDiagnostic::error_in(
                             module.clone(),
@@ -62,16 +63,39 @@ pub fn build_type_member_declaration(
                 }
             }
             TypeMemberParameterDomainSyntax::ConstType(annotation) => {
-                match resolve_type_form(store, declarations, resolver, &site, annotation, &mut diagnostics) {
-                    TypeFormResolution::Ready(form) => Some(static_domain_kind_of_form(store, form)),
-                    _ => None,
+                let syntax = phalcom_ast::ast::StaticDomainSyntax::new(annotation.clone(), annotation.range);
+                match crate::static_domain::resolve_static_domain(store, declarations, resolver, &site, &syntax, &mut diagnostics) {
+                    crate::types::annotation::TypeFormationOutcome::Ready(domain) => {
+                        let member_domain = match domain {
+                            crate::static_domain::StaticValueDomain::ValueType(ty) => {
+                                if let crate::types::store::TypeData::Nominal { declaration } = store.get(ty)
+                                    && declaration == &crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int)
+                                {
+                                    TypeMemberDomain::Kind(store.static_domain_kind(store.const_int_domain()))
+                                } else {
+                                    TypeMemberDomain::ValueType(ty)
+                                }
+                            }
+                            crate::static_domain::StaticValueDomain::Kind(k) => TypeMemberDomain::Kind(k),
+                        };
+                        Some(member_domain)
+                    }
+                    other => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            module.clone(),
+                            DiagnosticCode::AnnotationUnresolved,
+                            format!("could not resolve type-member parameter domain: {other:?}"),
+                            parameter.domain.range(),
+                        ));
+                        None
+                    }
                 }
             }
         };
-        if let Some(kind) = domain {
+        if let Some(domain) = domain {
             parameters.push(TypeMemberParameter {
                 name: parameter.name.clone().into_boxed_str(),
-                domain: TypeMemberDomain::Kind(kind),
+                domain,
             });
         } else {
             valid = false;
@@ -81,7 +105,7 @@ pub fn build_type_member_declaration(
     let result_domain = match &definition.result {
         TypeMemberResultSyntax::Kind(syntax) => {
             match resolve_contextual_kind_syntax(store, Some(declarations), Some(resolver), &site, syntax, &mut diagnostics) {
-                KindResolution::Ready(kind) => Some(kind),
+                KindResolution::Ready(kind) => Some(TypeMemberDomain::Kind(kind)),
                 other => {
                     diagnostics.push(SemanticDiagnostic::error_in(
                         module.clone(),
@@ -93,10 +117,21 @@ pub fn build_type_member_declaration(
                 }
             }
         }
-        TypeMemberResultSyntax::Type(annotation) => match resolve_type_form(store, declarations, resolver, &site, annotation, &mut diagnostics) {
-            TypeFormResolution::Ready(form) => Some(static_domain_kind_of_form(store, form)),
-            _ => None,
-        },
+        TypeMemberResultSyntax::Type(annotation) => {
+            let syntax = phalcom_ast::ast::StaticDomainSyntax::new(annotation.clone(), annotation.range);
+            match crate::static_domain::resolve_static_domain(store, declarations, resolver, &site, &syntax, &mut diagnostics) {
+                crate::types::annotation::TypeFormationOutcome::Ready(domain) => Some(TypeMemberDomain::from(domain)),
+                other => {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        module.clone(),
+                        DiagnosticCode::AnnotationUnresolved,
+                        format!("could not resolve type-member result domain: {other:?}"),
+                        definition.result.range(),
+                    ));
+                    None
+                }
+            }
+        }
     };
     if result_domain.is_none() {
         valid = false;
@@ -131,29 +166,77 @@ pub fn build_type_member_declaration(
     };
 
     if let Some(operation) = intrinsic {
-        let (expected_parameters, expected_result) = operation.signature_kinds(store);
-        let actual_parameters = parameters
-            .iter()
-            .map(|parameter| match &parameter.domain {
-                TypeMemberDomain::Kind(kind) => *kind,
-            })
-            .collect::<Vec<_>>();
-        let actual_result = result_domain.unwrap_or(KindId::TYPE);
-        if actual_parameters.as_slice() != expected_parameters.as_ref() || actual_result != expected_result {
-            diagnostics.push(SemanticDiagnostic::error_in(
-                module.clone(),
-                DiagnosticCode::AnnotationUnresolved,
-                format!(
-                    "intrinsic type member `{}` has parameter/result kinds {:?} -> {:?}; its evaluator requires {:?} -> {:?}",
-                    selector.name(),
-                    actual_parameters,
-                    actual_result,
-                    expected_parameters,
-                    expected_result,
-                ),
-                definition.range,
-            ));
-            valid = false;
+        match operation {
+            IntrinsicTypeOperation::UnorderedShapeLookup => {
+                let param_ok = parameters.len() == 1 && matches!(parameters[0].domain, TypeMemberDomain::ValueType(_));
+                let result_ok = matches!(result_domain, Some(TypeMemberDomain::ValueType(_)));
+                if !param_ok || !result_ok {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        module.clone(),
+                        DiagnosticCode::AnnotationUnresolved,
+                        format!(
+                            "intrinsic type member `{}` has parameters/result {:?} -> {:?}; expected 1 value parameter and value result",
+                            selector.name(),
+                            parameters,
+                            result_domain,
+                        ),
+                        definition.range,
+                    ));
+                    valid = false;
+                }
+            }
+            IntrinsicTypeOperation::UnorderedShapeView | IntrinsicTypeOperation::UnorderedShapeTail => {
+                let param_ok = parameters.is_empty();
+                let result_ok = matches!(result_domain, Some(TypeMemberDomain::ValueType(_)));
+                if !param_ok || !result_ok {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        module.clone(),
+                        DiagnosticCode::AnnotationUnresolved,
+                        format!(
+                            "intrinsic type member `{}` has parameters/result {:?} -> {:?}; expected 0 parameters and value result",
+                            selector.name(),
+                            parameters,
+                            result_domain,
+                        ),
+                        definition.range,
+                    ));
+                    valid = false;
+                }
+            }
+            _ => {
+                let (expected_parameters, expected_result) = operation.signature_kinds(store);
+                let actual_parameters = parameters
+                    .iter()
+                    .map(|parameter| match &parameter.domain {
+                        TypeMemberDomain::Kind(kind) => Some(*kind),
+                        TypeMemberDomain::ValueType(_) => None,
+                    })
+                    .collect::<Vec<_>>();
+                let actual_result = match result_domain {
+                    Some(TypeMemberDomain::Kind(k)) => Some(k),
+                    Some(TypeMemberDomain::ValueType(_)) => None,
+                    None => Some(KindId::TYPE),
+                };
+                let matches_kinds = actual_parameters.iter().all(|p| p.is_some())
+                    && actual_parameters.iter().map(|p| p.unwrap()).collect::<Vec<_>>().as_slice() == expected_parameters.as_ref()
+                    && actual_result == Some(expected_result);
+                if !matches_kinds {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        module.clone(),
+                        DiagnosticCode::AnnotationUnresolved,
+                        format!(
+                            "intrinsic type member `{}` has parameter/result kinds {:?} -> {:?}; its evaluator requires {:?} -> {:?}",
+                            selector.name(),
+                            actual_parameters,
+                            actual_result,
+                            expected_parameters,
+                            expected_result,
+                        ),
+                        definition.range,
+                    ));
+                    valid = false;
+                }
+            }
         }
     }
 
@@ -163,7 +246,7 @@ pub fn build_type_member_declaration(
     let signature = TypeMemberSignature {
         selector,
         parameters: parameters.into_boxed_slice(),
-        result_domain: TypeMemberDomain::Kind(result_domain.unwrap_or(KindId::TYPE)),
+        result_domain: result_domain.unwrap_or(TypeMemberDomain::Kind(KindId::TYPE)),
         intrinsic,
         implementation: definition.implementation,
     };

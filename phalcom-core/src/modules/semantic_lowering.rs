@@ -1925,6 +1925,9 @@ fn project_for_iteration_requirement(
                     call_environment_recipe: None,
                 }))
             }
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::CompilerDerived(_) => {
+                Err(ProjectionError::MissingTraitRequirementSlot(requirement.clone()))
+            }
         },
     }
 }
@@ -3437,6 +3440,9 @@ fn classify_realization_prerequisite_projection(
         GenericConformanceEvidence::Assumed(_) => Err(ProjectionError::UnsupportedContextualRealizationEvidence(
             "assumed evidence must use the canonical assumed-capability projection",
         )),
+        GenericConformanceEvidence::CompilerDerived(_) => Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+            "compiler-derived structural evidence has no runtime witness table",
+        )),
         GenericConformanceEvidence::Derived(derived) => {
             if !matches!(selection, RequirementSelectionTemplate::ConformanceCallable { .. }) {
                 return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
@@ -3450,7 +3456,11 @@ fn classify_realization_prerequisite_projection(
                     NestedGenericEvidence::Conformance(GenericConformanceEvidence::Assumed(_)) => {
                         has_assumed_prerequisite = true;
                     }
-                    NestedGenericEvidence::Conformance(GenericConformanceEvidence::Exact(_) | GenericConformanceEvidence::Derived(_)) => {
+                    NestedGenericEvidence::Conformance(
+                        GenericConformanceEvidence::Exact(_)
+                        | GenericConformanceEvidence::Derived(_)
+                        | GenericConformanceEvidence::CompilerDerived(_),
+                    ) => {
                         return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
                             "only caller-assumed prerequisites can be forwarded safely",
                         ));
@@ -3543,6 +3553,11 @@ fn project_realization_prerequisite_recipe(
                         GenericConformanceEvidence::Derived(_) => {
                             return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
                                 "nested derived prerequisites require recursive runtime materialization",
+                            ));
+                        }
+                        GenericConformanceEvidence::CompilerDerived(_) => {
+                            return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
+                                "compiler-derived structural evidence has no runtime witness table",
                             ));
                         }
                     };

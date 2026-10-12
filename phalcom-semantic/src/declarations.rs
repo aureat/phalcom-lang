@@ -531,6 +531,13 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
                                 .runtime_owner
                                 .is_some_and(|owner| table.register_intrinsic_runtime_owner(&declaration, owner));
                             debug_assert!(semantic_registered && owner_registered, "intrinsic data shell projections were just registered");
+                        } else {
+                            source_nominals.insert((module.clone(), data_def.name.clone()));
+                            insert_source_nominal(&mut table, store, declaration.clone(), &data_def.generic_parameters);
+                            let structural_module = source_module_id(&["reflection", "structural"]);
+                            if module.eq(&structural_module) && data_def.name == "UnorderedShape" {
+                                table.register_intrinsic_type_owner(declaration.clone(), IntrinsicTypeOwner::UnorderedShape);
+                            }
                         }
                         continue;
                     }

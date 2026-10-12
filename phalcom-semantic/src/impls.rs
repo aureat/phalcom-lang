@@ -1167,7 +1167,8 @@ pub(crate) fn project_inferred_trait_default_signature(
                 ))
             }
         },
-        crate::generic_evidence::GenericConformanceEvidence::Assumed(_) => None,
+        crate::generic_evidence::GenericConformanceEvidence::Assumed(_)
+        | crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(_) => None,
     }
 }
 
@@ -3421,17 +3422,19 @@ pub fn resolve_conformance_head(
 
     let trait_declaration = trait_syntax.origin_symbol_ref().and_then(|reference| {
         let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
-        ctx.resolver.resolve_type_name(&ctx.current_module, &reference.root, &members).or_else(|| {
-            // Trait declarations intentionally do not enter the nominal
-            // declaration type table. Preserve canonical local trait
-            // identity through the C3 header table when the ordinary
-            // value-type resolver therefore has no result.
-            if members.is_empty() {
-                let local = DeclarationId::new(ctx.current_module.clone(), reference.root.clone().into());
-                trait_headers.contains(&local).then_some(local)
-            } else {
-                None
-            }
+        ctx.resolver.resolve_trait_name(&ctx.current_module, &reference.root, &members).or_else(|| {
+            ctx.resolver.resolve_type_name(&ctx.current_module, &reference.root, &members).or_else(|| {
+                // Trait declarations intentionally do not enter the nominal
+                // declaration type table. Preserve canonical local trait
+                // identity through the C3 header table when the ordinary
+                // value-type resolver therefore has no result.
+                if members.is_empty() {
+                    let local = DeclarationId::new(ctx.current_module.clone(), reference.root.clone().into());
+                    trait_headers.contains(&local).then_some(local)
+                } else {
+                    None
+                }
+            })
         })
     });
     let Some(trait_declaration) = trait_declaration else {
@@ -3443,6 +3446,15 @@ pub fn resolve_conformance_head(
         ));
         return Err(diagnostics);
     };
+    if crate::core_surface::identity::StructuralUniverseIds::is_canonical_structural_capability(&trait_declaration) {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ConformanceCompilerDerivedTrait,
+            format!("`{}` is a compiler-derived structural capability and cannot be implemented explicitly", trait_declaration.name),
+            trait_syntax.range,
+        ));
+        return Err(diagnostics);
+    }
     let Some(trait_header) = trait_headers.get(&trait_declaration) else {
         diagnostics.push(SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
@@ -4921,6 +4933,9 @@ pub fn check_impl_domain_applicability_with_proofs(
             }
             crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::Derived(evidence)) => {
                 crate::checker::analysis::GenericCallConformanceSource::Derived { evidence }
+            }
+            crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(evidence)) => {
+                crate::checker::analysis::GenericCallConformanceSource::CompilerDerived { evidence }
             }
             crate::generic_evidence::GenericConformanceProof::Missing
             | crate::generic_evidence::GenericConformanceProof::Ambiguous(_)

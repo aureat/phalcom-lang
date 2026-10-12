@@ -43,6 +43,20 @@ fn decl(name: &str) -> DeclarationId {
             ])),
             name.into(),
         ),
+        "FieldKey" => DeclarationId::new(
+            ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
+                phalcom_modules::identity::ModuleComponent::from_identifier("collections").unwrap(),
+                phalcom_modules::identity::ModuleComponent::from_identifier("record").unwrap(),
+            ])),
+            name.into(),
+        ),
+        "UnorderedShape" | "FieldLookup" | "UnorderedShapeView" | "UnorderedTail" => DeclarationId::new(
+            ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
+                phalcom_modules::identity::ModuleComponent::from_identifier("reflection").unwrap(),
+                phalcom_modules::identity::ModuleComponent::from_identifier("structural").unwrap(),
+            ])),
+            name.into(),
+        ),
         other => DeclarationId::new(ModuleId::universe_root(), other.into()),
     }
 }
@@ -245,23 +259,39 @@ fn intrinsic_type_member_source_products_match_the_evaluator_catalog() {
         assert_eq!(selected.id, product.id);
         assert_eq!(selected.signature.intrinsic, Some(operation));
 
-        let (expected_parameters, expected_result) = operation.signature_kinds(&mut env.store);
-        let actual_parameters = selected
-            .signature
-            .parameters
-            .iter()
-            .map(|parameter| match &parameter.domain {
-                phalcom_semantic::types::type_member::TypeMemberDomain::Kind(kind) => *kind,
-            })
-            .collect::<Vec<_>>();
-        let phalcom_semantic::types::type_member::TypeMemberDomain::Kind(actual_result) = &selected.signature.result_domain;
-        assert_eq!(
-            actual_parameters.as_slice(),
-            expected_parameters.as_ref(),
-            "{} parameter domains",
-            operation.name()
-        );
-        assert_eq!(*actual_result, expected_result, "{} result domain", operation.name());
+        match operation {
+            IntrinsicTypeOperation::UnorderedShapeLookup => {
+                assert_eq!(selected.signature.parameters.len(), 1);
+                assert!(matches!(selected.signature.parameters[0].domain, phalcom_semantic::types::type_member::TypeMemberDomain::ValueType(_)));
+                assert!(matches!(selected.signature.result_domain, phalcom_semantic::types::type_member::TypeMemberDomain::ValueType(_)));
+            }
+            IntrinsicTypeOperation::UnorderedShapeView | IntrinsicTypeOperation::UnorderedShapeTail => {
+                assert_eq!(selected.signature.parameters.len(), 0);
+                assert!(matches!(selected.signature.result_domain, phalcom_semantic::types::type_member::TypeMemberDomain::ValueType(_)));
+            }
+            _ => {
+                let (expected_parameters, expected_result) = operation.signature_kinds(&mut env.store);
+                let actual_parameters = selected
+                    .signature
+                    .parameters
+                    .iter()
+                    .map(|parameter| match &parameter.domain {
+                        phalcom_semantic::types::type_member::TypeMemberDomain::Kind(kind) => *kind,
+                        phalcom_semantic::types::type_member::TypeMemberDomain::ValueType(_) => panic!("unexpected ValueType in intrinsic kind test"),
+                    })
+                    .collect::<Vec<_>>();
+                let phalcom_semantic::types::type_member::TypeMemberDomain::Kind(actual_result) = &selected.signature.result_domain else {
+                    panic!("expected Kind result domain");
+                };
+                assert_eq!(
+                    actual_parameters.as_slice(),
+                    expected_parameters.as_ref(),
+                    "{} parameter domains",
+                    operation.name()
+                );
+                assert_eq!(*actual_result, expected_result, "{} result domain", operation.name());
+            }
+        }
     }
 
     for product in env.resolver.type_member_declarations.values() {
@@ -397,9 +427,16 @@ fn setup() -> TestEnv {
         "LabeledTypePack",
         "CompleteTypePack",
         "RecordFields",
+        "UnorderedShape",
+        "FieldKey",
+        "FieldLookup",
+        "UnorderedShapeView",
+        "UnorderedTail",
     ] {
         resolver.insert(name, decl(name));
     }
+    let mut declarations = declarations;
+    declarations.register_intrinsic_type_owner(decl("UnorderedShape"), phalcom_semantic::types::type_member::IntrinsicTypeOwner::UnorderedShape);
     // These low-level tests use SimpleTypeResolver rather than the source
     // database, so install the checked source member products that Universe
     // declares for the compiler intrinsic evaluators.
@@ -535,6 +572,84 @@ fn install_intrinsic_source_members(store: &mut TypeStore, resolver: &mut Simple
             result_kind,
         );
     }
+
+    fn add_domain(
+        resolver: &mut SimpleTypeResolver,
+        owner: DeclarationId,
+        selector: TypeMemberSelector,
+        operation: IntrinsicTypeOperation,
+        parameters: Vec<(&str, TypeMemberDomain)>,
+        result_domain: TypeMemberDomain,
+    ) {
+        let base = match &selector {
+            TypeMemberSelector::Named(name) => SelectorBase::Named(name.to_string()),
+            TypeMemberSelector::Subscript => SelectorBase::Subscript,
+        };
+        let id = TypeMemberDeclarationId::new(owner.clone(), selector.clone());
+        let product = std::sync::Arc::new(TypeMemberDeclarationProduct {
+            id: id.clone(),
+            signature: TypeMemberSignature {
+                selector,
+                parameters: parameters
+                    .into_iter()
+                    .map(|(name, domain)| TypeMemberParameter {
+                        name: name.into(),
+                        domain,
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+                result_domain,
+                intrinsic: Some(operation),
+                implementation: ImplementationKind::Intrinsic,
+            },
+            source_range: RANGE,
+        });
+        let mut surface = resolver
+            .associated_surfaces
+            .get(&owner)
+            .map(|surface| (**surface).clone())
+            .unwrap_or_else(|| AssociatedSurface::new(owner.clone()));
+        surface.families.insert(
+            base.clone(),
+            AssociatedFamilyInfo {
+                id: phalcom_semantic::identity::AssociatedFamilyId::new(owner.clone(), base),
+                kind: AssociatedFamilyKind::IntrinsicTypeMember,
+                members: Box::new([AssociatedMemberId::TypeMember(id.clone())]),
+            },
+        );
+        resolver.associated_surfaces.insert(owner, std::sync::Arc::new(surface));
+        resolver.type_member_declarations.insert(id, product);
+    }
+
+    let unordered_shape = decl("UnorderedShape");
+    let field_key_ty = store.nominal(decl("FieldKey"));
+    let field_lookup_ty = store.nominal(decl("FieldLookup"));
+    let view_ty = store.nominal(decl("UnorderedShapeView"));
+    let tail_ty = store.nominal(decl("UnorderedTail"));
+    add_domain(
+        resolver,
+        unordered_shape.clone(),
+        TypeMemberSelector::named("Lookup"),
+        IntrinsicTypeOperation::UnorderedShapeLookup,
+        vec![("K", TypeMemberDomain::ValueType(field_key_ty))],
+        TypeMemberDomain::ValueType(field_lookup_ty),
+    );
+    add_domain(
+        resolver,
+        unordered_shape.clone(),
+        TypeMemberSelector::named("View"),
+        IntrinsicTypeOperation::UnorderedShapeView,
+        vec![],
+        TypeMemberDomain::ValueType(view_ty),
+    );
+    add_domain(
+        resolver,
+        unordered_shape,
+        TypeMemberSelector::named("Tail"),
+        IntrinsicTypeOperation::UnorderedShapeTail,
+        vec![],
+        TypeMemberDomain::ValueType(tail_ty),
+    );
 }
 
 #[test]
@@ -934,4 +1049,179 @@ fn test_at_rejects_non_integer_argument() {
     let result = resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &ann, &mut diags);
 
     assert_eq!(result, TypeFormResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch));
+}
+
+#[test]
+fn type_member_value_type_parameters_and_results_publish_static_value_domains() {
+    use phalcom_semantic::types::type_member::TypeMemberDomain;
+
+    let mut env = setup();
+    let module = ModuleId::universe_root();
+    let field_key_decl = DeclarationId::new(module.clone(), "FieldKey".into());
+    let field_lookup_decl = DeclarationId::new(module.clone(), "FieldLookup".into());
+    let header_fk = phalcom_semantic::declarations::NominalDeclarationHeader::from_signature(&mut env.store, field_key_decl.clone(), None);
+    env.declarations.insert(header_fk.into_type_info(None));
+    let header_fl = phalcom_semantic::declarations::NominalDeclarationHeader::from_signature(&mut env.store, field_lookup_decl.clone(), None);
+    env.declarations.insert(header_fl.into_type_info(None));
+    env.resolver.insert("FieldKey", field_key_decl.clone());
+    env.resolver.insert("FieldLookup", field_lookup_decl.clone());
+
+    let field_key_ty = env.store.nominal_type(field_key_decl);
+    let field_lookup_ty = env.store.nominal_type(field_lookup_decl);
+
+    let owner = DeclarationId::new(module.clone(), "UnorderedShape".into());
+    let def = phalcom_ast::ast::TypeMemberDef {
+        selector: phalcom_ast::ast::TypeMemberSelectorSyntax::Named {
+            name: "Lookup".to_string(),
+            range: RANGE,
+        },
+        parameters: vec![phalcom_ast::ast::TypeMemberParameterSyntax {
+            name: "K".to_string(),
+            name_range: RANGE,
+            domain: phalcom_ast::ast::TypeMemberParameterDomainSyntax::ConstType(ref_ann("FieldKey")),
+            range: RANGE,
+        }],
+        result: phalcom_ast::ast::TypeMemberResultSyntax::Type(ref_ann("FieldLookup")),
+        where_clause: None,
+        implementation: phalcom_common::modifier::ImplementationKind::Phalcom,
+        implementation_range: None,
+        attributes: Vec::new(),
+        range: RANGE,
+    };
+
+    let (product, diags) = phalcom_semantic::checker::type_member_declaration::build_type_member_declaration(
+        &mut env.store,
+        &owner,
+        &def,
+        &env.declarations,
+        &env.resolver,
+        &module,
+    );
+    assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
+    let product = product.expect("type member declaration product");
+    assert_eq!(product.signature.parameters.len(), 1);
+    assert_eq!(
+        product.signature.parameters[0].domain,
+        TypeMemberDomain::ValueType(field_key_ty)
+    );
+    assert_eq!(
+        product.signature.result_domain,
+        TypeMemberDomain::ValueType(field_lookup_ty)
+    );
+}
+
+#[test]
+fn domain_neutral_member_projections_validate_values_and_keep_type_store_clean() {
+    use phalcom_common::modifier::ImplementationKind;
+    use phalcom_semantic::member_projection::{
+        validate_member_projection_arguments, MemberDeclarationIdentity, MemberProjection, MemberProjectionArgument,
+        MemberProjectionSubject, StaticMemberProjectionOutcome,
+    };
+    use phalcom_semantic::static_value::StaticValueStore;
+    use phalcom_semantic::types::type_member::{
+        ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberDeclarationId, TypeMemberDomain,
+        TypeMemberParameter, TypeMemberSelector, TypeMemberSignature,
+    };
+    use phalcom_semantic::{KindId, StaticValueDomain};
+
+    let mut env = setup();
+    let mut values = StaticValueStore::new();
+
+    let owner = decl("UnorderedShape");
+    let field_key_decl = decl("FieldKey");
+    let field_key_ty = env.store.nominal_type(field_key_decl);
+    let field_lookup_decl = decl("FieldLookup");
+    let field_lookup_ty = env.store.nominal_type(field_lookup_decl);
+
+    let signature = TypeMemberSignature {
+        selector: TypeMemberSelector::named("Lookup"),
+        intrinsic: None,
+        parameters: Box::new([TypeMemberParameter {
+            name: "K".into(),
+            domain: TypeMemberDomain::ValueType(field_key_ty),
+        }]),
+        result_domain: TypeMemberDomain::ValueType(field_lookup_ty),
+        implementation: ImplementationKind::Intrinsic,
+    };
+
+    let sym_val = values.intern_symbol("age");
+    let str_val = values.intern_string("age");
+    let int_val = values.intern_int(42);
+    let bool_val = values.intern_bool(true);
+    let unit_val = values.intern_unit();
+
+    // 1. Closed FieldKey arguments validate
+    assert!(validate_member_projection_arguments(
+        &mut env.store,
+        &values,
+        &signature,
+        &[MemberProjectionArgument::Value(sym_val)],
+        Some(field_key_ty),
+    ).is_ok());
+
+    assert!(validate_member_projection_arguments(
+        &mut env.store,
+        &values,
+        &signature,
+        &[MemberProjectionArgument::Value(str_val)],
+        Some(field_key_ty),
+    ).is_ok());
+
+    assert!(validate_member_projection_arguments(
+        &mut env.store,
+        &values,
+        &signature,
+        &[MemberProjectionArgument::Value(int_val)],
+        Some(field_key_ty),
+    ).is_ok());
+
+    assert!(validate_member_projection_arguments(
+        &mut env.store,
+        &values,
+        &signature,
+        &[MemberProjectionArgument::Value(bool_val)],
+        Some(field_key_ty),
+    ).is_ok());
+
+    // 2. Wrong ordinary value type (Unit) is rejected
+    assert!(validate_member_projection_arguments(
+        &mut env.store,
+        &values,
+        &signature,
+        &[MemberProjectionArgument::Value(unit_val)],
+        Some(field_key_ty),
+    ).is_err());
+
+    // 3. String/Int/Bool/Symbol remain distinct
+    assert_ne!(sym_val, str_val);
+    assert_ne!(sym_val, int_val);
+    assert_ne!(sym_val, bool_val);
+
+    // 4. Stuck Product::Shape projection can be represented without TypeId fabrication
+    let shape_decl = decl("ProductShape");
+    let shape_ty = env.store.nominal_type(shape_decl);
+    let stuck_proj = MemberProjection {
+        subject: MemberProjectionSubject::Type(env.store.unit()),
+        member: MemberDeclarationIdentity::TypeMember(TypeMemberDeclarationId::new(
+            owner,
+            TypeMemberSelector::named("Shape"),
+        )),
+        arguments: Box::new([]),
+        evidence: None,
+        result_domain: StaticValueDomain::ValueType(shape_ty),
+    };
+    let outcome = StaticMemberProjectionOutcome::Stuck(stuck_proj.clone());
+    assert!(outcome.is_stuck());
+    assert_eq!(outcome.as_reduced_kinded(), None);
+    assert_eq!(outcome.as_reduced_value(), None);
+
+    // 5. TypeStore remains clean of StaticValueRef
+    let proj = TypeLevelProjection {
+        subject: ProjectionSubject::Type(env.store.unit()),
+        selector: TypeMemberSelector::named("At"),
+        arguments: Box::new([TypeMemberArgument::Type(env.store.const_int(0))]),
+        source_declaration: None,
+    };
+    let proj_ty = env.store.type_member_projection(proj, KindId::TYPE);
+    assert!(matches!(env.store.get(proj_ty), TypeData::TypeMemberProjection(_)));
 }

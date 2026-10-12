@@ -63,9 +63,12 @@ fn canonical_universe_intrinsic_type_members_match_evaluator_catalog() {
             .iter()
             .map(|parameter| match &parameter.domain {
                 phalcom_semantic::types::type_member::TypeMemberDomain::Kind(kind) => *kind,
+                phalcom_semantic::types::type_member::TypeMemberDomain::ValueType(_) => panic!("unexpected ValueType in intrinsic kind test"),
             })
             .collect::<Vec<_>>();
-        let phalcom_semantic::types::type_member::TypeMemberDomain::Kind(actual_result) = &product.signature.result_domain;
+        let phalcom_semantic::types::type_member::TypeMemberDomain::Kind(actual_result) = &product.signature.result_domain else {
+            panic!("expected Kind result domain");
+        };
         assert_eq!(actual_parameters.as_slice(), expected_parameters.as_ref(), "{} parameters", operation.name());
         assert_eq!(*actual_result, expected_result, "{} result", operation.name());
     }
@@ -131,7 +134,7 @@ fn source_type_members_publish_checked_signatures_without_changing_namespace_sel
     let mut store = (*initial.snapshot.store).clone();
     assert!(matches!(
         validate_type_member_arguments(&mut store, &first_transform.signature, &[TypeMemberArgument::Type(wrong_domain_form)]),
-        Err(TypeMemberApplicationError::ArgumentDomainMismatch { index: 0, expected, .. }) if expected == shape
+        Err(TypeMemberApplicationError::ArgumentDomainMismatch { index: 0, expected, .. }) if expected == phalcom_semantic::types::type_member::TypeMemberDomain::Kind(shape)
     ));
 
     let surface = initial.snapshot.associated_surfaces.surfaces.get(&owner).expect("Geometry associated surface");

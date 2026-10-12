@@ -254,6 +254,7 @@ impl CanonicalUniverseSemanticBaseline {
         // products must see the complete canonical declaration universe.
         let mut known_declarations: HashSet<DeclarationId> = base_declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
         known_declarations.extend(base_declarations.intrinsic_static_domain_declarations().cloned());
+        known_declarations.extend(canonical_alias_sources.keys().cloned());
         let mut trait_associated_types: BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>> = BTreeMap::new();
         for node in provider.nodes() {
             let path = phalcom_modules::ModulePath::from_components(

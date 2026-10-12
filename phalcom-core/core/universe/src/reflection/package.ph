@@ -22,3 +22,4 @@ expose .message
 expose .attribute
 expose .implementation
 expose .typing
+expose .structural

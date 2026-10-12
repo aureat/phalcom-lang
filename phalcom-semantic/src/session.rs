@@ -1347,12 +1347,14 @@ impl SemanticWorkspaceSession {
             signature_known_declarations.extend(shard.declarations.iter().map(|declaration| declaration.id.clone()));
             signature_known_declarations.extend(shard.aliases.iter().cloned());
         }
+        let canonical_linked = canonical_universe_linked_program(&self.universe_source_provider);
         let signature_resolver = LinkedTypeResolver::with_retained_alias_forms(
             input.linked.clone(),
             signature_known_declarations,
             ModuleId::universe_root(),
             self.alias_forms.clone(),
-        );
+        )
+        .with_canonical_linked(canonical_linked);
         let mut current_signature_fingerprints = self.declaration_signature_fingerprints.clone();
         for module in &structural_recomputed_modules {
             current_signature_fingerprints.retain(|node, _| signature_node_module(node) != module);
@@ -2110,12 +2112,14 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
+        let canonical_linked = canonical_universe_linked_program(&self.universe_source_provider);
         let resolver = LinkedTypeResolver::with_retained_alias_forms(
             input.linked.clone(),
             known_declarations.clone(),
             ModuleId::universe_root(),
             self.alias_forms.clone(),
         )
+        .with_canonical_linked(canonical_linked)
         .with_trait_associated_types(Arc::new(trait_associated_types.clone()));
 
         // Resolve contextual binder kinds only after every nominal declaration

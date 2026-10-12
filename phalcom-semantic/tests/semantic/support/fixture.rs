@@ -737,6 +737,19 @@ impl Fixture {
 }
 
 fn canonical_universe_declaration(name: &str) -> Option<DeclarationId> {
+    let structural = phalcom_semantic::core_surface::identity::StructuralUniverseIds::new();
+    match name {
+        "Product" => return Some(structural.product),
+        "OrderedProduct" => return Some(structural.ordered_product),
+        "UnorderedProduct" => return Some(structural.unordered_product),
+        "Sum" => return Some(structural.sum),
+        "ProductKind" => return Some(structural.product_kind),
+        "ProductShape" => return Some(structural.product_shape),
+        "OrderedShape" => return Some(structural.ordered_shape),
+        "UnorderedShape" => return Some(structural.unordered_shape),
+        "Variant" => return Some(structural.variant),
+        _ => {}
+    }
     if matches!(name, "Clock" | "Instant") {
         return Some(DeclarationId::new(
             ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![

@@ -1179,6 +1179,9 @@ fn normalize_intrinsic_projection(
             let normalized = store.complete_type_pack(norm_pos, norm_lab).ok()?;
             Some(ProjectionNormalizationResult::Normalized(normalized))
         }
+        IntrinsicTypeOperation::UnorderedShapeLookup
+        | IntrinsicTypeOperation::UnorderedShapeView
+        | IntrinsicTypeOperation::UnorderedShapeTail => None,
     }
 }
 

@@ -3,7 +3,7 @@ use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::data_semantics::{DataConstructorSignature, DataInfo, DataProductShapeTemplate, DataSemanticTable, DataShape};
 use phalcom_semantic::enum_semantics::{EnumInfo, EnumSemanticTable};
 use phalcom_semantic::identity::{DataConstructorId, DeclarationId};
-use phalcom_semantic::structural::{OrderedProductForm, StructuralClassification, StructuralClassifier};
+use phalcom_semantic::structural::{OrderedProductForm, StructuralClassification, StructuralClassifier, UnorderedProductForm};
 use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
 use phalcom_semantic::types::store::{AnonymousTupleRemainder, PackTypeElement, TupleType, TupleTypeElement, TypeData, TypeStore};
 use std::sync::Arc;
@@ -53,7 +53,7 @@ fn classifier_uses_canonical_forms_and_declaration_products() {
 
     let mut data = DataSemanticTable::new();
     data.insert_data(Arc::new(data_info(tuple_owner.clone(), pair_type, DataShape::Tuple)));
-    data.insert_data(Arc::new(data_info(record_owner, record_type, DataShape::Record)));
+    data.insert_data(Arc::new(data_info(record_owner.clone(), record_type, DataShape::Record)));
 
     let mut enums = EnumSemanticTable::new();
     enums.insert_enum(Arc::new(EnumInfo {
@@ -92,8 +92,8 @@ fn classifier_uses_canonical_forms_and_declaration_products() {
     assert_eq!(classifier.classify(&types, sum_type), StructuralClassification::Sum { owner: sum_owner });
     assert_eq!(
         classifier.classify(&types, record_type),
-        StructuralClassification::Unsupported,
-        "Record-shaped nominal data are not ordered products"
+        StructuralClassification::UnorderedProduct(UnorderedProductForm::Data { owner: record_owner }),
+        "Record-shaped nominal data are classified as unordered products"
     );
     assert_eq!(
         classifier.classify(&types, name_only_tuple_type),
@@ -165,4 +165,45 @@ fn ordered_descriptor_keeps_lanes_remainders_and_symbolic_pack_terms() {
     let descriptor = classifier.ordered_product(&mut types, symbolic_tuple).unwrap().unwrap();
     assert_eq!(descriptor.origin, phalcom_semantic::structural::OrderedProductOrigin::TupleFromPacks);
     assert_eq!(descriptor.symbolic_lanes, Some((positionals, labeled)));
+}
+
+#[test]
+fn structural_universe_ids_match_canonical_universe_declarations() {
+    use phalcom_semantic::core_surface::StructuralUniverseIds;
+
+    let ids = StructuralUniverseIds::new();
+    assert_eq!(ids.product.name.as_ref(), "Product");
+    assert_eq!(ids.ordered_product.name.as_ref(), "OrderedProduct");
+    assert_eq!(ids.unordered_product.name.as_ref(), "UnorderedProduct");
+    assert_eq!(ids.sum.name.as_ref(), "Sum");
+
+    assert_eq!(ids.product_kind.name.as_ref(), "ProductKind");
+    assert_eq!(ids.product_shape.name.as_ref(), "ProductShape");
+    assert_eq!(ids.ordered_tail.name.as_ref(), "OrderedTail");
+    assert_eq!(ids.ordered_shape.name.as_ref(), "OrderedShape");
+
+    assert_eq!(ids.presence.name.as_ref(), "Presence");
+    assert_eq!(ids.field_info.name.as_ref(), "FieldInfo");
+    assert_eq!(ids.product_field.name.as_ref(), "ProductField");
+    assert_eq!(ids.unordered_tail.name.as_ref(), "UnorderedTail");
+    assert_eq!(ids.unordered_shape.name.as_ref(), "UnorderedShape");
+    assert_eq!(ids.field_lookup.name.as_ref(), "FieldLookup");
+    assert_eq!(ids.unordered_shape_view.name.as_ref(), "UnorderedShapeView");
+
+    assert_eq!(ids.variant.name.as_ref(), "Variant");
+
+    // All structural reflection declarations belong to universe.reflection.structural
+    assert_eq!(ids.product.module.to_string(), "universe:reflection.structural");
+    assert_eq!(ids.ordered_shape.module.to_string(), "universe:reflection.structural");
+
+    // Capability distinction
+    assert!(ids.is_structural_capability(&ids.product));
+    assert!(ids.is_structural_capability(&ids.ordered_product));
+    assert!(ids.is_structural_capability(&ids.unordered_product));
+    assert!(ids.is_structural_capability(&ids.sum));
+    assert!(!ids.is_structural_capability(&ids.product_shape));
+
+    // A user trait with the same leaf name in another module is not a canonical structural capability
+    let user_product = DeclarationId::new(ModuleId::universe_root(), "Product".into());
+    assert!(!ids.is_structural_capability(&user_product));
 }

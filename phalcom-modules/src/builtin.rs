@@ -673,7 +673,13 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
             "attribute",
             "implementation",
             "typing",
+            "structural",
         ],
+    },
+    UniverseNodeSpec {
+        path: &["reflection", "structural"],
+        kind: ModuleKind::Module,
+        children: &[],
     },
     UniverseNodeSpec {
         path: &["reflection", "implementation"],
@@ -1264,6 +1270,9 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "reflection" && m.as_str() == "implementation" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/implementation.ph")
+            }
+            [c, m] if c.as_str() == "reflection" && m.as_str() == "structural" => {
+                include_str!("../../phalcom-core/core/universe/src/reflection/structural.ph")
             }
             [c, m] if c.as_str() == "reflection" && m.as_str() == "typing" => {
                 include_str!("../../phalcom-core/core/universe/src/reflection/typing/package.ph")

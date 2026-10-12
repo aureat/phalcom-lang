@@ -1030,6 +1030,42 @@ pub(crate) fn hash_generic_conformance_evidence(evidence: &crate::generic_eviden
                 }
             }
         }
+        crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(derived) => {
+            3u8.hash(hasher);
+            derived.key.hash(hasher);
+            derived.kind.hash(hasher);
+            match &derived.classification {
+                crate::structural::StructuralClassification::Unsupported => 0u8.hash(hasher),
+                crate::structural::StructuralClassification::OrderedProduct(form) => {
+                    1u8.hash(hasher);
+                    match form {
+                        crate::structural::OrderedProductForm::Unit => 0u8.hash(hasher),
+                        crate::structural::OrderedProductForm::Tuple => 1u8.hash(hasher),
+                        crate::structural::OrderedProductForm::TupleFromPacks => 2u8.hash(hasher),
+                        crate::structural::OrderedProductForm::Pack => 3u8.hash(hasher),
+                        crate::structural::OrderedProductForm::PackFromPacks => 4u8.hash(hasher),
+                        crate::structural::OrderedProductForm::Data { owner } => {
+                            5u8.hash(hasher);
+                            owner.hash(hasher);
+                        }
+                    }
+                }
+                crate::structural::StructuralClassification::UnorderedProduct(form) => {
+                    2u8.hash(hasher);
+                    match form {
+                        crate::structural::UnorderedProductForm::Record => 0u8.hash(hasher),
+                        crate::structural::UnorderedProductForm::Data { owner } => {
+                            1u8.hash(hasher);
+                            owner.hash(hasher);
+                        }
+                    }
+                }
+                crate::structural::StructuralClassification::Sum { owner } => {
+                    3u8.hash(hasher);
+                    owner.hash(hasher);
+                }
+            }
+        }
     }
 }
 
@@ -1082,6 +1118,10 @@ fn hash_conditional_selected_call_capability(capability: Option<&crate::dispatch
                     crate::checker::analysis::GenericCallConformanceSource::Derived { evidence } => {
                         2u8.hash(hasher);
                         hash_generic_conformance_evidence(&crate::generic_evidence::GenericConformanceEvidence::Derived(evidence.clone()), hasher);
+                    }
+                    crate::checker::analysis::GenericCallConformanceSource::CompilerDerived { evidence } => {
+                        3u8.hash(hasher);
+                        hash_generic_conformance_evidence(&crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(evidence.clone()), hasher);
                     }
                 }
             }
@@ -1656,7 +1696,7 @@ fn hash_trait_surface(surface: &crate::traits::TraitSurface, include_source: boo
     for (requirement, associated_type) in &surface.associated_types {
         requirement.hash(hasher);
         associated_type.name.hash(hasher);
-        associated_type.kind.hash(hasher);
+        associated_type.domain.hash(hasher);
         if include_source {
             associated_type.source.hash(hasher);
         }

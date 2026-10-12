@@ -447,7 +447,7 @@ impl<T> Iterable for Box<T> {
     let requirement = surface.associated_type_by_name("Item").expect("Item requirement");
     assert_eq!(requirement.requirement.owner, trait_declaration);
     assert_eq!(requirement.requirement.index, 0);
-    assert_eq!(requirement.kind, phalcom_semantic::types::id::KindId::TYPE);
+    assert_eq!(requirement.kind(), Some(phalcom_semantic::types::id::KindId::TYPE));
     assert!(surface.members.is_empty(), "associated types are not callable requirements");
 
     let plan = fixture.analysis.snapshot.conformance_witness_plans.values().next().expect("conformance plan");
@@ -2401,4 +2401,28 @@ trait UsesApi {
                 if declaration.module.project == phalcom_modules::ProjectIdentity::Universe
         )
     }));
+}
+
+#[test]
+fn trait_associated_type_declaration_publishes_explicit_static_domain() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"
+class ShapeInfo {}
+trait TargetTrait {
+    type Unannotated
+    type WithDomain: ShapeInfo
+}
+"#,
+        )
+        .analyze();
+    assert!(!fixture.analysis.snapshot.has_errors(), "unexpected errors: {:?}", fixture.analysis.snapshot.diagnostics);
+    let trait_declaration = fixture.decl("main", "TargetTrait");
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&trait_declaration).expect("trait surface");
+    let unannotated = surface.associated_type_by_name("Unannotated").expect("unannotated");
+    assert!(matches!(unannotated.domain, phalcom_semantic::types::type_member::TypeMemberDomain::Kind(k) if k == phalcom_semantic::KindId::TYPE));
+
+    let with_domain = surface.associated_type_by_name("WithDomain").expect("with domain");
+    assert!(matches!(with_domain.domain, phalcom_semantic::types::type_member::TypeMemberDomain::ValueType(_)));
 }

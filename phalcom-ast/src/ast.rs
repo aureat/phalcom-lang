@@ -605,6 +605,7 @@ pub struct TraitPropertyRequirement {
 pub struct AssociatedTypeDeclaration {
     pub name: String,
     pub name_range: SourceRange,
+    pub result_domain: Option<StaticDomainSyntax>,
     pub attributes: Vec<Attribute>,
     pub range: SourceRange,
 }

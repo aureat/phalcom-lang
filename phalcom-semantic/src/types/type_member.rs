@@ -45,9 +45,10 @@ impl TypeMemberSelector {
 }
 
 /// The domain requirement for a type-member parameter or return result.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TypeMemberDomain {
     Kind(KindId),
+    ValueType(TypeId),
 }
 
 impl From<KindId> for TypeMemberDomain {
@@ -57,11 +58,55 @@ impl From<KindId> for TypeMemberDomain {
     }
 }
 
+impl From<crate::static_domain::StaticValueDomain> for TypeMemberDomain {
+    #[inline]
+    fn from(domain: crate::static_domain::StaticValueDomain) -> Self {
+        match domain {
+            crate::static_domain::StaticValueDomain::Kind(k) => Self::Kind(k),
+            crate::static_domain::StaticValueDomain::ValueType(t) => Self::ValueType(t),
+        }
+    }
+}
+
+impl From<TypeMemberDomain> for crate::static_domain::StaticValueDomain {
+    #[inline]
+    fn from(domain: TypeMemberDomain) -> Self {
+        domain.to_static_value_domain()
+    }
+}
+
 impl TypeMemberDomain {
+    #[inline]
+    pub fn is_kind(&self) -> bool {
+        matches!(self, Self::Kind(_))
+    }
+
+    #[inline]
+    pub fn is_value_type(&self) -> bool {
+        matches!(self, Self::ValueType(_))
+    }
+
+    #[inline]
+    pub fn as_kind(&self) -> Option<KindId> {
+        match self {
+            Self::Kind(k) => Some(*k),
+            Self::ValueType(_) => None,
+        }
+    }
+
+    #[inline]
+    pub fn as_value_type(&self) -> Option<TypeId> {
+        match self {
+            Self::ValueType(t) => Some(*t),
+            Self::Kind(_) => None,
+        }
+    }
+
     #[inline]
     pub fn to_static_value_domain(&self) -> crate::static_domain::StaticValueDomain {
         match self {
             Self::Kind(kind) => crate::static_domain::StaticValueDomain::Kind(*kind),
+            Self::ValueType(ty) => crate::static_domain::StaticValueDomain::ValueType(*ty),
         }
     }
 }
@@ -108,10 +153,13 @@ pub enum IntrinsicTypeOperation {
     CompleteTypePackPositionals,
     CompleteTypePackLabeled,
     CompleteTypePackMap,
+    UnorderedShapeLookup,
+    UnorderedShapeView,
+    UnorderedShapeTail,
 }
 
 impl IntrinsicTypeOperation {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 18] = [
         Self::TuplePositionals,
         Self::TupleLabeled,
         Self::TupleEntries,
@@ -127,6 +175,9 @@ impl IntrinsicTypeOperation {
         Self::CompleteTypePackPositionals,
         Self::CompleteTypePackLabeled,
         Self::CompleteTypePackMap,
+        Self::UnorderedShapeLookup,
+        Self::UnorderedShapeView,
+        Self::UnorderedShapeTail,
     ];
 
     pub fn name(&self) -> &'static str {
@@ -146,6 +197,9 @@ impl IntrinsicTypeOperation {
             Self::CompleteTypePackPositionals => "CompleteTypePack::Positionals",
             Self::CompleteTypePackLabeled => "CompleteTypePack::Labeled",
             Self::CompleteTypePackMap => "CompleteTypePack::Map",
+            Self::UnorderedShapeLookup => "UnorderedShape::Lookup",
+            Self::UnorderedShapeView => "UnorderedShape::View",
+            Self::UnorderedShapeTail => "UnorderedShape::Tail",
         }
     }
 
@@ -171,6 +225,9 @@ impl IntrinsicTypeOperation {
             Self::CompleteTypePackPositionals => (Box::new([]), KindId::TYPE_PACK),
             Self::CompleteTypePackLabeled => (Box::new([]), KindId::LABELED_TYPE_PACK),
             Self::CompleteTypePackMap => (Box::new([type_to_type]), KindId::COMPLETE_TYPE_PACK),
+            Self::UnorderedShapeLookup => (Box::new([]), KindId::TYPE),
+            Self::UnorderedShapeView => (Box::new([]), KindId::TYPE),
+            Self::UnorderedShapeTail => (Box::new([]), KindId::TYPE),
         }
     }
 }
@@ -185,6 +242,7 @@ pub enum IntrinsicTypeOwner {
     LabeledTypePack,
     CompleteTypePack,
     RecordRow,
+    UnorderedShape,
 }
 
 /// Canonical signature for a domain-native or compiler-intrinsic type member.
@@ -201,7 +259,11 @@ pub struct TypeMemberSignature {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TypeMemberApplicationError {
     ArityMismatch { expected: usize, actual: usize },
-    ArgumentDomainMismatch { index: usize, expected: KindId, actual: KindId },
+    ArgumentDomainMismatch {
+        index: usize,
+        expected: TypeMemberDomain,
+        actual: TypeMemberDomain,
+    },
 }
 
 /// Validates arguments against an already-selected declaration signature.
@@ -220,21 +282,47 @@ pub fn validate_type_member_arguments(
         });
     }
     for (index, (parameter, argument)) in signature.parameters.iter().zip(arguments).enumerate() {
-        let TypeMemberDomain::Kind(expected) = &parameter.domain;
-        let actual = match argument {
-            TypeMemberArgument::Type(ty) => store.kind_of(*ty),
-            TypeMemberArgument::Const(ConstTerm::Int(value)) => {
-                let integer = store.const_int(value.clone());
-                store.kind_of(integer)
+        match &parameter.domain {
+            TypeMemberDomain::Kind(expected) => {
+                let actual = match argument {
+                    TypeMemberArgument::Type(ty) => store.kind_of(*ty),
+                    TypeMemberArgument::Const(ConstTerm::Int(value)) => {
+                        let integer = store.const_int(value.clone());
+                        store.kind_of(integer)
+                    }
+                    TypeMemberArgument::RecordRow(_) => KindId::RECORD_ROW,
+                };
+                if actual != *expected {
+                    return Err(TypeMemberApplicationError::ArgumentDomainMismatch {
+                        index,
+                        expected: TypeMemberDomain::Kind(*expected),
+                        actual: TypeMemberDomain::Kind(actual),
+                    });
+                }
             }
-            TypeMemberArgument::RecordRow(_) => KindId::RECORD_ROW,
-        };
-        if actual != *expected {
-            return Err(TypeMemberApplicationError::ArgumentDomainMismatch {
-                index,
-                expected: *expected,
-                actual,
-            });
+            TypeMemberDomain::ValueType(expected_ty) => {
+                let actual = match argument {
+                    TypeMemberArgument::Type(ty) => {
+                        if store.kind_of(*ty) == KindId::TYPE {
+                            TypeMemberDomain::ValueType(*ty)
+                        } else {
+                            TypeMemberDomain::Kind(store.kind_of(*ty))
+                        }
+                    }
+                    TypeMemberArgument::Const(ConstTerm::Int(value)) => {
+                        let integer = store.const_int(value.clone());
+                        TypeMemberDomain::Kind(store.kind_of(integer))
+                    }
+                    TypeMemberArgument::RecordRow(_) => TypeMemberDomain::Kind(KindId::RECORD_ROW),
+                };
+                if actual != TypeMemberDomain::ValueType(*expected_ty) {
+                    return Err(TypeMemberApplicationError::ArgumentDomainMismatch {
+                        index,
+                        expected: TypeMemberDomain::ValueType(*expected_ty),
+                        actual,
+                    });
+                }
+            }
         }
     }
     Ok(())
@@ -279,6 +367,12 @@ pub fn lookup_intrinsic_type_operation(owner: IntrinsicTypeOwner, selector: &Typ
             TypeMemberSelector::Named(name) if name.as_ref() == "Positionals" => Some(IntrinsicTypeOperation::CompleteTypePackPositionals),
             TypeMemberSelector::Named(name) if name.as_ref() == "Labeled" => Some(IntrinsicTypeOperation::CompleteTypePackLabeled),
             TypeMemberSelector::Named(name) if name.as_ref() == "Map" => Some(IntrinsicTypeOperation::CompleteTypePackMap),
+            _ => None,
+        },
+        IntrinsicTypeOwner::UnorderedShape => match selector {
+            TypeMemberSelector::Named(name) if name.as_ref() == "Lookup" => Some(IntrinsicTypeOperation::UnorderedShapeLookup),
+            TypeMemberSelector::Named(name) if name.as_ref() == "View" => Some(IntrinsicTypeOperation::UnorderedShapeView),
+            TypeMemberSelector::Named(name) if name.as_ref() == "Tail" => Some(IntrinsicTypeOperation::UnorderedShapeTail),
             _ => None,
         },
     }

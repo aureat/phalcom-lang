@@ -259,6 +259,8 @@ fn type_member_domain_adapter_round_trip() {
     assert_eq!(member_domain.to_static_value_domain(), kind_domain);
 
     let int_domain = StaticValueDomain::ValueType(phalcom_semantic::types::id::TypeId(42));
-    assert!(TypeMemberDomain::try_from(int_domain).is_err());
-    assert_eq!(int_domain.to_type_member_domain(), None);
+    let member_int: TypeMemberDomain = int_domain.try_into().expect("value type converts to TypeMemberDomain");
+    assert_eq!(member_int, TypeMemberDomain::ValueType(phalcom_semantic::types::id::TypeId(42)));
+    assert_eq!(member_int.to_static_value_domain(), int_domain);
+    assert_eq!(int_domain.to_type_member_domain(), Some(member_int));
 }

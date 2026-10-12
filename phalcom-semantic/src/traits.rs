@@ -155,13 +155,19 @@ impl AssociatedTypeRequirementId {
     }
 }
 
-/// One plain `type Name` requirement published by a trait.
+/// One associated type requirement published by a trait (e.g. `type Name` or `type Shape: ProductShape`).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraitAssociatedTypeRequirement {
     pub requirement: AssociatedTypeRequirementId,
     pub name: Box<str>,
-    pub kind: KindId,
+    pub domain: crate::types::type_member::TypeMemberDomain,
     pub source: SemanticSourceSpan,
+}
+
+impl TraitAssociatedTypeRequirement {
+    pub fn kind(&self) -> Option<KindId> {
+        self.domain.as_kind()
+    }
 }
 
 /// One published abstract contract member and its optional default source.
@@ -374,12 +380,32 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
             ));
             continue;
         }
+        let domain = if let Some(result_domain) = &declaration.result_domain {
+            let formation_site = crate::types::annotation::TypeFormationSite::member(
+                ctx.current_module.clone(),
+                header.declaration.clone(),
+                DispatchSide::Instance,
+            );
+            match crate::static_domain::resolve_static_domain(
+                ctx.store,
+                ctx.declarations,
+                &declaration_resolver,
+                &formation_site,
+                result_domain,
+                &mut diagnostics,
+            ) {
+                crate::types::annotation::TypeFormationOutcome::Ready(d) => d.into(),
+                _ => crate::types::type_member::TypeMemberDomain::Kind(KindId::TYPE),
+            }
+        } else {
+            crate::types::type_member::TypeMemberDomain::Kind(KindId::TYPE)
+        };
         surface.associated_types.insert(
             requirement.clone(),
             TraitAssociatedTypeRequirement {
                 requirement,
                 name: declaration.name.clone().into_boxed_str(),
-                kind: KindId::TYPE,
+                domain,
                 source: SemanticSourceSpan::new(ctx.current_module.clone(), declaration.range),
             },
         );

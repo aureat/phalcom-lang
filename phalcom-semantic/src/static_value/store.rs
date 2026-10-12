@@ -119,9 +119,9 @@ pub struct StaticPackData {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct StaticRecordField {
-    key: FieldKey,
-    value: StaticValueRef,
+pub struct StaticRecordField {
+    pub key: FieldKey,
+    pub value: StaticValueRef,
 }
 
 /// Canonical family retained from a checked homogeneous sequence result type.
@@ -157,18 +157,18 @@ impl StaticSequenceData {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct StaticDataValue {
-    owner: crate::identity::DeclarationId,
-    constructor: DataConstructorId,
-    result_type: TypeId,
-    components: Box<[(DataComponentId, StaticValueRef)]>,
+pub struct StaticDataValue {
+    pub owner: crate::identity::DeclarationId,
+    pub constructor: DataConstructorId,
+    pub result_type: TypeId,
+    pub components: Box<[(DataComponentId, StaticValueRef)]>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct StaticVariantValue {
-    variant: VariantId,
-    result_type: TypeId,
-    fields: Box<[(crate::identity::VariantFieldId, StaticValueRef)]>,
+pub struct StaticVariantValue {
+    pub variant: VariantId,
+    pub result_type: TypeId,
+    pub fields: Box<[(crate::identity::VariantFieldId, StaticValueRef)]>,
 }
 
 /// IEEE-754 binary64 representation retained exactly for materialization.
@@ -567,6 +567,24 @@ impl StaticValueStore {
             .get(id.0 as usize)
             .map(Box::as_ref)
             .ok_or(StaticValueStoreError::UnknownValue(id.0))
+    }
+
+    /// Looks up the ordered fields of an immutable record.
+    pub fn get_record(&self, id: StaticRecordId) -> Result<&[StaticRecordField], StaticValueStoreError> {
+        self.records
+            .get(id.0 as usize)
+            .map(Box::as_ref)
+            .ok_or(StaticValueStoreError::UnknownValue(id.0))
+    }
+
+    /// Looks up the components and metadata of an interned data value.
+    pub fn get_data(&self, id: StaticDataValueId) -> Result<&StaticDataValue, StaticValueStoreError> {
+        self.data_values.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))
+    }
+
+    /// Looks up the fields and metadata of an interned variant value.
+    pub fn get_variant(&self, id: StaticVariantValueId) -> Result<&StaticVariantValue, StaticValueStoreError> {
+        self.variant_values.get(id.0 as usize).ok_or(StaticValueStoreError::UnknownValue(id.0))
     }
 
     /// Interns a closed Record with canonical FieldKey ordering and exact duplicate rejection.

@@ -39,6 +39,7 @@ pub mod instrumentation;
 pub mod invalidation;
 pub mod match_semantics;
 pub mod materialization;
+pub mod member_projection;
 pub mod metadata;
 pub mod module_bindings;
 pub mod module_product;
@@ -66,6 +67,7 @@ pub mod static_intrinsic;
 pub mod static_key;
 pub mod static_value;
 pub mod structural;
+pub mod structural_reflection;
 pub mod surface;
 pub mod termination;
 pub mod tooling;
@@ -136,6 +138,7 @@ pub use identity::{
 pub use instrumentation::*;
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
 pub use match_semantics::*;
+pub use member_projection::*;
 pub use module_bindings::{ModuleBindingFact, ModuleBindingPhase, ModuleStaticBindingCatalog, ModuleStaticBindingIndex, ModuleStaticBindingSeed};
 pub use phalcom_modules::WorkspaceSourceBatchMutation;
 pub use prelude::PreludeTypeMap;
@@ -172,7 +175,7 @@ pub use static_intrinsic::{
 pub use static_key::{StaticKeyProjection, StaticKeyProjectionError, exact_static_key_dependencies, project_checked_static_key};
 pub use structural::{
     OrderedProductEntry, OrderedProductForm, OrderedProductOrigin, OrderedProductStructure, SpecializedVariantStructure, StructuralClassification,
-    StructuralClassifier, SumStructure, SumStructureError,
+    StructuralClassifier, SumStructure, SumStructureError, UnorderedProductForm,
 };
 pub use termination::{
     RankingMeasure, TerminationBlockedReason, TerminationCounterevidence, TerminationEvidence, TerminationKnowledge, TerminationRequirement,

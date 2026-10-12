@@ -460,6 +460,8 @@ fn candidate_from_proof(
         // Direct generic assumptions retain their established
         // `TraitDispatchSite::Assumed` path in the checker.
         GenericConformanceEvidence::Assumed(_) => return None,
+        // Compiler-derived structural capabilities have no dispatchable methods.
+        GenericConformanceEvidence::CompilerDerived(_) => return None,
     };
     let requirement = requirement_views.get(requirement_id)?;
     let selection = selections.get(requirement_id)?.clone();
