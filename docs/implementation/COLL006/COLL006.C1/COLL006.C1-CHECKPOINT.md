@@ -334,8 +334,8 @@ The ledger records current C1 execution state. Proposed successor plans retain t
 | `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 owned implementation and focused evidence complete; G6.A PASS; G6.B and aggregate G6 retain the parse-package baseline blocker |
 | `COLL006.C1.P6` | Reusable ordered-hash backing; preserve Map/Set; add `MutableBag`, `IndexedDict`, `OrderedSet` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T7 complete; exact 29 bindings (TDR-0092); G3 (MutableBag), G4 (IndexedDict), G5 (OrderedSet), G6 (mutable-key admission matrix) passed; oracles resolved; walkthrough and handoff created; P7 is next |
 | `COLL006.C1.P7` | Persistent hash substrate; `Bag<T>`; `Bijection<K,V>` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T8 complete; exact 14 bindings (TDR-0093); G2 (PersistentHashNode), G3 (persistent_hash HAMT), G4 (TDR-0093 floor), G5 (Bag), G6 (Bijection), G7 (collections aggregate) passed; native surface 488; walkthrough and handoff created; P8 is next |
-| `COLL006.C1.P8` | `Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Complete generic interval-domain mapping |
-| `COLL006.C1.P9` | API/conversion convergence, `Entry<K,V>` migration boundary, diagnostics, property/GC/performance certification, docs/checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | Certify the complete C1 collection family |
+| `COLL006.C1.P8` | `Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T3/T5, T6/G6 normalization, and T7/G7 focused evidence pass; T8/G8 has unresolved cross-family failures and T9 closeout remains |
+| `COLL006.C1.P9` | API/conversion convergence, `Entry<K,V>` migration boundary, diagnostics, property/GC/performance certification, docs/checkpoint closure | IN_PROGRESS | PARTIAL | UNVERIFIED | T0 takeover is partial; G0 remains blocked until P8 G8 passes and P8 T9 produces its final walkthrough/handoff and residual record |
 
 Corrective plans required to make the C1 acceptance objective truthful remain inside C1 rather than creating a new checkpoint.
 
@@ -834,6 +834,29 @@ P9 owns broad workspace/CI certification and the C1 behavior, property, GC,
 re-entry, cold/incremental, performance, migration, documentation, and
 lifecycle gates. P4's bounded acceptance is not retroactively expanded.
 
+### COLL006.C1.A13 — P8 split/join implementation gap
+
+**Consultation:** read-only `phalcom-architect` review, 2026-10-12, after P9
+T0 traced P8's T7 prerequisites. The live `RangeMap.removing` materializes all
+entries and reinserts surviving remainders; `overlaying` delegates to that
+full rebuild. `RangeMapNode` has no remove/split/join/range-extraction helpers,
+despite P8 T3/T5 requiring them for O(log n + k) range edits. **Decision:**
+return P8 to T3/T5 and implement the already-prescribed source-owned persistent
+AVL split/join/range-splice path. This is an implementation gap under the
+existing P8 architecture, not a plan amendment. Do not begin T7/G7 until T3/T5
+focused acceptance passes; P9 remains blocked at G0. Consult again only if the
+prescribed path proves impossible or changes ownership, GC, or AVL architecture.
+
+### COLL006.C1.A12 — P9 G0 predecessor order
+
+**Consultation:** `INC-P9-T0-G0`, 2026-10-12. P9's §3 hard predecessor and G0
+require P8's own GC, callback, randomized, and complexity evidence before P9
+production work. P9 T8–T10 overlap only part of P8 T7 and cannot satisfy that
+predecessor as written. **Decision:** resume P8 at T7/G7, then complete G8 and
+the current residual handoff; do not amend P9. P9 remains at T0/G0 until those
+items pass. See `P9/COLL006.C1.P9-T0-G0-takeover-incident.md` for the evidence
+and the read-only architectural consultation.
+
 ---
 
 ## 16. Fixed / flexible / verify-first classification
@@ -916,15 +939,15 @@ The implementer cannot self-waive a triggered consultation.
 ## 18. Active plan and next action
 
 ```text
-active plan:           COLL006.C1.P8; P1–P7 complete; P8 (Interval / RangeMap) is next
-latest completed plan: COLL006.C1.P7
-execution blockers:    none within P7 scope; P5 G6.A PASS, G6.B and aggregate G6 BASELINE_BLOCKED by associated-family invocation in token-backed Cursor use (assigned to P9)
+active plan:           COLL006.C1.P8 T8/G8 residual classification; P9 T0/G0 remains blocked pending P8 closeout
+latest completed plan: COLL006.C1.P7; P8 T3/T5 and T7/G7 are focused-tested, while T8/G8 and T9 remain
+execution blockers:    P8 focused integration gate is outstanding; P5 associated-invocation behavior remains masked by an earlier ListSource error
 verification residuals: D4 — computed Record-key failures block a clean aggregate static_constants PASS;
                          D1 — metadata failure, still suspected unrelated;
                          D2 — reflection/module fixture failures, still suspected unrelated;
                          R-PARSE-ASSOCIATED-INVOKE — owning compiler-layer consultation prepared (assigned to P9);
                          R-P7-NUMERIC-HASH-LAW — numeric hash divergence for >= 2^53, LargeInt, and NaN payloads documented and isolated
-next action:           draft/review patch-grade implementation plan for COLL006.C1.P8
+next action:           resolve or baseline-classify P8 T8 residuals; pass G8, finish P8 T9 records, then resume P9 T0/G0 revalidation
 ```
 
 ### P6 start — 2026-10-11
@@ -2061,8 +2084,8 @@ P8 is **`IN_PROGRESS`** (`PARTIAL` / `FOCUSED_TESTED`) on branch `feat/telos-col
 
 4. **T3 & T4 Persistent AVL Substrate & `RangeMap<K,V>` (Gates G3 & G4)**:
    - Authored `phalcom-core/core/universe/src/collections/range_map.ph`:
-     - `_RangeMapNode<K, V>`: internal immutable persistent AVL tree node with height, balance factor calculation, rotations (`rotateRight`, `rotateLeft`), rebalancing (`rebalance`), logarithmic point lookup (`findPoint`), persistent path-copy insertion with overlap rejection (`insert`), and in-order traversal accumulation (`inOrderCollect`).
-     - `RangeMap<K, V> is Collection`: persistent interval map mapping pairwise-disjoint intervals to values. Public selectors include `new()`, `size`, `isEmpty`, `get(point)`, `containsPoint(point)`, `inserting(interval, value)` (strict insert rejecting invalid/empty/overlapping intervals), `removing(interval)` (coverage subtraction with interior remainder splitting), `overlaying(interval, value)` ($O(\log n + k)$ range splicing), `entries` (normalized in-order entry list coalescing contiguous intervals with equal values), `iterator` (`RangeMapIterator<K, V>`), `==` (extensional logical entry equality independent of internal AVL topology), `hash` (deterministic fold over normalized entries), and `toString`.
+     - `RangeMapNode<K, V>`: internal immutable persistent AVL tree node with height/balance calculation, rotations, rebalancing, logarithmic point lookup, path-copy split/join/range splicing, and in-order traversal.
+     - `RangeMap<K, V> is Collection`: persistent interval map mapping pairwise-disjoint intervals to values. Public selectors include `new()`, `size`, `isEmpty`, `get(point)`, `containsPoint(point)`, `inserting(interval, value)` (strict insert rejecting invalid/empty/overlapping intervals), `removing(interval)` (coverage subtraction with interior remainder splitting), `overlaying(interval, value)` ($O(\log n + k)$ range splicing), `entries` (direct traversal of the normalized stored tree), `iterator` (`RangeMapIterator<K, V>`), `==` (extensional logical entry equality independent of internal AVL topology), `hash` (deterministic fold over normalized entries), and `toString`.
      - `RangeMapIterator<K, V>`: lazy iterator over normalized `(interval: Interval<K>, value: V)` tuples.
    - Exposed `.range_map` in `phalcom-core/core/universe/src/collections/package.ph`.
    - Registered `collections.range_map` in `phalcom-modules/src/builtin.rs` (`children`, `UniverseNodeSpec`, and `include_str!`).
@@ -2077,6 +2100,116 @@ P8 is **`IN_PROGRESS`** (`PARTIAL` / `FOCUSED_TESTED`) on branch `feat/telos-col
      - `range_map_equality_and_hash`: verification of order-independent and topology-independent structural equality and hash law.
      - `range_map_iteration`: iteration through all entries in canonical order.
 
-Next action: complete plan documentation (`COLL006.C1.P8-walkthrough.md` and `COLL006.C1.P8-handoff.md`), run verification gates in certify mode when authorized, and prepare transition to `COLL006.C1.P9`.
+Next action: complete P8 verification gates and current handoff/residual records. P9 T0 revalidation on 2026-10-12 found that P8 is not ready for G0; see the T0 audit below. The earlier P8 completion text remains historical and is superseded by this current checkpoint state.
+
+### P9 T0 takeover revalidation — 2026-10-12
+
+P9 started on `feat/telos-collections` at `06017339c36d4f8b06016b1d89aa9d2996673de9`; contemporaneous `origin/main` is `b00d75b3ac9f50d37cf9abfddfde00917e099031`. The `.worktrees/collections` checkout had only the copied P9 plan before task edits. Two mechanical P8 defects in `range_map.ph` were corrected: the private class identifier now uses a lexer-supported name, and the redundant `@class new()` was removed while retaining the normative `@constructor new()` path. The focused construction/lookup test passes.
+
+The exact `modules_parse_package` command now reports 9/12 runtime fixtures passing; its three failures are the same `ListSource` immutable-field diagnostic at `packages/parse/src/source/list-source.ph:33` reproduced on current `main`. The associated Cursor invocation remains unisolated because this earlier failure prevents that fixture from reaching the relevant assertions. The current-main run also has newer metadata-export failures not present on the feature branch. The native-surface generator reports 488 declarations, and the Value (16-byte) and Object (48-byte) invariants pass their focused unit tests.
+
+P8's plan requires T3/T5 source-owned path-copy split/join/range-splice before its T7 gates. The live implementation's `removing` walked all entries and reinserted survivors, while `overlaying` delegated to that full rebuild; the required split/join helpers were absent. The read-only architectural consultation ruled this an incomplete planned implementation, not a need to amend P8. The 2026-10-12 continuation below supersedes that observed state. P9-specific verification/residual records and the consultation dispositions are in `P9/`.
+
+### P8 T3/T5 and T6/T7 continuation — 2026-10-12
+
+On branch `feat/telos-collections` at unchanged HEAD `06017339c36d4f8b06016b1d89aa9d2996673de9`, P8's source-owned persistent AVL split/join/range-splice implementation is now present in `range_map.ph`. `removing` splits by both interval boundaries, retains boundary complements, counts/discards the covered middle, and rejoins retained trees. `overlaying` validates input, treats an empty interval as identity, and composes removal with strict insertion. `Bound<T>` and `Interval<T>` now provide the value equality/hash behavior required by the collection spec; RangeMap equality invokes those canonical `==` methods directly.
+
+Focused evidence for this continuation:
+
+| Obligation | Command / evidence | Result |
+|---|---|---|
+| G5 boundary/splice matrix | `range_map_boundary_splices_and_overlay_matrix` | PASS; exact inclusions, unbounded ranges, empty/invalid operations, old roots, and Bound/Interval equality/hash |
+| AVL rotations/sharing | `range_map_avl_rotations_and_structural_sharing` | PASS; LL/RR/LR/RL, stored heights, 31/32-node shape, path-copy sharing |
+| G6 normalization/equality/hash | `range_map_normalization_and_coalescing`, `range_map_equality_and_hash` | PASS; size, entries, and iterator count the normalized stored tree; equal neighbors merge across insert/overlay, while gaps and unequal values remain distinct |
+| G7 GC/reachability | `range_map_gc_retains_live_versions_endpoints_values_and_iterators` | PASS; source-level GC and a post-run collection preserve live roots and reclaim the dropped five-node map |
+| G7 comparator callbacks | `range_map_comparison_callbacks_reenter_allocate_and_fail_atomically` | PASS; same-map reads, allocation, forced GC, unrelated mutation, throw, and Unordered |
+| G7 value equality callbacks | `range_map_value_equality_callback_failure_is_atomic` | PASS; mutation-time neighbor equality callbacks may allocate/collect and throw; failed insert/overlay leaves the old root unchanged |
+| G7 randomized oracle | `range_map_randomized_model_conformance_multiple_seeds` | PASS; 1,050 deterministic operations over three fixed seeds with periodic retained versions and pointwise checks |
+| G5/G7 scale and persistence | `range_map_complexity_scales_with_tree_height_and_affected_region` | PASS at n=32, 1,024, 32,768; lookup/removal/overlay comparisons, AVL heights, and copied-node bounds |
+
+The full RangeMap filter passed after the T6 normalization correction:
+`RUSTFLAGS='' cargo test -p phalcom-core --test core range_map -- --nocapture --test-threads=3`
+selected 15 tests and passed all 15 in 596.99 seconds. G5/G6/G7 focused
+RangeMap criteria are now satisfied for the implemented Route A. Cross-family
+regressions, the core all-target check, format hygiene, and P8 T9 lifecycle
+closeout remain part of T8/G8. P8 remains `IN_PROGRESS / PARTIAL /
+FOCUSED_TESTED`, and P9 G0 stays blocked.
+
+### P8 T6 normalization contract revalidation — 2026-10-12
+
+Review against `docs/specs/collection-families.md` §8.3 and P8 T6 found that
+the persistent tree is not normalized after mutations: `inserting` increments
+raw `_size`, while only the temporary `entries` presentation coalesces adjacent
+equal-valued intervals. The current test asserts `entries.size`, not stored
+tree size or `RangeMap.size`. This conflicts with T6's requirement that each
+successful mutation leave the tree normalized and can affect callback timing,
+size semantics, and T5 complexity. No normalization edit has been made. The
+implementer stopped this issue and requested an architectural decision from
+the available adviser. G6 is therefore PARTIAL pending that decision and a
+discriminating regression; T8 work may continue on independent integration
+surfaces.
+
+### P8 T6 normalization consultation ruling — 2026-10-13
+
+The architectural adviser ruled the P8 plan sound; no amendment is needed.
+Canonical normalization belongs at mutation boundaries. Strict insertion must
+inspect only the predecessor and successor, reject overlap before publication,
+and merge each touching neighbor whose value is Telos-equal. Removal leaves
+separate remainders because its removed coverage creates an unmapped gap.
+Overlay composes the range splice with normalized insertion, allowing both
+boundary neighbors to coalesce. `_size` remains the canonical stored-node count;
+`entries` and `iterator` traverse that normalized tree without a second
+coalescing pass. Value-equality callbacks remain preflight operations, and any
+callback failure leaves the old persistent root unchanged. No production
+normalization edit had been made at the time of this ruling. P8 T6/G6 is now
+active; independent T8 evidence continues, and P9 G0 remains blocked.
+
+### P8 T6 normalization implementation and focused gate — 2026-10-13
+
+Added non-mutating `minimum`/`maximum` neighbor lookup helpers to
+`RangeMapNode`. `inserting` now splits by lower bound, checks overlap against
+only the immediate predecessor/successor, performs required value equality
+callbacks before rebuilding, extracts mergeable neighbors, and joins one
+normalized pivot. `overlaying` continues to compose removal with insertion, so
+it can coalesce at both exposed boundaries. `entries` now performs only an
+in-order traversal of stored nodes; `iterator` consumes that same sequence.
+Removal still leaves an unmapped gap between fragments.
+
+The normalization and value-equality callback tests both failed against the
+previous implementation for the expected missing behavior, then passed after
+the change. The complete RangeMap filter passed 15/15, including AVL shape and
+sharing, point lookup, overlay/removal boundaries, GC, callback failure,
+randomized-model, equality/hash, and 32,768-entry complexity checks. No plan
+amendment was made. G6 is `FOCUSED_TESTED`; P8 T8/G8 remains active.
+
+### P8 T8 cross-family stabilization — 2026-10-13
+
+The post-normalization RangeMap-focused suite remains green (15/15, 596.99s).
+T8 evidence now includes:
+
+| Surface | Result | Scope / residual |
+|---|---|---|
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core core_collections -- --nocapture --test-threads=3` | PASS, 16 passed / 1 ignored | The ignored test is the recorded numeric SameValueZero/hash-law residual. |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core core_bag -- --nocapture --test-threads=3` | PASS, 5/5 | Focused P7 regression. |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core core_bijection -- --nocapture --test-threads=3` | PASS, 6/6 | Focused P7 regression. |
+| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core --all-targets` | PASS | Core targets compile. |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core range_map -- --nocapture --test-threads=3` | PASS, 15/15 | Includes mutation-time normalization, callback atomicity, randomized oracle, GC, and scale checks. |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core language::data_e2e -- --nocapture --test-threads=3` | FAIL, 30 passed / 2 failed | `data_canonical_identity_preserves_same_spelled_module_owners_and_arguments` reports undefined module alias `Factory`; `data_constructor_call_collision_preserves_explicit_and_runtime_call_paths` reports missing canonical runtime callable metadata. No data/semantic source was changed in this continuation; branch-baseline ownership remains unverified. |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core memory_gc -- --nocapture --test-threads=3` | FAIL, 13 passed / 6 failed | `automatic_safepoint_fires`, `bounded_churn_real_workload`, `ensure_raised_error_survives_collecting_cleanup`, `system_gc_collects_garbage_from_source`, and `verify_invariants_post_automatic_gc` report `AssignToImmutable("i")`; `ensure_outcome_survives_collecting_cleanup` reports `MissingSequenceLiteralLowering`. No GC/compiler files changed in this continuation; causal ownership remains unverified. |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core generic_spread_accepts_range_user_iterable_and_bounded_pipeline -- --nocapture` | FAIL after T6 | Reports `constructor.semantic_product_missing` for `CopyRange`; repeating after T6 produced the same failure. No numeric Range or outgoing-pack source changed in this continuation; causal ownership remains unverified. |
+| `cargo fmt --all -- --check` | FAIL at initial check | The run reported 566 formatting diffs across the repository, including untouched files and `range_map.rs`; the task-owned test file was then formatted and passed scoped rustfmt check. Workspace-wide check was not repeated. |
+| `git diff --check` | PASS | No whitespace errors in the current diff. |
+
+The `memory_gc` failures and numeric Range failure are outside the changed
+implementation files, and the two data failures are in the pre-existing
+structural-data/semantic integration surface. A bounded causal comparison did
+not establish whether these failures predate the P8 branch state; current-main
+comparison is not equivalent because that checkout fails earlier in Universe
+startup. Keep these residuals `AMBIGUOUS` rather than claiming an external
+baseline. G8 is not passed: its relevant data regression is not green, and the
+required GC, numeric Range, and repository formatting rows are not clean.
+P8 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P9 G0 remains blocked.
+Next action is a fresh P8-owned classification/repair decision for the T8
+residuals, then T9 closeout only after the G8 acceptance rows are satisfied.
 
 

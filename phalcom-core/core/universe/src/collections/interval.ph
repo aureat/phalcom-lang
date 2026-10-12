@@ -62,6 +62,38 @@ impl<T> Bound<T> {
     }
   }
 
+  ==(_ other) -> Bool {
+    if other is not Bound { return false }
+    match self {
+      Unbounded => {
+        match other {
+          Bound::Unbounded => true
+          _ => false
+        }
+      }
+      Included(value) => {
+        match other {
+          Bound::Included(otherValue) => value == otherValue
+          _ => false
+        }
+      }
+      Excluded(value) => {
+        match other {
+          Bound::Excluded(otherValue) => value == otherValue
+          _ => false
+        }
+      }
+    }
+  }
+
+  hash -> Int {
+    match self {
+      Unbounded => 7
+      Included(value) => 17 + value.hash
+      Excluded(value) => 31 + value.hash
+    }
+  }
+
   toString -> String {
     match self {
       Unbounded => "Unbounded"
@@ -514,6 +546,15 @@ impl<T> Interval<T> {
       return []
     }
     return []
+  }
+
+  ==(_ other) -> Bool {
+    if other is not Interval { return false }
+    self.lower == other.lower and self.upper == other.upper
+  }
+
+  hash -> Int {
+    self.lower.hash * 31 + self.upper.hash
   }
 
   toString -> String {

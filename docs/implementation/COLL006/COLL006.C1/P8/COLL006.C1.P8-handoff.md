@@ -3,16 +3,41 @@ id: COLL006.C1.P8
 program: COLL006
 checkpoint: COLL006.C1
 kind: handoff
-status: COMPLETE
-completion: IMPLEMENTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: FOCUSED_TESTED
 ---
 
 # COLL006.C1.P8 — Handoff to P9
 
-`COLL006.C1.P8` is **COMPLETE / IMPLEMENTED / FOCUSED_TESTED** on branch `feat/telos-collections`.
-All P8 implementation tasks (T1–T6) are complete, with the full persistent AVL tree, interval algebra, `RangeMap<K, V>`, and test suites implemented.
-The C1 checkpoint record (`docs/implementation/COLL006/COLL006.C1/COLL006.C1-CHECKPOINT.md`) remains the single durable shared state authority.
+This handoff's original completion claim and P9 T0 revalidation are superseded
+by the 2026-10-12 continuation. The current state is **IN_PROGRESS / PARTIAL /
+FOCUSED_TESTED**: source-owned split/join/range-splice and G5/G7 focused
+evidence pass. The adviser ruled the P8 architecture sound with no amendment;
+the T6 normalization correction coalesces touching equal-valued neighbors in
+insertion and overlay, while removal preserves gaps. The RangeMap filter passed
+15/15 after that change, including complexity and callback regressions. The
+Interval filter passed 7/7 before the RangeMap-only T6 correction. T8 now has
+passing P6/P7 collection suites and a passing core all-target check, but is not
+green: `language::data_e2e` passed 30/32, `memory_gc` passed 13/19, the exact
+numeric Range generic-spread regression failed, and repository-wide formatting
+reports diffs in untouched files. These failures are recorded as ambiguous
+causal residuals in the checkpoint and P9 residual ledger; no branch-baseline
+comparison established ownership. `git diff --check` passes. T9 closeout remains
+pending G8; P9 G0 stays blocked. This continuation started on
+`feat/telos-collections` at `06017339c36d4f8b06016b1d89aa9d2996673de9`; the
+branch tip containing this handoff and implementation is the current state
+anchor. The C1 checkpoint record
+(`docs/implementation/COLL006/COLL006.C1/COLL006.C1-CHECKPOINT.md`) remains
+the single durable shared state authority.
+
+Takeover corrected two RangeMap bootstrap defects: `_RangeMapNode` was renamed
+to parser-supported `RangeMapNode`, and a redundant `@class new()` selector was
+removed while retaining the `@constructor new()` overloads. The follow-up also
+added source-owned AVL split/join helpers, precise boundary splicing, empty
+overlay identity, and spec-defined Bound/Interval equality and hashing. See the
+checkpoint's P8 continuation record for exact focused evidence and remaining
+G8 work.
 
 ---
 
@@ -37,13 +62,13 @@ The successor plan (`COLL006.C1.P9` — Whole-C1 Convergence, API Consistency, `
    - Registered in prelude for unqualified access.
 
 4. **Persistent Ordered Substrate & `RangeMap<K, V>` (`range_map.ph`)**:
-   - `_RangeMapNode<K, V>`: internal immutable persistent AVL tree node with pure rotations, rebalancing, and $O(\log n)$ point lookup.
+   - `RangeMapNode<K, V>`: internal immutable persistent AVL tree node with pure rotations, rebalancing, and $O(\log n)$ point lookup.
    - `RangeMap<K, V> is Collection`:
      - Immutable mapping from pairwise-disjoint intervals to values.
      - Strict insertion (`inserting`) rejecting invalid, empty, or overlapping intervals.
      - Coverage subtraction (`removing`) with interior remainder splitting.
      - Range overlay (`overlaying`) replacing mapped coverage with new values.
-     - In-order coalescing normalization (`entries`).
+     - Canonical normalization at mutation boundaries; `entries` and the iterator traverse the already-normalized in-order tree.
      - Extensional equality (`==`) and deterministic hash fold (`hash`).
      - Lazy iterator (`RangeMapIterator<K, V>`).
    - Registered in `collections/package.ph`, `phalcom-modules/src/builtin.rs`, and canonical `prelude.rs`.
