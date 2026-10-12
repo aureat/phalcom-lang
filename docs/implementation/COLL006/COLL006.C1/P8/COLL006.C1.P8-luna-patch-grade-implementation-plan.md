@@ -6,7 +6,7 @@ checkpoint: COLL006.C1
 kind: implementation-plan
 status: IN_PROGRESS
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: UNVERIFIED
 depends_on:
   - COLL006.C1.P7
 follows: COLL006.C1.P7

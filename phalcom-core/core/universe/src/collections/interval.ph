@@ -195,17 +195,10 @@ impl<T> Interval<T> {
         match b {
           Unbounded => Ordering::Greater
           Included(xb) => {
-            let ord = xa <=> xb
-            if ord == Ordering::Unordered {
-              InvalidIntervalError.new("Lower bound comparison yielded Ordering::Unordered").raise()
-            }
-            ord
+            Interval.compareDomain(xa, xb)
           }
           Excluded(xb) => {
-            let ord = xa <=> xb
-            if ord == Ordering::Unordered {
-              InvalidIntervalError.new("Lower bound comparison yielded Ordering::Unordered").raise()
-            }
+            let ord = Interval.compareDomain(xa, xb)
             if ord == Ordering::Equal { Ordering::Less } else { ord }
           }
         }
@@ -214,18 +207,11 @@ impl<T> Interval<T> {
         match b {
           Unbounded => Ordering::Greater
           Included(xb) => {
-            let ord = xa <=> xb
-            if ord == Ordering::Unordered {
-              InvalidIntervalError.new("Lower bound comparison yielded Ordering::Unordered").raise()
-            }
+            let ord = Interval.compareDomain(xa, xb)
             if ord == Ordering::Equal { Ordering::Greater } else { ord }
           }
           Excluded(xb) => {
-            let ord = xa <=> xb
-            if ord == Ordering::Unordered {
-              InvalidIntervalError.new("Lower bound comparison yielded Ordering::Unordered").raise()
-            }
-            ord
+            Interval.compareDomain(xa, xb)
           }
         }
       }
@@ -246,17 +232,10 @@ impl<T> Interval<T> {
         match b {
           Unbounded => Ordering::Less
           Included(yb) => {
-            let ord = ya <=> yb
-            if ord == Ordering::Unordered {
-              InvalidIntervalError.new("Upper bound comparison yielded Ordering::Unordered").raise()
-            }
-            ord
+            Interval.compareDomain(ya, yb)
           }
           Excluded(yb) => {
-            let ord = ya <=> yb
-            if ord == Ordering::Unordered {
-              InvalidIntervalError.new("Upper bound comparison yielded Ordering::Unordered").raise()
-            }
+            let ord = Interval.compareDomain(ya, yb)
             if ord == Ordering::Equal { Ordering::Greater } else { ord }
           }
         }
@@ -265,18 +244,11 @@ impl<T> Interval<T> {
         match b {
           Unbounded => Ordering::Less
           Included(yb) => {
-            let ord = ya <=> yb
-            if ord == Ordering::Unordered {
-              InvalidIntervalError.new("Upper bound comparison yielded Ordering::Unordered").raise()
-            }
+            let ord = Interval.compareDomain(ya, yb)
             if ord == Ordering::Equal { Ordering::Less } else { ord }
           }
           Excluded(yb) => {
-            let ord = ya <=> yb
-            if ord == Ordering::Unordered {
-              InvalidIntervalError.new("Upper bound comparison yielded Ordering::Unordered").raise()
-            }
-            ord
+            Interval.compareDomain(ya, yb)
           }
         }
       }
@@ -305,7 +277,8 @@ impl<T> Interval<T> {
 
   // --- Instance Semantic Queries ---
 
-  /// True iff lower <= upper (or at least one endpoint is Unbounded) and not unordered.
+  /// True iff lower <= upper (or at least one endpoint is Unbounded).
+  /// Raises InvalidIntervalError if a finite endpoint comparison is unordered.
   isValid -> Bool {
     match self.lower {
       Unbounded => true
@@ -313,11 +286,11 @@ impl<T> Interval<T> {
         match self.upper {
           Unbounded => true
           Included(uVal) => {
-            let ord = lVal <=> uVal
+            let ord = Interval.compareDomain(lVal, uVal)
             ord == Ordering::Less or ord == Ordering::Equal
           }
           Excluded(uVal) => {
-            let ord = lVal <=> uVal
+            let ord = Interval.compareDomain(lVal, uVal)
             ord == Ordering::Less or ord == Ordering::Equal
           }
         }
@@ -326,11 +299,11 @@ impl<T> Interval<T> {
         match self.upper {
           Unbounded => true
           Included(uVal) => {
-            let ord = lVal <=> uVal
+            let ord = Interval.compareDomain(lVal, uVal)
             ord == Ordering::Less or ord == Ordering::Equal
           }
           Excluded(uVal) => {
-            let ord = lVal <=> uVal
+            let ord = Interval.compareDomain(lVal, uVal)
             ord == Ordering::Less or ord == Ordering::Equal
           }
         }
@@ -347,7 +320,7 @@ impl<T> Interval<T> {
           Unbounded => false
           Included(uVal) => false
           Excluded(uVal) => {
-            let ord = lVal <=> uVal
+            let ord = Interval.compareDomain(lVal, uVal)
             ord == Ordering::Equal
           }
         }
@@ -356,11 +329,11 @@ impl<T> Interval<T> {
         match self.upper {
           Unbounded => false
           Included(uVal) => {
-            let ord = lVal <=> uVal
+            let ord = Interval.compareDomain(lVal, uVal)
             ord == Ordering::Equal
           }
           Excluded(uVal) => {
-            let ord = lVal <=> uVal
+            let ord = Interval.compareDomain(lVal, uVal)
             ord == Ordering::Equal
           }
         }
@@ -374,34 +347,22 @@ impl<T> Interval<T> {
     match self.lower {
       Unbounded => {}
       Included(lVal) => {
-        let ord = point <=> lVal
-        if ord == Ordering::Unordered {
-          InvalidIntervalError.new("Point comparison yielded Ordering::Unordered").raise()
-        }
+        let ord = Interval.compareDomain(point, lVal)
         if ord == Ordering::Less { return false }
       }
       Excluded(lVal) => {
-        let ord = point <=> lVal
-        if ord == Ordering::Unordered {
-          InvalidIntervalError.new("Point comparison yielded Ordering::Unordered").raise()
-        }
+        let ord = Interval.compareDomain(point, lVal)
         if ord == Ordering::Less or ord == Ordering::Equal { return false }
       }
     }
     match self.upper {
       Unbounded => {}
       Included(uVal) => {
-        let ord = point <=> uVal
-        if ord == Ordering::Unordered {
-          InvalidIntervalError.new("Point comparison yielded Ordering::Unordered").raise()
-        }
+        let ord = Interval.compareDomain(point, uVal)
         if ord == Ordering::Greater { return false }
       }
       Excluded(uVal) => {
-        let ord = point <=> uVal
-        if ord == Ordering::Unordered {
-          InvalidIntervalError.new("Point comparison yielded Ordering::Unordered").raise()
-        }
+        let ord = Interval.compareDomain(point, uVal)
         if ord == Ordering::Greater or ord == Ordering::Equal { return false }
       }
     }
@@ -451,7 +412,7 @@ impl<T> Interval<T> {
       Included(uVal) => {
         match other.lower {
           Excluded(lVal) => {
-            let ord = uVal <=> lVal
+            let ord = Interval.compareDomain(uVal, lVal)
             if ord == Ordering::Equal { return true }
           }
           _ => {}
@@ -460,7 +421,7 @@ impl<T> Interval<T> {
       Excluded(uVal) => {
         match other.lower {
           Included(lVal) => {
-            let ord = uVal <=> lVal
+            let ord = Interval.compareDomain(uVal, lVal)
             if ord == Ordering::Equal { return true }
           }
           _ => {}
@@ -473,7 +434,7 @@ impl<T> Interval<T> {
       Included(uVal) => {
         match self.lower {
           Excluded(lVal) => {
-            let ord = uVal <=> lVal
+            let ord = Interval.compareDomain(uVal, lVal)
             if ord == Ordering::Equal { return true }
           }
           _ => {}
@@ -482,7 +443,7 @@ impl<T> Interval<T> {
       Excluded(uVal) => {
         match self.lower {
           Included(lVal) => {
-            let ord = uVal <=> lVal
+            let ord = Interval.compareDomain(uVal, lVal)
             if ord == Ordering::Equal { return true }
           }
           _ => {}

@@ -4,6 +4,7 @@
 //! to values `V` with O(log n) point lookup and structural sharing.
 
 from universe.collections.interval import Bound, Interval
+from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
 /// Internal persistent AVL tree node.
 class RangeMapNode<K, V> {
@@ -379,18 +380,6 @@ class RangeMapNode<K, V> {
     }
   }
 
-  // Collect in-order (interval, value) pairs into List
-  @class
-  inOrderCollect(_ node: Option<RangeMapNode<K, V>>, _ acc: List<(interval: Interval<K>, value: V)>) {
-    match node {
-      Option::None => {}
-      Option::Some(n) => {
-        RangeMapNode.inOrderCollect(n.left, acc)
-        acc.append((interval: n.interval, value: n.value))
-        RangeMapNode.inOrderCollect(n.right, acc)
-      }
-    }
-  }
 }
 
 /// Immutable persistent range map mapping disjoint intervals to values.
@@ -536,15 +525,13 @@ class RangeMap<K, V> is Collection {
     self.removing(interval).inserting(interval, value)
   }
 
-  /// Normalized entries in sorted order.
-  entries -> List<(interval: Interval<K>, value: V)> {
-    let result = List<(interval: Interval<K>, value: V)>.new()
-    RangeMapNode.inOrderCollect(self._root, result)
-    result
+  /// Snapshot array of normalized entries in sorted order.
+  entries -> Array<(interval: Interval<K>, value: V)> {
+    return <(interval: Interval<K>, value: V)>[*self]
   }
 
   iterator -> RangeMapIterator<K, V> {
-    RangeMapIterator<K, V>.new(self.entries)
+    RangeMapIterator<K, V>.new(self._root)
   }
 
   ==(_ other) -> Bool {
@@ -591,23 +578,44 @@ class RangeMap<K, V> is Collection {
 }
 
 class RangeMapIterator<K, V> {
-  mut _entries: List<(interval: Interval<K>, value: V)>
-  mut _index: Int
+  mut _pending: List<RangeMapNode<K, V>>
 
   @constructor
-  new(_ entries: List<(interval: Interval<K>, value: V)>) {
-    _entries = entries
-    _index = 0
+  new(_ root: Option<RangeMapNode<K, V>>) {
+    _pending = List<RangeMapNode<K, V>>.new()
+    self.pushLeftSpine(root)
+  }
+
+  pushLeftSpine(_ node: Option<RangeMapNode<K, V>>) {
+    let mut current = node
+    while current.isSome {
+      let entry = current.unwrap
+      _pending.append(entry)
+      current = entry.left
+    }
   }
 
   next -> Option<(interval: Interval<K>, value: V)> {
-    if _index < _entries.size {
-      let item = _entries.at(_index)
-      _index = _index + 1
-      return Option::Some(item)
+    match _pending.popLast {
+      Option::None => Option::None
+      Option::Some(entry) => {
+        self.pushLeftSpine(entry.right)
+        Option::Some((interval: entry.interval, value: entry.value))
+      }
     }
-    return Option::None
   }
+
+  iterator { self }
+}
+
+impl<K, V> CanonicalIterator for RangeMapIterator<K, V> {
+  type Item = (interval: Interval<K>, value: V)
+}
+
+impl<K, V> CanonicalIterable for RangeMap<K, V> {
+  type Item = (interval: Interval<K>, value: V)
+  type Iterator = RangeMapIterator<K, V>
+  iterator -> RangeMapIterator<K, V> { RangeMapIterator<K, V>.new(self._root) }
 }
 
 export RangeMap, RangeMapIterator

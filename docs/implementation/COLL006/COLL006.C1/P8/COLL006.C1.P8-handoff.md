@@ -5,15 +5,16 @@ checkpoint: COLL006.C1
 kind: handoff
 status: IN_PROGRESS
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: UNVERIFIED
 ---
 
 # COLL006.C1.P8 — Handoff to P9
 
 This handoff's original completion claim and P9 T0 revalidation are superseded
 by the 2026-10-12 continuation. The current state is **IN_PROGRESS / PARTIAL /
-FOCUSED_TESTED**: source-owned split/join/range-splice and G5/G7 focused
-evidence pass. The adviser ruled the P8 architecture sound with no amendment;
+UNVERIFIED**: the current working tree contains review fixes that postdate its
+focused evidence. Earlier source-owned split/join/range-splice and G5/G7 gates
+passed. The adviser ruled the P8 architecture sound with no amendment;
 the T6 normalization correction coalesces touching equal-valued neighbors in
 insertion and overlay, while removal preserves gaps. The RangeMap filter passed
 15/15 after that change, including complexity and callback regressions. The
@@ -30,6 +31,13 @@ branch tip containing this handoff and implementation is the current state
 anchor. The C1 checkpoint record
 (`docs/implementation/COLL006/COLL006.C1/COLL006.C1-CHECKPOINT.md`) remains
 the single durable shared state authority.
+
+The unverified review corrections make `RangeMap.entries` return the specified
+`Array` snapshot, use a tree-backed traversal stack for lazy iteration, route
+finite interval ordering through the `Unordered`-rejecting comparison helper,
+and propagate metadata alias export failures instead of silently dropping an
+alias. Rerun the focused Interval and RangeMap discriminators before relying on
+the earlier 7/7 and 15/15 results for the current tree.
 
 Takeover corrected two RangeMap bootstrap defects: `_RangeMapNode` was renamed
 to parser-supported `RangeMapNode`, and a redundant `@class new()` selector was

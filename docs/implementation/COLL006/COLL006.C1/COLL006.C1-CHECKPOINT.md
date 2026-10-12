@@ -6,7 +6,7 @@ checkpoint: COLL006.C1
 kind: checkpoint-record
 status: IN_PROGRESS
 completion: PARTIAL
-verification: BASELINE_BLOCKED
+verification: UNVERIFIED
 requires:
   - LANG007.C4.P3
 ---
@@ -334,7 +334,7 @@ The ledger records current C1 execution state. Proposed successor plans retain t
 | `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 owned implementation and focused evidence complete; G6.A PASS; G6.B and aggregate G6 retain the parse-package baseline blocker |
 | `COLL006.C1.P6` | Reusable ordered-hash backing; preserve Map/Set; add `MutableBag`, `IndexedDict`, `OrderedSet` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T7 complete; exact 29 bindings (TDR-0092); G3 (MutableBag), G4 (IndexedDict), G5 (OrderedSet), G6 (mutable-key admission matrix) passed; oracles resolved; walkthrough and handoff created; P7 is next |
 | `COLL006.C1.P7` | Persistent hash substrate; `Bag<T>`; `Bijection<K,V>` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T8 complete; exact 14 bindings (TDR-0093); G2 (PersistentHashNode), G3 (persistent_hash HAMT), G4 (TDR-0093 floor), G5 (Bag), G6 (Bijection), G7 (collections aggregate) passed; native surface 488; walkthrough and handoff created; P8 is next |
-| `COLL006.C1.P8` | `Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T3/T5, T6/G6 normalization, and T7/G7 focused evidence pass; T8/G8 has unresolved cross-family failures and T9 closeout remains |
+| `COLL006.C1.P8` | `Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>` | IN_PROGRESS | PARTIAL | UNVERIFIED | Earlier T3/T5, T6/G6, and T7/G7 evidence predates current review fixes to entries typing, iterator traversal, and unordered comparison handling; T8/G8 and T9 closeout remain |
 | `COLL006.C1.P9` | API/conversion convergence, `Entry<K,V>` migration boundary, diagnostics, property/GC/performance certification, docs/checkpoint closure | IN_PROGRESS | PARTIAL | UNVERIFIED | T0 takeover is partial; G0 remains blocked until P8 G8 passes and P8 T9 produces its final walkthrough/handoff and residual record |
 
 Corrective plans required to make the C1 acceptance objective truthful remain inside C1 rather than creating a new checkpoint.
@@ -940,7 +940,7 @@ The implementer cannot self-waive a triggered consultation.
 
 ```text
 active plan:           COLL006.C1.P8 T8/G8 residual classification; P9 T0/G0 remains blocked pending P8 closeout
-latest completed plan: COLL006.C1.P7; P8 T3/T5 and T7/G7 are focused-tested, while T8/G8 and T9 remain
+latest completed plan: COLL006.C1.P7; P8 T3/T5 and T7/G7 had focused evidence before current unverified review fixes; T8/G8 and T9 remain
 execution blockers:    P8 focused integration gate is outstanding; P5 associated-invocation behavior remains masked by an earlier ListSource error
 verification residuals: D4 — computed Record-key failures block a clean aggregate static_constants PASS;
                          D1 — metadata failure, still suspected unrelated;
