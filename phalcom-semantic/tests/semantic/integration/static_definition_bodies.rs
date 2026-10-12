@@ -1171,3 +1171,187 @@ fn provider_const_type_change_invalidates_importing_checked_body() {
         "changed provider type must replace the checked body product"
     );
 }
+
+#[test]
+fn static_evaluator_executes_match_for_and_proof_predicates() {
+    let source = r#"
+data Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }
+
+trait MarkerTrait {}
+impl MarkerTrait for Int {}
+
+type MatchBasic: Int {
+    let opt: Option<Int> = Option::Some(42)
+    match opt {
+        Option::Some(x) => x
+        Option::None => 0
+    }
+}
+
+type MatchTuple: Int {
+    let pair = (3, 7)
+    match pair {
+        (a, b) => a + b
+    }
+}
+
+type MatchUntakenBranch: Int {
+    let opt: Option<Int> = Option::Some(10)
+    match opt {
+        Option::Some(x) => x
+        Option::None => 0
+    }
+}
+
+type ForSum: Int {
+    let mut sum = 0
+    for x in (1, 2, 3, 4) {
+        sum = sum + x
+    }
+    sum
+}
+
+type ForIndex: Int {
+    let mut count = 0
+    for x at i in (10, 20, 30) {
+        count = count + i
+    }
+    count
+}
+
+type ForBreak: Int {
+    let mut sum = 0
+    for flag in (false, false, true, false) {
+        if flag {
+            break
+        }
+        sum = sum + 1
+    }
+    sum
+}
+
+type ForContinue: Int {
+    let mut sum = 0
+    for flag in (false, true, false, false) {
+        if flag {
+            continue
+        }
+        sum = sum + 1
+    }
+    sum
+}
+
+type ForReturn: Int {
+    for flag in (false, true, false) {
+        if flag {
+            return 99
+        }
+    }
+    0
+}
+
+type ForEmpty: Int {
+    let mut sum = 0
+    for x in () {
+        sum = sum + 1
+    }
+    sum
+}
+
+type EquivTrue: Bool = Equivalent<Int, Int>
+type EquivFalse: Bool = Equivalent<Int, String>
+type SubtypeTrue: Bool = Subtype<Int, Int>
+type SubtypeFalse: Bool = Subtype<String, Int>
+type ConformsMarkerTrue: Bool = Conforms<Int, MarkerTrait>
+type ConformsMarkerFalse: Bool = Conforms<String, MarkerTrait>
+"#;
+
+    let fixture = WorkspaceFixture::new().module("main", source).analyze();
+
+    let evaluate_int = |name: &str| -> i64 {
+        let checked = fixture
+            .analysis
+            .snapshot
+            .static_definition(&fixture.decl("main", name))
+            .and_then(|definition| definition.checked_body.as_ref())
+            .unwrap_or_else(|| panic!("missing checked static definition {name}"));
+        assert!(checked.diagnostics.is_empty(), "diagnostics in {name}: {:?}", checked.diagnostics);
+        let mut values = StaticValueStore::new();
+        let mut budget = QueryBudget::default();
+        let cancellation = CancellationToken::new();
+        let outcome = StaticEvaluator::new(checked, &mut values, &mut budget, &cancellation, &[])
+            .with_type_store(fixture.analysis.snapshot.store())
+            .with_semantic_tables(
+                fixture.analysis.snapshot.store(),
+                &fixture.analysis.snapshot.data_semantics,
+                &fixture.analysis.snapshot.enum_semantics,
+            )
+            .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+            .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+            .evaluate();
+        match outcome {
+            StaticEvalOutcome::Reduced(v) => match values.get(v).unwrap() {
+                StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(n)) => *n,
+                other => panic!("expected Small int for {name}, got {other:?}"),
+            },
+            other => panic!("expected Reduced for {name}, got {other:?}"),
+        }
+    };
+
+    let evaluate_bool = |name: &str| -> bool {
+        let checked = fixture
+            .analysis
+            .snapshot
+            .static_definition(&fixture.decl("main", name))
+            .and_then(|definition| definition.checked_body.as_ref())
+            .unwrap_or_else(|| panic!("missing checked static definition {name}"));
+        assert!(checked.diagnostics.is_empty(), "diagnostics in {name}: {:?}", checked.diagnostics);
+        let mut values = StaticValueStore::new();
+        let mut budget = QueryBudget::default();
+        let cancellation = CancellationToken::new();
+        let outcome = StaticEvaluator::new(checked, &mut values, &mut budget, &cancellation, &[])
+            .with_type_store(fixture.analysis.snapshot.store())
+            .with_semantic_tables(
+                fixture.analysis.snapshot.store(),
+                &fixture.analysis.snapshot.data_semantics,
+                &fixture.analysis.snapshot.enum_semantics,
+            )
+            .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+            .with_conformance(
+                &fixture.analysis.snapshot.conformance_index,
+                &fixture.analysis.snapshot.conformance_witness_plans,
+                &fixture.analysis.snapshot.trait_surfaces,
+                &fixture.analysis.snapshot.declarations,
+            )
+            .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+            .evaluate();
+        match outcome {
+            StaticEvalOutcome::Reduced(v) => match values.get(v).unwrap() {
+                StaticValueData::Bool(b) => *b,
+                other => panic!("expected Bool for {name}, got {other:?}"),
+            },
+            other => panic!("expected Reduced for {name}, got {other:?}"),
+        }
+    };
+
+    // Match tests
+    assert_eq!(evaluate_int("MatchBasic"), 42);
+    assert_eq!(evaluate_int("MatchTuple"), 10);
+    assert_eq!(evaluate_int("MatchUntakenBranch"), 10);
+
+    // For loop tests
+    assert_eq!(evaluate_int("ForSum"), 10);
+    assert_eq!(evaluate_int("ForIndex"), 3);
+    assert_eq!(evaluate_int("ForBreak"), 2);
+    assert_eq!(evaluate_int("ForContinue"), 3);
+    assert_eq!(evaluate_int("ForReturn"), 99);
+    assert_eq!(evaluate_int("ForEmpty"), 0);
+
+    // Proof predicate tests
+    assert_eq!(evaluate_bool("EquivTrue"), true);
+    assert_eq!(evaluate_bool("EquivFalse"), false);
+    assert_eq!(evaluate_bool("SubtypeTrue"), true);
+    assert_eq!(evaluate_bool("SubtypeFalse"), false);
+    assert_eq!(evaluate_bool("ConformsMarkerTrue"), true);
+    assert_eq!(evaluate_bool("ConformsMarkerFalse"), false);
+}

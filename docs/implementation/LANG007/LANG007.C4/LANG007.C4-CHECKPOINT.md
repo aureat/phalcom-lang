@@ -14,9 +14,9 @@ requires:
   - LANG007.C3
 prepared_against_revision: 8c3a98aab41ed8631e9f8746a6b29984cf77581d
 prepared: 2026-10-04
-active_plan: LANG007.C4.P6
-latest_completed_plan: LANG007.C4.P5
-next_plan: LANG007.C4.P6
+active_plan: LANG007.C4.P7
+latest_completed_plan: LANG007.C4.P6
+next_plan: LANG007.C4.P7
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P6/LANG007.C4.P6-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 73ea73f4622417510c39850e61664cf8c2c4a900
 last_updated: 2026-10-12
@@ -566,7 +566,7 @@ The intended C4 decomposition is:
 | `LANG007.C4.P4` | Generalized `FieldKey` and unordered-product calculus | IN_PROGRESS | PARTIAL | UNVERIFIED | T1-T6 remain COMPLETE / IMPLEMENTED / FOCUSED_TESTED. Earlier T7.0C-D work is retained as substrate, but the remaining execution order is superseded by the corrective completion plan: rebaseline the owner matrix, converge StaticConstant formation, then add exact owner orchestration and projection-aware replay before aliases/T7.0E. No T7.0E acceptance or Record-pattern work is claimed. |
 | `LANG007.C4.P10` | Parallel structural classification, static-control, and convergence foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Pre-barrier work through `46d00056` is integrated on main and S1 is complete. In the completion worktree `codex/lang007-c4-p10`, explicit `Expr::While`, parser/consumer convergence, bounded static-while execution, and direct jump-loop lowering with deopt fallback are completely implemented and verified. AST/parser, direct CFG/source-index, static-while, structural-classifier/reflection, fixed-call/no-Pack, runtime `control_flow_while_break_continue`, and affected-crate check gates passed. The reported nontermination of the runtime fixture was resolved as normal debug-build Universe compilation time (~52s). The comparison-loop flow issue was proven to be an inherited baseline failure on `main` (Category D, AUD-SEM-002 opaque-call invalidation); see P10 walkthrough and handoff. |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T1–T12 implemented and verified; G1 TypeMemberDomain/adapter, G2 domain-neutral projection outcomes, G3 trait-associated result domains, G4 normative universe structural declarations, G5 compiler-derived structural capabilities, G6 ordered product reflection, G7 intrinsic UnorderedShape type members, G8 unordered product reflection, G9 sum/variant reflection, G10 generic/stuck projections, G11 regression suite pass. |
-| `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | IN_PROGRESS | PARTIAL | UNVERIFIED | active; T0 rebaseline and open-boundary gates classified; implementing T1–T13 |
+| `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T15 implemented and verified; canonical MatchResolution/PatternSite publication, static structural iteration lane carrier & checker resolution, static pattern matcher, static match execution with branch proof transport, finite Pack/OrderedProduct/UnorderedProduct/Type structural for execution, proof predicates (Equivalent, Subtype, Conforms with compiler-derived & user traits), static control flow integration test passed. |
 | `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P8` | Incremental durability, metadata, cross-module static products, materialization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P9` | Public ontology migration, tooling, documentation, performance certification, checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | planned |

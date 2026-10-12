@@ -4,19 +4,29 @@ use crate::checker::analysis::{
     SequenceLiteralResolution, SequenceLiteralResolutionIndex,
 };
 use crate::checker::associated::AssociatedResolutionIndex;
+use crate::checker::proof_predicate::{ProofPredicateKind, ProofPredicateResolution};
 use crate::db::{CancellationToken, QueryBudget};
 use crate::field_key::FieldKey;
+use crate::generic_evidence::{
+    ConformanceProofContext, GenericConformanceKey, GenericConformanceProof, StructuralConformanceContext, prove_conformance_with_context,
+};
 use crate::identity::{BindingId, ExpressionId};
-use crate::match_semantics::{MatchResolutionIndex, PatternSiteResolutionIndex};
+use crate::match_semantics::{BranchProofEnvironment, MatchResolutionIndex, PatternSiteKey, PatternSiteKind, PatternSiteResolutionIndex};
 use crate::static_constant::{CheckedStaticConstantInitializer, CheckedStaticExpression, StaticConstantTable};
 use crate::static_definition::{CheckedStaticApplication, CheckedStaticBody, CheckedStaticConstruction, StaticApplicationId, StaticDefinitionTable};
+use crate::static_eval::pattern::{StaticPatternMatchOutcome, match_pattern_against_value};
 use crate::static_intrinsic::{StaticIntrinsicOperation, StaticOperationResolutionIndex};
 use crate::static_value::{StaticValueData, StaticValueRef, StaticValueStore};
+use crate::traits::TraitRef;
 use crate::types::id::TypeId;
+use crate::types::outcome::RelationOutcome;
+use crate::types::parameter::TypeTerm;
+use crate::types::relation::{TypeHierarchy, check_subtype_bounded};
 use num_bigint::BigInt;
 use phalcom_ast::ast::{
-    BinaryOp, BracketLiteralElement, BracketLiteralExpr, Expr, GenericArgumentSyntax, IfElseBody, LexicalBlock, Pattern, ProductLabel,
-    RecordLiteralEntry, Statement, SymbolLiteralKind, TupleLiteralEntry, TypeAnnotationExpr,
+    BinaryOp, BracketLiteralElement, BracketLiteralExpr, Expr, ForIndexBinding, ForStatement, GenericArgumentSyntax, IfElseBody,
+    LexicalBlock, MatchArmBody, MatchExpr, Pattern, ProductLabel, RecordLiteralEntry, Statement, SymbolLiteralKind, TupleLiteralEntry,
+    TypeAnnotationExpr,
 };
 use phalcom_common::range::SourceRange;
 use std::collections::BTreeMap;
@@ -224,6 +234,14 @@ pub struct StaticEvaluator<'a> {
         &'a crate::enum_semantics::EnumSemanticTable,
     )>,
     active_definitions: Vec<crate::identity::DeclarationId>,
+    active_branch_proofs: Vec<&'a BranchProofEnvironment>,
+    hierarchy: Option<&'a dyn TypeHierarchy>,
+    conformance: Option<(
+        &'a crate::impls::ConformanceIndex,
+        &'a BTreeMap<crate::identity::ImplId, std::sync::Arc<crate::impls::ConformanceWitnessPlan>>,
+        &'a crate::traits::TraitSurfaceTable,
+        &'a crate::declarations::DeclarationTypeTable,
+    )>,
     saved_frames: Vec<SavedFrame<'a>>,
     pending_application_arguments: BTreeMap<StaticApplicationId, Vec<Option<StaticArgument>>>,
     completed_kinded_result: Option<TypeId>,
@@ -237,6 +255,22 @@ struct SavedFrame<'a> {
     kinded_arguments: BTreeMap<u32, TypeId>,
     expression_sites: BTreeMap<(usize, usize), Vec<ExpressionId>>,
     definition: Option<crate::identity::DeclarationId>,
+    active_branch_proofs: Vec<&'a BranchProofEnvironment>,
+}
+
+#[derive(Clone, Copy)]
+enum StatementContainer<'a> {
+    Block(&'a LexicalBlock),
+    ForBody(&'a ForStatement),
+}
+
+impl<'a> StatementContainer<'a> {
+    fn statements(&self) -> &'a [Statement] {
+        match self {
+            Self::Block(b) => &b.body,
+            Self::ForBody(f) => &f.body,
+        }
+    }
 }
 
 enum Work<'a> {
@@ -244,14 +278,27 @@ enum Work<'a> {
     EvaluateTypeForm(&'a phalcom_ast::ast::TypeAnnotation),
     EvaluateBlock(&'a LexicalBlock),
     FinishRoot,
-    BlockNext(&'a LexicalBlock, usize, Option<StaticValueRef>),
-    BlockAfter(&'a LexicalBlock, usize),
+    StatementNext(StatementContainer<'a>, usize, Option<StaticValueRef>),
+    StatementAfter(StatementContainer<'a>, usize),
     FinishReturn,
-    StoreLocal(BindingId, &'a LexicalBlock, usize),
+    StoreLocal(BindingId, StatementContainer<'a>, usize),
     StoreAssignment(BindingId),
     AfterIf(&'a phalcom_ast::ast::IfExpr),
     AfterWhileCondition(&'a phalcom_ast::ast::WhileExpr),
     AfterWhileBody(&'a phalcom_ast::ast::WhileExpr),
+    AfterMatchScrutinee(&'a MatchExpr, ExpressionId),
+    TryMatchArm(&'a MatchExpr, ExpressionId, StaticValueRef, usize),
+    FinishMatchArm(Vec<(usize, Option<StaticValueRef>)>),
+    AfterForSource(StatementContainer<'a>, usize, &'a ForStatement),
+    ForNext(StatementContainer<'a>, usize, &'a ForStatement, Vec<StaticValueRef>, usize),
+    AfterForBody(
+        StatementContainer<'a>,
+        usize,
+        &'a ForStatement,
+        Vec<StaticValueRef>,
+        usize,
+        Vec<(usize, Option<StaticValueRef>)>,
+    ),
     FinishTuple(usize),
     SequenceNext(&'a BracketLiteralExpr, &'a SequenceLiteralResolution, usize, Vec<StaticValueRef>),
     SequenceElementReady(&'a BracketLiteralExpr, &'a SequenceLiteralResolution, usize, Vec<StaticValueRef>),
@@ -380,6 +427,9 @@ impl<'a> StaticEvaluator<'a> {
             canonical_types: None,
             semantic_tables: None,
             active_definitions: vec![body.owner.0.clone()],
+            active_branch_proofs: Vec::new(),
+            hierarchy: None,
+            conformance: None,
             saved_frames: Vec::new(),
             pending_application_arguments: BTreeMap::new(),
             completed_kinded_result: None,
@@ -414,6 +464,9 @@ impl<'a> StaticEvaluator<'a> {
             canonical_types: None,
             semantic_tables: None,
             active_definitions: Vec::new(),
+            active_branch_proofs: Vec::new(),
+            hierarchy: None,
+            conformance: None,
             saved_frames: Vec::new(),
             pending_application_arguments: BTreeMap::new(),
             completed_kinded_result: None,
@@ -449,6 +502,9 @@ impl<'a> StaticEvaluator<'a> {
             canonical_types: None,
             semantic_tables: None,
             active_definitions: Vec::new(),
+            active_branch_proofs: Vec::new(),
+            hierarchy: None,
+            conformance: None,
             saved_frames: Vec::new(),
             pending_application_arguments: BTreeMap::new(),
             completed_kinded_result: None,
@@ -487,6 +543,24 @@ impl<'a> StaticEvaluator<'a> {
     /// application arguments and TypeForm results.
     pub fn with_type_store(mut self, types: &'a crate::types::store::TypeStore) -> Self {
         self.canonical_types = Some(types);
+        self
+    }
+
+    /// Supplies the type hierarchy for subtype relations and proof predicates.
+    pub fn with_hierarchy(mut self, hierarchy: &'a dyn TypeHierarchy) -> Self {
+        self.hierarchy = Some(hierarchy);
+        self
+    }
+
+    /// Supplies conformance indexes and trait declarations for user-defined Conforms proof predicates.
+    pub fn with_conformance(
+        mut self,
+        conformance_index: &'a crate::impls::ConformanceIndex,
+        witness_plans: &'a BTreeMap<crate::identity::ImplId, std::sync::Arc<crate::impls::ConformanceWitnessPlan>>,
+        trait_surfaces: &'a crate::traits::TraitSurfaceTable,
+        declarations: &'a crate::declarations::DeclarationTypeTable,
+    ) -> Self {
+        self.conformance = Some((conformance_index, witness_plans, trait_surfaces, declarations));
         self
     }
 
@@ -534,6 +608,8 @@ impl<'a> StaticEvaluator<'a> {
                         | Work::FinishStaticApplication(_)
                         | Work::AbortStaticApplication(_)
                         | Work::AfterWhileBody(_)
+                        | Work::FinishMatchArm(_)
+                        | Work::AfterForBody(..)
                 )
             {
                 continue;
@@ -571,7 +647,10 @@ impl<'a> StaticEvaluator<'a> {
                         }
                         Expr::TypeForm(annotation) => {
                             let id = self.expression_id(expression.range())?;
-                            if let Some(application) = self.body.static_applications().iter().find(|application| application.expression == id) {
+                            if let Some(predicate) = self.body.proof_predicates().get(&id) {
+                                let result = self.evaluate_proof_predicate(predicate)?;
+                                stack.push(self.values.intern_bool(result));
+                            } else if let Some(application) = self.body.static_applications().iter().find(|application| application.expression == id) {
                                 let TypeAnnotationExpr::Application { arguments, .. } = &annotation.expr else {
                                     return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                                 };
@@ -767,12 +846,23 @@ impl<'a> StaticEvaluator<'a> {
                                 work.push(Work::Evaluate(source));
                             }
                         }
+                        Expr::Match(match_expr) => {
+                            let expression_id = self.expression_id(match_expr.range)?;
+                            if !self.body.match_resolutions().contains_key(&expression_id) {
+                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                            }
+                            work.push(Work::AfterMatchScrutinee(match_expr, expression_id));
+                            work.push(Work::Evaluate(&match_expr.value));
+                        }
                         _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
                     }
                 }
                 Work::EvaluateTypeForm(annotation) => {
                     let expression = self.expression_id(annotation.range)?;
-                    if let Some(application) = self.body.static_applications().iter().find(|item| item.expression == expression) {
+                    if let Some(predicate) = self.body.proof_predicates().get(&expression) {
+                        let result = self.evaluate_proof_predicate(predicate)?;
+                        stack.push(self.values.intern_bool(result));
+                    } else if let Some(application) = self.body.static_applications().iter().find(|item| item.expression == expression) {
                         let TypeAnnotationExpr::Application { arguments, .. } = &annotation.expr else {
                             return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                         };
@@ -782,7 +872,7 @@ impl<'a> StaticEvaluator<'a> {
                     }
                 }
                 Work::EvaluateBlock(block) => {
-                    work.push(Work::BlockNext(block, 0, None));
+                    work.push(Work::StatementNext(StatementContainer::Block(block), 0, None));
                 }
                 Work::FinishRoot => {
                     if let Some(control) = pending_control.take() {
@@ -796,20 +886,20 @@ impl<'a> StaticEvaluator<'a> {
                         }
                     }
                 }
-                Work::BlockNext(block, index, last) => match block.body.get(index) {
+                Work::StatementNext(container, index, last) => match container.statements().get(index) {
                     Some(Statement::Expr { expr, .. }) => {
-                        work.push(Work::BlockAfter(block, index + 1));
+                        work.push(Work::StatementAfter(container, index + 1));
                         work.push(Work::Evaluate(expr));
                     }
                     Some(Statement::Let(binding)) => {
                         let binding_id = self.local_binding(binding)?;
                         if let Some(initializer) = &binding.value {
-                            work.push(Work::StoreLocal(binding_id, block, index + 1));
+                            work.push(Work::StoreLocal(binding_id, container, index + 1));
                             work.push(Work::Evaluate(initializer));
                         } else {
                             let slot = self.local_slot(binding_id)?;
                             self.locals[slot] = None;
-                            work.push(Work::BlockNext(block, index + 1, Some(self.values.intern_unit())));
+                            work.push(Work::StatementNext(container, index + 1, Some(self.values.intern_unit())));
                         }
                     }
                     Some(Statement::Return(statement)) => {
@@ -822,18 +912,317 @@ impl<'a> StaticEvaluator<'a> {
                     }
                     Some(Statement::Break { .. }) => pending_control = Some(EvalControl::Break),
                     Some(Statement::Continue { .. }) => pending_control = Some(EvalControl::Continue),
+                    Some(Statement::For(for_stmt)) => {
+                        let lane = for_stmt.lanes.first().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                        let source_expr_id = self.expression_id(lane.iter.range())?;
+                        if let Some(lanes) = self.body.static_iteration_lanes() {
+                            if !lanes.contains_key(&source_expr_id) {
+                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                            }
+                        }
+                        work.push(Work::AfterForSource(container, index, for_stmt));
+                        work.push(Work::Evaluate(&lane.iter));
+                    }
                     Some(_) => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
                     None => stack.push(last.unwrap_or_else(|| self.values.intern_unit())),
                 },
-                Work::BlockAfter(block, next) => {
+                Work::StatementAfter(container, next) => {
                     let value = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                    work.push(Work::BlockNext(block, next, Some(value)));
+                    work.push(Work::StatementNext(container, next, Some(value)));
                 }
-                Work::StoreLocal(binding, block, next) => {
+                Work::StoreLocal(binding, container, next) => {
                     let value = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                     let slot = self.local_slot(binding)?;
                     self.locals[slot] = Some(value);
-                    work.push(Work::BlockNext(block, next, Some(self.values.intern_unit())));
+                    work.push(Work::StatementNext(container, next, Some(self.values.intern_unit())));
+                }
+                Work::AfterMatchScrutinee(match_expr, expression_id) => {
+                    let scrutinee = if let Some(term) = self.completed_kinded_result.take() {
+                        let types = self.canonical_types.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                        let kind = types.kind_of(term);
+                        if kind == crate::types::id::KindId::TYPE {
+                            self.values.intern_type(term, types).map_err(Stop::from)?
+                        } else {
+                            self.values.intern_static_term(term, types).map_err(Stop::from)?
+                        }
+                    } else {
+                        stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?
+                    };
+                    work.push(Work::TryMatchArm(match_expr, expression_id, scrutinee, 0));
+                }
+                Work::TryMatchArm(match_expr, expression_id, scrutinee, arm_index) => {
+                    if arm_index >= match_expr.arms.len() {
+                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                    }
+                    let resolution = self
+                        .body
+                        .match_resolutions()
+                        .get(&expression_id)
+                        .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let arm_res = resolution
+                        .arms
+                        .get(arm_index)
+                        .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let ast_arm = match_expr
+                        .arms
+                        .get(arm_index)
+                        .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+
+                    match match_pattern_against_value(
+                        &arm_res.pattern,
+                        scrutinee,
+                        self.values,
+                        self.budget,
+                        self.cancellation,
+                    ) {
+                        StaticPatternMatchOutcome::Matched(bindings) => {
+                            let mut saved_locals = Vec::new();
+                            for (binding, value) in bindings {
+                                if let Some(&slot) = self.body.local_slots().get(&binding) {
+                                    let slot = slot as usize;
+                                    if slot < self.locals.len() {
+                                        saved_locals.push((slot, self.locals[slot]));
+                                        self.locals[slot] = Some(value);
+                                    }
+                                }
+                            }
+                            self.active_branch_proofs.push(&arm_res.proof);
+                            work.push(Work::FinishMatchArm(saved_locals));
+                            match &ast_arm.branch {
+                                MatchArmBody::Expression(expr) => work.push(Work::Evaluate(expr)),
+                                MatchArmBody::Block(block) => work.push(Work::EvaluateBlock(block)),
+                            }
+                        }
+                        StaticPatternMatchOutcome::NoMatch => {
+                            work.push(Work::TryMatchArm(match_expr, expression_id, scrutinee, arm_index + 1));
+                        }
+                        StaticPatternMatchOutcome::Symbolic => return Err(Stop::Symbolic),
+                        StaticPatternMatchOutcome::Invalid(err) => return Err(Stop::invalid(err)),
+                        StaticPatternMatchOutcome::Cancelled => return Err(Stop::Cancelled),
+                        StaticPatternMatchOutcome::BudgetExceeded(report) => return Err(Stop::Budget(report)),
+                    }
+                }
+                Work::FinishMatchArm(saved_locals) => {
+                    for (slot, prev) in saved_locals {
+                        self.locals[slot] = prev;
+                    }
+                    self.active_branch_proofs.pop();
+                }
+                Work::AfterForSource(container, statement_index, for_stmt) => {
+                    let source_val = if let Some(term) = self.completed_kinded_result.take() {
+                        let types = self.canonical_types.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                        let kind = types.kind_of(term);
+                        if kind == crate::types::id::KindId::TYPE {
+                            self.values.intern_type(term, types).map_err(Stop::from)?
+                        } else {
+                            self.values.intern_static_term(term, types).map_err(Stop::from)?
+                        }
+                    } else {
+                        stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?
+                    };
+                    let items: Vec<StaticValueRef> = match self.values.get(source_val).map_err(Stop::from)? {
+                        StaticValueData::Pack(pack_id) => {
+                            let mut pack_items = Vec::new();
+                            let pos = self.values.pack_positionals(*pack_id).map_err(Stop::from)?;
+                            pack_items.extend_from_slice(pos);
+                            let lab = self.values.pack_labeled(*pack_id).map_err(Stop::from)?;
+                            for (_, val) in lab {
+                                pack_items.push(val);
+                            }
+                            pack_items
+                        }
+                        StaticValueData::Tuple(tuple_id) => {
+                            self.values.get_tuple(*tuple_id).map_err(Stop::from)?.to_vec()
+                        }
+                        StaticValueData::Sequence(seq_id) => {
+                            self.values.get_sequence(*seq_id).map_err(Stop::from)?.elements().to_vec()
+                        }
+                        StaticValueData::Record(rec_id) => {
+                            self.values.get_record(*rec_id).map_err(Stop::from)?.iter().map(|f| f.value).collect()
+                        }
+                        StaticValueData::Data(data_id) => {
+                            let data = self.values.get_data(*data_id).map_err(Stop::from)?;
+                            if data.components.len() == 2 {
+                                if let Ok(StaticValueData::Record(rec_id)) = self.values.get(data.components[0].1) {
+                                    if let Ok(StaticValueData::Variant(tail_var_id)) = self.values.get(data.components[1].1) {
+                                        let tail_var = self.values.get_variant(*tail_var_id).map_err(Stop::from)?;
+                                        if selector_name(&tail_var.variant.selector) != Some("Closed") {
+                                            return Err(Stop::Symbolic);
+                                        }
+                                        self.values.get_record(*rec_id).map_err(Stop::from)?.iter().map(|f| f.value).collect()
+                                    } else {
+                                        data.components.iter().map(|(_, val)| *val).collect()
+                                    }
+                                } else {
+                                    data.components.iter().map(|(_, val)| *val).collect()
+                                }
+                            } else {
+                                data.components.iter().map(|(_, val)| *val).collect()
+                            }
+                        }
+                        StaticValueData::Type(ty) => {
+                            let types = self.canonical_types.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                            let ty = *ty;
+                            let mut elem_types = Vec::new();
+                            match types.get(ty) {
+                                crate::types::store::TypeData::Tuple(tuple) => {
+                                    if !tuple.is_closed() {
+                                        return Err(Stop::Symbolic);
+                                    }
+                                    for elem in tuple.elements.iter() {
+                                        elem_types.push(elem.ty);
+                                    }
+                                }
+                                crate::types::store::TypeData::Pack(pack) => {
+                                    if !pack.is_closed() {
+                                        return Err(Stop::Symbolic);
+                                    }
+                                    for elem in pack.elements.iter() {
+                                        elem_types.push(elem.ty);
+                                    }
+                                }
+                                crate::types::store::TypeData::TypePack(elements) => {
+                                    elem_types.extend_from_slice(elements);
+                                }
+                                crate::types::store::TypeData::LabeledTypePack(elements) => {
+                                    for elem in elements.iter() {
+                                        elem_types.push(elem.element);
+                                    }
+                                }
+                                _ => {
+                                    if let Some((_, data_table, enum_table)) = self.semantic_tables {
+                                        let classifier = crate::structural::StructuralClassifier::new(data_table, enum_table);
+                                        let mut local_types = (*types).clone();
+                                        if let Ok(Some(unordered)) = classifier.unordered_product(&mut local_types, ty) {
+                                            if !matches!(unordered.tail, crate::types::row::RecordRowTail::Closed) {
+                                                return Err(Stop::Symbolic);
+                                            }
+                                            for field in unordered.fields.iter() {
+                                                if let Some(f_ty) = field.ty {
+                                                    elem_types.push(f_ty);
+                                                }
+                                            }
+                                        } else if let Ok(Some(ordered)) = classifier.ordered_product(&mut local_types, ty) {
+                                            if ordered.positional_remainder != crate::types::store::AnonymousTupleRemainder::None
+                                                || ordered.labeled_remainder != crate::types::store::AnonymousTupleRemainder::None
+                                            {
+                                                return Err(Stop::Symbolic);
+                                            }
+                                            for entry in ordered.positional_entries.iter().chain(ordered.labeled_entries.iter()) {
+                                                if let Some(entry_ty) = entry.ty {
+                                                    elem_types.push(entry_ty);
+                                                }
+                                            }
+                                        } else {
+                                            return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                        }
+                                    } else {
+                                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                                    }
+                                }
+                            }
+                            let mut interned = Vec::with_capacity(elem_types.len());
+                            for elem_ty in elem_types {
+                                let kind = types.kind_of(elem_ty);
+                                let val_ref = if kind == crate::types::id::KindId::TYPE {
+                                    self.values.intern_type(elem_ty, types).map_err(Stop::from)?
+                                } else {
+                                    self.values.intern_static_term(elem_ty, types).map_err(Stop::from)?
+                                };
+                                interned.push(val_ref);
+                            }
+                            interned
+                        }
+                        StaticValueData::Unit => Vec::new(),
+                        StaticValueData::StaticTerm(_) => return Err(Stop::Symbolic),
+                        _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
+                    };
+                    self.charge_variable_work(items.len())?;
+                    work.push(Work::ForNext(container, statement_index, for_stmt, items, 0));
+                }
+                Work::ForNext(container, statement_index, for_stmt, items, item_index) => {
+                    if item_index >= items.len() {
+                        work.push(Work::StatementNext(container, statement_index + 1, Some(self.values.intern_unit())));
+                    } else {
+                        let current_item = items[item_index];
+                        let lane = for_stmt.lanes.first().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                        let key = PatternSiteKey::new(PatternSiteKind::ForLane, lane.pattern.range());
+                        let site_res = self
+                            .body
+                            .pattern_site_resolutions()
+                            .get(&key)
+                            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                        match match_pattern_against_value(
+                            &site_res.pattern,
+                            current_item,
+                            self.values,
+                            self.budget,
+                            self.cancellation,
+                        ) {
+                            StaticPatternMatchOutcome::Matched(bindings) => {
+                                let mut saved_locals = Vec::new();
+                                for (binding, value) in bindings {
+                                    if let Some(&slot) = self.body.local_slots().get(&binding) {
+                                        let slot = slot as usize;
+                                        if slot < self.locals.len() {
+                                            saved_locals.push((slot, self.locals[slot]));
+                                            self.locals[slot] = Some(value);
+                                        }
+                                    }
+                                }
+                                if let Some(index_binding) = &lane.index {
+                                    let binding_id = self.for_index_binding(index_binding)?;
+                                    if let Some(&slot) = self.body.local_slots().get(&binding_id) {
+                                        let slot = slot as usize;
+                                        if slot < self.locals.len() {
+                                            saved_locals.push((slot, self.locals[slot]));
+                                            let int_val = self.values.intern_int(BigInt::from(item_index));
+                                            self.locals[slot] = Some(int_val);
+                                        }
+                                    }
+                                }
+                                work.push(Work::AfterForBody(
+                                    container,
+                                    statement_index,
+                                    for_stmt,
+                                    items,
+                                    item_index,
+                                    saved_locals,
+                                ));
+                                work.push(Work::StatementNext(StatementContainer::ForBody(for_stmt), 0, None));
+                            }
+                            StaticPatternMatchOutcome::NoMatch => {
+                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                            }
+                            StaticPatternMatchOutcome::Symbolic => return Err(Stop::Symbolic),
+                            StaticPatternMatchOutcome::Invalid(err) => return Err(Stop::invalid(err)),
+                            StaticPatternMatchOutcome::Cancelled => return Err(Stop::Cancelled),
+                            StaticPatternMatchOutcome::BudgetExceeded(report) => return Err(Stop::Budget(report)),
+                        }
+                    }
+                }
+                Work::AfterForBody(container, statement_index, for_stmt, items, item_index, saved_locals) => {
+                    if pending_control.is_none() {
+                        let _ = stack.pop();
+                    }
+                    for (slot, prev) in saved_locals {
+                        self.locals[slot] = prev;
+                    }
+                    let control = pending_control.take();
+                    match control.map(|c| control_disposition(ControlBoundary::Loop, c)) {
+                        Some(ControlDisposition::ConsumeBreak) => {
+                            work.push(Work::StatementNext(container, statement_index + 1, Some(self.values.intern_unit())));
+                        }
+                        Some(ControlDisposition::ConsumeContinue) | None => {
+                            work.push(Work::ForNext(container, statement_index, for_stmt, items, item_index + 1));
+                        }
+                        Some(ControlDisposition::Propagate(c)) => {
+                            pending_control = Some(c);
+                        }
+                        Some(ControlDisposition::Invalid) | Some(ControlDisposition::ConsumeReturn(_)) => {
+                            return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                        }
+                    }
                 }
                 Work::FinishReturn => {
                     let result = if let Some(term) = self.completed_kinded_result.take() {
@@ -1477,6 +1866,7 @@ impl<'a> StaticEvaluator<'a> {
             kinded_arguments: std::mem::take(&mut self.kinded_arguments),
             expression_sites: std::mem::take(&mut self.expression_sites),
             definition,
+            active_branch_proofs: std::mem::take(&mut self.active_branch_proofs),
         });
     }
 
@@ -1520,6 +1910,7 @@ impl<'a> StaticEvaluator<'a> {
         self.parameter_values = parameter_values;
         self.kinded_arguments = kinded_arguments;
         self.expression_sites = expression_sites;
+        self.active_branch_proofs = Vec::new();
         Ok(())
     }
 
@@ -1531,6 +1922,7 @@ impl<'a> StaticEvaluator<'a> {
         self.parameter_values = frame.parameter_values;
         self.kinded_arguments = frame.kinded_arguments;
         self.expression_sites = frame.expression_sites;
+        self.active_branch_proofs = frame.active_branch_proofs;
         if let Some(def) = frame.definition {
             if let EvaluatorBody::Definition(current_def) = self.body {
                 debug_assert_eq!(current_def.owner.0, def);
@@ -1587,6 +1979,170 @@ impl<'a> StaticEvaluator<'a> {
         self.budget.charge_step().map_err(Stop::Budget)?;
         self.trace.push(frame);
         Ok(())
+    }
+
+    fn for_index_binding(&self, index: &ForIndexBinding) -> Result<BindingId, Stop> {
+        let mut candidates = self
+            .body
+            .bindings()
+            .iter()
+            .filter(|(_, state)| state.name == index.name && state.range == index.range && self.body.local_slots().contains_key(&state.binding))
+            .map(|(id, _)| *id);
+        let Some(binding) = candidates.next() else {
+            return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+        };
+        if candidates.next().is_some() {
+            return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+        }
+        Ok(binding)
+    }
+
+    fn resolve_type_term(&self, ty: TypeId, types: &crate::types::store::TypeStore) -> TypeId {
+        self.resolve_type_term_bounded(ty, types, 0)
+    }
+
+    fn resolve_type_term_bounded(&self, ty: TypeId, types: &crate::types::store::TypeStore, depth: usize) -> TypeId {
+        if depth > 16 || ty.index() >= types.len() {
+            return ty;
+        }
+
+        if let crate::types::store::TypeData::Parameter(param) = types.get(ty) {
+            if let Some(idx) = self.body.kinded_parameter_index(*param) {
+                if let Some(&arg_ty) = self.kinded_arguments.get(&idx) {
+                    return self.resolve_type_term_bounded(arg_ty, types, depth + 1);
+                }
+            }
+            for proof in self.active_branch_proofs.iter().rev() {
+                if let Some(&resolved) = proof.bindings.get(param) {
+                    return self.resolve_type_term_bounded(resolved, types, depth + 1);
+                }
+            }
+        }
+
+        for proof in self.active_branch_proofs.iter().rev() {
+            for eq in proof.equalities.iter() {
+                if let crate::types::constraint::TypeConstraint::Equal(lhs, rhs) = eq {
+                    if *lhs == ty {
+                        return self.resolve_type_term_bounded(*rhs, types, depth + 1);
+                    }
+                    if *rhs == ty {
+                        return self.resolve_type_term_bounded(*lhs, types, depth + 1);
+                    }
+                }
+            }
+        }
+
+        ty
+    }
+
+    fn evaluate_proof_predicate(&mut self, predicate: &ProofPredicateResolution) -> Result<bool, Stop> {
+        let types = self.canonical_types.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+        let left = self.resolve_type_term(predicate.left, types);
+        let right = self.resolve_type_term(predicate.right, types);
+
+        match predicate.kind {
+            ProofPredicateKind::Equivalent => {
+                if left == right {
+                    return Ok(true);
+                }
+                let left_has_param = matches!(types.get(left), crate::types::store::TypeData::Parameter(_));
+                let right_has_param = matches!(types.get(right), crate::types::store::TypeData::Parameter(_));
+                if left_has_param || right_has_param {
+                    return Err(Stop::Symbolic);
+                }
+                Ok(false)
+            }
+            ProofPredicateKind::Subtype => {
+                let Some(hierarchy) = self.hierarchy else {
+                    return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                };
+                let mut local_types = (*types).clone();
+                match check_subtype_bounded(&mut local_types, hierarchy, left, right, self.budget, self.cancellation) {
+                    RelationOutcome::Proven { .. } => Ok(true),
+                    RelationOutcome::Refuted(_) => Ok(false),
+                    RelationOutcome::Blocked(_) | RelationOutcome::DynamicBoundary(_) => Err(Stop::Symbolic),
+                    RelationOutcome::Cancelled => Err(Stop::Cancelled),
+                    RelationOutcome::BudgetExceeded(report) => Err(Stop::Budget(report)),
+                    RelationOutcome::InternalFailure(_) => Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
+                }
+            }
+            ProofPredicateKind::Conforms => {
+                let Some(trait_ref) = trait_ref_from_type_id(types, right) else {
+                    return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                };
+                let mut local_types = (*types).clone();
+                let (conf_idx, witness_plans, trait_surfs, decls) = match self.conformance {
+                    Some((ci, wp, ts, d)) => (Some(ci), Some(wp), Some(ts), Some(d)),
+                    None => (None, None, None, None),
+                };
+                let mut proof_context = ConformanceProofContext::new(
+                    None,
+                    conf_idx,
+                    witness_plans,
+                    trait_surfs,
+                    decls,
+                    self.hierarchy,
+                    Some(&mut local_types),
+                );
+                if let Some((_, data_table, enum_table)) = self.semantic_tables {
+                    let classifier = crate::structural::StructuralClassifier::new(data_table, enum_table);
+                    static IDS: std::sync::OnceLock<crate::core_surface::identity::StructuralUniverseIds> = std::sync::OnceLock::new();
+                    let ids = IDS.get_or_init(crate::core_surface::identity::StructuralUniverseIds::new);
+                    proof_context.structural = Some(StructuralConformanceContext {
+                        classifier,
+                        ids,
+                    });
+                }
+                let key = GenericConformanceKey::new(TypeTerm::from(left), trait_ref);
+                let proof = prove_conformance_with_context(&key, &mut proof_context);
+                match proof {
+                    GenericConformanceProof::Proven(_) => Ok(true),
+                    GenericConformanceProof::Missing => Ok(false),
+                    GenericConformanceProof::Ambiguous(_)
+                    | GenericConformanceProof::Incomplete(_)
+                    | GenericConformanceProof::CoherenceConflict(_)
+                    | GenericConformanceProof::Unknown(_)
+                    | GenericConformanceProof::Blocked(_)
+                    | GenericConformanceProof::Dynamic(_) => Err(Stop::Symbolic),
+                    GenericConformanceProof::Cancelled => Err(Stop::Cancelled),
+                    GenericConformanceProof::BudgetExceeded(report) => Err(Stop::Budget(report)),
+                    GenericConformanceProof::InternalFailure(_) => Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
+                }
+            }
+        }
+    }
+}
+
+fn selector_name(sel: &phalcom_common::selector::Selector) -> Option<&str> {
+    match &sel.base {
+        phalcom_common::selector::SelectorBase::Named(name) => Some(name.as_str()),
+        phalcom_common::selector::SelectorBase::Subscript => None,
+    }
+}
+
+fn trait_ref_from_type_id(types: &crate::types::store::TypeStore, ty: TypeId) -> Option<TraitRef> {
+    if ty.index() >= types.len() {
+        return None;
+    }
+    match types.get(ty) {
+        crate::types::store::TypeData::Nominal { declaration } => {
+            Some(TraitRef::new(declaration.clone(), Vec::new()))
+        }
+        crate::types::store::TypeData::Applied { origin, arguments } => {
+            if let crate::types::store::TypeData::Nominal { declaration } = types.get(*origin) {
+                let mut type_args = Vec::new();
+                for arg in arguments.iter() {
+                    match arg {
+                        crate::types::store::StaticArgument::Term(t) => type_args.push(*t),
+                        _ => return None,
+                    }
+                }
+                Some(TraitRef::new(declaration.clone(), type_args))
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }
 

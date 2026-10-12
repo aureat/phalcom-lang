@@ -1749,6 +1749,64 @@ fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &p
     let (left_res, _) = ctx.resolve_type_form(resolver, &site, &left_ann);
     let (right_res, _) = ctx.resolve_type_form(resolver, &site, &right_ann);
 
+    let right_res = match (right_res.clone(), kind) {
+        (crate::types::annotation::TypeFormResolution::Ready(ty), _) => crate::types::annotation::TypeFormResolution::Ready(ty),
+        (_, ProofPredicateKind::Conforms) => {
+            let (trait_decl, type_args) = match &right_ann.expr {
+                phalcom_ast::ast::TypeAnnotationExpr::Reference(sym_ref) => {
+                    let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
+                    let decl = resolver.resolve_trait_name(&ctx.current_module, &sym_ref.root, &members);
+                    (decl, Vec::new())
+                }
+                phalcom_ast::ast::TypeAnnotationExpr::Application { origin, arguments, .. } => {
+                    if let phalcom_ast::ast::TypeAnnotationExpr::Reference(sym_ref) = &origin.expr {
+                        let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
+                        let decl = resolver.resolve_trait_name(&ctx.current_module, &sym_ref.root, &members);
+                        (decl, arguments.clone())
+                    } else {
+                        (None, Vec::new())
+                    }
+                }
+                _ => (None, Vec::new()),
+            };
+            if let Some(decl) = trait_decl {
+                if type_args.is_empty() {
+                    crate::types::annotation::TypeFormResolution::Ready(ctx.store.nominal(decl))
+                } else {
+                    let origin_ty = ctx.store.nominal(decl);
+                    let mut resolved_args = Vec::new();
+                    let mut all_ready = true;
+                    for arg in type_args {
+                        if let phalcom_ast::ast::GenericArgumentSyntax::Single(arg_ann) = arg {
+                            let (arg_res, _) = ctx.resolve_type_form(resolver, &site, &arg_ann);
+                            if let crate::types::annotation::TypeFormResolution::Ready(arg_ty) = arg_res {
+                                resolved_args.push(arg_ty);
+                            } else {
+                                all_ready = false;
+                                break;
+                            }
+                        } else {
+                            all_ready = false;
+                            break;
+                        }
+                    }
+                    if all_ready {
+                        if let Ok(applied_ty) = ctx.store.apply_type_form(origin_ty, &resolved_args) {
+                            crate::types::annotation::TypeFormResolution::Ready(applied_ty)
+                        } else {
+                            crate::types::annotation::TypeFormResolution::Ready(origin_ty)
+                        }
+                    } else {
+                        right_res
+                    }
+                }
+            } else {
+                right_res
+            }
+        }
+        (other, _) => other,
+    };
+
     let (crate::types::annotation::TypeFormResolution::Ready(left_ty), crate::types::annotation::TypeFormResolution::Ready(right_ty)) = (left_res, right_res) else {
         return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
     };
