@@ -9,8 +9,8 @@
 /// +infinity for an upper bound), `Included(value)`, or `Excluded(value)`.
 data Bound<T> {
   @variant Unbounded
-  @variant Included(_ value: T)
-  @variant Excluded(_ value: T)
+  @variant Included(_ endpoint: T)
+  @variant Excluded(_ endpoint: T)
 }
 
 impl<T> Bound<T> {
@@ -56,8 +56,8 @@ impl<T> Bound<T> {
   /// The contained finite value, or None if Unbounded.
   value -> Option<T> {
     match self {
-      Included(v) => Some(v)
-      Excluded(v) => Some(v)
+      Included(v) => Option::Some(v)
+      Excluded(v) => Option::Some(v)
       Unbounded => None
     }
   }
@@ -393,7 +393,7 @@ impl<T> Interval<T> {
     }
     let candidate = Interval(maxLower, minUpper)
     if candidate.isValid and not candidate.isEmpty {
-      Some(candidate)
+      Option::Some(candidate)
     } else {
       None
     }
@@ -402,8 +402,8 @@ impl<T> Interval<T> {
   /// True iff both intervals are valid nonempty and share at least one point.
   overlaps(_ other: Interval<T>) -> Bool {
     match self.intersection(other) {
-      Some(_) => true
-      None => false
+      Option::Some(_) => true
+      _ => false
     }
   }
 
@@ -478,7 +478,7 @@ impl<T> Interval<T> {
     } else {
       other.upper
     }
-    Some(Interval(minLower, maxUpper))
+    Option::Some(Interval(minLower, maxUpper))
   }
 
   /// Computes remaining portions of self after subtracting region r.

@@ -211,11 +211,11 @@ let bIncluded = Bound<Int>.included(10)
 let bExcluded = Bound<Int>.excluded(20)
 
 let vIncluded = match bIncluded.value {
-    Some(v) => v == 10
+    Option::Some(v) => v == 10
     _ => false
 }
 let vExcluded = match bExcluded.value {
-    Some(v) => v == 20
+    Option::Some(v) => v == 20
     _ => false
 }
 
