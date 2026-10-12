@@ -2,6 +2,7 @@
 
 mod error;
 mod machine;
+pub(crate) mod pattern;
 
 pub use error::{StaticEvalError, StaticEvalOutcome, StaticEvalTraceFrame};
 pub use machine::{StaticArgument, StaticEvaluator};

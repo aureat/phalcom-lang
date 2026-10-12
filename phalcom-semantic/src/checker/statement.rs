@@ -411,20 +411,35 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             let mut lane_facts = Vec::new();
             for lane in &for_stmt.lanes {
                 let iter_typed = analyze_expression(ctx, &lane.iter, &ExpectedType::None);
-                let (elem_knowledge, iteration_causal_invalidity) = match &iter_typed.knowledge {
-                    TypeKnowledge::Known(evidence) => {
-                        let premise = CallPremise::from_typed(ctx, &iter_typed);
-                        let (resolution, result) = resolve_for_iteration_lane(ctx, &premise, iter_typed.expression_id, evidence.ty(), lane.iter.range());
+                let (elem_knowledge, iteration_causal_invalidity) = match ctx.phase {
+                    crate::checker::context::EvaluationPhase::Runtime => match &iter_typed.knowledge {
+                        TypeKnowledge::Known(evidence) => {
+                            let premise = CallPremise::from_typed(ctx, &iter_typed);
+                            let (resolution, result) = resolve_for_iteration_lane(ctx, &premise, iter_typed.expression_id, evidence.ty(), lane.iter.range());
+                            if let Some(resolution) = resolution {
+                                ctx.for_iteration_lanes.insert(resolution.source_expression, resolution);
+                            }
+                            if !result.status.is_ready() {
+                                ctx.record_call_status(result.status.clone());
+                            }
+                            (result.knowledge, result.causal_invalidity)
+                        }
+                        TypeKnowledge::Unknown(reason) => (TypeKnowledge::Unknown(reason.clone()), crate::checker::causal::CausalInvalidity::Clean),
+                        TypeKnowledge::Dynamic(reason) => (TypeKnowledge::Dynamic(reason.clone()), crate::checker::causal::CausalInvalidity::Clean),
+                    },
+                    crate::checker::context::EvaluationPhase::Static => {
+                        let Some(source_expr_id) = iter_typed.expression_id else {
+                            continue;
+                        };
+                        let resolution = crate::checker::static_iteration::resolve_static_iteration_lane(ctx, source_expr_id, lane.iter.range(), &iter_typed);
                         if let Some(resolution) = resolution {
-                            ctx.for_iteration_lanes.insert(resolution.source_expression, resolution);
+                            let elem_knowledge = resolution.item_domain.consolidated_item_knowledge(ctx.store);
+                            ctx.static_iteration_lanes.insert(resolution.source_expression, resolution);
+                            (elem_knowledge, crate::checker::causal::CausalInvalidity::Clean)
+                        } else {
+                            (TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause), iter_typed.causal_invalidity)
                         }
-                        if !result.status.is_ready() {
-                            ctx.record_call_status(result.status.clone());
-                        }
-                        (result.knowledge, result.causal_invalidity)
                     }
-                    TypeKnowledge::Unknown(reason) => (TypeKnowledge::Unknown(reason.clone()), crate::checker::causal::CausalInvalidity::Clean),
-                    TypeKnowledge::Dynamic(reason) => (TypeKnowledge::Dynamic(reason.clone()), crate::checker::causal::CausalInvalidity::Clean),
                 };
 
                 let mut parents = iter_typed

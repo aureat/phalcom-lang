@@ -29,6 +29,14 @@ pub enum StaticEvalError {
     ExpectedBool,
     #[error("static value store rejected an operation: {0}")]
     ValueStore(String),
+    #[error("missing checked match resolution for expression {0:?}")]
+    MissingMatchResolution(ExpressionId),
+    #[error("missing checked static iteration resolution for expression {0:?}")]
+    MissingStaticIterationResolution(ExpressionId),
+    #[error("static iteration is not finite")]
+    StaticIterationNotFinite,
+    #[error("exhaustive static match had no matching branch")]
+    UnmatchedExhaustiveStaticMatch,
 }
 
 /// Terminal state of one bounded static evaluation request.

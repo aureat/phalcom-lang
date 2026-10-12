@@ -620,6 +620,7 @@ pub struct CheckingContext<'a> {
     pub(crate) checked_static_applications: Vec<crate::static_definition::CheckedStaticApplication>,
     pub(crate) checked_static_constructions: BTreeMap<ExpressionId, crate::static_definition::CheckedStaticConstruction>,
     pub for_iteration_lanes: crate::checker::analysis::ForIterationLaneResolutionIndex,
+    pub static_iteration_lanes: crate::checker::static_iteration::StaticIterationLaneResolutionIndex,
     pub positional_expansions: crate::checker::analysis::PositionalExpansionIterationResolutionIndex,
     pub known_invalid_positional_expansions: crate::checker::analysis::KnownInvalidPositionalExpansionIndex,
     pub sequence_literals: crate::checker::analysis::SequenceLiteralResolutionIndex,
@@ -631,6 +632,7 @@ pub struct CheckingContext<'a> {
     pub family_applications: crate::checker::associated::FamilyApplicationResolutionIndex,
     pub match_resolutions: crate::match_semantics::MatchResolutionIndex,
     pub pattern_site_resolutions: crate::match_semantics::PatternSiteResolutionIndex,
+    pub proof_predicates: crate::checker::proof_predicate::ProofPredicateResolutionIndex,
     pub explanations: crate::explain::ExplanationArena,
     expression_owners: Vec<ExpressionId>,
     expression_owned_causes: BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
@@ -756,6 +758,7 @@ impl<'a> CheckingContext<'a> {
             checked_static_applications: Vec::new(),
             checked_static_constructions: BTreeMap::new(),
             for_iteration_lanes: BTreeMap::new(),
+            static_iteration_lanes: BTreeMap::new(),
             positional_expansions: BTreeMap::new(),
             known_invalid_positional_expansions: BTreeMap::new(),
             sequence_literals: BTreeMap::new(),
@@ -767,6 +770,7 @@ impl<'a> CheckingContext<'a> {
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
             match_resolutions: crate::match_semantics::MatchResolutionIndex::new(),
             pattern_site_resolutions: crate::match_semantics::PatternSiteResolutionIndex::new(),
+            proof_predicates: BTreeMap::new(),
             explanations: crate::explain::ExplanationArena::new(),
             expression_owners: Vec::new(),
             expression_owned_causes: BTreeMap::new(),
@@ -872,6 +876,7 @@ impl<'a> CheckingContext<'a> {
             checked_static_applications: Vec::new(),
             checked_static_constructions: BTreeMap::new(),
             for_iteration_lanes: BTreeMap::new(),
+            static_iteration_lanes: BTreeMap::new(),
             positional_expansions: BTreeMap::new(),
             known_invalid_positional_expansions: BTreeMap::new(),
             sequence_literals: BTreeMap::new(),
@@ -883,6 +888,7 @@ impl<'a> CheckingContext<'a> {
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
             match_resolutions: crate::match_semantics::MatchResolutionIndex::new(),
             pattern_site_resolutions: crate::match_semantics::PatternSiteResolutionIndex::new(),
+            proof_predicates: BTreeMap::new(),
             explanations: crate::explain::ExplanationArena::new(),
             expression_owners: Vec::new(),
             expression_owned_causes: BTreeMap::new(),
@@ -967,6 +973,7 @@ impl<'a> CheckingContext<'a> {
             checked_static_applications: self.checked_static_applications.clone(),
             checked_static_constructions: self.checked_static_constructions.clone(),
             for_iteration_lanes: self.for_iteration_lanes.clone(),
+            static_iteration_lanes: self.static_iteration_lanes.clone(),
             positional_expansions: self.positional_expansions.clone(),
             known_invalid_positional_expansions: self.known_invalid_positional_expansions.clone(),
             sequence_literals: self.sequence_literals.clone(),
@@ -978,6 +985,7 @@ impl<'a> CheckingContext<'a> {
             family_applications: self.family_applications.clone(),
             match_resolutions: self.match_resolutions.clone(),
             pattern_site_resolutions: self.pattern_site_resolutions.clone(),
+            proof_predicates: self.proof_predicates.clone(),
             explanations: self.explanations.clone(),
             expression_owners: self.expression_owners.clone(),
             expression_owned_causes: self.expression_owned_causes.clone(),
@@ -4020,6 +4028,10 @@ impl<'a> CheckingContext<'a> {
     pub fn record_pattern_site_resolution(&mut self, resolution: crate::match_semantics::PatternSiteResolution) {
         let key = crate::match_semantics::PatternSiteKey::new(resolution.kind, resolution.range);
         self.pattern_site_resolutions.insert(key, resolution);
+    }
+
+    pub fn record_proof_predicate(&mut self, resolution: crate::checker::proof_predicate::ProofPredicateResolution) {
+        self.proof_predicates.insert(resolution.expression, resolution);
     }
 
     pub fn record_data_declaration_dependency(&self, decl: &DeclarationId) {

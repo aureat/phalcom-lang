@@ -27,14 +27,24 @@ pub mod inference;
 pub(crate) mod iteration;
 pub(crate) mod loop_analysis;
 pub mod pattern;
+pub mod proof_predicate;
 pub mod result;
 pub mod row_inference;
-pub(crate) mod sequence_literal;
-pub(crate) mod sequence_publication;
+pub mod sequence_literal;
+pub mod sequence_publication;
 pub mod statement;
 pub mod static_body;
+pub mod static_iteration;
 pub mod type_member_declaration;
 pub mod typed_expr;
+
+pub use proof_predicate::{
+    ProofPredicateKind, ProofPredicateResolution, ProofPredicateResolutionIndex, proof_predicate_declaration,
+};
+pub use static_iteration::{
+    StaticIterationItemDomain, StaticIterationLaneResolution, StaticIterationLaneResolutionIndex, StaticIterationMode,
+    resolve_static_iteration_lane,
+};
 
 pub use analysis::{
     AlgebraicBasisAxis, AnalysisStatus, BindingAnalysisIndex, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ContextualRealization,

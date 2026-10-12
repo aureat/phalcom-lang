@@ -1098,6 +1098,9 @@ fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, exp
             if let Some(static_application) = analyze_checked_static_application(ctx, annotation) {
                 return static_application;
             }
+            if let Some(proof_predicate) = analyze_checked_proof_predicate(ctx, annotation) {
+                return proof_predicate;
+            }
             let resolver = ctx.resolver.inner();
             let mut site = if let Some(owner) = ctx.current_class.clone() {
                 crate::types::annotation::TypeFormationSite::member(ctx.current_module.clone(), owner, ctx.current_side)
@@ -1704,6 +1707,68 @@ fn analyze_checked_static_application(ctx: &mut CheckingContext<'_>, annotation:
     Some(typed)
 }
 
+fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &phalcom_ast::ast::TypeAnnotation) -> Option<TypedExpression> {
+    use phalcom_ast::ast::TypeAnnotationExpr;
+    use crate::checker::proof_predicate::{ProofPredicateKind, ProofPredicateResolution};
+
+    let TypeAnnotationExpr::Application { origin, arguments, range } = &annotation.expr else {
+        return None;
+    };
+    let TypeAnnotationExpr::Reference(reference) = &origin.expr else {
+        return None;
+    };
+    if !reference.members.is_empty() {
+        return None;
+    }
+    let kind = match reference.root.as_str() {
+        "Equivalent" => ProofPredicateKind::Equivalent,
+        "Subtype" => ProofPredicateKind::Subtype,
+        "Conforms" => ProofPredicateKind::Conforms,
+        _ => return None,
+    };
+
+    if ctx.resolver.resolve_static_definition_name(&ctx.current_module, &reference.root, &[]).is_some() {
+        return None;
+    }
+
+    if arguments.len() != 2 {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ApplicationTooManyArguments,
+            format!("proof predicate `{}` expects 2 arguments but received {}", reference.root, arguments.len()),
+            *range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+    }
+
+    let left_ann = static_application_argument_type_form(&arguments[0])?;
+    let right_ann = static_application_argument_type_form(&arguments[1])?;
+
+    let resolver = ctx.resolver.inner();
+    let site = crate::types::annotation::TypeFormationSite::module(ctx.current_module.clone());
+    let (left_res, _) = ctx.resolve_type_form(resolver, &site, &left_ann);
+    let (right_res, _) = ctx.resolve_type_form(resolver, &site, &right_ann);
+
+    let (crate::types::annotation::TypeFormResolution::Ready(left_ty), crate::types::annotation::TypeFormResolution::Ready(right_ty)) = (left_res, right_res) else {
+        return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+    };
+
+    let expr_id = ctx.current_expression_id()?;
+    let bool_decl = ctx.core_ids.bool_.clone();
+    let bool_ty = ctx.core_type(&bool_decl).unwrap_or_else(|| ctx.store.unit());
+
+    ctx.record_proof_predicate(ProofPredicateResolution {
+        expression: expr_id,
+        range: *range,
+        kind,
+        left: left_ty,
+        right: right_ty,
+        result_type: bool_ty,
+    });
+
+    Some(TypedExpression::established(bool_ty, EvidenceOrigin::DeclarationSemantics, *range))
+}
+
 fn static_application_argument_type_form(argument: &phalcom_ast::ast::GenericArgumentSyntax) -> Option<phalcom_ast::ast::TypeAnnotation> {
     match argument {
         phalcom_ast::ast::GenericArgumentSyntax::Single(annotation) => Some(annotation.clone()),
@@ -1719,7 +1784,7 @@ fn static_application_argument_type_form(argument: &phalcom_ast::ast::GenericArg
 
 /// Returns ordinary runtime value type for a type-form value, without
 /// confusing its denoted form with its descriptor.
-fn type_form_descriptor_type(ctx: &mut CheckingContext<'_>, form: TypeId) -> Option<TypeId> {
+pub(crate) fn type_form_descriptor_type(ctx: &mut CheckingContext<'_>, form: TypeId) -> Option<TypeId> {
     let mut current = form;
     let declaration = loop {
         match ctx.store.get(current) {

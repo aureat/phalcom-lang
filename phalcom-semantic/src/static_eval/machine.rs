@@ -7,6 +7,7 @@ use crate::checker::associated::AssociatedResolutionIndex;
 use crate::db::{CancellationToken, QueryBudget};
 use crate::field_key::FieldKey;
 use crate::identity::{BindingId, ExpressionId};
+use crate::match_semantics::{MatchResolutionIndex, PatternSiteResolutionIndex};
 use crate::static_constant::{CheckedStaticConstantInitializer, CheckedStaticExpression, StaticConstantTable};
 use crate::static_definition::{CheckedStaticApplication, CheckedStaticBody, CheckedStaticConstruction, StaticApplicationId, StaticDefinitionTable};
 use crate::static_intrinsic::{StaticIntrinsicOperation, StaticOperationResolutionIndex};
@@ -99,6 +100,39 @@ impl<'a> EvaluatorBody<'a> {
             Self::Definition(d) => &d.associated_resolutions,
             Self::Constant(c) => &c.associated_resolutions,
             Self::Expression(expression) => &expression.associated_resolutions,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn match_resolutions(&self) -> &'a MatchResolutionIndex {
+        match self {
+            Self::Definition(d) => &d.match_resolutions,
+            Self::Constant(c) => &c.match_resolutions,
+            Self::Expression(expression) => &expression.match_resolutions,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn pattern_site_resolutions(&self) -> &'a PatternSiteResolutionIndex {
+        match self {
+            Self::Definition(d) => &d.pattern_site_resolutions,
+            Self::Constant(c) => &c.pattern_site_resolutions,
+            Self::Expression(expression) => &expression.pattern_site_resolutions,
+        }
+    }
+
+    pub fn proof_predicates(&self) -> &'a crate::checker::proof_predicate::ProofPredicateResolutionIndex {
+        match self {
+            Self::Definition(d) => &d.proof_predicates,
+            Self::Constant(c) => &c.proof_predicates,
+            Self::Expression(expression) => &expression.proof_predicates,
+        }
+    }
+
+    pub fn static_iteration_lanes(&self) -> Option<&'a crate::checker::static_iteration::StaticIterationLaneResolutionIndex> {
+        match self {
+            Self::Definition(d) => Some(&d.static_iteration_lanes),
+            Self::Constant(_) | Self::Expression(_) => None,
         }
     }
 

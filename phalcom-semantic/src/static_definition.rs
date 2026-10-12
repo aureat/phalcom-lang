@@ -148,6 +148,10 @@ pub struct CheckedStaticBody {
     /// Ordinary associated-resolution facts for expressions owned by this body.
     pub associated_resolutions: Arc<crate::checker::associated::AssociatedResolutionIndex>,
     pub sequence_literals: Arc<crate::checker::analysis::SequenceLiteralResolutionIndex>,
+    pub match_resolutions: Arc<crate::match_semantics::MatchResolutionIndex>,
+    pub pattern_site_resolutions: Arc<crate::match_semantics::PatternSiteResolutionIndex>,
+    pub static_iteration_lanes: Arc<crate::checker::static_iteration::StaticIterationLaneResolutionIndex>,
+    pub proof_predicates: Arc<crate::checker::proof_predicate::ProofPredicateResolutionIndex>,
     pub parameter_bindings: Arc<BTreeMap<u32, BindingId>>,
     pub kinded_parameters: Arc<BTreeMap<u32, TypeParameterId>>,
     pub local_slots: Arc<BTreeMap<BindingId, u32>>,

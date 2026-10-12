@@ -296,6 +296,10 @@ pub enum ForIterationRequirementResolution {
 /// Deterministic index of canonical semantic `for` lane resolutions.
 pub type ForIterationLaneResolutionIndex = BTreeMap<ExpressionId, ForIterationLaneResolution>;
 
+pub use crate::checker::static_iteration::{
+    StaticIterationItemDomain, StaticIterationLaneResolution, StaticIterationLaneResolutionIndex, StaticIterationMode,
+};
+
 /// Evidence-backed semantic resolution for one positional expansion site (`*expr`).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PositionalExpansionIterationResolution {

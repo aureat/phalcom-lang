@@ -154,6 +154,8 @@ pub enum DiagnosticCode {
     DerivedConformanceUnauthorized,
     DerivedConformanceOverlap,
     ConformanceCompilerDerivedTrait,
+    StaticIterationNotStructural,
+    StaticIterationOpenTailNotFinite,
 }
 
 impl DiagnosticCode {
@@ -294,6 +296,8 @@ impl DiagnosticCode {
             Self::DerivedConformanceUnauthorized => "impl.derived_conformance.unauthorized",
             Self::DerivedConformanceOverlap => "impl.derived_conformance.overlap",
             Self::ConformanceCompilerDerivedTrait => "impl.conformance.compiler_derived",
+            Self::StaticIterationNotStructural => "static.iteration_not_structural",
+            Self::StaticIterationOpenTailNotFinite => "static.iteration_open_tail_not_finite",
         }
     }
 }

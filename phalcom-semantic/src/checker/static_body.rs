@@ -470,6 +470,25 @@ fn analyze_static_expression_with_demands_at(
         .filter(|(expression, _)| expressions.contains_key(expression))
         .map(|(expr, res)| (*expr, res.clone()))
         .collect();
+    let match_resolutions: crate::match_semantics::MatchResolutionIndex = context
+        .match_resolutions
+        .iter()
+        .filter(|(expression, _)| expressions.contains_key(expression))
+        .map(|(expr, res)| (*expr, res.clone()))
+        .collect();
+    let initializer_range = initializer.range();
+    let pattern_site_resolutions: crate::match_semantics::PatternSiteResolutionIndex = context
+        .pattern_site_resolutions
+        .iter()
+        .filter(|(key, _)| initializer_range.contains_range(&key.range))
+        .map(|(key, res)| (*key, res.clone()))
+        .collect();
+    let proof_predicates: crate::checker::proof_predicate::ProofPredicateResolutionIndex = context
+        .proof_predicates
+        .iter()
+        .filter(|(expression, _)| expressions.contains_key(expression))
+        .map(|(expr, res)| (*expr, res.clone()))
+        .collect();
 
     let mut bindings: BindingAnalysisIndex = context.binding_history.clone();
     bindings.extend(context.flow.bindings.clone());
@@ -509,6 +528,9 @@ fn analyze_static_expression_with_demands_at(
         static_constructions: Arc::new(static_constructions),
         associated_resolutions: Arc::new(associated_resolutions),
         sequence_literals: Arc::new(sequence_literals),
+        match_resolutions: Arc::new(match_resolutions),
+        pattern_site_resolutions: Arc::new(pattern_site_resolutions),
+        proof_predicates: Arc::new(proof_predicates),
         local_slots: Arc::new(local_slots),
         static_constant_bindings: Arc::new(stable_bindings),
         static_constant_reads: static_constant_reads.into(),
@@ -757,6 +779,27 @@ fn analyze_static_body_inner(
         .into_iter()
         .filter(|(expression, _)| expressions.contains_key(expression))
         .collect();
+    let match_resolutions: crate::match_semantics::MatchResolutionIndex = context
+        .match_resolutions
+        .into_iter()
+        .filter(|(expression, _)| expressions.contains_key(expression))
+        .collect();
+    let body_range = definition.body.range();
+    let pattern_site_resolutions: crate::match_semantics::PatternSiteResolutionIndex = context
+        .pattern_site_resolutions
+        .into_iter()
+        .filter(|(key, _)| body_range.contains_range(&key.range))
+        .collect();
+    let static_iteration_lanes: crate::checker::static_iteration::StaticIterationLaneResolutionIndex = context
+        .static_iteration_lanes
+        .into_iter()
+        .filter(|(expression, _)| expressions.contains_key(expression))
+        .collect();
+    let proof_predicates: crate::checker::proof_predicate::ProofPredicateResolutionIndex = context
+        .proof_predicates
+        .into_iter()
+        .filter(|(expression, _)| expressions.contains_key(expression))
+        .collect();
 
     let mut bindings: BindingAnalysisIndex = context.binding_history.clone();
     bindings.extend(context.flow.bindings.clone());
@@ -784,6 +827,10 @@ fn analyze_static_body_inner(
         static_constructions: Arc::new(static_constructions),
         associated_resolutions: Arc::new(associated_resolutions),
         sequence_literals: Arc::new(sequence_literals),
+        match_resolutions: Arc::new(match_resolutions),
+        pattern_site_resolutions: Arc::new(pattern_site_resolutions),
+        static_iteration_lanes: Arc::new(static_iteration_lanes),
+        proof_predicates: Arc::new(proof_predicates),
         parameter_bindings: Arc::new(parameter_bindings),
         kinded_parameters: Arc::new(kinded_parameters),
         local_slots: Arc::new(local_slots),

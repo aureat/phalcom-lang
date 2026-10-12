@@ -2,8 +2,8 @@
 id: LANG007.C4.P6
 kind: implementation-plan
 title: "Static Control Flow, Structural Iteration, Matching, and Proof Predicates"
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 branch: main
 prepared_against_revision: 73ea73f4622417510c39850e61664cf8c2c4a900
