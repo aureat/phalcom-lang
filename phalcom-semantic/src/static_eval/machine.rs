@@ -863,6 +863,72 @@ impl<'a> StaticEvaluator<'a> {
             .map_err(Stop::from)
     }
 
+    pub(crate) fn substitute_specialization_type(
+        &mut self,
+        ty: TypeId,
+        environment: &StaticSpecializationEnvironmentKey,
+    ) -> Result<TypeId, Stop> {
+        let types = evaluator_type_store_mut(&mut self.canonical_types)
+            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+        let subst = environment.substitution_closure(types)?;
+        subst
+            .try_apply(types, ty)
+            .map_err(|_| Stop::from(crate::static_eval::application::StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution))
+    }
+
+    pub(crate) fn substitute_specialization_domain(
+        &mut self,
+        domain: StaticValueDomain,
+        environment: &StaticSpecializationEnvironmentKey,
+    ) -> Result<(StaticValueDomain, bool), Stop> {
+        let specialized = match domain {
+            StaticValueDomain::Kind(kind) => StaticValueDomain::Kind(kind),
+            StaticValueDomain::ValueType(ty) => {
+                let ty = self.substitute_specialization_type(ty, environment)?;
+                let types = evaluator_type_store_ref(&self.canonical_types)
+                    .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                if ty.index() >= types.len() || types.kind_of(ty) != KindId::TYPE {
+                    return Err(Stop::from(
+                        crate::static_eval::application::StaticSpecializationEnvironmentError::ArgumentDomainMismatch,
+                    ));
+                }
+                StaticValueDomain::ValueType(ty)
+            }
+        };
+        Ok((specialized, specialized != domain))
+    }
+
+    pub(crate) fn validate_specialization_argument(
+        &self,
+        domain: StaticValueDomain,
+        argument: StaticSpecializationArgument,
+    ) -> Result<StaticEvalTerm, Stop> {
+        match (domain, argument) {
+            (StaticValueDomain::Kind(expected), StaticSpecializationArgument::Kinded(ty)) => {
+                let types = evaluator_type_store_ref(&self.canonical_types)
+                    .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                if ty.index() >= types.len() || types.kind_of(ty) != expected {
+                    return Err(Stop::from(
+                        crate::static_eval::application::StaticSpecializationEnvironmentError::ArgumentDomainMismatch,
+                    ));
+                }
+                Ok(StaticEvalTerm::Kinded(ty))
+            }
+            (StaticValueDomain::ValueType(_), StaticSpecializationArgument::Value(value)) => {
+                if value.store_id() != self.values.id() {
+                    return Err(Stop::from(
+                        crate::static_eval::application::StaticSpecializationEnvironmentError::ForeignStaticValueStore,
+                    ));
+                }
+                self.values.get(value).map_err(Stop::from)?;
+                Ok(StaticEvalTerm::Value(value))
+            }
+            _ => Err(Stop::from(
+                crate::static_eval::application::StaticSpecializationEnvironmentError::ArgumentDomainMismatch,
+            )),
+        }
+    }
+
     pub(crate) fn substitute_proof_goal(
         &mut self,
         goal: &ProofPredicateGoal,
@@ -922,6 +988,19 @@ impl<'a> StaticEvaluator<'a> {
             self.owned_residuals.get_or_insert_with(StaticResidualStore::new)
         };
         store.apply(application, result_domain, budget).map_err(Stop::from)
+    }
+
+    pub(crate) fn intern_parameter_residual_node(
+        &mut self,
+        parameter: StaticResidualParameter,
+    ) -> Result<StaticResidualRef, Stop> {
+        let budget = &mut *self.budget;
+        let store = if let Some(ref mut residuals) = self.residuals {
+            residuals
+        } else {
+            self.owned_residuals.get_or_insert_with(StaticResidualStore::new)
+        };
+        store.parameter(parameter, budget).map_err(Stop::from)
     }
 
     pub(crate) fn intern_proof_residual_node(
@@ -3693,7 +3772,11 @@ impl From<crate::static_eval::residual::StaticResidualStoreError> for Stop {
 
 impl From<crate::static_eval::application::StaticSpecializationEnvironmentError> for Stop {
     fn from(error: crate::static_eval::application::StaticSpecializationEnvironmentError) -> Self {
-        Self::invalid(StaticEvalError::SpecializationEnvironment(error))
+        match error {
+            crate::static_eval::application::StaticSpecializationEnvironmentError::Cancelled => Self::Cancelled,
+            crate::static_eval::application::StaticSpecializationEnvironmentError::BudgetExceeded(report) => Self::Budget(report),
+            error => Self::invalid(StaticEvalError::SpecializationEnvironment(error)),
+        }
     }
 }
 

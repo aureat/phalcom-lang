@@ -109,6 +109,12 @@ pub enum StaticSpecializationEnvironmentError {
     ForeignStaticValueStore,
     #[error("malformed specialization environment")]
     MalformedEnvironment,
+    #[error("specialization composition was cancelled")]
+    Cancelled,
+    #[error("specialization composition exceeded its query budget: {0:?}")]
+    BudgetExceeded(crate::types::outcome::BudgetReport),
+    #[error("specialization substitution closure did not converge")]
+    NonConvergentSubstitution,
     #[error("unsupported canonical substitution in specialization environment")]
     UnsupportedCanonicalSubstitution,
 }
@@ -375,9 +381,11 @@ impl StaticSpecializationEnvironmentKey {
         use crate::types::substitution::TypeSubstitution;
 
         if cancellation.is_cancelled() {
-            return Err(StaticSpecializationEnvironmentError::MalformedEnvironment);
+            return Err(StaticSpecializationEnvironmentError::Cancelled);
         }
-        budget.charge_step().map_err(|_| StaticSpecializationEnvironmentError::MalformedEnvironment)?;
+        budget
+            .charge_step()
+            .map_err(StaticSpecializationEnvironmentError::BudgetExceeded)?;
 
         // 1. Gather all type bindings from supplied and captured to build substitution closure
         let mut raw_subst_map: HashMap<TypeParameterId, TypeId> = HashMap::new();
@@ -385,31 +393,15 @@ impl StaticSpecializationEnvironmentKey {
             raw_subst_map.insert(*param, *ty);
         }
 
-        // Compute fixed point / transitive closure of type substitutions
-        let mut resolved_subst_map = raw_subst_map.clone();
-        for _ in 0..16 {
-            if cancellation.is_cancelled() {
-                return Err(StaticSpecializationEnvironmentError::MalformedEnvironment);
-            }
-            budget.charge_step().map_err(|_| StaticSpecializationEnvironmentError::MalformedEnvironment)?;
-
-            let current_subst = TypeSubstitution::from_bindings(resolved_subst_map.clone());
-            let mut changed = false;
-            for (_param, target_ty) in &mut resolved_subst_map {
-                match current_subst.try_apply(types, *target_ty) {
-                    Ok(new_ty) => {
-                        if new_ty != *target_ty {
-                            *target_ty = new_ty;
-                            changed = true;
-                        }
-                    }
-                    Err(_) => return Err(StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution),
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
+        // Compute the transitive closure. The pass bound is derived from the
+        // number of bindings; recursive type growth fails closed instead of
+        // publishing a partially closed substitution.
+        let resolved_subst_map = close_substitution_map(
+            raw_subst_map,
+            types,
+            Some(budget),
+            Some(cancellation),
+        )?;
         let subst = TypeSubstitution::from_bindings(resolved_subst_map);
 
         // 2. Substitute through type bindings and check conflicts
@@ -507,27 +499,47 @@ impl StaticSpecializationEnvironmentKey {
             raw_subst_map.insert(*param, *ty);
         }
 
-        let mut resolved_subst_map = raw_subst_map.clone();
-        for _ in 0..16 {
-            let current_subst = TypeSubstitution::from_bindings(resolved_subst_map.clone());
-            let mut changed = false;
-            for (_param, target_ty) in &mut resolved_subst_map {
-                match current_subst.try_apply(types, *target_ty) {
-                    Ok(new_ty) => {
-                        if new_ty != *target_ty {
-                            *target_ty = new_ty;
-                            changed = true;
-                        }
-                    }
-                    Err(_) => return Err(StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution),
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
+        let resolved_subst_map = close_substitution_map(raw_subst_map, types, None, None)?;
         Ok(TypeSubstitution::from_bindings(resolved_subst_map))
     }
+}
+
+fn close_substitution_map(
+    mut resolved_subst_map: std::collections::HashMap<TypeParameterId, TypeId>,
+    types: &mut crate::types::store::TypeStore,
+    mut budget: Option<&mut crate::types::outcome::QueryBudget>,
+    cancellation: Option<&crate::db::CancellationToken>,
+) -> Result<std::collections::HashMap<TypeParameterId, TypeId>, StaticSpecializationEnvironmentError> {
+    use crate::types::substitution::TypeSubstitution;
+
+    let max_iterations = resolved_subst_map.len().saturating_add(1);
+    for _ in 0..max_iterations {
+        if cancellation.is_some_and(crate::db::CancellationToken::is_cancelled) {
+            return Err(StaticSpecializationEnvironmentError::Cancelled);
+        }
+        if let Some(budget) = budget.as_deref_mut() {
+            budget
+                .charge_step()
+                .map_err(StaticSpecializationEnvironmentError::BudgetExceeded)?;
+        }
+
+        let current_subst = TypeSubstitution::from_bindings(resolved_subst_map.clone());
+        let mut changed = false;
+        for target_ty in resolved_subst_map.values_mut() {
+            let new_ty = current_subst
+                .try_apply(types, *target_ty)
+                .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
+            if new_ty != *target_ty {
+                *target_ty = new_ty;
+                changed = true;
+            }
+        }
+        if !changed {
+            return Ok(resolved_subst_map);
+        }
+    }
+
+    Err(StaticSpecializationEnvironmentError::NonConvergentSubstitution)
 }
 
 impl From<StaticApplicationEnvironmentKey> for StaticSpecializationEnvironmentKey {
