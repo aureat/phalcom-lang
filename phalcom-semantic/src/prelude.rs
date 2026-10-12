@@ -72,6 +72,11 @@ impl PreludeTypeMap {
             DeclarationId::new(duplicate_key_error_module, "DuplicateKeyError".into()),
         );
 
+        let proof_module = crate::core_surface::universe_module(&["core", "proof"]);
+        entries.insert("Equivalent".into(), DeclarationId::new(proof_module.clone(), "Equivalent".into()));
+        entries.insert("Subtype".into(), DeclarationId::new(proof_module.clone(), "Subtype".into()));
+        entries.insert("Conforms".into(), DeclarationId::new(proof_module, "Conforms".into()));
+
         Self { entries }
     }
 

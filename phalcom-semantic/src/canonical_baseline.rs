@@ -129,6 +129,13 @@ impl CanonicalUniverseSemanticBaseline {
         let mut base_dispatch = SurfaceDispatchResolver::new();
         let mut known_declarations: HashSet<DeclarationId> = base_declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
         known_declarations.extend(base_declarations.intrinsic_static_domain_declarations().cloned());
+        for kind in [
+            crate::checker::proof_predicate::ProofPredicateKind::Equivalent,
+            crate::checker::proof_predicate::ProofPredicateKind::Subtype,
+            crate::checker::proof_predicate::ProofPredicateKind::Conforms,
+        ] {
+            known_declarations.insert(crate::checker::proof_predicate::proof_predicate_declaration(kind));
+        }
         let canonical_linked = canonical_universe_linked_program(&provider);
         let resolver = LinkedTypeResolver::new(canonical_linked.clone(), known_declarations, ModuleId::universe_root());
         let native_report = register_native_surfaces(&mut store, &base_declarations, &resolver, &ModuleId::universe_root(), &mut base_dispatch)
@@ -255,6 +262,13 @@ impl CanonicalUniverseSemanticBaseline {
         let mut known_declarations: HashSet<DeclarationId> = base_declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
         known_declarations.extend(base_declarations.intrinsic_static_domain_declarations().cloned());
         known_declarations.extend(canonical_alias_sources.keys().cloned());
+        for kind in [
+            crate::checker::proof_predicate::ProofPredicateKind::Equivalent,
+            crate::checker::proof_predicate::ProofPredicateKind::Subtype,
+            crate::checker::proof_predicate::ProofPredicateKind::Conforms,
+        ] {
+            known_declarations.insert(crate::checker::proof_predicate::proof_predicate_declaration(kind));
+        }
         let mut trait_associated_types: BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>> = BTreeMap::new();
         for node in provider.nodes() {
             let path = phalcom_modules::ModulePath::from_components(

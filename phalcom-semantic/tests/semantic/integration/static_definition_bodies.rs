@@ -542,7 +542,7 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
     let mut recursive_evaluator = StaticEvaluator::new(recursive, &mut recursive_values, &mut recursive_budget, &recursive_cancellation, &[])
         .with_static_definitions(fixture.analysis.snapshot.static_definitions());
     let recursive_result = recursive_evaluator.evaluate();
-    assert_eq!(recursive_result, StaticEvalOutcome::Recursive);
+    assert!(matches!(recursive_result, StaticEvalOutcome::Recursive(_)));
     assert!(recursive_evaluator.trace().iter().any(|frame| matches!(
         frame,
         phalcom_semantic::static_eval::StaticEvalTraceFrame::Application { target, .. }
@@ -569,7 +569,7 @@ fn session_publishes_checked_static_body_with_stable_const_reads() {
     )
     .with_static_definitions(fixture.analysis.snapshot.static_definitions())
     .evaluate();
-    assert_eq!(mutual_result, StaticEvalOutcome::Recursive);
+    assert!(matches!(mutual_result, StaticEvalOutcome::Recursive(_)));
 
     let mut exhausted_budget = QueryBudget::new(0);
     let budget_result = StaticEvaluator::new(applied, &mut StaticValueStore::new(), &mut exhausted_budget, &CancellationToken::new(), &[])
@@ -633,7 +633,7 @@ fn symbolic_vector_identity_spread_stays_unreduced_before_reading_its_source() {
     )
     .with_type_store(&fixture.analysis.snapshot.store)
     .evaluate();
-    assert_eq!(outcome, StaticEvalOutcome::Symbolic);
+    assert!(matches!(outcome, StaticEvalOutcome::Symbolic(_)));
     assert_eq!(values.len(), 0, "the symbolic spread must stop before reading its source or publishing a sequence root");
 }
 
@@ -1349,7 +1349,27 @@ type ConformsMarkerFalse: Bool = Conforms<String, MarkerTrait>
 
     // Proof predicate tests
     assert_eq!(evaluate_bool("EquivTrue"), true);
-    assert_eq!(evaluate_bool("EquivFalse"), false);
+    let equiv_false = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "EquivFalse"))
+        .and_then(|definition| definition.checked_body.as_ref())
+        .expect("checked non-equivalent proof predicate");
+    let equiv_false_outcome = StaticEvaluator::new(
+        equiv_false,
+        &mut StaticValueStore::new(),
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+        &[],
+    )
+    .with_type_store(fixture.analysis.snapshot.store())
+    .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+    .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+    .evaluate();
+    assert!(
+        matches!(equiv_false_outcome, StaticEvalOutcome::Symbolic(_)),
+        "failure to prove type equivalence must remain symbolic, got {equiv_false_outcome:?}"
+    );
     assert_eq!(evaluate_bool("SubtypeTrue"), true);
     assert_eq!(evaluate_bool("SubtypeFalse"), false);
     assert_eq!(evaluate_bool("ConformsMarkerTrue"), true);

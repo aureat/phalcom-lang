@@ -39,7 +39,8 @@ pub mod type_member_declaration;
 pub mod typed_expr;
 
 pub use proof_predicate::{
-    ProofPredicateKind, ProofPredicateResolution, ProofPredicateResolutionIndex, proof_predicate_declaration,
+    ProofPredicateGoal, ProofPredicateKind, ProofPredicateResolution, ProofPredicateResolutionIndex,
+    is_proof_predicate_declaration, proof_predicate_declaration,
 };
 pub use static_iteration::{
     StaticIterationItemDomain, StaticIterationLaneResolution, StaticIterationLaneResolutionIndex, StaticIterationMode,

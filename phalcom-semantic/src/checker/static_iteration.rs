@@ -90,10 +90,9 @@ pub fn resolve_static_iteration_lane(
     source_range: SourceRange,
     iter_typed: &TypedExpression,
 ) -> Option<StaticIterationLaneResolution> {
-    static EMPTY_DATA: std::sync::OnceLock<crate::data_semantics::DataSemanticTable> = std::sync::OnceLock::new();
-    static EMPTY_ENUMS: std::sync::OnceLock<crate::enum_semantics::EnumSemanticTable> = std::sync::OnceLock::new();
-    let data = ctx.data_table.unwrap_or_else(|| EMPTY_DATA.get_or_init(Default::default));
-    let enums = ctx.enum_table.unwrap_or_else(|| EMPTY_ENUMS.get_or_init(Default::default));
+    let (Some(data), Some(enums)) = (ctx.data_table, ctx.enum_table) else {
+        return None;
+    };
 
     // First check if this is iterating over a type expression:
     if let Some(SemanticDenotation::TypeForm(term) | SemanticDenotation::StaticTerm(term)) = iter_typed.denotation {
@@ -129,7 +128,7 @@ pub fn resolve_static_iteration_lane(
             StructuralClassification::UnorderedProduct(_) => {
                 let structure = classifier.unordered_product(ctx.store, term).ok().flatten();
                 if let Some(struct_info) = structure {
-                    if !matches!(struct_info.tail, RecordRowTail::Closed) {
+                    if struct_info.fields.is_empty() && !matches!(struct_info.tail, RecordRowTail::Closed) {
                         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                             ctx.current_module.clone(),
                             DiagnosticCode::StaticIterationOpenTailNotFinite,
@@ -252,7 +251,7 @@ pub fn resolve_static_iteration_lane(
         StructuralClassification::UnorderedProduct(_) => {
             let structure = classifier.unordered_product(ctx.store, source_ty).ok().flatten();
             if let Some(struct_info) = structure {
-                if !matches!(struct_info.tail, RecordRowTail::Closed) {
+                if struct_info.fields.is_empty() && !matches!(struct_info.tail, RecordRowTail::Closed) {
                     ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
                         DiagnosticCode::StaticIterationOpenTailNotFinite,

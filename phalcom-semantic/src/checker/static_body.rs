@@ -12,11 +12,14 @@ use crate::checker::typed_expr::TypedExpression;
 use crate::db::key::QueryKey;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::identity::{BindingId, ExpressionId};
+use crate::member_projection::{MemberDeclarationIdentity, MemberProjection, MemberProjectionArgument, MemberProjectionSubject};
 use crate::static_definition::{CheckedStaticBody, StaticBodyId, StaticDefinition, StaticDefinitionBodyRepr};
 use crate::static_domain::StaticValueDomain;
 use crate::static_intrinsic::StaticIntrinsicRegistry;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
+use crate::types::annotation::TypeResolver;
 use crate::types::store::TypeData;
+use crate::types::type_member::{ProjectionSubject, TypeMemberArgument};
 use phalcom_ast::ast::{Expr, TypeAnnotationExpr};
 use phalcom_common::range::SourceRange;
 use std::collections::{BTreeMap, BTreeSet};
@@ -767,8 +770,9 @@ fn analyze_static_body_inner(
         .into_iter()
         .collect::<Vec<_>>();
     let static_applications = std::mem::take(&mut context.checked_static_applications).into_boxed_slice();
-    let dependencies: Arc<[SemanticDependency]> = context.semantic_dependencies_snapshot().into_iter().collect::<Vec<_>>().into();
     let static_constructions = std::mem::take(&mut context.checked_static_constructions);
+    let member_projections = checked_member_projection_index(&context, &expressions);
+    let dependencies: Arc<[SemanticDependency]> = context.semantic_dependencies_snapshot().into_iter().collect::<Vec<_>>().into();
     let associated_resolutions = context
         .associated_resolutions
         .into_iter()
@@ -825,6 +829,7 @@ fn analyze_static_body_inner(
         static_operations: Arc::new(static_operations),
         static_applications: Arc::from(static_applications),
         static_constructions: Arc::new(static_constructions),
+        member_projections: Arc::new(member_projections),
         associated_resolutions: Arc::new(associated_resolutions),
         sequence_literals: Arc::new(sequence_literals),
         match_resolutions: Arc::new(match_resolutions),
@@ -842,6 +847,104 @@ fn analyze_static_body_inner(
         result: definition.signature.result_domain,
         diagnostics,
     }
+}
+
+/// Derives evaluator projection requests from already checked canonical type forms.
+/// This only publishes sites supported by the structural reflection projector;
+/// member identity and result domains come from the resolved form and signature.
+fn checked_member_projection_index(
+    context: &CheckingContext<'_>,
+    expressions: &ExpressionAnalysisIndex,
+) -> crate::static_definition::CheckedStaticMemberProjectionIndex {
+    let structural_ids = crate::core_surface::identity::StructuralUniverseIds::new();
+    let mut projections = BTreeMap::new();
+    for (expression, analysis) in expressions {
+        if !analysis.status.is_ready() {
+            continue;
+        }
+        let Some(form) = analysis.denotation.as_ref().and_then(|denotation| match denotation {
+            crate::types::denotation::SemanticDenotation::TypeForm(form)
+            | crate::types::denotation::SemanticDenotation::StaticTerm(form) => Some(*form),
+            _ => None,
+        }) else {
+            continue;
+        };
+        let projection = match context.store.get(form) {
+            TypeData::AssociatedProjection(projection)
+                if structural_ids.is_structural_capability(&projection.trait_ref.declaration) =>
+            {
+                let Some(surface) = context
+                    .conformance_semantics
+                    .and_then(|view| view.trait_surfaces.get(&projection.trait_ref.declaration))
+                else {
+                    continue;
+                };
+                let Some(requirement) = surface.associated_type(&projection.requirement) else {
+                    continue;
+                };
+                context.record_semantic_dependency(SemanticDependency::TraitSurface(projection.trait_ref.declaration.clone()));
+                let conformance_key = crate::generic_evidence::GenericConformanceKey::new(
+                    crate::types::parameter::TypeTerm::Canonical(projection.subject),
+                    projection.trait_ref.clone(),
+                );
+                let evidence = context
+                    .generic_evidence
+                    .conformances()
+                    .contains_key(&conformance_key)
+                    .then_some(conformance_key);
+                Some(MemberProjection {
+                    subject: MemberProjectionSubject::Type(projection.subject),
+                    member: MemberDeclarationIdentity::TraitAssociated {
+                        trait_ref: projection.trait_ref.clone(),
+                        requirement: projection.requirement.clone(),
+                    },
+                    arguments: Box::new([]),
+                    evidence,
+                    result_domain: requirement.domain.into(),
+                })
+            }
+            TypeData::TypeMemberProjection(projection)
+                if projection
+                    .source_declaration
+                    .as_ref()
+                    .is_some_and(|member| member.owner == structural_ids.unordered_shape) =>
+            {
+                let Some(member) = projection.source_declaration.as_ref() else {
+                    continue;
+                };
+                let Some(product) = context.resolver.resolve_associated_type_member(&member.owner, &member.selector) else {
+                    continue;
+                };
+                context.record_semantic_dependency(SemanticDependency::AssociatedSurface(member.owner.clone()));
+                let subject = match projection.subject {
+                    ProjectionSubject::Type(ty) => MemberProjectionSubject::Type(ty),
+                    ProjectionSubject::RecordRow(row) => MemberProjectionSubject::RecordRow(row),
+                };
+                Some(MemberProjection {
+                    subject,
+                    member: MemberDeclarationIdentity::TypeMember(member.clone()),
+                    arguments: projection
+                        .arguments
+                        .iter()
+                        .cloned()
+                        .map(|argument| MemberProjectionArgument::Kinded(match argument {
+                            TypeMemberArgument::Type(ty) => TypeMemberArgument::Type(ty),
+                            TypeMemberArgument::Const(term) => TypeMemberArgument::Const(term),
+                            TypeMemberArgument::RecordRow(row) => TypeMemberArgument::RecordRow(row),
+                        }))
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                    evidence: None,
+                    result_domain: product.signature.result_domain.into(),
+                })
+            }
+            _ => None,
+        };
+        if let Some(projection) = projection {
+            projections.insert(*expression, projection);
+        }
+    }
+    projections
 }
 
 fn invalidate_with_diagnostic(context: &mut CheckingContext<'_>, typed: &mut TypedExpression, code: DiagnosticCode, message: String, range: SourceRange) {
@@ -971,6 +1074,83 @@ mod tests {
         )
         .evaluate();
         assert_eq!(cancelled_outcome, StaticEvalOutcome::Cancelled);
+    }
+
+    #[test]
+    fn checked_body_projection_index_uses_canonical_structural_member_and_domain() {
+        let module = ModuleId::universe_root();
+        let structural_ids = crate::core_surface::identity::StructuralUniverseIds::new();
+        let mut store = TypeStore::new();
+        let owner = DeclarationId::new(module.clone(), "ProjectionFixture".into());
+        let parameter = store.intern_type_parameter(crate::types::parameter::TypeParameterData::new(
+            crate::types::parameter::TypeParameterOwner::Declaration(owner),
+            0,
+            "T",
+            crate::types::id::KindId::TYPE,
+        ));
+        let subject = store.parameter_form(parameter);
+        let product_shape = store.nominal(structural_ids.product_shape.clone());
+        let requirement = crate::traits::AssociatedTypeRequirementId::new(structural_ids.product.clone(), 1);
+        let projection = store.associated_projection(
+            subject,
+            crate::traits::TraitRef::new(structural_ids.product.clone(), Vec::new()),
+            requirement.clone(),
+        );
+
+        let mut surface = crate::traits::TraitSurface::new(structural_ids.product.clone(), None);
+        surface.associated_types.insert(
+            requirement.clone(),
+            crate::traits::TraitAssociatedTypeRequirement {
+                requirement: requirement.clone(),
+                name: "Shape".into(),
+                domain: crate::types::type_member::TypeMemberDomain::ValueType(product_shape),
+                source: crate::diagnostic::SemanticSourceSpan::new(module.clone(), SourceRange::default()),
+            },
+        );
+        let mut trait_surfaces = crate::traits::TraitSurfaceTable::new();
+        trait_surfaces.insert(Arc::new(surface));
+        let trait_dispatch = crate::trait_dispatch::TraitDispatchIndex::default();
+        let conformance_index = crate::impls::ConformanceIndex::new();
+        let witness_plans = BTreeMap::new();
+        let derived_conformance_rules = crate::derived_conformance::DerivedConformanceRuleIndex::new();
+        let conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
+            trait_dispatch: &trait_dispatch,
+            conformance_index: &conformance_index,
+            witness_plans: &witness_plans,
+            trait_surfaces: &trait_surfaces,
+            derived_conformance_rules: &derived_conformance_rules,
+            callable_signatures: None,
+        };
+        let declarations = DeclarationTypeTable::new();
+        let hierarchy = MapTypeHierarchy::new();
+        let resolver = EmptyResolver;
+        let dispatch = SurfaceDispatchResolver::new();
+        let mut context = CheckingContext::new_with_dispatch_ref(&mut store, &hierarchy, &resolver, &declarations, &dispatch, module);
+        context.attach_conformance_semantics(&conformance_semantics);
+
+        let expression = crate::identity::ExpressionId::new(crate::identity::BodyId(7), crate::identity::LocalExpressionId(0));
+        let analysis = crate::checker::analysis::ExpressionAnalysis::ready(
+            expression,
+            SourceRange::default(),
+            TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+        )
+        .with_denotation(Some(crate::types::denotation::SemanticDenotation::TypeForm(projection)));
+        let expressions = BTreeMap::from([(expression, analysis)]);
+
+        let projections = checked_member_projection_index(&context, &expressions);
+        let checked = projections.get(&expression).expect("canonical structural projection site");
+        assert_eq!(checked.subject, MemberProjectionSubject::Type(subject));
+        assert_eq!(
+            checked.member,
+            MemberDeclarationIdentity::TraitAssociated {
+                trait_ref: crate::traits::TraitRef::new(structural_ids.product.clone(), Vec::new()),
+                requirement,
+            }
+        );
+        assert_eq!(checked.result_domain, StaticValueDomain::ValueType(product_shape));
+        assert!(context
+            .semantic_dependencies_snapshot()
+            .contains(&SemanticDependency::TraitSurface(structural_ids.product)));
     }
 
     #[test]

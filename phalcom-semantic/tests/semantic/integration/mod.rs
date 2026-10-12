@@ -25,5 +25,6 @@ mod resolver;
 mod self_formation;
 mod source_index;
 mod static_definition_bodies;
+mod static_recursive_evaluation;
 mod type_member_closure;
 mod workspace;

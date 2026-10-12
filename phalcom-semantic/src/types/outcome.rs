@@ -14,6 +14,7 @@ pub enum BudgetKind {
     SccIterations,
     TypeDepth,
     DiagnosticNotes,
+    ResidualNodes,
 }
 
 impl fmt::Display for BudgetKind {
@@ -24,6 +25,7 @@ impl fmt::Display for BudgetKind {
             Self::SccIterations => write!(f, "scc_iterations"),
             Self::TypeDepth => write!(f, "type_depth"),
             Self::DiagnosticNotes => write!(f, "diagnostic_notes"),
+            Self::ResidualNodes => write!(f, "residual_nodes"),
         }
     }
 }
@@ -62,10 +64,12 @@ pub struct QueryBudget {
     pub max_scc_iterations: u32,
     pub max_type_depth: u16,
     pub max_diagnostic_notes: u16,
+    pub max_residual_nodes: u32,
 
     pub steps_taken: u64,
     pub pairs_checked: u32,
     pub scc_iterations_taken: u32,
+    pub residual_nodes_created: u32,
 }
 
 /// Error returned when a cancellation token observes cancellation.
@@ -80,9 +84,11 @@ impl Default for QueryBudget {
             max_scc_iterations: 100,
             max_type_depth: 128,
             max_diagnostic_notes: 32,
+            max_residual_nodes: 10_000,
             steps_taken: 0,
             pairs_checked: 0,
             scc_iterations_taken: 0,
+            residual_nodes_created: 0,
         }
     }
 }
@@ -95,9 +101,11 @@ impl QueryBudget {
             max_scc_iterations: 100,
             max_type_depth: 128,
             max_diagnostic_notes: 32,
+            max_residual_nodes: 10_000,
             steps_taken: 0,
             pairs_checked: 0,
             scc_iterations_taken: 0,
+            residual_nodes_created: 0,
         }
     }
 
@@ -131,6 +139,20 @@ impl QueryBudget {
                 BudgetKind::SccIterations,
                 self.max_scc_iterations as u64,
                 self.scc_iterations_taken as u64,
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Charges creation of one residual node.
+    pub fn charge_residual_node(&mut self) -> Result<(), BudgetReport> {
+        self.residual_nodes_created += 1;
+        if self.residual_nodes_created > self.max_residual_nodes {
+            Err(BudgetReport::new(
+                BudgetKind::ResidualNodes,
+                self.max_residual_nodes as u64,
+                self.residual_nodes_created as u64,
             ))
         } else {
             Ok(())

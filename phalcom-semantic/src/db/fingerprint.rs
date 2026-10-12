@@ -3084,21 +3084,40 @@ pub fn static_constant_product_fingerprint(
             1u8.hash(&mut hasher);
             type_id.hash(&mut hasher);
         }
-        crate::static_eval::StaticEvalOutcome::Symbolic => {
+        crate::static_eval::StaticEvalOutcome::Symbolic(residual_ref) => {
             2u8.hash(&mut hasher);
+            residual_ref.store_id().raw().hash(&mut hasher);
+            residual_ref.residual_id().raw().hash(&mut hasher);
         }
         crate::static_eval::StaticEvalOutcome::Invalid(err) => {
             3u8.hash(&mut hasher);
             format!("{err:?}").hash(&mut hasher);
         }
-        crate::static_eval::StaticEvalOutcome::Recursive => {
+        crate::static_eval::StaticEvalOutcome::Recursive(cycle) => {
             4u8.hash(&mut hasher);
+            cycle.cycle_start.hash(&mut hasher);
+            cycle.applications.len().hash(&mut hasher);
+            for frame in cycle.applications.iter() {
+                frame.definition.hash(&mut hasher);
+            }
         }
         crate::static_eval::StaticEvalOutcome::BudgetExceeded(_) => {
             5u8.hash(&mut hasher);
         }
         crate::static_eval::StaticEvalOutcome::Cancelled => {
             6u8.hash(&mut hasher);
+        }
+        crate::static_eval::StaticEvalOutcome::Unknown(reason) => {
+            7u8.hash(&mut hasher);
+            reason.hash(&mut hasher);
+        }
+        crate::static_eval::StaticEvalOutcome::Blocked(reason) => {
+            8u8.hash(&mut hasher);
+            format!("{reason:?}").hash(&mut hasher);
+        }
+        crate::static_eval::StaticEvalOutcome::Dynamic(obligation) => {
+            9u8.hash(&mut hasher);
+            format!("{obligation:?}").hash(&mut hasher);
         }
     }
     for diag in product.diagnostics.iter() {

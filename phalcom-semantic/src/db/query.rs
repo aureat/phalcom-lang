@@ -1358,7 +1358,7 @@ pub fn query_static_constant(
     db.metrics().record_miss();
 
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
-    if !matches!(product.outcome, crate::static_eval::StaticEvalOutcome::Recursive) {
+    if !matches!(product.outcome, crate::static_eval::StaticEvalOutcome::Recursive(_)) {
         for semantic_dependency in product.checked.dependencies.iter() {
             match ensure_formal_semantic_dependency_current(db, semantic_dependency, inputs, type_store) {
                 QueryOutcome::Ready(()) => {}

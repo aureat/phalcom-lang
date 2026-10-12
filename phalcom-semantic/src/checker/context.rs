@@ -161,6 +161,7 @@ fn is_query_owned_module(module: &ModuleId) -> bool {
 /// dependency edges. Only the aggregate root is bootstrap-owned here.
 fn is_bootstrap_declaration(declaration: &DeclarationId) -> bool {
     declaration.module == ModuleId::universe_root()
+        || crate::checker::proof_predicate::is_proof_predicate_declaration(declaration).is_some()
 }
 
 /// Built-in type-test callables are represented by the standalone bootstrap

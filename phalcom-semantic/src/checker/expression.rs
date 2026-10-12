@@ -1709,7 +1709,7 @@ fn analyze_checked_static_application(ctx: &mut CheckingContext<'_>, annotation:
 
 fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &phalcom_ast::ast::TypeAnnotation) -> Option<TypedExpression> {
     use phalcom_ast::ast::TypeAnnotationExpr;
-    use crate::checker::proof_predicate::{ProofPredicateKind, ProofPredicateResolution};
+    use crate::checker::proof_predicate::{is_proof_predicate_declaration, ProofPredicateGoal, ProofPredicateKind, ProofPredicateResolution};
 
     let TypeAnnotationExpr::Application { origin, arguments, range } = &annotation.expr else {
         return None;
@@ -1717,17 +1717,11 @@ fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &p
     let TypeAnnotationExpr::Reference(reference) = &origin.expr else {
         return None;
     };
-    if !reference.members.is_empty() {
-        return None;
-    }
-    let kind = match reference.root.as_str() {
-        "Equivalent" => ProofPredicateKind::Equivalent,
-        "Subtype" => ProofPredicateKind::Subtype,
-        "Conforms" => ProofPredicateKind::Conforms,
-        _ => return None,
-    };
+    let members: Vec<String> = reference.members.iter().map(|m| m.name.clone()).collect();
+    let declaration = ctx.resolver.resolve_type_name(&ctx.current_module, &reference.root, &members)?;
+    let kind = is_proof_predicate_declaration(&declaration)?;
 
-    if ctx.resolver.resolve_static_definition_name(&ctx.current_module, &reference.root, &[]).is_some() {
+    if ctx.resolver.resolve_static_definition_name(&ctx.current_module, &reference.root, &members).is_some() {
         return None;
     }
 
@@ -1747,21 +1741,60 @@ fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &p
     let resolver = ctx.resolver.inner();
     let site = crate::types::annotation::TypeFormationSite::module(ctx.current_module.clone());
     let (left_res, _) = ctx.resolve_type_form(resolver, &site, &left_ann);
-    let (right_res, _) = ctx.resolve_type_form(resolver, &site, &right_ann);
+    let crate::types::annotation::TypeFormResolution::Ready(left_ty) = left_res else {
+        return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+    };
 
-    let right_res = match (right_res.clone(), kind) {
-        (crate::types::annotation::TypeFormResolution::Ready(ty), _) => crate::types::annotation::TypeFormResolution::Ready(ty),
-        (_, ProofPredicateKind::Conforms) => {
+    let goal = match kind {
+        ProofPredicateKind::Equivalent => {
+            let (right_res, _) = ctx.resolve_type_form(resolver, &site, &right_ann);
+            let crate::types::annotation::TypeFormResolution::Ready(right_ty) = right_res else {
+                return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+            };
+            ProofPredicateGoal::Equivalent {
+                left: left_ty,
+                right: right_ty,
+            }
+        }
+        ProofPredicateKind::Subtype => {
+            let (right_res, _) = ctx.resolve_type_form(resolver, &site, &right_ann);
+            let crate::types::annotation::TypeFormResolution::Ready(right_ty) = right_res else {
+                return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+            };
+            ProofPredicateGoal::Subtype {
+                lower: left_ty,
+                upper: right_ty,
+            }
+        }
+        ProofPredicateKind::Conforms => {
             let (trait_decl, type_args) = match &right_ann.expr {
                 phalcom_ast::ast::TypeAnnotationExpr::Reference(sym_ref) => {
                     let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
-                    let decl = resolver.resolve_trait_name(&ctx.current_module, &sym_ref.root, &members);
+                    let decl = resolver.resolve_trait_name(&ctx.current_module, &sym_ref.root, &members).or_else(|| {
+                        let structural_ids = crate::core_surface::identity::StructuralUniverseIds::new();
+                        match sym_ref.root.as_str() {
+                            "Product" if members.is_empty() => Some(structural_ids.product),
+                            "OrderedProduct" if members.is_empty() => Some(structural_ids.ordered_product),
+                            "UnorderedProduct" if members.is_empty() => Some(structural_ids.unordered_product),
+                            "Sum" if members.is_empty() => Some(structural_ids.sum),
+                            _ => None,
+                        }
+                    });
                     (decl, Vec::new())
                 }
                 phalcom_ast::ast::TypeAnnotationExpr::Application { origin, arguments, .. } => {
                     if let phalcom_ast::ast::TypeAnnotationExpr::Reference(sym_ref) = &origin.expr {
                         let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
-                        let decl = resolver.resolve_trait_name(&ctx.current_module, &sym_ref.root, &members);
+                        let decl = resolver.resolve_trait_name(&ctx.current_module, &sym_ref.root, &members).or_else(|| {
+                            let structural_ids = crate::core_surface::identity::StructuralUniverseIds::new();
+                            match sym_ref.root.as_str() {
+                                "Product" if members.is_empty() => Some(structural_ids.product),
+                                "OrderedProduct" if members.is_empty() => Some(structural_ids.ordered_product),
+                                "UnorderedProduct" if members.is_empty() => Some(structural_ids.unordered_product),
+                                "Sum" if members.is_empty() => Some(structural_ids.sum),
+                                _ => None,
+                            }
+                        });
                         (decl, arguments.clone())
                     } else {
                         (None, Vec::new())
@@ -1769,46 +1802,32 @@ fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &p
                 }
                 _ => (None, Vec::new()),
             };
-            if let Some(decl) = trait_decl {
-                if type_args.is_empty() {
-                    crate::types::annotation::TypeFormResolution::Ready(ctx.store.nominal(decl))
-                } else {
-                    let origin_ty = ctx.store.nominal(decl);
-                    let mut resolved_args = Vec::new();
-                    let mut all_ready = true;
-                    for arg in type_args {
-                        if let phalcom_ast::ast::GenericArgumentSyntax::Single(arg_ann) = arg {
-                            let (arg_res, _) = ctx.resolve_type_form(resolver, &site, &arg_ann);
-                            if let crate::types::annotation::TypeFormResolution::Ready(arg_ty) = arg_res {
-                                resolved_args.push(arg_ty);
-                            } else {
-                                all_ready = false;
-                                break;
-                            }
-                        } else {
-                            all_ready = false;
-                            break;
-                        }
-                    }
-                    if all_ready {
-                        if let Ok(applied_ty) = ctx.store.apply_type_form(origin_ty, &resolved_args) {
-                            crate::types::annotation::TypeFormResolution::Ready(applied_ty)
-                        } else {
-                            crate::types::annotation::TypeFormResolution::Ready(origin_ty)
-                        }
-                    } else {
-                        right_res
-                    }
-                }
-            } else {
-                right_res
-            }
-        }
-        (other, _) => other,
-    };
 
-    let (crate::types::annotation::TypeFormResolution::Ready(left_ty), crate::types::annotation::TypeFormResolution::Ready(right_ty)) = (left_res, right_res) else {
-        return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+            let Some(decl) = trait_decl else {
+                return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+            };
+
+            let mut resolved_args = Vec::new();
+            for arg in type_args {
+                if let phalcom_ast::ast::GenericArgumentSyntax::Single(arg_ann) = arg {
+                    let (arg_res, _) = ctx.resolve_type_form(resolver, &site, &arg_ann);
+                    if let crate::types::annotation::TypeFormResolution::Ready(arg_ty) = arg_res {
+                        resolved_args.push(arg_ty);
+                    } else {
+                        return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                    }
+                } else {
+                    return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
+                }
+            }
+
+            let trait_ref = crate::traits::TraitRef::new(decl, resolved_args);
+            let key = crate::generic_evidence::GenericConformanceKey::new(
+                crate::types::parameter::TypeTerm::from(left_ty),
+                trait_ref,
+            );
+            ProofPredicateGoal::Conforms { key }
+        }
     };
 
     let expr_id = ctx.current_expression_id()?;
@@ -1818,9 +1837,7 @@ fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &p
     ctx.record_proof_predicate(ProofPredicateResolution {
         expression: expr_id,
         range: *range,
-        kind,
-        left: left_ty,
-        right: right_ty,
+        goal,
         result_type: bool_ty,
     });
 

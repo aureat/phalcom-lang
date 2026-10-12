@@ -283,6 +283,12 @@ pub enum StaticKeyProjectionError {
     Evaluation(StaticEvalError),
     #[error("static key evaluation was recursive")]
     Recursive,
+    #[error("static key evaluation is unknown: {0:?}")]
+    Unknown(crate::types::evidence::UnknownReason),
+    #[error("static key evaluation is blocked: {0:?}")]
+    Blocked(crate::types::outcome::BlockReason),
+    #[error("static key evaluation crosses a dynamic boundary: {0:?}")]
+    Dynamic(crate::types::outcome::DynamicBoundaryObligation),
     #[error("reduced static value is not a Record key: {0}")]
     InvalidFieldKey(StaticValueStoreError),
 }
@@ -422,12 +428,17 @@ pub fn project_checked_static_key(
             Ok(key) => QueryOutcome::Ready(StaticKeyProjection::Concrete(key)),
             Err(error) => QueryOutcome::Ready(StaticKeyProjection::Invalid(StaticKeyProjectionError::InvalidFieldKey(error))),
         },
-        StaticEvalOutcome::Symbolic => QueryOutcome::Ready(StaticKeyProjection::DeferredToP7),
+        StaticEvalOutcome::Symbolic(_) => QueryOutcome::Ready(StaticKeyProjection::DeferredToP7),
         StaticEvalOutcome::ReducedKinded(_) => QueryOutcome::Ready(StaticKeyProjection::Invalid(StaticKeyProjectionError::KindedResult)),
         StaticEvalOutcome::Invalid(error) => QueryOutcome::Ready(StaticKeyProjection::Invalid(StaticKeyProjectionError::Evaluation(error))),
-        StaticEvalOutcome::Recursive => QueryOutcome::Ready(StaticKeyProjection::Invalid(StaticKeyProjectionError::Recursive)),
+        StaticEvalOutcome::Recursive(_) => QueryOutcome::Ready(StaticKeyProjection::Invalid(StaticKeyProjectionError::Recursive)),
         StaticEvalOutcome::BudgetExceeded(report) => QueryOutcome::BudgetExceeded(report),
         StaticEvalOutcome::Cancelled => QueryOutcome::Cancelled,
+        StaticEvalOutcome::Unknown(reason) => QueryOutcome::Ready(StaticKeyProjection::Invalid(StaticKeyProjectionError::Unknown(reason))),
+        StaticEvalOutcome::Blocked(reason) => QueryOutcome::Ready(StaticKeyProjection::Invalid(StaticKeyProjectionError::Blocked(reason))),
+        StaticEvalOutcome::Dynamic(obligation) => {
+            QueryOutcome::Ready(StaticKeyProjection::Invalid(StaticKeyProjectionError::Dynamic(obligation)))
+        }
     }
 }
 

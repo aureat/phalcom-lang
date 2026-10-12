@@ -1,5 +1,6 @@
 use crate::identity::DeclarationId;
 use crate::identity::{BindingId, ExpressionId};
+use crate::types::evidence::UnknownReason;
 use crate::types::outcome::BudgetReport;
 use phalcom_common::range::SourceRange;
 use thiserror::Error;
@@ -33,6 +34,8 @@ pub enum StaticEvalError {
     MissingMatchResolution(ExpressionId),
     #[error("missing checked static iteration resolution for expression {0:?}")]
     MissingStaticIterationResolution(ExpressionId),
+    #[error("checked member projection failed: {0}")]
+    MemberProjection(Box<str>),
     #[error("static iteration is not finite")]
     StaticIterationNotFinite,
     #[error("exhaustive static match had no matching branch")]
@@ -46,9 +49,15 @@ pub enum StaticEvalOutcome {
     /// A checked canonical kinded result. TypeIds never enter the evaluator's
     /// ordinary StaticValueRef stack.
     ReducedKinded(crate::types::id::TypeId),
-    Symbolic,
+    Symbolic(crate::static_eval::residual::StaticResidualRef),
     Invalid(StaticEvalError),
-    Recursive,
+    /// The checked static operation could not be resolved with available evidence.
+    Unknown(UnknownReason),
+    /// A canonical dependency or analysis state prevents this request from completing.
+    Blocked(crate::types::outcome::BlockReason),
+    /// The request crosses a dynamic language boundary.
+    Dynamic(crate::types::outcome::DynamicBoundaryObligation),
+    Recursive(crate::static_eval::application::StaticCycle),
     BudgetExceeded(BudgetReport),
     Cancelled,
 }

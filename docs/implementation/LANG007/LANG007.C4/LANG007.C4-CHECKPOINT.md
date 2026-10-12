@@ -17,7 +17,7 @@ prepared: 2026-10-04
 active_plan: LANG007.C4.P7
 latest_completed_plan: LANG007.C4.P6
 next_plan: LANG007.C4.P7
-active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P6/LANG007.C4.P6-luna-patch-grade-implementation-plan.md
+active_plan_record: docs/implementation/LANG007/LANG007.C4/P7/LANG007.C4.P7-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 73ea73f4622417510c39850e61664cf8c2c4a900
 last_updated: 2026-10-12
 ---
@@ -567,7 +567,7 @@ The intended C4 decomposition is:
 | `LANG007.C4.P10` | Parallel structural classification, static-control, and convergence foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Pre-barrier work through `46d00056` is integrated on main and S1 is complete. In the completion worktree `codex/lang007-c4-p10`, explicit `Expr::While`, parser/consumer convergence, bounded static-while execution, and direct jump-loop lowering with deopt fallback are completely implemented and verified. AST/parser, direct CFG/source-index, static-while, structural-classifier/reflection, fixed-call/no-Pack, runtime `control_flow_while_break_continue`, and affected-crate check gates passed. The reported nontermination of the runtime fixture was resolved as normal debug-build Universe compilation time (~52s). The comparison-loop flow issue was proven to be an inherited baseline failure on `main` (Category D, AUD-SEM-002 opaque-call invalidation); see P10 walkthrough and handoff. |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T1–T12 implemented and verified; G1 TypeMemberDomain/adapter, G2 domain-neutral projection outcomes, G3 trait-associated result domains, G4 normative universe structural declarations, G5 compiler-derived structural capabilities, G6 ordered product reflection, G7 intrinsic UnorderedShape type members, G8 unordered product reflection, G9 sum/variant reflection, G10 generic/stuck projections, G11 regression suite pass. |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T15 implemented and verified; canonical MatchResolution/PatternSite publication, static structural iteration lane carrier & checker resolution, static pattern matcher, static match execution with branch proof transport, finite Pack/OrderedProduct/UnorderedProduct/Type structural for execution, proof predicates (Equivalent, Subtype, Conforms with compiler-derived & user traits), static control flow integration test passed. |
-| `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
+| `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | IN_PROGRESS | PARTIAL | UNVERIFIED | T0-T2 acceptance remains open; T3/G3 through T6/G6 have focused implementation evidence; T7 has partial environment-carrier edits but is paused at INC-003 follow-up consultation, with no specializer or behavioral acceptance; T8-T13 and broad certification remain open |
 | `LANG007.C4.P8` | Incremental durability, metadata, cross-module static products, materialization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P9` | Public ontology migration, tooling, documentation, performance certification, checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P11` | `Char` scalar, character literals, semantic/runtime integration | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; consolidated in `c4db36bb`; Char scalar, patterns, Unicode 17.0 pin verified; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P11-P13-walkthrough.md) |
@@ -577,6 +577,190 @@ The intended C4 decomposition is:
 | `LANG007.C4.P15` | Typed integer/floating conversion | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `Utf8Error`, `IntParseError`, `FloatParseError`, `BoolParseError`, `String.fromUtf8*`, `Int.parse`, `Float.parse`, `Bool.parse`, `Int.toString(radix:)`; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
 | `LANG007.C4.P16` | StringBuilder, parse migration completion, TOML substrate proof | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `StringBuilder`, `TextWriter`, linear-time `rawJoin`, `TextCursor`, `LineMap`, `universe.text`; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
 | `LANG007.C4.algebraic-literals-follow-on` | User-directed contextual algebraic values, Quaternion source algebra, and `i`/`j`/`k` suffix literals | BLOCKED | PARTIAL | UNVERIFIED | generic runtime reification and focused semantic stack repair are implemented; source acceptance remains blocked by missing associated invocation lowering in canonical bootstrap; T4/T5 include bounded arithmetic-region selection, real embedding, and either-order expression coefficients; see [stack-overflow incident](../../STDL001-numeric-library/stack-overflow-incident-2026-10-11.md), [walkthrough](algebraic-literals-follow-on-walkthrough.md), and [handoff](algebraic-literals-follow-on-handoff.md) |
+
+### P7 composite kinded TypeForm specialization consultation — 2026-10-12
+
+The `Grow<T> -> Grow<Boxed<T>>` regression showed that P7's exact application
+key was being formed from an unspecialized composite TypeForm, producing a
+false exact cycle. The architect confirmed that accepted parameterized static
+type application must continue through changed arguments until a base case or
+budget; narrowing the feature to primitive arguments would contradict the
+static-evaluation contract.
+
+**Level 2 amendment:** P7 uses the active session-owned mutable `TypeStore` as
+its only canonicalization owner. The session's initial baseline fork is the
+store lineage for generated forms; evaluation receives an exclusive mutable
+borrow through the established `Arc::make_mut(&mut self.store)` path. This
+copy-on-write boundary preserves previously published snapshots. Do not fork a
+second TypeStore per evaluation or publish clone-qualified IDs. Existing raw
+`TypeId` results and type-bearing static values remain confined to the current
+session snapshot/store lineage. The P6/T7.10 fail-closed restriction on
+composite substitution is superseded for P7 only; its historical P6 completion
+record remains intact.
+
+Before T3 keys are accepted, recursively specialize checked composite
+TypeForms with the existing `TypeSubstitution` and canonical type formation,
+precharging query work in proportion to the checked TypeForm/application
+source span before substitution/interning and checking cancellation before and
+after the substitution call. Exact cycles continue to use the specialized canonical
+arguments. Focused acceptance must show changing `Grow<T>` arguments reach the
+budget, direct/mutual exact cycles remain recursive, terminals are not
+published or memoized, and prior snapshots stay unchanged. Cold exact and
+residual specialization must agree for the certified composite case.
+
+Evidence at this point: `static_evaluator_executes_match_for_and_proof_predicates`
+passed (1 selected) after the canonical proof-goal update;
+`foundations::static_residuals` passed 7 selected earlier in this continuation.
+At the consultation handoff, no composite-substitution implementation or T3
+acceptance was claimed. The [incident packet](P7/LANG007.C4.P7-INC-001-composite-static-arguments.md)
+and amendment in the active P7 plan remain authoritative; the current focused
+implementation evidence follows below.
+
+### P7 T3-T5 focused implementation progress — 2026-10-12
+
+The active evaluator now specializes checked composite TypeForms through the
+session-owned copy-on-write `TypeStore` before forming application keys. The
+`Grow<T> -> Grow<Boxed<T>>` regression reaches the step budget while generated
+forms remain confined to the active store and the previously published
+snapshot remains unchanged. Existing direct and mutual exact-cycle cases still
+return `Recursive`; selected versus untaken match-arm behavior also remains
+correct. This closes the focused T3/G3 acceptance slice.
+
+The evaluator-local memo regression confirms repeated exact applications use
+fewer steps than distinct arguments, and block-return results are now inserted
+into the memo after normal result validation. Focused T4/G4 evidence passes.
+
+Open kinded parameter reads now intern canonical `Parameter` residuals. A
+checked static application with an open argument produces a normalized
+`Apply` residual; a repeated open application reuses the same residual, known
+arguments remain present in partially known applications, and a residual from
+the wrong argument domain fails with `InvalidArgumentKind`. This closes the
+focused T5/G5 implementation slice. The exact evaluator gates passed:
+`static_recursive_evaluation` (4/4), `static_definition_bodies` (8/8),
+`static_constants` (25/25), and `foundations::static_residuals` (7/7).
+
+P7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`: T0-T2 acceptance has not been
+closed, and T6-T13 are still open. Next action: continue T6 by preserving
+canonical proof and member-projection goals as typed residuals, then proceed to
+the specialization engine only after its semantic and ownership boundaries
+are established.
+
+### P7 T6 focused proof and projection progress — 2026-10-12
+
+Open Subtype<T, Int>, Conforms<T, Product>, and user-trait
+Conforms<T, MarkerTrait> goals now produce canonical Proof residuals.
+Exact generic applications rerun the canonical proof engines: subtype,
+compiler-derived Product conformance, and user-trait conformance each reduce
+to the expected true/false result. Closed blocked or dynamic proof outcomes
+remain terminal invalid results rather than being merged into a generic
+symbolic state. The established exact Equivalent behavior remains unchanged:
+its current proof engine's NotProven outcome is still residualized.
+
+When a static definition returns a canonical AssociatedProjection or a
+resolved-source TypeMemberProjection, the evaluator now preserves it as a
+typed MemberProjection residual after active-argument specialization. The
+focused regression checks the associated member identity, subject, and result
+domain.
+
+This is partial T6 evidence, not G6 acceptance. The evaluator still has no
+direct bridge from StaticMemberProjectionOutcome::Stuck through the
+structural projector, and exact structural reflection producing an ordinary
+StaticValue from a generic member projection remains unverified. Do not
+advance to T7 until this gap is resolved or amended.
+
+Focused evidence: static_recursive_evaluation passed 7/7 after the T6
+changes; static_definition_bodies passed 8/8; git diff --check passed.
+
+### P7 T6 member-projection bridge consultation and amendment — 2026-10-12
+
+INC-002 triggered mandatory escalation because the active plan requires
+domain-neutral structural projection but the checked-body/evaluator boundary
+publishes no projection site, while `Product::Shape` returns a static value
+domain that cannot pass through kinded-only completion. The architect adviser
+ruled that T6 needs a Level 2 amendment: add a compact checker-owned canonical
+projection product/index to `CheckedStaticBody`, keyed by checked site and
+derived from ordinary associated/type-member resolution plus the canonical
+signature. It carries canonical member identity, arguments/evidence, and the
+result `StaticValueDomain`; the evaluator must not resolve names or infer the
+domain.
+
+The evaluator will route that product through
+`StructuralReflectionProjector::project_member`, validate reduced outcomes
+against the checked domain, complete `ReducedValue` and `ReducedKinded` on
+their respective paths, and preserve `Stuck` as a typed residual. `Unknown`,
+`Blocked`, and `Dynamic` remain distinct terminal outcomes. Existing TypeData
+conversion remains a separate kinded projection case. The plan and incident
+packet record the amendment and required focused coverage. No language rule or
+normative specification changes.
+
+T6 remains partial pending implementation and G6 verification. Next action:
+publish the checked projection product, wire projector outcomes through the
+evaluator, and verify open-to-exact `Product::Shape` plus terminal-state
+distinctions.
+
+Next action: establish the checker-to-evaluator route for canonical
+StaticMemberProjectionOutcome products, then add the open-to-exact structural
+reflection regression before accepting G6.
+
+### P7 T6 checked member-projection bridge — 2026-10-12
+
+The Level 2 amendment is implemented. `CheckedStaticBody` now publishes a
+checker-owned member-projection index for canonical structural associated
+projections and resolved `UnorderedShape` type members. The index carries the
+canonical `MemberProjection` request and signature-derived result domain, and
+records the trait/associated surface dependency. The evaluator specializes
+that request, invokes the existing `StructuralReflectionProjector`, validates
+reduced results against the checked domain, and preserves `Stuck` as a typed
+residual. `ReducedValue` and `ReducedKinded` use their matching completion
+paths; Unknown, Blocked, and Dynamic remain distinct outcomes. The earlier T6
+note above records the pre-amendment gap and is superseded by this implementation
+and evidence.
+
+Focused G6 evidence: `static_recursive_evaluation` passed 8/8, including open
+`Product::Shape<T>` residual identity/domain and exact reflection to an ordinary
+static value; `static_definition_bodies` passed 8/8; the checker-side canonical
+projection-index unit test passed 1/1; the evaluator Unknown/Blocked/Dynamic
+terminal mapping unit test passed 1/1; and `cargo check -p phalcom-semantic`
+passed. T6/G6 is `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. P7 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED` because T0-T2 acceptance and T7-T13 remain
+open. T7 is paused at the INC-003 follow-up consultation gate; after its
+frame-aware environment rules are adopted, complete normalized residual
+specialization for Parameter, Apply, Proof, and MemberProjection with exact
+cold-evaluation parity.
+
+### P7 T7 residual specialization environment consultation and amendment — 2026-10-12
+
+INC-003 triggered mandatory consultation because Proof and MemberProjection
+residuals could escape an active application without retaining the exact
+arguments or branch facts that affected them. The existing environment key
+also omitted exact ordinary value arguments. The adviser ruled that T7 needs a
+Level 2 amendment: both residual families capture the canonical effective
+environment at creation, including exact formal-static-parameter bindings to
+kinded/value arguments and canonical proof facts. The environment participates
+in residual identity, and specialization composes supplied substitutions
+through captured bindings before re-evaluation and re-interning.
+
+Identical duplicate bindings/facts normalize together; conflicting concrete
+bindings fail closed. Captured and supplied proof facts are canonically unioned
+and checked by the existing proof authority. Do not rely on an enclosing Apply
+wrapper or retain source syntax, ranges, or query-local proof objects. T6's
+projection bridge remains unchanged. The amendment and focused acceptance are
+recorded in the [P7 plan](P7/LANG007.C4.P7-luna-patch-grade-implementation-plan.md)
+and [INC-003](P7/LANG007.C4.P7-INC-003-residual-specialization-environment.md).
+Partial, unverified T7 source edits now add the environment argument carrier,
+payload fields/fingerprints, and an evaluator capture helper. The residual
+specializer and focused T7 acceptance are still absent. At the user's request,
+source work was paused for read-only review. The review returned a blocking
+follow-up: flattening all active frames rejects ordinary recursive re-entry
+with a changed exact argument for the same formal. The plan and INC-003 now
+record nearest-active-frame shadowing, strict same-layer supplied conflicts
+after substitution, current proof-fact consumer boundaries, removal of the
+normalization bypass, and store-lineage-local fingerprint semantics. The
+specializer and focused T7 acceptance remain absent; source work stays paused
+at the consultation gate. T7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED` and
+no gate is claimed. `RUSTFLAGS='' cargo check -p phalcom-semantic --tests`
+passes after mechanical API adaptation; no tests were executed, so this is
+compile evidence only.
 
 ### P11 pattern decision — INC-6
 

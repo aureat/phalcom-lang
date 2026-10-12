@@ -575,7 +575,7 @@ impl StaticConstantDemandDriver<'_> {
             if self
                 .constants
                 .get(id)
-                .is_some_and(|product| matches!(product.outcome, crate::static_eval::StaticEvalOutcome::Recursive))
+                .is_some_and(|product| matches!(product.outcome, crate::static_eval::StaticEvalOutcome::Recursive(_)))
             {
                 continue;
             }
@@ -635,7 +635,7 @@ impl StaticConstantDemandDriver<'_> {
                 declaration_range: seed.declaration_range,
                 initializer_range: seed.initializer_range.unwrap_or_else(|| initializer.range()),
                 checked: Arc::new(checked),
-                outcome: crate::static_eval::StaticEvalOutcome::Recursive,
+                outcome: crate::static_eval::StaticEvalOutcome::Recursive(crate::static_eval::StaticCycle::empty()),
                 value: None,
                 lkg_value: None,
                 diagnostics: Arc::from(diagnostics.into_boxed_slice()),

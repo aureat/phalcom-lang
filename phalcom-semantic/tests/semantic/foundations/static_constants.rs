@@ -551,13 +551,15 @@ fn test_constant_annotation_key_cycle_is_diagnosed_as_a_static_constant_cycle() 
         diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::StaticConstantCycle),
         "computed-key formation cycle must use the static constant cycle path: {diagnostics:?}"
     );
-    assert_eq!(
-        update
-            .snapshot
-            .static_constant(&StaticConstantId::new(module, "B"))
-            .expect("B constant product")
-            .outcome,
-        StaticEvalOutcome::Recursive
+    assert!(
+        matches!(
+            update
+                .snapshot
+                .static_constant(&StaticConstantId::new(module, "B"))
+                .expect("B constant product")
+                .outcome,
+            StaticEvalOutcome::Recursive(_)
+        )
     );
 }
 
@@ -576,13 +578,15 @@ fn test_transitive_constant_formation_cycle_retains_computed_key_cause() {
         "the transitive mixed cycle must retain its computed-key formation cause: {diagnostics:?}"
     );
     for name in ["A", "B", "C"] {
-        assert_eq!(
-            update
-                .snapshot
-                .static_constant(&StaticConstantId::new(module.clone(), name))
-                .expect("cycle constant product")
-                .outcome,
-            StaticEvalOutcome::Recursive,
+        assert!(
+            matches!(
+                update
+                    .snapshot
+                    .static_constant(&StaticConstantId::new(module.clone(), name))
+                    .expect("cycle constant product")
+                    .outcome,
+                StaticEvalOutcome::Recursive(_)
+            ),
             "{name} must not retain a successful current product"
         );
     }
@@ -836,7 +840,7 @@ fn test_self_cycle() {
 
     let id_a = StaticConstantId::new(module.clone(), "A");
     let prod_a = update.snapshot.static_constant(&id_a).expect("constant product");
-    assert_eq!(prod_a.outcome, StaticEvalOutcome::Recursive);
+    assert!(matches!(prod_a.outcome, StaticEvalOutcome::Recursive(_)));
     assert!(!prod_a.is_successful());
 }
 
@@ -861,8 +865,8 @@ fn test_mutual_cycle() {
     let prod_a = update.snapshot.static_constant(&id_a).expect("constant product A");
     let prod_b = update.snapshot.static_constant(&id_b).expect("constant product B");
 
-    assert_eq!(prod_a.outcome, StaticEvalOutcome::Recursive);
-    assert_eq!(prod_b.outcome, StaticEvalOutcome::Recursive);
+    assert!(matches!(prod_a.outcome, StaticEvalOutcome::Recursive(_)));
+    assert!(matches!(prod_b.outcome, StaticEvalOutcome::Recursive(_)));
 }
 
 #[test]

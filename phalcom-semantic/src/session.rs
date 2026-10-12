@@ -1347,6 +1347,13 @@ impl SemanticWorkspaceSession {
             signature_known_declarations.extend(shard.declarations.iter().map(|declaration| declaration.id.clone()));
             signature_known_declarations.extend(shard.aliases.iter().cloned());
         }
+        for kind in [
+            crate::checker::proof_predicate::ProofPredicateKind::Equivalent,
+            crate::checker::proof_predicate::ProofPredicateKind::Subtype,
+            crate::checker::proof_predicate::ProofPredicateKind::Conforms,
+        ] {
+            signature_known_declarations.insert(crate::checker::proof_predicate::proof_predicate_declaration(kind));
+        }
         let canonical_linked = canonical_universe_linked_program(&self.universe_source_provider);
         let signature_resolver = LinkedTypeResolver::with_retained_alias_forms(
             input.linked.clone(),
@@ -2091,8 +2098,14 @@ impl SemanticWorkspaceSession {
         // 3. Construct LinkedTypeResolver
         let mut known_declarations: HashSet<DeclarationId> = declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
         known_declarations.extend(declarations.intrinsic_static_domain_declarations().cloned());
-
         known_declarations.extend(alias_declarations.iter().cloned());
+        for kind in [
+            crate::checker::proof_predicate::ProofPredicateKind::Equivalent,
+            crate::checker::proof_predicate::ProofPredicateKind::Subtype,
+            crate::checker::proof_predicate::ProofPredicateKind::Conforms,
+        ] {
+            known_declarations.insert(crate::checker::proof_predicate::proof_predicate_declaration(kind));
+        }
         let mut trait_associated_types: BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>> = BTreeMap::new();
         for (module, shard) in &self.semantic_structure_shards {
             for statement in &shard.source.program.statements {
@@ -8006,7 +8019,7 @@ impl SemanticWorkspaceSession {
                         declaration_range: decl.declaration_range,
                         initializer_range: decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
                         checked,
-                        outcome: crate::static_eval::StaticEvalOutcome::Recursive,
+                        outcome: crate::static_eval::StaticEvalOutcome::Recursive(crate::static_eval::StaticCycle::empty()),
                         value: None,
                         lkg_value: previous_snapshot
                             .as_ref()
@@ -8213,12 +8226,12 @@ impl SemanticWorkspaceSession {
                     let checked = Arc::new(checked);
 
                     let mut eval_budget = budget;
+                    let type_store = Arc::make_mut(&mut self.store);
                     let mut evaluator =
                         crate::static_eval::StaticEvaluator::for_constant(&checked, Arc::make_mut(&mut self.static_values), &mut eval_budget, cancel)
                             .with_static_constants(&static_constants_table)
                             .with_static_definitions(&static_definitions_table)
-                            .with_type_store(&self.store)
-                            .with_semantic_tables(&self.store, &data_semantics, &enum_semantics);
+                            .with_semantic_tables_mut(type_store, &data_semantics, &enum_semantics);
 
                     let outcome = evaluator.evaluate();
                     let value = match &outcome {

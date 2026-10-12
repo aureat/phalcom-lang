@@ -748,6 +748,9 @@ fn canonical_universe_declaration(name: &str) -> Option<DeclarationId> {
         "OrderedShape" => return Some(structural.ordered_shape),
         "UnorderedShape" => return Some(structural.unordered_shape),
         "Variant" => return Some(structural.variant),
+        "Equivalent" => return Some(phalcom_semantic::checker::proof_predicate_declaration(phalcom_semantic::checker::ProofPredicateKind::Equivalent)),
+        "Subtype" => return Some(phalcom_semantic::checker::proof_predicate_declaration(phalcom_semantic::checker::ProofPredicateKind::Subtype)),
+        "Conforms" => return Some(phalcom_semantic::checker::proof_predicate_declaration(phalcom_semantic::checker::ProofPredicateKind::Conforms)),
         _ => {}
     }
     if matches!(name, "Clock" | "Instant") {

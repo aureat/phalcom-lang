@@ -5,6 +5,7 @@
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use crate::identity::{BindingId, DeclarationId, ExpressionId, ModuleId};
+use crate::member_projection::MemberProjection;
 use crate::static_domain::{StaticValueDomain, resolve_static_domain};
 use crate::type_alias::TypeAliasInfo;
 use crate::types::annotation::{
@@ -133,6 +134,9 @@ pub struct CheckedStaticConstruction {
     pub arguments: Box<[CheckedStaticConstructionArgument]>,
 }
 
+/// Canonical member-projection request attached to one checked static-body site.
+pub type CheckedStaticMemberProjectionIndex = BTreeMap<ExpressionId, MemberProjection>;
+
 /// Ordinary checker products and evaluator layout for one static definition body.
 #[derive(Clone, Debug)]
 pub struct CheckedStaticBody {
@@ -145,6 +149,8 @@ pub struct CheckedStaticBody {
     pub static_applications: Arc<[CheckedStaticApplication]>,
     /// Exact checked constructor selection and payload mapping by expression.
     pub static_constructions: Arc<BTreeMap<ExpressionId, CheckedStaticConstruction>>,
+    /// Canonical structural member-projection requests by checked expression site.
+    pub member_projections: Arc<CheckedStaticMemberProjectionIndex>,
     /// Ordinary associated-resolution facts for expressions owned by this body.
     pub associated_resolutions: Arc<crate::checker::associated::AssociatedResolutionIndex>,
     pub sequence_literals: Arc<crate::checker::analysis::SequenceLiteralResolutionIndex>,
