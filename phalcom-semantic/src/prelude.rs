@@ -87,6 +87,12 @@ impl PreludeTypeMap {
         entries.insert("Bound".into(), DeclarationId::new(interval_module.clone(), "Bound".into()));
         entries.insert("Interval".into(), DeclarationId::new(interval_module, "Interval".into()));
 
+        let range_map_module = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("collections").expect("canonical Universe component"),
+            ModuleComponent::from_identifier("range_map").expect("canonical Universe component"),
+        ]));
+        entries.insert("RangeMap".into(), DeclarationId::new(range_map_module, "RangeMap".into()));
+
         let proof_module = crate::core_surface::universe_module(&["core", "proof"]);
         entries.insert("Equivalent".into(), DeclarationId::new(proof_module.clone(), "Equivalent".into()));
         entries.insert("Subtype".into(), DeclarationId::new(proof_module.clone(), "Subtype".into()));

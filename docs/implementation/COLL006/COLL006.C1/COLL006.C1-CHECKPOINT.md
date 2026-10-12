@@ -334,7 +334,7 @@ The ledger records current C1 execution state. Proposed successor plans retain t
 | `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 owned implementation and focused evidence complete; G6.A PASS; G6.B and aggregate G6 retain the parse-package baseline blocker |
 | `COLL006.C1.P6` | Reusable ordered-hash backing; preserve Map/Set; add `MutableBag`, `IndexedDict`, `OrderedSet` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T7 complete; exact 29 bindings (TDR-0092); G3 (MutableBag), G4 (IndexedDict), G5 (OrderedSet), G6 (mutable-key admission matrix) passed; oracles resolved; walkthrough and handoff created; P7 is next |
 | `COLL006.C1.P7` | Persistent hash substrate; `Bag<T>`; `Bijection<K,V>` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T8 complete; exact 14 bindings (TDR-0093); G2 (PersistentHashNode), G3 (persistent_hash HAMT), G4 (TDR-0093 floor), G5 (Bag), G6 (Bijection), G7 (collections aggregate) passed; native surface 488; walkthrough and handoff created; P8 is next |
-| `COLL006.C1.P8` | `Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Complete generic interval-domain mapping |
+| `COLL006.C1.P8` | `Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Complete generic interval-domain mapping |
 | `COLL006.C1.P9` | API/conversion convergence, `Entry<K,V>` migration boundary, diagnostics, property/GC/performance certification, docs/checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | Certify the complete C1 collection family |
 
 Corrective plans required to make the C1 acceptance objective truthful remain inside C1 rather than creating a new checkpoint.
@@ -2048,17 +2048,35 @@ P8 is **`IN_PROGRESS`** (`PARTIAL` / `FOCUSED_TESTED`) on branch `feat/telos-col
    - Added `InvalidIntervalError` and `RangeOverlapError` to `phalcom-core/core/universe/src/errors/argument.ph` and re-exported in `errors/package.ph`.
    - Universe indexing verified (`native::source::tests::bundled_provider_corpus_is_indexable`).
 
-3. **T2 Interval Kernel & Universe Integration (In Progress)**:
+3. **T2 Interval Kernel & Universe Integration (Gate G2 PASSED)**:
    - Authored `phalcom-core/core/universe/src/collections/interval.ph`:
-     - `Bound<T>` with variants `Unbounded`, `Included(_ value: T)`, `Excluded(_ value: T)`.
+     - `Bound<T>` with variants `Unbounded`, `Included(_ endpoint: T)`, `Excluded(_ endpoint: T)`.
      - `Interval<T>(_ lower: Bound<T>, _ upper: Bound<T>)` with factory constructors (`closed`, `open`, `halfOpenRight`, `halfOpenLeft`, `atLeast`, `greaterThan`, `atMost`, `lessThan`, `all`, `singleton`).
      - Canonical endpoint algebra kernel: `compareDomain`, `compareLower`, `compareUpper`, `complementLowerForLeftUpper`, `complementUpperForRightLower`, `isValid`, `isEmpty`, `contains`, `intersection`, `overlaps`, `touchesWithoutGap`, `unionIfContiguous`, `remaindersAfterRemoval`, `toString`.
    - Exposed `.interval` in `phalcom-core/core/universe/src/collections/package.ph`.
    - Registered `collections.interval` in `phalcom-modules/src/builtin.rs` (children, node spec, and `include_str!`).
    - Integrated `Bound`, `Interval`, `InvalidIntervalError`, and `RangeOverlapError` into canonical `PreludeTypeMap` in `phalcom-semantic/src/prelude.rs` for seamless unqualified source-prelude availability.
    - Fixed variant parameter labels and specialized constructor invocations (`Bound<T>::` and `Bound<T>.unbounded`) to resolve compiler lowering constraints.
-   - Verified clean Universe compilation: `cargo test -p phalcom-core --test core dependency_free_minimal_project_compiles_in_process` (PASS in 37.85s).
-   - Executed `test_cv01_bound_construction_and_accessors`: confirmed `isUnbounded`, `isIncluded`, `isExcluded`, and `value == None` on `Bound<Int>`. Identified immediate runtime Option representation behavior for `value` pattern matching.
+   - Verified clean Universe compilation and initial test execution (`test_cv01_bound_construction_and_accessors`). Resolved Option::Some qualification and Bound.value shadowing.
 
-Next action: complete test matrix CV-01..CV-13 in `phalcom-core/tests/core/collections/interval.rs` (Gate G2), then implement persistent AVL substrate & RangeMap in `phalcom-core/core/universe/src/collections/range_map.ph` (Tasks T3 & T4).
+4. **T3 & T4 Persistent AVL Substrate & `RangeMap<K,V>` (Gates G3 & G4)**:
+   - Authored `phalcom-core/core/universe/src/collections/range_map.ph`:
+     - `_RangeMapNode<K, V>`: internal immutable persistent AVL tree node with height, balance factor calculation, rotations (`rotateRight`, `rotateLeft`), rebalancing (`rebalance`), logarithmic point lookup (`findPoint`), persistent path-copy insertion with overlap rejection (`insert`), and in-order traversal accumulation (`inOrderCollect`).
+     - `RangeMap<K, V> is Collection`: persistent interval map mapping pairwise-disjoint intervals to values. Public selectors include `new()`, `size`, `isEmpty`, `get(point)`, `containsPoint(point)`, `inserting(interval, value)` (strict insert rejecting invalid/empty/overlapping intervals), `removing(interval)` (coverage subtraction with interior remainder splitting), `overlaying(interval, value)` ($O(\log n + k)$ range splicing), `entries` (normalized in-order entry list coalescing contiguous intervals with equal values), `iterator` (`RangeMapIterator<K, V>`), `==` (extensional logical entry equality independent of internal AVL topology), `hash` (deterministic fold over normalized entries), and `toString`.
+     - `RangeMapIterator<K, V>`: lazy iterator over normalized `(interval: Interval<K>, value: V)` tuples.
+   - Exposed `.range_map` in `phalcom-core/core/universe/src/collections/package.ph`.
+   - Registered `collections.range_map` in `phalcom-modules/src/builtin.rs` (`children`, `UniverseNodeSpec`, and `include_str!`).
+   - Registered `RangeMap` in `phalcom-semantic/src/prelude.rs` for seamless prelude availability.
+   - Authored comprehensive test suite in `phalcom-core/tests/core/collections/range_map.rs`:
+     - `range_map_construction_and_lookup`: empty map properties, single and multiple disjoint insertions, point lookup inside/outside, and old-root immutability.
+     - `range_map_strict_insertion_and_overlap_rejection`: left/right/full/interior overlap rejection with `RangeOverlapError`, invalid/empty interval rejection with `InvalidIntervalError`, and adjoining interval acceptance.
+     - `range_map_unbounded_point_lookup`: point lookup across unbounded partitions (`lessThan(0)`, `singleton(0)`, `greaterThan(0)`).
+     - `range_map_coverage_removal`: coverage removal with interior hole splitting into disjoint remainders, truncation of boundaries, empty interval identity, and old-root immutability.
+     - `range_map_overlay_and_range_splicing`: overlay replacing middle section with new value and preserving unaffected remainders.
+     - `range_map_normalization_and_coalescing`: verification that contiguous intervals with equal values coalesce, while gaps or differing values remain distinct.
+     - `range_map_equality_and_hash`: verification of order-independent and topology-independent structural equality and hash law.
+     - `range_map_iteration`: iteration through all entries in canonical order.
+
+Next action: complete plan documentation (`COLL006.C1.P8-walkthrough.md` and `COLL006.C1.P8-handoff.md`), run verification gates in certify mode when authorized, and prepare transition to `COLL006.C1.P9`.
+
 
