@@ -1,9 +1,23 @@
 use crate::semantic::support::{WorkspaceAnalysisFixture, WorkspaceFixture};
+use phalcom_semantic::core_surface::identity::{CoreDeclarationIds, StructuralUniverseIds};
 use phalcom_semantic::db::{CancellationToken, QueryBudget};
-use phalcom_semantic::static_eval::{StaticEvalOutcome, StaticEvaluator};
+use phalcom_semantic::member_projection::{
+    MemberDeclarationIdentity, MemberProjection, MemberProjectionSubject,
+};
+use phalcom_semantic::static_domain::StaticValueDomain;
+use phalcom_semantic::static_eval::application::{
+    StaticSpecializationArgument, StaticSpecializationEnvironmentKey,
+};
+use phalcom_semantic::static_eval::residual::{
+    StaticResidualParameter, StaticResidualStore,
+};
+use phalcom_semantic::static_eval::{specialize_residual, StaticArgument, StaticEvalOutcome, StaticEvaluator};
 use phalcom_semantic::static_value::{StaticValueData, StaticValueStore};
+use phalcom_semantic::traits::{AssociatedTypeRequirementId, TraitRef};
+use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::store::TypeStore;
 use std::sync::Arc;
+
 
 fn fixture() -> WorkspaceAnalysisFixture {
     WorkspaceFixture::new()
@@ -610,4 +624,492 @@ fn checked_structural_projection_residualizes_open_and_reduces_exact_subjects() 
         )
         .expect("reflected ProductShape type");
     assert_eq!(Arc::make_mut(&mut types).kind_of(actual_type), phalcom_semantic::types::id::KindId::TYPE);
+}
+
+#[test]
+fn recursive_activation_shadowing() {
+    let fixture = fixture();
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let mut values = StaticValueStore::new();
+
+    // CV-ENV-02: Recursive activation shadowing
+    // Formal parameter bindings: later frames shadow earlier frames without conflict.
+    let decl_grow = fixture.decl("main", "Grow");
+    let param_grow = StaticResidualParameter {
+        owner: decl_grow.clone(),
+        index: 0,
+        domain: StaticValueDomain::Kind(KindId::TYPE),
+    };
+
+    let core_ids = CoreDeclarationIds::default();
+    let int_type = fixture.analysis.snapshot.declarations.form(&core_ids.int).expect("Int type");
+
+    let boxed_decl = fixture.decl("main", "Boxed");
+    let ctor_kind = Arc::make_mut(&mut types).arrow_kind(Box::new([KindId::TYPE]), KindId::TYPE);
+    let boxed_origin = Arc::make_mut(&mut types).nominal_form(boxed_decl, ctor_kind);
+    let boxed_int = Arc::make_mut(&mut types).apply_type_form(boxed_origin, &[int_type]).unwrap();
+    let boxed_boxed_int = Arc::make_mut(&mut types).apply_type_form(boxed_origin, &[boxed_int]).unwrap();
+
+    // Frame 0: Grow.0 = Int
+    let env_frame0 = StaticSpecializationEnvironmentKey::normalized(
+        vec![(param_grow.clone(), StaticSpecializationArgument::Kinded(int_type))],
+        vec![],
+        vec![],
+    ).unwrap();
+
+    // Frame 1: overlays Grow.0 = Boxed<Int> (shadows Frame 0 binding)
+    let env_frame1 = env_frame0.overlay_arguments([
+        (param_grow.clone(), StaticSpecializationArgument::Kinded(boxed_int)),
+    ]).expect("overlay_arguments must shadow older formal binding without conflict");
+    assert_eq!(env_frame1.argument_bindings().len(), 1);
+    assert_eq!(env_frame1.argument_bindings()[0].1, StaticSpecializationArgument::Kinded(boxed_int));
+
+    // Frame 2: overlays Grow.0 = Boxed<Boxed<Int>> (shadows Frame 1 binding)
+    let env_frame2 = env_frame1.overlay_arguments([
+        (param_grow.clone(), StaticSpecializationArgument::Kinded(boxed_boxed_int)),
+    ]).expect("overlay_arguments must shadow again");
+    assert_eq!(env_frame2.argument_bindings().len(), 1);
+    assert_eq!(env_frame2.argument_bindings()[0].1, StaticSpecializationArgument::Kinded(boxed_boxed_int));
+
+    // CV-ENV-03: Unrelated inherited bindings preserved across inner calls
+    let decl_other = fixture.decl("main", "Other");
+    let param_other = StaticResidualParameter {
+        owner: decl_other,
+        index: 0,
+        domain: StaticValueDomain::Kind(KindId::TYPE),
+    };
+    let env_outer = StaticSpecializationEnvironmentKey::normalized(
+        vec![(param_other.clone(), StaticSpecializationArgument::Kinded(int_type))],
+        vec![],
+        vec![],
+    ).unwrap();
+    let env_inner = env_outer.overlay_arguments([
+        (param_grow.clone(), StaticSpecializationArgument::Kinded(boxed_int)),
+    ]).unwrap();
+    assert_eq!(env_inner.argument_bindings().len(), 2, "unrelated outer bindings must be preserved");
+
+    // CV-ENV-05: Repeating cycle identity
+    // Calling recursive function F<A> -> F<A> cycles promptly without pollution from caller argument history
+    let mut cycle_budget = QueryBudget::default();
+    let cycle_outcome = evaluate(&fixture, "SelectedCycle", &mut cycle_budget, &mut values, Arc::make_mut(&mut types));
+    assert!(matches!(cycle_outcome, StaticEvalOutcome::Recursive(_)), "SelectedCycle must cycle cleanly: {cycle_outcome:?}");
+
+    // CV-ENV-06: Memo identity
+    // Same args + same ambient proof = memo hit (Reuse takes fewer steps than Distinct)
+    let mut reuse_budget = QueryBudget::default();
+    let mut reuse_values = StaticValueStore::new();
+    let reuse = evaluate(&fixture, "Reuse", &mut reuse_budget, &mut reuse_values, Arc::make_mut(&mut types));
+    assert!(matches!(reuse, StaticEvalOutcome::Reduced(_)));
+
+    let mut distinct_budget = QueryBudget::default();
+    let mut distinct_values = StaticValueStore::new();
+    let distinct = evaluate(&fixture, "Distinct", &mut distinct_budget, &mut distinct_values, Arc::make_mut(&mut types));
+    assert!(matches!(distinct, StaticEvalOutcome::Reduced(_)));
+    assert!(
+        reuse_budget.steps_taken < distinct_budget.steps_taken,
+        "memo hit must save steps: {} vs {}",
+        reuse_budget.steps_taken,
+        distinct_budget.steps_taken
+    );
+}
+
+fn specialize_helper(
+    fixture: &WorkspaceAnalysisFixture,
+    body: &phalcom_semantic::static_definition::CheckedStaticBody,
+    residual: phalcom_semantic::static_eval::StaticResidualRef,
+    supplied: &StaticSpecializationEnvironmentKey,
+    values: &mut StaticValueStore,
+    budget: &mut QueryBudget,
+    cancellation: &CancellationToken,
+    types: &mut TypeStore,
+    residuals: &mut StaticResidualStore,
+) -> StaticEvalOutcome {
+    let mut evaluator = StaticEvaluator::new(body, values, budget, cancellation, &[])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .with_semantic_tables_mut(types, &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+        .with_conformance(
+            &fixture.analysis.snapshot.conformance_index,
+            &fixture.analysis.snapshot.conformance_witness_plans,
+            &fixture.analysis.snapshot.trait_surfaces,
+            &fixture.analysis.snapshot.declarations,
+        )
+        .with_residuals(residuals);
+    specialize_residual(&mut evaluator, residual, supplied)
+}
+
+#[test]
+fn direct_residual_escape_and_parity() {
+    let fixture = fixture();
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let mut values = StaticValueStore::new();
+    let mut residuals = StaticResidualStore::new();
+    let mut budget = QueryBudget::default();
+    let cancellation = CancellationToken::new();
+
+    // 1. CV-ESC-01: Direct proof escape
+    let is_subtype = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "IsSubtype"))
+        .expect("IsSubtype definition");
+    let param_t = is_subtype.definition.signature.parameters[0]
+        .type_parameter_id
+        .expect("kinded proof parameter");
+    let param_form = Arc::make_mut(&mut types).parameter_form(param_t);
+    let is_subtype_body = is_subtype.checked_body.as_ref().expect("IsSubtype checked body");
+
+    let open_outcome = StaticEvaluator::new(
+        is_subtype_body,
+        &mut values,
+        &mut budget,
+        &cancellation,
+        &[StaticArgument::Kinded(param_form)],
+    )
+    .with_type_store_mut(Arc::make_mut(&mut types))
+    .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+    .with_residuals(&mut residuals)
+    .evaluate();
+
+    let StaticEvalOutcome::Symbolic(proof_res) = open_outcome else {
+        panic!("open IsSubtype<T> must remain a Proof residual, got {open_outcome:?}");
+    };
+
+    // Caller frame is torn down. Now specialize proof_res with T = Int
+    let core_ids = CoreDeclarationIds::default();
+    let int_type = fixture.analysis.snapshot.declarations.form(&core_ids.int).expect("Int type");
+    let string_type = fixture.analysis.snapshot.declarations.form(&core_ids.string).expect("String type");
+
+    let supplied_int = StaticSpecializationEnvironmentKey::normalized(
+        vec![],
+        vec![(param_t, int_type)],
+        vec![],
+    ).unwrap();
+
+    let spec_true = specialize_helper(
+        &fixture,
+        is_subtype_body,
+        proof_res,
+        &supplied_int,
+        &mut values,
+        &mut budget,
+        &cancellation,
+        Arc::make_mut(&mut types),
+        &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(val_true) = spec_true else {
+        panic!("specializing with T = Int should reduce, got {spec_true:?}");
+    };
+    let val_true_data = values.get(val_true).unwrap().clone();
+    assert_eq!(val_true_data, StaticValueData::Bool(true));
+
+    // Compare with cold exact SubtypeTrue
+    let cold_true = evaluate(&fixture, "SubtypeTrue", &mut QueryBudget::default(), &mut values, Arc::make_mut(&mut types));
+    let StaticEvalOutcome::Reduced(cold_val_true) = cold_true else {
+        panic!("SubtypeTrue should reduce, got {cold_true:?}");
+    };
+    assert_eq!(val_true_data, *values.get(cold_val_true).unwrap(), "specialized and cold exact must match");
+
+    // Specialize with T = String
+    let supplied_str = StaticSpecializationEnvironmentKey::normalized(
+        vec![],
+        vec![(param_t, string_type)],
+        vec![],
+    ).unwrap();
+    let spec_false = specialize_helper(
+        &fixture,
+        is_subtype_body,
+        proof_res,
+        &supplied_str,
+        &mut values,
+        &mut budget,
+        &cancellation,
+        Arc::make_mut(&mut types),
+        &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(val_false) = spec_false else {
+        panic!("specializing with T = String should reduce, got {spec_false:?}");
+    };
+    let val_false_data = values.get(val_false).unwrap().clone();
+    assert_eq!(val_false_data, StaticValueData::Bool(false));
+
+    let cold_false = evaluate(&fixture, "SubtypeFalse", &mut QueryBudget::default(), &mut values, Arc::make_mut(&mut types));
+    let StaticEvalOutcome::Reduced(cold_val_false) = cold_false else {
+        panic!("SubtypeFalse should reduce, got {cold_false:?}");
+    };
+    assert_eq!(val_false_data, *values.get(cold_val_false).unwrap(), "specialized and cold exact false must match");
+
+    // CV-ID-01: No-New-Facts identity
+    let empty_supplied = StaticSpecializationEnvironmentKey::default();
+    let no_facts = specialize_helper(
+        &fixture,
+        is_subtype_body,
+        proof_res,
+        &empty_supplied,
+        &mut values,
+        &mut budget,
+        &cancellation,
+        Arc::make_mut(&mut types),
+        &mut residuals,
+    );
+    assert_eq!(no_facts, StaticEvalOutcome::Symbolic(proof_res), "no-new-facts must reuse existing interned residual reference");
+
+    // 2. CV-ESC-02: Direct MemberProjection escape
+    let identity = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "Identity"))
+        .expect("Identity definition");
+    let mut member_body = identity.checked_body.as_ref().expect("Identity checked body").as_ref().clone();
+    let identity_param = identity.definition.signature.parameters[0]
+        .type_parameter_id
+        .expect("Identity kinded type parameter");
+    let structural_ids = StructuralUniverseIds::new();
+    let product_shape = fixture
+        .analysis
+        .snapshot
+        .declarations
+        .form(&structural_ids.product_shape)
+        .expect("canonical ProductShape form");
+    let identity_param_form = Arc::make_mut(&mut types).parameter_form(identity_param);
+    let projection = MemberProjection {
+        subject: MemberProjectionSubject::Type(identity_param_form),
+        member: MemberDeclarationIdentity::TraitAssociated {
+            trait_ref: TraitRef::new(structural_ids.product.clone(), Vec::new()),
+            requirement: AssociatedTypeRequirementId::new(structural_ids.product.clone(), 1),
+        },
+        arguments: Box::new([]),
+        evidence: None,
+        result_domain: StaticValueDomain::ValueType(product_shape),
+    };
+    let expression = *member_body.expressions.keys().next().expect("Identity checked expression site");
+    Arc::make_mut(&mut member_body.member_projections).insert(expression, projection);
+    member_body.result = StaticValueDomain::ValueType(product_shape);
+    let member_body = member_body;
+
+    let open_member = StaticEvaluator::new(
+        &member_body,
+        &mut values,
+        &mut budget,
+        &cancellation,
+        &[StaticArgument::Kinded(identity_param_form)],
+    )
+    .with_semantic_tables_mut(
+        Arc::make_mut(&mut types),
+        &fixture.analysis.snapshot.data_semantics,
+        &fixture.analysis.snapshot.enum_semantics,
+    )
+    .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+    .with_conformance(
+        &fixture.analysis.snapshot.conformance_index,
+        &fixture.analysis.snapshot.conformance_witness_plans,
+        &fixture.analysis.snapshot.trait_surfaces,
+        &fixture.analysis.snapshot.declarations,
+    )
+    .with_residuals(&mut residuals)
+    .evaluate();
+    let StaticEvalOutcome::Symbolic(member_res) = open_member else {
+        panic!("open structural projection must remain residual, got {open_member:?}");
+    };
+
+    // Cold exact evaluation on unit
+    let unit = Arc::make_mut(&mut types).unit();
+    let exact_member = StaticEvaluator::new(
+        &member_body,
+        &mut values,
+        &mut budget,
+        &cancellation,
+        &[StaticArgument::Kinded(unit)],
+    )
+    .with_semantic_tables_mut(
+        Arc::make_mut(&mut types),
+        &fixture.analysis.snapshot.data_semantics,
+        &fixture.analysis.snapshot.enum_semantics,
+    )
+    .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+    .with_conformance(
+        &fixture.analysis.snapshot.conformance_index,
+        &fixture.analysis.snapshot.conformance_witness_plans,
+        &fixture.analysis.snapshot.trait_surfaces,
+        &fixture.analysis.snapshot.declarations,
+    )
+    .evaluate();
+    let StaticEvalOutcome::Reduced(cold_member_val) = exact_member else {
+        panic!("exact structural projection must reduce, got {exact_member:?}");
+    };
+    let cold_member_data = values.get(cold_member_val).unwrap().clone();
+
+    // Specialize escaped member_res with T = unit
+    let supplied_unit = StaticSpecializationEnvironmentKey::normalized(
+        vec![],
+        vec![(identity_param, unit)],
+        vec![],
+    ).unwrap();
+
+    let spec_member = specialize_helper(
+        &fixture,
+        &member_body,
+        member_res,
+        &supplied_unit,
+        &mut values,
+        &mut budget,
+        &cancellation,
+        Arc::make_mut(&mut types),
+        &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(spec_member_val) = spec_member else {
+        panic!("specializing escaped member projection must reduce, got {spec_member:?}");
+    };
+    assert_eq!(values.get(spec_member_val).unwrap(), &cold_member_data, "escaped member projection specialized value must match cold exact");
+
+    // CV-ID-02: Idempotence: specializing with same environment produces same result
+    let spec_again = specialize_helper(
+        &fixture,
+        &member_body,
+        member_res,
+        &supplied_unit,
+        &mut values,
+        &mut budget,
+        &cancellation,
+        Arc::make_mut(&mut types),
+        &mut residuals,
+    );
+    assert_eq!(spec_again, StaticEvalOutcome::Reduced(spec_member_val), "specialization must be idempotent");
+
+    // Also test CV-ESC-01 / CV-SUB-01 with open Apply residual
+    let apply_def = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "ApplyValueIdentity"))
+        .expect("ApplyValueIdentity definition");
+    let apply_body = apply_def.checked_body.as_ref().expect("ApplyValueIdentity checked body");
+    let value_domain = apply_def.definition.signature.parameters[0].domain;
+    let open_param = StaticResidualParameter {
+        owner: fixture.decl("main", "ApplyValueIdentity"),
+        index: 0,
+        domain: value_domain,
+    };
+    let open_value = residuals.parameter(open_param.clone(), &mut QueryBudget::default()).expect("open param");
+    let apply_outcome = StaticEvaluator::new(
+        apply_body,
+        &mut values,
+        &mut QueryBudget::default(),
+        &cancellation,
+        &[StaticArgument::Residual(open_value)],
+    )
+    .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+    .with_semantic_tables_mut(
+        Arc::make_mut(&mut types),
+        &fixture.analysis.snapshot.data_semantics,
+        &fixture.analysis.snapshot.enum_semantics,
+    )
+    .with_residuals(&mut residuals)
+    .evaluate();
+    let StaticEvalOutcome::Symbolic(apply_res) = apply_outcome else {
+        panic!("open ApplyValueIdentity must return Apply residual, got {apply_outcome:?}");
+    };
+
+    let val_42 = values.intern_int(42);
+    let supplied_val = StaticSpecializationEnvironmentKey::normalized(
+        vec![(open_param, StaticSpecializationArgument::Value(val_42))],
+        vec![],
+        vec![],
+    ).unwrap();
+    let spec_apply = specialize_helper(
+        &fixture,
+        apply_body,
+        apply_res,
+        &supplied_val,
+        &mut values,
+        &mut budget,
+        &cancellation,
+        Arc::make_mut(&mut types),
+        &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(spec_apply_val) = spec_apply else {
+        panic!("specializing Apply residual with concrete value must reduce, got {spec_apply:?}");
+    };
+    assert_eq!(
+        values.get(spec_apply_val).unwrap(),
+        &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(43)),
+        "ApplyValueIdentity<42> should evaluate 42 + 1 = 43"
+    );
+}
+
+#[test]
+fn specialization_cancellation_and_budget() {
+    let fixture = fixture();
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let is_subtype = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "IsSubtype"))
+        .expect("IsSubtype definition");
+    let param_t = is_subtype.definition.signature.parameters[0]
+        .type_parameter_id
+        .expect("kinded proof parameter");
+    let param_form = Arc::make_mut(&mut types).parameter_form(param_t);
+    let is_subtype_body = is_subtype.checked_body.as_ref().expect("IsSubtype checked body");
+    let mut values = StaticValueStore::new();
+    let mut residuals = StaticResidualStore::new();
+    let mut budget = QueryBudget::default();
+    let cancellation = CancellationToken::new();
+
+    let open_outcome = StaticEvaluator::new(
+        is_subtype_body,
+        &mut values,
+        &mut budget,
+        &cancellation,
+        &[StaticArgument::Kinded(param_form)],
+    )
+    .with_type_store_mut(Arc::make_mut(&mut types))
+    .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+    .with_residuals(&mut residuals)
+    .evaluate();
+    let StaticEvalOutcome::Symbolic(proof_res) = open_outcome else {
+        panic!("open IsSubtype<T> must remain a Proof residual");
+    };
+
+    let core_ids = CoreDeclarationIds::default();
+    let int_type = fixture.analysis.snapshot.declarations.form(&core_ids.int).expect("Int type");
+    let supplied_int = StaticSpecializationEnvironmentKey::normalized(
+        vec![],
+        vec![(param_t, int_type)],
+        vec![],
+    ).unwrap();
+
+    // 1. Cancellation check (CV-RES-01)
+    let cancelled_token = CancellationToken::new();
+    cancelled_token.cancel();
+    let cancelled_outcome = {
+        let mut cancelled_evaluator = StaticEvaluator::new(
+            is_subtype_body,
+            &mut values,
+            &mut budget,
+            &cancelled_token,
+            &[],
+        )
+        .with_residuals(&mut residuals);
+        specialize_residual(&mut cancelled_evaluator, proof_res, &supplied_int)
+    };
+    assert_eq!(cancelled_outcome, StaticEvalOutcome::Cancelled, "cancelled token must yield Cancelled");
+
+    // 2. Budget exhaustion check (CV-RES-01)
+    let mut zero_budget = QueryBudget::new(0);
+    let uncanceled_token = CancellationToken::new();
+    let budget_outcome = {
+        let mut budget_evaluator = StaticEvaluator::new(
+            is_subtype_body,
+            &mut values,
+            &mut zero_budget,
+            &uncanceled_token,
+            &[],
+        )
+        .with_residuals(&mut residuals);
+        specialize_residual(&mut budget_evaluator, proof_res, &supplied_int)
+    };
+    assert!(
+        matches!(budget_outcome, StaticEvalOutcome::BudgetExceeded(_)),
+        "specialization with exhausted budget must yield BudgetExceeded, got {budget_outcome:?}"
+    );
 }

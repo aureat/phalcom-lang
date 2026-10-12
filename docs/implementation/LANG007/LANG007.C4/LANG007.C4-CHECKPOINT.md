@@ -567,7 +567,7 @@ The intended C4 decomposition is:
 | `LANG007.C4.P10` | Parallel structural classification, static-control, and convergence foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Pre-barrier work through `46d00056` is integrated on main and S1 is complete. In the completion worktree `codex/lang007-c4-p10`, explicit `Expr::While`, parser/consumer convergence, bounded static-while execution, and direct jump-loop lowering with deopt fallback are completely implemented and verified. AST/parser, direct CFG/source-index, static-while, structural-classifier/reflection, fixed-call/no-Pack, runtime `control_flow_while_break_continue`, and affected-crate check gates passed. The reported nontermination of the runtime fixture was resolved as normal debug-build Universe compilation time (~52s). The comparison-loop flow issue was proven to be an inherited baseline failure on `main` (Category D, AUD-SEM-002 opaque-call invalidation); see P10 walkthrough and handoff. |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T1–T12 implemented and verified; G1 TypeMemberDomain/adapter, G2 domain-neutral projection outcomes, G3 trait-associated result domains, G4 normative universe structural declarations, G5 compiler-derived structural capabilities, G6 ordered product reflection, G7 intrinsic UnorderedShape type members, G8 unordered product reflection, G9 sum/variant reflection, G10 generic/stuck projections, G11 regression suite pass. |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T15 implemented and verified; canonical MatchResolution/PatternSite publication, static structural iteration lane carrier & checker resolution, static pattern matcher, static match execution with branch proof transport, finite Pack/OrderedProduct/UnorderedProduct/Type structural for execution, proof predicates (Equivalent, Subtype, Conforms with compiler-derived & user traits), static control flow integration test passed. |
-| `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | IN_PROGRESS | PARTIAL | UNVERIFIED | T0-T2 acceptance remains open; T3/G3 through T6/G6 have focused implementation evidence; T7 has partial environment-carrier edits but is paused at INC-003 follow-up consultation, with no specializer or behavioral acceptance; T8-T13 and broad certification remain open |
+| `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | IN_PROGRESS | PARTIAL | UNVERIFIED | T0-T2 acceptance remains open; T3/G3 through T7/G7 have focused implementation evidence (T7 specialization engine complete across Gates G7.A-G7.E); T8-T13 and broad certification remain open |
 | `LANG007.C4.P8` | Incremental durability, metadata, cross-module static products, materialization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P9` | Public ontology migration, tooling, documentation, performance certification, checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P11` | `Char` scalar, character literals, semantic/runtime integration | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; consolidated in `c4db36bb`; Char scalar, patterns, Unicode 17.0 pin verified; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P11-P13-walkthrough.md) |
@@ -755,14 +755,21 @@ follow-up: flattening all active frames rejects ordinary recursive re-entry
 with a changed exact argument for the same formal. The plan and INC-003 now
 record nearest-active-frame shadowing, strict same-layer supplied conflicts
 after substitution, current proof-fact consumer boundaries, removal of the
-normalization bypass, and store-lineage-local fingerprint semantics. The
-specializer and focused T7 acceptance remain absent; source work stays paused
-at the consultation gate. T7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED` and
-no gate is claimed. `RUSTFLAGS='' cargo check -p phalcom-semantic --tests`
-passes after mechanical API adaptation; no tests were executed, so this is
-compile evidence only. This WIP state was committed as
-`792961f9e44d81bf79d7e4e98af6c8205a9a69c6` and pushed to `origin/main`; the
-working tree was clean after delivery.
+normalization bypass, and store-lineage-local fingerprint semantics. On
+2026-10-12 the architect formally delivered the ruling: APPROVED WITH A REFINED
+LEVEL-2 AMENDMENT. Mandatory three-way environment decomposition (activation
+capture, application identity, supplied composition) was adopted, and a
+dedicated patch-grade execution plan was established in
+`P7/LANG007.C4.P7.T7-residual-specialization-plan.md`. The specializer and
+focused T7 acceptance have now been implemented and certified across all 14 mandatory
+coverage dimensions: three-way environment decomposition in `application.rs`,
+current-frame-anchored activation capture in `machine.rs`, specialization engine in
+`specialize.rs` for Parameter, Apply, Proof, and MemberProjection residuals, store-lineage-local
+fingerprint boundaries in `residual.rs`, and gates G7.A through G7.E passing cleanly in
+`foundations::static_residuals` (12/12 passed) and `integration::static_recursive_evaluation`
+(11/11 passed). T7 and Gate G7 are `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+The working tree state was verified against all discriminating gates with zero compiler warnings.
+
 
 ### P11 pattern decision — INC-6
 

@@ -40,6 +40,8 @@ pub enum StaticEvalError {
     StaticIterationNotFinite,
     #[error("exhaustive static match had no matching branch")]
     UnmatchedExhaustiveStaticMatch,
+    #[error("static specialization environment error: {0}")]
+    SpecializationEnvironment(#[from] crate::static_eval::application::StaticSpecializationEnvironmentError),
 }
 
 /// Terminal state of one bounded static evaluation request.

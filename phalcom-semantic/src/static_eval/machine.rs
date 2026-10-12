@@ -4,7 +4,7 @@ use crate::checker::analysis::{
     SequenceLiteralResolution, SequenceLiteralResolutionIndex,
 };
 use crate::checker::associated::AssociatedResolutionIndex;
-use crate::checker::proof_predicate::{ProofPredicateGoal, ProofPredicateResolution};
+use crate::checker::proof_predicate::ProofPredicateGoal;
 use crate::db::{CancellationToken, QueryBudget};
 use crate::field_key::FieldKey;
 use crate::generic_evidence::{
@@ -18,8 +18,8 @@ use crate::static_constant::{CheckedStaticConstantInitializer, CheckedStaticExpr
 use crate::static_definition::{CheckedStaticApplication, CheckedStaticBody, CheckedStaticConstruction, StaticApplicationId, StaticDefinitionTable};
 use crate::static_domain::StaticValueDomain;
 use crate::static_eval::application::{
-    StaticApplicationKey, StaticArgumentIdentity, StaticArgumentSummary, StaticCycle, StaticCycleFrame, StaticMemoResult,
-    StaticSpecializationArgument, StaticSpecializationEnvironmentKey,
+    CanonicalStaticProofFact, StaticApplicationEnvironmentKey, StaticApplicationKey, StaticArgumentIdentity, StaticArgumentSummary,
+    StaticCycle, StaticCycleFrame, StaticMemoResult, StaticSpecializationArgument, StaticSpecializationEnvironmentKey,
 };
 use crate::static_eval::pattern::{StaticPatternMatchOutcome, match_pattern_against_value};
 use crate::static_eval::residual::{
@@ -259,6 +259,7 @@ pub struct StaticEvaluator<'a> {
     application_memo: BTreeMap<StaticApplicationKey, StaticMemoResult>,
     memo_hits: usize,
     current_application_key: Option<StaticApplicationKey>,
+    inherited_specialization_environment: StaticSpecializationEnvironmentKey,
     active_branch_proofs: Vec<&'a BranchProofEnvironment>,
     hierarchy: Option<&'a dyn TypeHierarchy>,
     conformance: Option<(
@@ -327,6 +328,7 @@ struct SavedFrame<'a> {
     definition: Option<crate::identity::DeclarationId>,
     active_branch_proofs: Vec<&'a BranchProofEnvironment>,
     application_key: Option<StaticApplicationKey>,
+    inherited_specialization_environment: StaticSpecializationEnvironmentKey,
 }
 
 #[derive(Clone, Copy)]
@@ -583,7 +585,7 @@ impl<'a> StaticEvaluator<'a> {
         let root_key = StaticApplicationKey::new(
             body.owner.0.clone(),
             arguments.iter().copied(),
-            StaticSpecializationEnvironmentKey::default(),
+            StaticApplicationEnvironmentKey::default(),
         );
         let mut active_application_index = BTreeMap::new();
         active_application_index.insert(root_key.clone(), 0);
@@ -609,6 +611,7 @@ impl<'a> StaticEvaluator<'a> {
             application_memo: BTreeMap::new(),
             memo_hits: 0,
             current_application_key: Some(root_key),
+            inherited_specialization_environment: StaticSpecializationEnvironmentKey::default(),
             active_branch_proofs: Vec::new(),
             hierarchy: None,
             conformance: None,
@@ -656,6 +659,7 @@ impl<'a> StaticEvaluator<'a> {
             application_memo: BTreeMap::new(),
             memo_hits: 0,
             current_application_key: None,
+            inherited_specialization_environment: StaticSpecializationEnvironmentKey::default(),
             active_branch_proofs: Vec::new(),
             hierarchy: None,
             conformance: None,
@@ -704,6 +708,7 @@ impl<'a> StaticEvaluator<'a> {
             application_memo: BTreeMap::new(),
             memo_hits: 0,
             current_application_key: None,
+            inherited_specialization_environment: StaticSpecializationEnvironmentKey::default(),
             active_branch_proofs: Vec::new(),
             hierarchy: None,
             conformance: None,
@@ -715,6 +720,12 @@ impl<'a> StaticEvaluator<'a> {
             residuals: None,
             owned_residuals: None,
         }
+    }
+
+    /// Attaches an ambient specialization environment for residual evaluation.
+    pub fn with_specialization_environment(mut self, environment: StaticSpecializationEnvironmentKey) -> Self {
+        self.inherited_specialization_environment = environment;
+        self
     }
 
     /// Supplies the snapshot's evaluated static constants for constant-read evaluation.
@@ -815,9 +826,263 @@ impl<'a> StaticEvaluator<'a> {
         }
     }
 
-    /// Takes the internally-allocated residual store, if one was created.
     pub fn take_residuals(&mut self) -> Option<StaticResidualStore> {
         self.owned_residuals.take()
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancellation.is_cancelled()
+    }
+
+    pub(crate) fn charge_step(&mut self) -> Result<(), Stop> {
+        self.budget.charge_step().map_err(Stop::Budget)
+    }
+
+    pub(crate) fn intern_bool(&mut self, value: bool) -> StaticValueRef {
+        self.values.intern_bool(value)
+    }
+
+    pub(crate) fn inherited_specialization_environment(&self) -> &StaticSpecializationEnvironmentKey {
+        &self.inherited_specialization_environment
+    }
+
+    pub(crate) fn is_open_type(&self, ty: TypeId) -> Result<bool, Stop> {
+        let types = evaluator_type_store_ref(&self.canonical_types)
+            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+        Ok(self.is_open_type_term(ty, types))
+    }
+
+    pub(crate) fn compose_specialization_environment(
+        &mut self,
+        base: &StaticSpecializationEnvironmentKey,
+        supplied: &StaticSpecializationEnvironmentKey,
+    ) -> Result<StaticSpecializationEnvironmentKey, Stop> {
+        let types = evaluator_type_store_mut(&mut self.canonical_types)
+            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+        base.compose_with_supplied(supplied, types, self.budget, self.cancellation)
+            .map_err(Stop::from)
+    }
+
+    pub(crate) fn substitute_proof_goal(
+        &mut self,
+        goal: &ProofPredicateGoal,
+        env: &StaticSpecializationEnvironmentKey,
+    ) -> Result<(ProofPredicateGoal, bool), Stop> {
+        let types = evaluator_type_store_mut(&mut self.canonical_types)
+            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+        let subst = env.substitution_closure(types)?;
+        crate::static_eval::specialize::substitute_proof_goal(goal, &subst, types)
+            .map_err(Stop::from)
+    }
+
+    pub(crate) fn substitute_member_projection(
+        &mut self,
+        projection: &MemberProjection,
+        env: &StaticSpecializationEnvironmentKey,
+    ) -> Result<(MemberProjection, bool), Stop> {
+        let types = evaluator_type_store_mut(&mut self.canonical_types)
+            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+        let subst = env.substitution_closure(types)?;
+        crate::static_eval::specialize::substitute_member_projection(projection, &subst, types)
+            .map_err(Stop::from)
+    }
+
+    pub(crate) fn evaluate_proof_predicate_with_environment(
+        &mut self,
+        goal: &ProofPredicateGoal,
+        result_type: TypeId,
+        environment: StaticSpecializationEnvironmentKey,
+    ) -> Result<bool, Stop> {
+        let prev_env = std::mem::replace(&mut self.inherited_specialization_environment, environment);
+        let result = self.evaluate_proof_predicate(goal, result_type);
+        self.inherited_specialization_environment = prev_env;
+        result
+    }
+
+    pub(crate) fn project_member_with_environment(
+        &mut self,
+        projection: &MemberProjection,
+        environment: StaticSpecializationEnvironmentKey,
+    ) -> Result<crate::member_projection::StaticMemberProjectionOutcome, Stop> {
+        let prev_env = std::mem::replace(&mut self.inherited_specialization_environment, environment);
+        let result = self.project_checked_member(projection);
+        self.inherited_specialization_environment = prev_env;
+        result
+    }
+
+    pub(crate) fn intern_applied_residual(
+        &mut self,
+        application: StaticResidualApplication,
+        result_domain: StaticValueDomain,
+    ) -> Result<StaticResidualRef, Stop> {
+        let budget = &mut *self.budget;
+        let store = if let Some(ref mut residuals) = self.residuals {
+            residuals
+        } else {
+            self.owned_residuals.get_or_insert_with(StaticResidualStore::new)
+        };
+        store.apply(application, result_domain, budget).map_err(Stop::from)
+    }
+
+    pub(crate) fn intern_proof_residual_node(
+        &mut self,
+        goal: ProofPredicateGoal,
+        result_type: TypeId,
+        environment: StaticSpecializationEnvironmentKey,
+    ) -> Result<StaticResidualRef, Stop> {
+        let budget = &mut *self.budget;
+        let store = if let Some(ref mut residuals) = self.residuals {
+            residuals
+        } else {
+            self.owned_residuals.get_or_insert_with(StaticResidualStore::new)
+        };
+        store.proof(goal, result_type, environment, budget).map_err(Stop::from)
+    }
+
+    pub(crate) fn intern_member_projection_residual_node(
+        &mut self,
+        projection: MemberProjection,
+        result_domain: StaticValueDomain,
+        environment: StaticSpecializationEnvironmentKey,
+    ) -> Result<StaticResidualRef, Stop> {
+        let budget = &mut *self.budget;
+        let store = if let Some(ref mut residuals) = self.residuals {
+            residuals
+        } else {
+            self.owned_residuals.get_or_insert_with(StaticResidualStore::new)
+        };
+        store.member_projection(projection, result_domain, environment, budget).map_err(Stop::from)
+    }
+
+    pub(crate) fn evaluate_specialized_application(
+        &mut self,
+        target: DeclarationId,
+        args: &[StaticArgument],
+        environment: StaticSpecializationEnvironmentKey,
+    ) -> Result<StaticEvalTerm, Stop> {
+        let definitions = self.definitions.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+        let product = definitions
+            .get(&target)
+            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+        let target_body = product
+            .checked_body
+            .as_ref()
+            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+
+        self.validate_application_arguments(&product.definition.signature, args)?;
+
+        let application_env = environment.application_identity_projection();
+        let key = StaticApplicationKey::new(target.clone(), args.iter().copied(), application_env);
+
+        if let Some(&cycle_start) = self.active_application_index.get(&key) {
+            return Err(Stop::Recursive(self.make_cycle(&key, None, cycle_start)));
+        }
+        if let Some(memoized) = self.application_memo.get(&key).cloned() {
+            self.memo_hits = self.memo_hits.saturating_add(1);
+            return match memoized {
+                StaticMemoResult::Reduced(term) => Ok(term),
+                StaticMemoResult::Symbolic(r) => Ok(StaticEvalTerm::Residual(r)),
+            };
+        }
+
+        let mut sub_evaluator = StaticEvaluator::new(
+            target_body,
+            self.values,
+            self.budget,
+            self.cancellation,
+            args,
+        )
+        .with_specialization_environment(environment);
+
+        if let Some(defs) = self.definitions {
+            sub_evaluator = sub_evaluator.with_static_definitions(defs);
+        }
+        if let Some(consts) = self.constants {
+            sub_evaluator = sub_evaluator.with_static_constants(consts);
+        }
+        match &mut self.canonical_types {
+            Some(EvaluatorTypeStore::Snapshot(s)) => {
+                sub_evaluator = sub_evaluator.with_type_store(*s);
+            }
+            Some(EvaluatorTypeStore::Session(s)) => {
+                sub_evaluator = sub_evaluator.with_type_store_mut(*s);
+            }
+            None => {}
+        }
+        if let Some(tables) = self.semantic_tables {
+            sub_evaluator.semantic_tables = Some(tables);
+        }
+        if let Some(h) = self.hierarchy {
+            sub_evaluator = sub_evaluator.with_hierarchy(h);
+        }
+        if let Some((ci, wp, ts, d)) = self.conformance {
+            sub_evaluator = sub_evaluator.with_conformance(ci, wp, ts, d);
+        }
+        let res_store = if let Some(ref mut residuals) = self.residuals {
+            residuals
+        } else {
+            self.owned_residuals.get_or_insert_with(StaticResidualStore::new)
+        };
+        sub_evaluator = sub_evaluator.with_residuals(res_store);
+
+        sub_evaluator.active_applications = self.active_applications.clone();
+        sub_evaluator.active_application_index = self.active_application_index.clone();
+        sub_evaluator.application_memo = self.application_memo.clone();
+        let active_idx = sub_evaluator.active_applications.len();
+        sub_evaluator.active_applications.push(key.clone());
+        sub_evaluator.active_application_index.insert(key.clone(), active_idx);
+
+        let outcome = sub_evaluator.evaluate();
+
+        self.application_memo = sub_evaluator.application_memo;
+        self.memo_hits = self.memo_hits.saturating_add(sub_evaluator.memo_hits);
+
+        match outcome {
+            StaticEvalOutcome::Reduced(v) => {
+                let term = StaticEvalTerm::Value(v);
+                self.application_memo.insert(key, StaticMemoResult::Reduced(term));
+                Ok(term)
+            }
+            StaticEvalOutcome::ReducedKinded(ty) => {
+                let term = StaticEvalTerm::Kinded(ty);
+                self.application_memo.insert(key, StaticMemoResult::Reduced(term));
+                Ok(term)
+            }
+            StaticEvalOutcome::Symbolic(r) => {
+                self.application_memo.insert(key, StaticMemoResult::Symbolic(r));
+                Ok(StaticEvalTerm::Residual(r))
+            }
+            StaticEvalOutcome::Invalid(err) => Err(Stop::invalid(err)),
+            StaticEvalOutcome::Unknown(reason) => Err(Stop::Unknown(reason)),
+            StaticEvalOutcome::Blocked(reason) => Err(Stop::Blocked(reason)),
+            StaticEvalOutcome::Dynamic(obligation) => Err(Stop::Dynamic(obligation)),
+            StaticEvalOutcome::Cancelled => Err(Stop::Cancelled),
+            StaticEvalOutcome::BudgetExceeded(report) => Err(Stop::Budget(report)),
+            StaticEvalOutcome::Recursive(cycle) => Err(Stop::Recursive(cycle)),
+        }
+    }
+
+    /// Specializes a static residual using this evaluator's context.
+    pub fn specialize_residual(
+        &mut self,
+        residual: StaticResidualRef,
+        supplied: &StaticSpecializationEnvironmentKey,
+    ) -> StaticEvalOutcome {
+        match crate::static_eval::specialize::specialize_residual_term(self, residual, supplied) {
+            Ok(StaticEvalTerm::Value(value)) => StaticEvalOutcome::Reduced(value),
+            Ok(StaticEvalTerm::Kinded(term)) => {
+                if let Some(parameter) = self.direct_parameter_of(term) {
+                    match self.intern_parameter_residual(parameter) {
+                        Ok(residual) => StaticEvalOutcome::Symbolic(residual),
+                        Err(stop) => outcome_from_stop(stop),
+                    }
+                } else {
+                    StaticEvalOutcome::ReducedKinded(term)
+                }
+            }
+            Ok(StaticEvalTerm::Residual(r)) => StaticEvalOutcome::Symbolic(r),
+            Err(stop) => outcome_from_stop(stop),
+        }
     }
 
     fn intern_parameter_residual(&mut self, parameter: crate::types::id::TypeParameterId) -> Result<StaticResidualRef, Stop> {
@@ -881,7 +1146,7 @@ impl<'a> StaticEvaluator<'a> {
     }
 
     fn intern_member_projection_residual(&mut self, projection: MemberProjection) -> Result<StaticResidualRef, Stop> {
-        let environment = self.effective_specialization_environment()?;
+        let environment = self.capture_residual_environment()?;
         let budget = &mut *self.budget;
         let store = if let Some(ref mut residuals) = self.residuals {
             residuals
@@ -936,7 +1201,7 @@ impl<'a> StaticEvaluator<'a> {
     }
 
     fn intern_proof_residual(&mut self, goal: ProofPredicateGoal, res_type: TypeId) -> Result<StaticResidualRef, Stop> {
-        let environment = self.effective_specialization_environment()?;
+        let environment = self.capture_residual_environment()?;
         let budget = &mut *self.budget;
         let store = if let Some(ref mut r) = self.residuals {
             r
@@ -946,19 +1211,16 @@ impl<'a> StaticEvaluator<'a> {
         store.proof(goal, res_type, environment, budget).map_err(Stop::from)
     }
 
-    fn effective_specialization_environment(&self) -> Result<StaticSpecializationEnvironmentKey, Stop> {
-        let mut environment = StaticSpecializationEnvironmentKey::from_branch_proofs(self.active_branch_proofs.iter().copied())
-            .map_err(|_| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+    pub(crate) fn capture_residual_environment(&self) -> Result<StaticSpecializationEnvironmentKey, Stop> {
+        let mut environment = self.inherited_specialization_environment.clone();
 
-        for key in &self.active_applications {
-            environment = environment
-                .merge(&key.environment)
-                .map_err(|_| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-
+        if let Some(key) = &self.current_application_key {
             let signature = self
                 .definitions
                 .and_then(|definitions| definitions.get(&key.definition))
                 .map(|product| &product.definition.signature);
+
+            let mut current_args = Vec::new();
             for (index, argument) in key.arguments.iter().enumerate() {
                 let argument = match argument {
                     StaticArgumentIdentity::Kinded(ty) => StaticSpecializationArgument::Kinded(*ty),
@@ -984,13 +1246,16 @@ impl<'a> StaticEvaluator<'a> {
                     index: index as u32,
                     domain,
                 };
-                let binding = StaticSpecializationEnvironmentKey::normalized([(formal, argument)], [], [])
-                    .map_err(|_| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-                environment = environment
-                    .merge(&binding)
-                    .map_err(|_| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                current_args.push((formal, argument));
             }
+            environment = environment
+                .overlay_arguments(current_args)
+                .map_err(|err| Stop::invalid(StaticEvalError::SpecializationEnvironment(err)))?;
         }
+
+        environment = environment
+            .overlay_branch_proofs(self.active_branch_proofs.iter().copied())
+            .map_err(|err| Stop::invalid(StaticEvalError::SpecializationEnvironment(err)))?;
 
         Ok(environment)
     }
@@ -1134,7 +1399,7 @@ impl<'a> StaticEvaluator<'a> {
                         Expr::TypeForm(annotation) => {
                             let id = self.expression_id(expression.range())?;
                             if let Some(predicate) = self.body.proof_predicates().get(&id) {
-                                let result = self.evaluate_proof_predicate(predicate)?;
+                                let result = self.evaluate_proof_predicate(&predicate.goal, predicate.result_type)?;
                                 stack.push(self.values.intern_bool(result));
                             } else if let Some(application) = self.body.static_applications().iter().find(|application| application.expression == id) {
                                 let TypeAnnotationExpr::Application { arguments, .. } = &annotation.expr else {
@@ -1349,7 +1614,7 @@ impl<'a> StaticEvaluator<'a> {
                 Work::EvaluateTypeForm(annotation) => {
                     let expression = self.expression_id(annotation.range)?;
                     if let Some(predicate) = self.body.proof_predicates().get(&expression) {
-                        let result = self.evaluate_proof_predicate(predicate)?;
+                        let result = self.evaluate_proof_predicate(&predicate.goal, predicate.result_type)?;
                         stack.push(self.values.intern_bool(result));
                     } else if let Some(application) = self.body.static_applications().iter().find(|item| item.expression == expression) {
                         let TypeAnnotationExpr::Application { arguments, .. } = &annotation.expr else {
@@ -2221,8 +2486,9 @@ impl<'a> StaticEvaluator<'a> {
                         return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
                     }
 
-                    let environment = self.effective_specialization_environment()?;
-                    let key = StaticApplicationKey::new(application.target.clone(), args.iter().copied(), environment.clone());
+                    let environment = self.capture_residual_environment()?;
+                    let application_env = environment.application_identity_projection();
+                    let key = StaticApplicationKey::new(application.target.clone(), args.iter().copied(), application_env);
                     if let Some(&cycle_start) = self.active_application_index.get(&key) {
                         return Err(Stop::Recursive(self.make_cycle(&key, Some(application.source_range), cycle_start)));
                     }
@@ -2289,6 +2555,7 @@ impl<'a> StaticEvaluator<'a> {
                     self.active_applications.push(key.clone());
                     self.active_application_ranges.push(Some(application.source_range));
                     self.current_application_key = Some(key.clone());
+                    self.inherited_specialization_environment = key.environment.to_specialization_key();
                     self.push_trace(StaticEvalTraceFrame::Definition(application.target.clone()))?;
                     work.push(Work::FinishStaticApplication(application.id.clone(), key, stack_base));
                     match &target_body.root {
@@ -2810,6 +3077,7 @@ impl<'a> StaticEvaluator<'a> {
             definition,
             active_branch_proofs: std::mem::take(&mut self.active_branch_proofs),
             application_key: self.current_application_key.clone(),
+            inherited_specialization_environment: self.inherited_specialization_environment.clone(),
         });
     }
 
@@ -2878,6 +3146,7 @@ impl<'a> StaticEvaluator<'a> {
         self.expression_sites = frame.expression_sites;
         self.active_branch_proofs = frame.active_branch_proofs;
         self.current_application_key = frame.application_key;
+        self.inherited_specialization_environment = frame.inherited_specialization_environment;
         if let Some(def) = frame.definition {
             if let EvaluatorBody::Definition(current_def) = self.body {
                 debug_assert_eq!(current_def.owner.0, def);
@@ -2955,6 +3224,15 @@ impl<'a> StaticEvaluator<'a> {
 
     fn active_generic_evidence(&self, types: &mut crate::types::store::TypeStore) -> crate::generic_evidence::GenericEvidenceEnvironment {
         let mut constraints = BTreeSet::new();
+        for (parameter, ty) in self.inherited_specialization_environment.type_bindings() {
+            if types.type_parameter(*parameter).kind == KindId::TYPE {
+                let parameter_type = types.parameter_form(*parameter);
+                constraints.insert(GenericConstraint::Equivalent {
+                    left: TypeTerm::from(parameter_type),
+                    right: TypeTerm::from(*ty),
+                });
+            }
+        }
         for proof in &self.active_branch_proofs {
             for (parameter, ty) in &proof.bindings {
                 if types.type_parameter(*parameter).kind == KindId::TYPE {
@@ -2983,6 +3261,23 @@ impl<'a> StaticEvaluator<'a> {
                 }
             }
         }
+        for fact in self.inherited_specialization_environment.constraints() {
+            match fact {
+                CanonicalStaticProofFact::Equal(left, right) => {
+                    constraints.insert(GenericConstraint::Equivalent {
+                        left: TypeTerm::from(*left),
+                        right: TypeTerm::from(*right),
+                    });
+                }
+                CanonicalStaticProofFact::Subtype { lower, upper } => {
+                    constraints.insert(GenericConstraint::Subtype {
+                        lower: TypeTerm::from(*lower),
+                        upper: TypeTerm::from(*upper),
+                    });
+                }
+                CanonicalStaticProofFact::Conforms { .. } => {}
+            }
+        }
         crate::generic_evidence::GenericEvidenceEnvironment::new(
             constraints.into_iter().collect::<Vec<_>>().into_boxed_slice(),
             BTreeMap::new(),
@@ -3006,6 +3301,11 @@ impl<'a> StaticEvaluator<'a> {
                     return self.resolve_type_term_bounded(resolved, types, depth + 1);
                 }
             }
+            for (inherited_param, resolved) in self.inherited_specialization_environment.type_bindings() {
+                if inherited_param == param {
+                    return self.resolve_type_term_bounded(*resolved, types, depth + 1);
+                }
+            }
         }
 
         for proof in self.active_branch_proofs.iter().rev() {
@@ -3021,15 +3321,25 @@ impl<'a> StaticEvaluator<'a> {
             }
         }
 
+        for fact in self.inherited_specialization_environment.constraints() {
+            if let CanonicalStaticProofFact::Equal(lhs, rhs) = fact {
+                if *lhs == ty {
+                    return self.resolve_type_term_bounded(*rhs, types, depth + 1);
+                }
+                if *rhs == ty {
+                    return self.resolve_type_term_bounded(*lhs, types, depth + 1);
+                }
+            }
+        }
+
         ty
     }
 
-    fn evaluate_proof_predicate(&mut self, predicate: &ProofPredicateResolution) -> Result<bool, Stop> {
+    fn evaluate_proof_predicate(&mut self, goal: &ProofPredicateGoal, res_type: TypeId) -> Result<bool, Stop> {
         let types = evaluator_type_store_ref(&self.canonical_types).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-        let goal_for_res = predicate.goal.clone();
-        let res_type = predicate.result_type;
+        let goal_for_res = goal.clone();
         let is_open = |term: TypeId| self.is_open_type_term(term, types);
-        let goal_has_open_terms = match &predicate.goal {
+        let goal_has_open_terms = match goal {
             ProofPredicateGoal::Equivalent { left, right } => is_open(self.resolve_type_term(*left, types)) || is_open(self.resolve_type_term(*right, types)),
             ProofPredicateGoal::Subtype { lower, upper } => is_open(self.resolve_type_term(*lower, types)) || is_open(self.resolve_type_term(*upper, types)),
             ProofPredicateGoal::Conforms { key } => {
@@ -3045,7 +3355,7 @@ impl<'a> StaticEvaluator<'a> {
             let residual = self.intern_proof_residual(goal_for_res, res_type)?;
             return Err(Stop::Symbolic(residual));
         }
-        match &predicate.goal {
+        match goal {
             ProofPredicateGoal::Equivalent { left, right } => {
                 let left = self.resolve_type_term(*left, types);
                 let right = self.resolve_type_term(*right, types);
@@ -3336,7 +3646,7 @@ fn is_static_int_type(types: &crate::types::store::TypeStore, ty: TypeId) -> boo
     )
 }
 
-enum Stop {
+pub(crate) enum Stop {
     Cancelled,
     Recursive(StaticCycle),
     Symbolic(StaticResidualRef),
@@ -3347,7 +3657,7 @@ enum Stop {
     Dynamic(crate::types::outcome::DynamicBoundaryObligation),
 }
 
-fn outcome_from_stop(stop: Stop) -> StaticEvalOutcome {
+pub(crate) fn outcome_from_stop(stop: Stop) -> StaticEvalOutcome {
     match stop {
         Stop::Cancelled => StaticEvalOutcome::Cancelled,
         Stop::Recursive(cycle) => StaticEvalOutcome::Recursive(cycle),
@@ -3361,7 +3671,7 @@ fn outcome_from_stop(stop: Stop) -> StaticEvalOutcome {
 }
 
 impl Stop {
-    fn invalid(error: StaticEvalError) -> Self {
+    pub(crate) fn invalid(error: StaticEvalError) -> Self {
         Self::Invalid(error)
     }
 }
@@ -3378,6 +3688,12 @@ impl From<crate::static_eval::residual::StaticResidualStoreError> for Stop {
             crate::static_eval::residual::StaticResidualStoreError::BudgetExceeded(report) => Self::Budget(report),
             other => Self::invalid(StaticEvalError::ValueStore(other.to_string())),
         }
+    }
+}
+
+impl From<crate::static_eval::application::StaticSpecializationEnvironmentError> for Stop {
+    fn from(error: crate::static_eval::application::StaticSpecializationEnvironmentError) -> Self {
+        Self::invalid(StaticEvalError::SpecializationEnvironment(error))
     }
 }
 

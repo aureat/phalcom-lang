@@ -387,6 +387,12 @@ impl StaticResidualStore {
     }
 
     /// Computes an allocation-order-independent semantic fingerprint of the residual node.
+    ///
+    /// Note (LANG007.C4.P7): Residual fingerprints represent store-lineage-local identity
+    /// for identical canonical node structures and constituent type IDs. They guarantee
+    /// allocation-order independence within compatible stores, but do not assert durable
+    /// or cross-lineage universal semantic identity. Cross-session and incremental DB
+    /// identity is deferred to T12/P8.
     pub fn content_fingerprint(&self, reference: StaticResidualRef) -> Result<u64, StaticResidualStoreError> {
         let node = self.get(reference)?;
         let mut hasher = DefaultHasher::new();

@@ -232,3 +232,49 @@ bindings supplied at one specialization layer after substitution. Confirm
 that canonical-only proof projection is sufficient for T7 given the current
 consumers above, and that P7 fingerprints may remain explicitly
 store-lineage-local.
+
+## Follow-up architect ruling and Level-2 amendment resolution — 2026-10-12
+
+- **Decision:** APPROVED WITH A REFINED LEVEL-2 AMENDMENT
+- **Task/Gate:** `LANG007.C4.P7.T7 / G7`
+- **Repository state reviewed:** `5942666901b387519c5cd502bed2611cf97b53c4`
+- **WIP implementation commit:** `792961f9e44d81bf79d7e4e98af6c8205a9a69c6`
+
+The architect approved resuming T7 under a refined, mandatory three-way
+environment decomposition:
+1. **Activation / residual capture environment:** Anchored to the current frame
+   (`inherited_environment` + current frame exact formal argument bindings +
+   nearest active branch bindings + union of canonical proof facts).
+   Recursive re-entry shadows older bindings for the same formal. Folding all
+   `active_applications` is forbidden.
+2. **Application identity environment (`StaticApplicationKey`):** Encodes
+   definition + explicit canonical arguments + result-relevant ambient facts.
+   Historical caller argument bindings must not contaminate cycle/memo identity.
+3. **Supplied specialization composition:** Strict composition after canonical
+   substitution. Forms substitution closure before checking for conflicting
+   concrete bindings.
+
+Key operational boundaries ratified:
+- Branch-proof parameter binding precedence uses nearest-first lookup,
+  mirroring `resolve_type_term_bounded`. Unconsumed checker-local proof state
+  (`local_bindings`, `local_equalities`, `HasMember`) remains excluded.
+- Evaluator proof consumers (`active_generic_evidence`,
+  `resolve_type_term_bounded`) must consult the canonical inherited environment
+  where claimed to affect evaluation.
+- `StaticSpecializationEnvironmentKey::new` constructor bypass is eliminated;
+  all keys are normalized by construction.
+- Residual content fingerprints remain strictly store-lineage-local. Incremental
+  DB hashing of symbolic constants is an arena-identity placeholder owned by
+  T12/P8.
+- Dedicated patch-grade execution plan is created at
+  `docs/implementation/LANG007/LANG007.C4/P7/LANG007.C4.P7.T7-residual-specialization-plan.md`.
+## Resolution and Completion — 2026-10-12
+
+All tasks T7-A through T7-J have been implemented in accordance with the Level-2 amendment:
+- `application.rs`: Three-way environment model (`StaticSpecializationEnvironmentKey`, `StaticApplicationEnvironmentKey`), normalized by construction, substitution closure before conflict checking.
+- `machine.rs`: Current-frame-anchored activation capture, explicit inherited environment propagation, proof consumption alignment.
+- `specialize.rs`: Specialization engine for `Parameter`, `Apply`, `Proof`, and `MemberProjection`.
+- `residual.rs`: Residual content fingerprinting boundary documented as store-lineage-local.
+- Verification gates G7.A through G7.E all pass with verified non-zero selection.
+
+T7 and Gate G7 are promoted to `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.

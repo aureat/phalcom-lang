@@ -915,13 +915,39 @@ StaticArgumentRef      = metadata/durable identity (P8 concern)
 
 ## 6.3 Environment identity
 
-Add:
+The refined T7 ruling separates three operations that must not share one
+environment representation:
+
+1. **Residual activation capture** describes the self-sufficient environment
+   of the current frame: its inherited environment, its own exact formal
+   arguments, and its active canonical branch proofs. Current-frame bindings
+   shadow inherited bindings for the same formal. Never reconstruct this
+   environment by folding `active_applications`.
+2. **Application identity** describes explicit callee arguments plus only the
+   canonical ambient facts that the evaluator actually consumes and that can
+   change the result. Use a narrower `StaticApplicationEnvironmentKey` with
+   canonical type bindings and proof constraints. Do not copy historical exact
+   caller arguments into this key; the explicit arguments already represent
+   the callee activation.
+3. **Supplied specialization composition** combines a captured residual
+   environment with one supplied environment. It is strict, after bounded
+   substitution and canonicalization. It does not use activation shadowing or
+   last-writer-wins.
+
+The residual environment is:
 
 ```rust
 pub struct StaticSpecializationEnvironmentKey {
-    pub argument_bindings: Box<[(StaticResidualParameter, StaticSpecializationArgument)]>,
-    pub type_bindings: Box<[(TypeParameterId, TypeId)]>,
-    pub constraints: Box<[CanonicalStaticProofFact]>,
+    // Private canonical fields; construct only through normalizing APIs.
+    argument_bindings: Box<[(StaticResidualParameter, StaticSpecializationArgument)]>,
+    type_bindings: Box<[(TypeParameterId, TypeId)]>,
+    constraints: Box<[CanonicalStaticProofFact]>,
+}
+
+pub struct StaticApplicationEnvironmentKey {
+    // Private canonical fields; construct only through normalizing APIs.
+    type_bindings: Box<[(TypeParameterId, TypeId)]>,
+    constraints: Box<[CanonicalStaticProofFact]>,
 }
 
 pub enum StaticSpecializationArgument {
@@ -930,11 +956,24 @@ pub enum StaticSpecializationArgument {
 }
 ```
 
-The exact carrier should be based on current canonical proof machinery, not
-invented duplication. `argument_bindings` identifies exact kinded/value
-arguments by their stable formal static parameter (`owner`, `index`, and
-`domain`). It excludes residual arguments: those remain represented in the
-residual term itself and must not be mislabeled as exact substitutions.
+The residual carrier is used by `Proof` and `MemberProjection` payloads and
+retains exact kinded/value bindings by stable formal parameter (`owner`,
+`index`, and `domain`). Residual arguments remain represented by residual
+terms and are never mislabeled as exact substitutions. The application
+identity carrier has no exact formal argument bindings.
+
+Every constructor normalizes and validates its domain. Remove or privatize any
+normalization bypass and keep fields private so struct literals cannot create
+non-canonical keys. Provide read-only accessors. Equalities are symmetric and
+deduplicated; subtype facts remain directional. Duplicate identical bindings
+coalesce; conflicting bindings at one layer return typed errors.
+
+Residual capture projects branch environments in nearest-first order: the
+nearest binding for a formal wins, while canonical proof facts are unioned.
+Canonical equalities are normalized symmetrically; subtype facts preserve
+direction. Ignore local bindings, local equalities, and `HasMember` while the
+current evaluator consumers do not read them. If a later consumer depends on
+one of these facts, amend this contract before including it in identity.
 
 Projection rules:
 
@@ -947,11 +986,18 @@ Projection rules:
 7. exclude cancellation/budget state;
 8. exclude query-local rigid identities unless converted to canonical semantic facts.
 
-If `local_bindings` / `local_equalities` cannot be canonicalized safely, do not hash raw `LocalType`/rigid identities. Instead:
-- materialize the subset expressible in canonical `TypeId`/`TypeConstraint`, or
-- classify the application as not memo-shareable across that proof environment and use an explicit conservative environment identity local to the active branch.
+Inherited canonical facts included in an application key must also be visible
+to the evaluator's proof and type-resolution consumers. Type resolution uses
+this precedence: current exact kinded arguments, nearest current branch
+binding, inherited canonical binding, then canonical equality resolution.
+`active_generic_evidence` receives the union of inherited canonical facts and
+current branch facts. Do not hash raw checker-local or rigid identities.
 
-STOP if correctness appears to require hashing the entire `CheckingContext`.
+Use the active session-owned `TypeStore`, existing `TypeSubstitution`, query
+budget, and cancellation token to compute bounded substitution closure before
+strict conflict checking. Do not create a second evaluator, proof engine, or
+type store. Raw `TypeId` and `StaticValueRef` remain valid only within their
+store lineage.
 
 ---
 
@@ -2376,24 +2422,28 @@ through captured kinded types before conflict checking and re-evaluation.
 Residual fingerprints remain store-lineage-local as clarified in §21.3; direct
 `TypeId`/`StaticValueRef` hashing is not a cross-lineage identity guarantee.
 
-Before T7 source work resumes, record this amendment in INC-003, remove the
-flat-frame conflict, and add focused coverage for recursive same-formal
-shadowing, strict supplied conflicts, canonical normalization, and the T7.G7
-parity cases. Until then T7 remains paused and `UNVERIFIED`.
+The follow-up architect ruling on 2026-10-12 formally adopted the refined
+Level-2 amendment with three-way environment decomposition (activation capture,
+application identity, and supplied composition). The full patch-grade execution
+plan is defined in
+[LANG007.C4.P7.T7-residual-specialization-plan.md](LANG007.C4.P7.T7-residual-specialization-plan.md).
+T7 and Gate P7.G7 are `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` under the ratified Level-2
+amendment with three-way environment decomposition.
 
 ### Files
 
 ```text
-phalcom-semantic/src/static_eval/specialize.rs         # new if justified
+phalcom-semantic/src/static_eval/specialize.rs
 phalcom-semantic/src/static_eval/residual.rs
 phalcom-semantic/src/static_eval/application.rs
 phalcom-semantic/src/static_eval/machine.rs
+phalcom-semantic/tests/semantic/foundations/static_residuals.rs
 phalcom-semantic/tests/semantic/integration/static_recursive_evaluation.rs
 ```
 
 ### Work
 
-1. Define specialization environment.
+1. Define specialization environment with three-way decomposition.
 2. Substitute Parameter nodes.
 3. Re-evaluate Apply nodes through memo/evaluator.
 4. Capture self-sufficient normalized environments in Proof and MemberProjection
@@ -2422,6 +2472,8 @@ fail-closed behavior for conflicting concrete bindings.
 ### Gate P7.G7
 
 Cold exact and specialized symbolic results are semantically equivalent.
+Status: PASS (FOCUSED_TESTED). Gates G7.A through G7.E pass with verified non-zero selection.
+
 
 ---
 
