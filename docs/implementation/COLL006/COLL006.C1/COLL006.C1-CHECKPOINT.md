@@ -2212,4 +2212,35 @@ P8 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; P9 G0 remains blocked.
 Next action is a fresh P8-owned classification/repair decision for the T8
 residuals, then T9 closeout only after the G8 acceptance rows are satisfied.
 
+### RangeMap test-time diagnostic — 2026-10-13
+
+Added opt-in phase timings to the shared `run_inline` integration-test helper
+(`test-timings` feature plus `PHALCOM_TEST_TIMINGS=1`). A serial run excluding
+the explicitly named complexity benchmark selected 14 RangeMap tests and
+passed all 14 in 765.24s. The aggregate inline timings were 675.82s compiling
+fixtures, 3.31s executing fixtures, and 85.92s creating VMs; the VM total
+includes 81.27s for the one-time canonical Universe product build. Warm VM
+creation was about 0.32–0.40s per fixture, while inline compilation was about
+44–47s for ordinary fixtures. The 92,609-byte randomized-model fixture took
+82.80s to compile and 2.50s to execute.
+
+A one-second live sample during a fixture compile showed active work under
+`SemanticWorkspaceSession::update` and
+`FormalSemanticProjection::build_module_projection`, including sorting formal
+callable-site records. This identifies semantic workspace/projection work as a
+compile hotspot, but the sample is not a complete profile of that 45–50s
+compile phase.
+
+The complexity benchmark also passed when run in the initial serial
+measurement: its 4,850-byte fixture took 48.12s to compile and 469.54s to
+execute while inserting into maps up to 32,768 entries. That unfiltered run was
+stopped after user redirection before the remaining tests completed; it is not
+a full 15-test run. Combining its measured cost with the separate 14-test run
+estimates about 21m24s for all 15 tests serially. The earlier recorded 596.99s
+15/15 run used three test threads. The dominant costs are therefore repeated
+inline semantic compilation and the intentional 32,768-entry VM workload,
+with test parallelism materially changing suite wall time. No acceptance
+fixture was removed or changed, and these timings do not alter P8 G8 or P9 G0
+status.
+
 
