@@ -760,7 +760,9 @@ specializer and focused T7 acceptance remain absent; source work stays paused
 at the consultation gate. T7 remains `IN_PROGRESS / PARTIAL / UNVERIFIED` and
 no gate is claimed. `RUSTFLAGS='' cargo check -p phalcom-semantic --tests`
 passes after mechanical API adaptation; no tests were executed, so this is
-compile evidence only.
+compile evidence only. This WIP state was committed as
+`792961f9e44d81bf79d7e4e98af6c8205a9a69c6` and pushed to `origin/main`; the
+working tree was clean after delivery.
 
 ### P11 pattern decision — INC-6
 
