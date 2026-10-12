@@ -2236,11 +2236,13 @@ measurement: its 4,850-byte fixture took 48.12s to compile and 469.54s to
 execute while inserting into maps up to 32,768 entries. That unfiltered run was
 stopped after user redirection before the remaining tests completed; it is not
 a full 15-test run. Combining its measured cost with the separate 14-test run
-estimates about 21m24s for all 15 tests serially. The earlier recorded 596.99s
+estimates about 21m23s for all 15 tests serially. The earlier recorded 596.99s
 15/15 run used three test threads. The dominant costs are therefore repeated
 inline semantic compilation and the intentional 32,768-entry VM workload,
 with test parallelism materially changing suite wall time. No acceptance
 fixture was removed or changed, and these timings do not alter P8 G8 or P9 G0
-status.
+status. See [the detailed timing report](P8/COLL006.C1.P8-range-map-test-timing-report.md)
+for per-test measurements, reproduction details, limitations, and architect
+follow-up questions.
 
 
