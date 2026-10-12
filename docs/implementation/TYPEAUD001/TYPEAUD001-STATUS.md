@@ -25,7 +25,7 @@ next_plan: TYPEAUD001.C1.P1
 |---|---|---|---|---|---|
 | [`TYPEAUD001.C1`](C1/TYPEAUD001.C1-CHECKPOINT.md) | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | TYPEAUD001.C1.P1 | Finish missing P1 G6/G7 evidence and close G8 with baseline-qualified reuse results |
 
-**Repository grounding:** P1 implementation started from `b00d75b3ac9f50d37cf9abfddfde00917e099031`, equal to `origin/main` at plan start. Pre-existing audit handoffs/incidents and COLL006 P9 records remain outside the P1 delivery and are preserved locally.
+**Repository grounding:** P1 implementation started from `b00d75b3ac9f50d37cf9abfddfde00917e099031`, equal to `origin/main` at plan start. Implementation commit `10f7297c` is on `main` and pushed to `origin/main`. Pre-existing audit handoffs/incidents and COLL006 P9 records remain outside the P1 delivery and are preserved locally.
 
 ## 2. Plan roll-up
 
@@ -57,7 +57,7 @@ The audit counts do not imply that all findings have independent executable repr
 
 **Implemented:** Strict semantic result APIs; per-key SemanticDb undo transaction; persistent COW interner roots; candidate shard/store rollback; retryable module delta and deep frontier; strict compiler/Universe/LSP error propagation. Thirteen semantic publication tests, two DB transaction tests, three persistent-root tests, 19 workspace-indexing tests, and focused compiler/LSP checks pass.
 
-**Execution state:** P1 remains active on `main`; implementation and lifecycle records are being delivered as a focused commit. The active plan records exact current-vs-base results and remaining coverage. A workspace run was limited to `workspace_indexing`; no full workspace suite, clippy, or release certification was run. G6–G8 and T11 remain open.
+**Execution state:** P1 remains active on `main`; implementation commit `10f7297c` is pushed to `origin/main`. The active plan records exact current-vs-base results and remaining coverage. A workspace run was limited to `workspace_indexing`; no full workspace suite, clippy, or release certification was run. G6–G8 and T11 remain open.
 
 ## 4. Baseline and blockers
 

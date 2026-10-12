@@ -975,9 +975,11 @@ status: IN_PROGRESS
 completion: IMPLEMENTED
 verification: BASELINE_BLOCKED
 branch: main
-head: b00d75b3ac9f50d37cf9abfddfde00917e099031
-origin_main: b00d75b3ac9f50d37cf9abfddfde00917e099031
-working_tree: dirty; task changes uncommitted; unrelated audit/COLL006 files preserved
+implementation_base: b00d75b3ac9f50d37cf9abfddfde00917e099031
+implementation_commit: 10f7297c
+origin_main_after_delivery: 10f7297c
+delivery: committed and pushed to origin/main
+working_tree: P1 changes committed; unrelated audit/COLL006 drafts preserved outside the delivery
 ```
 
 ### Implemented source changes
@@ -1044,4 +1046,4 @@ The existing `INC-001` parser reproducer also remains a known unrelated baseline
 3. Complete G8 with baseline-qualified reuse/performance comparison and resolve whether the five metrics failures block P1 or are an accepted documented baseline.
 4. Update INC-007/011 dispositions only after their required gates pass; then update checkpoint/program state and create the plan completion walkthrough/handoff.
 
-No plan amendment beyond A1 was required. The user has authorized committing and pushing this P1 implementation on `main`. The implementation remains `IN_PROGRESS / IMPLEMENTED / BASELINE_BLOCKED`; G6–G8 and T11 remain open, and the user-requested delivery does not promote those gates. Unrelated audit and COLL006 drafts are preserved outside the P1 delivery.
+No plan amendment beyond A1 was required. P1 implementation was committed as `10f7297c` and pushed to `origin/main`. The implementation remains `IN_PROGRESS / IMPLEMENTED / BASELINE_BLOCKED`; G6–G8 and T11 remain open, and delivery does not promote those gates. Unrelated audit and COLL006 drafts are preserved outside the P1 delivery.

@@ -236,6 +236,6 @@ next_action: >
   dispositions and P1 completion artifacts. Keep INC-007/011 open until then.
 ```
 
-**P1 execution evidence:** Implementation is based on `b00d75b3`; delivery records will identify the committed revision after publication. Focused results and baseline comparisons are recorded in the active plan. Workspace integration selected 19 tests and passed all 19; publication unit tests selected 13 and passed all 13, including durable retry after budget exhaustion. Broad workspace tests, clippy, and release certification were not run. The plan remains active because G6–G8 evidence and T11 acceptance work are incomplete.
+**P1 execution evidence:** Implementation commit `10f7297c` is pushed to `origin/main`, based on `b00d75b3`. Focused results and baseline comparisons are recorded in the active plan. Workspace integration selected 19 tests and passed all 19; publication unit tests selected 13 and passed all 13, including durable retry after budget exhaustion. Broad workspace tests, clippy, and release certification were not run. The plan remains active because G6–G8 evidence and T11 acceptance work are incomplete.
 
 **Completion artifacts for each plan:** its own walkthrough and handoff, updated test/verification ledger, incident closeout evidence. No C1 completion or release certification is claimed here.
