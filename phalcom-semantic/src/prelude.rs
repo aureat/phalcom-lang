@@ -69,8 +69,23 @@ impl PreludeTypeMap {
         ]));
         entries.insert(
             "DuplicateKeyError".into(),
-            DeclarationId::new(duplicate_key_error_module, "DuplicateKeyError".into()),
+            DeclarationId::new(duplicate_key_error_module.clone(), "DuplicateKeyError".into()),
         );
+        entries.insert(
+            "InvalidIntervalError".into(),
+            DeclarationId::new(duplicate_key_error_module.clone(), "InvalidIntervalError".into()),
+        );
+        entries.insert(
+            "RangeOverlapError".into(),
+            DeclarationId::new(duplicate_key_error_module, "RangeOverlapError".into()),
+        );
+
+        let interval_module = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("collections").expect("canonical Universe component"),
+            ModuleComponent::from_identifier("interval").expect("canonical Universe component"),
+        ]));
+        entries.insert("Bound".into(), DeclarationId::new(interval_module.clone(), "Bound".into()));
+        entries.insert("Interval".into(), DeclarationId::new(interval_module, "Interval".into()));
 
         let proof_module = crate::core_surface::universe_module(&["core", "proof"]);
         entries.insert("Equivalent".into(), DeclarationId::new(proof_module.clone(), "Equivalent".into()));

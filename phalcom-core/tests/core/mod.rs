@@ -88,6 +88,10 @@ mod core_persistent_hash;
 mod core_bag;
 #[path = "collections/bijection.rs"]
 mod core_bijection;
+#[path = "collections/interval.rs"]
+mod core_interval;
+#[path = "collections/range_map.rs"]
+mod core_range_map;
 #[path = "execution/binding_init.rs"]
 mod execution_binding_init;
 #[path = "execution/compiler_authority.rs"]

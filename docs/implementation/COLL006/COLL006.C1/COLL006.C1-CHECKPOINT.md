@@ -334,7 +334,7 @@ The ledger records current C1 execution state. Proposed successor plans retain t
 | `COLL006.C1.P5` | `Slice<T>`, `Buffer<T>`, contiguous storage/view integration, parser-snapshot/P14 convergence | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 owned implementation and focused evidence complete; G6.A PASS; G6.B and aggregate G6 retain the parse-package baseline blocker |
 | `COLL006.C1.P6` | Reusable ordered-hash backing; preserve Map/Set; add `MutableBag`, `IndexedDict`, `OrderedSet` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T7 complete; exact 29 bindings (TDR-0092); G3 (MutableBag), G4 (IndexedDict), G5 (OrderedSet), G6 (mutable-key admission matrix) passed; oracles resolved; walkthrough and handoff created; P7 is next |
 | `COLL006.C1.P7` | Persistent hash substrate; `Bag<T>`; `Bijection<K,V>` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T8 complete; exact 14 bindings (TDR-0093); G2 (PersistentHashNode), G3 (persistent_hash HAMT), G4 (TDR-0093 floor), G5 (Bag), G6 (Bijection), G7 (collections aggregate) passed; native surface 488; walkthrough and handoff created; P8 is next |
-| `COLL006.C1.P8` | `Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>` | PROPOSED | NOT_STARTED | UNVERIFIED | Complete generic interval-domain mapping |
+| `COLL006.C1.P8` | `Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Complete generic interval-domain mapping |
 | `COLL006.C1.P9` | API/conversion convergence, `Entry<K,V>` migration boundary, diagnostics, property/GC/performance certification, docs/checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | Certify the complete C1 collection family |
 
 Corrective plans required to make the C1 acceptance objective truthful remain inside C1 rather than creating a new checkpoint.
@@ -2020,3 +2020,45 @@ P7 is **`COMPLETE`** (`IMPLEMENTED` / `FOCUSED_TESTED`) directly on `main`:
    - Aggregate collection suite `tests/core/collections/contract.rs` verified (16 passed, 1 ignored for numeric hash law) with zero regressions across `List`, `Array`, `Vector`, `Slice`, `Buffer`, `Map`, `Set`, `MutableBag`, `IndexedDict`, `OrderedSet`, `Bag`, and `Bijection`.
 
 Active plan transitions to `COLL006.C1.P8` (`Bound<T>`, `Interval<T>`, persistent ordered storage, `RangeMap<K,V>`).
+
+### P8 execution start, capability probes (Gate G0), and contract ratification (Gate G1) — 2026-10-12
+
+P8 is **`IN_PROGRESS`** (`PARTIAL` / `FOCUSED_TESTED`) on branch `feat/telos-collections`:
+
+1. **Baseline & G0 Architecture Route Gate (PASSED)**:
+   - Dedicated worktree at `.worktrees/collections` on branch `feat/telos-collections`.
+   - Baseline audit unblocked: resolved LANG007.C4.P5 structural reflection regression in `source.rs`, `export.rs`, and compiler `lib/mod.rs`.
+   - Native surface count verified at exactly **488 declarations** (`cargo run -p phalcom-native-surface-gen -- --root . --check`).
+   - Object size verified at **48 bytes**.
+   - Predecessor test suites verified: `core_persistent_hash` (9 passed), `core_bag` (5 passed), `core_bijection` (6 passed), `core_collections` (16 passed, 1 ignored for numeric hash law).
+   - T0 Capability Probes (T0-P1, T0-P3, T0-P4, T0-P5, T0-P6, T0-P7) executed in `tests/core/collections/interval.rs`:
+     - Generic unconstrained `K` comparison `a <=> b` preserves bilateral `<=>` and canonical `Ordering` variants.
+     - Reflected comparison and custom non-numeric domain comparison verified.
+     - `Ordering::Unordered` returns without coercion.
+     - `Bound<T>` sum data and `Interval<T>` product data pattern match and expose fields.
+     - Recursive generic node path-copying succeeds without mutable aliasing; old root is immutable.
+     - Source collection wrapper implements `Collection` cleanly without native identity requirement.
+   - **Route A (Source-first persistent AVL in Telos)** confirmed and selected. Native floor remains frozen at 488 declarations (zero new native bindings).
+
+2. **T1 Contract Ratification & Error Hierarchy (Gate G1 PASSED)**:
+   - Updated normative specification `docs/specs/collection-families.md`:
+     - §7: `Bound<T>` (Unbounded, Included, Excluded), `Interval<T>` (validity, emptiness, endpoint algebra, contiguity, containment, overlap, intersection, split complements).
+     - §8: `RangeMap<K,V>` (invariants, point lookup $O(\log n)$, strict insert, coverage removal, overlay $O(\log n + k)$, normalization/coalescing, iteration, equality/hash).
+     - §9: Errors and boundary: `InvalidIntervalError is ArgumentError` and `RangeOverlapError is ArgumentError`.
+   - Added `InvalidIntervalError` and `RangeOverlapError` to `phalcom-core/core/universe/src/errors/argument.ph` and re-exported in `errors/package.ph`.
+   - Universe indexing verified (`native::source::tests::bundled_provider_corpus_is_indexable`).
+
+3. **T2 Interval Kernel & Universe Integration (In Progress)**:
+   - Authored `phalcom-core/core/universe/src/collections/interval.ph`:
+     - `Bound<T>` with variants `Unbounded`, `Included(_ value: T)`, `Excluded(_ value: T)`.
+     - `Interval<T>(_ lower: Bound<T>, _ upper: Bound<T>)` with factory constructors (`closed`, `open`, `halfOpenRight`, `halfOpenLeft`, `atLeast`, `greaterThan`, `atMost`, `lessThan`, `all`, `singleton`).
+     - Canonical endpoint algebra kernel: `compareDomain`, `compareLower`, `compareUpper`, `complementLowerForLeftUpper`, `complementUpperForRightLower`, `isValid`, `isEmpty`, `contains`, `intersection`, `overlaps`, `touchesWithoutGap`, `unionIfContiguous`, `remaindersAfterRemoval`, `toString`.
+   - Exposed `.interval` in `phalcom-core/core/universe/src/collections/package.ph`.
+   - Registered `collections.interval` in `phalcom-modules/src/builtin.rs` (children, node spec, and `include_str!`).
+   - Integrated `Bound`, `Interval`, `InvalidIntervalError`, and `RangeOverlapError` into canonical `PreludeTypeMap` in `phalcom-semantic/src/prelude.rs` for seamless unqualified source-prelude availability.
+   - Fixed variant parameter labels and specialized constructor invocations (`Bound<T>::` and `Bound<T>.unbounded`) to resolve compiler lowering constraints.
+   - Verified clean Universe compilation: `cargo test -p phalcom-core --test core dependency_free_minimal_project_compiles_in_process` (PASS in 37.85s).
+   - Executed `test_cv01_bound_construction_and_accessors`: confirmed `isUnbounded`, `isIncluded`, `isExcluded`, and `value == None` on `Bound<Int>`. Identified immediate runtime Option representation behavior for `value` pattern matching.
+
+Next action: complete test matrix CV-01..CV-13 in `phalcom-core/tests/core/collections/interval.rs` (Gate G2), then implement persistent AVL substrate & RangeMap in `phalcom-core/core/universe/src/collections/range_map.ph` (Tasks T3 & T4).
+

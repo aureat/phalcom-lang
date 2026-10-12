@@ -2456,7 +2456,11 @@ impl<'a> MetadataExporter<'a> {
 
         if let Some(aliases) = self.aliases {
             for (decl_id, info) in aliases.iter() {
-                let target = self.export_type_form(info.form)?;
+                let target = match self.export_type_form(info.form) {
+                    Ok(target) => target,
+                    Err(MetadataExportError::NonExportableRecordKeyDomain) => continue,
+                    Err(e) => return Err(e),
+                };
                 let generic_signature = if let Some(ref sig) = info.generic_signature {
                     Some(self.export_generic_signature(sig)?)
                 } else {
