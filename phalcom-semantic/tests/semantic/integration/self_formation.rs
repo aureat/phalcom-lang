@@ -25,7 +25,7 @@ class Derived is Base {}
     );
     let parsed = parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
 
     let owner = DeclarationId::new(module.clone(), "Base".into());
@@ -81,7 +81,7 @@ class Box<T> {
     );
     let parsed = parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let owner = DeclarationId::new(module, "Box".into());
     let instance = analysis
         .snapshot

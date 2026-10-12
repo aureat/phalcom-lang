@@ -45,7 +45,7 @@ fn semantic_stats_separate_recomputation_validation_and_dependents() {
             (second.clone(), "class Second { value() -> Int { 2 } }".into()),
         ],
         1,
-    ));
+    )).expect("semantic test update should succeed");
     assert!(initial.stats.query_products_recomputed > 0);
     assert_eq!(initial.stats.query_products_revalidated, 0);
     assert_eq!(initial.stats.semantic_structure_shards_recomputed, 2);
@@ -56,7 +56,7 @@ fn semantic_stats_separate_recomputation_validation_and_dependents() {
             (second, "class Second { value() -> Int { 2 } }".into()),
         ],
         2,
-    ));
+    )).expect("semantic test update should succeed");
     assert!(update.stats.query_products_recomputed > 0);
     assert!(update.stats.query_products_revalidated > 0);
     assert_eq!(update.stats.semantic_structure_shards_recomputed, 1);
@@ -76,7 +76,7 @@ fn a6_retained_superclass_edge_survives_unrelated_structural_edit() {
             (unrelated.clone(), "class Unrelated {}".into()),
         ],
         1,
-    ));
+    )).expect("semantic test update should succeed");
     let child = SemanticNodeId::Declaration {
         module: owner.clone(),
         name: "Child".into(),
@@ -100,7 +100,7 @@ fn a6_retained_superclass_edge_survives_unrelated_structural_edit() {
             (unrelated, "class Unrelated {}\nclass Added {}".into()),
         ],
         2,
-    ));
+    )).expect("semantic test update should succeed");
 
     assert!(
         updated
@@ -116,7 +116,7 @@ fn a6_retained_superclass_edge_survives_unrelated_structural_edit() {
 fn a6_implicit_object_hierarchy_edge_is_published_for_new_declarations() {
     let owner = module("implicit_hierarchy");
     let mut session = SemanticWorkspaceSession::new();
-    let initial = session.update(multi_module_input(vec![(owner.clone(), "class A {}".into())], 1));
+    let initial = session.update(multi_module_input(vec![(owner.clone(), "class A {}".into())], 1)).expect("semantic test update should succeed");
     let a = DeclarationId::new(owner.clone(), "A".into());
     let extra = DeclarationId::new(owner.clone(), "Extra".into());
     let object = phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object);
@@ -124,7 +124,7 @@ fn a6_implicit_object_hierarchy_edge_is_published_for_new_declarations() {
     assert_eq!(initial.snapshot.hierarchy.superclasses.get(&a), Some(&object));
     assert!(initial.snapshot.surfaces().contains_key(&a));
 
-    let updated = session.update(multi_module_input(vec![(owner.clone(), "class A {}\nclass Extra {}".into())], 2));
+    let updated = session.update(multi_module_input(vec![(owner.clone(), "class A {}\nclass Extra {}".into())], 2)).expect("semantic test update should succeed");
     assert_eq!(updated.snapshot.hierarchy.superclasses.get(&extra), Some(&object));
     assert!(updated.snapshot.surfaces().contains_key(&extra));
     let extra_edges = updated.snapshot.semantic_graph.edges_from(&SemanticNodeId::Declaration {
@@ -149,7 +149,7 @@ fn a6_implicit_object_hierarchy_edge_is_published_for_new_declarations() {
     );
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_update = cold.update(multi_module_input(vec![(owner, "class A {}\nclass Extra {}".into())], 2));
+    let cold_update = cold.update(multi_module_input(vec![(owner, "class A {}\nclass Extra {}".into())], 2)).expect("semantic test update should succeed");
     assert_eq!(updated.snapshot.hierarchy.superclasses, cold_update.snapshot.hierarchy.superclasses);
     assert_eq!(updated.snapshot.surfaces().len(), cold_update.snapshot.surfaces().len());
     assert!(
@@ -174,7 +174,7 @@ fn a6_body_edit_in_hierarchy_workspace_retains_graph_and_edge_product() {
             (unrelated.clone(), "class Unrelated { value() -> Int { 1 } }".into()),
         ],
         1,
-    ));
+    )).expect("semantic test update should succeed");
     let child = SemanticNodeId::Declaration {
         module: owner,
         name: "Child".into(),
@@ -194,7 +194,7 @@ fn a6_body_edit_in_hierarchy_workspace_retains_graph_and_edge_product() {
             (unrelated, "class Unrelated { value() -> Int { 2 } }".into()),
         ],
         2,
-    ));
+    )).expect("semantic test update should succeed");
 
     assert_eq!(updated.snapshot.semantic_graph, initial.snapshot.semantic_graph);
     assert!(!updated.effects.module_graph_changed);
@@ -213,7 +213,7 @@ fn a6_body_edit_in_hierarchy_workspace_retains_graph_and_edge_product() {
 #[test]
 fn a6_incremental_cross_module_inheritance_cycle_matches_cold_analysis() {
     let mut session = SemanticWorkspaceSession::new();
-    let initial = session.update(cross_module_inheritance_input(false, 1));
+    let initial = session.update(cross_module_inheritance_input(false, 1)).expect("semantic test update should succeed");
     assert!(!initial.snapshot.has_errors(), "initial diagnostics: {:?}", initial.snapshot.diagnostics);
     let hierarchy_dependencies = session
         .db()
@@ -235,11 +235,11 @@ fn a6_incremental_cross_module_inheritance_cycle_matches_cold_analysis() {
         "dependencies: {hierarchy_dependencies:?}"
     );
 
-    let updated = session.update(cross_module_inheritance_input(true, 2));
+    let updated = session.update(cross_module_inheritance_input(true, 2)).expect("semantic test update should succeed");
     assert!(updated.snapshot.has_errors(), "incremental cycle must be diagnosed");
 
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold = cold_session.update(cross_module_inheritance_input(true, 1));
+    let cold = cold_session.update(cross_module_inheritance_input(true, 1)).expect("semantic test update should succeed");
     assert!(cold.snapshot.has_errors(), "cold cycle must be diagnosed");
     let incremental_codes = updated.snapshot.all_diagnostics().map(|diagnostic| diagnostic.code).collect::<Vec<_>>();
     let cold_codes = cold.snapshot.all_diagnostics().map(|diagnostic| diagnostic.code).collect::<Vec<_>>();
@@ -332,7 +332,7 @@ fn cross_module_inheritance_input(b_cycle: bool, generation: u64) -> SemanticWor
 #[test]
 fn unused_public_export_does_not_recompute_unrelated_consumer_body() {
     let mut session = SemanticWorkspaceSession::new();
-    let initial = session.update(unused_public_export_input(false, 1));
+    let initial = session.update(unused_public_export_input(false, 1)).expect("semantic test update should succeed");
     assert!(!initial.snapshot.has_errors(), "initial diagnostics: {:?}", initial.snapshot.diagnostics);
 
     let consumer = module("unused_consumer");
@@ -354,7 +354,7 @@ fn unused_public_export_does_not_recompute_unrelated_consumer_body() {
         .expect("consumer body validation revision");
     let initial_analysis = initial.snapshot.callable_analyses.get(&callable).expect("consumer body analysis").clone();
 
-    let updated = session.update(unused_public_export_input(true, 2));
+    let updated = session.update(unused_public_export_input(true, 2)).expect("semantic test update should succeed");
     assert!(!updated.snapshot.has_errors(), "updated diagnostics: {:?}", updated.snapshot.diagnostics);
     let state = session.db().query_state(&body_key).expect("consumer body state");
     assert_eq!(
@@ -388,7 +388,7 @@ fn unused_public_export_does_not_recompute_unrelated_consumer_body() {
 #[test]
 fn a6_cross_module_alias_relowers_when_provider_shell_changes() {
     let mut session = SemanticWorkspaceSession::new();
-    let initial = session.update(cross_module_alias_input("type Number = Int\n", 1));
+    let initial = session.update(cross_module_alias_input("type Number = Int\n", 1)).expect("semantic test update should succeed");
     assert!(!initial.snapshot.has_errors(), "initial diagnostics: {:?}", initial.snapshot.diagnostics);
 
     let consumer = module("alias_consumer");
@@ -402,7 +402,7 @@ fn a6_cross_module_alias_relowers_when_provider_shell_changes() {
         .and_then(|state| state.revision())
         .expect("initial alias shell");
 
-    let updated = session.update(cross_module_alias_input("type Number = String\n", 2));
+    let updated = session.update(cross_module_alias_input("type Number = String\n", 2)).expect("semantic test update should succeed");
     assert!(!updated.snapshot.has_errors(), "updated diagnostics: {:?}", updated.snapshot.diagnostics);
     let provider_alias = DeclarationId::new(module("alias_provider"), "Number".into());
     let provider_form = updated.snapshot.type_aliases.form(&provider_alias).expect("updated provider alias");
@@ -576,13 +576,13 @@ fn child_module(node: &SemanticNodeId) -> phalcom_modules::identity::ModuleId {
 #[test]
 fn a6_high_fanout_recomputes_exact_consumers_not_reverse_importers() {
     let mut session = SemanticWorkspaceSession::new();
-    let initial = session.update(high_fanout_input("class Provider { @class value() -> Int { 1 } }\nexport Provider\n", 1));
+    let initial = session.update(high_fanout_input("class Provider { @class value() -> Int { 1 } }\nexport Provider\n", 1)).expect("semantic test update should succeed");
     assert!(!initial.snapshot.has_errors(), "initial diagnostics: {:?}", initial.snapshot.diagnostics);
 
     let updated = session.update(high_fanout_input(
         "class Provider { @class value() -> String { \"changed\" } }\nexport Provider\n",
         2,
-    ));
+    )).expect("semantic test update should succeed");
     assert!(updated.snapshot.has_errors(), "the exact consumers should now reject the changed return type");
 
     // The bound is derived from the fixture: one provider signature root,
@@ -614,10 +614,10 @@ fn a6_high_fanout_recomputes_exact_consumers_not_reverse_importers() {
 #[test]
 fn a6_high_fanout_unused_provider_body_edit_has_no_external_semantic_recompute() {
     let mut session = SemanticWorkspaceSession::new();
-    let initial = session.update(high_fanout_input("class Provider { @class value() -> Int { 1 } }\nexport Provider\n", 1));
+    let initial = session.update(high_fanout_input("class Provider { @class value() -> Int { 1 } }\nexport Provider\n", 1)).expect("semantic test update should succeed");
     assert!(!initial.snapshot.has_errors(), "initial diagnostics: {:?}", initial.snapshot.diagnostics);
 
-    let updated = session.update(high_fanout_input("class Provider { @class value() -> Int { 2 } }\nexport Provider\n", 2));
+    let updated = session.update(high_fanout_input("class Provider { @class value() -> Int { 2 } }\nexport Provider\n", 2)).expect("semantic test update should succeed");
     assert!(
         !updated.snapshot.has_errors(),
         "body-only provider edit should remain valid: {:?}",
@@ -634,7 +634,7 @@ fn a6_high_fanout_unused_provider_body_edit_has_no_external_semantic_recompute()
 #[test]
 fn a6_high_fanout_unrelated_declaration_and_hierarchy_retain_existing_products() {
     let mut session = SemanticWorkspaceSession::new();
-    let initial = session.update(high_fanout_input("class Provider { @class value() -> Int { 1 } }\nexport Provider\n", 1));
+    let initial = session.update(high_fanout_input("class Provider { @class value() -> Int { 1 } }\nexport Provider\n", 1)).expect("semantic test update should succeed");
     assert!(!initial.snapshot.has_errors(), "initial diagnostics: {:?}", initial.snapshot.diagnostics);
 
     let provider = module("fanout_provider");
@@ -659,7 +659,7 @@ fn a6_high_fanout_unrelated_declaration_and_hierarchy_retain_existing_products()
     let updated = session.update(high_fanout_input(
         "class Provider { @class value() -> Int { 1 } }\nclass Extra is Provider {}\nexport Provider\n",
         2,
-    ));
+    )).expect("semantic test update should succeed");
     assert!(
         !updated.snapshot.has_errors(),
         "unrelated declaration should remain valid: {:?}",
@@ -691,7 +691,7 @@ fn pa9_large_hierarchy_edit_isolates_unrelated_formal_products() {
     let provider_v2 =
         "class BaseA { @class value() -> Int { 1 } }\nclass BaseB { @class value() -> String { \"b\" } }\nclass Provider is BaseB {}\nexport Provider\n";
     let mut incremental = SemanticWorkspaceSession::new();
-    let initial = incremental.update(high_fanout_input(provider_v1, 1));
+    let initial = incremental.update(high_fanout_input(provider_v1, 1)).expect("semantic test update should succeed");
     assert!(!initial.snapshot.has_errors(), "initial diagnostics: {:?}", initial.snapshot.diagnostics);
 
     let provider = module("fanout_provider");
@@ -736,7 +736,7 @@ fn pa9_large_hierarchy_edit_isolates_unrelated_formal_products() {
         .and_then(|state| state.revision())
         .expect("initial exact consumer body");
 
-    let updated = incremental.update(high_fanout_input(provider_v2, 2));
+    let updated = incremental.update(high_fanout_input(provider_v2, 2)).expect("semantic test update should succeed");
     assert!(
         updated.snapshot.has_errors(),
         "the 100 exact consumers should observe BaseB's String method: {:?}",
@@ -781,7 +781,7 @@ fn pa9_large_hierarchy_edit_isolates_unrelated_formal_products() {
     }
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_result = cold.update(high_fanout_input(provider_v2, 1));
+    let cold_result = cold.update(high_fanout_input(provider_v2, 1)).expect("semantic test update should succeed");
     if updated.snapshot.hierarchy.superclasses != cold_result.snapshot.hierarchy.superclasses {
         let incremental_hierarchy = &updated.snapshot.hierarchy.superclasses;
         let cold_hierarchy = &cold_result.snapshot.hierarchy.superclasses;

@@ -398,7 +398,7 @@ mod tests {
         let module = ModuleId::universe_root();
         let source: Arc<str> = Arc::from("data Case<T> { @variant Any(_ value: T) -> Case<T> @variant Int(_ value: Int) -> Case<Int> }\n");
         let parsed = phalcom_ast::parse_source(&source, 0).unwrap();
-        let analysis = crate::analyze_single_module(module.clone(), source, Arc::new(parsed));
+        let analysis = crate::analyze_single_module(module.clone(), source, Arc::new(parsed)).expect("semantic fixture should analyze");
         let mut store = (*analysis.snapshot.store).clone();
         let owner = DeclarationId::new(module, "Case".into());
         let origin = analysis.snapshot.declarations.get(&owner).unwrap().form;

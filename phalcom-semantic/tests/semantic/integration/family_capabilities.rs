@@ -25,7 +25,7 @@ class Probe {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let probe = DeclarationId::new(module, "Probe".into());
     let run = CallableId::new(probe, Selector::method("run", []).expect("run selector"), DispatchSide::Class);
     let callable = analysis.snapshot.callable_analyses.get(&run).expect("Probe.run analysis");

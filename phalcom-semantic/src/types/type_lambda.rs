@@ -7,7 +7,7 @@ use super::store::{PackFormationError, StaticArgument, TypeData, TypeStore};
 use super::substitution::TypeSubstitution;
 use crate::diagnostic::SemanticSourceSpan;
 use crate::field_key::FieldKey;
-use std::collections::HashMap;
+use im::{HashMap, Vector};
 
 /// Representation of scoped types inside a type lambda body arena.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -163,11 +163,11 @@ pub struct TypeLambdaProvenance {
 /// Arena managing scoped types and alpha-normalized type lambdas.
 #[derive(Clone, Debug, Default)]
 pub struct TypeLambdaArena {
-    scoped_types: Vec<ScopedTypeData>,
+    scoped_types: Vector<ScopedTypeData>,
     scoped_to_id: HashMap<ScopedTypeData, ScopedTypeId>,
-    lambdas: Vec<TypeLambdaData>,
+    lambdas: Vector<TypeLambdaData>,
     lambda_to_id: HashMap<TypeLambdaData, TypeLambdaId>,
-    provenance: Vec<TypeLambdaProvenance>,
+    provenance: Vector<TypeLambdaProvenance>,
 }
 
 impl TypeLambdaArena {
@@ -175,12 +175,21 @@ impl TypeLambdaArena {
         Self::default()
     }
 
+    #[cfg(test)]
+    pub(crate) fn shares_backing_with(&self, other: &Self) -> bool {
+        (self.scoped_types.is_empty() && other.scoped_types.is_empty() || self.scoped_types.ptr_eq(&other.scoped_types))
+            && self.scoped_to_id.ptr_eq(&other.scoped_to_id)
+            && (self.lambdas.is_empty() && other.lambdas.is_empty() || self.lambdas.ptr_eq(&other.lambdas))
+            && self.lambda_to_id.ptr_eq(&other.lambda_to_id)
+            && (self.provenance.is_empty() && other.provenance.is_empty() || self.provenance.ptr_eq(&other.provenance))
+    }
+
     pub fn intern_scoped(&mut self, data: ScopedTypeData) -> ScopedTypeId {
         if let Some(&id) = self.scoped_to_id.get(&data) {
             return id;
         }
         let id = ScopedTypeId::from_index(self.scoped_types.len());
-        self.scoped_types.push(data.clone());
+        self.scoped_types.push_back(data.clone());
         self.scoped_to_id.insert(data, id);
         id
     }
@@ -224,9 +233,9 @@ impl TypeLambdaArena {
             return id;
         }
         let id = TypeLambdaId::from_index(self.lambdas.len());
-        self.lambdas.push(data.clone());
+        self.lambdas.push_back(data.clone());
         self.lambda_to_id.insert(data, id);
-        self.provenance.push(prov.unwrap_or_default());
+        self.provenance.push_back(prov.unwrap_or_default());
         id
     }
 
@@ -1198,4 +1207,32 @@ pub enum BetaReductionError {
     PackFormation(#[from] PackFormationError),
     #[error(transparent)]
     Application(#[from] super::application::TypeApplicationError),
+}
+
+#[cfg(test)]
+mod persistent_root_tests {
+    use super::{ScopedTypeData, TypeLambdaArena};
+    use crate::types::id::TypeId;
+    use std::ptr;
+
+    #[test]
+    fn cloned_type_lambda_arena_shares_existing_nodes_and_isolates_candidate_interning() {
+        let mut committed = TypeLambdaArena::new();
+        let first = committed.intern_scoped(ScopedTypeData::Bound { depth: 0, index: 0 });
+        for index in 1..96 {
+            committed.intern_scoped(ScopedTypeData::Bound { depth: 0, index });
+        }
+        let first_node_address = committed.get_scoped(first) as *const _;
+        let mut candidate = committed.clone();
+
+        assert!(committed.scoped_types.ptr_eq(&candidate.scoped_types));
+        assert!(committed.scoped_to_id.ptr_eq(&candidate.scoped_to_id));
+        let added = candidate.intern_scoped(ScopedTypeData::Free(TypeId::DUMMY));
+
+        assert_eq!(committed.get_scoped(first), candidate.get_scoped(first));
+        assert!(ptr::eq(first_node_address, candidate.get_scoped(first) as *const _));
+        assert_ne!(added, first);
+        assert_eq!(committed.scoped_types.len() + 1, candidate.scoped_types.len());
+        assert!(committed.lambda_to_id.ptr_eq(&candidate.lambda_to_id));
+    }
 }

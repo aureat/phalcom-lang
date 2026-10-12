@@ -13,7 +13,7 @@ fn editor_facade_returns_canonical_members_and_targets() {
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
     let module = ModuleId::universe_root();
-    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let snapshot = analysis.snapshot;
     let owner = DeclarationId::new(module.clone(), "Box".into());
     let receiver = ResolvedReceiver {
@@ -46,7 +46,7 @@ fn editor_facade_returns_canonical_members_and_targets() {
 fn editor_facade_fails_closed_for_unknown_receiver() {
     let source = "class Box {}\n";
     let parsed = parse(source, 0);
-    let analysis = analyze_single_module(ModuleId::universe_root(), Arc::from(source), Arc::new(parsed.program));
+    let analysis = analyze_single_module(ModuleId::universe_root(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let snapshot = analysis.snapshot;
     let receiver = ResolvedReceiver { alternatives: Arc::from([]) };
     assert!(snapshot.editor().members_for_receiver(&receiver, &AccessContext::new(None, None),).is_empty());
@@ -59,7 +59,7 @@ fn associated_type_declaration_and_binding_lhs_share_canonical_source_target() {
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
     let module = ModuleId::universe_root();
-    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", analysis.snapshot.diagnostics);
     let trait_declaration = DeclarationId::new(module.clone(), "Iterable".into());
     let requirement = analysis
@@ -92,7 +92,7 @@ class Caller { run(_ value: Value<Int>) -> String { value.tag } }
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
     let module = ModuleId::universe_root();
-    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:#?}", analysis.snapshot.diagnostics);
     let caller = DeclarationId::new(module.clone(), "Caller".into());
     let run = CallableId::new(
@@ -142,7 +142,7 @@ class Caller { run(_ person: Person) -> String { person.name } }
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
     let module = ModuleId::universe_root();
-    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:#?}", analysis.snapshot.diagnostics);
     let caller = DeclarationId::new(module.clone(), "Caller".into());
     let run = CallableId::new(

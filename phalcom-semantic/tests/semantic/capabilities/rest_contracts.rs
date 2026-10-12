@@ -121,7 +121,7 @@ class Caller {
 }
 "#;
 
-    let update_a = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source_a, 1));
+    let update_a = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
     assert!(!update_a.snapshot.has_errors(), "initial source must be valid");
     let callee = DeclarationId::new(module.clone(), "Callee".into());
     let callee_id = update_a
@@ -147,7 +147,7 @@ class Caller {
 }
 "#;
 
-    let update_b = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source_b, 2));
+    let update_b = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
     assert!(!update_b.snapshot.has_errors(), "updated source must be valid");
     let callee_id_b = update_b
         .snapshot

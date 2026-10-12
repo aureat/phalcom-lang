@@ -105,7 +105,7 @@ trait Display {
         "trait default body must depend on its DB-owned surface"
     );
 
-    let second = session.update(input(module.clone(), &source_b, 2));
+    let second = session.update(input(module.clone(), &source_b, 2)).expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "updated diagnostics: {:?}", second.snapshot.diagnostics);
     let second_surface = second.snapshot.trait_surfaces.get(&declaration).expect("updated trait surface").clone();
     assert_eq!(
@@ -136,7 +136,7 @@ impl Contract for Subject { foo() -> Int { self.value } }
     let source_class = source_instance.replace("trait Contract { foo()", "trait Contract { @class foo()");
     let declaration = DeclarationId::new(module.clone(), "Contract".into());
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(input(module.clone(), source_instance, 1));
+    let first = session.update(input(module.clone(), source_instance, 1)).expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
     let first_surface = first.snapshot.trait_surfaces.get(&declaration).expect("initial trait surface");
     assert!(first_surface.iter().any(|(requirement, _)| requirement.side == DispatchSide::Instance));
@@ -211,7 +211,7 @@ impl Contract for Subject { foo() -> Int { self.value } }
     assert!(session.db().product(&QueryKey::CallableBody(stale_witness.clone())).is_none());
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_result = cold.update(input(module, &source_class, 1));
+    let cold_result = cold.update(input(module, &source_class, 1)).expect("semantic test update should succeed");
     let cold_plan = cold_result.snapshot.conformance_witness_plans.get(impl_id).expect("cold conformance plan");
     assert_eq!(second_plan.fingerprint, cold_plan.fingerprint, "incremental conformance plan must match cold analysis");
     assert_eq!(second.snapshot.diagnostics, cold_result.snapshot.diagnostics, "incremental diagnostics must match cold analysis");
@@ -328,8 +328,8 @@ fn trait_bodyless_to_bodyful_preserves_requirement_and_source_callable_identity(
     let source_a = "trait Display { render(_ value: Int) -> Int }\n";
     let source_b = "trait Display { render(_ value: Int) -> Int { value } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(input(module.clone(), source_a, 1));
-    let second = session.update(input(module.clone(), source_b, 2));
+    let first = session.update(input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let second = session.update(input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
     assert!(!second.snapshot.has_errors(), "updated diagnostics: {:?}", second.snapshot.diagnostics);
     let declaration = DeclarationId::new(module.clone(), "Display".into());
@@ -578,7 +578,7 @@ class Caller { invoke(_ value: Good) { value.value() } }
 
     // A body edit with the same inferred result must not replace the plan or
     // force dispatch clients to observe a different semantic fingerprint.
-    let second = session.update(workspace_input(&source_same_result, 2));
+    let second = session.update(workspace_input(&source_same_result, 2)).expect("semantic test update should succeed");
     let second_good_plan = second.snapshot.conformance_witness_plans.get(&good_impl).expect("same-result Good plan");
     let second_text_plan = second.snapshot.conformance_witness_plans.get(&text_impl).expect("same-result Text plan");
     let second_bad_plan = second.snapshot.conformance_witness_plans.get(&bad_impl).expect("same-result Bad plan");
@@ -616,7 +616,7 @@ class Caller { invoke(_ value: Good) { value.value() } }
 
     // A result-changing provider edit replaces the exact plan, refreshes the
     // already-analyzed client, and retracts the now-obsolete Bad mismatch.
-    let third = session.update(workspace_input(&source_int, 3));
+    let third = session.update(workspace_input(&source_int, 3)).expect("semantic test update should succeed");
     let third_good_plan = third.snapshot.conformance_witness_plans.get(&good_impl).expect("updated Good plan");
     let third_text_plan = third.snapshot.conformance_witness_plans.get(&text_impl).expect("updated Text plan");
     let third_bad_plan = third.snapshot.conformance_witness_plans.get(&bad_impl).expect("updated Bad plan");
@@ -671,7 +671,7 @@ class Caller { invoke(_ value: Good) { value.value() } }
     }));
 
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold = cold_session.update(workspace_input(&source_int, 1));
+    let cold = cold_session.update(workspace_input(&source_int, 1)).expect("semantic test update should succeed");
     assert_eq!(
         third.snapshot.diagnostics, cold.snapshot.diagnostics,
         "changed-result diagnostics must match cold analysis"
@@ -698,11 +698,11 @@ fn invalidated_static_domain_trait_binder_retires_previous_header() {
     let module = module_id();
     let declaration = DeclarationId::new(module.clone(), "Tagged".into());
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(input(module.clone(), "trait Tagged<T> {}\n", 1));
+    let first = session.update(input(module.clone(), "trait Tagged<T> {}\n", 1)).expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
     assert!(first.snapshot.trait_headers.contains(&declaration));
 
-    let second = session.update(input(module, "type data Shape { Scalar }\ntrait Tagged<S: Shape> {}\n", 2));
+    let second = session.update(input(module, "type data Shape { Scalar }\ntrait Tagged<S: Shape> {}\n", 2)).expect("semantic test update should succeed");
     assert!(
         second.snapshot.all_diagnostics().any(|diagnostic| {
             diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnsupported
@@ -733,11 +733,11 @@ trait Display<T> where T <: Object {
 }
 "#;
     let mut incremental = SemanticWorkspaceSession::new();
-    let first = incremental.update(input(module.clone(), source_a, 1));
+    let first = incremental.update(input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
-    let updated = incremental.update(input(module.clone(), source_b, 2));
+    let updated = incremental.update(input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_result = cold.update(input(module.clone(), source_b, 1));
+    let cold_result = cold.update(input(module.clone(), source_b, 1)).expect("semantic test update should succeed");
     assert_eq!(updated.snapshot.diagnostics, cold_result.snapshot.diagnostics);
     let declaration = DeclarationId::new(module.clone(), "Display".into());
     let incremental_surface = updated.snapshot.trait_surfaces.get(&declaration).expect("incremental surface");

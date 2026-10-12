@@ -38,7 +38,7 @@ class Eval {
 }
 "#;
     let before = session.store().len();
-    let update = session.update(single_module_input(module, source, 1));
+    let update = session.update(single_module_input(module, source, 1)).expect("semantic test update should succeed");
     let delta = update.snapshot.store.len() - before;
 
     assert!(
@@ -62,7 +62,7 @@ fn adt_incr_01_adding_enum_case_invalidates_match_and_reports_new_residual() {
     let mut session = SemanticWorkspaceSession::new();
     let source_a = "data Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
     let source_b = "data Choice { @variant A @variant B @variant C }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
-    let _ = session.update(single_module_input(module.clone(), source_a, 1));
+    let _ = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
     let callable = CallableId::new(
         DeclarationId::new(module.clone(), "Test".into()),
         Selector::method("run", [phalcom_common::selector::SelectorSlot::Positional]).expect("run"),
@@ -70,7 +70,7 @@ fn adt_incr_01_adding_enum_case_invalidates_match_and_reports_new_residual() {
     );
     let body_key = QueryKey::CallableBody(callable);
     let first_fp = session.db().ready_product_fingerprint(&body_key).expect("initial match product fingerprint");
-    let update = session.update(single_module_input(module.clone(), source_b, 2));
+    let update = session.update(single_module_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
     assert!(
         update
             .snapshot
@@ -94,8 +94,8 @@ fn adt_incr_02_removing_enum_case_changes_candidate_universe() {
     let mut session = SemanticWorkspaceSession::new();
     let source_a = "data Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 _ => 0 } } }\n";
     let source_b = "data Choice { @variant A }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 } } }\n";
-    let _ = session.update(single_module_input(module.clone(), source_a, 1));
-    let update = session.update(single_module_input(module.clone(), source_b, 2));
+    let _ = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let update = session.update(single_module_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
     let owner = DeclarationId::new(module.clone(), "Choice".into());
     assert_eq!(update.snapshot.enum_semantics.enum_info(&owner).expect("Choice metadata").variants.len(), 1);
 }
@@ -106,8 +106,8 @@ fn adt_incr_03_adding_family_member_changes_family_candidate_set() {
     let mut session = SemanticWorkspaceSession::new();
     let source_a = "data Animal { @variant Dog @variant Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Cat => 2 } } }\n";
     let source_b = "data Animal { @variant Dog @variant Dog() @variant Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Cat => 2 } } }\n";
-    let first = session.update(single_module_input(module.clone(), source_a, 1));
-    let second = session.update(single_module_input(module, source_b, 2));
+    let first = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let second = session.update(single_module_input(module, source_b, 2)).expect("semantic test update should succeed");
     let first_pattern = &first_match(&first.snapshot).arms[0].pattern;
     let second_pattern = &first_match(&second.snapshot).arms[0].pattern;
     let first_count = match first_pattern {
@@ -127,8 +127,8 @@ fn adt_incr_04_adding_callable_family_member_changes_gap_candidates() {
     let mut session = SemanticWorkspaceSession::new();
     let source_a = "data Animal { @variant Dog(_ age: Int) @variant Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 _ => 0 } } }\n";
     let source_b = "data Animal { @variant Dog(_ age: Int) @variant Dog(_ age: Int, breed: String) @variant Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 _ => 0 } } }\n";
-    let first = session.update(single_module_input(module.clone(), source_a, 1));
-    let second = session.update(single_module_input(module, source_b, 2));
+    let first = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let second = session.update(single_module_input(module, source_b, 2)).expect("semantic test update should succeed");
     assert_ne!(format!("{:?}", first_match(&first.snapshot)), format!("{:?}", first_match(&second.snapshot)));
 }
 
@@ -138,8 +138,8 @@ fn adt_incr_05_payload_type_edit_invalidates_binding_product() {
     let mut session = SemanticWorkspaceSession::new();
     let source_a = "data Boxed { @variant Value(_ value: Int) }\nclass Test { run(_ value: Boxed) { match value { Boxed::Value(x) => x } } }\n";
     let source_b = "data Boxed { @variant Value(_ value: String) }\nclass Test { run(_ value: Boxed) { match value { Boxed::Value(x) => x } } }\n";
-    let first = session.update(single_module_input(module.clone(), source_a, 1));
-    let second = session.update(single_module_input(module.clone(), source_b, 2));
+    let first = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let second = session.update(single_module_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
     let callable = CallableId::new(
         DeclarationId::new(module, "Test".into()),
         Selector::method("run", [phalcom_common::selector::SelectorSlot::Positional]).expect("run"),
@@ -156,8 +156,8 @@ fn adt_incr_06_gadt_specialization_edit_changes_branch_product() {
     let mut session = SemanticWorkspaceSession::new();
     let source_a = "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Test { run(_ value: Expr<Int>) { match value { Expr::Int(x) => x } } }\n";
     let source_b = "data Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Test { run(_ value: Expr<Bool>) { match value { Expr::Bool(x) => x } } }\n";
-    let first = session.update(single_module_input(module.clone(), source_a, 1));
-    let second = session.update(single_module_input(module, source_b, 2));
+    let first = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let second = session.update(single_module_input(module, source_b, 2)).expect("semantic test update should succeed");
     assert_ne!(format!("{:?}", first_match(&first.snapshot)), format!("{:?}", first_match(&second.snapshot)));
 }
 
@@ -168,8 +168,8 @@ fn adt_incr_07_alias_union_expansion_invalidates_exhaustiveness() {
     let mut session = SemanticWorkspaceSession::new();
     let source_a = "data Choice { @variant A @variant B }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
     let source_b = "data Choice { @variant A @variant B @variant C }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
-    let _ = session.update(single_module_input(module.clone(), source_a, 1));
-    let update = session.update(single_module_input(module.clone(), source_b, 2));
+    let _ = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let update = session.update(single_module_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
     assert!(
         update
             .snapshot
@@ -185,8 +185,8 @@ fn adt_incr_08_alias_union_contraction_updates_residual_witness() {
     let mut session = SemanticWorkspaceSession::new();
     let source_a = "data Choice { @variant A @variant B @variant C }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
     let source_b = "data Choice { @variant A @variant B }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } }\n";
-    let _ = session.update(single_module_input(module.clone(), source_a, 1));
-    let update = session.update(single_module_input(module, source_b, 2));
+    let _ = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let update = session.update(single_module_input(module, source_b, 2)).expect("semantic test update should succeed");
     assert!(matches!(
         first_match(&update.snapshot).exhaustiveness,
         phalcom_semantic::match_semantics::ExhaustivenessResult::Proven
@@ -200,8 +200,8 @@ fn adt_incr_09_visibility_edit_invalidates_acquisition_without_shrinking_match_u
     let mut session = SemanticWorkspaceSession::new();
     let source_a = "data Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 _ => 0 } } }\n";
     let source_b = "data Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 2 _ => 0 } } }\n";
-    let first = session.update(single_module_input(module.clone(), source_a, 1));
-    let second = session.update(single_module_input(module, source_b, 2));
+    let first = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let second = session.update(single_module_input(module, source_b, 2)).expect("semantic test update should succeed");
     assert_eq!(first_match(&first.snapshot).arms.len(), first_match(&second.snapshot).arms.len());
     assert_ne!(format!("{:?}", first_match(&first.snapshot)), format!("{:?}", first_match(&second.snapshot)));
 }
@@ -212,14 +212,14 @@ fn adt_incr_10_unrelated_method_edit_reuses_match_analysis() {
     let mut session = SemanticWorkspaceSession::new();
     let source_a = "data Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 _ => 0 } } keep() { 1 } }\n";
     let source_b = "data Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 _ => 0 } } keep() { 2 } }\n";
-    let first = session.update(single_module_input(module.clone(), source_a, 1));
+    let first = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
     let callable = CallableId::new(
         DeclarationId::new(module.clone(), "Test".into()),
         Selector::method("run", [phalcom_common::selector::SelectorSlot::Positional]).expect("run"),
         DispatchSide::Instance,
     );
     let first_analysis = first.snapshot.callable_analyses.get(&callable).expect("run analysis");
-    let second = session.update(single_module_input(module, source_b, 2));
+    let second = session.update(single_module_input(module, source_b, 2)).expect("semantic test update should succeed");
     let second_analysis = second.snapshot.callable_analyses.get(&callable).expect("run analysis");
     assert!(Arc::ptr_eq(first_analysis, second_analysis));
 }
@@ -228,13 +228,13 @@ fn adt_incr_10_unrelated_method_edit_reuses_match_analysis() {
 fn adt_incr_11_whitespace_edit_does_not_change_enum_product_fingerprint() {
     let module = module();
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(module.clone(), "data Choice { @variant A @variant B }\n", 1));
+    let first = session.update(single_module_input(module.clone(), "data Choice { @variant A @variant B }\n", 1)).expect("semantic test update should succeed");
     let owner = DeclarationId::new(module.clone(), "Choice".into());
     let first_fp = session
         .db()
         .ready_product_fingerprint(&QueryKey::EnumDeclaration(owner.clone()))
         .expect("enum fingerprint");
-    let _ = session.update(single_module_input(module, "data Choice {\n\n  @variant A\n  @variant B\n}\n", 2));
+    let _ = session.update(single_module_input(module, "data Choice {\n\n  @variant A\n  @variant B\n}\n", 2)).expect("semantic test update should succeed");
     let second_fp = session
         .db()
         .ready_product_fingerprint(&QueryKey::EnumDeclaration(owner))
@@ -250,12 +250,12 @@ fn data_incr_01_cold_incremental_equivalence() {
 
     // Cold session
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold = cold_session.update(single_module_input(module.clone(), source, 1));
+    let cold = cold_session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
 
     // Incremental session (update from previous text to source)
     let mut incr_session = SemanticWorkspaceSession::new();
-    let _ = incr_session.update(single_module_input(module.clone(), "data Point(_ x: Int)\n", 1));
-    let incr = incr_session.update(single_module_input(module.clone(), source, 2));
+    let _ = incr_session.update(single_module_input(module.clone(), "data Point(_ x: Int)\n", 1)).expect("semantic test update should succeed");
+    let incr = incr_session.update(single_module_input(module.clone(), source, 2)).expect("semantic test update should succeed");
 
     let point_decl = DeclarationId::new(module, "Point".into());
     let cold_info = cold.snapshot.data_semantics.data_info(&point_decl).expect("cold data info");
@@ -282,7 +282,7 @@ fn data_incr_02_component_type_edit_invalidates_data_and_dependent_projection() 
     let source_b = "data Boxed(_ value: String)\nclass Test { run(_ boxed: Boxed) { boxed.value } }\n";
     let mut session = SemanticWorkspaceSession::new();
 
-    let first = session.update(single_module_input(module.clone(), source_a, 1));
+    let first = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors());
     let owner = DeclarationId::new(module.clone(), "Boxed".into());
     let data_key = QueryKey::DataDeclaration(owner.clone());
@@ -296,7 +296,7 @@ fn data_incr_02_component_type_edit_invalidates_data_and_dependent_projection() 
     let first_analysis = first.snapshot.callable_analyses.get(&callable).expect("initial dependent analysis").clone();
     let first_info = first.snapshot.data_semantics.data_info(&owner).expect("initial data info");
 
-    let second = session.update(single_module_input(module, source_b, 2));
+    let second = session.update(single_module_input(module, source_b, 2)).expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors());
     let second_data_fp = session.db().ready_product_fingerprint(&data_key).expect("updated data fingerprint");
     let second_analysis = second.snapshot.callable_analyses.get(&callable).expect("updated dependent analysis");
@@ -334,7 +334,7 @@ fn data_incr_03_unrelated_module_edit_reuses_data_product() {
             (unrelated_module.clone(), "class Other { value() { 1 } }\n".into()),
         ],
         1,
-    ));
+    )).expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors());
     let owner = DeclarationId::new(data_module.clone(), "Point".into());
     let data_key = QueryKey::DataDeclaration(owner.clone());
@@ -344,7 +344,7 @@ fn data_incr_03_unrelated_module_edit_reuses_data_product() {
     let second = session.update(multi_module_input(
         vec![(data_module, data_source.into()), (unrelated_module, "class Other { value() { 2 } }\n".into())],
         2,
-    ));
+    )).expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors());
     let second_fp = session.db().ready_product_fingerprint(&data_key).expect("reused data fingerprint");
     let second_info = second.snapshot.data_semantics.data_info(&owner).expect("reused data info");
@@ -363,7 +363,7 @@ fn data_incr_04_visibility_edit_changes_access_without_changing_identity() {
     let source_public = "data Token(_ value: Int)\nclass Caller { run() -> Token { Token(1) } }\n";
     let source_private = "data Token private(_ value: Int)\nclass Caller { run() -> Token { Token(1) } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(module.clone(), source_public, 1));
+    let first = session.update(single_module_input(module.clone(), source_public, 1)).expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "public baseline diagnostics: {:?}", first.snapshot.diagnostics);
     let owner = DeclarationId::new(module.clone(), "Token".into());
     let data_key = QueryKey::DataDeclaration(owner.clone());
@@ -376,7 +376,7 @@ fn data_incr_04_visibility_edit_changes_access_without_changing_identity() {
     let first_info = first.snapshot.data_semantics.data_info(&owner).expect("public data info").clone();
     let first_caller = first.snapshot.callable_analyses.get(&caller).expect("public caller analysis").clone();
 
-    let second = session.update(single_module_input(module.clone(), source_private, 2));
+    let second = session.update(single_module_input(module.clone(), source_private, 2)).expect("semantic test update should succeed");
     let second_data_fp = session.db().ready_product_fingerprint(&data_key).expect("private data fingerprint");
     let second_info = second.snapshot.data_semantics.data_info(&owner).expect("private data info").clone();
     let second_caller = second.snapshot.callable_analyses.get(&caller).expect("private caller analysis");
@@ -400,7 +400,7 @@ fn data_incr_04_visibility_edit_changes_access_without_changing_identity() {
         module.clone(),
         Arc::from(source_private),
         Arc::new(phalcom_ast::parse(source_private, 0).program),
-    );
+    ).expect("semantic test analysis should succeed");
     assert_eq!(
         second.snapshot.all_diagnostics().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(),
         cold.snapshot.all_diagnostics().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(),

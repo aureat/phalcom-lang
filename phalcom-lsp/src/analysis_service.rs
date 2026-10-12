@@ -807,7 +807,10 @@ fn worker_loop(
                     }
                 }
                 Err(err) => {
-                    if matches!(err, phalcom_semantic::db::QueryOutcome::Cancelled) {
+                    if matches!(
+                        err,
+                        phalcom_semantic::SemanticWorkspaceUpdateError::Semantic(phalcom_semantic::SemanticUpdateFailure::Cancelled)
+                    ) {
                         shared.counters.semantic_cancellation_observed.fetch_add(1, Ordering::Relaxed);
                     }
                     publication_failed = true;
@@ -1119,9 +1122,9 @@ fn process_scan_batch(
         } else {
             identity.session.apply_module_mutations(mutations)
         };
-        if let Ok(publication) = publication {
-            let effects = publication_effects_from_compiler(&publication.effects);
-            if env.shared.epoch.load(Ordering::Acquire) == batch_epoch {
+        match classify_scan_semantic_publication(publication, batch_epoch, env.shared.epoch.load(Ordering::Acquire)) {
+            ScanSemanticPublication::Current(publication) => {
+                let effects = publication_effects_from_compiler(&publication.effects);
                 publish_snapshot(
                     env.publication,
                     &env.shared.counters,
@@ -1130,10 +1133,53 @@ fn process_scan_batch(
                     effects,
                     PublicationKind::Scan,
                 );
-            } else {
+            }
+            ScanSemanticPublication::Stale => {
                 env.shared.counters.scan_results_discarded_as_stale.fetch_add(1, Ordering::Relaxed);
             }
+            ScanSemanticPublication::Failed(error) => {
+                let _ = env.event_tx.send(AnalysisEvent::Error {
+                    message: format!("workspace scan semantic publication failed: {error}"),
+                });
+            }
         }
+    }
+}
+
+enum ScanSemanticPublication<T> {
+    Current(T),
+    Stale,
+    Failed(String),
+}
+
+fn classify_scan_semantic_publication<T>(
+    publication: Result<T, phalcom_semantic::SemanticWorkspaceUpdateError>,
+    batch_epoch: u64,
+    current_epoch: u64,
+) -> ScanSemanticPublication<T> {
+    match publication {
+        Ok(publication) if current_epoch == batch_epoch => ScanSemanticPublication::Current(publication),
+        Ok(_) => ScanSemanticPublication::Stale,
+        Err(error) => ScanSemanticPublication::Failed(format!("{error:?}")),
+    }
+}
+
+#[cfg(test)]
+mod scan_publication_tests {
+    use super::{ScanSemanticPublication, classify_scan_semantic_publication};
+    use phalcom_semantic::{SemanticUpdateFailure, SemanticWorkspaceUpdateError};
+
+    #[test]
+    fn failed_scan_is_reported_and_never_classified_as_current() {
+        let failure = SemanticWorkspaceUpdateError::Semantic(SemanticUpdateFailure::Cancelled);
+        let result = classify_scan_semantic_publication::<()>(Err(failure), 7, 7);
+        assert!(matches!(result, ScanSemanticPublication::Failed(_)));
+    }
+
+    #[test]
+    fn a_committed_scan_is_still_discarded_after_epoch_supersession() {
+        let result = classify_scan_semantic_publication::<()>(Ok(()), 7, 8);
+        assert!(matches!(result, ScanSemanticPublication::Stale));
     }
 }
 

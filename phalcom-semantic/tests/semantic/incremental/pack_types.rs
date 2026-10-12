@@ -44,7 +44,7 @@ class Consumer {
 }
 "#;
 
-    let update_a = session.update(single_module_input(module.clone(), source_a, 1));
+    let update_a = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
     assert!(!update_a.snapshot.has_errors(), "initial source must be valid");
 
     let unrelated_id = callable_id(&update_a.snapshot, &module, "Unrelated", "id", DispatchSide::Class);
@@ -68,7 +68,7 @@ class Consumer {
 }
 "#;
 
-    let update_b = session.update(single_module_input(module.clone(), source_b, 2));
+    let update_b = session.update(single_module_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
     assert!(!update_b.snapshot.has_errors(), "updated source must be valid");
 
     let sig_unrelated_b = update_b.snapshot.callable_signatures.get(&unrelated_id).expect("unrelated sig B");
@@ -87,7 +87,7 @@ class Consumer {
 
     // Cold vs warm check on source_b
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold_update = cold_session.update(single_module_input(module.clone(), source_b, 1));
+    let cold_update = cold_session.update(single_module_input(module.clone(), source_b, 1)).expect("semantic test update should succeed");
     let cold_sig_consumer = cold_update.snapshot.callable_signatures.get(&consumer_id).expect("cold consumer sig");
     let warm_param = sig_consumer_b.parameters[0].declared_type.canonical_type().unwrap();
     let cold_param = cold_sig_consumer.parameters[0].declared_type.canonical_type().unwrap();
@@ -111,7 +111,7 @@ class Consumer {
 }
 "#;
 
-    let update_a = session.update(single_module_input(module.clone(), source_a, 1));
+    let update_a = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
     assert!(!update_a.snapshot.has_errors(), "initial source must be valid");
     let consumer_id = callable_id(&update_a.snapshot, &module, "Consumer", "consume", DispatchSide::Class);
     let sig_consumer_a = update_a.snapshot.callable_signatures.get(&consumer_id).expect("consumer sig A");
@@ -126,7 +126,7 @@ class Consumer {
 }
 "#;
 
-    let update_b = session.update(single_module_input(module.clone(), source_b, 2));
+    let update_b = session.update(single_module_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
     assert!(!update_b.snapshot.has_errors(), "updated source must be valid");
     let sig_consumer_b = update_b.snapshot.callable_signatures.get(&consumer_id).expect("consumer sig B");
     let fp_consumer_b = callable_signature_product_fingerprint(sig_consumer_b);
@@ -154,7 +154,7 @@ class Unrelated {
 }
 "#;
 
-    let update_a = session.update(single_module_input(module.clone(), source_a, 1));
+    let update_a = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
     assert!(!update_a.snapshot.has_errors(), "source A must be valid");
 
     let worker_id = DeclarationId::new(module.clone(), "Worker".into());
@@ -182,7 +182,7 @@ class Unrelated {
 }
 "#;
 
-    let update_b = session.update(single_module_input(module.clone(), source_b, 2));
+    let update_b = session.update(single_module_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
     assert!(!update_b.snapshot.has_errors(), "source B must be valid");
 
     let def_b = update_b.snapshot.static_definition(&worker_id).expect("worker def B");
@@ -206,11 +206,11 @@ fn cold_and_warm_pack_results_agree() {
     let updated = "type MyPack = Pack<*: String>\nclass Consumer {\n  @class probe(_ p: MyPack) -> Int { 1 }\n}\n";
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let _ = incremental.update(single_module_input(module.clone(), initial, 1));
-    let incremental_final = incremental.update(single_module_input(module.clone(), updated, 2));
+    let _ = incremental.update(single_module_input(module.clone(), initial, 1)).expect("semantic test update should succeed");
+    let incremental_final = incremental.update(single_module_input(module.clone(), updated, 2)).expect("semantic test update should succeed");
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_final = cold.update(single_module_input(module.clone(), updated, 1));
+    let cold_final = cold.update(single_module_input(module.clone(), updated, 1)).expect("semantic test update should succeed");
 
     let alias = DeclarationId::new(module.clone(), "MyPack".into());
     let inc_form = incremental_final.snapshot.type_aliases.form(&alias).expect("incremental alias form");
@@ -250,11 +250,11 @@ class Stable { @class value() -> Int { 1 } }
 "#;
     let updated = initial.replace("List<T>", "Option<T>");
     let mut incremental = SemanticWorkspaceSession::new();
-    let before = incremental.update(single_module_input(module.clone(), initial, 1));
+    let before = incremental.update(single_module_input(module.clone(), initial, 1)).expect("semantic test update should succeed");
     assert!(!before.snapshot.has_errors());
-    let warm = incremental.update(single_module_input(module.clone(), &updated, 2));
+    let warm = incremental.update(single_module_input(module.clone(), &updated, 2)).expect("semantic test update should succeed");
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold = cold_session.update(single_module_input(module.clone(), &updated, 1));
+    let cold = cold_session.update(single_module_input(module.clone(), &updated, 1)).expect("semantic test update should succeed");
     assert!(!warm.snapshot.has_errors());
     assert!(!cold.snapshot.has_errors());
     let consumer = callable_id(&warm.snapshot, &module, "MapConsumer", "accept", DispatchSide::Class);

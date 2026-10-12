@@ -23,7 +23,7 @@ fn unchanged_module_semantic_structure_shard_is_retained() {
             (second.clone(), "class Second { value() -> Int { 2 } }".into()),
         ],
         1,
-    ));
+    )).expect("semantic test update should succeed");
     assert!(!update1.snapshot.has_errors());
 
     let update2 = session.update(multi_module_input(
@@ -32,7 +32,7 @@ fn unchanged_module_semantic_structure_shard_is_retained() {
             (second.clone(), "class Second { value() -> Int { 2 } }".into()),
         ],
         2,
-    ));
+    )).expect("semantic test update should succeed");
     assert!(!update2.snapshot.has_errors());
     assert_eq!(update2.stats.semantic_structure_shards_recomputed, 1);
     assert_eq!(update2.stats.semantic_structure_shards_reused, 1);
@@ -71,7 +71,7 @@ class Counter {
 
 "#;
     let input1 = single_module_input(module.clone(), src1, 1);
-    let update1 = session.update(input1);
+    let update1 = session.update(input1).expect("semantic test update should succeed");
     let store_id1 = update1.snapshot.store.id();
 
     assert_eq!(update1.stats.modules_recomputed, 1);
@@ -94,7 +94,7 @@ class Counter {
 }
 "#;
     let input2 = single_module_input(module.clone(), src2, 2);
-    let update2 = session.update(input2);
+    let update2 = session.update(input2).expect("semantic test update should succeed");
     let store_id2 = update2.snapshot.store.id();
 
     // Verify TypeStoreId stability
@@ -117,7 +117,7 @@ fn publication_effects_distinguish_initial_graph_build_from_body_edit() {
         ModulePath::from_components(vec![ModuleComponent::from_identifier("effects").unwrap()]),
     );
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(module.clone(), "class Sample { value() -> Int { 1 } }", 1));
+    let first = session.update(single_module_input(module.clone(), "class Sample { value() -> Int { 1 } }", 1)).expect("semantic test update should succeed");
 
     assert!(first.effects.diagnostics_changed.contains(&module));
     assert!(first.effects.source_index_changed.contains(&module));
@@ -134,7 +134,7 @@ fn publication_effects_distinguish_initial_graph_build_from_body_edit() {
     assert_eq!(first.stats.advisory_sources_recomputed, 1);
     assert_eq!(first.stats.advisory_callables_recomputed, 1);
 
-    let second = session.update(single_module_input(module.clone(), "class Sample { value() -> Int { 2 } }", 2));
+    let second = session.update(single_module_input(module.clone(), "class Sample { value() -> Int { 2 } }", 2)).expect("semantic test update should succeed");
 
     assert_eq!(first.snapshot.store.id(), second.snapshot.store.id());
     assert!(second.effects.source_index_changed.contains(&module));
@@ -170,7 +170,7 @@ class Worker {
 }
 "#;
     let input1 = single_module_input(module.clone(), src1, 1);
-    let update1 = session.update(input1);
+    let update1 = session.update(input1).expect("semantic test update should succeed");
     assert_eq!(update1.snapshot.generation, 1);
 
     // Cancelled update
@@ -220,7 +220,7 @@ fn one_session_has_one_type_store_identity_across_revisions() {
     for rev in 1..=100 {
         let src = format!("class Sample {{ compute -> Int {{ {} }} }}", rev);
         let input = single_module_input(module.clone(), &src, rev);
-        let update = session.update(input);
+        let update = session.update(input).expect("semantic test update should succeed");
         assert_eq!(
             update.snapshot.store.id(),
             expected_store_id,
@@ -250,7 +250,7 @@ class Point {
 }
 "#;
     let input1 = single_module_input(module.clone(), src1, 1);
-    let update1 = session.update(input1);
+    let update1 = session.update(input1).expect("semantic test update should succeed");
     let snapshot1 = update1.snapshot.clone();
     let store_id = snapshot1.store.id();
 
@@ -263,11 +263,11 @@ class Point {
     // Perform revisions 2 and 3 that intern unrelated types
     let src2 = "class Other { _v: String = \"\" }";
     let input2 = single_module_input(module.clone(), src2, 2);
-    let update2 = session.update(input2);
+    let update2 = session.update(input2).expect("semantic test update should succeed");
 
     let src3 = "class Another { _v: Bool = true }";
     let input3 = single_module_input(module.clone(), src3, 3);
-    let update3 = session.update(input3);
+    let update3 = session.update(input3).expect("semantic test update should succeed");
 
     // Verify snapshot 1 retains the exact TypeData for point_name_ty
     assert_eq!(snapshot1.store.id(), store_id);
@@ -293,10 +293,10 @@ fn distinct_workspace_sessions_have_distinct_snapshot_workspace_ids() {
 
     let src = "class Sample {}";
     let input1 = single_module_input(module.clone(), src, 1);
-    let update1 = session1.update(input1);
+    let update1 = session1.update(input1).expect("semantic test update should succeed");
 
     let input2 = single_module_input(module.clone(), src, 1);
-    let update2 = session2.update(input2);
+    let update2 = session2.update(input2).expect("semantic test update should succeed");
 
     assert_eq!(update1.snapshot.id.workspace(), WorkspaceId::from_raw(10));
     assert_eq!(update2.snapshot.id.workspace(), WorkspaceId::from_raw(20));
@@ -384,7 +384,7 @@ fn workspace_generic_kind_edit_versions_parameter_and_nominal_forms() {
     let declaration = phalcom_semantic::identity::DeclarationId::new(module.clone(), "Holder".into());
     let mut session = SemanticWorkspaceSession::new();
 
-    let update1 = session.update(single_module_input(module.clone(), "class Holder<F: Type -> Type> {}", 1));
+    let update1 = session.update(single_module_input(module.clone(), "class Holder<F: Type -> Type> {}", 1)).expect("semantic test update should succeed");
     assert!(!update1.snapshot.has_errors());
     let signature1 = update1
         .snapshot
@@ -398,7 +398,7 @@ fn workspace_generic_kind_edit_versions_parameter_and_nominal_forms() {
     let parameter_kind1 = update1.snapshot.store.type_parameter(parameter1).kind;
     assert_ne!(parameter_kind1, KindId::TYPE);
 
-    let update2 = session.update(single_module_input(module, "class Holder<F> {}", 2));
+    let update2 = session.update(single_module_input(module, "class Holder<F> {}", 2)).expect("semantic test update should succeed");
     assert!(!update2.snapshot.has_errors());
     let signature2 = update2
         .snapshot
@@ -436,7 +436,7 @@ class Consumer {
   @class use(_ value: Holder) -> Int { 1 }
 }
 "#;
-    let _update1 = session.update(single_module_input(module.clone(), source1, 1));
+    let _update1 = session.update(single_module_input(module.clone(), source1, 1)).expect("semantic test update should succeed");
     let holder = DeclarationId::new(module.clone(), "Holder".into());
     let consumer = DeclarationId::new(module.clone(), "Consumer".into());
     let holder_shell = QueryKey::DeclarationShell(holder);
@@ -450,7 +450,7 @@ class Consumer {
   @class use(_ value: Holder) -> Int { 1 }
 }
 "#;
-    let update2 = session.update(single_module_input(module, source2, 2));
+    let update2 = session.update(single_module_input(module, source2, 2)).expect("semantic test update should succeed");
     let shell_fp2 = session.db().ready_product_fingerprint(&holder_shell).expect("updated holder shell product");
     let consumer_state2 = session.db().query_state(&consumer_surface).expect("updated consumer surface");
 
@@ -473,11 +473,11 @@ fn alias_incremental_result_matches_cold_final_analysis() {
     let final_source = "type Alias = String\nclass Consumer {\n  @class use(_ value: Alias) -> Int { 1 }\n}\n";
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let _ = incremental.update(single_module_input(module.clone(), initial, 1));
-    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2));
+    let _ = incremental.update(single_module_input(module.clone(), initial, 1)).expect("semantic test update should succeed");
+    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2)).expect("semantic test update should succeed");
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1)).expect("semantic test update should succeed");
 
     let alias = DeclarationId::new(module, "Alias".into());
     let incremental_form = incremental_final.snapshot.type_aliases.form(&alias).expect("incremental alias form");
@@ -504,7 +504,7 @@ fn type_data_case_edit_matches_cold_static_domain_analysis() {
     let final_source = "type data Shape { Scalar; Vector(_ size: Int) }\n";
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let first = incremental.update(single_module_input(module.clone(), initial, 1));
+    let first = incremental.update(single_module_input(module.clone(), initial, 1)).expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
     let owner = DeclarationId::new(module.clone(), "Shape".into());
     let enum_key = QueryKey::EnumDeclaration(owner.clone());
@@ -516,7 +516,7 @@ fn type_data_case_edit_matches_cold_static_domain_analysis() {
     let first_kind = first.snapshot.store.format_kind(first.snapshot.store.kind_of(first_form));
     let first_constructor_count = first.snapshot.store.static_constructor_count();
 
-    let second = incremental.update(single_module_input(module.clone(), final_source, 2));
+    let second = incremental.update(single_module_input(module.clone(), final_source, 2)).expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     let second_fp = incremental
         .db()
@@ -527,7 +527,7 @@ fn type_data_case_edit_matches_cold_static_domain_analysis() {
     let second_kind = second.snapshot.store.format_kind(second.snapshot.store.kind_of(second_form));
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1)).expect("semantic test update should succeed");
     assert!(!cold_final.snapshot.has_errors(), "diagnostics: {:?}", cold_final.snapshot.diagnostics);
     let cold_info = cold_final.snapshot.enum_semantics.enum_info(&owner).expect("cold Shape semantics");
     let cold_form = cold_final.snapshot.declarations.form(&owner).expect("cold Shape form");
@@ -561,7 +561,7 @@ fn snapshot_metadata_catalog_excludes_stale_static_case_history() {
     ]));
     let owner = DeclarationId::new(module.clone(), "Shape".into());
     let mut session = SemanticWorkspaceSession::new();
-    let revision_a = session.update(single_module_input(module.clone(), "type data Shape { Old }\n", 1));
+    let revision_a = session.update(single_module_input(module.clone(), "type data Shape { Old }\n", 1)).expect("semantic test update should succeed");
     assert!(
         !revision_a.snapshot.has_errors(),
         "revision A diagnostics: {:?}",
@@ -570,7 +570,7 @@ fn snapshot_metadata_catalog_excludes_stale_static_case_history() {
     let old_info = revision_a.snapshot.enum_semantics.enum_info(&owner).expect("revision A Shape");
     let old_constructor = old_info.static_data.as_ref().expect("revision A static domain").constructors[0];
 
-    let revision_b = session.update(single_module_input(module, "type data Shape { New }\n", 2));
+    let revision_b = session.update(single_module_input(module, "type data Shape { New }\n", 2)).expect("semantic test update should succeed");
     assert!(
         !revision_b.snapshot.has_errors(),
         "revision B diagnostics: {:?}",
@@ -627,7 +627,7 @@ fn nominal_static_case_rename_invalidates_source_selection_and_preserves_unrelat
     let initial = "class Geometry { type Keep<T: Type>: Type }\ntype data Shape { Scalar }\nclass Probe { @class status() { Shape::Scalar } }\n";
     let final_source = "class Geometry { type Keep<T: Type>: Type }\ntype data Shape { Atom }\nclass Probe { @class status() { Shape::Atom } }\n";
     let mut incremental = SemanticWorkspaceSession::new();
-    let first = incremental.update(single_module_input(module.clone(), initial, 1));
+    let first = incremental.update(single_module_input(module.clone(), initial, 1)).expect("semantic test update should succeed");
     assert!(
         first
             .snapshot
@@ -642,7 +642,7 @@ fn nominal_static_case_rename_invalidates_source_selection_and_preserves_unrelat
     let body_key = QueryKey::CallableBody(status);
     let first_body_fingerprint = incremental.db().ready_product_fingerprint(&body_key).expect("initial body product");
 
-    let updated = incremental.update(single_module_input(module.clone(), final_source, 2));
+    let updated = incremental.update(single_module_input(module.clone(), final_source, 2)).expect("semantic test update should succeed");
     assert!(
         updated
             .snapshot
@@ -683,7 +683,7 @@ fn nominal_static_case_rename_invalidates_source_selection_and_preserves_unrelat
     );
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1)).expect("semantic test update should succeed");
     let cold_index = cold_final.snapshot.source_index.module(&module).expect("cold source index");
     let cold_target = cold_index
         .occurrences
@@ -708,14 +708,14 @@ type Forward<*Ts> = Target<*Ts>
 "#;
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let initial_update = incremental.update(single_module_input(module.clone(), initial, 1));
+    let initial_update = incremental.update(single_module_input(module.clone(), initial, 1)).expect("semantic test update should succeed");
     assert!(initial_update.snapshot.has_errors(), "the fixed Target binder must reject *Ts forwarding");
 
-    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2));
+    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2)).expect("semantic test update should succeed");
     assert!(!incremental_final.snapshot.has_errors(), "{:?}", incremental_final.snapshot.diagnostics);
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1)).expect("semantic test update should succeed");
     assert!(!cold_final.snapshot.has_errors(), "{:?}", cold_final.snapshot.diagnostics);
 
     let forward = DeclarationId::new(module, "Forward".into());
@@ -743,7 +743,7 @@ fn generic_constraint_edit_recomputes_dependent_consumer_signature() {
     let source2 = "class Holder<T> where T <: String {}\nclass Consumer {\n  @class use(_ value: Holder<Int>) -> Int { 1 }\n}\n";
 
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(module.clone(), source1, 1));
+    let first = session.update(single_module_input(module.clone(), source1, 1)).expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
 
     let holder = DeclarationId::new(module.clone(), "Holder".into());
@@ -758,7 +758,7 @@ fn generic_constraint_edit_recomputes_dependent_consumer_signature() {
     let holder_fp1 = session.db().ready_product_fingerprint(&holder_key).expect("generic holder shell");
     let signature_revision1 = session.db().query_state(&signature_key).expect("consumer signature").revision();
 
-    let second = session.update(single_module_input(module, source2, 2));
+    let second = session.update(single_module_input(module, source2, 2)).expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     let holder_fp2 = session.db().ready_product_fingerprint(&holder_key).expect("updated generic holder shell");
     let signature_revision2 = session.db().query_state(&signature_key).expect("updated consumer signature").revision();
@@ -801,7 +801,7 @@ class Probe {
 "#;
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let first = incremental.update(single_module_input(module.clone(), source1, 1));
+    let first = incremental.update(single_module_input(module.clone(), source1, 1)).expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
     let getter = DeclarationId::new(module.clone(), "Probe".into());
     let getter = phalcom_semantic::identity::CallableId::new(
@@ -812,7 +812,7 @@ class Probe {
     let signature_key = QueryKey::CallableSignature(getter.clone());
     let signature_revision1 = incremental.db().query_state(&signature_key).expect("generic getter signature").revision();
 
-    let second = incremental.update(single_module_input(module.clone(), source2, 2));
+    let second = incremental.update(single_module_input(module.clone(), source2, 2)).expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     let signature_revision2 = incremental
         .db()
@@ -844,7 +844,7 @@ class Probe {
     ));
 
     let mut cold = SemanticWorkspaceSession::new();
-    let final_cold = cold.update(single_module_input(module.clone(), source2, 1));
+    let final_cold = cold.update(single_module_input(module.clone(), source2, 1)).expect("semantic test update should succeed");
     let cold_expression = final_cold
         .snapshot
         .callable_analyses
@@ -892,7 +892,7 @@ class Consumer {
 "#;
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let initial_update = incremental.update(single_module_input(module.clone(), initial, 1));
+    let initial_update = incremental.update(single_module_input(module.clone(), initial, 1)).expect("semantic test update should succeed");
     // C<Int> with Single(TypePack) is an arity/kind mismatch because Int is Type, not TypePack
     assert!(initial_update.snapshot.has_errors(), "C<Int> must fail when P: TypePack is Single");
     let c = DeclarationId::new(module.clone(), "C".into());
@@ -907,7 +907,7 @@ class Consumer {
     let shell_product_initial = incremental.db().ready_product_fingerprint(&shell_key).expect("initial C shell");
     let signature_revision_initial = incremental.db().query_state(&signature_key).expect("initial use signature").revision();
 
-    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2));
+    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2)).expect("semantic test update should succeed");
     assert!(
         !incremental_final.snapshot.has_errors(),
         "diagnostics: {:?}",
@@ -915,7 +915,7 @@ class Consumer {
     );
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1)).expect("semantic test update should succeed");
     assert!(!cold_final.snapshot.has_errors(), "diagnostics: {:?}", cold_final.snapshot.diagnostics);
 
     let shell_product_final = incremental.db().ready_product_fingerprint(&shell_key).expect("updated C shell");
@@ -967,12 +967,12 @@ type AddOne<*Ts> = (String, *Ts)
 "#;
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let _ = incremental.update(single_module_input(module.clone(), initial, 1));
-    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2));
+    let _ = incremental.update(single_module_input(module.clone(), initial, 1)).expect("semantic test update should succeed");
+    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2)).expect("semantic test update should succeed");
     assert!(!incremental_final.snapshot.has_errors(), "{:?}", incremental_final.snapshot.diagnostics);
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1)).expect("semantic test update should succeed");
     assert!(!cold_final.snapshot.has_errors(), "{:?}", cold_final.snapshot.diagnostics);
 
     let add_one = DeclarationId::new(module, "AddOne".into());
@@ -1000,12 +1000,12 @@ type Fn<*Ts> = (*Ts,) -> String
 "#;
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let _ = incremental.update(single_module_input(module.clone(), initial, 1));
-    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2));
+    let _ = incremental.update(single_module_input(module.clone(), initial, 1)).expect("semantic test update should succeed");
+    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2)).expect("semantic test update should succeed");
     assert!(!incremental_final.snapshot.has_errors(), "{:?}", incremental_final.snapshot.diagnostics);
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1)).expect("semantic test update should succeed");
     assert!(!cold_final.snapshot.has_errors(), "{:?}", cold_final.snapshot.diagnostics);
 
     let fn_decl = DeclarationId::new(module, "Fn".into());
@@ -1033,12 +1033,12 @@ type Wrap<*Ts> = (Int, *Ts)
 "#;
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let _ = incremental.update(single_module_input(module.clone(), initial, 1));
-    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2));
+    let _ = incremental.update(single_module_input(module.clone(), initial, 1)).expect("semantic test update should succeed");
+    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2)).expect("semantic test update should succeed");
     assert!(!incremental_final.snapshot.has_errors(), "{:?}", incremental_final.snapshot.diagnostics);
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1)).expect("semantic test update should succeed");
     assert!(!cold_final.snapshot.has_errors(), "{:?}", cold_final.snapshot.diagnostics);
 
     let module_idx_inc = incremental_final.snapshot.source_index.module(&module).expect("inc module idx");

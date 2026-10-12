@@ -269,7 +269,7 @@ fn metadata_publishes_stable_algebraic_phase_and_shape() {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
-    let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module, source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", analysis.snapshot.diagnostics);
 
     let exporter = MetadataExporter::new(
@@ -330,7 +330,7 @@ fn snapshot_metadata_round_trip_preserves_static_alias_and_associated_term_ident
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
-    let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module, source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", analysis.snapshot.diagnostics);
 
     let bundle = MetadataExporter::new(
@@ -458,7 +458,7 @@ fn metadata_keeps_legacy_enum_and_equivalent_data_identity_neutral() {
         let source: Arc<str> = Arc::from(source);
         let parsed = phalcom_ast::parse(&source, 0);
         assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
-        let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
+        let analysis = analyze_single_module(module, source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
         assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", analysis.snapshot.diagnostics);
         MetadataExporter::new(
             &analysis.snapshot.store,
@@ -665,7 +665,7 @@ fn cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metada
         1,
     );
     let mut session = SemanticWorkspaceSession::new();
-    let analysis = session.update(input);
+    let analysis = session.update(input).expect("semantic test update should succeed");
     assert!(
         !analysis.snapshot.has_errors(),
         "cross-module semantic diagnostics: {:?}",

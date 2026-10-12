@@ -35,7 +35,7 @@ class Client {
     let parse_res = parse(&source, 0);
     let program = Arc::new(parse_res.program);
 
-    let analysis = analyze_single_module(module.clone(), source, program);
+    let analysis = analyze_single_module(module.clone(), source, program).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "Diagnostics: {:?}", analysis.snapshot.diagnostics);
 
     let base_decl = DeclarationId::new(module.clone(), "Base".into());

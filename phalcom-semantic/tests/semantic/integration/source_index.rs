@@ -309,7 +309,7 @@ fn canonical_tuple_intrinsic_impl_member_publishes_through_associated_surface() 
     );
     let parsed = parse(&source, 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
-    let analysis = phalcom_semantic::analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = phalcom_semantic::analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let owner = DeclarationId::new(module, "Tuple".into());
     let id = phalcom_semantic::types::type_member::TypeMemberDeclarationId::new(
         owner.clone(),

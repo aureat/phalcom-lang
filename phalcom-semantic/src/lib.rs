@@ -153,7 +153,10 @@ pub use prover::{
 pub use resolver::LinkedTypeResolver;
 pub use scope::ScopeTable;
 pub use semantic_shard::ModuleSemanticStructureShard;
-pub use session::{SemanticPublicationEffects, SemanticUpdateStats, SemanticWorkspacePublication, SemanticWorkspaceSession, SemanticWorkspaceUpdate};
+pub use session::{
+    SemanticPublicationEffects, SemanticUpdateFailure, SemanticUpdateStats, SemanticWorkspacePublication, SemanticWorkspaceSession,
+    SemanticWorkspaceUpdate, SemanticWorkspaceUpdateError,
+};
 pub use signature::{
     CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, ConstructorInitializationProduct, ConstructorInitializationTable,
     ConstructorOrigin, ConstructorParameterField, FieldSemanticSignature, FieldSignatureTable, ReturnContractValidation,

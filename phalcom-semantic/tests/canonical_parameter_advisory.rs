@@ -79,7 +79,7 @@ fn constructor_argument_transfer_uses_public_canonical_parameter_identity() {
     let module = test_module_id();
     let source = "class Product { @constructor new() { } }\nclass Vessel { @constructor new(_ value) { value } }\nconst result = Vessel.new(Product.new())\n";
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(workspace_input(module.clone(), source));
+    let update = session.update(workspace_input(module.clone(), source)).expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let constructor = CallableId::new(

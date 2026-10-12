@@ -32,7 +32,7 @@ fn inferred_local_formal_binding_attaches_to_exact_name_site() {
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
     let module = ModuleId::universe_root();
-    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let module_index = analysis.snapshot.source_index.module(&module).expect("module source index");
     let source_binding = module_index
         .structure
@@ -66,7 +66,7 @@ fn editor_type_hints_suppress_explicit_local_annotations() {
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
     let module = ModuleId::universe_root();
-    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let hints = analysis.snapshot.editor().type_hints(&module, SourceRange::new(0, source.len()));
 
     let inferred_end = source.find("inferred").expect("inferred declaration") + "inferred".len();

@@ -82,7 +82,7 @@ fn row_body_only_edit_preserves_signature_semantics() {
     let module = module(301);
     let mut session = SemanticWorkspaceSession::new();
     let source_a = row_api_source("value", "String", "**R");
-    let update_a = session.update(single_module_input(module.clone(), &source_a, 1));
+    let update_a = session.update(single_module_input(module.clone(), &source_a, 1)).expect("semantic test update should succeed");
     assert!(!update_a.snapshot.has_errors(), "initial row source must be valid");
     let consumer_a = update_a
         .snapshot
@@ -97,7 +97,7 @@ fn row_body_only_edit_preserves_signature_semantics() {
         .expect("initial row signature");
 
     let source_b = row_api_source("value ", "String", "**R");
-    let update_b = session.update(single_module_input(module.clone(), &source_b, 2));
+    let update_b = session.update(single_module_input(module.clone(), &source_b, 2)).expect("semantic test update should succeed");
     assert!(!update_b.snapshot.has_errors(), "body-only row edit must remain valid");
     assert_eq!(update_b.stats.callables_recomputed, 1);
     assert_eq!(update_b.stats.callables_reused, 1);
@@ -153,7 +153,7 @@ fn row_prefix_edit_invalidates_dependent_call() {
     let module = module(302);
     let mut session = SemanticWorkspaceSession::new();
     let source_a = row_api_source("value", "String", "**R");
-    let update_a = session.update(single_module_input(module.clone(), &source_a, 1));
+    let update_a = session.update(single_module_input(module.clone(), &source_a, 1)).expect("semantic test update should succeed");
     assert!(!update_a.snapshot.has_errors());
     let consumer_a = update_a
         .snapshot
@@ -163,7 +163,7 @@ fn row_prefix_edit_invalidates_dependent_call() {
         .expect("initial dependent analysis");
 
     let source_c = row_api_source("value", "Int", "**R");
-    let update_c = session.update(single_module_input(module.clone(), &source_c, 2));
+    let update_c = session.update(single_module_input(module.clone(), &source_c, 2)).expect("semantic test update should succeed");
     assert!(update_c.stats.callables_recomputed >= 2, "signature edit must recheck API and dependent caller");
     let consumer_c = update_c
         .snapshot
@@ -189,7 +189,7 @@ fn row_tail_kind_edit_invalidates_open_record_signature() {
     let module = module(303);
     let mut session = SemanticWorkspaceSession::new();
     let source_a = row_api_source("value", "String", "**R");
-    let update_a = session.update(single_module_input(module.clone(), &source_a, 1));
+    let update_a = session.update(single_module_input(module.clone(), &source_a, 1)).expect("semantic test update should succeed");
     assert!(!update_a.snapshot.has_errors());
     let old_tail = record_tail(&session, &module);
     let api_a = update_a
@@ -200,7 +200,7 @@ fn row_tail_kind_edit_invalidates_open_record_signature() {
         .expect("initial analysis");
 
     let source_d = row_api_source("value", "String", "**R: Type");
-    let update_d = session.update(single_module_input(module.clone(), &source_d, 2));
+    let update_d = session.update(single_module_input(module.clone(), &source_d, 2)).expect("semantic test update should succeed");
     assert!(diagnostic_codes(&session, &module).contains(&DiagnosticCode::AnnotationUnsupported));
     let api_d = update_d
         .snapshot
@@ -219,8 +219,8 @@ fn cold_and_incremental_row_semantics_match() {
     let source_c = row_api_source("value", "Int", "**R");
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let _ = incremental.update(single_module_input(module.clone(), &source_a, 1));
-    let incremental_result = incremental.update(single_module_input(module.clone(), &source_c, 2));
+    let _ = incremental.update(single_module_input(module.clone(), &source_a, 1)).expect("semantic test update should succeed");
+    let incremental_result = incremental.update(single_module_input(module.clone(), &source_c, 2)).expect("semantic test update should succeed");
     let incremental_codes = diagnostic_codes(&incremental, &module);
     let incremental_status = incremental_result
         .snapshot
@@ -229,7 +229,7 @@ fn cold_and_incremental_row_semantics_match() {
         .map(|analysis| analysis.status);
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_result = cold.update(single_module_input(module.clone(), &source_c, 1));
+    let cold_result = cold.update(single_module_input(module.clone(), &source_c, 1)).expect("semantic test update should succeed");
     let cold_codes = diagnostic_codes(&cold, &module);
     let cold_status = cold_result
         .snapshot
@@ -246,7 +246,7 @@ fn retained_snapshot_preserves_previous_open_row_denotation() {
     let module = module(305);
     let mut session = SemanticWorkspaceSession::new();
     let source_a = row_api_source("value", "String", "**R");
-    let update_a = session.update(single_module_input(module.clone(), &source_a, 1));
+    let update_a = session.update(single_module_input(module.clone(), &source_a, 1)).expect("semantic test update should succeed");
     assert_eq!(
         record_tail(&session, &module),
         Some(RecordRowTail::Parameter(record_tail_parameter(&session, &module)))
@@ -254,7 +254,7 @@ fn retained_snapshot_preserves_previous_open_row_denotation() {
     let old_snapshot = update_a.snapshot.clone();
 
     let source_c = row_api_source("value", "Int", "**R");
-    let _ = session.update(single_module_input(module.clone(), &source_c, 2));
+    let _ = session.update(single_module_input(module.clone(), &source_c, 2)).expect("semantic test update should succeed");
 
     let old_signature = old_snapshot.callable_signatures.get(&api_callable(&module)).expect("old row signature");
     let old_ty = old_signature
@@ -276,7 +276,7 @@ fn retained_snapshot_preserves_previous_open_row_denotation() {
 fn solver_row_variables_never_appear_in_published_products() {
     let module = module(306);
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), &row_api_source("value", "String", "**R"), 1));
+    let update = session.update(single_module_input(module.clone(), &row_api_source("value", "String", "**R"), 1)).expect("semantic test update should succeed");
     let debug = format!("{:?}", update.snapshot);
     assert!(!debug.contains("RecordRowVarId"), "solver-local row variables must not enter snapshots");
     assert!(!debug.contains("RecordRowSolver"), "solver sessions must not enter snapshots");

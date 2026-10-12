@@ -308,7 +308,7 @@ fn source_type_data_publishes_a_static_domain_kind() {
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
 
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", analysis.snapshot.diagnostics);
 
     let declaration = DeclarationId::new(module, "Width".into());
@@ -328,7 +328,7 @@ fn source_generic_binder_resolves_named_static_domain_kind() {
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
 
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", analysis.snapshot.diagnostics);
     let tensor = DeclarationId::new(module, "Tensor".into());
     let signature = analysis.snapshot.declarations.generic_signature(&tensor).expect("Tensor generic signature");
@@ -353,7 +353,7 @@ fn source_generic_binder_resolves_associated_static_domain_kind_through_type_for
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
 
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", analysis.snapshot.diagnostics);
     let holder = DeclarationId::new(module, "Holder".into());
     let signature = analysis.snapshot.declarations.generic_signature(&holder).expect("Holder generic signature");
@@ -382,7 +382,7 @@ fn type_data_case_cannot_be_used_as_a_runtime_value() {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
-    let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module, source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(
         analysis
             .snapshot

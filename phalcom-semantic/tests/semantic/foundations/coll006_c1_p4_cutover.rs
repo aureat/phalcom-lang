@@ -102,7 +102,7 @@ fn top_level_const_and_let_bindings_use_their_phase_default_families() {
         (2, "let values = [1, 2]\n", ModuleBindingPhase::Runtime, "Array<Int>", false),
     ] {
         let mut session = SemanticWorkspaceSession::new();
-        let update = session.update(single_module_input(module.clone(), source, generation));
+        let update = session.update(single_module_input(module.clone(), source, generation)).expect("semantic test update should succeed");
         assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
         let binding = update.snapshot.module_static_binding(&symbol).expect("canonical module binding");

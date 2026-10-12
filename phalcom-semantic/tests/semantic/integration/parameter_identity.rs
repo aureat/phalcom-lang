@@ -18,7 +18,7 @@ class ParameterProbe {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "fixture must parse: {:#?}", parsed.errors);
-    let result = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let result = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let owner = DeclarationId::new(module.clone(), "ParameterProbe".into());
     let callable = CallableId::new(
         owner,

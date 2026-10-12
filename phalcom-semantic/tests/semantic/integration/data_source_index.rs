@@ -9,7 +9,7 @@ fn source_index_for(source: &str) -> (ModuleId, phalcom_semantic::workspace::Sem
     let module = ModuleId::universe_root();
     let parsed = phalcom_ast::parse(source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     (module, analysis)
 }
 

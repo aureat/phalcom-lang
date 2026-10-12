@@ -84,7 +84,7 @@ impl WorkspaceFixture {
         let linked_res = linker.link_component_interfaces_tolerant(entry, &resolved);
         let linked = Arc::new(linked_res.program);
 
-        let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1));
+        let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1)).expect("semantic test analysis should succeed");
         assert!(
             analysis.snapshot.internal_incidents.is_empty(),
             "semantic analyzer produced internal incidents: {:#?}",

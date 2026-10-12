@@ -199,7 +199,7 @@ impl Fixture {
         let source: Arc<str> = Arc::from(source_text);
         let parsed = parse(&source, 0);
         assert!(parsed.errors.is_empty(), "parse errors: {:#?}\nsource:\n{source_text}", parsed.errors);
-        let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+        let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
         Self { module, source, analysis }
     }
 

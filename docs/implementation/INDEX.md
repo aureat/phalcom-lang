@@ -25,6 +25,7 @@
 | [TYPE002](type/TYPE002-typing-integration/PROGRAM.md) | TYPE | Typing integration and semantic type authority | IN_PROGRESS |
 | [TYPE003](type/TYPE003-callables/PROGRAM.md) | TYPE | Callable surface implementation | PROPOSED |
 | [TYPE004](type/TYPE004-semantic-tower/PROGRAM.md) | TYPE | Two-axis semantic tower | PROPOSED |
+| [TYPEAUD001](TYPEAUD001/TYPEAUD001-PROGRAM.md) | TYPEAUD | Type-system correctness and audit remediation | IN_PROGRESS |
 | [SEMA001](sema/SEMA001-type-formation-and-inference/PROGRAM.md) | SEMA | Type formation and inference | IN_PROGRESS |
 | [SEMA002](sema/SEMA002-semantic-authority-and-identity/PROGRAM.md) | SEMA | Semantic authority and identity | IN_PROGRESS |
 | [SEMA003](sema/SEMA003-semantic-workspace-and-lsp/PROGRAM.md) | SEMA | Semantic workspace and LSP | IN_PROGRESS |

@@ -93,7 +93,7 @@ class Test {
 "#;
     let module = test_module();
     let parsed = phalcom_ast::parse_source(source, 0).expect("should parse cleanly");
-    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed));
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed)).expect("semantic test analysis should succeed");
     let callable_id = phalcom_semantic::identity::CallableId::new(
         DeclarationId::new(module, "Test".into()),
         Selector::method("run", vec![]).expect("selector"),

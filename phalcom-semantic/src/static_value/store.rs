@@ -12,7 +12,7 @@ use crate::types::relation::{Assignability, TypeHierarchy};
 use crate::types::row::{RecordRowField, RecordRowTail};
 use crate::types::store::{TupleTypeElement, TypeData, TypeStore};
 use num_bigint::BigInt;
-use std::collections::HashMap;
+use im::{HashMap, Vector};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -306,25 +306,25 @@ pub enum StaticValueStoreError {
 #[derive(Clone, Debug)]
 pub struct StaticValueStore {
     id: StaticValueStoreId,
-    values: Vec<StaticValueData>,
+    values: Vector<StaticValueData>,
     interner: HashMap<StaticValueData, StaticValueId>,
-    strings: Vec<Box<str>>,
+    strings: Vector<Box<str>>,
     string_ids: HashMap<Box<str>, StaticStringId>,
-    symbols: Vec<Box<str>>,
+    symbols: Vector<Box<str>>,
     symbol_ids: HashMap<Box<str>, StaticSymbolId>,
-    tuples: Vec<Box<[StaticValueRef]>>,
+    tuples: Vector<Box<[StaticValueRef]>>,
     tuple_ids: HashMap<Box<[StaticValueRef]>, StaticTupleId>,
-    sequences: Vec<StaticSequenceData>,
+    sequences: Vector<StaticSequenceData>,
     sequence_ids: HashMap<StaticSequenceData, StaticSequenceId>,
-    records: Vec<Box<[StaticRecordField]>>,
+    records: Vector<Box<[StaticRecordField]>>,
     record_ids: HashMap<Box<[StaticRecordField]>, StaticRecordId>,
-    data_values: Vec<StaticDataValue>,
+    data_values: Vector<StaticDataValue>,
     data_value_ids: HashMap<StaticDataValue, StaticDataValueId>,
-    variant_values: Vec<StaticVariantValue>,
+    variant_values: Vector<StaticVariantValue>,
     variant_value_ids: HashMap<StaticVariantValue, StaticVariantValueId>,
-    pack_backings: Vec<StaticPackBacking>,
+    pack_backings: Vector<StaticPackBacking>,
     pack_backing_ids: HashMap<StaticPackBacking, StaticPackBackingId>,
-    packs: Vec<StaticPackData>,
+    packs: Vector<StaticPackData>,
     pack_ids: HashMap<StaticPackData, StaticPackId>,
 }
 
@@ -339,25 +339,25 @@ impl StaticValueStore {
     pub fn new() -> Self {
         Self {
             id: StaticValueStoreId(NEXT_STATIC_VALUE_STORE_ID.fetch_add(1, Ordering::Relaxed)),
-            values: Vec::new(),
+            values: Vector::new(),
             interner: HashMap::new(),
-            strings: Vec::new(),
+            strings: Vector::new(),
             string_ids: HashMap::new(),
-            symbols: Vec::new(),
+            symbols: Vector::new(),
             symbol_ids: HashMap::new(),
-            tuples: Vec::new(),
+            tuples: Vector::new(),
             tuple_ids: HashMap::new(),
-            sequences: Vec::new(),
+            sequences: Vector::new(),
             sequence_ids: HashMap::new(),
-            records: Vec::new(),
+            records: Vector::new(),
             record_ids: HashMap::new(),
-            data_values: Vec::new(),
+            data_values: Vector::new(),
             data_value_ids: HashMap::new(),
-            variant_values: Vec::new(),
+            variant_values: Vector::new(),
             variant_value_ids: HashMap::new(),
-            pack_backings: Vec::new(),
+            pack_backings: Vector::new(),
             pack_backing_ids: HashMap::new(),
-            packs: Vec::new(),
+            packs: Vector::new(),
             pack_ids: HashMap::new(),
         }
     }
@@ -410,7 +410,7 @@ impl StaticValueStore {
         } else {
             let id = StaticStringId(self.strings.len() as u32);
             let text: Box<str> = text.into();
-            self.strings.push(text.clone());
+            self.strings.push_back(text.clone());
             self.string_ids.insert(text, id);
             id
         };
@@ -425,7 +425,7 @@ impl StaticValueStore {
         } else {
             let id = StaticSymbolId(self.symbols.len() as u32);
             let text: Box<str> = text.into();
-            self.symbols.push(text.clone());
+            self.symbols.push_back(text.clone());
             self.symbol_ids.insert(text, id);
             id
         }
@@ -449,7 +449,7 @@ impl StaticValueStore {
             *id
         } else {
             let id = StaticTupleId(self.tuples.len() as u32);
-            self.tuples.push(elements.clone());
+            self.tuples.push_back(elements.clone());
             self.tuple_ids.insert(elements, id);
             id
         };
@@ -549,7 +549,7 @@ impl StaticValueStore {
             *id
         } else {
             let id = StaticSequenceId(self.sequences.len() as u32);
-            self.sequences.push(node.clone());
+            self.sequences.push_back(node.clone());
             self.sequence_ids.insert(node, id);
             id
         };
@@ -602,7 +602,7 @@ impl StaticValueStore {
             *id
         } else {
             let id = StaticRecordId(self.records.len() as u32);
-            self.records.push(fields.clone());
+            self.records.push_back(fields.clone());
             self.record_ids.insert(fields, id);
             id
         };
@@ -642,7 +642,7 @@ impl StaticValueStore {
             *id
         } else {
             let id = StaticPackBackingId(self.pack_backings.len() as u32);
-            self.pack_backings.push(backing_node.clone());
+            self.pack_backings.push_back(backing_node.clone());
             self.pack_backing_ids.insert(backing_node, id);
             id
         };
@@ -659,7 +659,7 @@ impl StaticValueStore {
             *id
         } else {
             let id = StaticPackId(self.packs.len() as u32);
-            self.packs.push(pack_data);
+            self.packs.push_back(pack_data);
             self.pack_ids.insert(pack_data, id);
             id
         };
@@ -703,7 +703,7 @@ impl StaticValueStore {
             *id
         } else {
             let id = StaticPackId(self.packs.len() as u32);
-            self.packs.push(new_pack_data);
+            self.packs.push_back(new_pack_data);
             self.pack_ids.insert(new_pack_data, id);
             id
         };
@@ -789,7 +789,7 @@ impl StaticValueStore {
             *id
         } else {
             let id = StaticDataValueId(self.data_values.len() as u32);
-            self.data_values.push(node.clone());
+            self.data_values.push_back(node.clone());
             self.data_value_ids.insert(node, id);
             id
         };
@@ -837,7 +837,7 @@ impl StaticValueStore {
             *id
         } else {
             let id = StaticVariantValueId(self.variant_values.len() as u32);
-            self.variant_values.push(node.clone());
+            self.variant_values.push_back(node.clone());
             self.variant_value_ids.insert(node, id);
             id
         };
@@ -1342,7 +1342,7 @@ impl StaticValueStore {
             *id
         } else {
             let id = StaticValueId(self.values.len() as u32);
-            self.values.push(data.clone());
+            self.values.push_back(data.clone());
             self.interner.insert(data, id);
             id
         };
@@ -1440,5 +1440,39 @@ impl Hasher for StableFnv64 {
     }
     fn write(&mut self, bytes: &[u8]) {
         self.bytes(bytes);
+    }
+}
+
+#[cfg(test)]
+mod persistent_root_tests {
+    use super::StaticValueStore;
+    use std::ptr;
+
+    #[test]
+    fn static_value_store_clone_shares_arenas_and_candidate_appends_are_isolated() {
+        let mut committed = StaticValueStore::new();
+        for value in 0..96 {
+            committed.intern_int(value);
+        }
+        for index in 0..96 {
+            committed.intern_string(format!("retained{index}"));
+        }
+        let committed_id = committed.id();
+        let committed_len = committed.len();
+        let first_value_address = &committed.values[0] as *const _;
+        let mut candidate = committed.clone();
+
+        assert!(committed.values.ptr_eq(&candidate.values));
+        assert!(committed.interner.ptr_eq(&candidate.interner));
+        let candidate_value = candidate.intern_int(10_000);
+
+        assert_eq!(candidate.id(), committed_id);
+        assert_eq!(committed.len(), committed_len);
+        assert_eq!(candidate.len(), committed_len + 1);
+        assert!(ptr::eq(first_value_address, &candidate.values[0] as *const _));
+        assert!(committed.strings.ptr_eq(&candidate.strings));
+        assert!(committed.string_ids.ptr_eq(&candidate.string_ids));
+        assert!(candidate.get(candidate_value).is_ok());
+        assert!(committed.get(candidate_value).is_err());
     }
 }
