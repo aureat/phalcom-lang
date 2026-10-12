@@ -1107,7 +1107,7 @@ struct ModuleIdPair {
 fn imported_static_body_alias_retains_canonical_const_identity() {
     let (input, modules) = imported_const_input("const base: Int = 2\nexport base\n", 1);
     let mut session = SemanticWorkspaceSession::new();
-    let snapshot = session.update(input).snapshot;
+    let snapshot = session.update(input).expect("semantic test update should succeed").snapshot;
     let read = snapshot
         .static_definition(&DeclarationId::new(modules.consumer.clone(), "ReadImported".into()))
         .and_then(|definition| definition.checked_body.as_ref())
@@ -1133,7 +1133,7 @@ fn imported_static_body_alias_retains_canonical_const_identity() {
 fn provider_const_type_change_invalidates_importing_checked_body() {
     let mut session = SemanticWorkspaceSession::new();
     let (first_input, modules) = imported_const_input("const base: Int = 2\nexport base\n", 1);
-    let first = session.update(first_input).snapshot;
+    let first = session.update(first_input).expect("semantic test update should succeed").snapshot;
     let declaration = DeclarationId::new(modules.consumer.clone(), "ReadImported".into());
     let first_body = first
         .static_definition(&declaration)
@@ -1141,7 +1141,7 @@ fn provider_const_type_change_invalidates_importing_checked_body() {
         .expect("first checked body");
 
     let (second_input, _) = imported_const_input("const base: String = \"x\"\nexport base\n", 2);
-    let second = session.update(second_input).snapshot;
+    let second = session.update(second_input).expect("semantic test update should succeed").snapshot;
     let second_body = second
         .static_definition(&declaration)
         .and_then(|definition| definition.checked_body.clone())

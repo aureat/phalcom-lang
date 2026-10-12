@@ -19,7 +19,7 @@ fn direct_static_array_subscript_and_named_replacement_are_diagnosed() {
         main.clone(),
         "const values: Array<Int> = <Int>[1, 2]\nvalues[0] = 3\nvalues.at(1, put: 4)\n",
         1,
-    ));
+    )).expect("semantic test update should succeed");
     let diagnostics = update.snapshot.diagnostics.get(&main).map(|items| items.as_ref()).unwrap_or_default();
     let mutations = diagnostics
         .iter()
@@ -49,7 +49,7 @@ fn imported_static_array_binding_keeps_mutation_provenance() {
     }));
     input.linked = Arc::new(linked);
 
-    let update = SemanticWorkspaceSession::new().update(input);
+    let update = SemanticWorkspaceSession::new().update(input).expect("semantic test update should succeed");
     let diagnostics = update.snapshot.diagnostics.get(&consumer).expect("consumer diagnostics");
     assert!(
         diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::StaticObjectMutation),
@@ -65,7 +65,7 @@ fn ordinary_array_bindings_remain_mutable_without_const_object_diagnostics() {
         main.clone(),
         "let values: Array<Int> = <Int>[1, 2]\nvalues[0] = 3\nvalues.at(1, put: 4)\nlet mut changing: Array<Int> = <Int>[5]\nchanging[0] = 6\n",
         1,
-    ));
+    )).expect("semantic test update should succeed");
     let diagnostics = update.snapshot.diagnostics.get(&main).map(|items| items.as_ref()).unwrap_or_default();
     assert!(
         diagnostics.iter().all(|diagnostic| diagnostic.code != DiagnosticCode::StaticObjectMutation),

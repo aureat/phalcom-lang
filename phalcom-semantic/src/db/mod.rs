@@ -43,6 +43,34 @@ pub struct SemanticDb {
     metrics: Arc<QueryMetrics>,
     revision_recomputed: BTreeSet<QueryKey>,
     revision_revalidated: BTreeSet<QueryKey>,
+    transaction: Option<SemanticDbUndoJournal>,
+}
+
+#[derive(Debug)]
+struct SemanticDbUndoJournal {
+    revision: SemanticRevision,
+    revision_recomputed: BTreeSet<QueryKey>,
+    revision_revalidated: BTreeSet<QueryKey>,
+    query_states: BTreeMap<QueryKey, Option<QueryState>>,
+    query_keys_by_module: BTreeMap<ModuleId, Option<BTreeSet<QueryKey>>>,
+    products: BTreeMap<QueryKey, Option<Arc<SemanticProduct>>>,
+    last_known_good: BTreeMap<QueryKey, Option<Arc<SemanticProduct>>>,
+    scheduler: QueryScheduler,
+}
+
+impl SemanticDbUndoJournal {
+    fn new(db: &mut SemanticDb) -> Self {
+        Self {
+            revision: db.revision,
+            revision_recomputed: std::mem::take(&mut db.revision_recomputed),
+            revision_revalidated: std::mem::take(&mut db.revision_revalidated),
+            query_states: BTreeMap::new(),
+            query_keys_by_module: BTreeMap::new(),
+            products: BTreeMap::new(),
+            last_known_good: BTreeMap::new(),
+            scheduler: db.scheduler.clone(),
+        }
+    }
 }
 
 impl Default for SemanticDb {
@@ -65,6 +93,7 @@ impl SemanticDb {
             metrics: Arc::new(QueryMetrics::new()),
             revision_recomputed: BTreeSet::new(),
             revision_revalidated: BTreeSet::new(),
+            transaction: None,
         }
     }
 
@@ -81,6 +110,7 @@ impl SemanticDb {
             metrics: Arc::new(QueryMetrics::new()),
             revision_recomputed: BTreeSet::new(),
             revision_revalidated: BTreeSet::new(),
+            transaction: None,
         }
     }
 
@@ -90,6 +120,93 @@ impl SemanticDb {
 
     pub fn revision(&self) -> SemanticRevision {
         self.revision
+    }
+
+    /// Starts a per-key undo journal for one semantic publication attempt.
+    pub(crate) fn begin_transaction(&mut self) {
+        assert!(self.transaction.is_none(), "semantic database transactions cannot nest");
+        self.index.begin_transaction();
+        self.transaction = Some(SemanticDbUndoJournal::new(self));
+    }
+
+    /// Keeps the current database roots and discards their undo journal.
+    pub(crate) fn commit_transaction(&mut self) {
+        self.index.commit_transaction();
+        self.transaction.take();
+    }
+
+    /// Restores the database state to the roots captured at transaction start.
+    pub(crate) fn rollback_transaction(&mut self) {
+        let Some(undo) = self.transaction.take() else {
+            return;
+        };
+        self.index.rollback_transaction();
+        for (key, old) in undo.query_states {
+            match old {
+                Some(state) => {
+                    self.query_states.insert(key, state);
+                }
+                None => {
+                    self.query_states.remove(&key);
+                }
+            }
+        }
+        for (module, old) in undo.query_keys_by_module {
+            match old {
+                Some(keys) => {
+                    self.query_keys_by_module.insert(module, keys);
+                }
+                None => {
+                    self.query_keys_by_module.remove(&module);
+                }
+            }
+        }
+        restore_query_products(&mut self.products, undo.products);
+        restore_query_products(&mut self.last_known_good, undo.last_known_good);
+        self.revision = undo.revision;
+        self.revision_recomputed = undo.revision_recomputed;
+        self.revision_revalidated = undo.revision_revalidated;
+        self.scheduler = undo.scheduler;
+    }
+
+    fn remember_query_state(&mut self, key: &QueryKey) {
+        if self.transaction.as_ref().is_none_or(|transaction| transaction.query_states.contains_key(key)) {
+            return;
+        }
+        let old = self.query_states.get(key).cloned();
+        self.transaction.as_mut().expect("transaction checked").query_states.insert(key.clone(), old);
+    }
+
+    fn remember_query_products(&mut self, key: &QueryKey) {
+        if self.transaction.as_ref().is_none_or(|transaction| transaction.products.contains_key(key)) {
+            return;
+        }
+        let old = self.products.get(key).cloned();
+        self.transaction.as_mut().expect("transaction checked").products.insert(key.clone(), old);
+    }
+
+    fn remember_last_known_good(&mut self, key: &QueryKey) {
+        if self.transaction.as_ref().is_none_or(|transaction| transaction.last_known_good.contains_key(key)) {
+            return;
+        }
+        let old = self.last_known_good.get(key).cloned();
+        self.transaction.as_mut().expect("transaction checked").last_known_good.insert(key.clone(), old);
+    }
+
+    fn remember_module_query_keys(&mut self, module: &ModuleId) {
+        if self
+            .transaction
+            .as_ref()
+            .is_none_or(|transaction| transaction.query_keys_by_module.contains_key(module))
+        {
+            return;
+        }
+        let old = self.query_keys_by_module.get(module).cloned();
+        self.transaction
+            .as_mut()
+            .expect("transaction checked")
+            .query_keys_by_module
+            .insert(module.clone(), old);
     }
 
     pub fn begin_revision(&mut self) -> SemanticRevision {
@@ -159,6 +276,8 @@ impl SemanticDb {
     }
 
     pub fn set_state(&mut self, key: QueryKey, state: QueryState) {
+        self.remember_query_state(&key);
+        self.remember_query_products(&key);
         self.index_query_key(&key);
         if !state.is_ready() {
             self.products.remove(&key);
@@ -224,6 +343,7 @@ impl SemanticDb {
             return false;
         }
 
+        self.remember_query_state(key);
         let current_revision = self.revision;
         let Some(QueryState::Ready { validated_revision, .. }) = self.query_states.get_mut(key) else {
             return false;
@@ -255,6 +375,7 @@ impl SemanticDb {
             }
         }
 
+        self.remember_query_state(key);
         let current_revision = self.revision;
         let Some(QueryState::Ready { validated_revision, .. }) = self.query_states.get_mut(key) else {
             return false;
@@ -307,6 +428,8 @@ impl SemanticDb {
             return Err(PublishError::stale(self.revision, revision));
         }
 
+        self.remember_query_state(&key);
+        self.remember_query_products(&key);
         self.index_query_key(&key);
         self.index.replace_dependencies(key.clone(), dependencies);
         self.query_states.insert(
@@ -336,6 +459,8 @@ impl SemanticDb {
     ///
     /// The last-known-good product is also preserved for cancellation/failure fallback.
     pub fn discard_for_recompute(&mut self, key: &QueryKey) -> bool {
+        self.remember_query_state(key);
+        self.remember_query_products(key);
         let had_state = self.query_states.remove(key).is_some();
         let had_product = self.products.remove(key).is_some();
         self.index.remove_dependencies(key);
@@ -360,6 +485,7 @@ impl SemanticDb {
         let query_value = product.to_query_value();
         let product = Arc::new(product);
         self.publish_ready(key.clone(), revision, input_fingerprint, product_fingerprint, query_value, dependencies)?;
+        self.remember_last_known_good(&key);
         self.products.insert(key.clone(), product);
         if let Some(product) = self.products.get(&key) {
             self.last_known_good.insert(key, product.clone());
@@ -369,6 +495,9 @@ impl SemanticDb {
 
     pub fn update_callable_body_product(&mut self, callable: &crate::identity::CallableId, analysis: Arc<crate::checker::CallableAnalysis>) {
         let key = QueryKey::CallableBody(callable.clone());
+        self.remember_query_state(&key);
+        self.remember_query_products(&key);
+        self.remember_last_known_good(&key);
         let fp = analysis.dependency_fingerprint;
         let query_value = crate::db::product::SemanticProduct::CallableBody(analysis.clone()).to_query_value();
         if let Some(QueryState::Ready {
@@ -386,6 +515,8 @@ impl SemanticDb {
     pub fn invalidate(&mut self, seeds: impl IntoIterator<Item = QueryKey>) -> BTreeSet<QueryKey> {
         let closure = self.index.reverse_closure(seeds);
         for key in &closure {
+            self.remember_query_state(key);
+            self.remember_query_products(key);
             self.query_states.remove(key);
             self.products.remove(key);
             self.index.remove_dependencies(key);
@@ -399,6 +530,8 @@ impl SemanticDb {
     pub fn invalidate_roots(&mut self, roots: impl IntoIterator<Item = QueryKey>) -> BTreeSet<QueryKey> {
         let roots: BTreeSet<_> = roots.into_iter().collect();
         for key in &roots {
+            self.remember_query_state(key);
+            self.remember_query_products(key);
             self.query_states.remove(key);
             self.products.remove(key);
             self.index.remove_dependencies(key);
@@ -415,15 +548,21 @@ impl SemanticDb {
         let dependents = self.index.reverse_closure([key.clone()]);
         let mut retired = 0;
         for dependent in dependents.iter().filter(|dependent| *dependent != key) {
+            self.remember_query_state(dependent);
+            self.remember_query_products(dependent);
             retired += usize::from(self.query_states.remove(dependent).is_some());
             retired += usize::from(self.products.remove(dependent).is_some());
             self.index.remove_dependencies(dependent);
             self.metrics.record_invalidation();
         }
+        self.remember_query_state(key);
+        self.remember_query_products(key);
+        self.remember_last_known_good(key);
         retired += usize::from(self.query_states.remove(key).is_some());
         retired += usize::from(self.products.remove(key).is_some());
         retired += usize::from(self.last_known_good.remove(key).is_some());
         if let Some(module) = query_key_module(key) {
+            self.remember_module_query_keys(module);
             if let Some(module_keys) = self.query_keys_by_module.get_mut(module) {
                 module_keys.remove(key);
                 if module_keys.is_empty() {
@@ -453,10 +592,14 @@ impl SemanticDb {
 
         let mut purged = 0;
         for key in &keys {
+            self.remember_query_state(key);
+            self.remember_query_products(key);
+            self.remember_last_known_good(key);
             purged += usize::from(self.query_states.remove(key).is_some());
             purged += usize::from(self.products.remove(key).is_some());
             purged += usize::from(self.last_known_good.remove(key).is_some());
         }
+        self.remember_module_query_keys(module);
         self.query_keys_by_module.remove(module);
         self.index.purge_keys(&keys);
         purged
@@ -464,7 +607,24 @@ impl SemanticDb {
 
     fn index_query_key(&mut self, key: &QueryKey) {
         if let Some(module) = query_key_module(key) {
+            self.remember_module_query_keys(module);
             self.query_keys_by_module.entry(module.clone()).or_default().insert(key.clone());
+        }
+    }
+}
+
+fn restore_query_products(
+    current: &mut BTreeMap<QueryKey, Arc<SemanticProduct>>,
+    undo: BTreeMap<QueryKey, Option<Arc<SemanticProduct>>>,
+) {
+    for (key, old) in undo {
+        match old {
+            Some(product) => {
+                current.insert(key, product);
+            }
+            None => {
+                current.remove(&key);
+            }
         }
     }
 }
@@ -524,5 +684,123 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
             crate::trait_dispatch::TraitDispatchTargetFamily::Declaration(decl) => Some(&decl.module),
             crate::trait_dispatch::TraitDispatchTargetFamily::ExactEnumCase(variant) => Some(&variant.owner.module),
         },
+    }
+}
+
+#[cfg(test)]
+mod transaction_tests {
+    use super::{DependencyEdge, InputFingerprint, ProductFingerprint, QueryKey, SemanticDb, SemanticProduct};
+    use crate::db::QueryState;
+    use crate::identity::ModuleId;
+    use std::collections::BTreeSet;
+    use std::sync::Arc;
+
+    fn empty_diagnostics() -> SemanticProduct {
+        SemanticProduct::ModuleDiagnostics(Arc::from([]))
+    }
+
+    #[test]
+    fn rollback_restores_query_products_dependencies_indexes_revision_and_scheduler() {
+        let module = ModuleId::universe_root();
+        let key = QueryKey::ModuleDiagnostics(module.clone());
+        let dependent = QueryKey::PublicExport(module.clone(), "existing".to_owned());
+        let added = QueryKey::PublicExport(module.clone(), "transient".to_owned());
+        let mut db = SemanticDb::new();
+        let published_revision = db.begin_revision();
+
+        db.publish_product_ready(
+            key.clone(),
+            published_revision,
+            InputFingerprint::new(1),
+            ProductFingerprint::new(11),
+            empty_diagnostics(),
+            [],
+        )
+        .expect("initial product publishes");
+        db.publish_product_ready(
+            dependent.clone(),
+            published_revision,
+            InputFingerprint::new(2),
+            ProductFingerprint::new(22),
+            empty_diagnostics(),
+            [DependencyEdge {
+                dependent: dependent.clone(),
+                dependency: key.clone(),
+                observed_fingerprint: ProductFingerprint::new(11),
+            }],
+        )
+        .expect("dependent product publishes");
+        db.scheduler_mut().enqueue(key.clone());
+
+        let original_revision = db.revision();
+        let original_recomputed = db.revision_recomputed_keys().cloned().collect::<BTreeSet<_>>();
+        let original_revalidated = db.revision_revalidated_keys().cloned().collect::<BTreeSet<_>>();
+        let original_module_keys = db.query_keys_for_module(&module).cloned().collect::<BTreeSet<_>>();
+        let original_key_state = db.query_state(&key).cloned().expect("root state exists");
+        let original_dependent_state = db.query_state(&dependent).cloned().expect("dependent state exists");
+        let original_product = db.product(&key).expect("root product exists").clone();
+        let original_last_known_good = db.last_known_good_product(&key).expect("last good exists").clone();
+        let original_dependent_edges = db.index().dependencies_of(&dependent).expect("dependency edges exist").to_vec();
+        let original_invalidations = db.metrics().invalidations.load(std::sync::atomic::Ordering::Relaxed);
+
+        db.begin_transaction();
+        db.begin_revision();
+        db.retire_query(&key);
+        db.publish_product_ready(
+            added.clone(),
+            db.revision(),
+            InputFingerprint::new(3),
+            ProductFingerprint::new(33),
+            empty_diagnostics(),
+            [],
+        )
+        .expect("candidate product publishes");
+        db.scheduler_mut().clear();
+        db.scheduler_mut().enqueue(added.clone());
+        db.purge_module(&module);
+
+        db.rollback_transaction();
+
+        assert_eq!(db.revision(), original_revision);
+        assert_eq!(db.query_state(&key), Some(&original_key_state));
+        assert_eq!(db.query_state(&dependent), Some(&original_dependent_state));
+        assert!(Arc::ptr_eq(db.product(&key).expect("root product restored"), &original_product));
+        assert!(Arc::ptr_eq(
+            db.last_known_good_product(&key).expect("last good product restored"),
+            &original_last_known_good
+        ));
+        assert_eq!(db.index().dependencies_of(&dependent), Some(original_dependent_edges.as_slice()));
+        assert!(db.index().dependents_of(&key).is_some_and(|keys| keys.contains(&dependent)));
+        assert_eq!(db.query_keys_for_module(&module).cloned().collect::<BTreeSet<_>>(), original_module_keys);
+        assert_eq!(db.revision_recomputed_keys().cloned().collect::<BTreeSet<_>>(), original_recomputed);
+        assert_eq!(db.revision_revalidated_keys().cloned().collect::<BTreeSet<_>>(), original_revalidated);
+        assert!(db.query_state(&added).is_none());
+        assert_eq!(db.scheduler_mut().len(), 1);
+        assert_eq!(db.scheduler_mut().pop_next(), Some(key));
+        assert!(db.metrics().invalidations.load(std::sync::atomic::Ordering::Relaxed) > original_invalidations);
+    }
+
+    #[test]
+    fn commit_keeps_candidate_database_roots() {
+        let module = ModuleId::universe_root();
+        let key = QueryKey::ModuleDiagnostics(module);
+        let mut db = SemanticDb::new();
+        db.begin_transaction();
+        let revision = db.begin_revision();
+        db.publish_product_ready(
+            key.clone(),
+            revision,
+            InputFingerprint::new(1),
+            ProductFingerprint::new(10),
+            empty_diagnostics(),
+            [],
+        )
+        .expect("candidate product publishes");
+
+        db.commit_transaction();
+
+        assert_eq!(db.revision(), revision);
+        assert!(db.query_state(&key).is_some_and(QueryState::is_ready));
+        assert!(db.product(&key).is_some());
     }
 }

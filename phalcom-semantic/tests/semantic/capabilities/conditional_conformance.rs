@@ -1733,10 +1733,10 @@ class Main {
 "#;
 
     let mut incremental = phalcom_semantic::session::SemanticWorkspaceSession::new();
-    let first = incremental.update(make_input(module.clone(), source_a, 1));
+    let first = incremental.update(make_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors());
 
-    let second = incremental.update(make_input(module.clone(), source_b, 2));
+    let second = incremental.update(make_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
     assert!(
         second.snapshot.has_errors(),
         "expected GenericConstraintUnsatisfied after removing base conformance"
@@ -1843,10 +1843,10 @@ class Main {
 "#;
 
     let mut incremental = phalcom_semantic::session::SemanticWorkspaceSession::new();
-    let first = incremental.update(make_input(module.clone(), source_a, 1));
+    let first = incremental.update(make_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors());
 
-    let second = incremental.update(make_input(module.clone(), source_b, 2));
+    let second = incremental.update(make_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
     assert!(
         second.snapshot.has_errors(),
         "expected GenericConstraintUnsatisfied after strengthening condition"

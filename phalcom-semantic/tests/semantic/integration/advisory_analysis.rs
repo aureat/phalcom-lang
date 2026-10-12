@@ -59,7 +59,7 @@ fn snapshot_publishes_formal_source_and_advisory_products_together() {
     let module = module_id();
     let source = "class Box { value() -> Int { return 1 } }\nlet top = 1\n";
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(input(module.clone(), source, 1));
+    let update = session.update(input(module.clone(), source, 1)).expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     assert!(!update.snapshot.formal_projection().is_empty());
@@ -112,7 +112,7 @@ fn top_level_expression_sites_are_indexed_for_advisory_queries() {
     let module = module_id();
     let source = "class Product { @constructor new() { } }\nconst result = Product.new()\n";
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(input(module.clone(), source, 1));
+    let update = session.update(input(module.clone(), source, 1)).expect("semantic test update should succeed");
 
     let offset = source.rfind("new").expect("constructor selector");
     let site = update
@@ -130,7 +130,7 @@ fn formal_projection_preserves_causal_invalidity_and_binding_contracts() {
     let module = module_id();
     let source = "class Probe { @class run() { let x: Int = 42\nlet y: Missing = 42\n } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(input(module.clone(), source, 1));
+    let update = session.update(input(module.clone(), source, 1)).expect("semantic test update should succeed");
     assert!(update.snapshot.has_errors(), "fixture must retain its semantic error");
     assert!(
         update.snapshot.sources.contains_key(&module),
@@ -180,7 +180,7 @@ fn binding_attachment_incident_does_not_hide_expression_attachment() {
     let module = module_id();
     let source = "class CellNum { @constructor new(_ raw: Int) { let copy = raw\ncopy } }\nlet value = CellNum.new(1)\n";
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(input(module.clone(), source, 1));
+    let update = session.update(input(module.clone(), source, 1)).expect("semantic test update should succeed");
 
     assert!(
         !update.snapshot.source_index().incidents().is_empty(),
@@ -227,8 +227,8 @@ fn unchanged_advisory_shards_and_callable_summaries_are_reused() {
     let module = module_id();
     let source = "class Box { value() -> Int { return 1 } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(input(module.clone(), source, 1));
-    let second = session.update(input(module.clone(), source, 2));
+    let first = session.update(input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let second = session.update(input(module.clone(), source, 2)).expect("semantic test update should succeed");
 
     let shard1 = first.snapshot.advisory().module(&module).unwrap();
     let shard2 = second.snapshot.advisory().module(&module).unwrap();
@@ -250,7 +250,7 @@ fn unchanged_advisory_shards_and_callable_summaries_are_reused() {
 #[test]
 fn advisory_disagreement_is_unknown_for_all_non_ready_formal_states() {
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(input(module_id(), "let value = 1\n", 1));
+    let update = session.update(input(module_id(), "let value = 1\n", 1)).expect("semantic test update should succeed");
     let int = update
         .snapshot
         .declarations
@@ -303,7 +303,7 @@ fn advisory_disagreement_keeps_ready_formal_product_unchanged() {
     let module = module_id();
     let source = "class Probe { @class run() { let value: Int = 1 } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(input(module.clone(), source, 1));
+    let update = session.update(input(module.clone(), source, 1)).expect("semantic test update should succeed");
     let callable = update
         .snapshot
         .callable_analyses
@@ -328,7 +328,7 @@ fn advisory_parameter_transfer_reaches_tail_return_product() {
     let module = module_id();
     let source = "class Product { @constructor new() { } }\nclass Service { @constructor new() { } consume(_ value) { value } }\nconst result = Service.new().consume(Product.new())\n";
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(input(module.clone(), source, 1));
+    let update = session.update(input(module.clone(), source, 1)).expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let callable = CallableId::new(
@@ -348,7 +348,7 @@ fn advisory_parameter_transfer_converges_through_forwarding_callable() {
     let module = module_id();
     let source = "class Product { @constructor new() { } }\nclass Relay { @constructor new() { } sink(_ value) { value } forward(_ value) { sink(value) } }\nconst result = Relay.new().forward(Product.new())\n";
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(input(module.clone(), source, 1));
+    let update = session.update(input(module.clone(), source, 1)).expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let product = DeclarationId::new(module.clone(), "Product".into());
@@ -370,7 +370,7 @@ fn compiler_surfaces_publish_source_member_visibility() {
     let module = module_id();
     let source = "class Base {\n  @constructor new() { }\n  private hide() { }\n  protected guarded() { }\n  open() { }\n  _field: Int = 1\n}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(input(module.clone(), source, 1));
+    let update = session.update(input(module.clone(), source, 1)).expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let declaration = DeclarationId::new(module, "Base".into());

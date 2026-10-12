@@ -73,7 +73,7 @@ fn single_module_analysis_succeeds() {
     let parse_res = phalcom_ast::parse(&source, 0);
     let program = Arc::new(parse_res.program);
 
-    let analysis = analyze_single_module(module.clone(), source, program);
+    let analysis = analyze_single_module(module.clone(), source, program).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors());
     assert!(analysis.snapshot.sources.contains_key(&module));
     assert!(analysis.snapshot.surfaces.contains_key(&DeclarationId::new(module.clone(), "Point".into())));
@@ -90,7 +90,7 @@ class Transformer<F: Type -> Type, T> {}
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let mut store = (*analysis.snapshot.store).clone();
     for (name, expected_parameter_kinds) in [
         ("Box", vec![KindId::TYPE]),
@@ -122,7 +122,7 @@ fn invalid_generic_kind_does_not_publish_ready_declaration_header() {
         class_def.generic_parameters[0].kind,
         Some(phalcom_ast::ast::KindSyntax::Invalid { .. })
     ));
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(
         analysis.snapshot.all_diagnostics().any(|diagnostic| {
             diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnresolved && diagnostic.message.contains("InvalidKindSyntax")
@@ -155,7 +155,7 @@ fn written_invalid_superclass_does_not_publish_ready_declaration() {
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
     assert_eq!(parsed.program.statements.len(), 3, "parsed source statements");
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(
         analysis
             .snapshot
@@ -196,7 +196,7 @@ fn transparent_aliases_preserve_canonical_forms_and_kinds() {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
 
     let user_id = DeclarationId::new(module.clone(), "UserId".into());
@@ -240,7 +240,7 @@ fn alias_cycles_are_rejected_before_publication() {
     let source: Arc<str> = Arc::from("type First = Second\ntype Second = First\n");
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(
         analysis
             .snapshot
@@ -353,7 +353,7 @@ fn imported_alias_resolves_transparently_and_indexes_source_targets() {
             vec![("UserId", alias_module.clone(), "UserId")],
         ),
     ]);
-    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1));
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1)).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
     let alias_declaration = DeclarationId::new(alias_module.clone(), "UserId".into());
     assert!(analysis.snapshot.type_aliases.contains_key(&alias_declaration));
@@ -388,7 +388,7 @@ fn imported_alias_cycle_is_rejected_before_publication() {
             vec![("A", module_a.clone(), "A")],
         ),
     ]);
-    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1));
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1)).expect("semantic test analysis should succeed");
     assert!(
         analysis
             .snapshot
@@ -508,7 +508,7 @@ export Client
         entry: client_module.clone(),
         initialization_order: vec![api_module.clone(), client_module.clone()],
     });
-    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1));
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1)).expect("semantic test analysis should succeed");
 
     assert!(!analysis.snapshot.has_errors(), "diagnostics: {:#?}", analysis.snapshot.diagnostics);
     let client_decl = DeclarationId::new(client_module.clone(), "Client".into());
@@ -678,7 +678,7 @@ fn workspace_multi_module_linking_resolution_and_cycles() {
         initialization_order: vec![point_mod.clone(), circle_mod.clone()],
     });
 
-    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1));
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1)).expect("semantic test analysis should succeed");
 
     assert!(!analysis.snapshot.has_errors());
 
@@ -791,7 +791,7 @@ fn inheritance_cycle_is_rejected_in_workspace() {
         initialization_order: vec![mod_a.clone(), mod_b.clone()],
     });
 
-    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1));
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1)).expect("semantic test analysis should succeed");
 
     assert!(analysis.snapshot.has_errors(), "inheritance cycle must be detected and rejected");
 }
@@ -861,7 +861,7 @@ fn same_leaf_name_in_two_modules_stays_distinct() {
         initialization_order: vec![mod_x.clone(), mod_y.clone()],
     });
 
-    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1));
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1)).expect("semantic test analysis should succeed");
 
     let decl_x = DeclarationId::new(mod_x, "Item".into());
     let decl_y = DeclarationId::new(mod_y, "Item".into());
@@ -882,7 +882,7 @@ fn generation_retains_clean_snapshot_and_removes_stale_declarations() {
         module.clone(),
         source_v1,
         Arc::new(phalcom_ast::parse("class OldName { val() -> Int { 1 } }", 0).program),
-    );
+    ).expect("semantic test analysis should succeed");
 
     assert!(
         analysis_v1
@@ -896,7 +896,7 @@ fn generation_retains_clean_snapshot_and_removes_stale_declarations() {
         module.clone(),
         source_v2,
         Arc::new(phalcom_ast::parse("class NewName { val() -> Int { 2 } }", 0).program),
-    );
+    ).expect("semantic test analysis should succeed");
 
     assert!(
         analysis_v2
@@ -1013,8 +1013,8 @@ fn deterministic_fresh_store_analysis_matches_structurally() {
         SemanticWorkspaceInput::new(linked, sources, generation)
     };
 
-    let run1 = analyze_workspace(make_input(1));
-    let run2 = analyze_workspace(make_input(2));
+    let run1 = analyze_workspace(make_input(1)).expect("semantic test analysis should succeed");
+    let run2 = analyze_workspace(make_input(2)).expect("semantic test analysis should succeed");
 
     // Compare diagnostics: module ordering, codes, ranges, severities
     let diag_keys1: Vec<_> = run1.snapshot.diagnostics.keys().collect();
@@ -1053,7 +1053,7 @@ fn workspace_generic_class_and_callable_signature_publication() {
     let parse_res = phalcom_ast::parse(&source, 0);
     let program = Arc::new(parse_res.program);
 
-    let analysis = analyze_single_module(module.clone(), source, program);
+    let analysis = analyze_single_module(module.clone(), source, program).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
 
     let container_id = DeclarationId::new(module.clone(), "Container".into());
@@ -1210,7 +1210,7 @@ fn workspace_constructor_and_cross_module_dispatch_inference() {
     let linker = phalcom_modules::ModuleLinker::new(Arc::new(universe), interfaces);
     let linked = Arc::new(linker.link(main_mod.clone(), &resolved).unwrap());
 
-    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1));
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1)).expect("semantic test analysis should succeed");
 
     assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
 

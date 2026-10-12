@@ -152,7 +152,7 @@ fn analyze_imported_constructor(
         entry: consumer_module,
         initialization_order: sources.keys().cloned().collect(),
     });
-    analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1))
+    analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1)).expect("semantic test analysis should succeed")
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn module_constructor_access_requires_the_exact_defining_module() {
     let same_module = phalcom_modules::identity::ModuleId::universe_root();
     let source: Arc<str> = Arc::from("data Secret module(_ value: Int)\nclass Caller { @class make() -> Secret { Secret(42) } }\n");
     let parsed = phalcom_ast::parse(&source, 0);
-    let same_analysis = phalcom_semantic::analyze_single_module(same_module, source, Arc::new(parsed.program));
+    let same_analysis = phalcom_semantic::analyze_single_module(same_module, source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(
         !same_analysis
             .snapshot

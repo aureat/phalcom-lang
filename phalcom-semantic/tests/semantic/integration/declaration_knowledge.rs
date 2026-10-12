@@ -21,7 +21,7 @@ class Probe {
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "fixture must parse: {:#?}", parsed.errors);
 
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let declaration = DeclarationId::new(module.clone(), "Probe".into());
     let callable = CallableId::new(
         declaration.clone(),
@@ -57,7 +57,7 @@ class Probe {
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "fixture must parse: {:#?}", parsed.errors);
 
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let owner = DeclarationId::new(module, "Probe".into());
     let value_id = FieldId::new(owner.clone(), "_value", DispatchSide::Instance);
     let shared_id = FieldId::new(owner.clone(), "_shared", DispatchSide::Class);

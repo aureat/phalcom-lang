@@ -30,7 +30,7 @@ class Test {
 "#;
     let module = test_module();
     let parsed = phalcom_ast::parse_source(source, 0).expect("should parse cleanly");
-    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed));
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed)).expect("semantic test analysis should succeed");
 
     let diags = analysis.snapshot.diagnostics.get(&module).expect("diagnostics for module");
     assert!(
@@ -58,7 +58,7 @@ class Test {
 "#;
     let module = test_module();
     let parsed = phalcom_ast::parse_source(source, 0).expect("should parse cleanly");
-    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed));
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed)).expect("semantic test analysis should succeed");
 
     let diags = analysis.snapshot.diagnostics.get(&module).expect("diagnostics for module");
     assert!(
@@ -86,7 +86,7 @@ class Test {
 "#;
     let module = test_module();
     let parsed = phalcom_ast::parse_source(source, 0).expect("should parse cleanly");
-    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed));
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed)).expect("semantic test analysis should succeed");
 
     let diags = analysis.snapshot.diagnostics.get(&module).expect("diagnostics for module");
     assert!(
@@ -118,7 +118,7 @@ class Test {
 "#;
     let module = test_module();
     let parsed = phalcom_ast::parse_source(source, 0).expect("should parse cleanly");
-    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed));
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed)).expect("semantic test analysis should succeed");
 
     let diags = analysis.snapshot.diagnostics.get(&module).expect("diagnostics for module");
     assert!(
@@ -146,7 +146,7 @@ class Test {
 "#;
     let module = test_module();
     let parsed = phalcom_ast::parse_source(source, 0).expect("should parse cleanly");
-    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed));
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed)).expect("semantic test analysis should succeed");
 
     let diags = analysis.snapshot.diagnostics.get(&module).expect("diagnostics for module");
     assert!(

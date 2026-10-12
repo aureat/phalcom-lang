@@ -20,7 +20,7 @@ data Weird {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let owner = DeclarationId::new(module, "Weird".into());
 
     let singleton = VariantId::new(owner.clone(), Selector::getter("Marker").expect("singleton selector"));
@@ -59,7 +59,7 @@ data Pair {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let owner = DeclarationId::new(module, "Pair".into());
     let variant = VariantId::new(
         owner,

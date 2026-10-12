@@ -18,7 +18,7 @@ class Probe {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(ModuleId::universe_root(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(ModuleId::universe_root(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let diagnostics = analysis.snapshot.all_diagnostics().collect::<Vec<_>>();
 
     assert!(
@@ -42,7 +42,7 @@ class Box<T> {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(ModuleId::universe_root(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(ModuleId::universe_root(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
 
     assert!(
         analysis

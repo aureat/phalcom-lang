@@ -41,6 +41,13 @@ impl DependencyRecorder {
 pub struct DependencyIndex {
     forward: BTreeMap<QueryKey, Vec<DependencyEdge>>,
     reverse: BTreeMap<QueryKey, BTreeSet<QueryKey>>,
+    transaction: Option<DependencyIndexUndo>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct DependencyIndexUndo {
+    forward: BTreeMap<QueryKey, Option<Vec<DependencyEdge>>>,
+    reverse: BTreeMap<QueryKey, Option<BTreeSet<QueryKey>>>,
 }
 
 impl DependencyIndex {
@@ -48,7 +55,74 @@ impl DependencyIndex {
         Self::default()
     }
 
+    pub(crate) fn begin_transaction(&mut self) {
+        assert!(self.transaction.is_none(), "dependency-index transactions cannot nest");
+        self.transaction = Some(DependencyIndexUndo::default());
+    }
+
+    pub(crate) fn commit_transaction(&mut self) {
+        self.transaction.take();
+    }
+
+    pub(crate) fn rollback_transaction(&mut self) {
+        let Some(undo) = self.transaction.take() else {
+            return;
+        };
+        for (key, old) in undo.forward {
+            match old {
+                Some(edges) => {
+                    self.forward.insert(key, edges);
+                }
+                None => {
+                    self.forward.remove(&key);
+                }
+            }
+        }
+        for (key, old) in undo.reverse {
+            match old {
+                Some(dependents) => {
+                    self.reverse.insert(key, dependents);
+                }
+                None => {
+                    self.reverse.remove(&key);
+                }
+            }
+        }
+    }
+
+    fn remember_forward(&mut self, key: &QueryKey) {
+        let Some(transaction) = &mut self.transaction else {
+            return;
+        };
+        if transaction.forward.contains_key(key) {
+            return;
+        }
+        transaction.forward.insert(key.clone(), self.forward.get(key).cloned());
+    }
+
+    fn remember_reverse(&mut self, key: &QueryKey) {
+        let Some(transaction) = &mut self.transaction else {
+            return;
+        };
+        if transaction.reverse.contains_key(key) {
+            return;
+        }
+        transaction.reverse.insert(key.clone(), self.reverse.get(key).cloned());
+    }
+
     pub fn replace_dependencies(&mut self, key: QueryKey, dependencies: impl IntoIterator<Item = DependencyEdge>) {
+        let edges: Vec<DependencyEdge> = dependencies.into_iter().collect();
+        let mut reverse_keys = self
+            .forward
+            .get(&key)
+            .into_iter()
+            .flat_map(|old_edges| old_edges.iter().map(|edge| edge.dependency.clone()))
+            .collect::<BTreeSet<_>>();
+        reverse_keys.extend(edges.iter().map(|edge| edge.dependency.clone()));
+        self.remember_forward(&key);
+        for dependency in reverse_keys {
+            self.remember_reverse(&dependency);
+        }
         if let Some(old_edges) = self.forward.remove(&key) {
             for edge in old_edges {
                 if let Some(dependents) = self.reverse.get_mut(&edge.dependency) {
@@ -57,7 +131,6 @@ impl DependencyIndex {
             }
         }
 
-        let edges: Vec<DependencyEdge> = dependencies.into_iter().collect();
         for edge in &edges {
             self.reverse.entry(edge.dependency.clone()).or_default().insert(key.clone());
         }
@@ -65,6 +138,15 @@ impl DependencyIndex {
     }
 
     pub fn remove_dependencies(&mut self, key: &QueryKey) {
+        let dependencies = self
+            .forward
+            .get(key)
+            .map(|edges| edges.iter().map(|edge| edge.dependency.clone()).collect::<BTreeSet<_>>())
+            .unwrap_or_default();
+        self.remember_forward(key);
+        for dependency in dependencies {
+            self.remember_reverse(&dependency);
+        }
         if let Some(old_edges) = self.forward.remove(key) {
             for edge in old_edges {
                 if let Some(dependents) = self.reverse.get_mut(&edge.dependency) {
@@ -78,6 +160,15 @@ impl DependencyIndex {
     pub fn purge_keys(&mut self, keys: &BTreeSet<QueryKey>) {
         for key in keys {
             self.remove_dependencies(key);
+        }
+        let reverse_rows_to_change = self
+            .reverse
+            .iter()
+            .filter(|(dependency, dependents)| keys.contains(*dependency) || dependents.iter().any(|dependent| keys.contains(dependent)))
+            .map(|(dependency, _)| dependency.clone())
+            .collect::<Vec<_>>();
+        for dependency in reverse_rows_to_change {
+            self.remember_reverse(&dependency);
         }
         self.reverse.retain(|dependency, dependents| {
             if keys.contains(dependency) {

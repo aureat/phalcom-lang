@@ -18,7 +18,7 @@ class Probe {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let start = source.find("State::Ready").expect("associated expression");
     let site = analysis.snapshot.formal_fact_at(&module, start).expect("formal source site");
 

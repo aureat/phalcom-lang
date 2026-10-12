@@ -25,7 +25,7 @@ class Probe {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module, source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
 
     assert!(
         analysis
@@ -54,7 +54,7 @@ class Box<T> {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module, source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
 
     assert!(
         analysis
@@ -92,7 +92,7 @@ class Test {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
 
     let test_decl = DeclarationId::new(module.clone(), "Test".into());
 
@@ -179,7 +179,7 @@ class Probe {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
 
     let probe = DeclarationId::new(module.clone(), "Probe".into());
     let contextual = CallableId::new(probe.clone(), Selector::method("contextual", []).unwrap(), DispatchSide::Class);
@@ -345,7 +345,7 @@ class Probe {
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
     let program = Arc::new(parsed.program);
-    let analysis = analyze_single_module(module.clone(), source.clone(), program.clone());
+    let analysis = analyze_single_module(module.clone(), source.clone(), program.clone()).expect("semantic test analysis should succeed");
 
     let probe_decl = DeclarationId::new(module.clone(), "Probe".into());
     let run_id = CallableId::new(probe_decl, Selector::method("run", []).unwrap(), DispatchSide::Class);
@@ -391,7 +391,7 @@ class Caller { run(_ user: User) -> String { let f = &user.marker; f() } }
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:#?}", analysis.snapshot.diagnostics);
 
     let caller = DeclarationId::new(module, "Caller".into());
@@ -456,7 +456,7 @@ class Test {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module, source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
 
     assert!(
         analysis
@@ -502,7 +502,7 @@ class Test {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module, source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
 
     let underconstrained_count = analysis
         .snapshot

@@ -73,6 +73,9 @@ pub(crate) enum CanonicalUniverseBuildError {
     /// Canonical semantic analysis panicked at its existing boundary.
     #[error("canonical Universe semantic analysis panicked")]
     SemanticAnalysisPanicked,
+    /// Canonical semantic analysis failed without publishing a snapshot.
+    #[error("canonical Universe semantic analysis failed: {0}")]
+    SemanticAnalysisFailed(#[from] phalcom_semantic::SemanticUpdateFailure),
     /// A semantic match product lacks the proof required for executable lowering.
     #[error("canonical Universe semantic product is not executable: match in {module} ({callable:?}) at {range:?} is {reason}")]
     NonExecutableMatch {
@@ -189,6 +192,7 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
         phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0))
     }))
     .map_err(|_| CanonicalUniverseBuildError::SemanticAnalysisPanicked)?;
+    let semantic = semantic?;
 
     if let Some(diagnostic) = semantic
         .snapshot
@@ -323,9 +327,17 @@ fn validate_canonical_product(
 
 #[cfg(test)]
 mod tests {
-    use super::canonical_universe_program;
+    use super::{CanonicalUniverseBuildError, canonical_universe_program};
     use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
     use phalcom_native_meta::UniverseKey;
+
+    #[test]
+    fn canonical_semantic_failure_is_distinct_from_panic() {
+        let error: CanonicalUniverseBuildError = phalcom_semantic::SemanticUpdateFailure::Failed("injected update failure".into()).into();
+        assert!(
+            matches!(error, CanonicalUniverseBuildError::SemanticAnalysisFailed(phalcom_semantic::SemanticUpdateFailure::Failed(message)) if message == "injected update failure")
+        );
+    }
 
     #[test]
     fn canonical_universe_program_is_process_singleton() {

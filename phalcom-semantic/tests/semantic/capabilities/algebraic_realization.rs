@@ -362,7 +362,7 @@ fn ordinary_float_horner_expression_is_stack_safe_without_realization() {
         .name("ordinary-expression-stack-regression".into())
         .stack_size(2 * 1024 * 1024)
         .spawn(move || {
-            let analysis = phalcom_semantic::analyze_single_module(module, source.clone(), program);
+            let analysis = phalcom_semantic::analyze_single_module(module, source.clone(), program).expect("semantic test analysis should succeed");
             assert!(
                 !analysis.snapshot.has_errors(),
                 "unexpected diagnostics: {:?}",

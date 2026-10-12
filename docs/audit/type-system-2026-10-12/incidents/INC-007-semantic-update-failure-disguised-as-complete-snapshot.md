@@ -84,3 +84,11 @@ A convenience API has the return type for a successful `SemanticWorkspaceUpdate`
 ## Verification status and exclusions
 
 Source control flow and consumer references were inspected in the connected `main` repository; no Rust tests run, no edits performed. The prior handoff had only identified the convenience fallback as a candidate; this slice establishes a concrete production consumer. **Do not claim `compile.rs:797` or the strict `update_module_workspace_with_cancel` path is affected by this particular fallback.** Reassess severity after deterministic forced failure and source-reachable reproduction.
+
+## Implementation follow-up — 2026-10-12
+
+**Disposition:** implementation present; incident remains OPEN pending P1 G6–G9 acceptance.
+
+`SemanticWorkspaceSession::update`, `update_module_workspace`, `analyze_workspace`, and `analyze_single_module` now return typed `Result` failures. The synthetic/current-generation `Complete` fallback is removed, and session candidate writes are isolated by the DB undo journal and staged roots. Inline/standalone compiler paths and canonical Universe bootstrap propagate semantic failure. LSP interactive and scan paths do not publish an unsuccessful candidate as current.
+
+Focused evidence: 13 semantic publication tests pass, including fresh failure without a snapshot, retained prior publication, distinct failure categories, pre-commit rollback, and cancellation at commit; compiler and Universe error-mapping tests pass (1 each); LSP scan-classifier/cutover tests pass. **Remaining:** injected failures through every compiler entry family and stale LSP recovery source/range provenance are not yet verified. See the active P1 gate ledger; do not mark INC-007 closed before those gates pass.

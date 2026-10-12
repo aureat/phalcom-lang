@@ -16,7 +16,7 @@ use crate::scalar::StaticInt;
 use crate::traits::{AssociatedTypeRequirementId, TraitRef};
 use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
-use std::collections::HashMap;
+use im::{HashMap, Vector};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 fn canonical_complete_pack_source_member(selector: &TypeMemberSelector) -> TypeMemberDeclarationId {
@@ -350,24 +350,24 @@ pub struct AlgebraicStaticConstructorData {
 #[derive(Clone, Debug)]
 pub struct TypeStore {
     id: TypeStoreId,
-    types: Vec<TypeData>,
+    types: Vector<TypeData>,
     type_to_id: HashMap<(TypeData, KindId), TypeId>,
-    kinds: Vec<KindData>,
+    kinds: Vector<KindData>,
     kind_to_id: HashMap<KindData, KindId>,
-    type_kinds: Vec<KindId>,
-    type_parameters: Vec<TypeParameterData>,
+    type_kinds: Vector<KindId>,
+    type_parameters: Vector<TypeParameterData>,
     parameter_to_id: HashMap<(TypeParameterOwner, u32), TypeParameterId>,
     parameter_variances: HashMap<(DeclarationId, u32), Variance>,
     lambda_arena: TypeLambdaArena,
-    row_arena: Vec<RecordRowData>,
+    row_arena: Vector<RecordRowData>,
     row_interner: HashMap<RecordRowData, RecordRowId>,
-    family_arena: Vec<FamilyType>,
+    family_arena: Vector<FamilyType>,
     family_interner: HashMap<FamilyType, FamilyTypeId>,
-    variant_identities: Vec<VariantId>,
+    variant_identities: Vector<VariantId>,
     variant_identity_to_id: HashMap<VariantId, VariantTypeId>,
-    static_domains: Vec<StaticDomainData>,
+    static_domains: Vector<StaticDomainData>,
     static_domain_to_id: HashMap<StaticDomainData, StaticDomainId>,
-    static_constructors: Vec<AlgebraicStaticConstructorData>,
+    static_constructors: Vector<AlgebraicStaticConstructorData>,
     static_constructor_to_id: HashMap<AlgebraicStaticConstructorData, AlgebraicStaticConstructorId>,
     const_int_domain: StaticDomainId,
 
@@ -385,24 +385,24 @@ impl TypeStore {
     pub fn new() -> Self {
         let mut store = Self {
             id: TypeStoreId(NEXT_TYPE_STORE_ID.fetch_add(1, Ordering::Relaxed)),
-            types: Vec::new(),
+            types: Vector::new(),
             type_to_id: HashMap::new(),
-            kinds: Vec::new(),
+            kinds: Vector::new(),
             kind_to_id: HashMap::new(),
-            type_kinds: Vec::new(),
-            type_parameters: Vec::new(),
+            type_kinds: Vector::new(),
+            type_parameters: Vector::new(),
             parameter_to_id: HashMap::new(),
             parameter_variances: HashMap::new(),
             lambda_arena: TypeLambdaArena::new(),
-            row_arena: Vec::new(),
+            row_arena: Vector::new(),
             row_interner: HashMap::new(),
-            family_arena: Vec::new(),
+            family_arena: Vector::new(),
             family_interner: HashMap::new(),
-            variant_identities: Vec::new(),
+            variant_identities: Vector::new(),
             variant_identity_to_id: HashMap::new(),
-            static_domains: Vec::new(),
+            static_domains: Vector::new(),
             static_domain_to_id: HashMap::new(),
-            static_constructors: Vec::new(),
+            static_constructors: Vector::new(),
             static_constructor_to_id: HashMap::new(),
             const_int_domain: StaticDomainId::from_index(0),
             never_id: TypeId::DUMMY,
@@ -480,7 +480,7 @@ impl TypeStore {
         // version rather than mutating the old one. Cached products and retained
         // snapshots may still reference the previous ID and must keep its denotation.
         let id = TypeParameterId(self.type_parameters.len() as u32);
-        self.type_parameters.push(data);
+        self.type_parameters.push_back(data);
         self.parameter_to_id.insert(key, id);
         id
     }
@@ -608,7 +608,7 @@ impl TypeStore {
             return id;
         }
         let id = KindId(self.kinds.len() as u32);
-        self.kinds.push(data.clone());
+        self.kinds.push_back(data.clone());
         self.kind_to_id.insert(data, id);
         id
     }
@@ -704,8 +704,8 @@ impl TypeStore {
         }
 
         let id = TypeId(self.types.len() as u32);
-        self.types.push(data);
-        self.type_kinds.push(kind);
+        self.types.push_back(data);
+        self.type_kinds.push_back(kind);
         self.type_to_id.insert(key, id);
         debug_assert_eq!(self.types.len(), self.type_kinds.len());
         id
@@ -737,7 +737,7 @@ impl TypeStore {
             return id;
         }
         let id = StaticDomainId::from_index(self.static_domains.len());
-        self.static_domains.push(data.clone());
+        self.static_domains.push_back(data.clone());
         self.static_domain_to_id.insert(data, id);
         id
     }
@@ -810,7 +810,7 @@ impl TypeStore {
             return id;
         }
         let id = AlgebraicStaticConstructorId::from_index(self.static_constructors.len());
-        self.static_constructors.push(data.clone());
+        self.static_constructors.push_back(data.clone());
         self.static_constructor_to_id.insert(data, id);
         id
     }
@@ -1636,7 +1636,7 @@ impl TypeStore {
             return id;
         }
         let id = RecordRowId(self.row_arena.len() as u32);
-        self.row_arena.push(data.clone());
+        self.row_arena.push_back(data.clone());
         self.row_interner.insert(data, id);
         id
     }
@@ -1712,7 +1712,7 @@ impl TypeStore {
             id
         } else {
             let id = FamilyTypeId::new(self.family_arena.len() as u32);
-            self.family_arena.push(family.clone());
+            self.family_arena.push_back(family.clone());
             self.family_interner.insert(family, id);
             id
         };
@@ -2053,7 +2053,7 @@ impl TypeStore {
             return id;
         }
         let id = VariantTypeId::from_index(self.variant_identities.len());
-        self.variant_identities.push(variant.clone());
+        self.variant_identities.push_back(variant.clone());
         self.variant_identity_to_id.insert(variant, id);
         id
     }
@@ -2240,6 +2240,49 @@ mod tests {
     fn test_decl(name: &str) -> DeclarationId {
         let module = ModuleId::universe_root();
         DeclarationId::new(module, name.into())
+    }
+
+    #[test]
+    fn persistent_root_clone_shares_type_store_and_refreshes_provenance_locally() {
+        let mut committed = TypeStore::new();
+        for index in 0..96 {
+            committed.nominal_type(test_decl(&format!("Shared{index}")));
+        }
+        let owner = test_decl("GenericOwner");
+        let first_source = crate::diagnostic::SemanticSourceSpan::new(
+            ModuleId::universe_root(),
+            phalcom_common::range::SourceRange::new(1, 2),
+        );
+        let parameter = committed.intern_type_parameter(
+            TypeParameterData::new(TypeParameterOwner::Declaration(owner.clone()), 0, "T", KindId::TYPE).with_source(first_source.clone()),
+        );
+
+        let mut candidate = committed.clone();
+        let committed_id = committed.id();
+        let committed_type_id = committed.unit();
+        let first_type_address = &committed.types[0] as *const TypeData;
+        assert!(committed.types.ptr_eq(&candidate.types));
+        assert!(committed.type_to_id.ptr_eq(&candidate.type_to_id));
+        assert!(committed.lambda_arena.shares_backing_with(&candidate.lambda_arena));
+
+        let new_type = candidate.nominal_type(test_decl("CandidateOnly"));
+        let second_source = crate::diagnostic::SemanticSourceSpan::new(
+            ModuleId::universe_root(),
+            phalcom_common::range::SourceRange::new(5, 7),
+        );
+        let same_parameter = candidate.intern_type_parameter(
+            TypeParameterData::new(TypeParameterOwner::Declaration(owner), 0, "T", KindId::TYPE).with_source(second_source.clone()),
+        );
+
+        assert_eq!(candidate.id(), committed_id);
+        assert_eq!(candidate.unit(), committed_type_id);
+        assert_eq!(same_parameter, parameter);
+        assert_eq!(candidate.type_parameter(parameter).source, Some(second_source));
+        assert_eq!(committed.type_parameter(parameter).source, Some(first_source));
+        assert!(new_type.index() >= committed.type_count());
+        assert!(std::ptr::eq(first_type_address, &candidate.types[0] as *const TypeData));
+        assert!(committed.kind_to_id.ptr_eq(&candidate.kind_to_id));
+        assert!(committed.family_interner.ptr_eq(&candidate.family_interner));
     }
 
     #[test]

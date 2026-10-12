@@ -313,7 +313,7 @@ const none_case = Option::None
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
 
     // Verify snapshot has registered enum product and no fatal errors
     let opt_decl = DeclarationId::new(module, "Option".into());
@@ -338,7 +338,7 @@ class Container<T> {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let owner = DeclarationId::new(module, "Container".into());
     let id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
     let declaration = analysis.snapshot.associated_static_domains.get(&id).expect("published declaration product");
@@ -368,7 +368,7 @@ class Container<T: Type> {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let owner = DeclarationId::new(module, "Container".into());
     let id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner, "State");
     let declaration = analysis.snapshot.associated_static_domains.get(&id).expect("published declaration");
@@ -397,7 +397,7 @@ impl Packet {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let owner = DeclarationId::new(module, "Packet".into());
     let id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
     assert_eq!(
@@ -434,7 +434,7 @@ impl Packet { type data State { Parsed } }
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let owner = DeclarationId::new(module, "Packet".into());
     let id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
     assert!(!analysis.snapshot.associated_static_domains.contains_key(&id));
@@ -462,7 +462,7 @@ impl Marker for Packet {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let owner = DeclarationId::new(module, "Packet".into());
     let id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner, "State");
     assert!(!analysis.snapshot.associated_static_domains.contains_key(&id));
@@ -489,7 +489,7 @@ class Parser {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let owner = DeclarationId::new(module.clone(), "Parser".into());
     let status = CallableId::new(owner, Selector::method("status", []).expect("status selector"), DispatchSide::Class);
     let callable = analysis.snapshot.callable_analyses.get(&status).expect("status analysis");
@@ -529,7 +529,7 @@ class Probe {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let owner = DeclarationId::new(module.clone(), "Container".into());
     let declaration = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
     let probe = DeclarationId::new(module, "Probe".into());
@@ -579,7 +579,7 @@ data State {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let probe = DeclarationId::new(module.clone(), "Probe".into());
     let run = CallableId::new(probe, Selector::method("run", []).expect("run selector"), DispatchSide::Class);
     let callable = analysis.snapshot.callable_analyses.get(&run).expect("Probe.run analysis");
@@ -622,7 +622,7 @@ data State {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let probe = DeclarationId::new(module.clone(), "Probe".into());
     let run = CallableId::new(probe, Selector::method("run", []).expect("run selector"), DispatchSide::Class);
     let callable = analysis.snapshot.callable_analyses.get(&run).expect("Probe.run analysis");
@@ -804,7 +804,7 @@ fn associated_static_domain_and_case_paths_have_stable_source_index_targets() {
     let source: Arc<str> = Arc::from("class Parser {\n  type data State { Start; Done }\n  @class status() { Parser::State::Done }\n}\n");
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let index = analysis.snapshot.source_index.module(&module).expect("module source index");
     let domain_id = phalcom_semantic::identity::AssociatedStaticDomainDeclarationId::new(DeclarationId::new(module, "Parser".into()), "State");
 
@@ -835,7 +835,7 @@ fn nominal_static_case_publishes_canonical_target_before_runtime_rejection() {
     let source: Arc<str> = Arc::from("type data Shape { Scalar }\nclass Probe {\n  @class status() { Shape::Scalar }\n}\n");
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(
         analysis
             .snapshot
@@ -874,7 +874,7 @@ fn missing_nominal_static_case_has_no_source_target() {
     let source: Arc<str> = Arc::from("type data Shape { Scalar }\nclass Probe {\n  @class status() { Shape::Missing }\n}\n");
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(
         analysis
             .snapshot

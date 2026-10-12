@@ -22,7 +22,7 @@ data Point(x: Int, y: Int)
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
 
     let point_decl = DeclarationId::new(module, "Point".into());
     let data_info = analysis.snapshot.data_semantics.data_info(&point_decl);
@@ -52,7 +52,7 @@ data User {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
 
     let user_decl = DeclarationId::new(module, "User".into());
     let data_info = analysis.snapshot.data_semantics.data_info(&user_decl);
@@ -81,7 +81,7 @@ data Envelope<**Fs: RecordFields> {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let declaration = DeclarationId::new(module, "Envelope".into());
     let info = analysis
         .snapshot
@@ -139,7 +139,7 @@ data Envelope<**Fs: RecordFields> {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let declaration = DeclarationId::new(module.clone(), "Envelope".into());
     let info = analysis
         .snapshot
@@ -234,7 +234,7 @@ class Probe {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let diagnostics = analysis.snapshot.diagnostics_for(&module).expect("diagnostics for module");
     let constructor_text = "Envelope { id: 1 }";
     let constructor_start = source.find(constructor_text).expect("constructor source span");
@@ -263,7 +263,7 @@ data InternalPoint internal(x: Int)
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
 
     for (name, visibility) in [
         ("PublicPoint", "Public"),
@@ -298,7 +298,7 @@ class Caller {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let diagnostics = analysis.snapshot.diagnostics_for(&module).expect("diagnostics for inaccessible construction");
     assert!(
         diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::MemberInaccessible),
@@ -397,7 +397,7 @@ impl Secret {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let diagnostics = analysis.snapshot.diagnostics_for(&module);
     assert!(
         diagnostics.is_none_or(|items| !items.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::MemberInaccessible)),
@@ -421,7 +421,7 @@ class Caller {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(
         analysis
             .snapshot
@@ -448,7 +448,7 @@ class Caller {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(
         analysis
             .snapshot
@@ -477,7 +477,7 @@ class Caller {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let diagnostics = analysis
         .snapshot
         .diagnostics_for(&module)
@@ -505,7 +505,7 @@ class Geometry {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let diags = analysis.snapshot.diagnostics_for(&module);
     assert!(diags.is_none() || diags.unwrap().is_empty(), "diagnostics: {:#?}", diags);
 
@@ -532,7 +532,7 @@ class Geometry {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let diags = analysis.snapshot.diagnostics_for(&module).expect("diagnostics for module");
     assert!(
         diags.iter().any(|d| d.code == DiagnosticCode::DataComponentImmutable),
@@ -551,7 +551,7 @@ data Duplicate(x: Int, x: String)
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let diags = analysis.snapshot.diagnostics_for(&module).expect("diagnostics for module");
     assert!(
         diags.iter().any(|d| d.code == DiagnosticCode::DataDuplicateComponent),
@@ -577,7 +577,7 @@ class Container {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let diags = analysis.snapshot.diagnostics_for(&module);
     assert!(diags.is_none() || diags.unwrap().is_empty(), "diagnostics: {:#?}", diags);
 }
@@ -598,7 +598,7 @@ class Runner {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let diagnostics = analysis.snapshot.diagnostics_for(&module);
     assert!(
         diagnostics.as_ref().is_none_or(|diagnostics| diagnostics.is_empty()),
@@ -729,11 +729,11 @@ class Probe {
 }
 "#;
     let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
-    let _initial = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), initial_source, 1));
-    let incremental = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source, 2));
+    let _initial = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), initial_source, 1)).expect("semantic test update should succeed");
+    let incremental = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source, 2)).expect("semantic test update should succeed");
     let parsed = phalcom_ast::parse(source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let cold = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+    let cold = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
 
     let summarize = |snapshot: &phalcom_semantic::snapshot::SemanticSnapshot| {
         let callable = CallableId::new(
@@ -788,11 +788,11 @@ class Probe {
 }
 "#;
     let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
-    let _initial = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), initial_source, 1));
-    let incremental = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source, 2));
+    let _initial = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), initial_source, 1)).expect("semantic test update should succeed");
+    let incremental = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source, 2)).expect("semantic test update should succeed");
     let parsed = phalcom_ast::parse(source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let cold = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+    let cold = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
 
     let summarize = |snapshot: &phalcom_semantic::snapshot::SemanticSnapshot| {
         let callable = CallableId::new(
@@ -1142,7 +1142,7 @@ fn user_complete_pack_data_type_keeps_nominal_identity_distinct_from_tuple() {
     let source: Arc<str> = Arc::from("data MyTuple<***Es: CompleteTypePack>(***Es)\n");
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let declaration = DeclarationId::new(module.clone(), "MyTuple".into());
     let info = analysis.snapshot.data_semantics.data_info(&declaration).expect("MyTuple semantic product");
     let mut store = analysis.snapshot.store.as_ref().clone();
@@ -1175,7 +1175,7 @@ fn user_record_row_data_type_keeps_nominal_identity_distinct_from_record() {
     let source: Arc<str> = Arc::from("data MyRecord<**Fs: RecordFields> { **Fs }\n");
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let declaration = DeclarationId::new(module.clone(), "MyRecord".into());
     let info = analysis.snapshot.data_semantics.data_info(&declaration).expect("MyRecord semantic product");
     let mut store = analysis.snapshot.store.as_ref().clone();
@@ -1220,7 +1220,7 @@ class Directory {
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let diags = analysis.snapshot.diagnostics_for(&module);
     assert!(diags.is_none() || diags.unwrap().is_empty(), "diagnostics: {:#?}", diags);
 }
@@ -1260,11 +1260,11 @@ fn data_declaration_cold_incremental_equivalence() {
     let source = "data Point(x: Int, y: Int)\nclass Geometry { @class test() -> Int { let p = Point(x: 10, y: 20); p.x } }\n";
     let parsed1 = phalcom_ast::parse(source, 0);
     assert!(parsed1.errors.is_empty(), "parse errors: {:#?}", parsed1.errors);
-    let cold_analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed1.program));
+    let cold_analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed1.program)).expect("semantic test analysis should succeed");
 
     let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
     let input = crate::semantic::incremental::support::single_module_input(module.clone(), source, 1);
-    let update = session.update(input);
+    let update = session.update(input).expect("semantic test update should succeed");
 
     let cold_point = cold_analysis
         .snapshot
@@ -1288,7 +1288,7 @@ class StrangePoint is Point {}
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     let diags = analysis.snapshot.diagnostics_for(&module).expect("diagnostics expected");
     assert!(
         diags.iter().any(|d| d.code == DiagnosticCode::DataUsedAsSuperclass),
@@ -1302,12 +1302,12 @@ fn class_cannot_inherit_from_data_incremental() {
     let module = test_module();
     let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
     let source1 = "class Base {}\nclass Derived is Base {}\n";
-    let update1 = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source1, 1));
+    let update1 = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source1, 1)).expect("semantic test update should succeed");
     let diags1 = update1.snapshot.diagnostics_for(&module);
     assert!(diags1.is_none_or(|d| d.is_empty()));
 
     let source2 = "data Base(x: Int)\nclass Derived is Base {}\n";
-    let update2 = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source2, 2));
+    let update2 = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source2, 2)).expect("semantic test update should succeed");
     let diags2 = update2.snapshot.diagnostics_for(&module).expect("diagnostics expected in update 2");
     assert!(
         diags2.iter().any(|d| d.code == DiagnosticCode::DataUsedAsSuperclass),
@@ -1334,7 +1334,7 @@ fn data_cross_module_record_construction_order() {
     let update = session.update(crate::semantic::incremental::support::multi_module_input(
         vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b.into())],
         1,
-    ));
+    )).expect("semantic test update should succeed");
 
     let user_decl = DeclarationId::new(module_a, "User".into());
     let user_info = update.snapshot.data_semantics.data_info(&user_decl);
@@ -1363,7 +1363,7 @@ fn data_incremental_imported_component_type_mutation() {
     let update1 = session.update(crate::semantic::incremental::support::multi_module_input(
         vec![(module_a.clone(), source_a_v1.into()), (module_b.clone(), source_b.into())],
         1,
-    ));
+    )).expect("semantic test update should succeed");
     let container_decl = DeclarationId::new(module_a.clone(), "Container".into());
     let info1 = update1.snapshot.data_semantics.data_info(&container_decl).unwrap();
     assert_eq!(info1.components.len(), 1);
@@ -1373,7 +1373,7 @@ fn data_incremental_imported_component_type_mutation() {
     let update2 = session.update(crate::semantic::incremental::support::multi_module_input(
         vec![(module_a.clone(), source_a_v2.into()), (module_b.clone(), source_b.into())],
         2,
-    ));
+    )).expect("semantic test update should succeed");
 
     // Data declaration product in module A must reflect String
     let container_info = update2.snapshot.data_semantics.data_info(&container_decl).unwrap();

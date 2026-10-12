@@ -197,7 +197,7 @@ fn presentation_only_movement() {
             (unrelated.clone(), "class Other {\n  value() -> Int { 1 }\n}\n".into()),
         ],
         1,
-    ));
+    )).expect("semantic test update should succeed");
 
     let app_initial_source_shard = initial.snapshot.source_index().module_arc(&app).unwrap();
     let unrelated_initial_source_shard = initial.snapshot.source_index().module_arc(&unrelated).unwrap();
@@ -218,7 +218,7 @@ fn presentation_only_movement() {
             (unrelated.clone(), "class Other {\n  value() -> Int { 1 }\n}\n".into()),
         ],
         2,
-    ));
+    )).expect("semantic test update should succeed");
 
     let updated_app_shard = updated.snapshot.source_index().module_arc(&app).unwrap();
     let updated_app_fps = updated_app_shard.fingerprints();
@@ -279,7 +279,7 @@ fn local_references() {
             .into(),
         )],
         1,
-    ));
+    )).expect("semantic test update should succeed");
 
     let query = initial.snapshot.editor();
     let app_shard = initial.snapshot.source_index().module(&app).unwrap();
@@ -311,7 +311,7 @@ fn imported_binding() {
         false,
         1,
     );
-    let publication = session.update(input);
+    let publication = session.update(input).expect("semantic test update should succeed");
     let query = publication.snapshot.editor();
 
     let provider = module("provider");
@@ -534,7 +534,7 @@ fn alias_dual_relation() {
         true,
         1,
     );
-    let publication = session.update(input);
+    let publication = session.update(input).expect("semantic test update should succeed");
     let query = publication.snapshot.editor();
 
     let provider = module("provider");
@@ -598,7 +598,7 @@ fn missing_target_appears() {
         false,
         1,
     );
-    let initial = session.update(initial_input);
+    let initial = session.update(initial_input).expect("semantic test update should succeed");
     let initial_query = initial.snapshot.editor();
     let foo_target = SemanticTargetId::Declaration(DeclarationId::new(provider.clone(), "Foo".into()));
     assert_eq!(initial_query.definition_sites(&foo_target).len(), 0);
@@ -610,7 +610,7 @@ fn missing_target_appears() {
         false,
         2,
     );
-    let updated = session.update(updated_input);
+    let updated = session.update(updated_input).expect("semantic test update should succeed");
     let updated_query = updated.snapshot.editor();
     assert_eq!(updated_query.definition_sites(&foo_target).len(), 1);
     assert_eq!(updated_query.reference_sites_in_domain(&foo_target, ReferenceDomain::Semantic).len(), 1);
@@ -630,14 +630,14 @@ fn target_disappears() {
         false,
         1,
     );
-    let initial = session.update(initial_input);
+    let initial = session.update(initial_input).expect("semantic test update should succeed");
     let foo_target = SemanticTargetId::Declaration(DeclarationId::new(provider.clone(), "Foo".into()));
     assert_eq!(initial.snapshot.editor().definition_sites(&foo_target).len(), 1);
     assert_eq!(initial.snapshot.editor().workspace_symbols("Foo", 10).len(), 1);
 
     // Provider removes Foo
     let updated_input = two_module_input("class Gone {}\n", "import provider.Foo\nclass Consumer { run() -> Int { 0 } }\n", false, 2);
-    let updated = session.update(updated_input);
+    let updated = session.update(updated_input).expect("semantic test update should succeed");
     let updated_query = updated.snapshot.editor();
     assert_eq!(updated_query.definition_sites(&foo_target).len(), 0);
     assert_eq!(updated_query.reference_sites_in_domain(&foo_target, ReferenceDomain::Semantic).len(), 0);
@@ -653,12 +653,12 @@ fn rename_and_delete_readd() {
     let mut session = SemanticWorkspaceSession::new();
 
     // 1. Foo
-    let s1 = session.update(multi_module_input(vec![(app.clone(), "class Foo {}\n".into())], 1));
+    let s1 = session.update(multi_module_input(vec![(app.clone(), "class Foo {}\n".into())], 1)).expect("semantic test update should succeed");
     let foo_target = SemanticTargetId::Declaration(DeclarationId::new(app.clone(), "Foo".into()));
     assert_eq!(s1.snapshot.editor().definition_sites(&foo_target).len(), 1);
 
     // 2. Rename to Bar
-    let s2 = session.update(multi_module_input(vec![(app.clone(), "class Bar {}\n".into())], 2));
+    let s2 = session.update(multi_module_input(vec![(app.clone(), "class Bar {}\n".into())], 2)).expect("semantic test update should succeed");
     let bar_target = SemanticTargetId::Declaration(DeclarationId::new(app.clone(), "Bar".into()));
     assert_eq!(s2.snapshot.editor().definition_sites(&foo_target).len(), 0);
     assert_eq!(s2.snapshot.editor().definition_sites(&bar_target).len(), 1);
@@ -666,12 +666,12 @@ fn rename_and_delete_readd() {
     assert_eq!(s2.snapshot.editor().workspace_symbols("Bar", 10).len(), 1);
 
     // 3. Delete all
-    let s3 = session.update(multi_module_input(vec![(app.clone(), "// empty\n".into())], 3));
+    let s3 = session.update(multi_module_input(vec![(app.clone(), "// empty\n".into())], 3)).expect("semantic test update should succeed");
     assert_eq!(s3.snapshot.editor().definition_sites(&bar_target).len(), 0);
     assert_eq!(s3.snapshot.editor().workspace_symbols("Bar", 10).len(), 0);
 
     // 4. Foo again
-    let s4 = session.update(multi_module_input(vec![(app.clone(), "class Foo {}\n".into())], 4));
+    let s4 = session.update(multi_module_input(vec![(app.clone(), "class Foo {}\n".into())], 4)).expect("semantic test update should succeed");
     assert_eq!(s4.snapshot.editor().definition_sites(&foo_target).len(), 1);
     assert_eq!(s4.snapshot.editor().workspace_symbols("Foo", 10).len(), 1);
 }
@@ -693,7 +693,7 @@ fn structural_sharing() {
             (m3.clone(), "class C3 {}\n".into()),
         ],
         1,
-    ));
+    )).expect("semantic test update should succeed");
 
     let m2_shard = initial.snapshot.source_index().module_arc(&m2).unwrap();
     let m3_shard = initial.snapshot.source_index().module_arc(&m3).unwrap();
@@ -708,7 +708,7 @@ fn structural_sharing() {
             (m3.clone(), "class C3 {}\n".into()),
         ],
         2,
-    ));
+    )).expect("semantic test update should succeed");
 
     // Pointer equality for m2 and m3 shards
     assert!(Arc::ptr_eq(&m2_shard, &updated.snapshot.source_index().module_arc(&m2).unwrap()));
@@ -804,7 +804,7 @@ fn make_fanout_input(provider_source: &str, consumer_sources: Vec<(usize, String
 #[test]
 fn high_fanout_provider_body_only_edit() {
     let mut session = SemanticWorkspaceSession::new();
-    let initial = session.update(make_fanout_input("class Foo { @class value() -> Int { 1 } }\nexport Foo\n", Vec::new(), 1));
+    let initial = session.update(make_fanout_input("class Foo { @class value() -> Int { 1 } }\nexport Foo\n", Vec::new(), 1)).expect("semantic test update should succeed");
     assert!(initial.snapshot.source_index().modules().count() >= 51);
     let foo_target = SemanticTargetId::Declaration(DeclarationId::new(module("provider"), "Foo".into()));
     let initial_foo_references = initial
@@ -824,7 +824,7 @@ fn high_fanout_provider_body_only_edit() {
         .collect::<Vec<_>>();
 
     // Body-only edit on Provider
-    let updated = session.update(make_fanout_input("class Foo { @class value() -> Int { 2 } }\nexport Foo\n", Vec::new(), 2));
+    let updated = session.update(make_fanout_input("class Foo { @class value() -> Int { 2 } }\nexport Foo\n", Vec::new(), 2)).expect("semantic test update should succeed");
 
     // Prohibited scan invariants: zero whole-workspace scans
     let src_stats = updated.snapshot.source_index().stats();
@@ -854,7 +854,7 @@ fn high_fanout_provider_body_only_edit() {
 #[test]
 fn high_fanout_one_consumer_reference_edit() {
     let mut session = SemanticWorkspaceSession::new();
-    let initial = session.update(make_fanout_input("class Foo { @class value() -> Int { 1 } }\nexport Foo\n", Vec::new(), 1));
+    let initial = session.update(make_fanout_input("class Foo { @class value() -> Int { 1 } }\nexport Foo\n", Vec::new(), 1)).expect("semantic test update should succeed");
 
     let c05_shard = initial.snapshot.source_index().module_arc(&module("c05")).unwrap();
     let c06_shard = initial.snapshot.source_index().module_arc(&module("c06")).unwrap();
@@ -864,7 +864,7 @@ fn high_fanout_one_consumer_reference_edit() {
         "class Foo { @class value() -> Int { 1 } }\nexport Foo\n",
         vec![(5, "import provider.Foo\nclass C05 { run() -> Int { Foo.value() + 10 } }\n".into())],
         2,
-    ));
+    )).expect("semantic test update should succeed");
 
     // Exactly c05 changed, c06 retained
     let updated_c05_shard = updated.snapshot.source_index().module_arc(&module("c05")).unwrap();
@@ -932,7 +932,7 @@ fn cold_incremental_parity() {
         false,
         1,
     );
-    let _inc_v1 = session.update(input_v1.clone());
+    let _inc_v1 = session.update(input_v1.clone()).expect("semantic test update should succeed");
 
     let input_v2 = two_module_input(
         "class Foo { @class make() -> Int { 2 }\n@class another() -> Int { 3 } }\nexport Foo\n",
@@ -940,11 +940,11 @@ fn cold_incremental_parity() {
         false,
         2,
     );
-    let inc_v2 = session.update(input_v2.clone());
+    let inc_v2 = session.update(input_v2.clone()).expect("semantic test update should succeed");
 
     // Compare with fresh cold session on v2
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold_v2 = cold_session.update(input_v2);
+    let cold_v2 = cold_session.update(input_v2).expect("semantic test update should succeed");
 
     let inc_query = inc_v2.snapshot.editor();
     let cold_query = cold_v2.snapshot.editor();
@@ -984,13 +984,13 @@ fn old_snapshot_immutability() {
     let mut session = SemanticWorkspaceSession::new();
     let app = module("app");
 
-    let s1 = session.update(multi_module_input(vec![(app.clone(), "class Foo { run() { 1 } }\n".into())], 1));
+    let s1 = session.update(multi_module_input(vec![(app.clone(), "class Foo { run() { 1 } }\n".into())], 1)).expect("semantic test update should succeed");
     let snap1 = s1.snapshot.clone();
 
-    let s2 = session.update(multi_module_input(vec![(app.clone(), "class Bar { run() { 2 } }\n".into())], 2));
+    let s2 = session.update(multi_module_input(vec![(app.clone(), "class Bar { run() { 2 } }\n".into())], 2)).expect("semantic test update should succeed");
     let snap2 = s2.snapshot.clone();
 
-    let s3 = session.update(multi_module_input(vec![(app.clone(), "// empty\n".into())], 3));
+    let s3 = session.update(multi_module_input(vec![(app.clone(), "// empty\n".into())], 3)).expect("semantic test update should succeed");
     let snap3 = s3.snapshot.clone();
 
     let foo_target = SemanticTargetId::Declaration(DeclarationId::new(app.clone(), "Foo".into()));
@@ -1025,7 +1025,7 @@ fn old_snapshot_survives_import_retarget() {
         "import provider.Foo\nclass Consumer { run() { Foo } }\n",
         false,
         1,
-    ));
+    )).expect("semantic test update should succeed");
     let first_snapshot = first.snapshot.clone();
 
     let second = session.update(two_module_input_with_provider(
@@ -1034,7 +1034,7 @@ fn old_snapshot_survives_import_retarget() {
         "import replacement.Foo\nclass Consumer { run() { Foo } }\n",
         false,
         2,
-    ));
+    )).expect("semantic test update should succeed");
 
     let old_target = SemanticTargetId::Declaration(DeclarationId::new(module("provider"), "Foo".into()));
     let new_target = SemanticTargetId::Declaration(DeclarationId::new(module("replacement"), "Foo".into()));
@@ -1051,14 +1051,14 @@ fn old_snapshot_survives_import_retarget() {
 #[test]
 fn zero_prohibited_workspace_scans() {
     let mut session = SemanticWorkspaceSession::new();
-    let _initial = session.update(make_fanout_input("class Foo { @class value() -> Int { 1 } }\nexport Foo\n", Vec::new(), 1));
+    let _initial = session.update(make_fanout_input("class Foo { @class value() -> Int { 1 } }\nexport Foo\n", Vec::new(), 1)).expect("semantic test update should succeed");
 
     // Perform an ordinary edit to one consumer
     let update = session.update(make_fanout_input(
         "class Foo { @class value() -> Int { 1 } }\nexport Foo\n",
         vec![(0, "import provider.Foo\nclass C00 { run() -> Int { Foo.value() + 42 } }\n".into())],
         2,
-    ));
+    )).expect("semantic test update should succeed");
 
     let src_stats = update.snapshot.source_index().stats();
     assert_eq!(src_stats.source_workspace_scan_units, 0);

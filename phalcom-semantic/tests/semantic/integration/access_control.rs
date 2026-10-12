@@ -180,7 +180,7 @@ class Entity {
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
     let module = ModuleId::universe_root();
-    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program)).expect("semantic test analysis should succeed");
     assert!(!analysis.snapshot.has_errors(), "semantic errors: {:?}", analysis.snapshot.diagnostics);
 
     let entity_decl = DeclarationId::new(module.clone(), "Entity".into());
