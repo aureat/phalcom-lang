@@ -50,12 +50,16 @@ pub(crate) fn specialize_residual_term(
     }
     evaluator.charge_step()?;
 
-    let residual_data = {
+    let (residual_data, trusted_context) = {
         let store = evaluator.residuals().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
-        store.get(residual).map_err(Stop::from)?.clone()
+        (
+            store.get(residual).map_err(Stop::from)?.clone(),
+            store.trusted_context(residual).map_err(Stop::from)?.clone(),
+        )
     };
 
-    match residual_data {
+    let previous_context = evaluator.replace_trusted_branch_context(trusted_context.clone());
+    let result = match residual_data {
         StaticResidualData::Parameter { parameter } => {
             specialize_parameter(evaluator, residual, &parameter, supplied)
         }
@@ -69,7 +73,24 @@ pub(crate) fn specialize_residual_term(
             specialize_member_projection(evaluator, residual, &projection, result_domain, &environment, supplied)
         }
         _ => Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
-    }
+    };
+    let result = match result {
+        Ok(StaticEvalTerm::Residual(reference)) if reference == residual && evaluator.trusted_branch_context() != &trusted_context => {
+            evaluator
+                .reintern_residual_with_trusted_context(
+                    evaluator
+                        .residuals()
+                        .and_then(|store| store.get(residual).ok())
+                        .cloned()
+                        .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?,
+                    evaluator.trusted_branch_context().clone(),
+                )
+                .map(StaticEvalTerm::Residual)
+        }
+        other => other,
+    };
+    evaluator.replace_trusted_branch_context(previous_context);
+    result
 }
 
 fn specialize_parameter(

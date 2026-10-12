@@ -278,3 +278,30 @@ All tasks T7-A through T7-J have been implemented in accordance with the Level-2
 - Verification gates G7.A through G7.E all pass with verified non-zero selection.
 
 T7 and Gate G7 are promoted to `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
+
+## Post-completion review corrections — 2026-10-12
+
+A subsequent review found that a nested proof residual could be returned as a
+definition's result even when the enclosing checked definition produced a
+different declared result. The evaluator now emits an exact `Apply` residual
+for that enclosing definition, capturing its declared result domain, current
+formal arguments, inherited environment, and active branch facts. A proof that
+is itself the definition's result remains a `Proof` residual. This refines the
+earlier instruction not to use `Apply` as a substitute for environment-bearing
+child residuals; it does not remove the captured environment from direct
+proof/member residuals.
+
+Public normalized proof propositions are now kept separate from trusted
+checked-branch facts. Checked facts live in a private residual-store sidecar,
+included in interning and application identity, so public residual payloads
+cannot transfer them to another goal. Caller-supplied propositions remain
+available as propositions but cannot establish a proof. Exact kinded formal
+arguments are resolved through the checked static signature to the associated
+`TypeParameterId` before specialization composition, preserving value-formal
+positions and branch-proof precedence. After later specialization, closed
+branch refinements are checked through the existing type proof authority;
+contradictory or unproven refinements are discarded.
+
+`RUSTFLAGS='' cargo check -p phalcom-semantic` passed for the corrective diff.
+No behavioral tests were run for these review corrections; the earlier G7
+evidence predates them, so these paths remain behaviorally unverified.

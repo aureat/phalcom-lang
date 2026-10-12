@@ -770,6 +770,27 @@ fingerprint boundaries in `residual.rs`, and gates G7.A through G7.E passing cle
 (11/11 passed). T7 and Gate G7 are `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 The working tree state was verified against all discriminating gates with zero compiler warnings.
 
+### T7 post-review corrections — 2026-10-12
+
+A later review found three gaps in the delivered T7 implementation: a nested
+proof residual could escape as the result of a definition with a different
+declared result; public normalized proof propositions were consumed as trusted
+evidence; and exact kinded formal arguments were not projected to their
+signature-owned `TypeParameterId`s. The correction residualizes the enclosing
+checked definition only when the child residual cannot represent its result,
+while preserving a direct root proof residual. The root application captures
+the stable root frame's exact arguments and branch environment. Caller-supplied
+propositions remain untrusted; checked branch facts live in a residual-store
+sidecar, participate in application identity, and are revalidated after
+specialization. Conflicting or unproven closed refinements are discarded.
+Kinded formal indices are resolved through the checked static signature,
+including signatures with interleaved value parameters.
+
+`RUSTFLAGS='' cargo check -p phalcom-semantic` passes after these corrections.
+No behavioral tests were run for this corrective diff, so the earlier T7 gate
+results do not verify these newly changed paths; their behavior remains
+unverified pending the focused T7 regressions.
+
 
 ### P11 pattern decision — INC-6
 

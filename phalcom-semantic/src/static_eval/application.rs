@@ -89,6 +89,149 @@ pub enum CanonicalStaticProofFact {
     Conforms { key: GenericConformanceKey },
 }
 
+/// Checked branch refinements captured by the evaluator for one residual.
+/// This type is crate-private and is stored outside the public residual payload.
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct StaticTrustedBranchContext {
+    type_bindings: Box<[(TypeParameterId, TypeId)]>,
+    constraints: Box<[CanonicalStaticProofFact]>,
+}
+
+impl StaticTrustedBranchContext {
+    pub(crate) fn from_parts(
+        type_bindings: impl IntoIterator<Item = (TypeParameterId, TypeId)>,
+        constraints: impl IntoIterator<Item = CanonicalStaticProofFact>,
+    ) -> Self {
+        use std::collections::{BTreeMap, BTreeSet};
+        let type_bindings = type_bindings.into_iter().collect::<BTreeMap<_, _>>().into_iter().collect::<Vec<_>>().into_boxed_slice();
+        let constraints = constraints
+            .into_iter()
+            .map(|fact| match fact {
+                CanonicalStaticProofFact::Equal(left, right) if right < left => CanonicalStaticProofFact::Equal(right, left),
+                fact => fact,
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        Self { type_bindings, constraints }
+    }
+
+    pub(crate) fn type_bindings(&self) -> &[(TypeParameterId, TypeId)] {
+        &self.type_bindings
+    }
+
+    pub(crate) fn constraints(&self) -> &[CanonicalStaticProofFact] {
+        &self.constraints
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.type_bindings.is_empty() && self.constraints.is_empty()
+    }
+
+    pub(crate) fn overlay_branch_proofs<'a>(
+        &self,
+        environments: impl IntoIterator<Item = &'a crate::match_semantics::BranchProofEnvironment>,
+    ) -> Self {
+        use std::collections::{BTreeMap, BTreeSet};
+
+        let mut types: BTreeMap<_, _> = self.type_bindings.iter().copied().collect();
+        let mut constraints: BTreeSet<_> = self.constraints.iter().cloned().collect();
+        for environment in environments {
+            for (parameter, ty) in &environment.bindings {
+                types.insert(*parameter, *ty);
+            }
+            for equality in environment.equalities.iter() {
+                match equality {
+                    crate::types::constraint::TypeConstraint::Equal(left, right) => {
+                        let (left, right) = if left <= right { (*left, *right) } else { (*right, *left) };
+                        constraints.insert(CanonicalStaticProofFact::Equal(left, right));
+                    }
+                    crate::types::constraint::TypeConstraint::Subtype(lower, upper) => {
+                        constraints.insert(CanonicalStaticProofFact::Subtype { lower: *lower, upper: *upper });
+                    }
+                    crate::types::constraint::TypeConstraint::HasMember(_, _) => {}
+                }
+            }
+        }
+        Self::from_parts(types, constraints)
+    }
+
+    pub(crate) fn substitute(
+        &self,
+        substitution: &crate::types::substitution::TypeSubstitution,
+        types: &mut crate::types::store::TypeStore,
+    ) -> Result<Self, StaticSpecializationEnvironmentError> {
+        use std::collections::{BTreeMap, BTreeSet};
+
+        let mut bindings = BTreeMap::new();
+        for (parameter, ty) in self.type_bindings.iter() {
+            let value = substitution
+                .try_apply(types, *ty)
+                .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
+            let parameter_type = types.parameter_form(*parameter);
+            let specialized_parameter = substitution
+                .try_apply(types, parameter_type)
+                .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
+            // A later concrete specialization that disagrees with the checked
+            // branch refinement makes that refinement inapplicable.
+            if specialized_parameter == parameter_type || specialized_parameter == value {
+                bindings.insert(*parameter, value);
+            }
+        }
+
+        let mut constraints = BTreeSet::new();
+        for fact in self.constraints.iter() {
+            match fact {
+                CanonicalStaticProofFact::Equal(left, right) => {
+                    let left = substitution
+                        .try_apply(types, *left)
+                        .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
+                    let right = substitution
+                        .try_apply(types, *right)
+                        .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
+                    let (left, right) = if left <= right { (left, right) } else { (right, left) };
+                    constraints.insert(CanonicalStaticProofFact::Equal(left, right));
+                }
+                CanonicalStaticProofFact::Subtype { lower, upper } => {
+                    let lower = substitution
+                        .try_apply(types, *lower)
+                        .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
+                    let upper = substitution
+                        .try_apply(types, *upper)
+                        .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
+                    constraints.insert(CanonicalStaticProofFact::Subtype { lower, upper });
+                }
+                CanonicalStaticProofFact::Conforms { key } => {
+                    let subject = match key.subject {
+                        crate::types::parameter::TypeTerm::Canonical(ty) => crate::types::parameter::TypeTerm::Canonical(
+                            substitution
+                                .try_apply(types, ty)
+                                .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?,
+                        ),
+                        ref other => other.clone(),
+                    };
+                    let mut arguments = Vec::with_capacity(key.trait_ref.arguments.len());
+                    for argument in key.trait_ref.arguments.iter() {
+                        arguments.push(
+                            substitution
+                                .try_apply(types, *argument)
+                                .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?,
+                        );
+                    }
+                    constraints.insert(CanonicalStaticProofFact::Conforms {
+                        key: crate::generic_evidence::GenericConformanceKey::new(
+                            subject,
+                            crate::traits::TraitRef::new(key.trait_ref.declaration.clone(), arguments),
+                        ),
+                    });
+                }
+            }
+        }
+        Ok(Self::from_parts(bindings, constraints))
+    }
+}
+
 /// Exact argument captured for one formal static parameter.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StaticSpecializationArgument {
@@ -127,6 +270,7 @@ pub enum StaticSpecializationEnvironmentError {
 pub struct StaticApplicationEnvironmentKey {
     type_bindings: Box<[(TypeParameterId, TypeId)]>,
     constraints: Box<[CanonicalStaticProofFact]>,
+    trusted_branch_context: StaticTrustedBranchContext,
 }
 
 impl StaticApplicationEnvironmentKey {
@@ -156,6 +300,7 @@ impl StaticApplicationEnvironmentKey {
         Ok(Self {
             type_bindings: normalized_types.into_iter().collect::<Vec<_>>().into_boxed_slice(),
             constraints: normalized_constraints.into_iter().collect::<Vec<_>>().into_boxed_slice(),
+            trusted_branch_context: StaticTrustedBranchContext::default(),
         })
     }
 
@@ -168,7 +313,7 @@ impl StaticApplicationEnvironmentKey {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.type_bindings.is_empty() && self.constraints.is_empty()
+        self.type_bindings.is_empty() && self.constraints.is_empty() && self.trusted_branch_context.is_empty()
     }
 
     pub fn to_specialization_key(&self) -> StaticSpecializationEnvironmentKey {
@@ -177,6 +322,11 @@ impl StaticApplicationEnvironmentKey {
             type_bindings: self.type_bindings.clone(),
             constraints: self.constraints.clone(),
         }
+    }
+
+    pub(crate) fn with_trusted_branch_context(mut self, context: StaticTrustedBranchContext) -> Self {
+        self.trusted_branch_context = context;
+        self
     }
 }
 
@@ -245,11 +395,23 @@ impl StaticSpecializationEnvironmentKey {
         StaticApplicationEnvironmentKey {
             type_bindings: self.type_bindings.clone(),
             constraints: self.constraints.clone(),
+            trusted_branch_context: StaticTrustedBranchContext::default(),
+        }
+    }
+
+    pub(crate) fn with_additional_type_bindings(&self, bindings: impl IntoIterator<Item = (TypeParameterId, TypeId)>) -> Self {
+        let type_bindings = self.type_bindings.iter().copied().chain(bindings).collect::<Vec<_>>().into_boxed_slice();
+        Self {
+            argument_bindings: self.argument_bindings.clone(),
+            type_bindings,
+            constraints: self.constraints.clone(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.argument_bindings.is_empty() && self.type_bindings.is_empty() && self.constraints.is_empty()
+        self.argument_bindings.is_empty()
+            && self.type_bindings.is_empty()
+            && self.constraints.is_empty()
     }
 
     /// Strict merge of two environments at the same composition layer.
@@ -293,28 +455,25 @@ impl StaticSpecializationEnvironmentKey {
         })
     }
 
-    /// Overlays active branch proofs onto the environment.
-    ///
-    /// Nearest active branch proof wins for parameter bindings; branch constraints
-    /// are canonically unioned with existing constraints.
+    /// Adds caller-supplied branch propositions to a normalized environment.
+    /// These propositions do not carry evaluator proof provenance.
     pub fn overlay_branch_proofs<'a>(
         &self,
         environments: impl IntoIterator<Item = &'a crate::match_semantics::BranchProofEnvironment>,
     ) -> Result<Self, StaticSpecializationEnvironmentError> {
         use std::collections::{BTreeMap, BTreeSet};
 
-        let mut types_map: BTreeMap<_, _> = self.type_bindings.iter().copied().collect();
+        let mut bindings: BTreeMap<_, _> = self.type_bindings.iter().copied().collect();
         let mut constraints: BTreeSet<_> = self.constraints.iter().cloned().collect();
-
-        for env in environments {
-            for (param, ty) in &env.bindings {
-                types_map.insert(*param, *ty);
+        for environment in environments {
+            for (parameter, ty) in &environment.bindings {
+                bindings.insert(*parameter, *ty);
             }
-            for eq in env.equalities.iter() {
-                match eq {
-                    crate::types::constraint::TypeConstraint::Equal(t1, t2) => {
-                        let (min, max) = if t1 <= t2 { (*t1, *t2) } else { (*t2, *t1) };
-                        constraints.insert(CanonicalStaticProofFact::Equal(min, max));
+            for equality in environment.equalities.iter() {
+                match equality {
+                    crate::types::constraint::TypeConstraint::Equal(left, right) => {
+                        let (left, right) = if left <= right { (*left, *right) } else { (*right, *left) };
+                        constraints.insert(CanonicalStaticProofFact::Equal(left, right));
                     }
                     crate::types::constraint::TypeConstraint::Subtype(lower, upper) => {
                         constraints.insert(CanonicalStaticProofFact::Subtype { lower: *lower, upper: *upper });
@@ -323,17 +482,15 @@ impl StaticSpecializationEnvironmentKey {
                 }
             }
         }
-
-        Ok(Self {
-            argument_bindings: self.argument_bindings.clone(),
-            type_bindings: types_map.into_iter().collect::<Vec<_>>().into_boxed_slice(),
-            constraints: constraints.into_iter().collect::<Vec<_>>().into_boxed_slice(),
-        })
+        Self::normalized(
+            self.argument_bindings.iter().cloned(),
+            bindings,
+            constraints,
+        )
     }
 
-    /// Projects canonical facts from active branch proof environments into a normalized key.
-    ///
-    /// Nearest active branch proof wins for parameter bindings.
+    /// Projects caller-supplied branch propositions into a normalized key.
+    /// The projected propositions are not checked evaluator proof evidence.
     pub fn from_branch_proofs<'a>(
         environments: impl IntoIterator<Item = &'a crate::match_semantics::BranchProofEnvironment>,
     ) -> Result<Self, StaticSpecializationEnvironmentError> {
@@ -409,7 +566,13 @@ impl StaticSpecializationEnvironmentKey {
         for (param, ty) in &self.type_bindings {
             let substituted = subst.try_apply(types, *ty)
                 .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
-            final_types.insert(*param, substituted);
+            if let Some(&existing) = final_types.get(param) {
+                if existing != substituted {
+                    return Err(StaticSpecializationEnvironmentError::ConflictingTypeBinding);
+                }
+            } else {
+                final_types.insert(*param, substituted);
+            }
         }
         for (param, ty) in &supplied.type_bindings {
             let substituted = subst.try_apply(types, *ty)

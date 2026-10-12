@@ -8,7 +8,7 @@ use crate::identity::{DataComponentId, DataConstructorId, DeclarationId, Express
 use crate::member_projection::MemberProjection;
 use crate::static_definition::StaticBodyId;
 use crate::static_domain::StaticValueDomain;
-use crate::static_eval::application::StaticSpecializationEnvironmentKey;
+use crate::static_eval::application::{StaticSpecializationEnvironmentKey, StaticTrustedBranchContext};
 use crate::static_value::StaticValueRef;
 use crate::types::id::{KindId, TypeId};
 use crate::types::outcome::{BudgetReport, QueryBudget};
@@ -200,7 +200,8 @@ impl From<BudgetReport> for StaticResidualStoreError {
 pub struct StaticResidualStore {
     id: StaticResidualStoreId,
     residuals: Vec<StaticResidualData>,
-    interner: HashMap<StaticResidualData, StaticResidualId>,
+    trusted_contexts: Vec<StaticTrustedBranchContext>,
+    interner: HashMap<(StaticResidualData, StaticTrustedBranchContext), StaticResidualId>,
 }
 
 impl Default for StaticResidualStore {
@@ -215,6 +216,7 @@ impl StaticResidualStore {
         Self {
             id: StaticResidualStoreId(raw),
             residuals: Vec::new(),
+            trusted_contexts: Vec::new(),
             interner: HashMap::new(),
         }
     }
@@ -233,10 +235,32 @@ impl StaticResidualStore {
             .ok_or(StaticResidualStoreError::UnknownResidual(reference.residual.0))
     }
 
+    pub(crate) fn trusted_context(
+        &self,
+        reference: StaticResidualRef,
+    ) -> Result<&StaticTrustedBranchContext, StaticResidualStoreError> {
+        if reference.store != self.id {
+            return Err(StaticResidualStoreError::ForeignStore);
+        }
+        self.trusted_contexts
+            .get(reference.residual.0 as usize)
+            .ok_or(StaticResidualStoreError::UnknownResidual(reference.residual.0))
+    }
+
     /// Interns a static residual node, charging the residual growth budget.
     pub fn intern(&mut self, data: StaticResidualData, budget: &mut QueryBudget) -> Result<StaticResidualRef, StaticResidualStoreError> {
+        self.intern_with_trusted_context(data, StaticTrustedBranchContext::default(), budget)
+    }
+
+    pub(crate) fn intern_with_trusted_context(
+        &mut self,
+        data: StaticResidualData,
+        trusted_context: StaticTrustedBranchContext,
+        budget: &mut QueryBudget,
+    ) -> Result<StaticResidualRef, StaticResidualStoreError> {
         self.validate_data(&data)?;
-        if let Some(&existing) = self.interner.get(&data) {
+        let key = (data.clone(), trusted_context.clone());
+        if let Some(&existing) = self.interner.get(&key) {
             return Ok(StaticResidualRef::new(self.id, existing));
         }
 
@@ -244,7 +268,8 @@ impl StaticResidualStore {
 
         let id = StaticResidualId(self.residuals.len() as u32);
         self.residuals.push(data.clone());
-        self.interner.insert(data, id);
+        self.trusted_contexts.push(trusted_context);
+        self.interner.insert(key, id);
         Ok(StaticResidualRef::new(self.id, id))
     }
 
