@@ -19,7 +19,7 @@ latest_completed_plan: LANG007.C4.P3
 next_plan: LANG007.C4.P4
 active_plan_record: docs/implementation/LANG007/LANG007.C4/LANG007.C4.P4/LANG007.C4.P4-completion-luna-patch-grade-implementation-plan.md
 active_plan_prepared_against_revision: 4f11cb1a900d76c1d45db108aa8d856ee5940394
-last_updated: 2026-10-11
+last_updated: 2026-10-12
 ---
 
 # LANG007.C4 — Checkpoint Record
@@ -3283,6 +3283,51 @@ On 2026-10-11, the review branch was fast-forwarded onto local `main` at
 branch-integration decision only: P4 remains `IN_PROGRESS / PARTIAL /
 UNVERIFIED`, the follow-up remains work in progress, and no verification was
 rerun as part of the fast-forward. Continue from the integrated `main` tip.
+
+### P4 computed-key diagnostics and P3 binder invalidation — 2026-10-12
+
+The requested differential check used detached worktrees at clean control
+`78cfd920` and experiment `82725c90`, then checked integration `main` at
+`73ea73f4`. The preserved callable annotation and P3 Pack-binder regressions
+pass on control and fail on both experiment and pre-fix `main`. The second
+annotation reproducer was not retained in the notes or snapshots; the
+discriminating replacement is a field annotation `_value: MissingType`.
+
+Root cause: field/callable signature queries discarded diagnostics created
+while their canonical signatures were formed. After the §12.2 surface-owner
+change, `DeclarationSurface` correctly stopped re-forming those signatures
+but had no current owner diagnostics to publish. The P3 case missed the same
+owner-produced application error. The fix retains diagnostic sidecars on the
+canonical signature query products; surfaces consume them only when their
+owners are current and include them in cache input identity. Semantic product
+fingerprints remain signature/surface-only. No ownership, surface-publication,
+or scheduler contract changed, and no architectural consultation was needed.
+
+Focused main evidence after the fix:
+
+- `declaration_surface_`: 9 passed; callable and field annotation cases assert
+  one `AnnotationUnresolved` at the `MissingType` range, and the required
+  computed-owner withholding test still passes.
+- P3 binder invalidation/cold parity: 1 passed; the class shell fingerprint
+  and dependent callable-signature revision change, and final diagnostics and
+  formatted Pack parameter type match cold analysis.
+- Four computed-key cases passed: cold field formation, field key-edit exact
+  invalidation, callable parameter/return projections, and constant-annotation
+  dependency.
+- Semantic Pack type tests passed 5/5; core Pack identity, lanes, and slice
+  tests passed 5/5.
+- The core source-level P3 spreading test did not reach its body on main because
+  Universe bootstrap rejects runtime `ProductKind`. Its clean-control attempt
+  emitted no output for over 60 seconds and was stopped. Language-level
+  rest/spread and Symbol-only source-boundary behavior remain uncertified here.
+- `git diff --check` passed. `cargo fmt --all -- --check` reports broad existing
+  formatting drift, including untouched files; unrelated formatting was not
+  changed.
+
+This correction is implemented and focused-tested, but does not complete P4.
+P4 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`; owner-executor convergence,
+computed-key aliases, T7.0E, Record patterns, and the other acceptance gates
+remain open.
 
 ### R1 progress consolidated on local main — 2026-10-06
 

@@ -804,14 +804,33 @@ class Handler {
 "#;
 
     let update = session.update(input(module, source, 1));
-    assert!(
-        update
-            .snapshot
-            .diagnostics
-            .values()
-            .flat_map(|diagnostics| diagnostics.iter())
-            .any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnresolved),
-        "declaration-surface annotation diagnostics must survive removal of the duplicate legacy callable-body pass"
+    let diagnostics = update.snapshot.all_diagnostics().collect::<Vec<_>>();
+    assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:#?}");
+    assert_eq!(diagnostics[0].code, DiagnosticCode::AnnotationUnresolved);
+    let missing_type_start = source.find("MissingType").expect("fixture annotation");
+    assert_eq!(
+        diagnostics[0].primary_range,
+        (missing_type_start..missing_type_start + "MissingType".len()).into()
+    );
+}
+
+#[test]
+fn declaration_surface_field_annotation_diagnostic_is_retained() {
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(404),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("field_surface_diagnostics").unwrap()]),
+    );
+    let source = "class Handler {\n  _value: MissingType\n}\n";
+    let update = SemanticWorkspaceSession::new().update(input(module.clone(), source, 1));
+    let diagnostics = update.snapshot.all_diagnostics().collect::<Vec<_>>();
+    assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:#?}");
+    assert_eq!(diagnostics[0].code, DiagnosticCode::AnnotationUnresolved);
+    let missing_type_start = source.find("MissingType").expect("fixture annotation");
+    assert_eq!(
+        diagnostics[0].primary_range,
+        (missing_type_start..missing_type_start + "MissingType".len()).into()
     );
 }
 

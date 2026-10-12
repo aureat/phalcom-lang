@@ -1067,6 +1067,62 @@ selection preserving the accepted signature owner. Retain existing inherent
 impl query tests. The T3 entry-path table and acceptance gate must include this
 owner before aliases or Record-pattern work proceeds.
 
+## 12.4 Diagnostic retention and P3 binder invalidation follow-up — 2026-10-12
+
+The three preserved regression cases were compared at the requested
+revisions. On clean control `78cfd920`, the callable annotation case, the
+reconstructed field annotation case, and
+`p3_mode_only_pack_binder_edit_invalidates_dependents_to_cold_parity` pass.
+On experiment `82725c90` and integration target `main` at `73ea73f4`, both
+annotation cases publish no diagnostics and the P3 case misses its expected
+`C<Int>` kind/application error. The field case was not retained verbatim in
+the repository notes; a minimal `_value: MissingType` field fixture was added
+as the second diagnostic discriminator, as permitted by the task.
+
+**Root cause:** `query_callable_signature_with_inputs` and
+`query_field_signature_with_inputs` form annotation diagnostics in their
+`CheckingContext` but discard them after publishing the canonical signature.
+After §12.2 removed surface-side signature re-formation, the downstream surface
+had no remaining diagnostic source. The P3 case exposes the same loss: the
+invalid `C<Int>` application's diagnostic is owned by the callable signature
+formation path, while a later Pack-mode edit must produce fresh owner and
+dependent products.
+
+**Decision:** no architecture amendment or consultation was needed. Keep
+`FieldSignature` and `CallableSignature` as the semantic owners and keep
+`DeclarationSurfaceProduct` as the declaration diagnostic publisher. Their
+query products now retain owner-local diagnostics; the surface consumes only
+current sidecars and includes them in its input fingerprint. Semantic signature
+and surface product fingerprints remain diagnostic-independent, so diagnostic
+refresh does not invalidate semantic dependents. No new scheduler, fallback
+signature formation, or identity change is introduced.
+
+Focused verification on `main` after the fix:
+
+- `declaration_surface_` — 9 passed, including exact code/range/count for the
+  callable and field `AnnotationUnresolved` cases and the missing-owner gate.
+- The P3 binder case — 1 passed; the test now checks the declaration-shell
+  fingerprint and dependent callable-signature revision change, and compares
+  final incremental diagnostics and formatted Pack parameter type with cold
+  analysis.
+- The focused computed-key `static_constants` cases for field formation,
+  field key-edit invalidation, callable parameter/return keys, and constant
+  annotation dependency — 4 passed.
+- Semantic Pack type tests — 5 passed; core Pack identity/lane/slice tests — 5
+  passed.
+- The source-level P3 spread discriminator did not complete: integration
+  `main` aborts before the test body because Universe bootstrap rejects runtime
+  `ProductKind`; the clean-control attempt produced no output after 60 seconds
+  and was stopped. Treat rest/spread language execution and the Symbol-only
+  source boundary as not certified by this follow-up.
+- `git diff --check` passed. Repository-wide `cargo fmt --all -- --check`
+  remains blocked by pre-existing formatting drift outside this change.
+
+This follow-up is implemented and focused-tested. The active P4 plan remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`; owner-executor convergence, computed-key
+aliases, T7.0E, Record patterns, and the remaining P4 acceptance gates remain
+open.
+
 ---
 
 # 13. Debugging and escalation

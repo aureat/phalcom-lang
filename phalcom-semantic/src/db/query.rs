@@ -1720,6 +1720,50 @@ fn unavailable_computed_signature_owner(
     None
 }
 
+fn declaration_signature_owner_diagnostics(
+    db: &SemanticDb,
+    declaration: &DeclarationId,
+    class_def: &ClassDef,
+    field_signatures: Option<&crate::signature::FieldSignatureTable>,
+    callable_signatures: Option<&crate::signature::CallableSignatureTable>,
+) -> Result<Vec<SemanticDiagnostic>, QueryKey> {
+    let mut diagnostics = Vec::new();
+    for member in &class_def.members {
+        let owner = match member {
+            phalcom_ast::ast::ClassMember::Field(_) => field_signatures.and_then(|signatures| {
+                crate::checker::declaration_signature::field_id_for_member(declaration, member)
+                    .filter(|field| signatures.get(field).is_some())
+                    .map(|field| QueryKey::FieldSignature(field.clone()))
+            }),
+            _ => callable_signatures.and_then(|signatures| {
+                crate::checker::declaration_signature::callable_id_for_member(declaration, member)
+                    .filter(|callable| signatures.get(callable).is_some())
+                    .map(QueryKey::CallableSignature)
+            }),
+        };
+        let Some(key) = owner else {
+            continue;
+        };
+        if db.query_state(&key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+            return Err(key);
+        }
+        let owner_diagnostics = db.product(&key).and_then(|product| match &key {
+            QueryKey::FieldSignature(_) => product.as_field_signature_diagnostics(),
+            QueryKey::CallableSignature(_) => product.as_callable_signature_diagnostics(),
+            _ => None,
+        });
+        let Some(owner_diagnostics) = owner_diagnostics else {
+            return Err(key);
+        };
+        for diagnostic in owner_diagnostics.iter() {
+            if !diagnostics.contains(diagnostic) {
+                diagnostics.push(diagnostic.clone());
+            }
+        }
+    }
+    Ok(diagnostics)
+}
+
 fn ensure_semantic_dependency_current(
     db: &mut SemanticDb,
     dependency: &crate::checker::analysis::SemanticDependency,
@@ -2450,10 +2494,21 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
     {
         return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(owner));
     }
-    let input_fingerprint = if let Some(class_def) = class_def {
-        crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def)
+    let (input_fingerprint, signature_diagnostics) = if let Some(class_def) = class_def {
+        let signature_diagnostics = match declaration_signature_owner_diagnostics(db, &decl_id, class_def, field_signatures, callable_signatures) {
+            Ok(diagnostics) => diagnostics,
+            Err(owner) => return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(owner)),
+        };
+        let input_fingerprint = crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def);
+        (
+            crate::db::fingerprint::input_fingerprint_with_diagnostics(input_fingerprint, &signature_diagnostics),
+            signature_diagnostics,
+        )
     } else if let Some(enum_def) = enum_def {
-        crate::db::fingerprint::declaration_surface_enum_input_fingerprint(&unit, &decl_id, enum_def)
+        (
+            crate::db::fingerprint::declaration_surface_enum_input_fingerprint(&unit, &decl_id, enum_def),
+            Vec::new(),
+        )
     } else {
         let data_def = data_def.expect("data declaration checked above");
         let mut hasher = DefaultHasher::new();
@@ -2462,7 +2517,7 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
         data_def.range.start.hash(&mut hasher);
         data_def.range.end.hash(&mut hasher);
         unit.text.get(data_def.range.start..data_def.range.end).hash(&mut hasher);
-        InputFingerprint::new(hasher.finish())
+        (InputFingerprint::new(hasher.finish()), Vec::new())
     };
 
     match query_declaration_shell(db, Arc::new(TypeDeclarationShell::Nominal(declaration_info))) {
@@ -2506,7 +2561,7 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
 
     // Semantic resolution is query-owned and only runs after the source-contract
     // cache lookup misses. Body-only source edits therefore avoid this branch.
-    let (computed_surface, computed_diagnostics, captured_dependencies) = {
+    let (computed_surface, mut computed_diagnostics, captured_dependencies) = {
         let mut context = crate::checker::context::CheckingContext::new(store, hierarchy, resolver, declarations, decl_id.module.clone());
         if let Some(field_signatures) = field_signatures {
             context.attach_field_signatures(field_signatures);
@@ -2525,12 +2580,22 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
         }
         let computed_surface = context.dispatch_ref().get_surface(&decl_id).cloned();
         let captured_dependencies = context.semantic_dependencies_snapshot();
-        let diagnostics = Arc::<[crate::diagnostic::SemanticDiagnostic]>::from(context.diagnostics.into_boxed_slice());
+        let diagnostics = context.diagnostics;
         (computed_surface, diagnostics, captured_dependencies)
     };
     let Some(computed_surface) = computed_surface else {
         return query_failure(db, key, format!("declaration-surface query did not publish {decl_id:?}"));
     };
+    for diagnostic in signature_diagnostics {
+        if computed_diagnostics.contains(&diagnostic) {
+            continue;
+        }
+        let insertion = computed_diagnostics
+            .iter()
+            .position(|existing| existing.primary_range.start > diagnostic.primary_range.start)
+            .unwrap_or(computed_diagnostics.len());
+        computed_diagnostics.insert(insertion, diagnostic);
+    }
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     let mut semantic_dependencies = std::collections::BTreeSet::new();
     semantic_dependencies.insert(crate::checker::analysis::SemanticDependency::DeclarationShell(decl_id.clone()));
@@ -2556,7 +2621,10 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
 
     let surface = Arc::new(computed_surface);
     let product_fingerprint = crate::db::fingerprint::declaration_surface_product_fingerprint(&surface);
-    let product = Arc::new(DeclarationSurfaceProduct::new(surface.clone(), computed_diagnostics));
+    let product = Arc::new(DeclarationSurfaceProduct::new(
+        surface.clone(),
+        Arc::from(computed_diagnostics.into_boxed_slice()),
+    ));
     let dependencies = recorder.finish();
     if let Err(error) = publish_current_product(
         db,
@@ -2592,7 +2660,7 @@ pub fn query_bootstrap_callable_signature(db: &mut SemanticDb, signature: Arc<Ca
         key.clone(),
         input_fingerprint,
         product_fingerprint,
-        SemanticProduct::CallableSignature(signature.clone()),
+        SemanticProduct::CallableSignature(Arc::new(crate::db::product::CallableSignatureProduct::new(signature.clone(), Arc::from([])))),
         Vec::new(),
     ) {
         return query_failure(db, key, error);
@@ -2764,8 +2832,8 @@ pub fn query_callable_signature_with_inputs(
     }
 
     let uses_effective_definition = effective_definition.is_some();
-    let (signature, mut captured_dependencies) = if let Some(definition) = effective_definition {
-        (Arc::new(definition.signature.clone()), BTreeSet::new())
+    let (signature, mut captured_dependencies, signature_diagnostics) = if let Some(definition) = effective_definition {
+        (Arc::new(definition.signature.clone()), BTreeSet::new(), Arc::from([]))
     } else if let Some(class_def) = class_definition_for(&unit, callable.declaration_owner()) {
         if let Some(member) = class_def.members.iter().find(|member| {
             crate::checker::declaration_signature::callable_id_for_member(callable.declaration_owner(), member).is_some_and(|candidate| candidate == callable)
@@ -2775,7 +2843,9 @@ pub fn query_callable_signature_with_inputs(
             else {
                 return query_failure(db, key, format!("source member cannot publish callable signature {callable:?}"));
             };
-            (Arc::new(signature), context.semantic_dependencies_snapshot())
+            let dependencies = context.semantic_dependencies_snapshot();
+            let diagnostics = Arc::<[SemanticDiagnostic]>::from(context.diagnostics.into_boxed_slice());
+            (Arc::new(signature), dependencies, diagnostics)
         } else {
             return query_failure(db, key, format!("missing effective definition for callable {callable:?}"));
         }
@@ -2787,8 +2857,10 @@ pub fn query_callable_signature_with_inputs(
         captured_dependencies.extend(projections.dependencies());
     }
 
-    let input_fingerprint =
-        signature_projection_input_fingerprint(crate::db::fingerprint::callable_signature_input_fingerprint(&signature), record_key_projections);
+    let input_fingerprint = crate::db::fingerprint::input_fingerprint_with_diagnostics(
+        signature_projection_input_fingerprint(crate::db::fingerprint::callable_signature_input_fingerprint(&signature), record_key_projections),
+        &signature_diagnostics,
+    );
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(product) = db.product(&key).and_then(|product| product.as_callable_signature()) {
             db.metrics().record_hit();
@@ -2832,7 +2904,10 @@ pub fn query_callable_signature_with_inputs(
         key.clone(),
         input_fingerprint,
         product_fingerprint,
-        SemanticProduct::CallableSignature(signature.clone()),
+        SemanticProduct::CallableSignature(Arc::new(crate::db::product::CallableSignatureProduct::new(
+            signature.clone(),
+            signature_diagnostics,
+        ))),
         recorder.finish(),
     ) {
         return query_failure(db, key, error);
@@ -2999,8 +3074,12 @@ pub fn query_field_signature_with_inputs(
         return query_failure(db, key, format!("source member cannot publish field signature {field:?}"));
     };
 
-    let input_fingerprint =
-        signature_projection_input_fingerprint(crate::db::fingerprint::field_signature_input_fingerprint(&signature), record_key_projections);
+    let mut captured_dependencies = context.semantic_dependencies_snapshot();
+    let signature_diagnostics = Arc::<[SemanticDiagnostic]>::from(context.diagnostics.into_boxed_slice());
+    let input_fingerprint = crate::db::fingerprint::input_fingerprint_with_diagnostics(
+        signature_projection_input_fingerprint(crate::db::fingerprint::field_signature_input_fingerprint(&signature), record_key_projections),
+        &signature_diagnostics,
+    );
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(product) = db.product(&key).and_then(|product| product.as_field_signature()) {
             db.metrics().record_hit();
@@ -3012,7 +3091,6 @@ pub fn query_field_signature_with_inputs(
     }
     db.metrics().record_miss();
 
-    let mut captured_dependencies = context.semantic_dependencies_snapshot();
     if let Some(projections) = record_key_projections {
         captured_dependencies.extend(projections.dependencies());
     }
@@ -3044,7 +3122,10 @@ pub fn query_field_signature_with_inputs(
         key.clone(),
         input_fingerprint,
         product_fingerprint,
-        SemanticProduct::FieldSignature(signature.clone()),
+        SemanticProduct::FieldSignature(Arc::new(crate::db::product::FieldSignatureProduct::new(
+            signature.clone(),
+            signature_diagnostics,
+        ))),
         recorder.finish(),
     ) {
         return query_failure(db, key, error);

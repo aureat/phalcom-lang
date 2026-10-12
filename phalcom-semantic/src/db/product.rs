@@ -108,6 +108,42 @@ impl DeclarationSurfaceProduct {
     }
 }
 
+/// Canonical callable-signature query result and diagnostics produced while
+/// forming its source annotations. The signature remains the semantic product;
+/// diagnostics are retained as owner-local publication data.
+#[derive(Clone, Debug)]
+pub struct CallableSignatureProduct {
+    /// Canonical source or effective signature owned by this query.
+    pub signature: Arc<CallableSemanticSignature>,
+    /// Diagnostics emitted while forming source annotation types.
+    pub diagnostics: Arc<[SemanticDiagnostic]>,
+}
+
+impl CallableSignatureProduct {
+    /// Constructs a signature product with the diagnostics from its formation attempt.
+    pub fn new(signature: Arc<CallableSemanticSignature>, diagnostics: Arc<[SemanticDiagnostic]>) -> Self {
+        Self { signature, diagnostics }
+    }
+}
+
+/// Canonical field-signature query result and diagnostics produced while
+/// forming its source annotation. The signature remains the semantic product;
+/// diagnostics are retained as owner-local publication data.
+#[derive(Clone, Debug)]
+pub struct FieldSignatureProduct {
+    /// Canonical source field signature owned by this query.
+    pub signature: Arc<FieldSemanticSignature>,
+    /// Diagnostics emitted while forming the source annotation type.
+    pub diagnostics: Arc<[SemanticDiagnostic]>,
+}
+
+impl FieldSignatureProduct {
+    /// Constructs a field-signature product with the diagnostics from its formation attempt.
+    pub fn new(signature: Arc<FieldSemanticSignature>, diagnostics: Arc<[SemanticDiagnostic]>) -> Self {
+        Self { signature, diagnostics }
+    }
+}
+
 /// Product of compiling a data declaration.
 #[derive(Clone, Debug)]
 pub struct DataDeclarationProduct {
@@ -198,8 +234,8 @@ pub enum SemanticProduct {
     GenericConformance(Arc<GenericConformanceQueryProduct>),
     CallableDefinition(Arc<crate::impls::EffectiveCallableDefinition>),
     HierarchyEdge(Arc<HierarchyEdgeProduct>),
-    CallableSignature(Arc<CallableSemanticSignature>),
-    FieldSignature(Arc<FieldSemanticSignature>),
+    CallableSignature(Arc<CallableSignatureProduct>),
+    FieldSignature(Arc<FieldSignatureProduct>),
     ConstructorInitialization(Arc<ConstructorInitializationOwnerProduct>),
     CallableBody(Arc<CallableAnalysis>),
     SourceStructure(Arc<ModuleSourceIndex>),
@@ -316,14 +352,30 @@ impl SemanticProduct {
 
     pub fn as_callable_signature(&self) -> Option<&Arc<CallableSemanticSignature>> {
         match self {
-            Self::CallableSignature(sig) => Some(sig),
+            Self::CallableSignature(product) => Some(&product.signature),
+            _ => None,
+        }
+    }
+
+    /// Returns diagnostics emitted while forming a canonical callable signature.
+    pub fn as_callable_signature_diagnostics(&self) -> Option<&Arc<[SemanticDiagnostic]>> {
+        match self {
+            Self::CallableSignature(product) => Some(&product.diagnostics),
             _ => None,
         }
     }
 
     pub fn as_field_signature(&self) -> Option<&Arc<FieldSemanticSignature>> {
         match self {
-            Self::FieldSignature(sig) => Some(sig),
+            Self::FieldSignature(product) => Some(&product.signature),
+            _ => None,
+        }
+    }
+
+    /// Returns diagnostics emitted while forming a canonical field signature.
+    pub fn as_field_signature_diagnostics(&self) -> Option<&Arc<[SemanticDiagnostic]>> {
+        match self {
+            Self::FieldSignature(product) => Some(&product.diagnostics),
             _ => None,
         }
     }

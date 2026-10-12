@@ -895,6 +895,17 @@ class Consumer {
     let initial_update = incremental.update(single_module_input(module.clone(), initial, 1));
     // C<Int> with Single(TypePack) is an arity/kind mismatch because Int is Type, not TypePack
     assert!(initial_update.snapshot.has_errors(), "C<Int> must fail when P: TypePack is Single");
+    let c = DeclarationId::new(module.clone(), "C".into());
+    let consumer = DeclarationId::new(module.clone(), "Consumer".into());
+    let callable = phalcom_semantic::identity::CallableId::new(
+        consumer,
+        phalcom_common::selector::Selector::method("use", [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+        phalcom_semantic::identity::DispatchSide::Class,
+    );
+    let shell_key = QueryKey::DeclarationShell(c);
+    let signature_key = QueryKey::CallableSignature(callable.clone());
+    let shell_product_initial = incremental.db().ready_product_fingerprint(&shell_key).expect("initial C shell");
+    let signature_revision_initial = incremental.db().query_state(&signature_key).expect("initial use signature").revision();
 
     let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2));
     assert!(
@@ -907,10 +918,37 @@ class Consumer {
     let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
     assert!(!cold_final.snapshot.has_errors(), "diagnostics: {:?}", cold_final.snapshot.diagnostics);
 
+    let shell_product_final = incremental.db().ready_product_fingerprint(&shell_key).expect("updated C shell");
+    let signature_revision_final = incremental.db().query_state(&signature_key).expect("updated use signature").revision();
+    assert_ne!(
+        shell_product_initial, shell_product_final,
+        "switching P from Single(TypePack) to P3 pack mode must change C's canonical shell"
+    );
+    assert_ne!(
+        signature_revision_initial, signature_revision_final,
+        "the application owner must invalidate with C's P3 binder mode"
+    );
     assert_eq!(
-        incremental_final.snapshot.diagnostics.len(),
-        cold_final.snapshot.diagnostics.len(),
-        "incremental and cold diagnostics count must match"
+        incremental_final.snapshot.diagnostics, cold_final.snapshot.diagnostics,
+        "incremental diagnostics must match cold analysis"
+    );
+
+    let incremental_signature = incremental_final
+        .snapshot
+        .callable_signatures
+        .get(&callable)
+        .expect("incremental use signature");
+    let cold_signature = cold_final.snapshot.callable_signatures.get(&callable).expect("cold use signature");
+    let incremental_parameter = incremental_signature.parameters[0]
+        .declared_type
+        .to_knowledge()
+        .ty()
+        .expect("incremental parameter type");
+    let cold_parameter = cold_signature.parameters[0].declared_type.to_knowledge().ty().expect("cold parameter type");
+    assert_eq!(
+        incremental_final.snapshot.store.format_type(incremental_parameter),
+        cold_final.snapshot.store.format_type(cold_parameter),
+        "incremental Pack application must match cold analysis"
     );
 }
 

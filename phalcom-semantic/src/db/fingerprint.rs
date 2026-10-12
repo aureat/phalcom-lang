@@ -1265,6 +1265,18 @@ fn hash_semantic_diagnostic(diagnostic: &SemanticDiagnostic, hasher: &mut impl H
     diagnostic.root_cause.is_some().hash(hasher);
 }
 
+/// Adds diagnostic content to a query's source-sensitive input identity while
+/// keeping it out of the semantic product fingerprint and its dependents.
+pub fn input_fingerprint_with_diagnostics(input: InputFingerprint, diagnostics: &[SemanticDiagnostic]) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    input.raw().hash(&mut hasher);
+    diagnostics.len().hash(&mut hasher);
+    for diagnostic in diagnostics {
+        hash_semantic_diagnostic(diagnostic, &mut hasher);
+    }
+    finish_input(hasher)
+}
+
 fn hash_callable_analysis_status(status: CallableAnalysisStatus, incidents: &[InternalSemanticIncident], hasher: &mut impl Hasher) {
     match status {
         CallableAnalysisStatus::Complete => 0u8.hash(hasher),
