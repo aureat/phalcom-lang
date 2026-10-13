@@ -9,7 +9,8 @@ active_plan: PERF003.C2.P5
 latest_completed_plan: PERF003.C2.P3
 next_plan: PERF003.C2.P6
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: e74a9213
+execution_tree_head: e71057d9dcb559a9777ff3c51f568497c83a3683
+latest_tested_revision: e71057d9dcb559a9777ff3c51f568497c83a3683
 latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
 
@@ -27,15 +28,14 @@ active_plan: PERF003.C2.P5
 latest_completed_plan: PERF003.C2.P3
 next_plan: PERF003.C2.P6
 next_action: >
-  Normalized P5 (Canonical Publication & Persistent Image Boundary) in progress:
-  T0-T4 complete in committed head 84227536. Provider isolation in canonical Universe
-  declaration bootstrap resolved and verified across all 4 canonical image integration
-  tests and 10 query/freeze unit tests. T5/T6 Slice 1 is implemented in aaac8106:
-  DeclarationTypeTable, CallableSignatureTable, FieldSignatureTable, and
-  MapTypeHierarchy now use immutable parent overlays, and image-backed sessions retain
-  the canonical image while avoiding O(Universe) aggregate table copies. Slice 1 focused
-  unit and canonical-image gates pass. Workspace and recomputation gates remain
-  baseline-blocked by failures reproduced on clean 84227536; see the P5 handoff.
+  P5 continuation closes the inherited alias/readiness failures and implements
+  parent overlays for dispatch/surfaces, data/enum/associated/enum-requirement
+  tables, and type-member declarations. Exact aggregate dependency evidence
+  complements fail-closed frozen queries; stale settled rows are excluded.
+  Focused overlay/image/downstream checks pass; continue T6 residual canonical
+  lookup maps
+  and T7-T9 persistence/read contracts. T10 and final acceptance remain gated
+  by P4 metadata authority. See PERF003.C2.P5-baseline-failure-fix-handoff.md.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -124,7 +124,7 @@ After:
 | `PERF003.C2.P2` | Complete Canonical Universe Formal Image and Immutable Canonical Query Roots | Formal/query foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | Formal image, query freeze/reader, provenance validation and core acquisition implemented in the task working-tree patch over `82051480`; focused evidence below; G5/G6 certification remains deferred |
 | `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Exact indexed witness lookup, module-bounded effective-surface signature enumeration, ConformanceIndex partitioning (nominal family + open heads) with brute-force parity, SCC inferred-return settlement, and shared requirement-view passing implemented; focused regressions pass. Retained structural witness plans across revisions and generic proof memoization remain |
 | `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | User-stopped working-tree continuation over e74a9213. T1 accepted; retained-session profile test now passes after bounded T5 export. PR-A classification repair passes 9 source-index tests including actual corpus. T5 nested nominal reachability passes focused tests. PR-B schema migration (v13 heterogeneous Record keys) and T6 canonical authority remain bounded prerequisites; T6–T9 remain gated |
-| `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | IN_PROGRESS | PARTIAL | UNVERIFIED | Normalized P5: explicit canonical compiler-image product contract, consumer-specific publication cleanup, immutable canonical aggregate-parent architecture, query persistence classification, and formal persistence inventory |
+| `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0–T4 established; T6 core/dispatch/data/enum/associated/type-member overlays and exact immutable aggregate dependency evidence focused-tested. Slice 4 and T7–T13 remain open; metadata acceptance remains P4-gated |
 | `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E (historical P5) | PROPOSED | NOT_STARTED | UNVERIFIED | Normalized P6 (formerly P5): module-indexed backend tables, canonical trait-slot precomputation, inherent impl domain index, range lookup indexes, elimination of O(N×M) backend scans |
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
 
@@ -371,3 +371,82 @@ at the user's request. See [walkthrough](PERF003.C2.P2-walkthrough.md),
 - `RUSTFLAGS='' cargo check -p phalcom-core --features perf-observability`: PASS (17.16 s).
 - `RUSTFLAGS='' cargo check -p phalcom-modules`: PASS (0.17 s).
 - `git diff --check`: PASS (clean).
+
+
+### P5 dependency authority clarification (2026-10-13)
+
+Adviser ruling: canonical query freeze eligibility and immutable aggregate
+publication are distinct. Keep query freeze fail-closed. An image-owned derived
+index may expose exact positive structural dependency fingerprints from the
+validated final snapshot, without synthesizing Ready rows or reusable queries.
+Local states take precedence. Hierarchy evidence must preserve its validated
+source-sensitive owner fingerprint and agree with final declaration/parent
+identity. Frozen-query overlap must agree. Record exact edges and treat these
+as immutable leaves in dependency validation. This is a Level 1 clarification
+of P5, with no new inference or mutable semantic authority.
+
+Alias oracle clarification: invalid cycle participants and transitive alias
+dependents must be quarantined; unaffected canonical and valid local aliases
+must survive. Global-empty table assertions are stale fixture assumptions.
+
+
+### P5 parent-overlay and dependency continuation (2026-10-13, committed as `e71057d9` over `0b40dbbb`)
+
+- `ParentMap` provides O(1) immutable parent attachment, deterministic parent/local
+  iteration, local-only mutation, and rejection of canonical identity collisions.
+- Dispatch surfaces, conditional-member sets, type registrations, data/enum,
+  associated surfaces, enum requirements, and type-member tables use shared
+  canonical parents. Published snapshot surfaces share dispatch's map. Resolver
+  associated/type-member views retain these maps without flattening the parent.
+- First-update factories use the image-backed base overlays rather than cloning
+  the canonical snapshot; retained updates copy only local contributions.
+- Exact aggregate dependency fingerprints preserve edge evidence without granting
+  aggregate-only products query readiness. Frozen roots must agree with settled
+  structural authority; stale rows and their transitive dependents are rejected.
+- Alias fingerprints include the formed result, fixing imported-alias relowering
+  with unchanged consumer syntax. Cycle quarantine removes participants and their
+  alias dependents, cached shells/static definitions, and retained resolver forms.
+  Unaffected canonical and valid local aliases survive, including valid→cycle→valid.
+- Adviser confirmed foreign inherent implementations of canonical declarations
+  are forbidden by `docs/specs/objects/impl.md`; strict parent collisions remain.
+- Independent focused review found a computed-key readiness consumer; corrected
+  to exact dependency evidence. No remaining actionable review findings.
+
+Completed evidence:
+
+- `incremental::recomputation_metrics`: PASS, 13 selected, 120.97 s. All four
+  inherited failures now pass; no shell assertion was weakened.
+- `integration::workspace`: PASS, 18 selected, 44.89 s, including the new
+  quarantine/preservation/recovery regression.
+- `capabilities::aliases`: PASS, 7 selected, 6.57 s. Three stale global-empty
+  alias assertions now check exact invalid identities, preserving diagnostics
+  and declaration absence.
+- Final `--lib canonical_image`: PASS, 12 selected, 41.84 s. Includes aggregate-only
+  exact evidence, invented-key rejection, fingerprint mismatch rejection,
+  local-state precedence, and stale structural freeze/dependent closure.
+
+Residual: ordinary session DB structural rows can lag final inferred-return
+settlement. This continuation excludes stale rows from canonical freezing;
+certification of general settlement is not claimed. Residual copied maps
+(alias/static products, callable definitions and other P5.T6 Slice 4 families),
+T7–T13, P4-dependent metadata composition, persisted `.telosc`, broad release
+verification, and timing certification remain open. Overall P5 remains
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
+
+Final continuation gates:
+
+- `--lib parent`: PASS, 10 selected, 0.06 s; includes both new `ParentMap`
+  regressions and parent dispatch lookup/local removal.
+- `integration::canonical_image`: PASS, 4 selected, 123.33 s. Includes actual
+  source parity/provider isolation and two user-only replacement updates proving
+  zero local entries in the migrated canonical tables and shared surface identity.
+- Computed Record-key callable-signature regression: PASS, one selected, 41.15 s.
+- `cargo check -p phalcom-core --features perf-observability`: PASS, 16.30 s.
+- `cargo check -p phalcom-lsp`: PASS, 11.48 s; existing unused import warning.
+- `git diff --check`: PASS. Repository formatter applied only to changed regions;
+  no whole-workspace formatting or release certification claimed.
+
+Source delivery: `e71057d9` on `perf/universe-characterization`. Commit and push
+were authorized on 2026-10-13; lifecycle records accompany this source revision.
+The continuation is focused-tested; residual families and metadata/artifact
+acceptance gates remain open.

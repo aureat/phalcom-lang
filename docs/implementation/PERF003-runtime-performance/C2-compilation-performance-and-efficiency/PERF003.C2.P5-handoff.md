@@ -5,12 +5,19 @@
 **Plan:** `PERF003.C2.P5`
 **Status:** `IN_PROGRESS`
 **Completion:** `PARTIAL`
-**Verification:** `BASELINE_BLOCKED`
+**Verification:** `FOCUSED_TESTED`
 **Date:** 2026-10-13
+**Source revision:** `e71057d9dcb559a9777ff3c51f568497c83a3683`
 **Working Directory:** `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization`
 **Branch:** `perf/universe-characterization`
 
 ---
+
+Current continuation is committed as `e71057d9`. See
+`PERF003.C2.P5-baseline-failure-fix-handoff.md` for takeover details and
+CHECKPOINT.md for current evidence. The baseline failures below were observed
+in the earlier Slice 1 session and are now resolved by focused regressions.
+The original Slice 1 implementation history is retained below.
 
 ## 1. Executive Summary
 
@@ -46,8 +53,9 @@ During this session:
 | **P5.T2** | Product-family classification & request-model cleanup | **COMPLETED** |
 | **P5.T3** | Canonical bootstrap cutover to explicit request ([`canonical_image.rs`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/canonical_image.rs#L425)) | **COMPLETED** (in commit `84227536`) |
 | **P5.T4** | Consumer-specific publication semantics ([`SourceSemanticLevel`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/request.rs#L9)) | **COMPLETED** (in commit `84227536`) |
-| **P5.T5 / P5.T6 Slice 1** | Parent-aware core tables (`DeclarationTypeTable`, `CallableSignatureTable`, `FieldSignatureTable`, `MapTypeHierarchy`) | **IMPLEMENTED** in `aaac8106`; focused unit and canonical-image verification passes; broader gates are baseline-blocked |
-| **P5.T6 Slices 2–4** | Dispatch/surface, data/enum/associated tables, residual canonical lookup products | **PENDING** |
+| **P5.T5 / P5.T6 Slice 1** | Parent-aware core tables (`DeclarationTypeTable`, `CallableSignatureTable`, `FieldSignatureTable`, `MapTypeHierarchy`) | **IMPLEMENTED** in `aaac8106`; focused unit and canonical-image verification passes; formerly blocked workspace/recomputation filters now pass |
+| **P5.T6 Slices 2–3** | Dispatch/surface, data/enum/associated/enum-requirement/type-member tables | **IMPLEMENTED / FOCUSED_TESTED** in `e71057d9` |
+| **P5.T6 Slice 4** | Residual canonical lookup products | **PENDING** |
 | **P5.T7** | Snapshot/read API hardening for parented canonical aggregates | **PENDING** |
 | **P5.T8** | Formal canonical persistence inventory and capability descriptor | **PENDING** |
 | **P5.T9** | Query persistence classification extraction | **PENDING** |
@@ -58,7 +66,7 @@ During this session:
 
 ---
 
-## 3. Verified Behavioral Evidence
+## 3. Historical Slice 1 Evidence (superseded where noted)
 
 - `cargo check -p phalcom-semantic`: **PASS** (clean, 0 warnings, 0 errors).
 - `RUSTFLAGS='' cargo check -p phalcom-semantic`: **PASS** (clean, 0 warnings, 0 errors) after Slice 1 wiring.
@@ -78,8 +86,12 @@ During this session:
 
 ## 4. Immediate Next Steps for Next Agent
 
-### Next: Proceed to Slices 2–4
-- Convert `dispatch` / `SurfaceDispatchResolver`, `data_semantics`, `enum_semantics`, `associated_surfaces`, and `type_member_declarations` to parented overlays.
+### Next: Continue residual Slice 4 and T7–T9
+
+Dispatch/data/enum/associated/type-member overlays are established. Continue
+alias/static/callable-definition and other copied lookup aggregates, then
+snapshot/read hardening and persistence contracts. P4 metadata composition
+still gates T10 and final P5 acceptance. Do not redo established overlay work.
 
 ---
 
