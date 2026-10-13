@@ -37,7 +37,8 @@ impl ProgramCompilationSession {
             || {
                 #[cfg(any(test, feature = "test-timings"))]
                 let init_started = Instant::now();
-                let semantic_session = SemanticWorkspaceSession::new();
+                let semantic_session = SemanticWorkspaceSession::new()
+                    .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
                 #[cfg(any(test, feature = "test-timings"))]
                 let pending_session_init = init_started.elapsed();
                 let mut synthetic_ids = SyntheticProjectIdAllocator;

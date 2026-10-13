@@ -719,7 +719,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
         let parsed = self.load_parsed(module_id)?;
 
         if module_id.project == ProjectIdentity::Universe {
-            let result = crate::builtin_interface::BuiltinInterfaceBuilder::build_from_parsed(&self.universe_source, &parsed);
+            let result = crate::builtin_interface::BuiltinInterfaceBuilder::build(&self.universe_source, module_id);
             self.interface_cache.insert(module_id.clone(), result.clone());
             return result;
         }

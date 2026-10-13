@@ -626,7 +626,10 @@ impl ProgramAnalyzer {
                         }
                         let linked = Arc::new(ModuleLinker::new(universe.clone(), interfaces).link_all(entry_id.clone(), &resolved)?);
 
-                        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0))?;
+                         let analysis = phalcom_semantic::analyze_workspace(
+                             phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0)
+                                 .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal()),
+                         )?;
 
                         Ok(AnalyzedProgram {
                             project_universe: universe,
@@ -737,7 +740,10 @@ impl ProgramAnalyzer {
 
         let linked = Arc::new(ModuleLinker::new(universe.clone(), discovered.interfaces).link_all(entry_id.clone(), &discovered.resolved)?);
 
-        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0))?;
+        let analysis = phalcom_semantic::analyze_workspace(
+            phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0)
+                .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal()),
+        )?;
 
         Ok(AnalyzedProgram {
             project_universe: universe,
@@ -807,8 +813,10 @@ impl ProgramAnalyzer {
         let linker = ModuleLinker::new(universe.clone(), discovered.interfaces);
         let linked = Arc::new(linker.link_all(entry.clone(), &discovered.resolved)?);
 
-        let semantic_input = phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0);
-        let mut semantic_session = phalcom_semantic::SemanticWorkspaceSession::new();
+        let semantic_input = phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0)
+            .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
+        let mut semantic_session = phalcom_semantic::SemanticWorkspaceSession::new()
+            .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
         let analysis = semantic_session
             .update_with_budget_and_cancel(
                 semantic_input,

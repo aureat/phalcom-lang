@@ -306,10 +306,10 @@ impl SemanticSnapshot {
         diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
         semantic_graph: Arc<SemanticGraph>,
         callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
+        formal_projection: Arc<FormalSemanticProjection>,
     ) -> Self {
         let store_id = store.id();
         let id = SnapshotId::new(workspace, revision, store_id);
-        let formal_projection = Arc::new(FormalSemanticProjection::from_callable_analyses(&callable_analyses));
         let internal_incidents = collect_internal_incidents(&callable_analyses);
         Self {
             id,

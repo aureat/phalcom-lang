@@ -784,6 +784,7 @@ pub struct SemanticWorkspaceSession {
     workspace: WorkspaceId,
     module_session: WorkspaceModuleSession,
     universe_source_provider: phalcom_modules::UniverseSourceProvider,
+    product_request: crate::request::SemanticProductRequest,
     db: SemanticDb,
     store: Arc<TypeStore>,
     static_values: Arc<crate::static_value::StaticValueStore>,
@@ -910,6 +911,12 @@ impl SemanticWorkspaceSession {
         crate::canonical_baseline::canonical_universe_semantic_baseline().instantiate(workspace)
     }
 
+    /// Selects the semantic products needed by subsequent module updates.
+    pub fn with_product_request(mut self, product_request: crate::request::SemanticProductRequest) -> Self {
+        self.product_request = product_request;
+        self
+    }
+
     /// Builds a semantic session with an explicit canonical Universe source provider.
     /// Source overrides themselves are only constructible through the modules
     /// crate's test-support feature; normal production construction uses `new`.
@@ -929,6 +936,7 @@ impl SemanticWorkspaceSession {
             workspace,
             module_session: WorkspaceModuleSession::with_universe_source_provider(baseline.provider.clone()),
             universe_source_provider: baseline.provider.clone(),
+            product_request: crate::request::SemanticProductRequest::default(),
             db,
             store,
             static_values,
@@ -1095,6 +1103,7 @@ impl SemanticWorkspaceSession {
                     generation,
                     topology: Some(update.topology),
                     reverse_imports: Some(update.reverse_importers),
+                    product_request: self.product_request,
                 },
                 budget,
                 cancel,
@@ -1144,6 +1153,7 @@ impl SemanticWorkspaceSession {
                 generation,
                 topology: Some(update.topology),
                 reverse_imports: Some(update.reverse_importers),
+                product_request: self.product_request,
             },
             Some(delta.clone()),
         );
@@ -7764,40 +7774,48 @@ impl SemanticWorkspaceSession {
         source_index_scope.finish(SemanticPerfOutcome::Success);
 
         let advisory_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateAdvisory);
-        let mut advisory = build_advisory_workspace(AdvisoryWorkspaceInputs {
-            sources: &retained_sources,
-            source_index: &source_index,
-            callable_analyses: &callable_analyses,
-            store: &self.store,
-            declarations: &declarations,
-            callable_signatures: &callable_signatures,
-            dispatch: &dispatch,
-            hierarchy: &hierarchy,
-            linked: input.linked.as_ref(),
-            previous: self.last_snapshot.as_deref().map(|snapshot| snapshot.advisory.as_ref()),
-            budget,
-            cancel,
-        });
+        let mut advisory = if input.product_request.advisory == crate::request::AdvisoryLevel::None {
+            AdvisoryWorkspace::default()
+        } else {
+            build_advisory_workspace(AdvisoryWorkspaceInputs {
+                sources: &retained_sources,
+                source_index: &source_index,
+                callable_analyses: &callable_analyses,
+                store: &self.store,
+                declarations: &declarations,
+                callable_signatures: &callable_signatures,
+                dispatch: &dispatch,
+                hierarchy: &hierarchy,
+                linked: input.linked.as_ref(),
+                previous: self.last_snapshot.as_deref().map(|snapshot| snapshot.advisory.as_ref()),
+                budget,
+                cancel,
+            })
+        };
         // Revalidate retained advisory summaries as well as summaries rebuilt
         // from the current formal analyses. Reused module shards still expose
         // their prior callable evidence, so their exact advisory dependencies
         // must be current before the shard can publish again.
         let mut advisory_query_callables = advisory.callables.as_ref().clone();
-        if let Some(previous) = previous_snapshot.as_ref() {
+        if input.product_request.advisory != crate::request::AdvisoryLevel::None {
+            if let Some(previous) = previous_snapshot.as_ref() {
             for (callable, summary) in previous.advisory.callables.iter() {
                 if current_modules.contains(callable.module()) {
                     advisory_query_callables.entry(callable.clone()).or_insert_with(|| summary.clone());
                 }
             }
-        }
-        let mut advisory_query_failed = None;
-        for summary in advisory_query_callables.values() {
-            if let QueryOutcome::Failed(error) = bootstrap_advisory_callable(&mut self.db, summary.clone()) {
-                advisory_query_failed = Some(error);
-                break;
             }
         }
-        if advisory_query_failed.is_none() {
+        let mut advisory_query_failed = None;
+        if input.product_request.advisory != crate::request::AdvisoryLevel::None {
+            for summary in advisory_query_callables.values() {
+                if let QueryOutcome::Failed(error) = bootstrap_advisory_callable(&mut self.db, summary.clone()) {
+                    advisory_query_failed = Some(error);
+                    break;
+                }
+            }
+        }
+        if advisory_query_failed.is_none() && input.product_request.advisory != crate::request::AdvisoryLevel::None {
             for summary in advisory_query_callables.values() {
                 self.db.discard_for_recompute(&QueryKey::AdvisoryCallable(summary.callable.clone()));
                 if let QueryOutcome::Failed(error) = query_advisory_callable(&mut self.db, summary.clone()) {
@@ -7806,7 +7824,7 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        if advisory_query_failed.is_none() {
+        if advisory_query_failed.is_none() && input.product_request.advisory != crate::request::AdvisoryLevel::None {
             for (module, module_product) in advisory.modules.iter() {
                 let callables = advisory
                     .callables
@@ -8702,6 +8720,7 @@ impl SemanticWorkspaceSession {
             Arc::new(diagnostics_map),
             Arc::new(semantic_graph),
             Arc::new(callable_analyses),
+            Arc::new(formal_projection),
         );
 
         snapshot_obj = snapshot_obj.with_field_signatures(Arc::new(field_signatures));
@@ -8713,7 +8732,6 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_trait_dispatch_index(Arc::new(trait_dispatch_index));
         snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));
         snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));
-        snapshot_obj = snapshot_obj.with_formal_projection(Arc::new(formal_projection));
         snapshot_obj = snapshot_obj.with_data_semantics(Arc::new(data_semantics));
         snapshot_obj = snapshot_obj.with_enum_semantics(Arc::new(enum_semantics));
         snapshot_obj = snapshot_obj.with_enum_requirements(Arc::new(enum_requirements_table));

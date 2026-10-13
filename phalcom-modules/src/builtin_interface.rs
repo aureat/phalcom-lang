@@ -44,6 +44,19 @@ impl UniverseSourceDeclarationCatalog {
         Ok(Self { declarations })
     }
 
+    /// Returns the process-shared catalog for the canonical Universe provider.
+    ///
+    /// Providers with test source overrides must remain private because their
+    /// source identities are intentionally incompatible with the process cache.
+    pub fn canonical(provider: &UniverseSourceProvider) -> Result<Arc<Self>, ModuleLoadError> {
+        if provider.has_test_source_overrides() {
+            return Self::build(provider).map(Arc::new);
+        }
+
+        static CATALOG: OnceLock<Result<Arc<UniverseSourceDeclarationCatalog>, ModuleLoadError>> = OnceLock::new();
+        CATALOG.get_or_init(|| Self::build(provider).map(Arc::new)).clone()
+    }
+
     /// Resolves a native association to the declaration authored by its source module.
     pub fn declaration_for(&self, key: phalcom_native_meta::UniverseKey) -> Result<(ModuleId, String), ModuleLoadError> {
         let path: Vec<crate::identity::ModuleComponent> = key
@@ -152,7 +165,7 @@ impl BuiltinInterfaceBuilder {
         })?;
 
         if parsed.id.project == ProjectIdentity::Universe && parsed.id.path.is_root() {
-            let catalog = UniverseSourceDeclarationCatalog::build(provider)?;
+            let catalog = UniverseSourceDeclarationCatalog::canonical(provider)?;
             for binding in phalcom_native_meta::UNIVERSE_BINDINGS.iter().filter(|binding| binding.exported) {
                 let name = binding.name.to_string();
                 if !iface.exports.contains_key(&name) {
@@ -174,5 +187,21 @@ impl BuiltinInterfaceBuilder {
         }
 
         Ok(iface)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UniverseSourceDeclarationCatalog;
+    use crate::builtin::UniverseSourceProvider;
+    use std::sync::Arc;
+
+    #[test]
+    fn canonical_catalog_is_shared() {
+        let provider = UniverseSourceProvider::new();
+        let first = UniverseSourceDeclarationCatalog::canonical(&provider).expect("canonical catalog");
+        let second = UniverseSourceDeclarationCatalog::canonical(&provider).expect("canonical catalog");
+
+        assert!(Arc::ptr_eq(&first, &second));
     }
 }
