@@ -336,3 +336,18 @@ shadow graph and an execution path for shadow Universe code.
   `e0f95221731b0a0827c109afbba1510f20ce252013ee8d825e757582923e26d8`
   through source commit `cb385f1ecccacc38e4746e3b47d4ce5a943387e3`.
 - No shadow semantic or runtime claim is made.
+
+## UNIV002.C2.P22 — Optional and Prism modification documentation
+
+- Added one comment above each of `functional/optics.ph::Optional.set`,
+  `Optional.modify`, and `Prism.modify`. They describe when each method passes
+  a value to its replacement/review callback and when it returns the original
+  source. They do not promise callback effects, laws, or counts.
+- Exact diff review and scoped `git diff --check` passed. No tests were run
+  for this comments-only edit.
+- Independent inventory reconciliation confirmed 174 `.ph` paths, no
+  additions/removals, and eighteen changed hashes against MOD1. The existing
+  `functional/optics.ph` row records SHA-256
+  `acdf2870f9f759d7804124af688e8c3e4cbe7f9e6702816d166d6b245527fb87`
+  through source commit `60b2e1463db0d4fd29981f0ec178b46d426edf7a`.
+- No shadow semantic or runtime claim is made.

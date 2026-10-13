@@ -44,7 +44,8 @@ integration, or production cutover.
 | `UNIV002.C2.P19` | Arrow mapping documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added mapping comments for `dimap` and `second`; exact diff review, scoped whitespace check, and inventory reconciliation passed. |
 | `UNIV002.C2.P20` | Iso.inverse documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment for the forward/backward callback exchange; exact diff review, scoped whitespace check, and inventory reconciliation passed. |
 | `UNIV002.C2.P21` | Iso composition and modification documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added three comments for forward/reverse composition order and focus modification; exact diff review, scoped whitespace check, and 174-path inventory reconciliation passed. |
-| `UNIV002.C2.P22` | Optional replacement and Prism modification documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | Three comments are planned to document present-focus replacement/modification and selected-payload modification; implementation and inventory reconciliation are pending. |
+| `UNIV002.C2.P22` | Optional replacement and Prism modification documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added three comments describing replacement/review callback paths and unchanged-source branches; exact diff review, scoped whitespace check, and 174-path inventory reconciliation passed. Wording was narrowed to avoid promising callback effects. |
+| `UNIV002.C2.P23` | Optional/Prism composition and adapter documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | Six comment lines are planned across four methods to document composition order and Iso/Prism adapters; implementation and inventory reconciliation are pending. |
 
 ## Established invariants
 
@@ -63,6 +64,15 @@ integration, or production cutover.
   separate from C2 source quality; no such edits are included here. Carry the
   architect's guidance into a dedicated spec-backed plan before changing those
   modules or identities.
+
+## Consultations and amendments
+
+- Supervisor review of P22 found that the initial suggested wording could
+  imply effects from caller-supplied replacement/review callbacks. The P22
+  plan was amended before completion to document only callback paths and
+  unchanged-source branches (plan commits `7812eb5f` and `e423dbbd`). The
+  final source wording follows that narrower contract; no architecture or
+  callback law was changed.
 
 ## Checkpoint source and concurrent-work state
 
@@ -200,13 +210,13 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: `UNIV002.C2.P22`, documenting `Optional.set`,
-  `Optional.modify`, and `Prism.modify`; the plan authorizes three comment
-  lines only.
-- Latest complete plan: `UNIV002.C2.P21`; latest complete checkpoint:
+- Active plan: `UNIV002.C2.P23`, documenting composition and adapter callback
+  paths in `Optional.compose`, `Prism.compose`, `Iso.asLens`, and
+  `Prism.asOptional`; the plan authorizes six comment lines only.
+- Latest complete plan: `UNIV002.C2.P22`; latest complete checkpoint:
   `UNIV002.C1`.
-- The source inventory is reconciled through P21 source commit
-  `cb385f1ecccacc38e4746e3b47d4ce5a943387e3`: 174 paths, no additions or
+- The source inventory is reconciled through P22 source commit
+  `60b2e1463db0d4fd29981f0ec178b46d426edf7a`: 174 paths, no additions or
   removals, and 18 changed hashes with the rest matching MOD1. Textual
   inventory heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
@@ -260,9 +270,12 @@ identities.
   claim that supplied callbacks satisfy round-trip laws.
 - P21 completed Category A comments above `Iso.compose` and `Iso.modify`.
   They document forward/reverse callback order and focus update only.
-- P22 is active for Category A comments above `Optional.set`,
-  `Optional.modify`, and `Prism.modify`; document only present/selected versus
-  absent/unselected behavior visible in their method bodies.
+- P22 completed Category A comments above `Optional.set`, `Optional.modify`,
+  and `Prism.modify`; they describe callback paths and source returns without
+  promising callback effects or laws.
+- P23 is active for Category A comments above `Iso.asLens`, `Optional.compose`,
+  `Prism.compose`, and `Prism.asOptional`; document only callback selection
+  and composition order visible in the method bodies.
 
 P14 added one documentation line immediately above `Writer.mapLog`, stating
 that it applies `f` to the log and preserves this Writer's value. The method
@@ -345,4 +358,15 @@ additions/removals, and eighteen changed hashes against MOD1;
 `functional/optics.ph` is recorded at SHA-256
 `e0f95221731b0a0827c109afbba1510f20ce252013ee8d825e757582923e26d8` through
 source commit `cb385f1ecccacc38e4746e3b47d4ce5a943387e3`. Semantic linking
+remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
+
+P22 added comments above `Optional.set`, `Optional.modify`, and `Prism.modify`.
+They state when the methods pass a value to their replacement/review callback
+and when the original source is returned. The comments do not promise callback
+effects, laws, or counts. Exact diff review and scoped `git diff --check`
+passed; no tests were run. Independent reconciliation confirmed 174 `.ph`
+paths, no additions/removals, and eighteen changed hashes against MOD1;
+`functional/optics.ph` is recorded at SHA-256
+`acdf2870f9f759d7804124af688e8c3e4cbe7f9e6702816d166d6b245527fb87` through
+source commit `60b2e1463db0d4fd29981f0ec178b46d426edf7a`. Semantic linking
 remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
