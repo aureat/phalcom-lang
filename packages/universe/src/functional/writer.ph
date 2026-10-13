@@ -8,6 +8,7 @@ impl<W, T> Writer<W, T> {
   type Value = T
   type Log = W
 
+  /// Applies `f` to the value and preserves this Writer's log.
   map<U>(_ f: (T) -> U) -> Writer<W, U> {
     Writer<W, U>(value: f.call(self.value), log: self.log)
   }
