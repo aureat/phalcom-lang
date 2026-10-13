@@ -127,8 +127,13 @@ Examples:
 ```text
 universe:<root>
 universe:scalar.number
+universe:scalar.int
+universe:scalar.float
+universe:scalar.unit
+universe:option
+universe:result
 universe:collections.list
-universe:errors.result
+universe:errors.error
 universe:reflection.typing
 universe:json
 ```
@@ -150,11 +155,12 @@ Every source-visible builtin declaration is owned by the exact module in which i
 
 ```text
 universe.scalar.number::Number
-universe.scalar.number::Int
-universe.scalar.number::Float
+universe.scalar.int::Int
+universe.scalar.float::Float
 
-universe.option.option::Option
-universe.errors.result::Result
+universe.scalar.unit::Unit
+universe.option::Option
+universe.result::Result
 universe.object.ordering::Ordering
 
 universe.collections.list::List
@@ -166,7 +172,7 @@ The compiler must not flatten these declarations into the Universe root and must
 The following are different declarations even though their short names match:
 
 ```text
-universe.errors.result::Result
+universe.result::Result
 my_project.domain.result::Result
 third_party.validation.result::Result
 ```
@@ -180,6 +186,7 @@ The runtime may maintain compact keys such as:
 ```text
 UniverseKey::Object
 UniverseKey::Int
+UniverseKey::Float
 UniverseKey::Option
 UniverseKey::Result
 UniverseKey::Ordering
@@ -189,13 +196,16 @@ These keys are runtime/native associations, not a second declaration database. E
 
 ```text
 UniverseKey::Int
-    -> universe.scalar.number::Int
+    -> universe.scalar.int::Int
+
+UniverseKey::Float
+    -> universe.scalar.float::Float
 
 UniverseKey::Option
-    -> universe.option.option::Option
+    -> universe.option::Option
 
 UniverseKey::Result
-    -> universe.errors.result::Result
+    -> universe.result::Result
 ```
 
 Native and intrinsic metadata may enrich canonical declarations with
@@ -255,8 +265,12 @@ Canonical virtual URIs use the module graph directly:
 phalcom://universe/
 phalcom://universe/object/object
 phalcom://universe/scalar/number
+phalcom://universe/scalar/int
+phalcom://universe/scalar/float
+phalcom://universe/scalar/unit
+phalcom://universe/option
+phalcom://universe/result
 phalcom://universe/collections/list
-phalcom://universe/errors/result
 phalcom://universe/json
 ```
 
@@ -363,10 +377,12 @@ Conceptually:
 ```text
 PreludeBindings {
     "Object" -> universe.object.object::Object
-    "Int" -> universe.scalar.number::Int
+    "Int" -> universe.scalar.int::Int
+    "Float" -> universe.scalar.float::Float
     "String" -> universe.scalar.string::String
-    "Option" -> universe.option.option::Option
-    "Result" -> universe.errors.result::Result
+    "Option" -> universe.option::Option
+    "Result" -> universe.result::Result
+    "Unit" -> universe.scalar.unit::Unit
     ...
 }
 ```
@@ -380,7 +396,7 @@ const x: Int = 42
 resolves `Int` directly to:
 
 ```text
-universe.scalar.number::Int
+universe.scalar.int::Int
 ```
 
 ### 6.1 Lookup precedence
@@ -483,15 +499,15 @@ The compiler should obtain the same declaration no matter which canonical route 
 ```text
 UniverseKey::Result
     ↓
-universe.errors.result::Result
+universe.result::Result
 
 Prelude "Result"
     ↓
-universe.errors.result::Result
+universe.result::Result
 
 Authored source declaration
     ↓
-universe.errors.result::Result
+universe.result::Result
 ```
 
 These are different lookup mechanisms over one identity, not three declarations.
@@ -570,7 +586,7 @@ A variant identity is conceptually:
 
 ```text
 VariantId(
-    owner = universe.errors.result::Result,
+    owner = universe.result::Result,
     selector = Ok(_)
 )
 ```
@@ -601,7 +617,7 @@ other specialized storage
 
 without changing semantic identity.
 
-For example, `Option<Int>` remains an application of canonical `universe.option.option::Option` regardless of how `Some(42)` is encoded in `Value`.
+For example, `Option<Int>` remains an application of canonical `universe.option::Option` regardless of how `Some(42)` is encoded in `Value`.
 
 ---
 
@@ -633,7 +649,7 @@ For `Result`:
 
 ```text
 semantic declaration
-    universe.errors.result::Result
+    universe.result::Result
 
 ADT registry root class
     same canonical Result ClassId
@@ -732,7 +748,7 @@ Prelude/import access should resolve to canonical module bindings, conceptually:
 
 ```text
 LinkedReadSpec::Binding(
-    universe.scalar.number::Int
+    universe.scalar.int::Int
 )
 ```
 
@@ -785,9 +801,9 @@ Reflection must expose canonical Universe ownership.
 For example, reflecting on `Int` must identify:
 
 ```text
-declaration: universe.scalar.number::Int
-module:      universe.scalar.number
-source:      phalcom://universe/scalar/number
+declaration: universe.scalar.int::Int
+module:      universe.scalar.int
+source:      phalcom://universe/scalar/int
 ```
 
 Reflecting on `Result<T,E>` preserves its closed-sum identity, generic parameters, exact module, cases, and relevant native/runtime implementation metadata.
@@ -825,7 +841,7 @@ const x: Int = 42
 definition navigation targets the authored `Int` declaration in:
 
 ```text
-phalcom://universe/scalar/number
+phalcom://universe/scalar/int
 ```
 
 For:
@@ -1038,8 +1054,8 @@ const x: Int = 42
 Required:
 
 ```text
-Declaration: universe.scalar.number::Int
-Source:      phalcom://universe/scalar/number
+Declaration: universe.scalar.int::Int
+Source:      phalcom://universe/scalar/int
 Runtime:     canonical Int ClassId
 ```
 
@@ -1054,7 +1070,7 @@ Required:
 
 ```text
 List -> universe.collections.list::List
-Int  -> universe.scalar.number::Int
+Int  -> universe.scalar.int::Int
 ```
 
 If `List` is also prelude-visible, both routes denote the same declaration.
@@ -1090,7 +1106,7 @@ data Result {
 Required:
 
 ```text
-user Result      != universe.errors.result::Result
+user Result      != universe.result::Result
 user Result::Ok  != canonical Universe Result::Ok
 ```
 
@@ -1107,7 +1123,7 @@ The VM may encode the value immediately.
 Required regardless of representation:
 
 ```text
-nominal declaration -> universe.option.option::Option
+nominal declaration -> universe.option::Option
 variant identity     -> canonical Option::Some VariantId
 reflection           -> Option<Int>
 .class/dispatch       -> behavior associated with canonical Option/Some semantics

@@ -2,34 +2,36 @@
 
 ## Current increment
 
-- **Increment:** S3 scalar split — `Number`, `Int`, and `Float`
+- **Increment:** Phase S3 foundational-type ownership continuation (Option/Result/Unit) and normative identity alignment
 - **Branch:** `feat/telos-collections`
-- **Commit:** `8e8078a268c4390ce5f5f9e76d9ec47266f0add0` (`feat(universe): split shadow scalar type owners`); S3 began at `4d98eb53`.
-- **Scope:** Keep `Number` in `scalar/number.ph`; move `Int` to `scalar/int.ph` and `Float` to `scalar/float.ph`; author explicit module exports and re-export all three through the scalar package; update shadow migration inventories.
-- **Files added:** `src/scalar/int.ph`, `src/scalar/float.ph`.
-- **Files changed:** Shadow scalar source, identity ledger, current module map, dependency graph, legacy synchronization ledger, and migration status.
-- **Legacy files modified:** None.
-- **Declarations migrated:** `Int` and `Float` moved from shadow owner `universe.scalar.number` to `universe.scalar.int` and `universe.scalar.float`. `Number` remains at `universe.scalar.number`.
-- **Interfaces normalized:** Authored `export Number`, `export Int`, and `export Float` in declaration modules; scalar facade exposes `.int` and `.float` and re-exports all three declarations.
-- **Identity changes:** Shadow source-owner paths changed for `Int` and `Float`. This does not alter production or establish canonical semantic identity. `docs/specs/universe.md`, production native mappings, and the active prelude still refer to the legacy owner.
+- **Base revision:** `f62a8c2a1fea3d25e58a0fe52ed6f699619d93f2`
+- **Scope:** Move Option to `option.ph`, Result to `result.ph`, and Unit to `scalar/unit.ph`; update package facades, current source inventories, and normative canonical paths.
+- **Files added:** `src/option.ph`, `src/result.ph`, `src/scalar/unit.ph`.
+- **Files removed:** `src/option/package.ph`, `src/option/option.ph`, `src/option/unit.ph`, `src/errors/result.ph`.
+- **Files changed:** Root, errors, and scalar source facades; `docs/specs/universe.md`; shadow identity, module, dependency, synchronization, and status ledgers.
+- **Legacy source and production implementation changes:** None. The legacy source tree, native metadata, source provider, prelude construction, runtime class slots, and bootstrap remain unchanged.
+- **Normative canonical owners:** `Int` → `universe.scalar.int`; `Float` → `universe.scalar.float`; `Option` → `universe.option`; `Result` → `universe.result`; `Unit` → `universe.scalar.unit`. `Number` remains `universe.scalar.number`.
+- **Declaration moves:** All three declaration bodies match their original shadow files byte-for-byte, and each new owner authors its explicit declaration export. The new Option module also retains its prior documentation annotation. The option directory package was removed because `option.ph` and `option/package.ph` resolve ambiguously to the same module.
+- **Facade changes:** Root exposes, imports, and exports the `.result` module; the errors package no longer exposes `.result`; the scalar package exposes, imports, and exports `Unit`; the root `.option` module now owns and exports `Option`.
 
 ## Validation
 
-- The `Number`, `Int`, and `Float` declaration bodies match the pre-migration shadow source byte-for-byte. A source scan finds exactly one declaration for each name; the current module map and identity ledger agree on all 364 declaration rows.
-- The explicit import graph records 214 current edges, compared with 208 at the S0/S1 baseline: one edge was removed and seven added by the scalar split.
-- Native/prelude source inspection confirms `UniverseKey::Int` and `UniverseKey::Float` still map to `scalar.number`, and both remain metadata-exported and prelude-enabled. The class relation metadata remains `Int <: Number` and `Float <: Number`.
-- `git diff --check` passes for the scalar source and migration documents.
-- **Validation passed:** Source ownership, declaration-body preservation, module-map consistency, and dependency-graph accounting.
-- **Validation failed:** None observed.
-- **Validation blocked:** Shadow semantic, native-anchor, prelude-binding, and runtime initialization validation is unavailable because no isolated shadow compiler/provider is established. No tests or compiler checks were run.
+- Source ownership remains 364 recognized type-like declarations and 77 top-level values; the module map and identity ledger describe the moved owners.
+- The authored import graph has 216 distinct edges: the earlier scalar split added six net edges over the 208-edge baseline, and this increment adds root-to-result and scalar-to-unit edges.
+- Declaration body preservation was checked byte-for-byte. `git diff --check` passed for the scoped source and documentation changes.
+- **Validation passed:** Source movement/body preservation, unique declaration ownership, module-map updates, dependency-edge accounting, and patch whitespace checks.
+- **Validation blocked:** Shadow semantic resolution, canonical native/prelude anchoring, and runtime initialization are not connected to an isolated shadow compiler/provider. No tests or compiler checks were run.
 
-## Known compatibility and integration risks
+## Compatibility and integration status
 
-- The normative spec and production metadata continue to assign `Int` and `Float` to `universe.scalar.number`; the shadow path is a migration target, not a verified canonical compiler identity.
-- Source uses of the names remain mostly unqualified prelude lookups. A future isolated shadow catalog/prelude must bind those names to the shadow declarations before semantic validation.
-- The scalar facade now imports the three declarations. The source graph records these dependencies, but shadow linker/runtime initialization behavior has not been verified.
-- Production authority, native anchors, runtime class slots, bootstrap, and prelude were not changed.
+- `docs/specs/universe.md` now defines the moved shadow owners as canonical declaration identities. Production `UniverseKey` source paths for `Int`, `Float`, `Option`, and `Result` and the hardcoded `Unit` prelude owner still point to legacy paths. Production therefore remains out of alignment with the amended spec until a later integration/cutover increment.
+- Most references to Option, Result, and Unit in Universe source are unqualified prelude names. No reciprocal explicit imports were added between Option and Result; the shadow prelude/catalog still needs to bind those names to the new owners.
+- No production source provider, native binding, prelude, runtime, compiler, or bootstrap behavior was changed or validated.
 
-## Next increment
+## Previous increment: S3 scalar split
 
-Migrate the foundational `Option`, `Result`, and `Unit` declarations into their intended focused shadow modules, preserving one source owner per declaration and recording the still-legacy production/native/prelude mappings.
+The earlier Phase S3 scalar split moved `Int` to `scalar/int.ph` and `Float` to `scalar/float.ph`, retaining `Number` in `scalar/number.ph`; it added explicit exports and scalar-facade re-exports. This foundational-type continuation amended the normative owners to the shadow paths. Production source/native/prelude/runtime mappings remain legacy. The scalar-split body-preservation and 214-edge graph checks were focused source checks only; no tests or compiler checks were run.
+
+## Next action
+
+Continue with the next planned Universe shadow increment, Phase S4 collections and iteration. Preserve the Phase S3 normative owners and keep production integration/cutover as a separately verified task.

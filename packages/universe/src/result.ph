@@ -462,3 +462,5 @@ impl<T, E> Result<T, E> {
         }
     }
 }
+
+export Result

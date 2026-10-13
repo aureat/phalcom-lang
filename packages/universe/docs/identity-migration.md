@@ -1,6 +1,6 @@
 # Declaration identity migration ledger
 
-The two source trees are alternative layouts of the same conceptual builtin project. Both manifests retain `name = "universe"` and `namespace = "universe"`; no second builtin project identity was introduced. Those manifest fields do not make standalone filesystem loading equivalent to the production builtin identity: loading the copied manifest through `ProjectUniverse` would be filesystem-backed with `Resolved` identity. Production continues to use the legacy source provider with `ProjectIdentity::Universe`. The baseline copy retained legacy paths; S3 has moved only the shadow `Int` and `Float` declarations to `scalar/int.ph` and `scalar/float.ph`, while `Number` remains in `scalar/number.ph`. These are source-owner changes only and do not establish compiler, runtime, or normative canonical identity.
+The two source trees are alternative layouts of the same conceptual builtin project. Both manifests retain `name = "universe"` and `namespace = "universe"`; no second builtin project identity was introduced. Those manifest fields do not make standalone filesystem loading equivalent to the production builtin identity: loading the copied manifest through `ProjectUniverse` would be filesystem-backed with `Resolved` identity. Production continues to use the legacy source provider with `ProjectIdentity::Universe`. The Phase S3 scalar and foundational-type increments reorganize the shadow owners of `Int`, `Float`, `Option`, `Result`, and `Unit`; `docs/specs/universe.md` now adopts those destination modules as their normative canonical owners. Production source/native/prelude mappings remain on legacy paths, and no compiler or runtime cutover has occurred.
 
 ## Conservative source declaration index
 
@@ -130,7 +130,7 @@ The index is a source scan, not a parser/compiler identity result. It includes e
 | `UnwrapError` | `universe.errors.error` | `errors/error.ph` | `universe.errors.error` | `errors/error.ph` | `class` | `LEGACY_PATH_UNCHANGED` |
 | `TimeoutError` | `universe.errors.error` | `errors/error.ph` | `universe.errors.error` | `errors/error.ph` | `class` | `LEGACY_PATH_UNCHANGED` |
 | `ZipLengthMismatchError` | `universe.errors.iteration` | `errors/iteration.ph` | `universe.errors.iteration` | `errors/iteration.ph` | `class` | `LEGACY_PATH_UNCHANGED` |
-| `Result` | `universe.errors.result` | `errors/result.ph` | `universe.errors.result` | `errors/result.ph` | `native data` | `LEGACY_PATH_UNCHANGED` |
+| `Result` | `universe.errors.result` | `errors/result.ph` | `universe.result` | `result.ph` | `native data` | `MOVED_TO_SHADOW_MODULE; NORMATIVE_PATH_UPDATED; PRODUCTION_LEGACY` |
 | `Unimplemented` | `universe.errors.unimplemented` | `errors/unimplemented.ph` | `universe.errors.unimplemented` | `errors/unimplemented.ph` | `class` | `LEGACY_PATH_UNCHANGED` |
 | `Unsupported` | `universe.errors.unsupported` | `errors/unsupported.ph` | `universe.errors.unsupported` | `errors/unsupported.ph` | `class` | `LEGACY_PATH_UNCHANGED` |
 | `Semigroup` | `universe.functional.algebra` | `functional/algebra.ph` | `universe.functional.algebra` | `functional/algebra.ph` | `trait` | `LEGACY_PATH_UNCHANGED` |
@@ -206,8 +206,8 @@ The index is a source scan, not a parser/compiler identity result. It includes e
 | `Metaclass` | `universe.object.metaclass` | `object/metaclass.ph` | `universe.object.metaclass` | `object/metaclass.ph` | `native primitive class` | `LEGACY_PATH_UNCHANGED` |
 | `Object` | `universe.object.object` | `object/object.ph` | `universe.object.object` | `object/object.ph` | `native primitive class` | `LEGACY_PATH_UNCHANGED` |
 | `Ordering` | `universe.object.ordering` | `object/ordering.ph` | `universe.object.ordering` | `object/ordering.ph` | `native data` | `LEGACY_PATH_UNCHANGED` |
-| `Option` | `universe.option.option` | `option/option.ph` | `universe.option.option` | `option/option.ph` | `native data` | `LEGACY_PATH_UNCHANGED` |
-| `Unit` | `universe.option.unit` | `option/unit.ph` | `universe.option.unit` | `option/unit.ph` | `intrinsic type` | `LEGACY_PATH_UNCHANGED` |
+| `Option` | `universe.option.option` | `option/option.ph` | `universe.option` | `option.ph` | `native data` | `MOVED_TO_SHADOW_MODULE; NORMATIVE_PATH_UPDATED; PRODUCTION_LEGACY` |
+| `Unit` | `universe.option.unit` | `option/unit.ph` | `universe.scalar.unit` | `scalar/unit.ph` | `intrinsic type` | `MOVED_TO_SHADOW_MODULE; NORMATIVE_PATH_UPDATED; PRODUCTION_LEGACY` |
 | `Bernoulli` | `universe.random.bernoulli` | `random/bernoulli.ph` | `universe.random.bernoulli` | `random/bernoulli.ph` | `data` | `LEGACY_PATH_UNCHANGED` |
 | `Distribution` | `universe.random.distribution` | `random/distribution.ph` | `universe.random.distribution` | `random/distribution.ph` | `trait` | `LEGACY_PATH_UNCHANGED` |
 | `Generator` | `universe.random.generator` | `random/generator.ph` | `universe.random.generator` | `random/generator.ph` | `trait` | `LEGACY_PATH_UNCHANGED` |
@@ -313,8 +313,8 @@ The index is a source scan, not a parser/compiler identity result. It includes e
 | `Char` | `universe.scalar.char` | `scalar/char.ph` | `universe.scalar.char` | `scalar/char.ph` | `native primitive class` | `LEGACY_PATH_UNCHANGED` |
 | `Nil` | `universe.scalar.nil` | `scalar/nil.ph` | `universe.scalar.nil` | `scalar/nil.ph` | `native primitive class` | `LEGACY_PATH_UNCHANGED` |
 | `Number` | `universe.scalar.number` | `scalar/number.ph` | `universe.scalar.number` | `scalar/number.ph` | `native primitive class` | `LEGACY_PATH_UNCHANGED` |
-| `Int` | `universe.scalar.number` | `scalar/number.ph` | `universe.scalar.int` | `scalar/int.ph` | `native primitive class` | `MOVED_TO_SHADOW_MODULE` |
-| `Float` | `universe.scalar.number` | `scalar/number.ph` | `universe.scalar.float` | `scalar/float.ph` | `native primitive class` | `MOVED_TO_SHADOW_MODULE` |
+| `Int` | `universe.scalar.number` | `scalar/number.ph` | `universe.scalar.int` | `scalar/int.ph` | `native primitive class` | `MOVED_TO_SHADOW_MODULE; NORMATIVE_PATH_UPDATED; PRODUCTION_LEGACY` |
+| `Float` | `universe.scalar.number` | `scalar/number.ph` | `universe.scalar.float` | `scalar/float.ph` | `native primitive class` | `MOVED_TO_SHADOW_MODULE; NORMATIVE_PATH_UPDATED; PRODUCTION_LEGACY` |
 | `String` | `universe.scalar.string` | `scalar/string.ph` | `universe.scalar.string` | `scalar/string.ph` | `native primitive class` | `LEGACY_PATH_UNCHANGED` |
 | `StringChars` | `universe.scalar.string` | `scalar/string.ph` | `universe.scalar.string` | `scalar/string.ph` | `class` | `LEGACY_PATH_UNCHANGED` |
 | `StringCharIterator` | `universe.scalar.string` | `scalar/string.ph` | `universe.scalar.string` | `scalar/string.ph` | `class` | `LEGACY_PATH_UNCHANGED` |
@@ -375,7 +375,7 @@ The index is a source scan, not a parser/compiler identity result. It includes e
 
 ## Current legacy native-association metadata
 
-The table is derived from `UniverseKey::source_path()` and `UniverseKey::name()` together with `UNIVERSE_BINDINGS` in `phalcom-native-meta/src/universe.rs`. The source declaration catalog in `phalcom-modules/src/builtin_interface.rs` resolves that key to the declaration with that name in the indicated module when built against the canonical legacy provider. This table records that policy/input mapping; the catalog was not built or semantically checked for this shadow copy. `UNIVERSE_BINDINGS.exported` and `.prelude` are metadata policy fields, not proof of source-authored export or effective prelude presence. The table includes all **78** `UniverseKey` variants; **72** have a `UNIVERSE_BINDINGS` row and **6** are key/path entries without one.
+The table is derived from `UniverseKey::source_path()` and `UniverseKey::name()` together with `UNIVERSE_BINDINGS` in `phalcom-native-meta/src/universe.rs`. The production source declaration catalog in `phalcom-modules/src/builtin_interface.rs` resolves that key to the declaration with that name in the indicated legacy module. These are current production inputs, not the target owners in the amended normative spec; production still needs a later coordinated migration. The catalog was not built or semantically checked for this shadow copy. `UNIVERSE_BINDINGS.exported` and `.prelude` are metadata policy fields, not proof of source-authored export or effective prelude presence. The table includes all **78** `UniverseKey` variants; **72** have a `UNIVERSE_BINDINGS` row and **6** are key/path entries without one.
 
 | UniverseKey | Key/source declaration name | Legacy source module path | Binding kind | Metadata exported | Metadata prelude | Binding row |
 |---|---|---|---|---|---|---|
@@ -460,7 +460,7 @@ The table is derived from `UniverseKey::source_path()` and `UniverseKey::name()`
 
 ## Current legacy prelude-membership policy
 
-`PreludeTypeMap::canonical_universe()` in `phalcom-semantic/src/prelude.rs` considers `UNIVERSE_BINDINGS` entries with `prelude: true`, adding a name only when the canonical source declaration catalog resolves the key. It then adds the hardcoded entries below. `Unit` is additionally asserted to exist in the source catalog; the other hardcoded entries are inserted directly. These are current legacy policy inputs and source-owner paths, not shadow-validated membership or compiler results.
+`PreludeTypeMap::canonical_universe()` in `phalcom-semantic/src/prelude.rs` considers `UNIVERSE_BINDINGS` entries with `prelude: true`, adding a name only when the production legacy source declaration catalog resolves the key. It then adds the hardcoded entries below. `Unit` is additionally asserted to exist in the production source catalog; the other hardcoded entries are inserted directly. This table records current production legacy policy inputs and owner paths; it does not describe a connected shadow prelude or prove compiler results.
 
 Native metadata rows flagged `prelude: true`: **37**. Hardcoded source-owned additions in `prelude.rs`: **9**. Compiler-provided `core.proof` additions: **3**. Candidate policy names before any source-catalog lookup omissions: **49**.
 
@@ -524,9 +524,17 @@ Native metadata rows flagged `prelude: true`: **37**. Hardcoded source-owned add
 | `Int` | `universe.scalar.number` → `universe.scalar.int` | `UniverseKey::Int`; production source path remains `scalar.number`; binding metadata says exported class and prelude member | Lexical occurrences in 72 modules; complete module list is in `module-map.md` under “Scalar type source references.” No shadow module imports `Int` or `Float` from the old path; the two new `.number` imports in the target modules import `Number`. | Runtime class slot remains keyed by `UniverseKey::Int`; metadata relation is `Int <: Number`. Name, declaration form, superclass, members, and method bodies are preserved. Source module now authors `export Int`; scalar facade re-exports it. |
 | `Float` | `universe.scalar.number` → `universe.scalar.float` | `UniverseKey::Float`; production source path remains `scalar.number`; binding metadata says exported class and prelude member | Lexical occurrences in 19 modules; complete module list is in `module-map.md` under “Scalar type source references.” No shadow module imports `Int` or `Float` from the old path; the two new `.number` imports in the target modules import `Number`. | Runtime class slot remains keyed by `UniverseKey::Float`; metadata relation is `Float <: Number`. Name, declaration form, superclass, members, and method bodies are preserved. Source module now authors `export Float`; scalar facade re-exports it. |
 
-The current native keys, legacy `source_path()` values, prelude policy, runtime class slots, and class relations still describe the production tree. They have not been retargeted to the shadow modules. Source references keep the same unqualified names; their intended shadow binding therefore requires a future isolated prelude/catalog that maps those names to the shadow owners. This increment has no compiler or runtime validation.
+The current native keys, legacy `source_path()` values, prelude policy, runtime class slots, and class relations still describe the production tree. They have not been retargeted to the shadow modules. Source references keep the same unqualified names; their intended shadow binding therefore requires an isolated prelude/catalog that maps those names to the shadow owners. The scalar split had no compiler or runtime validation. Its then-current spec boundary was superseded by the Phase S3 foundational-type amendment below.
 
-`docs/specs/universe.md` still specifies `Number`, `Int`, and `Float` under `universe.scalar.number`. The S3 target paths are shadow source owners directed by the migration plan; this source-only move does not amend that normative specification or claim new canonical compiler identity. Reconcile the specification, native source anchors, prelude, and runtime class attachments before integration or cutover.
+## S3 foundational owner relocation review
+
+| Declaration | Legacy owner → shadow source owner | Normative canonical owner | Current production association | Source/dependency note |
+|---|---|---|---|---|
+| `Option` | `universe.option.option` → `universe.option` | `universe.option::Option` | `UniverseKey::Option` and prelude metadata still name `universe.option.option` | Body preserved byte-for-byte; unqualified `Result` references remain prelude-bound in the shadow source. |
+| `Result` | `universe.errors.result` → `universe.result` | `universe.result::Result` | `UniverseKey::Result` and prelude metadata still name `universe.errors.result` | Body preserved byte-for-byte; unqualified `Option` references remain prelude-bound in the shadow source. |
+| `Unit` | `universe.option.unit` → `universe.scalar.unit` | `universe.scalar.unit::Unit` | No `UniverseKey`; production prelude hardcodes `universe.option.unit` and asserts source-catalog presence | Alias body preserved byte-for-byte; scalar facade now re-exports it. |
+
+The normative spec now agrees with the target source owners for `Int`, `Float`, `Option`, `Result`, and `Unit`. Production native/source anchors, prelude construction, and runtime class attachments have not moved. The option package file was removed because `src/option.ph` and `src/option/package.ph` resolve ambiguously to the same module path. No explicit reciprocal imports were added between Option and Result; their references remain prelude-visible names. Source structure and body preservation were checked, but shadow semantic resolution and runtime initialization remain unverified.
 
 ## Required fields before a declaration moves
 
@@ -536,5 +544,5 @@ Before relocating a declaration, extend its ledger entry to record and review it
 
 - Preserve conceptual `ProjectIdentity::Universe`; do not create a shadow project identity.
 - Imports and re-exports must resolve to declaration owners rather than create nominal declarations.
-- Record any future canonical module move before changing source ownership.
-- Native associations, semantic identity, and runtime identity remain governed by the existing production implementation and require dedicated verification at later migration gates.
+- Amend the owning normative specification with any canonical module move as part of the source-owner change.
+- Keep production native associations, prelude ownership, and runtime identity aligned with the amended specification before integration or cutover; dedicated verification remains required.

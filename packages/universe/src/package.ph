@@ -3,6 +3,7 @@
 expose .object
 expose .scalar
 expose .errors
+expose .result
 expose .callable
 expose .option
 expose .functional
@@ -28,6 +29,7 @@ import .object
 import .scalar
 from .scalar import StringIndex
 import .errors
+import .result
 from .errors import (
   ArgumentError,
   KeyError,
@@ -96,6 +98,7 @@ export IntParseError
 export FloatParseError
 export BoolParseError
 export errors
+export result
 export (
   ArgumentError,
   KeyError,

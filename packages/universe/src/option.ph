@@ -1,3 +1,5 @@
+@!documentation("Option algebraic type for explicit absence: Option, Some, None.")
+
 //! Representation of optional values and absence handling.
 //!
 //! `Option<T>` is the foundational type for representing values that may or may not be
@@ -362,3 +364,5 @@ impl<T> Option<T> {
     }
   }
 }
+
+export Option

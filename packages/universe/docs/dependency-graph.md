@@ -2,9 +2,9 @@
 
 The table records distinct module dependencies authored by top-level `import` and `from … import` statements in the current shadow `.ph` files. Relative paths follow the repository resolver rule: one leading dot uses the importing package, and each additional leading dot ascends one package level. This is a source-path inventory, not proof that every target exists or binding resolves; it does not establish initialization order or interface-only behavior. Implicit prelude names and references not expressed by imports are excluded.
 
-Current resolved distinct edges: **214**.
+Current resolved distinct edges: **216**.
 
-The S0 copied baseline recorded **208** edges. The S3 scalar split removes 1 edge and adds 7; the net current graph has 214 edges.
+The S0 copied baseline recorded **208** edges. The scalar split added 6 net edges; this foundational-type increment adds 2 explicit package-facade edges, for 216 current edges.
 
 | S3 change | From module | Resolved target module |
 |---|---|---|
@@ -16,6 +16,11 @@ The S0 copied baseline recorded **208** edges. The S3 scalar split removes 1 edg
 | Added | `universe.scalar.float` | `universe.text.errors` |
 | Added | `universe.scalar.int` | `universe.scalar.number` |
 | Added | `universe.scalar.int` | `universe.text.errors` |
+
+| Foundational-type change | From module | Resolved target module |
+|---|---|---|
+| Added | `universe` | `universe.result` |
+| Added | `universe.scalar` | `universe.scalar.unit` |
 
 | From module | Resolved target module | Evidence |
 |---|---|---|
@@ -38,6 +43,7 @@ The S0 copied baseline recorded **208** edges. The S3 scalar split removes 1 edg
 | `universe` | `universe.random` | authored `import`/`from … import` path |
 | `universe` | `universe.reflection` | authored `import`/`from … import` path |
 | `universe` | `universe.regex` | authored `import`/`from … import` path |
+| `universe` | `universe.result` | authored `import`/`from … import` path |
 | `universe` | `universe.scalar` | authored `import`/`from … import` path |
 | `universe` | `universe.testing` | authored `import`/`from … import` path |
 | `universe` | `universe.text` | authored `import`/`from … import` path |
@@ -150,6 +156,7 @@ The S0 copied baseline recorded **208** edges. The S3 scalar split removes 1 edg
 | `universe.scalar` | `universe.scalar.float` | authored `import`/`from … import` path |
 | `universe.scalar` | `universe.scalar.int` | authored `import`/`from … import` path |
 | `universe.scalar` | `universe.scalar.number` | authored `import`/`from … import` path |
+| `universe.scalar` | `universe.scalar.unit` | authored `import`/`from … import` path |
 | `universe.scalar` | `universe.scalar.string_index` | authored `import`/`from … import` path |
 | `universe.scalar.bool` | `universe.text.errors` | authored `import`/`from … import` path |
 | `universe.scalar.char` | `universe.text.substring` | authored `import`/`from … import` path |
