@@ -9,8 +9,8 @@ active_plan: PERF003.C2.P5
 latest_completed_plan: PERF003.C2.P3
 next_plan: PERF003.C2.P6
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: e71057d9dcb559a9777ff3c51f568497c83a3683
-latest_tested_revision: e71057d9dcb559a9777ff3c51f568497c83a3683
+execution_tree_head: eeca76f3
+latest_tested_revision: eeca76f3
 latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
 
@@ -28,14 +28,13 @@ active_plan: PERF003.C2.P5
 latest_completed_plan: PERF003.C2.P3
 next_plan: PERF003.C2.P6
 next_action: >
-  P5 continuation closes the inherited alias/readiness failures and implements
-  parent overlays for dispatch/surfaces, data/enum/associated/enum-requirement
-  tables, and type-member declarations. Exact aggregate dependency evidence
-  complements fail-closed frozen queries; stale settled rows are excluded.
-  Focused overlay/image/downstream checks pass; continue T6 residual canonical
-  lookup maps
-  and T7-T9 persistence/read contracts. T10 and final acceptance remain gated
-  by P4 metadata authority. See PERF003.C2.P5-baseline-failure-fix-handoff.md.
+  P5 now shares canonical aliases, static definitions/constants and accepted
+  callable definitions across local revisions without copying their map entries.
+  Query freeze uses one fail-closed family classification available to future
+  artifact projection. Continue T6 static-case/associated and other copied maps,
+  T7 read contracts, T8 persistence inventory and T11 structural counters.
+  T10 and final acceptance remain gated by P4 metadata authority. See
+  PERF003.C2.P5-baseline-failure-fix-handoff.md.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -124,7 +123,7 @@ After:
 | `PERF003.C2.P2` | Complete Canonical Universe Formal Image and Immutable Canonical Query Roots | Formal/query foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | Formal image, query freeze/reader, provenance validation and core acquisition implemented in the task working-tree patch over `82051480`; focused evidence below; G5/G6 certification remains deferred |
 | `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Exact indexed witness lookup, module-bounded effective-surface signature enumeration, ConformanceIndex partitioning (nominal family + open heads) with brute-force parity, SCC inferred-return settlement, and shared requirement-view passing implemented; focused regressions pass. Retained structural witness plans across revisions and generic proof memoization remain |
 | `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | User-stopped working-tree continuation over e74a9213. T1 accepted; retained-session profile test now passes after bounded T5 export. PR-A classification repair passes 9 source-index tests including actual corpus. T5 nested nominal reachability passes focused tests. PR-B schema migration (v13 heterogeneous Record keys) and T6 canonical authority remain bounded prerequisites; T6–T9 remain gated |
-| `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0–T4 established; T6 core/dispatch/data/enum/associated/type-member overlays and exact immutable aggregate dependency evidence focused-tested. Slice 4 and T7–T13 remain open; metadata acceptance remains P4-gated |
+| `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0–T4 established; T6 core/dispatch/data/enum/associated/type-member and alias/static/accepted-callable overlay increments focused-tested. T9 query-family classification extracted; residual T6 maps, T7–T8, T10–T13 remain open; metadata acceptance remains P4-gated |
 | `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E (historical P5) | PROPOSED | NOT_STARTED | UNVERIFIED | Normalized P6 (formerly P5): module-indexed backend tables, canonical trait-slot precomputation, inherent impl domain index, range lookup indexes, elimination of O(N×M) backend scans |
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
 
@@ -450,3 +449,36 @@ Source delivery: `e71057d9` on `perf/universe-characterization`. Commit and push
 were authorized on 2026-10-13; lifecycle records accompany this source revision.
 The continuation is focused-tested; residual families and metadata/artifact
 acceptance gates remain open.
+
+### P5 residual lookup and query-classification increment (2026-10-13, `eeca76f3`)
+
+- `TypeAliasTable`, `StaticDefinitionTable` and `StaticConstantTable` attach
+  immutable canonical parents; local removals and duplicate-ID rejection do
+  not mutate/shadow canonical entries. First local update creates empty
+  overlays; later updates clone local contributions only. The retained alias
+  resolver now reads the committed snapshot's alias table instead of a second
+  map of all canonical forms. Its static-definition lookup retains the parent
+  table rather than flattening it into a `BTreeMap`.
+- Accepted callable definitions now use `ParentMap` in the published snapshot;
+  local revisions share canonical entries by reference. This does not yet
+  cover remaining static-case catalogs/signatures, associated static domains,
+  module binding maps and other copied aggregate families.
+- `canonical_query_persistence(QueryKind)` is the single exhaustive family
+  classification consumed by in-memory freeze and available to future artifact
+  projection. It preserves the exact prior eligible/open-world/unsupported
+  sets. Row readiness, final settlement and dependency closure remain separate
+  fail-closed checks; no query is made Ready by family classification alone.
+
+Focused evidence for the increment: canonical sharing/replacement integration
+passed (one selected; first observed the alias, static constant and callable
+definition copies before their corrections); 13 incremental recomputation tests,
+seven alias capability tests and 18 workspace integration tests passed after
+alias/static migration. Canonical-image library filter passed 13 selected,
+including query classification and existing freeze contracts. After callable
+definition migration, the exact image/replacement regression and an affected
+incremental callable/body edit test passed. `cargo check -p phalcom-core
+--features perf-observability` passed after the final code change. Existing
+unused `TypeHierarchy` test import warning remains unrelated. Scoped diff
+whitespace check passed. Full workspace/release, formatting, benchmarks,
+P4 metadata integration and `.telosc` verification remain deferred; P5 is
+`IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.

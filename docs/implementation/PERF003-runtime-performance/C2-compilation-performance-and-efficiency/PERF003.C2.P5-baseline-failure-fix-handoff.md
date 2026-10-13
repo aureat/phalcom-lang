@@ -9,7 +9,7 @@
 **Date:** 2026-10-13
 **Branch:** `perf/universe-characterization`
 **Worktree:** `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization`
-**Source revision:** `e71057d9dcb559a9777ff3c51f568497c83a3683` (continuation over `0b40dbbb`).
+**Source revision:** `eeca76f3` (continuation over `e71057d9`).
 **Delivery:** source committed; lifecycle records accompany it on `perf/universe-characterization`.
 
 ## Established continuation
@@ -73,10 +73,23 @@ findings after correcting a computed-key readiness consumer.
 
 ## Next work
 
-Continue residual P5.T6 Slice 4 canonical lookup maps (alias forms/static
-products/callable definitions and remaining copied aggregates), then T7–T9
-read/persistence contracts and observability. Do not claim zero copies across
-all product families yet. T10/final acceptance remain gated on P4 metadata
+`TypeAliasTable`, `StaticDefinitionTable`, `StaticConstantTable`, and accepted
+callable-definition maps now parent-read the image. Retained alias forms share
+the snapshot alias table; resolver static-definition views no longer flatten
+canonical maps. The exhaustive `canonical_query_persistence(QueryKind)` is
+consumed by freeze; eligibility never bypasses Ready/current/final-content and
+dependency-closure checks. Exact canonical sharing, removal/collision safety,
+13 recomputation, 18 workspace and seven alias tests passed after the table
+migration; 13 image library tests passed after classification extraction.
+The final source increment `eeca76f3` passed the exact image replacement,
+focused callable and core check. The pre-existing
+test-harness unused-import warning persists.
+
+Continue residual P5.T6 Slice 4 static-case catalogs/signatures, associated
+static domains, module static bindings and other copied aggregates, then T7–T8
+read/persistence contracts and T11 observability. T9's family classification
+is implemented; P7 still needs an artifact DTO/relocation contract. Do not claim
+zero copies across all product families yet. T10/final acceptance remain gated on P4 metadata
 composition. P5 does not persist `.telosc` and still source-builds the image
 on first process access.
 

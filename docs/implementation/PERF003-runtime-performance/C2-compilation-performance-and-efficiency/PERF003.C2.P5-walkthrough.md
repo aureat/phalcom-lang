@@ -10,8 +10,8 @@ verification: FOCUSED_TESTED
 # PERF003.C2.P5 — Partial Implementation Walkthrough
 
 Continuation over `0b40dbbb` on `perf/universe-characterization`, 2026-10-13.
-This is a progress record, not plan closeout. Source is committed as `e71057d9`;
-lifecycle records accompany it on the same branch.
+This is a progress record, not plan closeout. Source increments are committed
+as `e71057d9` and `eeca76f3`; lifecycle records accompany them on the same branch.
 
 The continuation replaces a Universe-wide dependency bypass with an exact,
 image-owned structural fingerprint index. Canonical dependency evidence stays
@@ -55,3 +55,33 @@ composition and final certification remain open. No `.telosc` is emitted and
 cold source-built acquisition remains. Broad release suites, full-workspace
 formatting and performance certification were deliberately deferred. The
 updated baseline-failure-fix handoff contains the next bounded work.
+
+## Residual lookup and query-classification increment (`eeca76f3`)
+
+Alias, static-definition and static-constant tables now parent-read the image's
+immutable products on first local update; local removals do not touch the
+parent, and collisions are rejected. Retained alias forms share the published
+type-alias table instead of copying every canonical form. Resolver static
+definitions retain the parented table. Accepted callable definitions now use
+`ParentMap` across snapshot publication and local revision cloning.
+
+Query family eligibility is an exhaustive, exported `QueryKind` classification
+used by `CanonicalSemanticQueryImage::freeze`. The validated Ready row, current
+origin, matching final aggregate and closed acyclic dependency requirements
+remain unchanged. This is a T9 classification extraction, not a serialized
+query-image implementation.
+
+Test-first canonical replacement coverage detected alias, static constant and
+accepted callable entry copying and passes after correction. It also verifies
+static-definition sharing, local-only entry counts, parent-safe removal and
+collision rejection. Focused post-change evidence: 13 recomputation tests,
+seven alias tests, 18 workspace tests, 13 canonical-image library tests, one
+final image replacement integration test and one exact callable/body edit test
+passed. Core observability check passed after the final source change. The
+test harness has a pre-existing unused import warning in `workspace.rs`.
+Broad release/format and performance certification were deferred.
+
+T6 Slice 4 remains partial: static-case/associated static products, module
+static bindings and other copied maps still need ownership conversion. T7–T8,
+T11–T13 remain open; P4 gates T10/final P5 acceptance. No `.telosc` persistence
+or certified zero-copy claim across all families follows from this increment.
