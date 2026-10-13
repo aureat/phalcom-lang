@@ -260,3 +260,18 @@ shadow graph and an execution path for shadow Universe code.
   `dd1a494d7e66a0eba7947ad5392cfd52ed7bf213130b18b985eb3f54ad2da026`
   through source commit `09ba7159b094aa0e6137e148d92012a8529d93d2`.
 - No shadow semantic or runtime claim is made.
+
+## UNIV002.C2.P17 — Either transformation documentation
+
+- Added comments above `functional/either.ph::Either.mapRight`,
+  `Either.bimap`, and `Either.swap`, describing the existing branch callback
+  and payload-preservation behavior. No method body, signature, import, module
+  owner, representation, or identity changed.
+- Exact diff review and scoped `git diff --check` passed. No tests were run
+  for this comments-only edit.
+- Independent inventory reconciliation compared the live tree with MOD1:
+  the same 174 `.ph` paths remain, with sixteen changed hashes. The existing
+  `functional/either.ph` row now records SHA-256
+  `508502608736ae31a51f550d1959d4e5f70b7931c2b077370fb56c8c5baf23d1`
+  through source commit `9d03621c86ae1abab4a7f5db170953e1ead3e92d`.
+- No shadow semantic or runtime claim is made.
