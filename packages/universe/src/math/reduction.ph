@@ -125,7 +125,8 @@ class FloatReduction {
     return maximum + FloatMathKernel.ln1p(FloatMathKernel.exp(-(a - b).abs))
   }
 
-  /// Stable logarithm of 1 - exp(x), defined for real x <= 0.
+  /// Computes log(1 - exp(x)) for x <= 0; x > 0 returns NaN.
+  /// NaN propagates, zero returns negative infinity, and negative infinity returns zero.
   @class
   log1mexp(_ x: Float) -> Float {
     if x != x { return x }
