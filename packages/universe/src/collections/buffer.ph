@@ -12,6 +12,7 @@ native class Buffer<T> is Collection {
   internal native rawSlice(_ start: Int, _ end: Int) -> Slice<T>
 
   size { self.rawLength }
+  /// Returns the maximum number of elements this buffer can hold.
   capacity { self.rawCapacity }
   first -> Option<T> {
     if self.size == 0 { return None }
