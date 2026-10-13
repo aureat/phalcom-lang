@@ -13,8 +13,10 @@ verification: FOCUSED_TESTED
 - Worktree: `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/collections`
 - Branch: `feat/telos-collections`
 - Base revision: `7e41d1a5fd1db4678ea2c1d8347bbe4c5c1c5706`
-- Delivery revision: update from the branch tip after the scoped P5 commit is
-  pushed.
+- P5 source/lifecycle delivery revision: `ec7abbb1` (`feat(universe):
+  modernize Gregorian leap-year predicate`). This handoff correction is a
+  follow-up documentation commit; use the current branch tip for the complete
+  record state.
 - Only the UNIV002 source and lifecycle files belong to this increment.
 
 ## Completed work
