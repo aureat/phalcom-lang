@@ -37,6 +37,7 @@ integration, or production cutover.
 | `UNIV002.C2.P12` | Writer.map documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting value transformation and log preservation; exact source review and whitespace check passed, and the 174-path inventory reconciled with 15 changed hashes. |
 | `UNIV002.C2.P13` | State.run documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added two comment lines documenting the initial state input and StateStep outputs; exact source review and whitespace check passed, and the 174-path inventory reconciled with 16 changed hashes. |
 | `UNIV002.C2.P14` | Writer.mapLog documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting log transformation and value preservation; exact source review and whitespace check passed, and the 174-path inventory reconciled with 16 changed hashes. |
+| `UNIV002.C2.P15` | Either.mapLeft documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | One source comment is planned; implementation and inventory reconciliation are pending. |
 
 ## Established invariants
 
@@ -192,8 +193,8 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: none. P14 is complete; the next bounded source-quality plan is
-  not yet active.
+- Active plan: `UNIV002.C2.P15`, documenting `Either.mapLeft`. The plan
+  authorizes one comment only.
 - Latest complete plan: `UNIV002.C2.P14`; latest complete checkpoint: `UNIV002.C1`.
 - The source inventory is reconciled through P14 source commit
   `cb6ceb0ebe53cdded4e57effddc4c91665dde403`: 174 paths, no additions or
@@ -227,6 +228,9 @@ identities.
   `functional/writer.ph::Writer.mapLog`; the method transforms the log and
   carries the existing value into the result. Only a comment changed; no
   semantic or runtime claim is made.
+- P15 is active as a bounded Category A comment in
+  `functional/either.ph::Either.mapLeft`; the method transforms a Left payload
+  and passes a Right payload through unchanged. Do not change executable code.
 
 P14 added one documentation line immediately above `Writer.mapLog`, stating
 that it applies `f` to the log and preserves this Writer's value. The method
