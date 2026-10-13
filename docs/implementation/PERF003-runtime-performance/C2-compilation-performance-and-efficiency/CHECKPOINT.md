@@ -4,13 +4,13 @@ program: PERF003
 kind: optimization
 status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
-active_plan: PERF003.C2.P2
+verification: FOCUSED_TESTED
+active_plan: PERF003.C2.P3
 latest_completed_plan: null
-next_plan: PERF003.C2.P2
+next_plan: PERF003.C2.P3
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: c931faeaf801cdf92b7a39c77404792e94a60026
-latest_tested_predecessor: bf1a69c6089e4879bbaa024fc202e14a808147a7
+execution_tree_head: c34f9c3fee75f33304a85c229dcf0a5133816479
+latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
@@ -22,16 +22,18 @@ program: PERF003
 checkpoint: PERF003.C2
 status: IN_PROGRESS
 completion: PARTIAL
-verification: UNVERIFIED
-active_plan: PERF003.C2.P2
+verification: FOCUSED_TESTED
+active_plan: PERF003.C2.P3
 latest_completed_plan: null
-next_plan: PERF003.C2.P2
+next_plan: PERF003.C2.P3
 next_action: >
-  Continue the image-backed ordinary semantic/module-session and external-module
-  ownership cutover. The image, core acquisition seam and opt-in canonical database
-  parent are implemented. P3 exact witness lookup and module-bounded signature
-  enumeration are implemented. User explicitly deferred broad verification and
-  requested continued compiler optimizations; P2 G5/G6 remain deferred.
+  Continue Package C settlement and witness plan optimizations. ConformanceIndex
+  nominal-family partitioning and coherence matching brute-force parity, deterministic
+  SCC/affected-result callable settlement, module-value dependency tracking precision,
+  and initial witness plan requirement-view sharing are implemented and verified.
+  Next step is persistent retained structural witness plans across revisions (with
+  separate structural vs return-sensitive fingerprints and explicit query edges) and
+  generic proof memoization. Broad suites and certification remain deferred.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -119,7 +121,7 @@ After:
 | `PERF003.C2.P1` | Canonical Universe Compilation Image & One-Shot Overlay | Package A | IN_PROGRESS | PARTIAL | UNVERIFIED | Shared declaration/interface caches and workspace interface retention are established at `99b84ecc`; commit `a7b75980` added formal-image scaffolding; P2 now owns the implemented formal/query foundation; module-session cutover remains |
 | `PERF003.C2.P7` | Consumer-Specific Publication & Demand-Driven Products | Package B | IN_PROGRESS | PARTIAL | UNVERIFIED | Earlier advisory-only slice has focused evidence; commit `a7b75980` adds `PresentationLevel` source-index filtering and Full → RuntimeMinimal → Full coverage changes, which remain unverified; unified source-target traversal remains |
 | `PERF003.C2.P2` | Complete Canonical Universe Formal Image and Immutable Canonical Query Roots | Formal/query foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | Formal image, query freeze/reader, provenance validation and core acquisition implemented in the task working-tree patch over `82051480`; focused evidence below; G5/G6 certification remains deferred |
-| `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | IN_PROGRESS | PARTIAL | UNVERIFIED | Exact indexed witness lookup and module-bounded effective-surface signature enumeration implemented; one focused lookup/edit regression passed. Requirement caching, structural/final plan split, SCC return settlement and generic proof memoization remain |
+| `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Exact indexed witness lookup, module-bounded effective-surface signature enumeration, ConformanceIndex partitioning (nominal family + open heads) with brute-force parity, SCC inferred-return settlement, and shared requirement-view passing implemented; focused regressions pass. Retained structural witness plans across revisions and generic proof memoization remain |
 | `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | PROPOSED | NOT_STARTED | UNVERIFIED | `MetadataRetentionPolicy`, reachability closures, `CallableOwnerIndex`, canonical metadata cross-pool references |
 | `PERF003.C2.P5` | Backend Scans, Trait Slots, and Local Complexity Elimination | Package E | PROPOSED | NOT_STARTED | UNVERIFIED | Module-indexed backend tables, canonical trait-slot precomputation, inherent impl domain index, range lookup indexes |
 
@@ -238,18 +240,33 @@ at the user's request. See [walkthrough](PERF003.C2.P2-walkthrough.md),
 
 ### Focused successor evidence (2026-10-13)
 
+- `impls::conformance_index_partition_tests::partitions_queries_and_coherence_match_brute_force_through_mutations`:
+  PASS, 1 selected, 0.01 s. Verifies exact equivalence between partitioned index
+  (by trait, nominal family, and open heads) and brute-force query and overlap
+  conflicts across insertions, mutations, and source removals.
+- `semantic::incremental::callable_dependencies::inferred_return_refresh_preserves_stable_products_and_counts_final_disposition_once`:
+  PASS, 1 selected, 43.24 s. Verifies that SCC and affected-result worklist
+  propagation preserves stable downstream products without global rescans, and
+  updates body dependency edges.
+- `missing_qualified_module_value_export_invalidates_when_export_is_added`:
+  PASS, 1 selected. Verifies negative export dependency revalidation when the
+  export is added in a subsequent revision.
+- `qualified_module_value_dependencies_follow_reads_not_import_seeding_or_shadowed_names`:
+  PASS, 1 selected. Verifies that imported and local checked bindings record
+  provenance edges only when looked up, not on blanket import presence.
+- `from_interfaces_retains_authoritative_products_without_rebuilding`:
+  PASS, 1 selected. Verifies that `SemanticWorkspaceInput::from_interfaces` preserves
+  pre-derived interface pointers without rebuilding.
+- `canonical_interface_load_does_not_load_parsed_source_per_resolver`:
+  PASS, 1 selected. Verifies canonical Universe interfaces bypass parsed source loading.
 - `canonical_image_database_reads_are_immutable_leaves_across_local_rollback`:
   PASS, 1 selected, 69.43 s including cold canonical bootstrap. Verifies identity
   sharing, canonical-origin currentness/reuse, forward dependency recording,
   no canonical invalidation/retirement/publication, and local transaction rollback.
 - `conformance_witness_lookup_preserves_exact_owner_side_and_selector_after_edits`:
   PASS, 1 selected. Exact impl/side lookup distinguishes inherent declarations,
-  survives table cloning, and observes removals. Final rerun also passed module
-  enumeration assertions (1 selected, 0 failures; 11.64 s compilation).
-- Existing image evidence: 8 focused exporter/provenance tests and one concurrent
-  first-access integration test passed before this successor increment. These
-  results do not certify ordinary-session externalization or runtime performance.
-
-- Final `RUSTFLAGS='' cargo check -p phalcom-core --features perf-observability`:
-  PASS (9.21 s) after the database-parent and indexed lookup changes. Subsequent
-  error-message-only adjustment identifies immutable publication distinctly.
+  survives table cloning, and observes removals.
+- `RUSTFLAGS='' cargo check -p phalcom-semantic`: PASS (3.94 s).
+- `RUSTFLAGS='' cargo check -p phalcom-core --features perf-observability`: PASS (17.16 s).
+- `RUSTFLAGS='' cargo check -p phalcom-modules`: PASS (0.17 s).
+- `git diff --check`: PASS (clean).
