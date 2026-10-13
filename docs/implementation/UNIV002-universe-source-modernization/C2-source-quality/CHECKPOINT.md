@@ -30,6 +30,7 @@ integration, or production cutover.
 | `UNIV002.C2.P5` | Gregorian leap-year predicate expression | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Exact shadow parser/interface test passed; source-level divisibility review passed. Semantic linking remains unverified and shadow runtime remains blocked. A separate Boolean corpus attempt failed before fixture execution during canonical import resolution; classified unrelated to P5 and left with concurrent MODL001 P4 work. |
 | `UNIV002.C2.P6` | ZoneTransition type documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one type-level comment describing the transition timestamp and offsets before/after. No executable code changed; `git diff --check` passed. |
 | `UNIV002.C2.P7` | UtcOffset.seconds documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added two method documentation lines before `@class`; source body/signature unchanged. Scoped diff check passed; independent inventory reconciliation retained 174 paths and records 11 changed source hashes. Semantic status remains unverified; shadow runtime remains blocked. |
+| `UNIV002.C2.P8` | Buffer.capacity documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting the maximum element count; getter body/signature unchanged. Scoped diff check passed; inventory reconciliation retained 174 paths and records 12 changed source hashes. Semantic status remains unverified; shadow runtime remains blocked. |
 
 ## Established invariants
 
@@ -53,7 +54,8 @@ integration, or production cutover.
 
 - Branch: `feat/telos-collections`.
 - P7 started from `146be31eb76c2c9649fa30f627a2819d02a1041e`; its source-only
-  commit is `58e2a31ec8d6823cb10d68e07def0d53cb62f94f`.
+  commit is `58e2a31ec8d6823cb10d68e07def0d53cb62f94f`. P8's source-only
+  commit is `e24f37945b1dd6349932013cb6ebf89f33cf979c`.
 - Concurrent P4 edits in `phalcom-semantic/src/resolver.rs`,
   `phalcom-semantic/src/session.rs`, `phalcom-semantic/src/workspace.rs`, and
   `phalcom-semantic/tests/semantic/integration/resolver.rs` are unrelated and
@@ -109,6 +111,14 @@ independent inventory comparison found 174 unchanged source paths and 11
 changed hashes relative to MOD1, with `time/offset.ph` added to the P6 overlay.
 Semantic linking remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
 
+P8 added one documentation line immediately above `Buffer.capacity` in
+`collections/buffer.ph`, describing the maximum element count the buffer can
+hold. The getter body, signature, and module ownership are unchanged. Scoped
+`git diff --check` passed; no tests were run. An independent inventory
+comparison found 174 unchanged source paths and 12 changed hashes relative to
+MOD1, with `collections/buffer.ph` added to the P7 overlay. Semantic linking
+remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
+
 ## Deferred candidate
 
 `TextCursor.next` has a candidate rewrite from `isSome`/`unwrap` to
@@ -122,10 +132,10 @@ identities.
 ## Active plan and next action
 
 - Active plan: none.
-- Latest complete plan: `UNIV002.C2.P7`; latest complete checkpoint: `UNIV002.C1`.
-- The source inventory is reconciled through P7 source commit
-  `58e2a31ec8d6823cb10d68e07def0d53cb62f94f`: 174 paths, no additions or
-  removals, and 11 changed hashes with the rest matching MOD1. Textual
+- Latest complete plan: `UNIV002.C2.P8`; latest complete checkpoint: `UNIV002.C1`.
+- The source inventory is reconciled through P8 source commit
+  `e24f37945b1dd6349932013cb6ebf89f33cf979c`: 174 paths, no additions or
+  removals, and 12 changed hashes with the rest matching MOD1. Textual
   inventory heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
   grounded in the live source; `docs/implementation/time.md` §29 proposes
@@ -133,7 +143,8 @@ identities.
 - P7 is a Category A comment-only edit in `time/offset.ph`; the live method
   enforces the inclusive `-93_599..93_599` range and raises `ArgumentError`
   outside it. The range is not asserted to be a normative language rule.
-- P7 completed as a documentation-only slice. Select the next stable source
-  modernization independently of the held identity, iteration ownership,
-  reflection, and active linker work; give any Category B/C change its own
-  plan and exact validation boundary.
+- P7 completed as a documentation-only slice. P8 completed a bounded
+  `Buffer.capacity` documentation edit in Priority 1 collections source.
+  Select the next stable source modernization independently of the held
+  identity, iteration ownership, reflection, and active linker work. Give any
+  Category B/C change its own plan and exact validation boundary.

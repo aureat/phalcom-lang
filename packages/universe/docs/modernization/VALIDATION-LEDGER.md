@@ -133,3 +133,19 @@ shadow graph and an execution path for shadow Universe code.
   records `time/offset.ph` SHA-256
   `224103f85df73b206edc3bf065f90d12262cbd4624084206804127938ef9564a` through
   source commit `58e2a31ec8d6823cb10d68e07def0d53cb62f94f`.
+
+## UNIV002.C2.P8 — Buffer.capacity documentation
+
+- Added one comment immediately above `collections/buffer.ph::Buffer.capacity`:
+  it returns the maximum number of elements the buffer can hold. The getter
+  returns `rawCapacity`; the surrounding type describes bounded storage and
+  `push` documents capacity exhaustion.
+- Only a comment changed; the getter body, signature, and module ownership are
+  unchanged. `git diff --check` passed. No tests were run for this
+  comments-only edit.
+- Independent inventory reconciliation found 174 paths with no additions or
+  removals; 12 source hashes differ from MOD1. The new overlay records
+  `collections/buffer.ph` SHA-256
+  `afe71fb114a044b19fae506f36c12f98d2887b7169132cdd17e36c7c960ccf92` through
+  source commit `e24f37945b1dd6349932013cb6ebf89f33cf979c`.
+- No shadow semantic or runtime claim is made.
