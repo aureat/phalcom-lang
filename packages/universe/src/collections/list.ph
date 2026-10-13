@@ -52,8 +52,8 @@ native class List<T> is Collection {
   }
 
   private sliceByRange(_ range) {
-    return range.rawSliceBounds(self.size).match(
-      ok: |bounds| {
+    match range.rawSliceBounds(self.size) {
+      Result::Ok(bounds) => {
         let mut start = bounds[0]
         let mut end = bounds[1]
         if start > end {
@@ -66,9 +66,9 @@ native class List<T> is Collection {
           i = i + 1
         }
         result
-      },
-      err: |error| { error.raise() }
-    )
+      }
+      Result::Error(error) => { error.raise() }
+    }
   }
 
   [_ index] {

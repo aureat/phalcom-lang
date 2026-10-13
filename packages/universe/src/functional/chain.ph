@@ -11,19 +11,15 @@ data Chain<T> {
 impl<T> Chain<T> {
   type Element = T
 
+  /// Builds a Chain from one traversal of values, preserving iteration order.
   @class
   fromIterable<I>(_ values: I) -> Chain<T>
     where I |= Iterable, <I as Iterable>::Item == T
   {
     let mut result = Chain<T>::Empty
     let iterator = values.iterator
-    let mut step = iterator.next
-    while step.isSome {
-      match step {
-        Option::Some(value) => { result = result.prepend(value) }
-        Option::None => {}
-      }
-      step = iterator.next
+    while let Option::Some(value) = iterator.next {
+      result = result.prepend(value)
     }
     result.reverse
   }
@@ -218,15 +214,12 @@ impl<T> Chain<T> {
     let mut matching = Chain<T>::Empty
     let mut remaining = Chain<T>::Empty
     let iterator = self.iterator
-    let mut step = iterator.next
-    while step.isSome {
-      match step {
-        Option::Some(value) => {
-          if predicate.call(value) { matching = matching.prepend(value) } else { remaining = remaining.prepend(value) }
-        }
-        Option::None => {}
+    while let Option::Some(value) = iterator.next {
+      if predicate.call(value) {
+        matching = matching.prepend(value)
+      } else {
+        remaining = remaining.prepend(value)
       }
-      step = iterator.next
     }
     Partition<T>(matching: matching.reverse, remaining: remaining.reverse)
   }
