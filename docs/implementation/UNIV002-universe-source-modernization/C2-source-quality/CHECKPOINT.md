@@ -31,6 +31,7 @@ integration, or production cutover.
 | `UNIV002.C2.P6` | ZoneTransition type documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one type-level comment describing the transition timestamp and offsets before/after. No executable code changed; `git diff --check` passed. |
 | `UNIV002.C2.P7` | UtcOffset.seconds documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added two method documentation lines before `@class`; source body/signature unchanged. Scoped diff check passed; independent inventory reconciliation retained 174 paths and records 11 changed source hashes. Semantic status remains unverified; shadow runtime remains blocked. |
 | `UNIV002.C2.P8` | Buffer.capacity documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting the maximum element count; getter body/signature unchanged. Scoped diff check passed; inventory reconciliation retained 174 paths and records 12 changed source hashes. Semantic status remains unverified; shadow runtime remains blocked. |
+| `UNIV002.C2.P9` | Bag.count documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added the occurrence-count comment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 13 changed hashes. |
 
 ## Established invariants
 
@@ -119,6 +120,17 @@ comparison found 174 unchanged source paths and 12 changed hashes relative to
 MOD1, with `collections/buffer.ph` added to the P7 overlay. Semantic linking
 remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
 
+P9 added one documentation line immediately above `Bag.count`, stating that
+it returns the number of occurrences of the supplied value in the bag. The
+source wrapper delegates to `rawCount`; the native lookup returns the stored
+multiplicity or zero when absent. Only a comment changed. Exact diff review
+and scoped `git diff --check` passed; no tests were run. Independent inventory
+reconciliation confirmed 174 matching paths and 13 changed hashes against
+MOD1, with `collections/bag.ph` recorded at
+`8c291717d8eddd99d615f442bc7f4540a42e046ac3a8a494a96f6185eb271a47` through
+source commit `a7fb21a9700b5ab038ff70021392f5be521d6a0b`. Semantic linking
+remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
+
 ## Deferred candidate
 
 `TextCursor.next` has a candidate rewrite from `isSome`/`unwrap` to
@@ -131,11 +143,12 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: none.
-- Latest complete plan: `UNIV002.C2.P8`; latest complete checkpoint: `UNIV002.C1`.
-- The source inventory is reconciled through P8 source commit
-  `e24f37945b1dd6349932013cb6ebf89f33cf979c`: 174 paths, no additions or
-  removals, and 12 changed hashes with the rest matching MOD1. Textual
+- Active plan: none; P9 is complete and the next bounded source-quality slice
+  has not yet started.
+- Latest complete plan: `UNIV002.C2.P9`; latest complete checkpoint: `UNIV002.C1`.
+- The source inventory is reconciled through P9 source commit
+  `a7fb21a9700b5ab038ff70021392f5be521d6a0b`: 174 paths, no additions or
+  removals, and 13 changed hashes with the rest matching MOD1. Textual
   inventory heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
   grounded in the live source; `docs/implementation/time.md` §29 proposes
@@ -143,8 +156,8 @@ identities.
 - P7 is a Category A comment-only edit in `time/offset.ph`; the live method
   enforces the inclusive `-93_599..93_599` range and raises `ArgumentError`
   outside it. The range is not asserted to be a normative language rule.
-- P7 completed as a documentation-only slice. P8 completed a bounded
-  `Buffer.capacity` documentation edit in Priority 1 collections source.
-  Select the next stable source modernization independently of the held
-  identity, iteration ownership, reflection, and active linker work. Give any
-  Category B/C change its own plan and exact validation boundary.
+- P7 completed as a documentation-only slice. P8 documented
+  `Buffer.capacity`; P9 documented the `Bag.count` occurrence-count contract.
+  Both are bounded Category A edits independent of the held identity,
+  iteration ownership, reflection, and active linker work. Give any Category
+  B/C change its own plan and exact validation boundary.

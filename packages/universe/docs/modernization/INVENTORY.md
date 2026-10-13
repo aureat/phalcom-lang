@@ -9,17 +9,18 @@
 - At baseline capture, the only dirty tracked files were `phalcom-semantic/src/session.rs` and `phalcom-semantic/src/workspace.rs` (3 insertions total); both were preserved. At final review, `git status --short` also showed this task's four new modernization docs and the parent-created `UNIV002.C1.P1` plan/checkpoint records as untracked.
 - Inventory source hashes: SHA-256 of each live shadow file at inventory time.
 
-## Current source hash reconciliation through UNIV002.C2.P8
+## Current source hash reconciliation through UNIV002.C2.P9
 
 - Branch: `feat/telos-collections`
-- Source revision: `e24f37945b1dd6349932013cb6ebf89f33cf979c`
+- Source revision: `a7fb21a9700b5ab038ff70021392f5be521d6a0b`
 - The current tree still contains 174 `.ph` files. Its source paths match the
-  MOD1 baseline paths; twelve files have changed since that snapshot. The current
+  MOD1 baseline paths; thirteen files have changed since that snapshot. The current
   hashes for those changed files are:
 
 | File | Current SHA-256 |
 |---|---|
 | `collections/array.ph` | `6b9cbd9ff2d93dcde69c5e02676d93125f463dccc6509cbf6312ffed76f81ff2` |
+| `collections/bag.ph` | `8c291717d8eddd99d615f442bc7f4540a42e046ac3a8a494a96f6185eb271a47` |
 | `collections/buffer.ph` | `afe71fb114a044b19fae506f36c12f98d2887b7169132cdd17e36c7c960ccf92` |
 | `collections/list.ph` | `a6faa5664dc098a1b32ba06a317e59cf9c35e2df5ac7ea1c40062e359f25c741` |
 | `collections/vector.ph` | `8934df5a96be81fa0ec1b46528a15666337cd5f45d815a893735222528cff7cb` |

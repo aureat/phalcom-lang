@@ -149,3 +149,17 @@ shadow graph and an execution path for shadow Universe code.
   `afe71fb114a044b19fae506f36c12f98d2887b7169132cdd17e36c7c960ccf92` through
   source commit `e24f37945b1dd6349932013cb6ebf89f33cf979c`.
 - No shadow semantic or runtime claim is made.
+
+## UNIV002.C2.P9 — Bag.count documentation
+
+- Added one comment immediately above `collections/bag.ph::Bag.count` stating
+  that it returns the number of occurrences of the supplied value in the bag.
+  The source method delegates to `rawCount`; native lookup returns the stored
+  multiplicity or zero when the value is absent.
+- Only a comment changed. Exact diff review and scoped `git diff --check`
+  passed. No tests were run for this comments-only edit.
+- Independent inventory reconciliation confirmed the same 174 source paths
+  as MOD1, with thirteen changed hashes. `collections/bag.ph` is recorded at
+  SHA-256 `8c291717d8eddd99d615f442bc7f4540a42e046ac3a8a494a96f6185eb271a47`
+  through source commit `a7fb21a9700b5ab038ff70021392f5be521d6a0b`.
+- No shadow semantic or runtime claim is made.
