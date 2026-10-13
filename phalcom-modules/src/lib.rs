@@ -39,6 +39,7 @@ pub use graph::{
     SemanticEdge, SemanticEdgeKind, SemanticGraph, SemanticNodeId, strongly_connected_components,
 };
 pub use identity::{
+    ImportBindingLocalId, SourceImportBindingId,
     ImportRootTarget, ImportSiteId, ImportSiteLocalId, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectRevisionFingerprint,
     ProjectSourceIdentity, ResolvedProjectId, SourceId, SourceLocation, StableModuleKey, StableProjectKey, SyntheticProjectId, SyntheticProjectIdAllocator,
     universe_module_from_uri, universe_module_uri,
@@ -48,6 +49,8 @@ pub use interface::{
     UnlinkedExportTarget, UnlinkedModuleInterface,
 };
 pub use linker::{
+    ExecutableLinkedProgram, ImportPhaseSummary, ModuleImportPhaseProduct, PhaseEvidenceCoverage, SemanticLinkedModule, SemanticLinkedProgram,
+    SymbolicImportBinding, SymbolicImportTable, SymbolicImportTarget,
     GlobalBindingId, ImportBindingId, LinkError, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, ModuleLinker, SymbolId, dependency_phase,
     module_path, resolution_key,
 };

@@ -28,6 +28,8 @@ deferred_reason: null
 
 Parts I–II deliberately remove loading/resolution/linking responsibilities from the runtime. Part III makes the VM consume the resulting closed `CompiledProgram`.
 
+**P4 architectural amendment (2026-10-13):** `CompiledProgram` contains or consumes only a finalized executable link product: complete runtime requirements and linked-read layout, a strictly validated runtime DAG, and deterministic initialization order. A provisional semantic-linked program has no executable slots/order and cannot enter compilation, materialization, or initialization APIs. Canonical semantic analysis and generated runtime-requirement closure precede executable finalization; P3 begins after that boundary. Historical P2/P3/P4 plan order remains unchanged.
+
 The target runtime model is:
 
 ```text

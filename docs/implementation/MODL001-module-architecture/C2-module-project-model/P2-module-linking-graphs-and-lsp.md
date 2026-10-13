@@ -27,6 +27,8 @@ deferred_reason: null
 
 # 1. Purpose
 
+**P4 architectural amendment (2026-10-13):** Symbolic linking produces a distinct semantic-linked program with canonical import identities, without executable slots or initialization order. Canonical semantic analysis then supplies retained phase evidence; core supplies generated executable requirements. A single module-layer finalizer constructs slots and runtime edges and validates the strict runtime DAG. References below to an executable `LinkedProgram` mean this finalized output. Historical plan order is unchanged.
+
 Part I makes modules statically identifiable and resolvable. Part II turns that resolved source universe into a linked semantic program.
 
 This part replaces the current model:
@@ -55,6 +57,12 @@ build interfaces
 link symbols/imports/re-exports
     ↓
 validate semantic graph
+    ↓
+canonical semantic analysis and phase evidence
+    ↓
+close generated executable requirements
+    ↓
+finalize runtime read layout and dependency graph
     ↓
 validate runtime dependency DAG
     ↓
@@ -966,8 +974,8 @@ Phases:
 8. Build reference graph
 9. Link imports/re-exports to SymbolIds
 10. Build semantic graph
-11. Process semantic SCCs / construct validation
-12. Derive runtime dependency graph
+11. Process semantic SCCs / canonical semantic analysis and retained phase evidence
+12. Close generated executable requirements; finalize runtime slots and dependency graph from the same authority
 13. Reject runtime SCCs
 14. Topologically order runtime modules
 15. Compile each module using linked bindings

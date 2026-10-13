@@ -4,7 +4,7 @@ category: MODL
 program: MODL001
 checkpoint: MODL001.C2
 kind: implementation-plan
-status: BLOCKED
+status: IN_PROGRESS
 completion: NOT_STARTED
 verification: UNVERIFIED
 depends_on:
@@ -16,7 +16,21 @@ supersedes: null
 
 # MODL001.C2.P4 — phase-aware source dependencies
 
-> **Architectural hold:** This draft is not an approved implementation contract. Do not execute it until the phase model, semantic evidence owner, and provisional-to-final linker boundary are decided in [the architecture incident](MODL001.C2.P4-architecture-incident.md).
+> **Approved architectural amendment (2026-10-13):** Execute under the user-supplied `MODL001.C2.P4-architectural-ruling-and-implementer-directive.md` (reviewed collections HEAD `b679028c`). The adopted decisions are recorded in `CHECKPOINT.md`. The task sequence below supersedes the original T1–T4 outline where it differs; historical dependencies on P2/P3 are preserved. This plan does not claim those historical plans completed.
+
+## Approved execution sequence and gates
+
+- **T0:** Record ruling and amend checkpoint/P2/P3/P4 before source edits.
+- **T1:** Introduce modules-owned item-level `SourceImportBindingId` and symbolic import table; distinct `SemanticLinkedProgram` has no runtime slots or initialization order. Test aliases/multiple items and pre-finalization symbolic resolution. Add type-enforced compile/materialize stage rejection evidence at this boundary.
+- **T2:** Migrate semantic resolver and checker value seeding from executable slots to symbolic targets; retain `BindingId → SourceImportBindingId` provenance.
+- **T3:** Retain consumer-owned use evidence with query products; aggregate explicit module coverage and content-sensitive fingerprints. Missing, stale, unsupported, unobserved, or incomplete evidence is Runtime. Test annotations/constraints, direct value/call use, mixed use, shadowing, independent selected items, and cold/incremental parity.
+- **T4:** Close generated requirements before DAG validation: superclass, type-form/class objects, contextual realization, patterns, runtime attributes, runtime type/reification roots, selected external callables/witnesses, and static constants. Unsupported families prevent interface-only proof. Do not classify from declaration kind or occurrence role.
+- **T5:** Finalize a distinct executable product from symbolic links plus phase evidence plus generated requirements. Jointly project deterministic slots and edges, strictly validate the DAG, publish order atomically. Test unknown fallback, unused imports, whole-module/re-export policy, semantic-cycle success and runtime-cycle rejection.
+- **T6:** Cut program lowering/materialization to finalized authority. Missing external mapping is an internal contract error; no late slot insertion. Legacy standalone compatibility must be explicitly isolated from finalized program paths.
+- **T7:** Run owner-specific focused tests for all categories in the ruling's verification matrix, including missing-mapping fail-closed and no uncovered `GetLinked`.
+- **T8:** Prove the minimal protocol/default → runtime adapter → interface-only protocol fixture and paired runtime-cycle negative. Keep shadow iteration/concurrency source and production bootstrap unchanged.
+
+Modules owns transport, identity, slots and graphs; semantic owns the proof; core owns orchestration and executable semantic projection. `ImportBindingId` is executable-only. Generated requirements may name canonical owners without an authored imported binding. Evidence must survive query reuse and retract on invalidation; a generic snapshot status is not phase completeness. Completion requires T1–T8 evidence, not merely introducing the staged types.
 
 ## 0. Executor contract
 
