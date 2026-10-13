@@ -2864,6 +2864,8 @@ fn specialize_inherent_applicability(
 /// Workspace-level source index for explicit conformance heads.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConformanceIndex {
+    /// Immutable canonical contributions are shared across local revisions.
+    parent: Option<Arc<ConformanceIndex>>,
     contributions: BTreeMap<ImplId, ConformanceContribution>,
     by_trait: BTreeMap<DeclarationId, BTreeSet<ImplId>>,
     by_trait_family: BTreeMap<DeclarationId, BTreeMap<DeclarationId, BTreeSet<ImplId>>>,
@@ -2874,6 +2876,34 @@ pub struct ConformanceIndex {
 impl ConformanceIndex {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Attach canonical conformance heads without copying their indexed entries.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
+    }
+
+    /// Number of entries owned by this mutable revision.
+    pub fn local_len(&self) -> usize {
+        self.contributions.len()
+    }
+
+    /// Number of entries visible through the immutable parent.
+    pub fn parent_len(&self) -> usize {
+        self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
+    /// Total visible canonical and local contributions.
+    pub fn len(&self) -> usize {
+        self.local_len() + self.parent_len()
+    }
+
+    /// Iterate workspace-owned heads without visiting the canonical parent.
+    pub fn iter_local(&self) -> impl Iterator<Item = (&ImplId, &ConformanceContribution)> {
+        self.contributions.iter()
     }
 
     pub fn insert(&mut self, contribution: ConformanceContribution) {
@@ -2890,6 +2920,10 @@ impl ConformanceIndex {
     }
 
     fn insert_classified(&mut self, contribution: ConformanceContribution, family: Option<DeclarationId>) {
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.get(&contribution.impl_id).is_some()),
+            "cannot overwrite a canonical conformance contribution"
+        );
         self.remove(&contribution.impl_id);
         let impl_id = contribution.impl_id.clone();
         let trait_declaration = contribution.trait_ref.declaration.clone();
@@ -2940,11 +2974,15 @@ impl ConformanceIndex {
     }
 
     pub fn get(&self, impl_id: &ImplId) -> Option<&ConformanceContribution> {
-        self.contributions.get(impl_id)
+        self.contributions.get(impl_id).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(impl_id)))
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&ImplId, &ConformanceContribution)> {
-        self.contributions.iter()
+    /// Canonical parent followed by local contributions, without flattening.
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&ImplId, &ConformanceContribution)> + '_> {
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter().chain(self.contributions.iter())),
+            None => Box::new(self.contributions.iter()),
+        }
     }
 
     /// Returns every eligible source head matching the exact target and trait
@@ -2955,7 +2993,7 @@ impl ConformanceIndex {
         let mut candidates_considered = 0u64;
         let candidates = self.candidates_for_query(store, target, &trait_ref.declaration);
         for impl_id in candidates {
-            let Some(contribution) = self.contributions.get(&impl_id) else { continue };
+            let Some(contribution) = self.get(&impl_id) else { continue };
             if !contribution.is_lookup_eligible() {
                 continue;
             }
@@ -3014,6 +3052,24 @@ impl ConformanceIndex {
     pub fn overlap_conflicts(&self, store: &mut TypeStore) -> Vec<(ImplId, ImplId)> {
         let mut conflicts = Vec::new();
         let mut candidate_pairs = BTreeSet::new();
+        if let Some(parent) = &self.parent {
+            // Preserve the complete merged coherence result. A local head can
+            // conflict with an immutable canonical head, not just local heads.
+            candidate_pairs.extend(parent.overlap_conflicts(store));
+            for (impl_id, contribution) in &self.contributions {
+                for parent_id in parent.overlap_candidates_for(
+                    &contribution.trait_ref.declaration,
+                    self.family_by_impl.get(impl_id),
+                ) {
+                    let pair = if impl_id < &parent_id {
+                        (impl_id.clone(), parent_id)
+                    } else {
+                        (parent_id, impl_id.clone())
+                    };
+                    candidate_pairs.insert(pair);
+                }
+            }
+        }
         for trait_declaration in self.by_trait.keys() {
             let open = self.open_by_trait.get(trait_declaration);
             if let Some(families) = self.by_trait_family.get(trait_declaration) {
@@ -3029,7 +3085,7 @@ impl ConformanceIndex {
             }
         }
         for (first_id, second_id) in candidate_pairs {
-            let (Some(first), Some(second)) = (self.contributions.get(&first_id), self.contributions.get(&second_id)) else {
+            let (Some(first), Some(second)) = (self.get(&first_id), self.get(&second_id)) else {
                 continue;
             };
             if !first.is_lookup_eligible() || !second.is_lookup_eligible() || first.trait_ref.arguments.len() != second.trait_ref.arguments.len() {
@@ -3052,20 +3108,39 @@ impl ConformanceIndex {
         conflicts
     }
 
+    /// Candidate IDs for cross-boundary coherence, scoped to the trait and
+    /// nominal family whenever possible. An open head overlaps any family.
+    fn overlap_candidates_for(&self, trait_declaration: &DeclarationId, family: Option<&DeclarationId>) -> BTreeSet<ImplId> {
+        let mut candidates = self.parent.as_ref().map_or_else(BTreeSet::new, |parent| parent.overlap_candidates_for(trait_declaration, family));
+        if let Some(family) = family {
+            if let Some(open) = self.open_by_trait.get(trait_declaration) {
+                candidates.extend(open.iter().cloned());
+            }
+            if let Some(fixed) = self.by_trait_family.get(trait_declaration).and_then(|families| families.get(family)) {
+                candidates.extend(fixed.iter().cloned());
+            }
+        } else if let Some(ids) = self.by_trait.get(trait_declaration) {
+            candidates.extend(ids.iter().cloned());
+        }
+        candidates
+    }
+
     fn candidates_for_query(&self, store: &TypeStore, target: TypeId, trait_declaration: &DeclarationId) -> Vec<ImplId> {
+        let mut candidates = self
+            .parent
+            .as_ref()
+            .map_or_else(BTreeSet::new, |parent| parent.candidates_for_query(store, target, trait_declaration).into_iter().collect());
         let Some(by_trait) = self.by_trait.get(trait_declaration) else {
-            return Vec::new();
+            return candidates.into_iter().collect();
         };
         let Some(family) = nominal_conformance_family(store, target) else {
-            return by_trait.iter().cloned().collect();
+            candidates.extend(by_trait.iter().cloned());
+            return candidates.into_iter().collect();
         };
 
-        let mut candidates = self
-            .open_by_trait
-            .get(trait_declaration)
-            .into_iter()
-            .flat_map(|ids| ids.iter().cloned())
-            .collect::<BTreeSet<_>>();
+        if let Some(open) = self.open_by_trait.get(trait_declaration) {
+            candidates.extend(open.iter().cloned());
+        }
         if let Some(fixed) = self.by_trait_family.get(trait_declaration).and_then(|families| families.get(family)) {
             candidates.extend(fixed.iter().cloned());
         }
@@ -3224,6 +3299,76 @@ mod conformance_index_partition_tests {
         let mut indexed_store = store.clone();
         let mut brute_store = store.clone();
         assert_eq!(index.overlap_conflicts(&mut indexed_store), brute_overlaps(index, &mut brute_store));
+    }
+
+    #[test]
+    fn canonical_parent_conformances_are_shared_and_cross_boundary_coherence_is_preserved() {
+        use std::sync::Arc;
+
+        let canonical_module = module(51);
+        let local_module = module(52);
+        let trait_declaration = declaration(&module(53), "Tagged");
+        let family = declaration(&module(54), "A");
+        let mut store = TypeStore::new();
+        let target = store.nominal_type(family.clone());
+        let canonical_impl = implementation(&canonical_module, 1);
+        let local_impl = implementation(&local_module, 1);
+        let mut canonical = ConformanceIndex::new();
+        canonical.insert_with_store(
+            &store,
+            contribution(
+                canonical_impl.clone(),
+                trait_declaration.clone(),
+                ConformanceTarget::Declaration(family.clone()),
+                target,
+            ),
+        );
+        let canonical = Arc::new(canonical);
+        let mut overlay = ConformanceIndex::with_parent(canonical.clone());
+        assert_eq!(overlay.local_len(), 0);
+        assert_eq!(overlay.parent_len(), 1);
+        assert_eq!(overlay.iter().count(), 1);
+        assert!(overlay.get(&canonical_impl).is_some());
+
+        overlay.insert_with_store(
+            &store,
+            contribution(
+                local_impl.clone(),
+                trait_declaration.clone(),
+                ConformanceTarget::Declaration(family.clone()),
+                target,
+            ),
+        );
+        assert_eq!(overlay.local_len(), 1);
+        assert_eq!(overlay.len(), 2);
+        let selected = overlay
+            .query_exact(&mut store.clone(), target, &TraitRef::new(trait_declaration.clone(), Vec::new().into_boxed_slice()))
+            .into_iter()
+            .map(|matched| matched.impl_id)
+            .collect::<Vec<_>>();
+        assert_eq!(selected, vec![canonical_impl.clone(), local_impl.clone()]);
+        assert_eq!(overlay.overlap_conflicts(&mut store.clone()), vec![(canonical_impl.clone(), local_impl.clone())]);
+
+        let published = overlay.clone();
+        overlay.remove_source(&canonical_module);
+        assert!(overlay.get(&canonical_impl).is_some());
+        overlay.remove_source(&local_module);
+        assert_eq!(overlay.local_len(), 0);
+        assert_eq!(overlay.parent_len(), 1);
+        assert_eq!(published.local_len(), 1);
+        assert_eq!(canonical.len(), 1);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            overlay.insert_with_store(
+                &store,
+                contribution(
+                    canonical_impl.clone(),
+                    trait_declaration,
+                    ConformanceTarget::Declaration(family),
+                    target,
+                ),
+            );
+        }))
+        .is_err());
     }
 
     #[test]

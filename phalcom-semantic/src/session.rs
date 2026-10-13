@@ -5260,7 +5260,15 @@ impl SemanticWorkspaceSession {
         let mut inherent_contributions_by_module: BTreeMap<ModuleId, Vec<crate::impls::InherentImplContribution>> = BTreeMap::new();
         let mut inherent_callable_record_key_projections: HashMap<(crate::identity::ImplId, usize), crate::static_key::ProjectedRecordKeySet<'_>> =
             HashMap::new();
-        let mut conformance_index = aggregate_snapshot.map(|snapshot| (*snapshot.conformance_index).clone()).unwrap_or_default();
+        // The first local publication attaches canonical heads by Arc; later
+        // revisions clone only the local index and its immutable parent handle.
+        let mut conformance_index = if let Some(previous) = previous_snapshot.as_ref() {
+            (*previous.conformance_index).clone()
+        } else if let Some(canonical) = canonical_snapshot.as_ref() {
+            crate::impls::ConformanceIndex::with_parent(canonical.conformance_index.clone())
+        } else {
+            crate::impls::ConformanceIndex::new()
+        };
         let mut conformance_witness_plans = aggregate_snapshot
             .map(|snapshot| (*snapshot.conformance_witness_plans).clone())
             .unwrap_or_default();
