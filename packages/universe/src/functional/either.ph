@@ -41,18 +41,21 @@ impl<L, R> Either<L, R> {
       Either::Right(value) => Either<A, R>::Right(value)
     }
   }
+  /// Transforms a `Right` payload and leaves a `Left` payload unchanged.
   mapRight<B>(_ f: (R) -> B) -> Either<L, B> {
     match self {
       Either::Left(value) => Either<L, B>::Left(value)
       Either::Right(value) => Either<L, B>::Right(f.call(value))
     }
   }
+  /// Applies `left` to a `Left` payload or `right` to a `Right` payload.
   bimap<A, B>(left: (L) -> A, right: (R) -> B) -> Either<A, B> {
     match self {
       Either::Left(value) => Either<A, B>::Left(left.call(value))
       Either::Right(value) => Either<A, B>::Right(right.call(value))
     }
   }
+  /// Reverses the variant while preserving its payload.
   swap -> Either<R, L> {
     match self {
       Either::Left(value) => Either<R, L>::Right(value)
