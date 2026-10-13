@@ -35,6 +35,7 @@ integration, or production cutover.
 | `UNIV002.C2.P10` | Reader.run documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment explaining that run invokes the computation with the supplied environment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 14 changed hashes. |
 | `UNIV002.C2.P11` | Reader.map documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment describing the transformed value and preserved environment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 14 changed hashes. |
 | `UNIV002.C2.P12` | Writer.map documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting value transformation and log preservation; exact source review and whitespace check passed, and the 174-path inventory reconciled with 15 changed hashes. |
+| `UNIV002.C2.P13` | State.run documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | Document transition input and StateStep outputs; preserve behavior and refresh the inventory after the edit. |
 
 ## Established invariants
 
@@ -179,8 +180,7 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: none; P12 is complete and the next bounded source-quality
-  slice has not yet started.
+- Active plan: `UNIV002.C2.P13`.
 - Latest complete plan: `UNIV002.C2.P12`; latest complete checkpoint: `UNIV002.C1`.
 - The source inventory is reconciled through P12 source commit
   `de77efaf6b4019ccea426ff51ffa300d925af364`: 174 paths, no additions or
@@ -207,3 +207,6 @@ identities.
 - P12 completed a bounded Category A comment in `functional/writer.ph::Writer.map`.
   The method applies `f` to the stored value and carries the stored log into
   the result. No behavior or identity change was in scope.
+- P13 is a bounded Category A comment in `functional/state.ph::State.run`.
+  The method invokes the transition with the supplied initial state and
+  returns a `StateStep` containing the produced value and successor state.

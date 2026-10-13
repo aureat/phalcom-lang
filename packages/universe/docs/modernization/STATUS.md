@@ -125,3 +125,5 @@ P11 completed a comment-only `Reader.map` slice. The MOD1 hash overlay is
 current through its source commit; no semantic or runtime claim is made.
 P12 completed a comment-only `Writer.map` slice. The inventory is current
 through its source commit; no semantic or runtime claim is made.
+P13 is active for a comment-only `State.run` slice; the inventory remains
+current through P12 until that source change is committed.
