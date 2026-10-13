@@ -13,6 +13,7 @@ impl<W, T> Writer<W, T> {
     Writer<W, U>(value: f.call(self.value), log: self.log)
   }
 
+  /// Applies `f` to the log and preserves this Writer's value.
   mapLog<V>(_ f: (W) -> V) -> Writer<V, T> {
     Writer<V, T>(value: self.value, log: f.call(self.log))
   }
