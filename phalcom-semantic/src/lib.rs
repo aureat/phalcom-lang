@@ -11,6 +11,7 @@ pub mod advisory;
 pub mod algebraic_semantics;
 pub mod associated;
 pub mod canonical_baseline;
+pub mod canonical_image;
 pub mod checker;
 pub mod contracts;
 pub mod control_summary;
@@ -144,7 +145,7 @@ pub use member_projection::*;
 pub use module_bindings::{ModuleBindingFact, ModuleBindingPhase, ModuleStaticBindingCatalog, ModuleStaticBindingIndex, ModuleStaticBindingSeed};
 pub use phalcom_modules::WorkspaceSourceBatchMutation;
 pub use prelude::PreludeTypeMap;
-pub use request::{AdvisoryLevel, SemanticProductRequest};
+pub use request::{AdvisoryLevel, PresentationLevel, SemanticProductRequest};
 pub use presentation::{
     AdvisoryPresenter, CallablePresentation, FieldPresentation, FormalContractRelation, FormalFactRef, FormalFactSite, FormalFactStatus, FormalPresentation,
     FormalSemanticProjection, FormalSiteId, FormalTypeSite, ParameterPresentation, SemanticPresentationIndex, SemanticSiteView, TypePresenter,

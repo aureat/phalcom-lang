@@ -9,21 +9,39 @@ pub enum AdvisoryLevel {
     Full,
 }
 
+/// Controls publication of source-navigation and presentation products.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PresentationLevel {
+    /// Publish only source shards required to lower workspace runtime modules.
+    None,
+    /// Publish complete workspace and canonical Universe presentation products.
+    Full,
+}
+
 /// Semantic products required by one compilation consumer.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SemanticProductRequest {
+    /// Requested source presentation coverage.
+    pub presentation: PresentationLevel,
+    /// Requested advisory-analysis coverage.
     pub advisory: AdvisoryLevel,
 }
 
 impl SemanticProductRequest {
     /// Product set for executable lowering and runtime compilation.
     pub const fn runtime_minimal() -> Self {
-        Self { advisory: AdvisoryLevel::None }
+        Self {
+            presentation: PresentationLevel::None,
+            advisory: AdvisoryLevel::None,
+        }
     }
 
     /// Product set retained by semantic and tooling callers for compatibility.
     pub const fn full() -> Self {
-        Self { advisory: AdvisoryLevel::Full }
+        Self {
+            presentation: PresentationLevel::Full,
+            advisory: AdvisoryLevel::Full,
+        }
     }
 }
 

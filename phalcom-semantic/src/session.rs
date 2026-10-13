@@ -7714,12 +7714,47 @@ impl SemanticWorkspaceSession {
             reverse_imports,
         }));
 
+        let presentation_requested = input.product_request.presentation != crate::request::PresentationLevel::None;
         let mut source_index_rebuild_modules = changed_modules.clone();
         source_index_rebuild_modules.extend(
             callable_dispositions
                 .iter()
                 .filter_map(|(callable, disposition)| (*disposition == CallableRevisionDisposition::Recomputed).then_some(callable.module().clone())),
         );
+        if !presentation_requested {
+            source_index_rebuild_modules.retain(|module| !module.project.is_universe());
+        }
+        let source_index_effect_modules = source_index_rebuild_modules.clone();
+        let canonical_presentation_modules = if presentation_requested {
+            canonical_presentation_modules(&self.universe_source_provider)
+        } else {
+            BTreeSet::new()
+        };
+        if let Some(previous) = previous_snapshot.as_deref() {
+            source_index_rebuild_modules.extend(
+                canonical_presentation_modules
+                    .iter()
+                    .filter(|module| previous.source_index.module(module).is_none())
+                    .cloned(),
+            );
+        }
+        let mut source_index_current_modules = current_modules
+            .iter()
+            .filter(|module| presentation_requested || !module.project.is_universe())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        source_index_current_modules.extend(canonical_presentation_modules);
+        let mut source_index_retired_modules = removed_modules.clone();
+        if !presentation_requested {
+            source_index_retired_modules.extend(
+                previous_snapshot
+                    .as_deref()
+                    .into_iter()
+                    .flat_map(|snapshot| snapshot.source_index.modules())
+                    .filter(|(module, _)| module.project.is_universe())
+                    .map(|(module, _)| module.clone()),
+            );
+        }
         let mut source_index_analysis_callables = BTreeMap::new();
         for module in &source_index_rebuild_modules {
             let Some(shard) = self.semantic_structure_shards.get(module) else {
@@ -7742,11 +7777,12 @@ impl SemanticWorkspaceSession {
             nominal_declarations: &known_declarations,
             previous: previous_snapshot.as_deref().map(|snapshot| snapshot.source_index.as_ref()),
             rebuild_modules: &source_index_rebuild_modules,
-            retired_modules: &removed_modules,
-            current_modules: &current_modules,
+            retired_modules: &source_index_retired_modules,
+            current_modules: &source_index_current_modules,
             analysis_callables: &source_index_analysis_callables,
             import_sites_by_module: &input.import_sites_by_module,
             trait_surfaces: &trait_surfaces,
+            include_canonical_presentation: presentation_requested,
         });
         // Presentation-only Universe source shards provide provenance and
         // navigation. They are deliberately not workspace query inputs.
@@ -7774,9 +7810,8 @@ impl SemanticWorkspaceSession {
         source_index_scope.finish(SemanticPerfOutcome::Success);
 
         let advisory_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateAdvisory);
-        let mut advisory = if input.product_request.advisory == crate::request::AdvisoryLevel::None {
-            AdvisoryWorkspace::default()
-        } else {
+        let advisory_requested = input.product_request.advisory != crate::request::AdvisoryLevel::None;
+        let mut advisory = if advisory_requested {
             build_advisory_workspace(AdvisoryWorkspaceInputs {
                 sources: &retained_sources,
                 source_index: &source_index,
@@ -7791,23 +7826,25 @@ impl SemanticWorkspaceSession {
                 budget,
                 cancel,
             })
+        } else {
+            AdvisoryWorkspace::default()
         };
         // Revalidate retained advisory summaries as well as summaries rebuilt
         // from the current formal analyses. Reused module shards still expose
         // their prior callable evidence, so their exact advisory dependencies
         // must be current before the shard can publish again.
         let mut advisory_query_callables = advisory.callables.as_ref().clone();
-        if input.product_request.advisory != crate::request::AdvisoryLevel::None {
+        if advisory_requested {
             if let Some(previous) = previous_snapshot.as_ref() {
-            for (callable, summary) in previous.advisory.callables.iter() {
-                if current_modules.contains(callable.module()) {
-                    advisory_query_callables.entry(callable.clone()).or_insert_with(|| summary.clone());
+                for (callable, summary) in previous.advisory.callables.iter() {
+                    if current_modules.contains(callable.module()) {
+                        advisory_query_callables.entry(callable.clone()).or_insert_with(|| summary.clone());
+                    }
                 }
-            }
             }
         }
         let mut advisory_query_failed = None;
-        if input.product_request.advisory != crate::request::AdvisoryLevel::None {
+        if advisory_requested {
             for summary in advisory_query_callables.values() {
                 if let QueryOutcome::Failed(error) = bootstrap_advisory_callable(&mut self.db, summary.clone()) {
                     advisory_query_failed = Some(error);
@@ -7815,7 +7852,7 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        if advisory_query_failed.is_none() && input.product_request.advisory != crate::request::AdvisoryLevel::None {
+        if advisory_query_failed.is_none() && advisory_requested {
             for summary in advisory_query_callables.values() {
                 self.db.discard_for_recompute(&QueryKey::AdvisoryCallable(summary.callable.clone()));
                 if let QueryOutcome::Failed(error) = query_advisory_callable(&mut self.db, summary.clone()) {
@@ -7824,7 +7861,7 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        if advisory_query_failed.is_none() && input.product_request.advisory != crate::request::AdvisoryLevel::None {
+        if advisory_query_failed.is_none() && advisory_requested {
             for (module, module_product) in advisory.modules.iter() {
                 let callables = advisory
                     .callables
@@ -7881,7 +7918,7 @@ impl SemanticWorkspaceSession {
             }
             // Plan A already computed the exact retirement set. Reusing it
             // avoids comparing every retained formal module on each update.
-            for module in &removed_modules {
+            for module in &source_index_retired_modules {
                 formal_projection.retire_module(module);
             }
         }
@@ -7898,7 +7935,7 @@ impl SemanticWorkspaceSession {
                 .iter()
                 .filter(|module| current_modules.contains(*module) && previous_formal.is_some_and(|projection| projection.module(module).is_some()))
                 .count();
-            let formal_modules_retired = removed_modules
+            let formal_modules_retired = source_index_retired_modules
                 .iter()
                 .filter(|module| previous_formal.is_some_and(|projection| projection.module(module).is_some()))
                 .count();
@@ -8892,9 +8929,9 @@ impl SemanticWorkspaceSession {
         });
         let effects = SemanticPublicationEffects {
             diagnostics_changed,
-            source_index_changed: changed_modules.clone(),
-            formal_changed: changed_modules.clone(),
-            advisory_changed: changed_modules.clone(),
+            source_index_changed: source_index_effect_modules.clone(),
+            formal_changed: source_index_effect_modules.clone(),
+            advisory_changed: if advisory_requested { changed_modules.clone() } else { BTreeSet::new() },
             declaration_index_changed,
             module_graph_changed,
         };
@@ -8904,8 +8941,10 @@ impl SemanticWorkspaceSession {
         // its advisory/callable products; graph/declaration work is tracked
         // separately so callers can distinguish a body edit from a project
         // lifecycle event.
-        stats.source_indexes_recomputed = changed_modules.len();
-        stats.advisory_sources_recomputed = changed_modules.len();
+        stats.source_indexes_recomputed = source_index_effect_modules.len();
+        if advisory_requested {
+            stats.advisory_sources_recomputed = changed_modules.len();
+        }
         stats.modules_relinked = if module_graph_changed { changed_modules.len() } else { 0 };
         stats.project_graph_rebuilt = effects.module_graph_changed;
         if previous_snapshot.is_some() {
@@ -8923,7 +8962,9 @@ impl SemanticWorkspaceSession {
             .values()
             .filter(|disposition| **disposition == CallableRevisionDisposition::Reused)
             .count();
-        stats.advisory_callables_recomputed = stats.callables_recomputed;
+        if advisory_requested {
+            stats.advisory_callables_recomputed = stats.callables_recomputed;
+        }
         effects_scope.finish(SemanticPerfOutcome::Success);
         let recomputed_keys = callable_dispositions
             .iter()
@@ -11010,6 +11051,23 @@ struct SourceSemanticIndexInputs<'a> {
     analysis_callables: &'a BTreeMap<ModuleId, BTreeSet<crate::identity::CallableId>>,
     import_sites_by_module: &'a BTreeMap<ModuleId, BTreeSet<phalcom_modules::identity::ImportSiteId>>,
     trait_surfaces: &'a TraitSurfaceTable,
+    include_canonical_presentation: bool,
+}
+
+fn canonical_presentation_modules(provider: &phalcom_modules::UniverseSourceProvider) -> BTreeSet<ModuleId> {
+    provider
+        .nodes()
+        .iter()
+        .map(|node| {
+            let path = phalcom_modules::ModulePath::from_components(
+                node.path
+                    .iter()
+                    .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+                    .collect::<Vec<_>>(),
+            );
+            ModuleId::universe(path)
+        })
+        .collect()
 }
 
 fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (SourceSemanticIndex, BTreeMap<ModuleId, Arc<str>>) {
@@ -11029,6 +11087,7 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
         analysis_callables,
         import_sites_by_module,
         trait_surfaces,
+        include_canonical_presentation,
     } = inputs;
     // Canonical Universe modules are source-owned presentation inputs: index
     // their declarations for navigation without linking or deeply analyzing
@@ -11038,22 +11097,19 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
     // the persistent source-index contract.
     let mut presentation_sources = BTreeMap::new();
     let provider = universe_source_provider;
-    let presentation_modules = provider
-        .nodes()
-        .iter()
-        .map(|node| {
-            let path = phalcom_modules::ModulePath::from_components(
-                node.path
-                    .iter()
-                    .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
-                    .collect::<Vec<_>>(),
-            );
-            ModuleId::universe(path)
-        })
-        .collect::<BTreeSet<_>>();
+    let presentation_modules = if include_canonical_presentation {
+        canonical_presentation_modules(provider)
+    } else {
+        BTreeSet::new()
+    };
     let mut index_sources = BTreeMap::new();
     if previous.is_none() {
-        index_sources.extend(sources.iter().map(|(module, source)| (module.clone(), source.clone())));
+        index_sources.extend(
+            sources
+                .iter()
+                .filter(|(module, _)| include_canonical_presentation || !module.project.is_universe())
+                .map(|(module, source)| (module.clone(), source.clone())),
+        );
     } else {
         for module in rebuild_modules {
             if let Some(source) = sources.get(module) {

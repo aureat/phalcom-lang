@@ -2,6 +2,7 @@ mod access_control;
 mod adt_associated;
 mod advisory;
 mod applied_class_side;
+mod canonical_image;
 mod compiler_capabilities;
 mod data_constructor_visibility;
 mod data_source_index;
