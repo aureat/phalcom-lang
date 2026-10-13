@@ -13,7 +13,7 @@
 - Legacy files modified by this increment: None.
 - Production source authority changed: No.
 
-The manifest below records SHA-256 digests of every copied legacy file. Matching shadow files were checked against these digests. This is provenance evidence for the initial copy, not proof of semantic equivalence after later edits.
+The manifest below records SHA-256 digests of every copied legacy file. The digests matched the shadow files at the initial S0/S1 copy; later shadow changes are recorded in the reconciliation log. This is provenance evidence for the initial copy, not proof of semantic equivalence after later edits.
 
 ## File manifest
 
@@ -197,5 +197,6 @@ The manifest below records SHA-256 digests of every copied legacy file. Matching
 | Baseline/revision examined | Shadow changes | Legacy changes not ported | Conflicts / notes |
 |---|---|---|---|
 | `9be1ed1eba3f94ba05e8e4aca1ee55f5ccf13131` (initial copy) | Complete authored directory copied unchanged | None known at initial duplication | No semantic reconciliation performed; source layout remains the legacy layout. |
+| `4d98eb53` (S3 scalar split start) | Moved `Int` and `Float` declaration bodies into shadow `scalar/int.ph` and `scalar/float.ph`; retained `Number` in `scalar/number.ph`; added explicit declaration exports and scalar-facade re-exports | None; the legacy tree remains unchanged | Production native keys, prelude ownership, runtime attachments, and the normative Universe spec still point `Int` and `Float` to legacy `scalar.number`. The shadow relocation has source-level evidence only; compiler/runtime identity was not validated. |
 
 For future synchronization, reconcile declaration or method changes into reorganized shadow modules individually. Do not recopy complete legacy files over reorganized modules.

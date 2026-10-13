@@ -1,10 +1,10 @@
-# Initial module map
+# Current shadow module map
 
-This is an inventory of the copied legacy source layout, not the target reorganized layout. Module paths are derived from `src/` paths (`package.ph` is the containing package module). The scanner includes every unindented top-level declaration line matching zero or more `intrinsic`, `native`, `primitive`, or `type` prefixes followed by one of `data`, `enum`, `class`, `trait`, or `type`, then an identifier. It therefore includes intrinsic aliases/data facades such as `Unit`, `RecordFields`, `Record`, `EmptyRecord`, `TypePack`, `Tuple`, and structural declarations. It separately includes top-level `let`, `let mut`, `const`, `fn`, and `def` names. It does not parse Telos syntax, enumerate nested declarations/variants/members, infer generated declarations, or prove semantic identity. Source statements remain authoritative; no compiler validation was performed.
+This is an inventory of the current shadow source layout. Module paths are derived from `src/` paths (`package.ph` is the containing package module); the initial legacy owners are retained in `identity-migration.md`. The scanner includes every unindented top-level declaration line matching zero or more `intrinsic`, `native`, `primitive`, or `type` prefixes followed by one of `data`, `enum`, `class`, `trait`, or `type`, then an identifier. It therefore includes intrinsic aliases/data facades such as `Unit`, `RecordFields`, `Record`, `EmptyRecord`, `TypePack`, `Tuple`, and structural declarations. It separately includes top-level `let`, `let mut`, `const`, `fn`, and `def` names. It does not parse Telos syntax, enumerate nested declarations/variants/members, infer generated declarations, or prove semantic identity. Source statements remain authoritative; no compiler validation was performed.
 
 Recognized top-level type-like declarations: **364**. Recognized top-level value declarations: **77**.
 
-| Baseline module | Source file | Top-level type-like declarations | Top-level values |
+| Current shadow module | Source file | Top-level type-like declarations | Top-level values |
 |---|---|---|---|
 | `universe.callable.closure` | `callable/closure.ph` | `Closure` | — |
 | `universe.callable.family` | `callable/family.ph` | `Family`, `MethodFamily`, `BoundMethodFamily` | — |
@@ -137,8 +137,10 @@ Recognized top-level type-like declarations: **364**. Recognized top-level value
 | `universe.regex` | `regex/package.ph` | — | — |
 | `universe.scalar.bool` | `scalar/bool.ph` | `Bool`, `True`, `False` | — |
 | `universe.scalar.char` | `scalar/char.ph` | `Char` | — |
+| `universe.scalar.float` | `scalar/float.ph` | `Float` | — |
+| `universe.scalar.int` | `scalar/int.ph` | `Int` | — |
 | `universe.scalar.nil` | `scalar/nil.ph` | `Nil` | — |
-| `universe.scalar.number` | `scalar/number.ph` | `Number`, `Int`, `Float` | — |
+| `universe.scalar.number` | `scalar/number.ph` | `Number` | — |
 | `universe.scalar` | `scalar/package.ph` | — | — |
 | `universe.scalar.string` | `scalar/string.ph` | `String`, `StringChars`, `StringCharIterator`, `StringByteSequence`, `StringByteIterator`, `StringCodePointSequence`, `StringCodePointIterator` | — |
 | `universe.scalar.string_index` | `scalar/string_index.ph` | `StringIndex` | — |
@@ -177,127 +179,133 @@ Recognized top-level type-like declarations: **364**. Recognized top-level value
 
 ## Authored interface and import statements
 
+This table records top-level `import`, `from`, `export`, and `expose` statements from the current shadow files, with whitespace normalized and import paths left as authored. The resolved import graph is in `dependency-graph.md`.
+
 | Module | Direct source statements |
 |---|---|
-| Module | Direct source statements |
+| `universe.callable` | `expose .function`; `expose .closure`; `expose .method`; `expose .family` |
+| `universe.collections.array` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable` |
+| `universe.collections.bag` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable`; `export Bag, BagIterator` |
+| `universe.collections.bijection` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable`; `export Bijection, BijectionIterator` |
+| `universe.collections.buffer` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable`; `export Buffer` |
+| `universe.collections.bytes` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable` |
+| `universe.collections.indexed_dict` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable` |
+| `universe.collections.interval` | `export Bound, Interval` |
+| `universe.collections.iterator_laws` | `from universe.text.builder import StringBuilder`; `export Iterator, Iterable, MappedIterator, FilterIterator, FilterMapIterator, FlatMapIterator, FlattenIterator, ChainIterator, SkipIterator, SkipWhileIterator, TakeIterator, TakeWhileIterator, MapWhileIterator, InspectIterator, StrictZipIterator, IndexedIterator` |
+| `universe.collections.list` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable`; `from universe.text.builder import StringBuilder` |
+| `universe.collections.map` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable` |
+| `universe.collections.mutable_bag` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable` |
+| `universe.collections.ordered_set` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable` |
+| `universe.collections.pack` | `from universe.collections.tuple import CompleteTypePack`; `export PositionalPackView`; `export LabeledPackView`; `export PositionalTypePackView`; `export LabeledTypePackView`; `export Pack, PositionalPack, LabeledPack, CompletePack` |
+| `universe.collections` | `expose .collection`; `expose .iterator_laws`; `expose .list`; `expose .array`; `expose .vector`; `expose .slice`; `expose .buffer`; `expose .map`; `expose .set`; `expose .mutable_bag`; `expose .indexed_dict`; `expose .ordered_set`; `expose .bag`; `expose .bijection`; `expose .tuple`; `expose .pack`; `expose .record`; `expose .range`; `expose .bytes`; `expose .interval`; `expose .range_map` |
+| `universe.collections.range` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable, TakeIterator` |
+| `universe.collections.range_map` | `from universe.collections.interval import Bound, Interval`; `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable`; `export RangeMap, RangeMapIterator` |
+| `universe.collections.record` | `export FieldKey`; `export RecordFields` |
+| `universe.collections.set` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable` |
+| `universe.collections.slice` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable`; `export Slice` |
+| `universe.collections.tuple` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable`; `export CompleteTypePack` |
+| `universe.collections.vector` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable` |
+| `universe.concurrency.fiber` | `export Fiber, Future, FutureSubscription, CompletionSource, Tracer, OffBehavior, Backoff` |
+| `universe.concurrency` | `expose .fiber` |
+| `universe.errors.argument` | `export ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError, BijectionConflictError, InvalidIntervalError, RangeOverlapError` |
+| `universe.errors` | `expose .error`; `expose .result`; `expose .argument`; `expose .iteration`; `expose .indexing`; `expose .contracts`; `expose .unsupported`; `expose .unimplemented`; `from .argument import ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError, BijectionConflictError, InvalidIntervalError, RangeOverlapError`; `export ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError, BijectionConflictError, InvalidIntervalError, RangeOverlapError` |
+| `universe.errors.unsupported` | `export unsupported` |
+| `universe.functional.algebra` | `from .chain import Chain, NonEmpty`; `from universe.numbers.capabilities import Addable, Multipliable, Zero, One`; `export Semigroup, Monoid, Additive, Multiplicative, AllTrue, AnyTrue, First, Last, Dual, Endo` |
+| `universe.functional.arrow` | `from .either import Either`; `export Arrow, ArrowContext, Profunctor` |
+| `universe.functional.chain` | `from universe.collections.iterator_laws import Iterator, Iterable`; `export Chain, ChainIterator, NonEmpty, Partition` |
+| `universe.functional.effects` | `from .higher_kinded import Functor, Applicative, Monad`; `from .chain import Chain`; `from universe.collections.iterator_laws import Iterable`; `export Effects` |
+| `universe.functional.either` | `export Either` |
+| `universe.functional.fold` | `from .chain import Chain`; `from universe.collections.iterator_laws import Iterable`; `from universe.numbers.capabilities import Addable, Zero`; `export Fold, FoldFactory` |
+| `universe.functional.folds` | `from .algebra import Semigroup, Monoid`; `from .chain import Chain, NonEmpty`; `from .validation import Validation`; `from universe.collections.iterator_laws import Iterable`; `export Folds` |
+| `universe.functional.higher_kinded` | `from .chain import Chain, NonEmpty`; `export Functor, Applicative, Monad, Identity, IdentityContext, OptionContext, ChainContext, NonEmptyContext` |
+| `universe.functional.journal` | `from .chain import Chain`; `from .algebra import Semigroup, Monoid`; `export Journal` |
+| `universe.functional.lens` | `export Lens` |
+| `universe.functional.optics` | `from .lens import Lens`; `from universe.reflection.structural import Product`; `export Iso, Optional, Prism` |
+| `universe.functional` | `expose .state`; `expose .reader`; `expose .validation`; `expose .lens`; `expose .chain`; `expose .algebra`; `expose .writer`; `expose .journal`; `expose .state_result`; `expose .reader_result`; `expose .higher_kinded`; `expose .effects`; `expose .folds`; `expose .fold`; `expose .optics`; `expose .either`; `expose .arrow`; `from .state import State, StateStep`; `from .reader import Reader`; `from .validation import Validation`; `from .lens import Lens`; `from .chain import Chain, ChainIterator, NonEmpty, Partition`; `from .algebra import Semigroup, Monoid, Additive, Multiplicative, AllTrue, AnyTrue, First, Last, Dual, Endo`; `from .writer import Writer`; `from .journal import Journal`; `from .state_result import StateResult`; `from .reader_result import ReaderResult`; `from .higher_kinded import Functor, Applicative, Monad, Identity, IdentityContext, OptionContext, ChainContext, NonEmptyContext`; `from .effects import Effects`; `from .folds import Folds`; `from .fold import Fold, FoldFactory`; `from .optics import Iso, Optional, Prism`; `from .either import Either`; `from .arrow import Arrow, ArrowContext, Profunctor`; `export State, StateStep`; `export Reader`; `export Validation`; `export Lens`; `export Chain, ChainIterator, NonEmpty, Partition`; `export Semigroup, Monoid, Additive, Multiplicative, AllTrue, AnyTrue, First, Last, Dual, Endo`; `export Writer`; `export Journal`; `export StateResult`; `export ReaderResult`; `export Functor, Applicative, Monad, Identity, IdentityContext, OptionContext, ChainContext, NonEmptyContext`; `export Effects`; `export Folds`; `export Fold, FoldFactory`; `export Iso, Optional, Prism`; `export Either, Arrow, ArrowContext, Profunctor` |
+| `universe.functional.reader` | `export Reader` |
+| `universe.functional.reader_result` | `from .reader import Reader`; `export ReaderResult` |
+| `universe.functional.state` | `from .lens import Lens`; `export State, StateStep` |
+| `universe.functional.state_result` | `from .state import State, StateStep`; `from .lens import Lens`; `export StateResult` |
+| `universe.functional.validation` | `from .algebra import Semigroup`; `export Validation` |
+| `universe.functional.writer` | `from .algebra import Semigroup, Monoid`; `export Writer` |
+| `universe.json` | `export parse`; `export stringify` |
+| `universe.math.complex.kernel` | `from ...numbers.complex import Complex`; `from ...numbers.float_complex import FloatComplex as H`; `from ..float_kernel import FloatMathKernel as F`; `export ComplexMathKernel` |
+| `universe.math.complex` | `from .kernel import ComplexMathKernel as K`; `export sqrt, exp, log, log1p, sin, cos, tan, asin, acos, atan, sinh, cosh, tanh, asinh, acosh, atanh, powInt, pow` |
+| `universe.math.float_kernel` | `export FloatMathKernel, FloatAngleHelpers` |
+| `universe.math.integer` | `export IntegerMath` |
+| `universe.math.numerical_errors` | `export NumericalRangeError, NumericalEvaluationError` |
+| `universe.math` | `expose .complex`; `from .float_kernel import FloatMathKernel`; `from .float_kernel import FloatAngleHelpers`; `from .numerical_errors import NumericalRangeError, NumericalEvaluationError`; `from .integer import IntegerMath`; `from .reduction import FloatReduction`; `export ( pi, tau, e, ln2, ln10, sqrt2, sqrt, cbrt, exp, exp2, expm1, ln, ln1p, log, log2, log10, sin, cos, tan, asin, acos, atan, atan2, degrees, radians, sinh, cosh, tanh, asinh, acosh, atanh, hypot, gcd, lcm, isqrt, sum, mean, meanOption, logSumExp, logAddExp, log1mexp, factorial, choose, fallingFactorial, risingFactorial, NumericalRangeError, NumericalEvaluationError )` |
+| `universe.math.reduction` | `from .float_kernel import FloatMathKernel`; `from .numerical_errors import NumericalRangeError`; `from universe.collections.iterator_laws import Iterable`; `export FloatReduction` |
+| `universe.numbers.algebra` | `export I, J, K, Basis, i, j, k, RealEmbeddable, BasisRealizable` |
+| `universe.numbers.capabilities` | `export Addable, Subtractable, Multipliable, Negatable, IntegerPower, Zero, One` |
+| `universe.numbers.complex` | `from .capabilities import Addable, Subtractable, Multipliable, Negatable, IntegerPower, Zero, One`; `from .algebra import Basis, I, BasisRealizable, RealEmbeddable`; `from .rational import Rational`; `from .float_complex import FloatComplex as FC`; `from ..math.float_kernel import FloatMathKernel as F`; `export Complex, ComplexDivision` |
+| `universe.numbers.float_complex` | `from ..math.float_kernel import FloatMathKernel as F`; `export FloatComplex` |
+| `universe.numbers` | `from .capabilities import Addable, Subtractable, Multipliable, Negatable, IntegerPower, Zero, One`; `from .algebra import I, J, K, Basis, i, j, k, BasisRealizable, RealEmbeddable`; `from .complex import Complex, ComplexDivision`; `from .quaternion import Quaternion`; `from .rational import Rational`; `export Rational, Complex, ComplexDivision, Quaternion, I, J, K, Basis, i, j, k, Addable, Subtractable, Multipliable, Negatable, IntegerPower, Zero, One, BasisRealizable, RealEmbeddable` |
+| `universe.numbers.quaternion` | `from .capabilities import Addable, Subtractable, Multipliable, Negatable, Zero, One`; `from .algebra import Basis, I, J, K, BasisRealizable, RealEmbeddable`; `from .complex import Complex`; `export Quaternion` |
+| `universe.numbers.rational` | `from .capabilities import Addable, Subtractable, Multipliable, Negatable, IntegerPower, Zero, One`; `from ..math.integer import IntegerMath`; `export Rational` |
+| `universe.object.ellipsis` | `export Ellipsis, ellipsis` |
+| `universe.object.ordering` | `export Ordering` |
+| `universe.object` | `expose .object`; `expose .behavior`; `expose .class`; `expose .metaclass`; `expose .ellipsis`; `expose .ordering` |
+| `universe.option` | `expose .option`; `expose .unit` |
+| `universe` | `expose .object`; `expose .scalar`; `expose .errors`; `expose .callable`; `expose .option`; `expose .functional`; `expose .time`; `expose .concurrency`; `expose .collections`; `expose .reflection`; `expose .io`; `expose .fs`; `expose .path`; `expose .text`; `expose .regex`; `expose .json`; `expose .math`; `expose .numbers`; `expose .random`; `expose .process`; `expose .net`; `expose .concurrent`; `expose .testing`; `import .object`; `import .scalar`; `from .scalar import StringIndex`; `import .errors`; `from .errors import ( ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError )`; `import .callable`; `import .option`; `import .functional`; `import .time`; `from .time import ( Duration, Timestamp )`; `import .concurrency`; `import .collections`; `import .reflection`; `import .io`; `import .fs`; `import .path`; `import .text`; `from .text import ( Substring, Text, TextPattern, Split, SplitWhitespace, Lines, TextWriter, StringBuilder, TextCursor, SourceLocation, LineMap, Utf8Error, IntParseError, FloatParseError, BoolParseError )`; `import .regex`; `import .json`; `import .math`; `import .numbers`; `import .random`; `import .process`; `import .net`; `import .concurrent`; `import .testing`; `export object`; `export scalar`; `export StringIndex`; `export Substring`; `export Text`; `export TextPattern`; `export Split`; `export SplitWhitespace`; `export Lines`; `export TextWriter`; `export StringBuilder`; `export TextCursor`; `export SourceLocation`; `export LineMap`; `export Utf8Error`; `export IntParseError`; `export FloatParseError`; `export BoolParseError`; `export errors`; `export ( ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError )`; `export callable`; `export option`; `export functional`; `export ( Duration, Timestamp )`; `export time`; `export concurrency`; `export collections`; `export reflection`; `export io`; `export fs`; `export path`; `export text`; `export regex`; `export json`; `export math`; `export numbers`; `export random`; `export process`; `export net`; `export concurrent`; `export testing` |
+| `universe.random.bernoulli` | `from .generator import Generator`; `from .distribution import Distribution`; `export Bernoulli` |
+| `universe.random.distribution` | `from .generator import Generator`; `export Distribution` |
+| `universe.random.generator` | `export Generator` |
+| `universe.random` | `from .generator import Generator`; `from .xoshiro256pp import Xoshiro256PlusPlus`; `from .distribution import Distribution`; `from .uniform_int import UniformInt`; `from .bernoulli import Bernoulli`; `from .secure import SecureRandom, EntropyError`; `export Generator, Xoshiro256PlusPlus, Distribution, UniformInt, Bernoulli, SecureRandom, EntropyError` |
+| `universe.random.secure` | `export SecureRandom, EntropyError` |
+| `universe.random.uniform_int` | `from .generator import Generator`; `from .distribution import Distribution`; `export UniformInt` |
+| `universe.random.xoshiro256pp` | `from .generator import Generator`; `export Xoshiro256PlusPlus` |
+| `universe.reflection.message` | `export Message` |
+| `universe.reflection` | `expose .module`; `expose .package_object`; `expose .project`; `expose .project_manifest`; `expose .package_info`; `expose .package_author`; `expose .package_requirement`; `expose .resolved_project_dependency`; `expose .module_dependency`; `expose .export_table`; `expose .export`; `expose .export_kind`; `expose .child_module_table`; `expose .module_identity`; `expose .package_identity`; `expose .project_identity`; `expose .uri`; `expose .selector`; `expose .message`; `expose .attribute`; `expose .implementation`; `expose .typing`; `expose .structural` |
+| `universe.reflection.selector` | `export Selector`; `export SelectorPattern` |
+| `universe.reflection.structural` | `from universe.collections.pack import PositionalPack, LabeledPack, CompletePack`; `from universe.collections.record import FieldKey`; `from universe.reflection.typing.kind import Type`; `export Product, OrderedProduct, UnorderedProduct, Sum`; `export ProductKind, ProductShape, OrderedTail, PositionalTail, LabeledTail, OrderedShape`; `export Presence, FieldInfo, ProductField, FixedFields, UnorderedTail, UnorderedShape, FieldLookup, UnorderedShapeView`; `export Variant, Variants, VariantNames` |
+| `universe.reflection.typing.kind` | `export KindDescriptor, AtomicKind, FunctionKind, Type` |
+| `universe.reflection.typing` | `expose .kind`; `expose .type_descriptor`; `expose .type_parameter`; `expose .generic_signature`; `expose .signature`; `expose .type_use`; `expose .result`; `expose .evidence`; `expose .context` |
+| `universe.scalar.bool` | `from universe.text.errors import BoolParseError` |
+| `universe.scalar.char` | `from universe.text.substring import Substring` |
+| `universe.scalar.float` | `from .number import Number`; `from universe.text.errors import FloatParseError`; `export Float` |
+| `universe.scalar.int` | `from .number import Number`; `from universe.text.errors import IntParseError`; `export Int` |
+| `universe.scalar.number` | `export Number` |
+| `universe.scalar` | `expose .number`; `expose .int`; `expose .float`; `expose .nil`; `expose .string`; `expose .string_index`; `expose .char`; `expose .bool`; `expose .symbol`; `from .string_index import StringIndex`; `from .number import Number`; `from .int import Int`; `from .float import Float`; `export StringIndex`; `export Number`; `export Int`; `export Float` |
+| `universe.scalar.string` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable`; `from universe.scalar.string_index import StringIndex`; `from universe.text.errors import Utf8Error`; `from universe.text.substring import ( Substring, Split, SplitWhitespace, Lines )`; `export ( StringChars, StringCharIterator, StringByteSequence, StringByteIterator, StringCodePointSequence, StringCodePointIterator )` |
+| `universe.scalar.string_index` | `export StringIndex` |
+| `universe.text.builder` | `from universe.text.writer import TextWriter`; `export StringBuilder` |
+| `universe.text.cursor` | `from universe.scalar.string_index import StringIndex`; `from universe.text.substring import Substring`; `export TextCursor` |
+| `universe.text.errors` | `export ( Utf8Error, IntParseError, FloatParseError, BoolParseError )` |
+| `universe.text.line_map` | `from universe.scalar.string_index import StringIndex`; `from universe.text.substring import Substring`; `export ( SourceLocation, LineMap )` |
+| `universe.text.lines` | `from .substring import ( Lines, LinesIterator )`; `export ( Lines, LinesIterator )` |
+| `universe.text` | `expose .substring`; `expose .traits`; `expose .patterns`; `expose .split`; `expose .lines`; `expose .writer`; `expose .builder`; `expose .cursor`; `expose .line_map`; `expose .errors`; `from .substring import ( Substring, SubstringChars, SubstringCharIterator, SubstringBytes, SubstringByteIterator )`; `from .traits import Text`; `from .patterns import TextPattern`; `from .split import ( Split, SplitIterator, SplitWhitespace, SplitWhitespaceIterator )`; `from .lines import ( Lines, LinesIterator )`; `from .writer import TextWriter`; `from .builder import StringBuilder`; `from .cursor import TextCursor`; `from .line_map import ( SourceLocation, LineMap )`; `from .errors import ( Utf8Error, IntParseError, FloatParseError, BoolParseError )`; `export ( Substring, SubstringChars, SubstringCharIterator, SubstringBytes, SubstringByteIterator, Text, TextPattern, Split, SplitIterator, SplitWhitespace, SplitWhitespaceIterator, Lines, LinesIterator, TextWriter, StringBuilder, TextCursor, SourceLocation, LineMap, Utf8Error, IntParseError, FloatParseError, BoolParseError )` |
+| `universe.text.patterns` | `from universe.text.substring import Substring`; `export TextPattern` |
+| `universe.text.split` | `from .substring import ( Split, SplitIterator, SplitWhitespace, SplitWhitespaceIterator )`; `export ( Split, SplitIterator, SplitWhitespace, SplitWhitespaceIterator )` |
+| `universe.text.substring` | `from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable`; `from universe.scalar.string_index import StringIndex`; `export ( Substring, SubstringChars, SubstringCharIterator, SubstringBytes, SubstringByteIterator, Split, SplitIterator, SplitWhitespace, SplitWhitespaceIterator, Lines, LinesIterator )` |
+| `universe.text.traits` | `from universe.scalar.string import ( StringChars, StringByteSequence )`; `from universe.text.substring import ( Substring, SubstringChars, SubstringBytes )`; `export Text` |
+| `universe.text.writer` | `export TextWriter` |
+| `universe.time.calendar.date` | `from universe.time.calendar.month import Month, Gregorian`; `from universe.time.calendar.period import Period`; `from universe.time.calendar.weekday import Weekday`; `from universe.time.timezone import TimeZone`; `from universe.time.timestamp import Timestamp`; `export Date, DateOverflow` |
+| `universe.time.calendar.datetime` | `from universe.time.calendar.date import Date, DateOverflow`; `from universe.time.calendar.period import Period`; `from universe.time.calendar.time import Time`; `from universe.time.calendar.month import Month`; `from universe.time.offset import UtcOffset`; `from universe.time.timezone import TimeZone`; `from universe.time.timestamp import Timestamp`; `from universe.time.duration import Duration`; `export DateTime, ZonedDateTime, LocalTimeDisambiguation, LocalTimeResolution` |
+| `universe.time.calendar.month` | `export Month, Gregorian` |
+| `universe.time.calendar` | `expose .month`; `expose .weekday`; `expose .period`; `expose .date`; `expose .time`; `expose .datetime`; `expose .partial`; `from universe.time.calendar.month import Month`; `from universe.time.calendar.weekday import Weekday`; `from universe.time.calendar.period import Period`; `from universe.time.calendar.date import ( Date, DateOverflow )`; `from universe.time.calendar.time import Time`; `from universe.time.calendar.datetime import DateTime`; `from universe.time.calendar.partial import ( YearMonth, MonthDay )`; `export ( Month, Weekday, Period, Date, DateOverflow, Time, DateTime, YearMonth, MonthDay )` |
+| `universe.time.calendar.partial` | `from universe.time.calendar.date import Date`; `from universe.time.calendar.month import Month, Gregorian`; `export YearMonth, MonthDay` |
+| `universe.time.calendar.period` | `export Period` |
+| `universe.time.calendar.time` | `export Time` |
+| `universe.time.calendar.weekday` | `export Weekday` |
+| `universe.time.clock` | `from universe.time.duration import Duration, Measurement`; `export Clock, Instant, SystemClock` |
+| `universe.time.duration` | `export Duration, Measurement` |
+| `universe.time.offset` | `export UtcOffset` |
+| `universe.time` | `expose .clock`; `expose .duration`; `expose .timestamp`; `expose .offset`; `expose .calendar`; `expose .timezone`; `expose .zone_transition`; `expose .zoned`; `expose .resolution`; `expose .testing`; `from universe.time.clock import ( Clock, Instant, SystemClock )`; `from universe.time.duration import ( Duration, Measurement )`; `from universe.time.timestamp import ( Timestamp, WallClock, SystemWallClock, wallClock )`; `from universe.time.offset import UtcOffset`; `from universe.time.timezone import TimeZone`; `from universe.time.zone_transition import ZoneTransition`; `from universe.time.zoned import ZonedDateTime`; `from universe.time.resolution import LocalTimeDisambiguation, LocalTimeResolution`; `from universe.time.calendar.month import Month`; `from universe.time.calendar.weekday import Weekday`; `from universe.time.calendar.period import Period`; `from universe.time.calendar.date import ( Date, DateOverflow )`; `from universe.time.calendar.time import Time`; `from universe.time.calendar.datetime import DateTime`; `from universe.time.calendar.partial import ( YearMonth, MonthDay )`; `export ( Clock, Instant, SystemClock, Duration, Measurement, Timestamp, WallClock, SystemWallClock, UtcOffset, TimeZone, ZoneTransition, ZonedDateTime, LocalTimeDisambiguation, LocalTimeResolution, Month, Weekday, Period, Date, DateOverflow, Time, DateTime, YearMonth, MonthDay, clock, wallClock )` |
+| `universe.time.resolution` | `from universe.time.calendar.datetime import LocalTimeDisambiguation, LocalTimeResolution`; `export LocalTimeDisambiguation, LocalTimeResolution` |
+| `universe.time.testing.clocks` | `from universe.time.clock import Clock, Instant`; `from universe.time.duration import Duration`; `from universe.time.timestamp import Timestamp`; `from universe.time.timestamp import WallClock`; `export ManualClock, ManualWallClock` |
+| `universe.time.testing` | `expose .clocks` |
+| `universe.time.timestamp` | `from universe.time.duration import Duration`; `export Timestamp, WallClock, SystemWallClock, wallClock` |
+| `universe.time.timezone` | `from universe.time.offset import UtcOffset`; `from universe.time.duration import Duration`; `from universe.time.timestamp import Timestamp`; `from universe.time.zone_transition import ZoneTransition`; `export TimeZone` |
+| `universe.time.zone_transition` | `from universe.time.timestamp import Timestamp`; `from universe.time.offset import UtcOffset`; `export ZoneTransition` |
+| `universe.time.zoned` | `from universe.time.calendar.datetime import ZonedDateTime`; `export ZonedDateTime` |
+
+## Scalar type source references
+
+This lexical scan lists modules containing each token as a whole identifier in `.ph` files, including declaration owners and import/facade text. It is a source-dependent inventory, not a semantic reference index. Most uses remain unqualified prelude names; no shadow module imports `Int` or `Float` from the old number module. The only explicit `.number` imports added here are `Number` imports from `int.ph` and `float.ph`.
+
+| Name | Modules containing the identifier |
 |---|---|
-| Module | Direct source statements |
-|---|---|
-| Module | Direct source statements |
-|---|---|
-| Module | Direct source statements |
-|---|---|
-| `universe.callable` | expose: `.function`, `.closure`, `.method`, `.family` |
-| `universe.collections.array` | imports: `universe.collections.iterator_laws` |
-| `universe.collections.bag` | export: `Bag, BagIterator`; imports: `universe.collections.iterator_laws` |
-| `universe.collections.bijection` | export: `Bijection, BijectionIterator`; imports: `universe.collections.iterator_laws` |
-| `universe.collections.buffer` | export: `Buffer`; imports: `universe.collections.iterator_laws` |
-| `universe.collections.bytes` | imports: `universe.collections.iterator_laws` |
-| `universe.collections.indexed_dict` | imports: `universe.collections.iterator_laws` |
-| `universe.collections.interval` | export: `Bound, Interval` |
-| `universe.collections.iterator_laws` | export: `Iterator, Iterable, MappedIterator, FilterIterator, FilterMapIterator, FlatMapIterator, FlattenIterator, ChainIterator, SkipIterator, SkipWhileIterator, TakeIterator, TakeWhileIterator, MapWhileIterator, InspectIterator, StrictZipIterator, IndexedIterator`; imports: `universe.text.builder` |
-| `universe.collections.list` | imports: `universe.collections.iterator_laws`, `universe.text.builder` |
-| `universe.collections.map` | imports: `universe.collections.iterator_laws` |
-| `universe.collections.mutable_bag` | imports: `universe.collections.iterator_laws` |
-| `universe.collections.ordered_set` | imports: `universe.collections.iterator_laws` |
-| `universe.collections.pack` | export: `PositionalPackView`, `LabeledPackView`, `PositionalTypePackView`, `LabeledTypePackView`, `Pack, PositionalPack, LabeledPack, CompletePack`; imports: `universe.collections.tuple` |
-| `universe.collections` | expose: `.collection`, `.iterator_laws`, `.list`, `.array`, `.vector`, `.slice`, `.buffer`, `.map`, `.set`, `.mutable_bag`, `.indexed_dict`, `.ordered_set`, `.bag`, `.bijection`, `.tuple`, `.pack`, `.record`, `.range`, `.bytes`, `.interval`, `.range_map` |
-| `universe.collections.range` | imports: `universe.collections.iterator_laws` |
-| `universe.collections.range_map` | export: `RangeMap, RangeMapIterator`; imports: `universe.collections.interval`, `universe.collections.iterator_laws` |
-| `universe.collections.record` | export: `FieldKey`, `RecordFields` |
-| `universe.collections.set` | imports: `universe.collections.iterator_laws` |
-| `universe.collections.slice` | export: `Slice`; imports: `universe.collections.iterator_laws` |
-| `universe.collections.tuple` | export: `CompleteTypePack`; imports: `universe.collections.iterator_laws` |
-| `universe.collections.vector` | imports: `universe.collections.iterator_laws` |
-| `universe.concurrency.fiber` | export: `Fiber, Future, FutureSubscription, CompletionSource, Tracer, OffBehavior, Backoff` |
-| `universe.concurrency` | expose: `.fiber` |
-| `universe.errors.argument` | export: `ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError, BijectionConflictError, InvalidIntervalError, RangeOverlapError` |
-| `universe.errors` | expose: `.error`, `.result`, `.argument`, `.iteration`, `.indexing`, `.contracts`, `.unsupported`, `.unimplemented`; export: `ArgumentError, KeyError, IndexError, SliceError, DuplicateKeyError, BijectionConflictError, InvalidIntervalError, RangeOverlapError`; imports: `universe.argument` |
-| `universe.errors.unsupported` | export: `unsupported` |
-| `universe.functional.algebra` | export: `Semigroup, Monoid, Additive, Multiplicative, AllTrue, AnyTrue, First, Last, Dual, Endo`; imports: `universe.chain`, `universe.numbers.capabilities` |
-| `universe.functional.arrow` | export: `Arrow, ArrowContext, Profunctor`; imports: `universe.either` |
-| `universe.functional.chain` | export: `Chain, ChainIterator, NonEmpty, Partition`; imports: `universe.collections.iterator_laws` |
-| `universe.functional.effects` | export: `Effects`; imports: `universe.chain`, `universe.collections.iterator_laws`, `universe.higher_kinded` |
-| `universe.functional.either` | export: `Either` |
-| `universe.functional.fold` | export: `Fold, FoldFactory`; imports: `universe.chain`, `universe.collections.iterator_laws`, `universe.numbers.capabilities` |
-| `universe.functional.folds` | export: `Folds`; imports: `universe.algebra`, `universe.chain`, `universe.collections.iterator_laws`, `universe.validation` |
-| `universe.functional.higher_kinded` | export: `Functor, Applicative, Monad, Identity, IdentityContext, OptionContext, ChainContext, NonEmptyContext`; imports: `universe.chain` |
-| `universe.functional.journal` | export: `Journal`; imports: `universe.algebra`, `universe.chain` |
-| `universe.functional.lens` | export: `Lens` |
-| `universe.functional.optics` | export: `Iso, Optional, Prism`; imports: `universe.lens`, `universe.reflection.structural` |
-| `universe.functional` | expose: `.state`, `.reader`, `.validation`, `.lens`, `.chain`, `.algebra`, `.writer`, `.journal`, `.state_result`, `.reader_result`, `.higher_kinded`, `.effects`, `.folds`, `.fold`, `.optics`, `.either`, `.arrow`; export: `State, StateStep`, `Reader`, `Validation`, `Lens`, `Chain, ChainIterator, NonEmpty, Partition`, `Semigroup, Monoid, Additive, Multiplicative, AllTrue, AnyTrue, First, Last, Dual, Endo`, `Writer`, `Journal`, `StateResult`, `ReaderResult`, `Functor, Applicative, Monad, Identity, IdentityContext, OptionContext, ChainContext, NonEmptyContext`, `Effects`, `Folds`, `Fold, FoldFactory`, `Iso, Optional, Prism`, `Either, Arrow, ArrowContext, Profunctor`; imports: `universe.algebra`, `universe.arrow`, `universe.chain`, `universe.effects`, `universe.either`, `universe.fold`, `universe.folds`, `universe.higher_kinded`, `universe.journal`, `universe.lens`, `universe.optics`, `universe.reader`, `universe.reader_result`, `universe.state`, `universe.state_result`, `universe.validation`, `universe.writer` |
-| `universe.functional.reader` | export: `Reader` |
-| `universe.functional.reader_result` | export: `ReaderResult`; imports: `universe.reader` |
-| `universe.functional.state` | export: `State, StateStep`; imports: `universe.lens` |
-| `universe.functional.state_result` | export: `StateResult`; imports: `universe.lens`, `universe.state` |
-| `universe.functional.validation` | export: `Validation`; imports: `universe.algebra` |
-| `universe.functional.writer` | export: `Writer`; imports: `universe.algebra` |
-| `universe.json` | export: `parse`, `stringify` |
-| `universe.math.complex.kernel` | export: `ComplexMathKernel`; imports: `universe.float_kernel`, `universe.numbers.complex`, `universe.numbers.float_complex` |
-| `universe.math.complex` | export: `sqrt, exp, log, log1p, sin, cos, tan, asin, acos, atan, sinh, cosh, tanh, asinh, acosh, atanh, powInt, pow`; imports: `universe.kernel` |
-| `universe.math.float_kernel` | export: `FloatMathKernel, FloatAngleHelpers` |
-| `universe.math.integer` | export: `IntegerMath` |
-| `universe.math.numerical_errors` | export: `NumericalRangeError, NumericalEvaluationError` |
-| `universe.math` | expose: `.complex`; export: `(`; imports: `universe.float_kernel`, `universe.integer`, `universe.numerical_errors`, `universe.reduction` |
-| `universe.math.reduction` | export: `FloatReduction`; imports: `universe.collections.iterator_laws`, `universe.float_kernel`, `universe.numerical_errors` |
-| `universe.numbers.algebra` | export: `I, J, K, Basis, i, j, k, RealEmbeddable, BasisRealizable` |
-| `universe.numbers.capabilities` | export: `Addable, Subtractable, Multipliable, Negatable, IntegerPower, Zero, One` |
-| `universe.numbers.complex` | export: `Complex, ComplexDivision`; imports: `universe.algebra`, `universe.capabilities`, `universe.float_complex`, `universe.math.float_kernel`, `universe.rational` |
-| `universe.numbers.float_complex` | export: `FloatComplex`; imports: `universe.math.float_kernel` |
-| `universe.numbers` | export: `Rational, Complex, ComplexDivision, Quaternion, I, J, K, Basis, i, j, k, Addable, Subtractable, Multipliable, Negatable, IntegerPower, Zero, One, BasisRealizable, RealEmbeddable`; imports: `universe.algebra`, `universe.capabilities`, `universe.complex`, `universe.quaternion`, `universe.rational` |
-| `universe.numbers.quaternion` | export: `Quaternion`; imports: `universe.algebra`, `universe.capabilities`, `universe.complex` |
-| `universe.numbers.rational` | export: `Rational`; imports: `universe.capabilities`, `universe.math.integer` |
-| `universe.object.ellipsis` | export: `Ellipsis, ellipsis` |
-| `universe.object.ordering` | export: `Ordering` |
-| `universe.object` | expose: `.object`, `.behavior`, `.class`, `.metaclass`, `.ellipsis`, `.ordering` |
-| `universe.option` | expose: `.option`, `.unit` |
-| `universe` | expose: `.object`, `.scalar`, `.errors`, `.callable`, `.option`, `.functional`, `.time`, `.concurrency`, `.collections`, `.reflection`, `.io`, `.fs`, `.path`, `.text`, `.regex`, `.json`, `.math`, `.numbers`, `.random`, `.process`, `.net`, `.concurrent`, `.testing`; export: `object`, `scalar`, `StringIndex`, `Substring`, `Text`, `TextPattern`, `Split`, `SplitWhitespace`, `Lines`, `TextWriter`, `StringBuilder`, `TextCursor`, `SourceLocation`, `LineMap`, `Utf8Error`, `IntParseError`, `FloatParseError`, `BoolParseError`, `errors`, `(`, `callable`, `option`, `functional`, `(`, `time`, `concurrency`, `collections`, `reflection`, `io`, `fs`, `path`, `text`, `regex`, `json`, `math`, `numbers`, `random`, `process`, `net`, `concurrent`, `testing`; imports: `universe.callable`, `universe.collections`, `universe.concurrency`, `universe.concurrent`, `universe.errors`, `universe.fs`, `universe.functional`, `universe.io`, `universe.json`, `universe.math`, `universe.net`, `universe.numbers`, `universe.object`, `universe.option`, `universe.path`, `universe.process`, `universe.random`, `universe.reflection`, `universe.regex`, `universe.scalar`, `universe.testing`, `universe.text`, `universe.time` |
-| `universe.random.bernoulli` | export: `Bernoulli`; imports: `universe.distribution`, `universe.generator` |
-| `universe.random.distribution` | export: `Distribution`; imports: `universe.generator` |
-| `universe.random.generator` | export: `Generator` |
-| `universe.random` | export: `Generator, Xoshiro256PlusPlus, Distribution, UniformInt, Bernoulli, SecureRandom, EntropyError`; imports: `universe.bernoulli`, `universe.distribution`, `universe.generator`, `universe.secure`, `universe.uniform_int`, `universe.xoshiro256pp` |
-| `universe.random.secure` | export: `SecureRandom, EntropyError` |
-| `universe.random.uniform_int` | export: `UniformInt`; imports: `universe.distribution`, `universe.generator` |
-| `universe.random.xoshiro256pp` | export: `Xoshiro256PlusPlus`; imports: `universe.generator` |
-| `universe.reflection.message` | export: `Message` |
-| `universe.reflection` | expose: `.module`, `.package_object`, `.project`, `.project_manifest`, `.package_info`, `.package_author`, `.package_requirement`, `.resolved_project_dependency`, `.module_dependency`, `.export_table`, `.export`, `.export_kind`, `.child_module_table`, `.module_identity`, `.package_identity`, `.project_identity`, `.uri`, `.selector`, `.message`, `.attribute`, `.implementation`, `.typing`, `.structural` |
-| `universe.reflection.selector` | export: `Selector`, `SelectorPattern` |
-| `universe.reflection.structural` | export: `Product, OrderedProduct, UnorderedProduct, Sum`, `ProductKind, ProductShape, OrderedTail, PositionalTail, LabeledTail, OrderedShape`, `Presence, FieldInfo, ProductField, FixedFields, UnorderedTail, UnorderedShape, FieldLookup, UnorderedShapeView`, `Variant, Variants, VariantNames`; imports: `universe.collections.pack`, `universe.collections.record`, `universe.reflection.typing.kind` |
-| `universe.reflection.typing.kind` | export: `KindDescriptor, AtomicKind, FunctionKind, Type` |
-| `universe.reflection.typing` | expose: `.kind`, `.type_descriptor`, `.type_parameter`, `.generic_signature`, `.signature`, `.type_use`, `.result`, `.evidence`, `.context` |
-| `universe.scalar.bool` | imports: `universe.text.errors` |
-| `universe.scalar.char` | imports: `universe.text.substring` |
-| `universe.scalar.number` | imports: `universe.text.errors` |
-| `universe.scalar` | expose: `.number`, `.nil`, `.string`, `.string_index`, `.char`, `.bool`, `.symbol`; export: `StringIndex`; imports: `universe.string_index` |
-| `universe.scalar.string` | export: `(`; imports: `universe.collections.iterator_laws`, `universe.scalar.string_index`, `universe.text.errors`, `universe.text.substring` |
-| `universe.scalar.string_index` | export: `StringIndex` |
-| `universe.text.builder` | export: `StringBuilder`; imports: `universe.text.writer` |
-| `universe.text.cursor` | export: `TextCursor`; imports: `universe.scalar.string_index`, `universe.text.substring` |
-| `universe.text.errors` | export: `(` |
-| `universe.text.line_map` | export: `(`; imports: `universe.scalar.string_index`, `universe.text.substring` |
-| `universe.text.lines` | export: `(`; imports: `universe.substring` |
-| `universe.text` | expose: `.substring`, `.traits`, `.patterns`, `.split`, `.lines`, `.writer`, `.builder`, `.cursor`, `.line_map`, `.errors`; export: `(`; imports: `universe.builder`, `universe.cursor`, `universe.errors`, `universe.line_map`, `universe.lines`, `universe.patterns`, `universe.split`, `universe.substring`, `universe.traits`, `universe.writer` |
-| `universe.text.patterns` | export: `TextPattern`; imports: `universe.text.substring` |
-| `universe.text.split` | export: `(`; imports: `universe.substring` |
-| `universe.text.substring` | export: `(`; imports: `universe.collections.iterator_laws`, `universe.scalar.string_index` |
-| `universe.text.traits` | export: `Text`; imports: `universe.scalar.string`, `universe.text.substring` |
-| `universe.text.writer` | export: `TextWriter` |
-| `universe.time.calendar.date` | export: `Date, DateOverflow`; imports: `universe.time.calendar.month`, `universe.time.calendar.period`, `universe.time.calendar.weekday`, `universe.time.timestamp`, `universe.time.timezone` |
-| `universe.time.calendar.datetime` | export: `DateTime, ZonedDateTime, LocalTimeDisambiguation, LocalTimeResolution`; imports: `universe.time.calendar.date`, `universe.time.calendar.month`, `universe.time.calendar.period`, `universe.time.calendar.time`, `universe.time.duration`, `universe.time.offset`, `universe.time.timestamp`, `universe.time.timezone` |
-| `universe.time.calendar.month` | export: `Month, Gregorian` |
-| `universe.time.calendar` | expose: `.month`, `.weekday`, `.period`, `.date`, `.time`, `.datetime`, `.partial`; export: `(`; imports: `universe.time.calendar.date`, `universe.time.calendar.datetime`, `universe.time.calendar.month`, `universe.time.calendar.partial`, `universe.time.calendar.period`, `universe.time.calendar.time`, `universe.time.calendar.weekday` |
-| `universe.time.calendar.partial` | export: `YearMonth, MonthDay`; imports: `universe.time.calendar.date`, `universe.time.calendar.month` |
-| `universe.time.calendar.period` | export: `Period` |
-| `universe.time.calendar.time` | export: `Time` |
-| `universe.time.calendar.weekday` | export: `Weekday` |
-| `universe.time.clock` | export: `Clock, Instant, SystemClock`; imports: `universe.time.duration` |
-| `universe.time.duration` | export: `Duration, Measurement` |
-| `universe.time.offset` | export: `UtcOffset` |
-| `universe.time` | expose: `.clock`, `.duration`, `.timestamp`, `.offset`, `.calendar`, `.timezone`, `.zone_transition`, `.zoned`, `.resolution`, `.testing`; export: `(`; imports: `universe.time.calendar.date`, `universe.time.calendar.datetime`, `universe.time.calendar.month`, `universe.time.calendar.partial`, `universe.time.calendar.period`, `universe.time.calendar.time`, `universe.time.calendar.weekday`, `universe.time.clock`, `universe.time.duration`, `universe.time.offset`, `universe.time.resolution`, `universe.time.timestamp`, `universe.time.timezone`, `universe.time.zone_transition`, `universe.time.zoned` |
-| `universe.time.resolution` | export: `LocalTimeDisambiguation, LocalTimeResolution`; imports: `universe.time.calendar.datetime` |
-| `universe.time.testing.clocks` | export: `ManualClock, ManualWallClock`; imports: `universe.time.clock`, `universe.time.duration`, `universe.time.timestamp` |
-| `universe.time.testing` | expose: `.clocks` |
-| `universe.time.timestamp` | export: `Timestamp, WallClock, SystemWallClock, wallClock`; imports: `universe.time.duration` |
-| `universe.time.timezone` | export: `TimeZone`; imports: `universe.time.duration`, `universe.time.offset`, `universe.time.timestamp`, `universe.time.zone_transition` |
-| `universe.time.zone_transition` | export: `ZoneTransition`; imports: `universe.time.offset`, `universe.time.timestamp` |
-| `universe.time.zoned` | export: `ZonedDateTime`; imports: `universe.time.calendar.datetime` |
+| `Number` (12 modules) | `universe.collections.array`, `universe.collections.bytes`, `universe.collections.iterator_laws`, `universe.collections.list`, `universe.collections.range`, `universe.scalar`, `universe.scalar.float`, `universe.scalar.int`, `universe.scalar.number`, `universe.scalar.string`, `universe.scalar.string_index`, `universe.text.substring` |
+| `Int` (72 modules) | `universe.callable.closure`, `universe.callable.family`, `universe.callable.function`, `universe.callable.method`, `universe.collections.array`, `universe.collections.bag`, `universe.collections.bijection`, `universe.collections.buffer`, `universe.collections.bytes`, `universe.collections.indexed_dict`, `universe.collections.interval`, `universe.collections.iterator_laws`, `universe.collections.list`, `universe.collections.map`, `universe.collections.mutable_bag`, `universe.collections.ordered_set`, `universe.collections.pack`, `universe.collections.range_map`, `universe.collections.record`, `universe.collections.set`, `universe.collections.slice`, `universe.collections.tuple`, `universe.collections.vector`, `universe.concurrency.fiber`, `universe.functional.chain`, `universe.functional.fold`, `universe.functional.journal`, `universe.math`, `universe.math.complex.kernel`, `universe.math.integer`, `universe.numbers.capabilities`, `universe.numbers.complex`, `universe.numbers.float_complex`, `universe.numbers.rational`, `universe.object.object`, `universe.option.option`, `universe.random.generator`, `universe.random.secure`, `universe.random.uniform_int`, `universe.random.xoshiro256pp`, `universe.reflection.child-module-table`, `universe.reflection.export-table`, `universe.reflection.selector`, `universe.scalar`, `universe.scalar.bool`, `universe.scalar.char`, `universe.scalar.float`, `universe.scalar.int`, `universe.scalar.number`, `universe.scalar.string`, `universe.scalar.string_index`, `universe.scalar.symbol`, `universe.text.builder`, `universe.text.cursor`, `universe.text.errors`, `universe.text.line_map`, `universe.text.patterns`, `universe.text.substring`, `universe.text.traits`, `universe.time.calendar.date`, `universe.time.calendar.datetime`, `universe.time.calendar.month`, `universe.time.calendar.partial`, `universe.time.calendar.period`, `universe.time.calendar.time`, `universe.time.calendar.weekday`, `universe.time.clock`, `universe.time.duration`, `universe.time.offset`, `universe.time.testing.clocks`, `universe.time.timestamp`, `universe.time.timezone` |
+| `Float` (19 modules) | `universe.collections.indexed_dict`, `universe.collections.mutable_bag`, `universe.collections.ordered_set`, `universe.math`, `universe.math.complex`, `universe.math.complex.kernel`, `universe.math.float_kernel`, `universe.math.reduction`, `universe.numbers.capabilities`, `universe.numbers.complex`, `universe.numbers.float_complex`, `universe.numbers.rational`, `universe.random.bernoulli`, `universe.random.generator`, `universe.scalar`, `universe.scalar.float`, `universe.scalar.number`, `universe.time.duration`, `universe.time.timestamp` |

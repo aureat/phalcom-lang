@@ -1,8 +1,21 @@
-# Initial source dependency graph
+# Current source dependency graph
 
-The table records statically authored module dependencies from top-level `import` and `from … import` statements in `.ph` files. Relative paths are resolved using the repository resolver rule: one leading dot uses the importing package, and every additional leading dot ascends one package level before the remaining path is appended. The table deduplicates identical source-module/target-module pairs. These are syntactically resolved source paths, not proof that every target exists or every imported binding resolves. Edges do not claim runtime initialization order or interface-only dependency semantics. Implicit prelude names and references not expressed by imports are not inferred.
+The table records distinct module dependencies authored by top-level `import` and `from … import` statements in the current shadow `.ph` files. Relative paths follow the repository resolver rule: one leading dot uses the importing package, and each additional leading dot ascends one package level. This is a source-path inventory, not proof that every target exists or binding resolves; it does not establish initialization order or interface-only behavior. Implicit prelude names and references not expressed by imports are excluded.
 
-Resolved distinct edges: **208**.
+Current resolved distinct edges: **214**.
+
+The S0 copied baseline recorded **208** edges. The S3 scalar split removes 1 edge and adds 7; the net current graph has 214 edges.
+
+| S3 change | From module | Resolved target module |
+|---|---|---|
+| Removed | `universe.scalar.number` | `universe.text.errors` |
+| Added | `universe.scalar` | `universe.scalar.float` |
+| Added | `universe.scalar` | `universe.scalar.int` |
+| Added | `universe.scalar` | `universe.scalar.number` |
+| Added | `universe.scalar.float` | `universe.scalar.number` |
+| Added | `universe.scalar.float` | `universe.text.errors` |
+| Added | `universe.scalar.int` | `universe.scalar.number` |
+| Added | `universe.scalar.int` | `universe.text.errors` |
 
 | From module | Resolved target module | Evidence |
 |---|---|---|
@@ -134,10 +147,16 @@ Resolved distinct edges: **208**.
 | `universe.reflection.structural` | `universe.collections.pack` | authored `import`/`from … import` path |
 | `universe.reflection.structural` | `universe.collections.record` | authored `import`/`from … import` path |
 | `universe.reflection.structural` | `universe.reflection.typing.kind` | authored `import`/`from … import` path |
+| `universe.scalar` | `universe.scalar.float` | authored `import`/`from … import` path |
+| `universe.scalar` | `universe.scalar.int` | authored `import`/`from … import` path |
+| `universe.scalar` | `universe.scalar.number` | authored `import`/`from … import` path |
 | `universe.scalar` | `universe.scalar.string_index` | authored `import`/`from … import` path |
 | `universe.scalar.bool` | `universe.text.errors` | authored `import`/`from … import` path |
 | `universe.scalar.char` | `universe.text.substring` | authored `import`/`from … import` path |
-| `universe.scalar.number` | `universe.text.errors` | authored `import`/`from … import` path |
+| `universe.scalar.float` | `universe.scalar.number` | authored `import`/`from … import` path |
+| `universe.scalar.float` | `universe.text.errors` | authored `import`/`from … import` path |
+| `universe.scalar.int` | `universe.scalar.number` | authored `import`/`from … import` path |
+| `universe.scalar.int` | `universe.text.errors` | authored `import`/`from … import` path |
 | `universe.scalar.string` | `universe.collections.iterator_laws` | authored `import`/`from … import` path |
 | `universe.scalar.string` | `universe.scalar.string_index` | authored `import`/`from … import` path |
 | `universe.scalar.string` | `universe.text.errors` | authored `import`/`from … import` path |
@@ -217,8 +236,7 @@ Resolved distinct edges: **208**.
 
 ## Limits and bootstrap notes
 
-- This is an inventory of explicit source imports, not a compiler-generated dependency graph or semantic validation.
 - Package `expose` statements describe child-module visibility and are not import edges.
-- Root and nested package facades can import/re-export child packages. Current linker behavior may make ordinary imports/re-exports executable dependencies; interface-only facade behavior is not established here.
-- Bootstrap-sensitive modules and native source anchors have not been classified in this initial inventory.
-- Any later split that changes dependency cycles, initialization, or native ownership requires architectural review and isolated validation.
+- Scalar owner modules now import `Number`; the scalar facade imports and re-exports `Number`, `Int`, and `Float`. The import graph records these edges, but no shadow linker/runtime initialization behavior was verified.
+- Production bootstrap and native source anchors still use the legacy tree. Do not register both source trees in one production module graph or VM.
+- Any later split that changes dependency cycles, initialization, or native ownership requires isolated semantic/runtime validation before integration.

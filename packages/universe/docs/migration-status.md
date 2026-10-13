@@ -2,37 +2,34 @@
 
 ## Current increment
 
-- **Increment:** S0/S1 baseline, faithful shadow duplication, and initial migration metadata
+- **Increment:** S3 scalar split — `Number`, `Int`, and `Float`
 - **Branch:** `feat/telos-collections`
-- **Commit:** `4a219874bc6e9d6538c229c2e2da712e9a57eb5e`
-- **Starting revision:** `9be1ed1eba3f94ba05e8e4aca1ee55f5ccf13131`; checkout was clean before this increment.
-- **Scope:** Copy the complete authored legacy Universe package into `packages/universe/`; add provenance, identity, module, dependency, and status ledgers.
-- **Files added:** 172 authored package files (168 `.ph` files and four other files) plus five migration documents.
-- **Files changed:** None in the legacy tree or production compiler/runtime/native/prelude code.
+- **Commit:** Pending final review; based on `4d98eb53` (`docs(universe): record baseline delivery status`).
+- **Scope:** Keep `Number` in `scalar/number.ph`; move `Int` to `scalar/int.ph` and `Float` to `scalar/float.ph`; author explicit module exports and re-export all three through the scalar package; update shadow migration inventories.
+- **Files added:** `src/scalar/int.ph`, `src/scalar/float.ph`.
+- **Files changed:** Shadow scalar source, identity ledger, current module map, dependency graph, legacy synchronization ledger, and migration status.
 - **Legacy files modified:** None.
-- **Declarations migrated:** None; the source layout and owners match the legacy tree. The inventories recognize 364 top-level type-like declaration lines and 77 top-level value declarations; they do not claim parser/compiler identity validation.
-- **Interfaces normalized:** None.
-- **Identity changes:** None. Both manifests retain source package name and namespace `universe`; these fields do not make standalone filesystem loading equivalent to production builtin identity.
+- **Declarations migrated:** `Int` and `Float` moved from shadow owner `universe.scalar.number` to `universe.scalar.int` and `universe.scalar.float`. `Number` remains at `universe.scalar.number`.
+- **Interfaces normalized:** Authored `export Number`, `export Int`, and `export Float` in declaration modules; scalar facade exposes `.int` and `.float` and re-exports all three declarations.
+- **Identity changes:** Shadow source-owner paths changed for `Int` and `Float`. This does not alter production or establish canonical semantic identity. `docs/specs/universe.md`, production native mappings, and the active prelude still refer to the legacy owner.
 
 ## Validation
 
-- The authored directory copy excludes only ignored, untracked Finder metadata at `src/.DS_Store`. The legacy directory has 173 regular files on disk; 172 authored files were copied.
-- The SHA-256 manifest covers all 172 copied legacy files; every copied file matches its recorded hash.
-- Source inventories match internally: 364 declaration rows match across the identity ledger and module map, and 77 top-level value declarations are listed. The native association ledger covers all 78 `UniverseKey` variants (72 binding rows and 6 without a binding row). The prelude inventory lists 37 metadata flags, 9 source-authored additions, and 3 compiler-provided `core.proof` entries.
-- Source-level discoverability inspection found that production `UniverseSourceProvider::source_text` explicitly includes only `phalcom-core/core/universe/src/**`; Cargo workspace members omit `packages/universe`; and `ProjectUniverse::load_root` requires an explicit manifest path. No production registration or build behavior changed. These are source inspections, not runtime tests.
-- No shadow compiler validation is available in this increment. No tests or compiler checks were run. `git diff --check` reports one trailing blank line in copied `src/text/patterns.ph`; that byte is present in the legacy source and retained to preserve the exact copy. The migration-document diff passes the whitespace check.
+- The `Number`, `Int`, and `Float` declaration bodies match the pre-migration shadow source byte-for-byte. A source scan finds exactly one declaration for each name; the current module map and identity ledger agree on all 364 declaration rows.
+- The explicit import graph records 214 current edges, compared with 208 at the S0/S1 baseline: one edge was removed and seven added by the scalar split.
+- Native/prelude source inspection confirms `UniverseKey::Int` and `UniverseKey::Float` still map to `scalar.number`, and both remain metadata-exported and prelude-enabled. The class relation metadata remains `Int <: Number` and `Float <: Number`.
+- `git diff --check` passes for the scalar source and migration documents.
+- **Validation passed:** Source ownership, declaration-body preservation, module-map consistency, and dependency-graph accounting.
+- **Validation failed:** None observed.
+- **Validation blocked:** Shadow semantic, native-anchor, prelude-binding, and runtime initialization validation is unavailable because no isolated shadow compiler/provider is established. No tests or compiler checks were run.
 
-## Future integration prerequisite
+## Known compatibility and integration risks
 
-A standalone `ProjectUniverse` load of the copied manifest would be filesystem-backed and have `Resolved` identity. Production builtin authority remains `ProjectIdentity::Universe` through the explicit legacy `UniverseSourceProvider`; this shadow package is not production builtin authority. Preserve this distinction during later isolated validation and integration planning.
-
-## Risks and prerequisites
-
-- The copied source retains the original organization, including `collections/iterator_laws.ph`; controlled reorganization has not begun.
-- Declaration and import inventories are source scans, not semantic validation. Implicit prelude bindings, native associations, bootstrap roots, and runtime initialization order have not been validated against the shadow package.
-- Isolated semantic analysis for the shadow package is not established. Do not register both source trees in one production module graph or VM.
-- Reconcile later legacy changes through the provenance ledger before migrating affected declarations.
+- The normative spec and production metadata continue to assign `Int` and `Float` to `universe.scalar.number`; the shadow path is a migration target, not a verified canonical compiler identity.
+- Source uses of the names remain mostly unqualified prelude lookups. A future isolated shadow catalog/prelude must bind those names to the shadow declarations before semantic validation.
+- The scalar facade now imports the three declarations. The source graph records these dependencies, but shadow linker/runtime initialization behavior has not been verified.
+- Production authority, native anchors, runtime class slots, bootstrap, and prelude were not changed.
 
 ## Next increment
 
-Begin the controlled scalar/foundational-type migration. Preserve production authority, record each canonical owner move, and mark semantic/native/prelude integration gates according to the evidence available.
+Migrate the foundational `Option`, `Result`, and `Unit` declarations into their intended focused shadow modules, preserving one source owner per declaration and recording the still-legacy production/native/prelude mappings.
