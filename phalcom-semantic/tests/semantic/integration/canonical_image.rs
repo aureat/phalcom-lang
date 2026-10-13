@@ -161,6 +161,17 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
         );
         // Canonical conformance heads remain in the same immutable parent
         // throughout all three local publication revisions.
+        assert_eq!(update.snapshot.derived_conformance_rules.local_len(), 0);
+        assert_eq!(
+            update.snapshot.derived_conformance_rules.parent_len(),
+            image.snapshot().derived_conformance_rules.len()
+        );
+        for rule in image.snapshot().derived_conformance_rules.iter() {
+            assert!(std::ptr::eq(
+                update.snapshot.derived_conformance_rules.get_rule(&rule.impl_id).expect("canonical derived rule"),
+                rule
+            ));
+        }
         assert_eq!(update.snapshot.conformance_index.local_len(), 0);
         assert_eq!(
             update.snapshot.conformance_index.parent_len(),

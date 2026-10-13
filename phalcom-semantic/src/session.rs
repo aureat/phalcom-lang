@@ -5281,9 +5281,15 @@ impl SemanticWorkspaceSession {
         let mut conformance_invalid_witnesses: BTreeMap<crate::identity::ImplId, BTreeSet<crate::traits::TraitRequirementId>> = BTreeMap::new();
         let mut conformance_invalid_members = BTreeSet::new();
         let mut conformance_associated_type_plans: BTreeMap<crate::identity::ImplId, crate::impls::ConformanceAssociatedTypePlan> = BTreeMap::new();
-        let mut derived_conformance_rules = aggregate_snapshot
-            .map(|snapshot| (*snapshot.derived_conformance_rules).clone())
-            .unwrap_or_default();
+        // Canonical rules are immutable; retained updates clone only the
+        // workspace delta and continue reading the shared parent.
+        let mut derived_conformance_rules = if let Some(previous) = previous_snapshot.as_ref() {
+            (*previous.derived_conformance_rules).clone()
+        } else if let Some(canonical) = canonical_snapshot.as_ref() {
+            crate::derived_conformance::DerivedConformanceRuleIndex::with_parent(canonical.derived_conformance_rules.clone())
+        } else {
+            crate::derived_conformance::DerivedConformanceRuleIndex::new()
+        };
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             conformance_index.remove_source(module);
             conformance_witness_plans.retain(|impl_id, _| &impl_id.module != module);
