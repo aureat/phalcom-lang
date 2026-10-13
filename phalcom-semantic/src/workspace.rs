@@ -170,7 +170,12 @@ pub struct SemanticAnalysis {
 
 /// Analyzes an entire linked workspace and returns an immutable semantic snapshot for this generation.
 pub fn analyze_workspace(input: SemanticWorkspaceInput) -> Result<SemanticAnalysis, SemanticUpdateFailure> {
-    let mut session = crate::session::SemanticWorkspaceSession::new().with_product_request(input.product_request);
+    let mut session = if input.sources.keys().any(|module| module.project.is_universe()) {
+        let baseline = crate::canonical_baseline::canonical_universe_semantic_baseline();
+        crate::session::SemanticWorkspaceSession::from_foundation_for_image(baseline, crate::identity::WorkspaceId::from_raw(0))
+    } else {
+        crate::session::SemanticWorkspaceSession::new()
+    }.with_product_request(input.product_request);
     let update = session.update(input)?;
     Ok(SemanticAnalysis { snapshot: update.snapshot })
 }

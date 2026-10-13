@@ -7871,15 +7871,22 @@ impl SemanticWorkspaceSession {
             reverse_imports,
         }));
 
+        let source_semantics_requested = input.product_request.source_semantics != crate::request::SourceSemanticLevel::None;
         let presentation_requested = input.product_request.presentation != crate::request::PresentationLevel::None;
-        let mut source_index_rebuild_modules = changed_modules.clone();
-        source_index_rebuild_modules.extend(
-            callable_dispositions
-                .iter()
-                .filter_map(|(callable, disposition)| (*disposition == CallableRevisionDisposition::Recomputed).then_some(callable.module().clone())),
-        );
+        let mut source_index_rebuild_modules = if source_semantics_requested {
+            changed_modules.clone()
+        } else {
+            BTreeSet::new()
+        };
+        if source_semantics_requested {
+            source_index_rebuild_modules.extend(
+                callable_dispositions
+                    .iter()
+                    .filter_map(|(callable, disposition)| (*disposition == CallableRevisionDisposition::Recomputed).then_some(callable.module().clone())),
+            );
+        }
         if !presentation_requested {
-            source_index_rebuild_modules.retain(|module| !module.project.is_universe());
+            source_index_rebuild_modules.retain(|module| !module.project.is_universe() || input.sources.contains_key(module));
         }
         let source_index_effect_modules = source_index_rebuild_modules.clone();
         let canonical_presentation_modules = if presentation_requested {
@@ -7895,11 +7902,15 @@ impl SemanticWorkspaceSession {
                     .cloned(),
             );
         }
-        let mut source_index_current_modules = current_modules
-            .iter()
-            .filter(|module| presentation_requested || !module.project.is_universe())
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        let mut source_index_current_modules = if source_semantics_requested {
+            current_modules
+                .iter()
+                .filter(|module| presentation_requested || !module.project.is_universe() || input.sources.contains_key(module))
+                .cloned()
+                .collect::<BTreeSet<_>>()
+        } else {
+            BTreeSet::new()
+        };
         source_index_current_modules.extend(canonical_presentation_modules);
         let mut source_index_retired_modules = removed_modules.clone();
         if !presentation_requested {
@@ -7908,7 +7919,7 @@ impl SemanticWorkspaceSession {
                     .as_deref()
                     .into_iter()
                     .flat_map(|snapshot| snapshot.source_index.modules())
-                    .filter(|(module, _)| module.project.is_universe())
+                    .filter(|(module, _)| module.project.is_universe() && !input.sources.contains_key(module))
                     .map(|(module, _)| module.clone()),
             );
         }
@@ -11266,7 +11277,7 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
         index_sources.extend(
             sources
                 .iter()
-                .filter(|(module, _)| include_canonical_presentation || !module.project.is_universe())
+                .filter(|(module, _)| include_canonical_presentation || !module.project.is_universe() || sources.contains_key(module))
                 .map(|(module, source)| (module.clone(), source.clone())),
         );
     } else {

@@ -5,9 +5,9 @@ kind: optimization
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P4
+active_plan: PERF003.C2.P5
 latest_completed_plan: PERF003.C2.P3
-next_plan: PERF003.C2.P4
+next_plan: PERF003.C2.P6
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
 execution_tree_head: e74a9213
 latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
@@ -23,18 +23,19 @@ checkpoint: PERF003.C2
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P4
+active_plan: PERF003.C2.P5
 latest_completed_plan: PERF003.C2.P3
-next_plan: PERF003.C2.P4
+next_plan: PERF003.C2.P6
 next_action: >
-  The user authorized a focused fix for the T5 nested nominal dependency gap.
-  Exporter-owned dependency discovery now feeds RuntimePublic closure rounds;
-  this source change is not verified yet. Continue focused validation, then
-  finish T5 closure/provenance acceptance and PR-B schema-v13 migration.
-  PR-A has 9 focused source-index passes; the canonical singleton/projection
-  has not been rerun after PR-A. Keep T6 certification and T7–T9 behind faithful
-  canonical RuntimePublic authority.
-
+  Normalized P5 (Canonical Publication & Persistent Image Boundary) activated
+  per user authorization. P4 state is documented: T5 closure and nested nominal
+  discovery pass unit/integration tests; PR-A classification repair passes 9
+  source-index tests; PR-B (heterogeneous Record schema v13) and T6 canonical
+  metadata authority remain a bounded prerequisite for P4.T6-T9 and P5.T10.
+  P5 executes source-independent tasks: T0 entry gate & lifecycle normalization,
+  T1 explicit canonical request contract, T2 product classification, T3 canonical
+  bootstrap cutover, T4 consumer-specific publication semantics, and T5-T7
+  canonical aggregate-parent architecture.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -120,11 +121,12 @@ After:
 | Plan | Title | Package | Status | Completion | Verification | Notes |
 |---|---|---|---|---|---|---|
 | `PERF003.C2.P1` | Canonical Universe Compilation Image & One-Shot Overlay | Package A | IN_PROGRESS | PARTIAL | UNVERIFIED | Shared declaration/interface caches and workspace interface retention are established at `99b84ecc`; commit `a7b75980` added formal-image scaffolding; P2 now owns the implemented formal/query foundation; module-session cutover remains |
-| `PERF003.C2.P7` | Consumer-Specific Publication & Demand-Driven Products | Package B | IN_PROGRESS | PARTIAL | UNVERIFIED | Earlier advisory-only slice has focused evidence; commit `a7b75980` adds `PresentationLevel` source-index filtering and Full → RuntimeMinimal → Full coverage changes, which remain unverified; unified source-target traversal remains |
 | `PERF003.C2.P2` | Complete Canonical Universe Formal Image and Immutable Canonical Query Roots | Formal/query foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | Formal image, query freeze/reader, provenance validation and core acquisition implemented in the task working-tree patch over `82051480`; focused evidence below; G5/G6 certification remains deferred |
 | `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Exact indexed witness lookup, module-bounded effective-surface signature enumeration, ConformanceIndex partitioning (nominal family + open heads) with brute-force parity, SCC inferred-return settlement, and shared requirement-view passing implemented; focused regressions pass. Retained structural witness plans across revisions and generic proof memoization remain |
-| `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | User-stopped working-tree continuation over e74a9213. T1 accepted; retained-session profile test now passes after bounded T5 export. PR-A classification repair passes 9 source-index tests including actual corpus. PR-B schema migration not started; full T5 closure/provenance acceptance and canonical projection remain unverified. T6–T9 remain gated |
-| `PERF003.C2.P5` | Backend Scans, Trait Slots, and Local Complexity Elimination | Package E | PROPOSED | NOT_STARTED | UNVERIFIED | Module-indexed backend tables, canonical trait-slot precomputation, inherent impl domain index, range lookup indexes |
+| `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | User-stopped working-tree continuation over e74a9213. T1 accepted; retained-session profile test now passes after bounded T5 export. PR-A classification repair passes 9 source-index tests including actual corpus. T5 nested nominal reachability passes focused tests. PR-B schema migration (v13 heterogeneous Record keys) and T6 canonical authority remain bounded prerequisites; T6–T9 remain gated |
+| `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | IN_PROGRESS | PARTIAL | UNVERIFIED | Normalized P5: explicit canonical compiler-image product contract, consumer-specific publication cleanup, immutable canonical aggregate-parent architecture, query persistence classification, and formal persistence inventory |
+| `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E (historical P5) | PROPOSED | NOT_STARTED | UNVERIFIED | Normalized P6 (formerly P5): module-indexed backend tables, canonical trait-slot precomputation, inherent impl domain index, range lookup indexes, elimination of O(N×M) backend scans |
+| `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
 
 ---
 

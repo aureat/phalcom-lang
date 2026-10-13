@@ -145,7 +145,7 @@ pub use member_projection::*;
 pub use module_bindings::{ModuleBindingFact, ModuleBindingPhase, ModuleStaticBindingCatalog, ModuleStaticBindingIndex, ModuleStaticBindingSeed};
 pub use phalcom_modules::WorkspaceSourceBatchMutation;
 pub use prelude::PreludeTypeMap;
-pub use request::{AdvisoryLevel, PresentationLevel, SemanticProductRequest};
+pub use request::{AdvisoryLevel, PresentationLevel, SemanticProductRequest, SourceSemanticLevel};
 pub use presentation::{
     AdvisoryPresenter, CallablePresentation, FieldPresentation, FormalContractRelation, FormalFactRef, FormalFactSite, FormalFactStatus, FormalPresentation,
     FormalSemanticProjection, FormalSiteId, FormalTypeSite, ParameterPresentation, SemanticPresentationIndex, SemanticSiteView, TypePresenter,

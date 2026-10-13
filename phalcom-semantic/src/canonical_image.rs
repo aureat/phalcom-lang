@@ -635,7 +635,7 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
         generation: 0,
         topology: Some(topology),
         reverse_imports: None,
-        product_request: crate::request::SemanticProductRequest::default(),
+        product_request: crate::request::SemanticProductRequest::canonical_compiler_image(),
     };
     let update = image_span(ImagePhase::Bootstrap, || session.update(input))?;
     if provider.is_canonical() {
@@ -643,7 +643,7 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
     }
     image_counter!(CanonicalImageCompleteUpdates, 1);
     let snapshot = update.snapshot;
-    image_span(ImagePhase::Validate, || validate_publication(&snapshot, &modules))?;
+    image_span(ImagePhase::Validate, || validate_publication(&snapshot, &modules, &crate::request::SemanticProductRequest::canonical_compiler_image()))?;
     let queries = Arc::new(image_span(ImagePhase::QueryFreeze, || {
         CanonicalSemanticQueryImage::freeze(session.db(), world.clone(), &snapshot, &modules)
     })?);
@@ -666,13 +666,35 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
     Ok(image)
 }
 
-fn validate_publication(snapshot: &SemanticSnapshot, modules: &CanonicalModuleProducts) -> Result<(), CanonicalImageError> {
+fn validate_publication(
+    snapshot: &SemanticSnapshot,
+    modules: &CanonicalModuleProducts,
+    request: &crate::request::SemanticProductRequest,
+) -> Result<(), CanonicalImageError> {
     let missing = if !snapshot.status.is_complete() {
         Some("unblocked final snapshot")
     } else if snapshot.sources.len() != modules.sources().len() || modules.sources().keys().any(|module| !snapshot.sources.contains_key(module)) {
         Some("complete canonical source set")
     } else if snapshot.callable_analyses.is_empty() || snapshot.callable_signatures.is_empty() || snapshot.trait_surfaces.iter().next().is_none() {
         Some("final callable/signature/trait publication")
+    } else if snapshot.declarations.iter().next().is_none() {
+        Some("canonical declaration products")
+    } else if snapshot.hierarchy.superclasses.is_empty() {
+        Some("canonical hierarchy products")
+    } else if snapshot.dispatch.surfaces().is_empty() {
+        Some("canonical dispatch products")
+    } else if snapshot.data_semantics.data_decls.is_empty() {
+        Some("canonical data semantics")
+    } else if snapshot.enum_semantics.enums.is_empty() {
+        Some("canonical enum semantics")
+    } else if snapshot.type_aliases.iter().next().is_none() {
+        Some("canonical type aliases")
+    } else if snapshot.conformance_index.iter().next().is_none() {
+        Some("canonical conformance index")
+    } else if request.presentation == crate::request::PresentationLevel::None && !snapshot.presentation_sources.is_empty() {
+        Some("suppressed presentation sources in compiler-image mode")
+    } else if request.advisory == crate::request::AdvisoryLevel::None && (!snapshot.advisory.modules.is_empty() || !snapshot.advisory.callables.is_empty()) {
+        Some("suppressed advisory products in compiler-image mode")
     } else {
         None
     };
@@ -928,6 +950,53 @@ mod tests {
         assert!(matches!(BootstrapGuard::enter(), Err(CanonicalImageError::BootstrapRecursion)));
         drop(guard);
         assert!(BootstrapGuard::enter().is_ok());
+    }
+
+    #[test]
+    fn canonical_compiler_image_validate_publication_enforces_compiler_completeness() {
+        let image = canonical_universe_formal_image().unwrap();
+        let canonical_req = crate::request::SemanticProductRequest::canonical_compiler_image();
+        assert!(validate_publication(image.snapshot(), image.modules(), &canonical_req).is_ok());
+
+        // Presentation leakage in compiler-image mode fails validation
+        let mut leaking_snapshot = (**image.snapshot()).clone();
+        leaking_snapshot.presentation_sources = Arc::new(BTreeMap::from([(
+            image.sources().keys().next().unwrap().clone(),
+            Arc::from("leaked presentation"),
+        )]));
+        assert!(matches!(
+            validate_publication(&leaking_snapshot, image.modules(), &canonical_req),
+            Err(CanonicalImageError::IncompletePublication(msg)) if msg.contains("suppressed presentation sources")
+        ));
+
+        // Advisory leakage in compiler-image mode fails validation
+        let mut leaking_advisory_snapshot = (**image.snapshot()).clone();
+        let mut adv = (*leaking_advisory_snapshot.advisory).clone();
+        Arc::make_mut(&mut adv.modules).insert(
+            image.sources().keys().next().unwrap().clone(),
+            Arc::new(crate::advisory::AdvisoryModuleProduct::new(
+                image.sources().keys().next().unwrap().clone(),
+                BTreeMap::new(),
+                BTreeMap::new(),
+                BTreeMap::new(),
+                BTreeMap::new(),
+                BTreeMap::new(),
+                crate::advisory::AdvisoryProductStatus::Complete,
+            )),
+        );
+        leaking_advisory_snapshot.advisory = Arc::new(adv);
+        assert!(matches!(
+            validate_publication(&leaking_advisory_snapshot, image.modules(), &canonical_req),
+            Err(CanonicalImageError::IncompletePublication(msg)) if msg.contains("suppressed advisory products")
+        ));
+
+        // Missing compiler-required products fail validation
+        let mut missing_decl_snapshot = (**image.snapshot()).clone();
+        missing_decl_snapshot.declarations = Arc::new(crate::declarations::DeclarationTypeTable::default());
+        assert!(matches!(
+            validate_publication(&missing_decl_snapshot, image.modules(), &canonical_req),
+            Err(CanonicalImageError::IncompletePublication(msg)) if msg.contains("canonical declaration products")
+        ));
     }
 }
 

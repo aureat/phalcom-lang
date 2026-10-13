@@ -9,7 +9,7 @@ use crate::associated::{AssociatedFamilyTable, AssociatedSurface, build_associat
 use crate::checker::context::CheckingContext;
 use crate::data_semantics::DataSemanticTable;
 use crate::db::product::{DataDeclarationProduct, EnumDeclarationProduct, EnumRequirementsProduct, TypeMemberDeclarationProduct};
-use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
+use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations_with_provider};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{DispatchSide, SurfaceDispatchResolver};
 use crate::enum_requirements::{EnumRequirementTable, check_enum_requirements};
@@ -129,7 +129,7 @@ impl CanonicalUniverseSemanticBaseline {
     fn build_with_provider_inner(provider: phalcom_modules::UniverseSourceProvider) -> Self {
         let mut store = TypeStore::new();
 
-        let mut base_declarations = bootstrap_universe_declarations(&mut store, &crate::core_surface::universe_declaration);
+        let mut base_declarations = bootstrap_universe_declarations_with_provider(&mut store, &crate::core_surface::universe_declaration, &provider);
 
         // `Some` and `None` are runtime support classes for the canonical
         // Option enum rather than exported class bindings. They still need

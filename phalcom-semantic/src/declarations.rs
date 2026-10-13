@@ -486,7 +486,15 @@ fn source_declaration_identity(module: &ModuleId, name: &str, universe_resolver:
 /// an identity-injection seam for isolated tests; production passes the canonical
 /// source-aware resolver. Native metadata is attachment/conformance data only.
 pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver: &dyn Fn(UniverseKey) -> DeclarationId) -> DeclarationTypeTable {
-    let provider = UniverseSourceProvider::new();
+    bootstrap_universe_declarations_with_provider(store, universe_resolver, &UniverseSourceProvider::new())
+}
+
+/// Bootstraps canonical declaration type forms from authoritative Universe source using the provided provider.
+pub fn bootstrap_universe_declarations_with_provider(
+    store: &mut TypeStore,
+    universe_resolver: &dyn Fn(UniverseKey) -> DeclarationId,
+    provider: &UniverseSourceProvider,
+) -> DeclarationTypeTable {
     let mut table = DeclarationTypeTable::new();
     let mut source_nominals = HashSet::<(ModuleId, String)>::new();
 
