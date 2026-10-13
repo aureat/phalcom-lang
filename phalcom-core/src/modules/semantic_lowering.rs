@@ -853,8 +853,10 @@ fn build_data_construction_spec(
             .with_project_universe(projects)
             .with_algebraic_semantics(&snapshot.data_semantics, &snapshot.enum_semantics)
             .with_associated_static_domains(snapshot.associated_static_domains.as_ref());
+    let mut closure = phalcom_semantic::metadata::MetadataReachabilityClosure::default();
+    closure.runtime_types.insert(result_type);
     let metadata = exporter
-        .build_bundle(&[(&constructor.owner.module, "data", result_type)])
+        .build_bundle_from_closure(&closure, &[(&constructor.owner.module, "data", result_type)])
         .map_err(|error| ProjectionError::DataTypeMetadata(error.to_string()))?;
     let argument_to_component = match argument_mapping {
         Some(mapping) => mapping,

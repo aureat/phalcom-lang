@@ -34,6 +34,37 @@ fn dummy_module() -> ModuleId {
     ]))
 }
 
+#[test]
+fn retained_alias_error_keeps_root_and_unreachable_alias_is_not_exported() {
+    use phalcom_semantic::field_key::FieldKey;
+    use phalcom_semantic::metadata::MetadataReachabilityClosure;
+    use phalcom_semantic::types::row::RecordRowField;
+
+    let mut store = TypeStore::new();
+    let unit = store.unit();
+    let record = store.record(vec![RecordRowField::required(FieldKey::string("key"), unit)].into_boxed_slice());
+    let declaration = DeclarationId::new(dummy_module(), "PublicRecord".into());
+    let mut aliases = TypeAliasTable::new();
+    aliases.insert(TypeAliasInfo {
+        declaration: declaration.clone(),
+        kind: KindId::TYPE,
+        kind_shape: "Type".into(),
+        generic_signature: None,
+        form: record,
+        structural_form: "Record".into(),
+        dependencies: Box::new([]),
+        source: SemanticSourceSpan::new(declaration.module.clone(), SourceRange::new(0, 1)),
+    });
+    let exporter = || MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic).with_aliases(&aliases);
+    let empty = exporter().build_bundle_from_closure(&MetadataReachabilityClosure::default(), &[]).unwrap();
+    assert!(empty.aliases.is_empty());
+    let mut closure = MetadataReachabilityClosure::default();
+    closure.aliases.insert(declaration.clone());
+    let error = exporter().build_bundle_from_closure(&closure, &[]).unwrap_err();
+    assert!(error.to_string().contains("PublicRecord"), "{error}");
+    assert!(error.to_string().contains("Record"), "{error}");
+}
+
 fn dummy_decl(name: &str) -> DeclarationId {
     DeclarationId::new(dummy_module(), name.into())
 }
@@ -110,10 +141,10 @@ fn test_metadata_fresh_store_determinism() {
 
     let exporter1 = MetadataExporter::new(&store1, None, None, None, MetadataProfile::RuntimePublic);
     let mod_id = dummy_module();
-    let bundle1 = exporter1.build_bundle(&[(&mod_id, "root", list_int1)]).unwrap();
+    let bundle1 = exporter1.build_complete_test_bundle(&[(&mod_id, "root", list_int1)]).unwrap();
 
     let exporter2 = MetadataExporter::new(&store2, None, None, None, MetadataProfile::RuntimePublic);
-    let bundle2 = exporter2.build_bundle(&[(&mod_id, "root", list_int2)]).unwrap();
+    let bundle2 = exporter2.build_complete_test_bundle(&[(&mod_id, "root", list_int2)]).unwrap();
 
     assert_eq!(bundle1, bundle2);
     validate_metadata_bundle(&bundle1, &ValidationLimits::default()).unwrap();
@@ -142,7 +173,7 @@ fn metadata_exports_and_validates_static_domain_and_type_data_identity() {
     let static_data_id = exporter.export_type_form(static_data).unwrap();
     let const_int_id = exporter.export_type_form(const_int).unwrap();
     let tensor_value_id = exporter.export_type_form(tensor_value).unwrap();
-    let bundle = exporter.build_bundle(&[]).unwrap();
+    let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
 
     assert!(bundle.header.features.static_domains);
     assert!(
@@ -186,7 +217,7 @@ fn metadata_projection_retains_selected_source_type_member_identity() {
     );
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let projection_id = exporter.export_type_form(projection).unwrap();
-    let bundle = exporter.build_bundle(&[]).unwrap();
+    let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
     let TypeNode::TypeMemberProjection(projected) = &bundle.types[projection_id.0 as usize].form else {
         panic!("expected source type-member projection metadata");
     };
@@ -231,7 +262,7 @@ fn metadata_exports_associated_static_domain_identity_and_owner_environment() {
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let term_id = exporter.export_type_form(term).unwrap();
     let row_term_id = exporter.export_type_form(row_term).unwrap();
-    let bundle = exporter.build_bundle(&[]).unwrap();
+    let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
     let TypeNode::StaticData(term_data) = &bundle.types[term_id.0 as usize].form else {
         panic!("expected associated static data node");
     };
@@ -280,7 +311,7 @@ fn metadata_publishes_stable_algebraic_phase_and_shape() {
         MetadataProfile::RuntimePublic,
     )
     .with_algebraic_semantics(&analysis.snapshot.data_semantics, &analysis.snapshot.enum_semantics);
-    let bundle = exporter.build_bundle(&[]).unwrap();
+    let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
     let record = |name: &str| {
         bundle
             .declarations
@@ -343,7 +374,7 @@ fn snapshot_metadata_round_trip_preserves_static_alias_and_associated_term_ident
     .with_algebraic_semantics(&analysis.snapshot.data_semantics, &analysis.snapshot.enum_semantics)
     .with_associated_static_domains(analysis.snapshot.associated_static_domains.as_ref())
     .with_aliases(&analysis.snapshot.type_aliases)
-    .build_bundle(&[])
+    .build_complete_test_bundle(&[])
     .expect("snapshot-backed static metadata");
 
     let shape_catalog = bundle
@@ -428,7 +459,7 @@ fn metadata_round_trip_preserves_heterogeneous_application_and_scoped_static_dom
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let applied_id = exporter.export_type_form(applied).expect("heterogeneous application export");
     let lambda_id = exporter.export_type_form(lambda).expect("static-domain lambda export");
-    let bundle = exporter.build_bundle(&[]).expect("canonical metadata bundle");
+    let bundle = exporter.build_complete_test_bundle(&[]).expect("canonical metadata bundle");
 
     assert!(matches!(&bundle.types[applied_id.0 as usize].form, TypeNode::Applied { arguments, .. }
         if matches!(arguments.as_ref(), [StaticArgumentRef::Term(_), StaticArgumentRef::RecordRow(row)]
@@ -468,7 +499,7 @@ fn metadata_keeps_legacy_enum_and_equivalent_data_identity_neutral() {
             MetadataProfile::RuntimePublic,
         )
         .with_algebraic_semantics(&analysis.snapshot.data_semantics, &analysis.snapshot.enum_semantics)
-        .build_bundle(&[])
+        .build_complete_test_bundle(&[])
         .unwrap()
     }
 
@@ -547,7 +578,7 @@ fn metadata_round_trip_preserves_callable_generic_owner_and_constraints() {
     });
 
     let exporter = MetadataExporter::new(&store, None, Some(&callables), None, MetadataProfile::RuntimePublic);
-    let bundle = exporter.build_bundle(&[]).expect("callable metadata");
+    let bundle = exporter.build_complete_test_bundle(&[]).expect("callable metadata");
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
     let callable_record = bundle.callables.first().expect("callable record");
     let generic_id = callable_record.generic_signature.expect("callable generic signature");
@@ -679,7 +710,7 @@ fn cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metada
         Some(&analysis.snapshot.field_signatures),
         MetadataProfile::RuntimePublic,
     )
-    .build_bundle(&[])
+    .build_complete_test_bundle(&[])
     .expect("cross-module inferred callable metadata export");
     let record = bundle
         .callables
@@ -727,7 +758,7 @@ fn open_record_metadata_is_tail_sensitive_and_enables_row_feature() {
     let closed_id = exporter.export_type_form(closed).unwrap();
     let open_one_id = exporter.export_type_form(open_one).unwrap();
     let open_two_id = exporter.export_type_form(open_two).unwrap();
-    let bundle = exporter.build_bundle(&[]).unwrap();
+    let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
 
     assert!(matches!(
         bundle.types[closed_id.0 as usize].form,
@@ -784,10 +815,10 @@ fn test_metadata_lambda_alpha_equivalence() {
 
     let exporter1 = MetadataExporter::new(&store1, None, None, None, MetadataProfile::RuntimePublic);
     let mod_id = dummy_module();
-    let bundle1 = exporter1.build_bundle(&[(&mod_id, "lam", lam1)]).unwrap();
+    let bundle1 = exporter1.build_complete_test_bundle(&[(&mod_id, "lam", lam1)]).unwrap();
 
     let exporter2 = MetadataExporter::new(&store2, None, None, None, MetadataProfile::RuntimePublic);
-    let bundle2 = exporter2.build_bundle(&[(&mod_id, "lam", lam2)]).unwrap();
+    let bundle2 = exporter2.build_complete_test_bundle(&[(&mod_id, "lam", lam2)]).unwrap();
 
     assert_eq!(bundle1.types, bundle2.types);
     assert_eq!(bundle1.scoped_types, bundle2.scoped_types);
@@ -834,7 +865,7 @@ fn test_metadata_generic_signature_and_supertype_template_export() {
     });
 
     let exporter = MetadataExporter::new(&store, Some(&decl_table), None, None, MetadataProfile::RuntimePublic);
-    let bundle = exporter.build_bundle(&[]).unwrap();
+    let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
 
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
     assert_eq!(bundle.declarations.len(), 1);
@@ -896,7 +927,7 @@ fn test_metadata_exports_transparent_alias_records_and_generic_forms() {
     };
 
     let exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic).with_aliases(&aliases);
-    let bundle = exporter.build_bundle(&[]).expect("valid alias metadata");
+    let bundle = exporter.build_complete_test_bundle(&[]).expect("valid alias metadata");
     assert_eq!(bundle.aliases.len(), 2);
     let user_id = bundle
         .aliases
@@ -957,7 +988,7 @@ fn unit_and_empty_record_alias_metadata_round_trip_as_structural_zero_forms() {
 
     let bundle = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic)
         .with_aliases(&aliases)
-        .build_bundle(&[])
+        .build_complete_test_bundle(&[])
         .expect("zero-product aliases export as transparent alias records");
     assert!(bundle.declarations.is_empty(), "the aliases are not runtime nominal declarations or data roots");
     assert_eq!(bundle.aliases.len(), 2);
@@ -1015,7 +1046,7 @@ fn test_metadata_rejects_stale_alias_form_before_publication() {
 
     let exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic).with_aliases(&aliases);
     assert!(matches!(
-        exporter.build_bundle(&[]),
+        exporter.build_complete_test_bundle(&[]),
         Err(phalcom_semantic::metadata::MetadataExportError::NonExportableForm(form))
             if form == phalcom_semantic::types::id::TypeId::DUMMY
     ));
@@ -1033,7 +1064,7 @@ fn metadata_exports_associated_projection_with_stable_identity() {
     );
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let node = exporter.export_type_form(projection).expect("associated projection is exportable");
-    let bundle = exporter.build_bundle(&[]).expect("associated projection metadata bundle");
+    let bundle = exporter.build_complete_test_bundle(&[]).expect("associated projection metadata bundle");
     let entry = &bundle.types[node.0 as usize];
     let phalcom_type_meta::type_node::TypeNode::AssociatedProjection {
         subject,
@@ -1056,7 +1087,7 @@ fn metadata_exports_associated_projection_with_stable_identity() {
     let first_fingerprint = entry.structural_fingerprint;
     let mut second_exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let second_node = second_exporter.export_type_form(projection).expect("associated projection remains exportable");
-    let second_bundle = second_exporter.build_bundle(&[]).expect("second associated projection metadata bundle");
+    let second_bundle = second_exporter.build_complete_test_bundle(&[]).expect("second associated projection metadata bundle");
     assert_eq!(first_fingerprint, second_bundle.types[second_node.0 as usize].structural_fingerprint);
 }
 
@@ -1100,7 +1131,7 @@ fn test_metadata_preserves_owner_relative_self_terms() {
     let instance_id = exporter.export_type_form(instance).expect("instance Self export");
     let class_id = exporter.export_type_form(class).expect("class Self export");
     assert_ne!(instance_id, class_id);
-    let bundle = exporter.build_bundle(&[]).expect("Self terms export");
+    let bundle = exporter.build_complete_test_bundle(&[]).expect("Self terms export");
     assert!(matches!(
         &bundle.types[instance_id.0 as usize].form,
         phalcom_type_meta::type_node::TypeNode::SelfType(self_ref)
@@ -1137,7 +1168,7 @@ fn metadata_exports_complete_and_concat_pack_terms_with_binder_modes() {
     let complete_id = exporter.export_type_form(complete).unwrap();
     let concat_id = exporter.export_type_form(concat).unwrap();
     exporter.export_generic_signature(&signature).unwrap();
-    let bundle = exporter.build_bundle(&[]).unwrap();
+    let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
 
     assert_eq!(bundle.header.schema_version, phalcom_type_meta::header::TYPE_METADATA_SCHEMA_VERSION);
     assert!(matches!(
@@ -1161,7 +1192,7 @@ fn binder_mode_changes_metadata_interface_fingerprint() {
         let signature = GenericSignature::new(owner, Box::new([parameter])).with_parameter_modes(Box::new([mode]));
         let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
         exporter.export_generic_signature(&signature).unwrap();
-        exporter.build_bundle(&[]).unwrap()
+        exporter.build_complete_test_bundle(&[]).unwrap()
     }
 
     let single = bundle_for_mode(GenericParameterMode::Single);
@@ -1181,7 +1212,7 @@ fn parameter_mode_and_kind_metadata_round_trip_independently() {
         let signature = GenericSignature::new(owner, Box::new([parameter])).with_parameter_modes(Box::new([mode]));
         let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
         exporter.export_generic_signature(&signature).unwrap();
-        let bundle = exporter.build_bundle(&[]).unwrap();
+        let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
         validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
 
         let encoded = encode_metadata_json(&bundle).unwrap();
@@ -1235,7 +1266,7 @@ fn scoped_record_row_lambda_keeps_kind_and_mode_separate_through_fingerprinting(
         let ty = store.intern_with_kind(phalcom_semantic::types::store::TypeData::Lambda(lambda), kind);
         let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
         exporter.export_type_form(ty).unwrap();
-        let bundle = exporter.build_bundle(&[]).unwrap();
+        let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
         validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
 
         let encoded = encode_metadata_json(&bundle).unwrap();
@@ -1298,7 +1329,7 @@ fn p3_metadata_exports_scoped_pack_aliases_under_schema_v4() {
 
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let exported_id = exporter.export_type_form(lambda_ty).unwrap();
-    let bundle = exporter.build_bundle(&[]).unwrap();
+    let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
 
     assert_eq!(bundle.header.schema_version, phalcom_type_meta::header::TYPE_METADATA_SCHEMA_VERSION);
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
@@ -1344,11 +1375,11 @@ fn p3_lambda_mode_only_changes_structural_and_interface_fingerprints() {
 
     let mut exporter1 = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let id1 = exporter1.export_type_form(ty_single).unwrap();
-    let b1 = exporter1.build_bundle(&[]).unwrap();
+    let b1 = exporter1.build_complete_test_bundle(&[]).unwrap();
 
     let mut exporter2 = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let id2 = exporter2.export_type_form(ty_pack).unwrap();
-    let b2 = exporter2.build_bundle(&[]).unwrap();
+    let b2 = exporter2.build_complete_test_bundle(&[]).unwrap();
 
     assert_ne!(b1.types[id1.0 as usize].structural_fingerprint, b2.types[id2.0 as usize].structural_fingerprint);
 }
@@ -1395,7 +1426,7 @@ fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainde
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let tuple_node_id = exporter.export_type_form(open_tuple_ty).unwrap();
     let record_node_id = exporter.export_type_form(anon_record_ty).unwrap();
-    let bundle = exporter.build_bundle(&[]).unwrap();
+    let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
 
     assert_eq!(bundle.header.schema_version, phalcom_type_meta::header::TYPE_METADATA_SCHEMA_VERSION);
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
@@ -1479,7 +1510,7 @@ fn legacy_record_metadata_fails_closed_for_non_symbol_keys_and_domains() {
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let record_id = exporter.export_type_form(typed_symbol_record).expect("legacy typed Symbol remainder");
     let value_id = exporter.export_type_form(value_type).expect("typed remainder value type");
-    let bundle = exporter.build_bundle(&[]).expect("metadata bundle");
+    let bundle = exporter.build_complete_test_bundle(&[]).expect("metadata bundle");
     let TypeNode::AnonymousRecord(record) = &bundle.types[record_id.0 as usize].form else {
         panic!("expected anonymous Record metadata")
     };
@@ -1518,7 +1549,7 @@ fn structural_member_presence_and_remainder_affect_fingerprints() {
     let mut exp1 = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let id_req = exp1.export_type_form(rec_req).unwrap();
     let id_opt = exp1.export_type_form(rec_opt).unwrap();
-    let b1 = exp1.build_bundle(&[]).unwrap();
+    let b1 = exp1.build_complete_test_bundle(&[]).unwrap();
 
     assert_ne!(
         b1.types[id_req.0 as usize].structural_fingerprint,
@@ -1548,7 +1579,7 @@ fn structural_member_presence_and_remainder_affect_fingerprints() {
     let mut exp2 = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let id_closed = exp2.export_type_form(rec_closed).unwrap();
     let id_anon = exp2.export_type_form(rec_anon).unwrap();
-    let b2 = exp2.build_bundle(&[]).unwrap();
+    let b2 = exp2.build_complete_test_bundle(&[]).unwrap();
 
     assert_ne!(
         b2.types[id_closed.0 as usize].structural_fingerprint,
@@ -1567,7 +1598,7 @@ fn metadata_rejects_optional_tuple_presence() {
 
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let _ = exporter.export_type_form(tuple_ty).unwrap();
-    let mut bundle = exporter.build_bundle(&[]).unwrap();
+    let mut bundle = exporter.build_complete_test_bundle(&[]).unwrap();
 
     // Mutate bundle to have Optional Tuple element in TypeNode::Tuple
     for entry in bundle.types.iter_mut() {

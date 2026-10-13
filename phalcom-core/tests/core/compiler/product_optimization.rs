@@ -269,7 +269,7 @@ fn test_decision_engine_pure_cases() {
     let ctor_id = phalcom_semantic::identity::DataConstructorId::new(decl_id);
     let store = phalcom_semantic::types::TypeStore::default();
     let exporter = phalcom_semantic::metadata::MetadataExporter::new(&store, None, None, None, phalcom_type_meta::header::MetadataProfile::RuntimePublic);
-    let bundle = Arc::new(exporter.build_bundle(&[]).expect("metadata bundle"));
+    let bundle = Arc::new(exporter.build_complete_test_bundle(&[]).expect("metadata bundle"));
 
     let mut candidate = CandidateBinding {
         binding: BindingId(1),

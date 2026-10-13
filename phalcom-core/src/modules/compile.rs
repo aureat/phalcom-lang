@@ -348,6 +348,9 @@ pub enum ProgramCompileError {
     /// Semantic update failed without publishing a current executable snapshot.
     #[error(transparent)]
     SemanticUpdate(#[from] phalcom_semantic::SemanticUpdateFailure),
+    /// Metadata projection retains its semantic entity and recursive type cause.
+    #[error(transparent)]
+    Metadata(#[from] phalcom_semantic::metadata::MetadataExportError),
     /// Generic I/O error.
     #[error("io error: {0}")]
     Io(String),
@@ -1077,7 +1080,7 @@ impl ProgramCompiler {
             analyzed.semantic.store(),
             Some(analyzed.semantic.declarations()),
             Some(analyzed.semantic.callable_signatures().as_ref()),
-            None,
+            Some(analyzed.semantic.field_signatures.as_ref()),
             options.metadata_profile,
         )
         .with_project_universe(&analyzed.project_universe)
@@ -1098,7 +1101,7 @@ impl ProgramCompiler {
                 *parameter,
                 exporter
                     .export_type_parameter(*parameter)
-                    .map_err(|e| ProgramCompileError::Io(format!("metadata export error: {e}")))?,
+                    .map_err(ProgramCompileError::Metadata)?,
                 *ty,
                 key.clone(),
             ));
@@ -1112,16 +1115,62 @@ impl ProgramCompiler {
                 requirement.clone(),
                 exporter
                     .export_type_parameter(*parameter)
-                    .map_err(|e| ProgramCompileError::Io(format!("metadata export error: {e}")))?,
+                    .map_err(ProgramCompileError::Metadata)?,
                 *ty,
                 key.clone(),
             ));
         }
-        let metadata_bundle = Arc::new(
-            exporter
-                .build_bundle(&runtime_root_refs)
-                .map_err(|e| ProgramCompileError::Io(format!("metadata export error: {e}")))?,
+        let mut metadata_roots = phalcom_semantic::metadata::MetadataRootSet::new();
+        for (_, _, ty) in &runtime_root_refs { metadata_roots.insert_runtime_type(*ty); }
+        for (_, _, callable, _, _, _) in &runtime_call_root_specs { metadata_roots.insert_callable(callable.clone()); }
+        for module in &analyzed.runtime_modules {
+            // Runtime declarations are executable compiler roots, independent
+            // of exported/public visibility. Use their published semantic IDs.
+            if let Some(source) = analyzed.semantic.source_index.module(module) {
+                for (id, info) in &source.structure.declaration_sources {
+                    if matches!(info.kind, phalcom_semantic::source_index::SourceDeclarationKind::Class | phalcom_semantic::source_index::SourceDeclarationKind::Data) {
+                        metadata_roots.insert_declaration(id.clone());
+                    }
+                }
+            }
+            if options.metadata_profile != phalcom_type_meta::header::MetadataProfile::RuntimeMinimal {
+                if let Some(linked) = analyzed.linked.modules.get(module) {
+                    for export in linked.interface.exports.values() {
+                        if let Some(symbol) = export.symbol() {
+                            let id = phalcom_semantic::identity::DeclarationId::new(symbol.module.clone(), symbol.name.clone());
+                            if analyzed.semantic.type_aliases.get(&id).is_some() { metadata_roots.insert_alias(id); }
+                            else if analyzed.semantic.declarations().get(&id).is_some() { metadata_roots.insert_declaration(id); }
+                        }
+                    }
+                }
+            }
+        }
+        let mut dependency_exporter = exporter.dependency_discovery_fork();
+        let request = phalcom_semantic::metadata::MetadataRetentionRequest::new(options.metadata_profile, &metadata_roots)
+            .with_member_surfaces(analyzed.semantic.surfaces.as_ref());
+        let (metadata_closure, metrics) = phalcom_semantic::metadata::compute_reachability_closure(
+            &request,
+            Some(analyzed.semantic.declarations()),
+            Some(analyzed.semantic.callable_signatures()),
+            Some(analyzed.semantic.field_signatures.as_ref()),
+            Some(analyzed.semantic.type_aliases.as_ref()),
+            &mut dependency_exporter,
+            // Canonical bootstrap owns canonical records; ordinary bundles
+            // reference their stable external identities.
+            |module| module.project.is_universe() && !analyzed.entry.project.is_universe(),
         );
+        crate::perf_counter!(telos_observability::PerfCounter::MetadataRootsSelected, metrics.roots_selected);
+        crate::perf_counter!(telos_observability::PerfCounter::MetadataEntitiesVisited, metrics.entities_visited);
+        crate::perf_counter!(telos_observability::PerfCounter::MetadataDependencyEdgesTraversed, metrics.dependency_edges_traversed);
+        crate::perf_counter!(telos_observability::PerfCounter::MetadataDeclarationsRetained, metrics.declarations_retained);
+        crate::perf_counter!(telos_observability::PerfCounter::MetadataAliasesRetained, metrics.aliases_retained);
+        crate::perf_counter!(telos_observability::PerfCounter::MetadataCallablesRetained, metrics.callables_retained);
+        crate::perf_counter!(telos_observability::PerfCounter::MetadataFieldsRetained, metrics.fields_retained);
+        crate::perf_counter!(telos_observability::PerfCounter::MetadataCanonicalDeclarationsElided, metrics.canonical_declarations_elided);
+        crate::perf_counter!(telos_observability::PerfCounter::MetadataCanonicalCallablesElided, metrics.canonical_callables_elided);
+        crate::perf_counter!(telos_observability::PerfCounter::MetadataCanonicalFieldsElided, metrics.canonical_fields_elided);
+        let _ = metrics;
+        let metadata_bundle = Arc::new(exporter.build_bundle_from_closure(&metadata_closure, &runtime_root_refs).map_err(ProgramCompileError::Metadata)?);
         #[cfg(feature = "perf-observability")]
         metadata_export_span.finish(telos_observability::PerfOutcome::Success);
         #[cfg(feature = "perf-observability")]

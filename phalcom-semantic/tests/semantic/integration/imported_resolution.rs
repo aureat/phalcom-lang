@@ -517,7 +517,7 @@ fn imported_static_domain_provider_edits_recompute_exact_consumer_and_match_cold
     .with_algebraic_semantics(&revision_a.snapshot.data_semantics, &revision_a.snapshot.enum_semantics)
     .with_associated_static_domains(&revision_a.snapshot.associated_static_domains)
     .with_aliases(&revision_a.snapshot.type_aliases)
-    .build_bundle(&[])
+    .build_complete_test_bundle(&[])
     .expect("multi-module provider metadata");
     let provider_catalog = bundle
         .static_domains
@@ -664,7 +664,7 @@ fn imported_associated_static_domain_retains_provider_owner_specialization() {
     .with_algebraic_semantics(&update.snapshot.data_semantics, &update.snapshot.enum_semantics)
     .with_associated_static_domains(&update.snapshot.associated_static_domains)
     .with_aliases(&update.snapshot.type_aliases)
-    .build_bundle(&[])
+    .build_complete_test_bundle(&[])
     .expect("cross-module associated static metadata");
     let alias = bundle
         .aliases

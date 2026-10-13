@@ -22,7 +22,7 @@ use crate::types::variance::Variance;
 use phalcom_type_meta::bundle::{RuntimeTypeFormKey, RuntimeTypeFormRoot, SemanticMetadataBundle};
 use phalcom_type_meta::declaration::{
     AlgebraicDeclarationRecord, AlgebraicPhaseRef, AlgebraicShapeRef, CallableParameterRecord, CallableSemanticRecord, DeclarationTypeFlags,
-    DeclarationTypeRecord, DynamicReasonRef, FieldMutabilityRef, FieldSemanticRecord, MetadataUnavailableReason, PublishedTypeAuthority, PublishedTypeSlot,
+    DeclarationTypeRecord, DynamicReasonRef, FieldMutabilityRef, FieldSemanticRecord, PublishedTypeAuthority, PublishedTypeSlot,
     RestModeRef, UnknownReasonRef,
 };
 use phalcom_type_meta::fingerprint::{Fingerprint128, FingerprintBuilder};
@@ -47,7 +47,8 @@ use phalcom_type_meta::type_node::{
     PackTypeRef, RecordFieldRef, RecordRowRef, SelfRoleRef, SelfTypeRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef, StructuralMemberPresenceRef,
     TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use super::reachability::MetadataReachabilityClosure;
 
 macro_rules! metadata_perf_counter {
     ($counter:expr, $amount:expr $(,)?) => {{
@@ -62,6 +63,8 @@ type GenericSignatureKey = (TypeParameterOwner, Box<[TypeParameterId]>, Box<[Gen
 pub enum MetadataExportError {
     #[error("cannot export inference variable in durable metadata")]
     InferenceVariable,
+    #[error("metadata projection for {entity:?} (profile {profile:?}, type {type_id:?}): {source}")]
+    Projection { profile: MetadataProfile, entity: Box<MetadataEntityIdentity>, type_id: Option<TypeId>, source: Box<MetadataExportError> },
     #[error("cannot export scoped local type containing rigid variables")]
     ScopedLocalType,
     #[error("cannot export invalid generic signature: {0:?}")]
@@ -88,6 +91,17 @@ pub enum MetadataExportError {
     MissingStaticDomainDeclaration(StableStaticDomainDeclarationRef),
     #[error("cannot export scoped type application with invalid kinding: {0}")]
     InvalidKindApplication(&'static str),
+}
+
+/// Top-level retained semantic entity responsible for a metadata projection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MetadataEntityIdentity {
+    Declaration(crate::identity::DeclarationId),
+    Alias(crate::identity::DeclarationId),
+    Callable(crate::identity::CallableId),
+    Field(crate::identity::FieldId),
+    RuntimeType { module: crate::identity::ModuleId, key: Box<str> },
+    StaticDomainCatalog,
 }
 
 fn write_stable_project_fingerprint(builder: &mut FingerprintBuilder, project: &StableProjectRef) {
@@ -235,6 +249,9 @@ pub struct MetadataExporter<'a> {
     callables: Option<&'a CallableSignatureTable>,
     fields: Option<&'a FieldSignatureTable>,
     profile: MetadataProfile,
+    current_entity: MetadataEntityIdentity,
+    failed_type: Option<TypeId>,
+    exported_static_domains: BTreeSet<StaticDomainId>,
     identity_context: Option<StableIdentityContext<'a>>,
 
     // Deduplication index maps
@@ -253,6 +270,8 @@ pub struct MetadataExporter<'a> {
 
     generic_signatures: Vec<GenericSignatureRecord>,
     sig_map: HashMap<GenericSignatureKey, GenericSignatureRecordId>,
+    nominal_declaration_dependencies: BTreeSet<crate::identity::DeclarationId>,
+    nominal_dependency_log: Vec<crate::identity::DeclarationId>,
 }
 
 impl<'a> MetadataExporter<'a> {
@@ -341,6 +360,9 @@ impl<'a> MetadataExporter<'a> {
             callables,
             fields,
             profile,
+            current_entity: MetadataEntityIdentity::StaticDomainCatalog,
+            failed_type: None,
+            exported_static_domains: BTreeSet::new(),
             identity_context: None,
             kind_map: HashMap::new(),
             kind_node_map: HashMap::new(),
@@ -353,6 +375,8 @@ impl<'a> MetadataExporter<'a> {
             param_map: HashMap::new(),
             generic_signatures: Vec::new(),
             sig_map: HashMap::new(),
+            nominal_declaration_dependencies: BTreeSet::new(),
+            nominal_dependency_log: Vec::new(),
         }
     }
 
@@ -366,6 +390,20 @@ impl<'a> MetadataExporter<'a> {
     pub fn with_aliases(mut self, aliases: &'a TypeAliasTable) -> Self {
         self.aliases = Some(aliases);
         self
+    }
+
+    /// Creates an empty exporter with the same semantic inputs for a
+    /// dependency-discovery pass. Keeping its output tables separate preserves
+    /// final bundle node ordering and prevents failed probes from leaving partial
+    /// nodes in the published bundle.
+    pub fn dependency_discovery_fork(&self) -> Self {
+        let mut fork = Self::new(self.store, self.declarations, self.callables, self.fields, self.profile);
+        fork.algebraic_data = self.algebraic_data;
+        fork.algebraic_enums = self.algebraic_enums;
+        fork.associated_static_domains = self.associated_static_domains;
+        fork.aliases = self.aliases;
+        fork.identity_context = self.identity_context.as_ref().map(|context| StableIdentityContext::new(context.projects));
+        fork
     }
 
     /// Attaches the canonical algebraic projections used to publish stable
@@ -410,6 +448,7 @@ impl<'a> MetadataExporter<'a> {
     }
 
     fn export_static_domain(&mut self, domain: StaticDomainId) -> Result<StaticDomainRef, MetadataExportError> {
+        self.exported_static_domains.insert(domain);
         match self.store.static_domain(domain) {
             Some(StaticDomainData::ConstInt) => Ok(StaticDomainRef::ConstInt),
             Some(StaticDomainData::Nominal { declaration }) => Ok(StaticDomainRef::Nominal {
@@ -433,11 +472,53 @@ impl<'a> MetadataExporter<'a> {
         }
     }
 
-    fn export_static_domain_catalog(&mut self) -> Result<Box<[phalcom_type_meta::declaration::StaticDomainDeclarationRecord]>, MetadataExportError> {
+    fn export_static_domain_catalog(&mut self, closure: Option<&MetadataReachabilityClosure>) -> Result<Box<[phalcom_type_meta::declaration::StaticDomainDeclarationRecord]>, MetadataExportError> {
         type CaseMap = BTreeMap<Box<str>, Box<[phalcom_type_meta::kind::KindNodeId]>>;
         type DomainMap = BTreeMap<StableStaticDomainDeclarationRef, (Vec<phalcom_type_meta::declaration::StaticDomainParameterRecord>, CaseMap)>;
 
         let mut sources = Vec::new();
+        if let Some(closure) = closure {
+            let mut pending = self.exported_static_domains.clone();
+            for declaration in &closure.declarations {
+                if let Some(data) = self.algebraic_data.and_then(|table| table.data_info(declaration)).and_then(|info| info.static_data.as_ref()) {
+                    pending.insert(data.domain);
+                }
+                if let Some(data) = self.algebraic_enums.and_then(|table| table.enum_info(declaration)).and_then(|info| info.static_data.as_ref()) {
+                    pending.insert(data.domain);
+                }
+            }
+            let mut visited = BTreeSet::new();
+            while let Some(domain) = pending.pop_first() {
+                if !visited.insert(domain) { continue; }
+                match self.store.static_domain(domain).cloned() {
+                    Some(StaticDomainData::Nominal { declaration }) => {
+                        let constructors = self.algebraic_data.and_then(|table| table.data_info(&declaration)).and_then(|info| info.static_data.as_ref())
+                            .map(|data| data.constructors.to_vec())
+                            .or_else(|| self.algebraic_enums.and_then(|table| table.enum_info(&declaration)).and_then(|info| info.static_data.as_ref()).map(|data| data.constructors.to_vec()))
+                            .unwrap_or_else(|| self.store.static_constructor_ids_for_domain(domain));
+                        sources.push((domain, declaration.clone(), StableStaticDomainDeclarationRef::Nominal(self.stable_declaration(&declaration)), None, constructors));
+                    }
+                    Some(StaticDomainData::Associated { declaration, .. }) => {
+                        let constructors = self.associated_static_domains.and_then(|table| table.get(&declaration)).map(|product| product.constructors.to_vec())
+                            .unwrap_or_else(|| self.store.static_constructor_ids_for_domain(domain));
+                        sources.push((domain, declaration.owner.clone(), StableStaticDomainDeclarationRef::Associated(phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef {
+                            owner: self.stable_declaration(&declaration.owner), name: declaration.name.clone(),
+                        }), Some(declaration), constructors));
+                    }
+                    Some(StaticDomainData::ConstInt) => {}
+                    None => return Err(MetadataExportError::InvalidStaticDomain(domain)),
+                }
+                // Constructor kinds may depend on another static domain. Discover
+                // those dependencies through the canonical kind exporter.
+                if let Some((_, _, _, _, constructors)) = sources.last().filter(|source| source.0 == domain).cloned() {
+                    for constructor in constructors {
+                        let kinds = self.store.static_constructor(constructor).ok_or(MetadataExportError::InvalidStaticConstructor(constructor))?.parameter_kinds.clone();
+                        for kind in kinds.iter() { self.export_kind(*kind)?; }
+                    }
+                }
+                pending.extend(self.exported_static_domains.iter().filter(|domain| !visited.contains(domain)).copied());
+            }
+        } else {
         if let Some(data) = self.algebraic_data {
             for info in data.data_decls.values() {
                 if let Some(static_data) = &info.static_data {
@@ -506,6 +587,7 @@ impl<'a> MetadataExporter<'a> {
                     Some(StaticDomainData::ConstInt) | None => {}
                 }
             }
+        }
         }
         sources.sort_by(|left, right| left.2.cmp(&right.2));
 
@@ -1561,6 +1643,37 @@ impl<'a> MetadataExporter<'a> {
     }
 
     pub fn export_type_form(&mut self, ty: TypeId) -> Result<TypeNodeId, MetadataExportError> {
+        let result = self.export_type_form_inner(ty);
+        if result.is_err() && self.failed_type.is_none() { self.failed_type = Some(ty); }
+        result
+    }
+
+    /// Discovers nominal declaration dependencies through the same recursive
+    /// type/kind export path used by metadata serialization.
+    ///
+    /// A form that cannot be exported contributes no partial dependencies here;
+    /// the selected-bundle pass retries it under its retained entity context so
+    /// failures retain their normal provenance.
+    pub fn discover_nominal_declaration_dependencies(
+        &mut self,
+        roots: &BTreeSet<TypeId>,
+    ) -> BTreeSet<crate::identity::DeclarationId> {
+        for &ty in roots {
+            let dependency_checkpoint = self.nominal_dependency_log.len();
+            if self.export_type_form(ty).is_err() {
+                while self.nominal_dependency_log.len() > dependency_checkpoint {
+                    if let Some(declaration) = self.nominal_dependency_log.pop() {
+                        self.nominal_declaration_dependencies.remove(&declaration);
+                    }
+                }
+            }
+            self.failed_type = None;
+        }
+
+        self.nominal_declaration_dependencies.clone()
+    }
+
+    fn export_type_form_inner(&mut self, ty: TypeId) -> Result<TypeNodeId, MetadataExportError> {
         metadata_perf_counter!(telos_observability::PerfCounter::MetadataTypeExportRequests, 1);
         if ty.index() >= self.store.type_count() {
             return Err(MetadataExportError::NonExportableForm(ty));
@@ -1571,9 +1684,14 @@ impl<'a> MetadataExporter<'a> {
         let form = match data {
             TypeData::Never => TypeNode::Never,
             TypeData::Unit => TypeNode::Unit,
-            TypeData::Nominal { declaration } => TypeNode::Nominal {
-                declaration: self.stable_declaration(&declaration),
-            },
+            TypeData::Nominal { declaration } => {
+                if self.nominal_declaration_dependencies.insert(declaration.clone()) {
+                    self.nominal_dependency_log.push(declaration.clone());
+                }
+                TypeNode::Nominal {
+                    declaration: self.stable_declaration(&declaration),
+                }
+            }
             TypeData::Applied { origin, ref arguments } => {
                 let origin_id = self.export_type_form(origin)?;
                 let mut arg_ids = Vec::new();
@@ -2336,8 +2454,8 @@ impl<'a> MetadataExporter<'a> {
         Ok(id)
     }
 
-    fn export_declared_type_fact(&mut self, fact: &DeclaredTypeFact) -> PublishedTypeSlot {
-        match &fact.state {
+    fn export_declared_type_fact(&mut self, fact: &DeclaredTypeFact) -> Result<PublishedTypeSlot, MetadataExportError> {
+        Ok(match &fact.state {
             DeclaredTypeState::Known(term) => match self.export_type_term(term) {
                 Ok(form) => {
                     let authority = match fact.basis {
@@ -2352,9 +2470,7 @@ impl<'a> MetadataExporter<'a> {
                     };
                     PublishedTypeSlot::Known { form, authority }
                 }
-                Err(_) => PublishedTypeSlot::Unavailable {
-                    reason: MetadataUnavailableReason::IncompatibleModel,
-                },
+                Err(error) => return Err(error),
             },
             DeclaredTypeState::Dynamic(reason) => PublishedTypeSlot::Dynamic {
                 reason: match reason {
@@ -2373,10 +2489,34 @@ impl<'a> MetadataExporter<'a> {
                     _ => UnknownReasonRef::InferenceFailed,
                 },
             },
-        }
+        })
     }
 
-    pub fn build_bundle(mut self, runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)]) -> Result<SemanticMetadataBundle, MetadataExportError> {
+    /// Explicit complete-table helper for detached metadata fixtures. Production
+    /// compilation must supply its retained closure instead.
+    pub fn build_complete_test_bundle(mut self, runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)]) -> Result<SemanticMetadataBundle, MetadataExportError> {
+        let closure = MetadataReachabilityClosure {
+            declarations: self.declarations.map(|table| table.iter().map(|(id, _)| id.clone()).collect()).unwrap_or_default(),
+            aliases: self.aliases.map(|table| table.iter().map(|(id, _)| id.clone()).collect()).unwrap_or_default(),
+            callables: self.callables.map(|table| table.iter().map(|(id, _)| id.clone()).collect()).unwrap_or_default(),
+            fields: self.fields.map(|table| table.iter().map(|(id, _)| id.clone()).collect()).unwrap_or_default(),
+            runtime_types: runtime_roots.iter().map(|(_, _, ty)| *ty).collect(),
+        };
+        self.build_bundle_inner(&closure, true, runtime_roots)
+    }
+
+    /// Projects only explicitly retained semantic entities and recursive type roots.
+    pub fn build_bundle_from_closure(self, closure: &MetadataReachabilityClosure, runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)]) -> Result<SemanticMetadataBundle, MetadataExportError> {
+        self.build_selected_bundle(closure, runtime_roots, false)
+    }
+
+    fn build_selected_bundle(mut self, closure: &MetadataReachabilityClosure, runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)], complete_catalog: bool) -> Result<SemanticMetadataBundle, MetadataExportError> {
+        self.build_bundle_inner(closure, complete_catalog, runtime_roots).map_err(|source| MetadataExportError::Projection {
+            profile: self.profile, entity: Box::new(self.current_entity.clone()), type_id: self.failed_type, source: Box::new(source),
+        })
+    }
+
+    fn build_bundle_inner(&mut self, closure: &MetadataReachabilityClosure, complete_catalog: bool, runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)]) -> Result<SemanticMetadataBundle, MetadataExportError> {
         #[cfg(feature = "perf-observability")]
         let metadata_total_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExport);
         let mut out_declarations = Vec::new();
@@ -2402,23 +2542,23 @@ impl<'a> MetadataExporter<'a> {
         #[cfg(feature = "perf-observability")]
         let identity_validation_span = telos_observability::PerfContext::current_thread()
             .span(telos_observability::PerfPhase::MetadataExportProjectIdentityValidation);
-        if let Some(declarations) = self.declarations {
-            for declaration in declarations.iter().map(|(id, _)| id) {
+        if self.declarations.is_some() {
+            for declaration in closure.declarations.iter() {
                 require_project(&declaration.module.project)?;
             }
         }
-        if let Some(aliases) = self.aliases {
-            for declaration in aliases.iter().map(|(id, _)| id) {
+        if self.aliases.is_some() {
+            for declaration in closure.aliases.iter() {
                 require_project(&declaration.module.project)?;
             }
         }
-        if let Some(callables) = self.callables {
-            for callable in callables.iter().map(|(id, _)| id) {
+        if self.callables.is_some() {
+            for callable in closure.callables.iter() {
                 require_project(&callable.owner.module().project)?;
             }
         }
-        if let Some(fields) = self.fields {
-            for field in fields.iter().map(|(id, _)| id) {
+        if self.fields.is_some() {
+            for field in closure.fields.iter() {
                 require_project(&field.owner.module.project)?;
             }
         }
@@ -2433,7 +2573,9 @@ impl<'a> MetadataExporter<'a> {
             telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportDeclarations);
         let mut callable_owner_comparisons = 0u64;
         if let Some(decls) = self.declarations {
-            for (decl_id, info) in decls.iter() {
+            for decl_id in &closure.declarations {
+                let Some(info) = decls.get(decl_id) else { continue };
+                self.current_entity = MetadataEntityIdentity::Declaration(decl_id.clone());
                 let form_id = self.export_type_form(info.form)?;
                 let kind_id = self.export_kind(info.kind)?;
                 let sig_id = if let Some(ref sig) = info.generic_signature {
@@ -2449,7 +2591,7 @@ impl<'a> MetadataExporter<'a> {
                 let mut instance_callables = Vec::new();
                 let mut class_callables = Vec::new();
                 if let Some(callables) = self.callables {
-                    for (callable, _) in callables.iter() {
+                    for (callable, _) in callables.iter_declaration_owner(decl_id).filter(|(id, _)| closure.callables.contains(*id)) {
                         callable_owner_comparisons = callable_owner_comparisons.saturating_add(1);
                         if !matches!(&callable.owner, CallableOwnerId::Declaration(owner) if owner == decl_id) {
                             continue;
@@ -2461,6 +2603,16 @@ impl<'a> MetadataExporter<'a> {
                     }
                 }
 
+                let mut instance_fields = Vec::new();
+                let mut class_fields = Vec::new();
+                if let Some(fields) = self.fields {
+                    for (field, _) in fields.iter_owner(decl_id).filter(|(id, _)| closure.fields.contains(*id)) {
+                        match field.side {
+                            DispatchSide::Instance => instance_fields.push(self.stable_field(field)),
+                            DispatchSide::Class => class_fields.push(self.stable_field(field)),
+                        }
+                    }
+                }
                 out_declarations.push(DeclarationTypeRecord {
                     declaration: self.stable_declaration(decl_id),
                     form: form_id,
@@ -2469,8 +2621,8 @@ impl<'a> MetadataExporter<'a> {
                     superclass_template: sup_template,
                     instance_callables: instance_callables.into_boxed_slice(),
                     class_callables: class_callables.into_boxed_slice(),
-                    instance_fields: Box::new([]),
-                    class_fields: Box::new([]),
+                    instance_fields: instance_fields.into_boxed_slice(),
+                    class_fields: class_fields.into_boxed_slice(),
                     flags: DeclarationTypeFlags::default(),
                     algebraic: self.algebraic_shape(decl_id).map(|shape| AlgebraicDeclarationRecord {
                         phase: self.algebraic_phase(info.kind),
@@ -2489,7 +2641,9 @@ impl<'a> MetadataExporter<'a> {
         #[cfg(feature = "perf-observability")]
         let aliases_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportAliases);
         if let Some(aliases) = self.aliases {
-            for (decl_id, info) in aliases.iter() {
+            for decl_id in &closure.aliases {
+                let Some(info) = aliases.get(decl_id) else { continue };
+                self.current_entity = MetadataEntityIdentity::Alias(decl_id.clone());
                 let target = self.export_type_form(info.form)?;
                 let generic_signature = if let Some(ref sig) = info.generic_signature {
                     Some(self.export_generic_signature(sig)?)
@@ -2515,7 +2669,9 @@ impl<'a> MetadataExporter<'a> {
         let callables_span =
             telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportCallables);
         if let Some(call_table) = self.callables {
-            for (call_id, sig) in call_table.iter() {
+            for call_id in &closure.callables {
+                let Some(sig) = call_table.get(call_id) else { continue };
+                self.current_entity = MetadataEntityIdentity::Callable(call_id.clone());
                 let sig_id = if let Some(ref g) = sig.generics {
                     Some(self.export_generic_signature(g)?)
                 } else {
@@ -2523,7 +2679,7 @@ impl<'a> MetadataExporter<'a> {
                 };
                 let mut params = Vec::new();
                 for p in sig.parameters.iter() {
-                    let ty_slot = self.export_declared_type_fact(&p.declared_type);
+                    let ty_slot = self.export_declared_type_fact(&p.declared_type)?;
                     params.push(CallableParameterRecord {
                         index: p.index(),
                         local_name: p.local_name.clone(),
@@ -2543,10 +2699,10 @@ impl<'a> MetadataExporter<'a> {
                             form,
                             authority: PublishedTypeAuthority::CompilerInferred,
                         },
-                        None => self.export_declared_type_fact(&sig.declared_return),
+                        None => self.export_declared_type_fact(&sig.declared_return)?,
                     }
                 } else {
-                    self.export_declared_type_fact(&sig.declared_return)
+                    self.export_declared_type_fact(&sig.declared_return)?
                 };
                 out_callables.push(CallableSemanticRecord {
                     callable: self.stable_callable(call_id),
@@ -2564,8 +2720,10 @@ impl<'a> MetadataExporter<'a> {
         #[cfg(feature = "perf-observability")]
         let fields_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportFields);
         if let Some(field_table) = self.fields {
-            for (field_id, sig) in field_table.iter() {
-                let ty_slot = self.export_declared_type_fact(&sig.declared_type);
+            for field_id in &closure.fields {
+                let Some(sig) = field_table.get(field_id) else { continue };
+                self.current_entity = MetadataEntityIdentity::Field(field_id.clone());
+                let ty_slot = self.export_declared_type_fact(&sig.declared_type)?;
                 out_fields.push(FieldSemanticRecord {
                     field: self.stable_field(field_id),
                     mutability: match sig.mutable {
@@ -2585,6 +2743,7 @@ impl<'a> MetadataExporter<'a> {
         let runtime_roots_span =
             telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportRuntimeRoots);
         for &(mod_id, key, ty) in runtime_roots {
+            self.current_entity = MetadataEntityIdentity::RuntimeType { module: mod_id.clone(), key: key.into() };
             let form_id = self.export_type_form(ty)?;
             out_roots.push(RuntimeTypeFormRoot {
                 module: self.stable_module(mod_id),
@@ -2599,7 +2758,8 @@ impl<'a> MetadataExporter<'a> {
         #[cfg(feature = "perf-observability")]
         let static_domains_span =
             telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportStaticDomains);
-        let static_domain_catalog = self.export_static_domain_catalog()?;
+        self.current_entity = MetadataEntityIdentity::StaticDomainCatalog;
+        let static_domain_catalog = self.export_static_domain_catalog(if complete_catalog { None } else { Some(closure) })?;
         #[cfg(feature = "perf-observability")]
         static_domains_span.finish(telos_observability::PerfOutcome::Success);
 
@@ -2724,11 +2884,11 @@ impl<'a> MetadataExporter<'a> {
 
         let bundle = SemanticMetadataBundle {
             header,
-            kinds: self.kinds.into_boxed_slice(),
-            types: self.types.into_boxed_slice(),
-            scoped_types: self.scoped_types.into_boxed_slice(),
-            parameters: self.parameters.into_boxed_slice(),
-            generic_signatures: self.generic_signatures.into_boxed_slice(),
+            kinds: std::mem::take(&mut self.kinds).into_boxed_slice(),
+            types: std::mem::take(&mut self.types).into_boxed_slice(),
+            scoped_types: std::mem::take(&mut self.scoped_types).into_boxed_slice(),
+            parameters: std::mem::take(&mut self.parameters).into_boxed_slice(),
+            generic_signatures: std::mem::take(&mut self.generic_signatures).into_boxed_slice(),
             declarations: out_declarations.into_boxed_slice(),
             static_domains: static_domain_catalog,
             aliases: out_aliases.into_boxed_slice(),

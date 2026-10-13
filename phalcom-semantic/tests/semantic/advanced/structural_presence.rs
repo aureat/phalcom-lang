@@ -66,7 +66,7 @@ fn tuple_expansion_and_remainder_roundtrip_without_presence() {
 
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let node_id = exporter.export_type_form(open_tuple).expect("export open tuple");
-    let bundle = exporter.build_bundle(&[]).expect("build bundle");
+    let bundle = exporter.build_complete_test_bundle(&[]).expect("build bundle");
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("validate bundle");
 
     let json = encode_metadata_json(&bundle).expect("encode json");

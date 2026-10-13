@@ -426,7 +426,7 @@ class Tools {
         None,
         MetadataProfile::RuntimePublic,
     );
-    let bundle = exporter.build_bundle(&[]).expect("generic callable metadata");
+    let bundle = exporter.build_complete_test_bundle(&[]).expect("generic callable metadata");
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("valid metadata bundle");
 
     let has_associated_projection = bundle.types.iter().any(|entry| matches!(entry.form, TypeNode::AssociatedProjection { .. }));

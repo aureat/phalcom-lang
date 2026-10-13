@@ -2359,7 +2359,7 @@ fn scoped_record_row_type_fields_substitute_and_alpha_normalize() {
 
     let mut exporter = MetadataExporter::new(&env.store, Some(&env.declarations), None, None, MetadataProfile::RuntimePublic);
     let lambda_id = exporter.export_type_form(first).expect("export scoped RecordFields application");
-    let bundle = exporter.build_bundle(&[]).expect("build scoped row metadata");
+    let bundle = exporter.build_complete_test_bundle(&[]).expect("build scoped row metadata");
     let TypeNode::TypeLambda(lambda) = &bundle.types[lambda_id.0 as usize].form else {
         panic!("expected exported type lambda");
     };

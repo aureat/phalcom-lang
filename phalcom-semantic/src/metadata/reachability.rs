@@ -3,7 +3,7 @@ use crate::identity::{CallableId, CallableOwnerId, DeclarationId, FieldId, Modul
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::type_alias::TypeAliasTable;
 use crate::types::id::TypeId;
-use crate::types::store::{AnonymousTupleRemainder, StaticArgument, TypeData, TypeStore};
+use super::export::MetadataExporter;
 use phalcom_type_meta::header::MetadataProfile;
 use std::collections::{BTreeSet, VecDeque};
 
@@ -60,15 +60,22 @@ impl MetadataRootSet {
 }
 
 /// Profile and explicit roots guiding metadata retention.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub struct MetadataRetentionRequest<'a> {
     pub profile: MetadataProfile,
     pub roots: &'a MetadataRootSet,
+    pub member_surfaces: Option<&'a std::collections::HashMap<DeclarationId, crate::surface::DeclarationSurface>>,
 }
 
 impl<'a> MetadataRetentionRequest<'a> {
     pub fn new(profile: MetadataProfile, roots: &'a MetadataRootSet) -> Self {
-        Self { profile, roots }
+        Self { profile, roots, member_surfaces: None }
+    }
+
+    /// Uses canonical published visibility when retaining declaration members.
+    pub fn with_member_surfaces(mut self, surfaces: &'a std::collections::HashMap<DeclarationId, crate::surface::DeclarationSurface>) -> Self {
+        self.member_surfaces = Some(surfaces);
+        self
     }
 }
 
@@ -84,7 +91,6 @@ pub struct MetadataReachabilityClosure {
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 enum WorkItem {
-    Type(TypeId),
     Declaration(DeclarationId),
     Alias(DeclarationId),
     Callable(CallableId),
@@ -107,15 +113,79 @@ pub struct ReachabilityMetrics {
     pub canonical_fields_elided: usize,
 }
 
-/// Computes the reachability closure from explicit roots and retention policy.
+/// Computes the complete entity closure using exporter-owned type recursion.
+///
+/// The exporter discovers nominal declarations in recursively reachable type
+/// forms; this function applies profile and external-identity policy to those
+/// dependencies and repeats until the retained entity set stabilizes.
 pub fn compute_reachability_closure<F>(
     request: &MetadataRetentionRequest<'_>,
-    store: &TypeStore,
     declarations: Option<&DeclarationTypeTable>,
     callables: Option<&CallableSignatureTable>,
     fields: Option<&FieldSignatureTable>,
     aliases: Option<&TypeAliasTable>,
+    dependency_exporter: &mut MetadataExporter<'_>,
     is_external_module: F,
+) -> (MetadataReachabilityClosure, ReachabilityMetrics)
+where
+    F: Fn(&ModuleId) -> bool,
+{
+    let mut roots = request.roots.clone();
+    let mut accumulated_metrics = ReachabilityMetrics::default();
+
+    loop {
+        let round_request = MetadataRetentionRequest {
+            profile: request.profile,
+            roots: &roots,
+            member_surfaces: request.member_surfaces,
+        };
+        let (closure, round_metrics) = compute_entity_closure(
+            &round_request,
+            declarations,
+            callables,
+            fields,
+            aliases,
+            &is_external_module,
+        );
+
+        accumulated_metrics.entities_visited += round_metrics.entities_visited;
+        accumulated_metrics.dependency_edges_traversed += round_metrics.dependency_edges_traversed;
+        accumulated_metrics.declarations_rejected_by_profile += round_metrics.declarations_rejected_by_profile;
+        accumulated_metrics.canonical_declarations_elided += round_metrics.canonical_declarations_elided;
+        accumulated_metrics.canonical_callables_elided += round_metrics.canonical_callables_elided;
+        accumulated_metrics.canonical_fields_elided += round_metrics.canonical_fields_elided;
+
+        let mut expanded = false;
+        if request.profile != MetadataProfile::RuntimeMinimal {
+            for declaration in dependency_exporter.discover_nominal_declaration_dependencies(&closure.runtime_types) {
+                if !closure.declarations.contains(&declaration) {
+                    expanded |= roots.insert_declaration(declaration);
+                }
+            }
+        }
+
+        if expanded {
+            continue;
+        }
+
+        accumulated_metrics.roots_selected = roots.len();
+        accumulated_metrics.declarations_retained = closure.declarations.len();
+        accumulated_metrics.aliases_retained = closure.aliases.len();
+        accumulated_metrics.callables_retained = closure.callables.len();
+        accumulated_metrics.fields_retained = closure.fields.len();
+        return (closure, accumulated_metrics);
+    }
+}
+
+/// Computes one entity-only closure round. Type-form children are intentionally
+/// left to `MetadataExporter`; this helper never inspects `TypeData`.
+fn compute_entity_closure<F>(
+    request: &MetadataRetentionRequest<'_>,
+    declarations: Option<&DeclarationTypeTable>,
+    callables: Option<&CallableSignatureTable>,
+    fields: Option<&FieldSignatureTable>,
+    aliases: Option<&TypeAliasTable>,
+    is_external_module: &F,
 ) -> (MetadataReachabilityClosure, ReachabilityMetrics)
 where
     F: Fn(&ModuleId) -> bool,
@@ -128,12 +198,9 @@ where
 
     let mut worklist = VecDeque::<WorkItem>::new();
 
-    // 1. Seed roots
-    for &ty in &request.roots.runtime_types {
-        if closure.runtime_types.insert(ty) {
-            worklist.push_back(WorkItem::Type(ty));
-        }
-    }
+    // Runtime type roots are retained here, while recursive type-form
+    // dependencies are discovered by MetadataExporter during export.
+    closure.runtime_types.extend(request.roots.runtime_types.iter().copied());
 
     for decl in &request.roots.declarations {
         if is_external_module(&decl.module) {
@@ -175,25 +242,23 @@ where
                 if let Some(decls) = declarations {
                     if let Some(info) = decls.get(&decl_id) {
                         metrics.dependency_edges_traversed += 1;
-                        if closure.runtime_types.insert(info.form) {
-                            worklist.push_back(WorkItem::Type(info.form));
-                        }
+                        closure.runtime_types.insert(info.form);
 
                         if let Some(ref tmpl) = info.supertype_template {
                             metrics.dependency_edges_traversed += 1;
-                            if closure.runtime_types.insert(tmpl.supertype) {
-                                worklist.push_back(WorkItem::Type(tmpl.supertype));
-                            }
+                            closure.runtime_types.insert(tmpl.supertype);
                         }
 
                         if let Some(ref sig) = info.generic_signature {
-                            enqueue_generic_signature(sig, &mut closure, &mut worklist, &mut metrics);
+                            enqueue_generic_signature(sig, &mut closure, &mut metrics);
                         }
 
                         // Profile-visible owned callables and fields
                         if request.profile != MetadataProfile::RuntimeMinimal {
                             if let Some(call_table) = callables {
                                 for (cid, _) in call_table.iter_declaration_owner(&decl_id) {
+                                    if request.member_surfaces.is_some_and(|surfaces| surfaces.get(&decl_id)
+                                        .and_then(|surface| surface.surface(cid.side).callable_visibility.get(&cid.selector)) != Some(&crate::surface::MemberVisibility::Public)) { continue; }
                                     metrics.dependency_edges_traversed += 1;
                                     if !is_external_module(cid.owner.module()) {
                                         if closure.callables.insert(cid.clone()) {
@@ -207,6 +272,8 @@ where
 
                             if let Some(field_table) = fields {
                                 for (fid, _) in field_table.iter_owner(&decl_id) {
+                                    if request.member_surfaces.is_some_and(|surfaces| surfaces.get(&decl_id)
+                                        .and_then(|surface| surface.surface(fid.side).field_visibility.get(fid.name.as_ref())) != Some(&crate::surface::MemberVisibility::Public)) { continue; }
                                     metrics.dependency_edges_traversed += 1;
                                     if !is_external_module(&fid.owner.module) {
                                         if closure.fields.insert(fid.clone()) {
@@ -242,30 +309,24 @@ where
                         for p in sig.parameters.iter() {
                             if let Some(ty) = p.declared_type.canonical_type() {
                                 metrics.dependency_edges_traversed += 1;
-                                if closure.runtime_types.insert(ty) {
-                                    worklist.push_back(WorkItem::Type(ty));
-                                }
+                                closure.runtime_types.insert(ty);
                             }
                         }
 
                         if let Some(ty) = sig.declared_return.canonical_type() {
                             metrics.dependency_edges_traversed += 1;
-                            if closure.runtime_types.insert(ty) {
-                                worklist.push_back(WorkItem::Type(ty));
-                            }
+                            closure.runtime_types.insert(ty);
                         }
 
                         if let Some(ref inferred) = sig.inferred_return {
                             if let Some(ty) = inferred.ty() {
                                 metrics.dependency_edges_traversed += 1;
-                                if closure.runtime_types.insert(ty) {
-                                    worklist.push_back(WorkItem::Type(ty));
-                                }
+                                closure.runtime_types.insert(ty);
                             }
                         }
 
                         if let Some(ref generics) = sig.generics {
-                            enqueue_generic_signature(generics, &mut closure, &mut worklist, &mut metrics);
+                            enqueue_generic_signature(generics, &mut closure, &mut metrics);
                         }
                     }
                 }
@@ -285,9 +346,7 @@ where
                     if let Some(sig) = field_table.get(&field_id) {
                         if let Some(ty) = sig.declared_type.canonical_type() {
                             metrics.dependency_edges_traversed += 1;
-                            if closure.runtime_types.insert(ty) {
-                                worklist.push_back(WorkItem::Type(ty));
-                            }
+                            closure.runtime_types.insert(ty);
                         }
                     }
                 }
@@ -297,78 +356,15 @@ where
                 if let Some(alias_table) = aliases {
                     if let Some(info) = alias_table.get(&alias_id) {
                         metrics.dependency_edges_traversed += 1;
-                        if closure.runtime_types.insert(info.form) {
-                            worklist.push_back(WorkItem::Type(info.form));
-                        }
+                        closure.runtime_types.insert(info.form);
 
                         if let Some(ref sig) = info.generic_signature {
-                            enqueue_generic_signature(sig, &mut closure, &mut worklist, &mut metrics);
+                            enqueue_generic_signature(sig, &mut closure, &mut metrics);
                         }
                     }
                 }
             }
 
-            WorkItem::Type(ty) => {
-                if ty.index() < store.type_count() {
-                    match store.get(ty) {
-                        TypeData::Nominal { declaration } => {
-                            if request.profile != MetadataProfile::RuntimeMinimal {
-                                metrics.dependency_edges_traversed += 1;
-                                if !is_external_module(&declaration.module) {
-                                    if closure.declarations.insert(declaration.clone()) {
-                                        worklist.push_back(WorkItem::Declaration(declaration.clone()));
-                                    }
-                                } else {
-                                    metrics.canonical_declarations_elided += 1;
-                                }
-                            }
-                        }
-                        TypeData::Applied { origin, arguments } => {
-                            metrics.dependency_edges_traversed += 1;
-                            if closure.runtime_types.insert(*origin) {
-                                worklist.push_back(WorkItem::Type(*origin));
-                            }
-                            for arg in arguments.iter() {
-                                if let StaticArgument::Term(arg_ty) = arg {
-                                    metrics.dependency_edges_traversed += 1;
-                                    if closure.runtime_types.insert(*arg_ty) {
-                                        worklist.push_back(WorkItem::Type(*arg_ty));
-                                    }
-                                }
-                            }
-                        }
-                        TypeData::Union(members) => {
-                            for &m in members.iter() {
-                                metrics.dependency_edges_traversed += 1;
-                                if closure.runtime_types.insert(m) {
-                                    worklist.push_back(WorkItem::Type(m));
-                                }
-                            }
-                        }
-                        TypeData::Tuple(tuple_ty) => {
-                            for el in tuple_ty.elements.iter() {
-                                metrics.dependency_edges_traversed += 1;
-                                if closure.runtime_types.insert(el.ty) {
-                                    worklist.push_back(WorkItem::Type(el.ty));
-                                }
-                            }
-                            if let AnonymousTupleRemainder::Typed(t) = tuple_ty.positional_remainder {
-                                metrics.dependency_edges_traversed += 1;
-                                if closure.runtime_types.insert(t) {
-                                    worklist.push_back(WorkItem::Type(t));
-                                }
-                            }
-                            if let AnonymousTupleRemainder::Typed(t) = tuple_ty.labeled_remainder {
-                                metrics.dependency_edges_traversed += 1;
-                                if closure.runtime_types.insert(t) {
-                                    worklist.push_back(WorkItem::Type(t));
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
         }
     }
 
@@ -383,7 +379,6 @@ where
 fn enqueue_generic_signature(
     sig: &crate::types::parameter::GenericSignature,
     closure: &mut MetadataReachabilityClosure,
-    worklist: &mut VecDeque<WorkItem>,
     metrics: &mut ReachabilityMetrics,
 ) {
     for constraint in sig.constraints.iter() {
@@ -391,43 +386,31 @@ fn enqueue_generic_signature(
             crate::types::parameter::GenericConstraint::Subtype { lower, upper } => {
                 if let crate::types::parameter::TypeTerm::Canonical(ty) = lower {
                     metrics.dependency_edges_traversed += 1;
-                    if closure.runtime_types.insert(*ty) {
-                        worklist.push_back(WorkItem::Type(*ty));
-                    }
+                    closure.runtime_types.insert(*ty);
                 }
                 if let crate::types::parameter::TypeTerm::Canonical(ty) = upper {
                     metrics.dependency_edges_traversed += 1;
-                    if closure.runtime_types.insert(*ty) {
-                        worklist.push_back(WorkItem::Type(*ty));
-                    }
+                    closure.runtime_types.insert(*ty);
                 }
             }
             crate::types::parameter::GenericConstraint::Equivalent { left, right } => {
                 if let crate::types::parameter::TypeTerm::Canonical(ty) = left {
                     metrics.dependency_edges_traversed += 1;
-                    if closure.runtime_types.insert(*ty) {
-                        worklist.push_back(WorkItem::Type(*ty));
-                    }
+                    closure.runtime_types.insert(*ty);
                 }
                 if let crate::types::parameter::TypeTerm::Canonical(ty) = right {
                     metrics.dependency_edges_traversed += 1;
-                    if closure.runtime_types.insert(*ty) {
-                        worklist.push_back(WorkItem::Type(*ty));
-                    }
+                    closure.runtime_types.insert(*ty);
                 }
             }
             crate::types::parameter::GenericConstraint::Conforms { subject, trait_ref } => {
                 if let crate::types::parameter::TypeTerm::Canonical(ty) = subject {
                     metrics.dependency_edges_traversed += 1;
-                    if closure.runtime_types.insert(*ty) {
-                        worklist.push_back(WorkItem::Type(*ty));
-                    }
+                    closure.runtime_types.insert(*ty);
                 }
                 for &arg in trait_ref.arguments.iter() {
                     metrics.dependency_edges_traversed += 1;
-                    if closure.runtime_types.insert(arg) {
-                        worklist.push_back(WorkItem::Type(arg));
-                    }
+                    closure.runtime_types.insert(arg);
                 }
             }
         }
@@ -442,6 +425,7 @@ mod tests {
     use crate::signature::{CallableSemanticSignature, FieldSemanticSignature, ReturnContractValidation};
     use crate::types::evidence::EvidenceStatus;
     use crate::types::parameter::TypeTerm;
+    use crate::types::store::TypeStore;
     use phalcom_common::modifier::ImplementationKind;
     use phalcom_common::selector::Selector;
     use phalcom_native_meta::{EffectSpec, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
@@ -514,14 +498,13 @@ mod tests {
         minimal_roots.insert_declaration(local_decl.clone());
 
         let req_minimal = MetadataRetentionRequest::new(MetadataProfile::RuntimeMinimal, &minimal_roots);
-        let (closure_min, metrics_min) = compute_reachability_closure(
+        let (closure_min, metrics_min) = compute_entity_closure(
             &req_minimal,
-            &store,
             Some(&decl_table),
             Some(&call_table),
             Some(&field_table),
             None,
-            |m| m.project.is_universe(),
+            &|m: &ModuleId| m.project.is_universe(),
         );
 
         assert_eq!(closure_min.declarations.len(), 1);
@@ -535,14 +518,13 @@ mod tests {
         public_roots.insert_declaration(local_decl.clone());
 
         let req_pub = MetadataRetentionRequest::new(MetadataProfile::RuntimePublic, &public_roots);
-        let (closure_pub, metrics_pub) = compute_reachability_closure(
+        let (closure_pub, metrics_pub) = compute_entity_closure(
             &req_pub,
-            &store,
             Some(&decl_table),
             Some(&call_table),
             Some(&field_table),
             None,
-            |m| m.project.is_universe(),
+            &|m: &ModuleId| m.project.is_universe(),
         );
 
         assert_eq!(closure_pub.declarations.len(), 1);
@@ -555,7 +537,6 @@ mod tests {
 
     #[test]
     fn reachability_closure_elides_canonical_authorities() {
-        let store = TypeStore::new();
         let canonical_mod = ModuleId::universe_root();
         let canonical_decl = DeclarationId::new(canonical_mod.clone(), "Int".into());
 
@@ -563,17 +544,148 @@ mod tests {
         roots.insert_declaration(canonical_decl.clone());
 
         let req = MetadataRetentionRequest::new(MetadataProfile::RuntimePublic, &roots);
-        let (closure, metrics) = compute_reachability_closure(
+        let (closure, metrics) = compute_entity_closure(
             &req,
-            &store,
             None,
             None,
             None,
             None,
-            |m| m.project.is_universe(),
+            &|m: &ModuleId| m.project.is_universe(),
         );
 
         assert_eq!(closure.declarations.len(), 0);
         assert_eq!(metrics.canonical_declarations_elided, 1);
+    }
+
+    #[test]
+    fn reachability_closure_discovers_nested_nominal_dependencies() {
+        use crate::field_key::FieldKey;
+        use crate::traits::{AssociatedTypeRequirementId, TraitRef};
+        use crate::types::row::RecordRowField;
+        use crate::types::store::{CallableParameterType, CallableType};
+
+        let mut store = TypeStore::new();
+        let mut alloc = phalcom_modules::identity::SyntheticProjectIdAllocator;
+        let local_mod = ModuleId::synthetic(
+            alloc.allocate(),
+            phalcom_modules::identity::ModulePath::root(),
+        );
+        let external_mod = ModuleId::universe_root();
+
+        let decl_record = DeclarationId::new(local_mod.clone(), "RecordChild".into());
+        let decl_callable = DeclarationId::new(local_mod.clone(), "CallableChild".into());
+        let decl_pack = DeclarationId::new(local_mod.clone(), "PackChild".into());
+        let decl_proj_subj = DeclarationId::new(local_mod.clone(), "ProjSubjectChild".into());
+        let decl_proj_arg = DeclarationId::new(local_mod.clone(), "ProjArgChild".into());
+        let decl_external = DeclarationId::new(external_mod.clone(), "ExternalChild".into());
+        let decl_rolled_back = DeclarationId::new(local_mod.clone(), "RolledBackChild".into());
+
+        let ty_record = store.nominal(decl_record.clone());
+        let ty_callable = store.nominal(decl_callable.clone());
+        let ty_pack = store.nominal(decl_pack.clone());
+        let ty_proj_subj = store.nominal(decl_proj_subj.clone());
+        let ty_proj_arg = store.nominal(decl_proj_arg.clone());
+        let ty_external = store.nominal(decl_external.clone());
+        let ty_rolled_back = store.nominal(decl_rolled_back.clone());
+
+        let mut decl_table = DeclarationTypeTable::new();
+        decl_table.insert(NominalDeclarationHeader::from_signature(&mut store, decl_record.clone(), None).into_type_info(None));
+        decl_table.insert(NominalDeclarationHeader::from_signature(&mut store, decl_callable.clone(), None).into_type_info(None));
+        decl_table.insert(NominalDeclarationHeader::from_signature(&mut store, decl_pack.clone(), None).into_type_info(None));
+        decl_table.insert(NominalDeclarationHeader::from_signature(&mut store, decl_proj_subj.clone(), None).into_type_info(None));
+        decl_table.insert(NominalDeclarationHeader::from_signature(&mut store, decl_proj_arg.clone(), None).into_type_info(None));
+        decl_table.insert(NominalDeclarationHeader::from_signature(&mut store, decl_rolled_back.clone(), None).into_type_info(None));
+
+        // 1. Nested in Record (including external module nominal)
+        let record_ty = store.record(Box::new([
+            RecordRowField::symbol_required("field_a", ty_record),
+            RecordRowField::symbol_required("field_ext", ty_external),
+        ]));
+
+        // 2. Nested in Callable
+        let callable_ty = store.callable(CallableType {
+            parameters: Box::new([CallableParameterType::new(ty_callable)]),
+            return_type: store.unit(),
+        });
+
+        // 3. Nested in TypePack
+        let pack_ty = store.type_pack(Box::new([ty_pack])).unwrap();
+
+        // 4. Nested in AssociatedProjection (both subject and argument)
+        let trait_decl = DeclarationId::new(local_mod.clone(), "TraitDef".into());
+        let proj_ty = store.associated_projection(
+            ty_proj_subj,
+            TraitRef::new(trait_decl.clone(), vec![ty_proj_arg].into_boxed_slice()),
+            AssociatedTypeRequirementId::new(trait_decl, 0),
+        );
+
+        // 5. Unexportable form: Record with non-symbol field key that should roll back its dependencies
+        let failing_record_ty = store.record(Box::new([
+            RecordRowField::symbol_required("valid_field", ty_rolled_back),
+            RecordRowField::required(FieldKey::string("invalid_non_symbol_key"), store.unit()),
+        ]));
+
+        // Root set contains only these composite type forms
+        let mut roots = MetadataRootSet::new();
+        roots.insert_runtime_type(record_ty);
+        roots.insert_runtime_type(callable_ty);
+        roots.insert_runtime_type(pack_ty);
+        roots.insert_runtime_type(proj_ty);
+        roots.insert_runtime_type(failing_record_ty);
+
+        // Test 1: RuntimePublic profile - all valid nested local nominals discovered, external elided, failing rolled back
+        let req_pub = MetadataRetentionRequest::new(MetadataProfile::RuntimePublic, &roots);
+        let mut exporter_pub = MetadataExporter::new(
+            &store,
+            Some(&decl_table),
+            None,
+            None,
+            MetadataProfile::RuntimePublic,
+        );
+
+        let (closure_pub, metrics_pub) = compute_reachability_closure(
+            &req_pub,
+            Some(&decl_table),
+            None,
+            None,
+            None,
+            &mut exporter_pub,
+            |m| m.project.is_universe(),
+        );
+
+        assert!(closure_pub.declarations.contains(&decl_record), "Record child nominal must be discovered");
+        assert!(closure_pub.declarations.contains(&decl_callable), "Callable child nominal must be discovered");
+        assert!(closure_pub.declarations.contains(&decl_pack), "Pack child nominal must be discovered");
+        assert!(closure_pub.declarations.contains(&decl_proj_subj), "Projection subject child nominal must be discovered");
+        assert!(closure_pub.declarations.contains(&decl_proj_arg), "Projection argument child nominal must be discovered");
+        assert!(!closure_pub.declarations.contains(&decl_external), "External child nominal must be elided from retained declarations");
+        assert_eq!(metrics_pub.canonical_declarations_elided, 1, "External child nominal must be counted in elided metric");
+        assert!(!closure_pub.declarations.contains(&decl_rolled_back), "Failed type root dependencies must be rolled back");
+
+        // Test 2: RuntimeMinimal profile - nested nominal declarations are not retained into declarations closure
+        let req_min = MetadataRetentionRequest::new(MetadataProfile::RuntimeMinimal, &roots);
+        let mut exporter_min = MetadataExporter::new(
+            &store,
+            Some(&decl_table),
+            None,
+            None,
+            MetadataProfile::RuntimeMinimal,
+        );
+
+        let (closure_min, _) = compute_reachability_closure(
+            &req_min,
+            Some(&decl_table),
+            None,
+            None,
+            None,
+            &mut exporter_min,
+            |m| m.project.is_universe(),
+        );
+
+        assert!(!closure_min.declarations.contains(&decl_record));
+        assert!(!closure_min.declarations.contains(&decl_callable));
+        assert!(!closure_min.declarations.contains(&decl_pack));
+        assert!(!closure_min.declarations.contains(&decl_proj_subj));
+        assert!(!closure_min.declarations.contains(&decl_proj_arg));
     }
 }

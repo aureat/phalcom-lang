@@ -361,7 +361,7 @@ fn metadata_loader_preserves_parameter_mode_and_kind_independently() {
         let signature = GenericSignature::new(owner, Box::new([parameter])).with_parameter_modes(Box::new([mode]));
         let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
         exporter.export_generic_signature(&signature).unwrap();
-        let bundle = exporter.build_bundle(&[]).unwrap();
+        let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
 
         let loaded =
             load_metadata_bundle(MetadataPoolId(index as u32), Arc::new(bundle), &ValidationLimits::default()).expect("valid mode/kind pair should load");
@@ -395,7 +395,7 @@ fn exact_static_integer_metadata_reflection_preserves_signed_values_and_identity
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let positive_node = exporter.export_type_form(positive_application).unwrap();
     let negative_node = exporter.export_type_form(negative_application).unwrap();
-    let bundle = exporter.build_bundle(&[]).unwrap();
+    let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
     let json = encode_metadata_json(&bundle).unwrap();
     let limits = ValidationLimits::default();
     let mut registry = RuntimeTypingRegistry::new();
