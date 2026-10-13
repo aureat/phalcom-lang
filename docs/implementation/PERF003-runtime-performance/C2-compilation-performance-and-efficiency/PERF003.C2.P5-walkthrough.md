@@ -146,3 +146,41 @@ RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic integration::canonic
 RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic incremental::traits
 RUSTFLAGS='' cargo check -p phalcom-core --features perf-observability
 ```
+
+## Derived-rule image parent and bounded-read refinement (`e3f1add8`, `2819af8f`)
+
+The derived rule index now preserves canonical rule buckets as one immutable
+parent and stores only local rule additions/replacements in mutable buckets.
+A borrowed `DerivedRuleTraitView` exposes `len`, `get`, indexing and
+iteration over canonical + local source rules, without constructing a merged
+`Vec`. A single parent layer is enforced to support nonallocating iteration.
+`ConformanceIndex::iter` uses the same one-level read model.
+
+A new integration assertion checks, for three successive image-backed local
+revisions, that derived rules remain parent-owned and resolve to the exact
+canonical `Arc`-backed objects. Nested-parent rejection has a dedicated unit
+regression. Local derived-rule re-publication removes prior local trait-bucket
+membership before inserting the replacement; canonical collisions remain
+forbidden.
+
+Persistence classification was strengthened: source-semantic attachments
+required by downstream compilation are not designated rebuildable while P7
+has no proof they can be recreated with Universe source unavailable.
+
+**Verification gap:** GitHub commits are published but no Rust checks,
+tests, formatting commands, CI workflows, performance benchmarks or cold
+compiler tests have been run for these source changes. The last actually
+focused-tested revision is `9143262b`. Do not claim complete G6 zero-copy:
+`conformance_witness_plans` remains a cloned `BTreeMap`, and P4's
+canonical metadata authority is still gated per the recorded incident.
+
+Minimum required verification before attempting the witness-plan migration:
+
+```sh
+RUSTFLAGS='' cargo check -p phalcom-semantic
+RUSTFLAGS='' cargo test -p phalcom-semantic --lib conformance_index_partition_tests
+RUSTFLAGS='' cargo test -p phalcom-semantic --lib canonical_parent_tests
+RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic integration::canonical_image
+RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic incremental::derived_conformance
+RUSTFLAGS='' cargo check -p phalcom-core --features perf-observability
+```

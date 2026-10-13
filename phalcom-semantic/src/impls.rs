@@ -3300,6 +3300,16 @@ mod conformance_index_partition_tests {
     }
 
     #[test]
+    #[should_panic(expected = "canonical conformance parent must be a root index")]
+    fn conformance_overlay_cannot_be_nested_as_another_canonical_parent() {
+        use std::sync::Arc;
+
+        let root = Arc::new(ConformanceIndex::new());
+        let local = Arc::new(ConformanceIndex::with_parent(root));
+        let _nested = ConformanceIndex::with_parent(local);
+    }
+
+    #[test]
     fn canonical_parent_conformances_are_shared_and_cross_boundary_coherence_is_preserved() {
         use std::sync::Arc;
 

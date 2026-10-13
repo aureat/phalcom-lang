@@ -9,7 +9,7 @@ active_plan: PERF003.C2.P5
 latest_completed_plan: PERF003.C2.P3
 next_plan: PERF003.C2.P6
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: b99e0507
+execution_tree_head: 2819af8f
 latest_tested_revision: 9143262b
 latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
@@ -553,3 +553,30 @@ P4 metadata integration and `.telosc` verification remain deferred; P5 is
 - **Open gates:** witness plans and derived rules still copied; T7 and T8
   incomplete; P4 prerequisite to T10 unresolved in recorded evidence; T11–T13
   pending. Do not claim P5 complete or zero copies across all families.
+
+### P5 derived-rule overlay and nonallocating iterator refinement (2026-10-13)
+
+- `e3f1add8` establishes `DerivedConformanceRuleIndex` parent/local
+  storage. First image-backed publication attaches the image's derived
+  rules by shared `Arc`; later revisions copy only local rules. Exact
+  `ImplId` lookup, trait-local lookup and merged iteration preserve
+  canonical visibility. Canonical collision and local-only removal rules
+  remain enforced.
+- `2819af8f` replaces boxed trait-rule and conformance-head read
+  iterators with statically dispatched, allocation-free one-level
+  parent/local chains. Both indexes explicitly reject nested overlays as
+  parents. The P5 persistence inventory conservatively classifies
+  compiler-required source attachments as `RequiredSemantic` until an
+  artifact-only reconstruction contract exists.
+- Added unit regressions for refusing nested parents and image-session
+  integration assertions for derived-rule parent counts and pointer
+  identity. Direct `rules_for_trait` consumers retain iteration, length,
+  exact index access and `get`, but the returned API is now a borrowed
+  view rather than `&[Arc<_>]`.
+- **Unverified new source:** No Rust toolchain is available through the
+  connected GitHub editing interface. There are no GitHub Actions runs
+  for this branch; latest executed test evidence is still `9143262b`.
+  P5 remains `IN_PROGRESS / PARTIAL`. T6 witness-plan map conversion
+  requires a coordinated API migration across semantic proof consumers;
+  it was deliberately not attempted without a build gate. T7/T8,
+  P4-dependent T10 and T11–T13 are unfinished.

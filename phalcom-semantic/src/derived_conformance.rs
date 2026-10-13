@@ -259,3 +259,27 @@ pub fn derived_conformance_rule_fingerprint(rule: &DerivedConformanceRule) -> Pr
     }
     ProductFingerprint::new(hasher.finish())
 }
+
+#[cfg(test)]
+mod canonical_parent_tests {
+    use super::DerivedConformanceRuleIndex;
+    use std::sync::Arc;
+
+    #[test]
+    #[should_panic(expected = "canonical derived-rule parent must be a root index")]
+    fn derived_rule_overlay_cannot_be_nested_as_another_canonical_parent() {
+        let root = Arc::new(DerivedConformanceRuleIndex::new());
+        let local = Arc::new(DerivedConformanceRuleIndex::with_parent(root));
+        let _nested = DerivedConformanceRuleIndex::with_parent(local);
+    }
+
+    #[test]
+    fn empty_derived_rule_overlay_preserves_local_and_parent_cardinality() {
+        let root = Arc::new(DerivedConformanceRuleIndex::new());
+        let local = DerivedConformanceRuleIndex::with_parent(root);
+        assert_eq!(local.local_len(), 0);
+        assert_eq!(local.parent_len(), 0);
+        assert_eq!(local.len(), 0);
+        assert!(local.is_empty());
+    }
+}
