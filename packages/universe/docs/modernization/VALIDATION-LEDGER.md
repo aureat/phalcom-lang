@@ -290,3 +290,18 @@ shadow graph and an execution path for shadow Universe code.
   `18f48d8445d28bc4ced75f63c37fc6658de93a02170c07548c061340c5cdd4b7`
   through source commit `2423d7dbdd845d853dc5696c77e4fa2971924550`.
 - No shadow semantic or runtime claim is made.
+
+## UNIV002.C2.P19 — Arrow mapping documentation
+
+- Added comments above `functional/arrow.ph::Arrow.dimap` and
+  `Arrow.second`, documenting the existing input/output mapping and
+  preservation of the first tuple component. No body, signature, import,
+  module owner, or generic identity changed.
+- Exact diff review and scoped `git diff --check` passed. No tests were run
+  for this comments-only edit.
+- Independent inventory reconciliation compared the live tree with MOD1:
+  the same 174 `.ph` paths remain, with seventeen changed hashes. The existing
+  `functional/arrow.ph` row now records SHA-256
+  `b11292f4feb08e4ba26099183922d35d5871aef09ae8e53899354cbe3b136baf`
+  through source commit `5c7f8a1e2675cb486f860f3d22877ef782c06b55`.
+- No shadow semantic or runtime claim is made.

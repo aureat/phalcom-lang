@@ -41,7 +41,8 @@ integration, or production cutover.
 | `UNIV002.C2.P16` | Chain.fold documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting the seed and left-to-right fold order; exact source review and whitespace check passed, and the 174-path inventory reconciled with 16 changed hashes. |
 | `UNIV002.C2.P17` | Either transformation documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added comments for `mapRight`, `bimap`, and `swap`; exact diff review, scoped whitespace check, and 174-path inventory reconciliation passed. |
 | `UNIV002.C2.P18` | Arrow composition documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added application-order comments for `then` and `compose`; exact diff review, scoped whitespace check, and inventory reconciliation passed. |
-| `UNIV002.C2.P19` | Arrow mapping documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | Two comments are planned for `dimap` and `second`; implementation and inventory reconciliation are pending. |
+| `UNIV002.C2.P19` | Arrow mapping documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added mapping comments for `dimap` and `second`; exact diff review, scoped whitespace check, and inventory reconciliation passed. |
+| `UNIV002.C2.P20` | Iso.inverse documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | One comment is planned to document the callback exchange; implementation and inventory reconciliation are pending. |
 
 ## Established invariants
 
@@ -197,12 +198,12 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: `UNIV002.C2.P19`, documenting `Arrow.dimap` and
-  `Arrow.second`; the plan authorizes two comments only.
-- Latest complete plan: `UNIV002.C2.P18`; latest complete checkpoint:
+- Active plan: `UNIV002.C2.P20`, documenting callback exchange in
+  `Iso.inverse`; the plan authorizes one comment only.
+- Latest complete plan: `UNIV002.C2.P19`; latest complete checkpoint:
   `UNIV002.C1`.
-- The source inventory is reconciled through P18 source commit
-  `2423d7dbdd845d853dc5696c77e4fa2971924550`: 174 paths, no additions or
+- The source inventory is reconciled through P19 source commit
+  `5c7f8a1e2675cb486f860f3d22877ef782c06b55`: 174 paths, no additions or
   removals, and 17 changed hashes with the rest matching MOD1. Textual
   inventory heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
@@ -248,9 +249,12 @@ identities.
 - P18 completed two Category A comments in `functional/arrow.ph`:
   `Arrow.then` and `Arrow.compose`. They describe only the existing
   application order.
-- P19 is active for two Category A comments in `functional/arrow.ph`:
-  `Arrow.dimap` and `Arrow.second`. Document the input/output mapping and the
+- P19 completed two Category A comments in `functional/arrow.ph`:
+  `Arrow.dimap` and `Arrow.second`. They document the input/output mapping and
   preserved tuple component shown by their bodies.
+- P20 is active for one Category A comment above `Iso.inverse` in
+  `functional/optics.ph`. Document the callback exchange only; do not claim
+  that supplied callbacks satisfy round-trip laws.
 
 P14 added one documentation line immediately above `Writer.mapLog`, stating
 that it applies `f` to the log and preserves this Writer's value. The method
@@ -300,4 +304,14 @@ additions/removals, and seventeen changed hashes against MOD1;
 `functional/arrow.ph` is recorded at SHA-256
 `18f48d8445d28bc4ced75f63c37fc6658de93a02170c07548c061340c5cdd4b7` through
 source commit `2423d7dbdd845d853dc5696c77e4fa2971924550`. Semantic linking
+remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
+
+P19 added comments above `Arrow.dimap` and `Arrow.second`, describing the
+existing input/output mapping and preservation of the first tuple component.
+No executable source, declaration, or identity changed. Exact diff review and
+scoped `git diff --check` passed; no tests were run. Independent reconciliation
+confirmed 174 `.ph` paths, no additions/removals, and seventeen changed hashes
+against MOD1; `functional/arrow.ph` is recorded at SHA-256
+`b11292f4feb08e4ba26099183922d35d5871aef09ae8e53899354cbe3b136baf` through
+source commit `5c7f8a1e2675cb486f860f3d22877ef782c06b55`. Semantic linking
 remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.

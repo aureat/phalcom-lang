@@ -13,9 +13,9 @@
 
 ## Current source reconciliation
 
-Through `UNIV002.C2.P18`, the 174 shadow source paths were reconciled against
+Through `UNIV002.C2.P19`, the 174 shadow source paths were reconciled against
 the MOD1 baseline at source revision
-`2423d7dbdd845d853dc5696c77e4fa2971924550`. Seventeen source files changed since
+`5c7f8a1e2675cb486f860f3d22877ef782c06b55`. Seventeen source files changed since
 baseline; their current SHA-256 values are recorded in `INVENTORY.md`. Other
 source hashes still match baseline. Its textual inventory heuristics remain
 baseline data and are not a current opportunity audit.
@@ -28,10 +28,13 @@ its source commit; no semantic or runtime claim is made.
 `Arrow.compose`. The inventory is current through its source commit; no
 semantic or runtime claim is made.
 
-`UNIV002.C2.P19` is active for Category A comments above `Arrow.dimap` and
-`Arrow.second`. It documents only the existing input/output mapping and
-preserved tuple component; inventory reconciliation will follow the source
-edit.
+`UNIV002.C2.P19` completed Category A comments above `Arrow.dimap` and
+`Arrow.second`. The inventory is current through its source commit; no
+semantic or runtime claim is made.
+
+`UNIV002.C2.P20` is active for one Category A comment above `Iso.inverse` in
+`functional/optics.ph`. Describe the callback exchange only and preserve the
+existing Product/reflection constraints and callback-law caveat.
 
 ## Active work and exclusions
 
@@ -105,7 +108,7 @@ A source-only change may be `SOURCE_READY`; parser/interface checks do not imply
 
 ## Next action
 
-`UNIV002.C2.P1`–`P4`, `P6`–`P18` completed Category A
+`UNIV002.C2.P1`–`P4`, `P6`–`P19` completed Category A
 documentation/formatting slices. `UNIV002.C2.P5` completed a Category B
 source-level Gregorian leap-year expression
 rewrite in `time/calendar/month.ph`; its exact shadow parser/unlinked-interface
@@ -113,7 +116,7 @@ test passed. This does not typecheck or execute the method, so semantic linking
 remains `UNVERIFIED` and shadow runtime parity remains `BLOCKED`. P7 documents
 the observed `UtcOffset.seconds` input/range/error contract without changing
 code. The current 174 paths are reconciled against the MOD1 inventory baseline
-through P18's source commit; seventeen changed-file hashes are recorded in
+through P19's source commit; seventeen changed-file hashes are recorded in
 `INVENTORY.md`, while its textual heuristics remain baseline-only.
 P8 documents the maximum element count returned by `Buffer.capacity`; no
 executable code changed.
@@ -156,6 +159,8 @@ semantic or runtime claim is made.
 P18 documented the application order of `Arrow.then` and `Arrow.compose`. The
 inventory is current through its source commit; no semantic or runtime claim
 is made.
-P19 is documenting the input/output mapping of `Arrow.dimap` and the preserved
-first component of `Arrow.second`; the inventory will be refreshed after
-implementation review.
+P19 documented the input/output mapping of `Arrow.dimap` and the preserved
+first component of `Arrow.second`. The inventory is current through its source
+commit; no semantic or runtime claim is made.
+P20 is documenting the callback exchange in `Iso.inverse`; inventory
+reconciliation will follow the source edit.
