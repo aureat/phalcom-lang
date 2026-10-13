@@ -2,9 +2,9 @@
 
 The table records distinct module dependencies authored by top-level `import` and `from … import` statements in the current shadow `.ph` files. Relative paths follow the repository resolver rule: one leading dot uses the importing package, and each additional leading dot ascends one package level. This is a source-path inventory, not proof that every target exists or binding resolves; it does not establish initialization order or interface-only behavior. Implicit prelude names and references not expressed by imports are excluded.
 
-Current resolved distinct edges: **216**.
+Current resolved distinct edges: **218**.
 
-The S0 copied baseline recorded **208** edges. The scalar split added 6 net edges; the foundational-type increment added 2 explicit package-facade edges. S4 retargeted 23 existing edges from `universe.collections.iterator_laws` to `universe.collections.iteration` without changing the edge count, leaving **216** current edges.
+The S0 copied baseline recorded **208** edges. The scalar split added 6 net edges; the foundational-type increment added 2 explicit package-facade edges. S4 retargeted 23 existing edges from `universe.collections.iterator_laws` to `universe.collections.iteration` without changing the edge count. S5 adds root imports of `universe.diagnostics` and `universe.features` and removes the redundant `universe.concurrent` import, leaving 217 edges; extracting `CompletionSource` adds its explicit `Future` import, bringing the current total to **218**.
 
 | S3 change | From module | Resolved target module |
 |---|---|---|
@@ -31,8 +31,10 @@ The S0 copied baseline recorded **208** edges. The scalar split added 6 net edge
 | `universe` | `universe.callable` | authored `import`/`from … import` path |
 | `universe` | `universe.collections` | authored `import`/`from … import` path |
 | `universe` | `universe.concurrency` | authored `import`/`from … import` path |
-| `universe` | `universe.concurrent` | authored `import`/`from … import` path |
+| `universe.concurrency.completion_source` | `universe.concurrency.fiber` | authored `from .fiber import Future` path |
+| `universe` | `universe.diagnostics` | authored `import`/`from … import` path |
 | `universe` | `universe.errors` | authored `import`/`from … import` path |
+| `universe` | `universe.features` | authored `import`/`from … import` path |
 | `universe` | `universe.fs` | authored `import`/`from … import` path |
 | `universe` | `universe.functional` | authored `import`/`from … import` path |
 | `universe` | `universe.io` | authored `import`/`from … import` path |

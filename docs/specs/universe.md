@@ -38,10 +38,18 @@ At repository revision `a1621a7cec577952612685508a4c87c90aea86cd` on `feat/telos
 | `Option` | `universe.option.option::Option` | `universe.option::Option` |
 | `Result` | `universe.errors.result::Result` | `universe.result::Result` |
 | `Unit` | `universe.option.unit::Unit` | `universe.scalar.unit::Unit` |
+| `System` | `universe.concurrency.fiber::System` | `universe.system::System` |
+| `Fiber` | `universe.concurrency.fiber::Fiber` | `universe.concurrency.fiber::Fiber` |
+| `Future` | `universe.concurrency.fiber::Future` | `universe.concurrency.future::Future` |
+| `FutureSubscription` | `universe.concurrency.fiber::FutureSubscription` | `universe.concurrency.future_subscription::FutureSubscription` |
+| `CompletionSource` | `universe.concurrency.fiber::CompletionSource` | `universe.concurrency.completion_source::CompletionSource` |
+| `Backoff` | `universe.concurrency.fiber::Backoff` | `universe.concurrency.backoff::Backoff` |
+| `Tracer` | `universe.concurrency.fiber::Tracer` | `universe.diagnostics.tracer::Tracer` |
+| `OffBehavior` | `universe.concurrency.fiber::OffBehavior` | `universe.features.off_behavior::OffBehavior` |
 | `Iterator` | `universe.collections.iterator_laws::Iterator` | `universe.collections.iteration.protocols::Iterator` (proposed; unactivated) |
 | `Iterable` | `universe.collections.iterator_laws::Iterable` | `universe.collections.iteration.protocols::Iterable` (proposed; unactivated) |
 
-The TARGET column names the intended single declaration owners after integration. It is not a second production Universe or a permanent alias layer. The shadow-source owner moves for `Number`, `Int`, `Float`, `Option`, `Result`, and `Unit` are approved migration targets; production remains on the ACTIVE owners until a separate integration decision. The S4 shadow source currently authors the iteration protocols and adapters together in `universe.collections.iteration`; that cohesive placement preserves the source while the proposed `universe.collections.iteration.protocols` owner and adapter-module split remain deferred. Ordinary source imports currently carry runtime dependency edges, so the split must wait for a supported interface-only dependency model or another validated design. Neither the current shadow owner nor the proposed split has been activated in production. Current implementation and synchronization evidence is maintained in [`packages/universe/docs/migration-status.md`](../../packages/universe/docs/migration-status.md) and [`packages/universe/docs/identity-migration.md`](../../packages/universe/docs/identity-migration.md).
+The TARGET column names the intended single declaration owners after integration. It is not a second production Universe or a permanent alias layer. The shadow-source owner moves for `Number`, `Int`, `Float`, `Option`, `Result`, and `Unit` are approved migration targets; production remains on the ACTIVE owners until a separate integration decision. The S5 target owners record the approved System/concurrency organization. `Tracer` and `OffBehavior` are assigned to diagnostics and feature-flag policy after review of their public purposes and consumers. Source-only moves that do not depend on import-phase changes may proceed without activating those owners in production. The S4 shadow source currently authors the iteration protocols and adapters together in `universe.collections.iteration`; that cohesive placement preserves the source while the proposed `universe.collections.iteration.protocols` owner and adapter-module split remain deferred. Ordinary source imports currently carry runtime dependency edges, so the iteration and System/concurrency splits with dependency cycles must wait for a supported interface-only dependency model or another validated design. Neither the current shadow owner nor the proposed split has been activated in production. Current implementation and synchronization evidence is maintained in [`packages/universe/docs/migration-status.md`](../../packages/universe/docs/migration-status.md) and [`packages/universe/docs/identity-migration.md`](../../packages/universe/docs/identity-migration.md).
 
 ---
 
@@ -264,7 +272,10 @@ universe/
 ├── option/
 ├── errors/
 ├── collections/
+├── system.ph
 ├── concurrency/
+├── diagnostics/
+├── features/
 ├── reflection/
 ├── io/
 ├── fs/

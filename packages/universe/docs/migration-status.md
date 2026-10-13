@@ -2,6 +2,19 @@
 
 ## Current increment
 
+- **Increment:** Phase S5 system/concurrency source ownership separation (independent declarations slice).
+- **Branch:** `feat/telos-collections`.
+- **Starting revision:** `da436a6c6b02c98f237a810b2e39f8d4fdc4cf58` (`origin/feat/telos-collections` matched at start).
+- **Scope:** Move `Backoff` to `concurrency/backoff.ph`, `CompletionSource` to `concurrency/completion_source.ph`, `Tracer` to `diagnostics/tracer.ph`, and `OffBehavior` to `features/off_behavior.ph`; expose the new child packages, remove the empty redundant shadow `concurrent` package, and update ownership inventories. Preserve all declaration bodies and production/legacy ownership.
+- **Ownership review:** `Tracer` remains the `@traced` sink/observability helper; `OffBehavior` remains the disabled-policy value for `@featureFlag`. The shadow package has no use sites requiring either declaration to stay in `concurrency.fiber`. The active production fixture `phalcom-core/tests/fixtures/language/decorators/decorators_stdlib_helper_classes.ph` exercises bare `Tracer`, `OffBehavior`, and `Backoff` names; it remains untouched with the legacy production source. Any later cutover must review those imports/prelude bindings explicitly.
+- **Compatibility:** No shadow source imports `universe.concurrent`; the removed module contained only package documentation. The shadow root no longer exposes that path. The active production root continues exposing the legacy `.concurrent` package; external use of the unregistered shadow alias has not been evaluated.
+- **Completion:** `PARTIAL` for S5. The source-only relocations for Backoff, CompletionSource, Tracer, and OffBehavior are implemented. System, Future, and FutureSubscription remain co-located with the already correctly owned Fiber in `concurrency/fiber.ph` pending the phase-aware import decision.
+- **Verification:** `UNVERIFIED`; all four moved class blocks were independently compared byte-for-byte with their original `fiber.ph` blocks: `Backoff` (2,323 bytes; SHA-256 `ea87840e2dfbf98af2eb7cf4994413f5f79ba38798b81fa87c669de293b3fa28`), `CompletionSource` (925 bytes; `f4b3b2bdbefefa6965d7e3db42b02c731c8bc2aabcba1f554bd1b7ffff9f4069`), `Tracer` (661 bytes; `78ab812b8a802585507958564af63e3f6fea761b8f9840a46780743b5ed08fb5`), and `OffBehavior` (797 bytes; `0e4abe2094a2d767de0872de4d636e081bca43a941f56c5477634c187850f9e9`). Declaration uniqueness, package exposure/import/export wiring, absence of shadow `.concurrent` references, and `git diff --check` were inspected. No parser/compiler tests were run.
+- **Architecture hold:** The remaining System/concurrency split crosses mutually referring declarations. The phase-aware import incident must be resolved before changing those module boundaries or introducing a compiler/module-system integration.
+- **Next action:** Obtain the P4 architecture decision, then amend the split plan and its source-to-runtime gates before separating System, Future, or FutureSubscription. CompletionSource has a one-way explicit import of Future, so that extraction does not introduce a source-level dependency cycle. Production source authority and strict runtime-cycle behavior remain unchanged.
+
+## Completed increment: S4 iteration source relocation
+
 - **Increment:** Phase S4 iteration source relocation and isolated source-interface validation.
 - **Branch:** `feat/telos-collections`.
 - **S4 starting revision:** `a1621a7cec577952612685508a4c87c90aea86cd`.
@@ -23,7 +36,7 @@
 
 - The original source contains two protocols, one blanket `Iterable` implementation, and fourteen adapter classes, all retained in the moved module and explicitly exported.
 - The moved file is 909 lines. Its SHA-256 is `579442979fd801ae1c6f012532dfa5fb7cc794657f0b833bc382c5345df2d11e`, equal to `git show a1621a7:packages/universe/src/collections/iterator_laws.ph` and the initial-copy manifest digest. This verifies exact byte preservation of all declaration bodies and method implementations.
-- The current source scan still recognizes 364 top-level type-like declarations and 77 top-level values. The authored import graph remains at 216 distinct edges; S4 retargets 23 existing edges without changing the count.
+- At S4 completion, the source scan recognized 364 top-level type-like declarations and 77 top-level values, and the authored import graph had 216 distinct edges; S4 retargeted 23 existing edges without changing that count. The current S5 graph count is recorded in `dependency-graph.md`.
 - Method selectors, signatures, generic bounds, adapter ownership, and related Bytes/String iterator responsibilities are recorded in [`iteration-inventory.md`](iteration-inventory.md).
 - The dependency decision and its linker evidence are recorded in [`iteration-split-incident.md`](iteration-split-incident.md). The proposed child split would create a runtime SCC: protocol defaults construct adapters, while adapters conform to the protocols. This is a predicted SCC from source references and linker rules, not a linked shadow graph result.
 
