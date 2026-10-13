@@ -137,6 +137,9 @@ class FloatReduction {
     return FloatMathKernel.ln(-FloatMathKernel.expm1(x))
   }
 
+  /// Computes stable log-sum-exp in one pass over Float values.
+  /// Empty and all-negative-infinity inputs return negative infinity.
+  /// NaN propagates; otherwise positive infinity dominates.
   @class
   logSumExp<I>(_ values: I) -> Float
     where I |= Iterable, <I as Iterable>::Item == Float
