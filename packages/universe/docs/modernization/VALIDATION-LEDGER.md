@@ -150,6 +150,22 @@ shadow graph and an execution path for shadow Universe code.
   source commit `e24f37945b1dd6349932013cb6ebf89f33cf979c`.
 - No shadow semantic or runtime claim is made.
 
+## UNIV002.C2.P23 — Optional/Prism composition and adapter documentation
+
+- Added the six planned comments above `Iso.asLens`, `Optional.compose`,
+  `Prism.compose`, and `Prism.asOptional` in `functional/optics.ph`. They
+  describe only callback paths and composition order visible in the methods.
+- Exact source diff review confirmed no declaration, signature, executable
+  expression, import, module owner, or generic identity changed. Scoped
+  `git diff --check` passed. No tests were run for this comments-only slice.
+- Independent comparison confirmed all 174 `.ph` paths still match the MOD1
+  baseline, with 18 changed source hashes and no additions or removals. The
+  inventory overlay is current through source commit
+  `a5f159ffb7534848a0922ebb0a0d5f2bbea358d6`; the `functional/optics.ph` row
+  records SHA-256
+  `87f0d722fc63e8bb4646ef38cc575e2e7be396feb8d86a03cdb3bbaec1d8291c`.
+- No shadow semantic or runtime claim is made.
+
 ## UNIV002.C2.P9 — Bag.count documentation
 
 - Added one comment immediately above `collections/bag.ph::Bag.count` stating

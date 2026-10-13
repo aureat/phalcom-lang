@@ -45,7 +45,8 @@ integration, or production cutover.
 | `UNIV002.C2.P20` | Iso.inverse documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment for the forward/backward callback exchange; exact diff review, scoped whitespace check, and inventory reconciliation passed. |
 | `UNIV002.C2.P21` | Iso composition and modification documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added three comments for forward/reverse composition order and focus modification; exact diff review, scoped whitespace check, and 174-path inventory reconciliation passed. |
 | `UNIV002.C2.P22` | Optional replacement and Prism modification documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added three comments describing replacement/review callback paths and unchanged-source branches; exact diff review, scoped whitespace check, and 174-path inventory reconciliation passed. Wording was narrowed to avoid promising callback effects. |
-| `UNIV002.C2.P23` | Optional/Prism composition and adapter documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | Six comment lines are planned across four methods to document composition order and Iso/Prism adapters; implementation and inventory reconciliation are pending. |
+| `UNIV002.C2.P23` | Optional/Prism composition and adapter documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added six callback-path/order comments; exact diff and scoped whitespace review passed; independent reconciliation confirmed 174 unchanged paths and 18 changed hashes. No tests or semantic/runtime claims. |
+| `UNIV002.C2.P24` | Float logSumExp documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | Three comments are planned above `FloatReduction.logSumExp`, grounded in `docs/specs/numeric-math.md`; no behavior changes or tests. |
 
 ## Established invariants
 
@@ -210,13 +211,13 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: `UNIV002.C2.P23`, documenting composition and adapter callback
-  paths in `Optional.compose`, `Prism.compose`, `Iso.asLens`, and
-  `Prism.asOptional`; the plan authorizes six comment lines only.
-- Latest complete plan: `UNIV002.C2.P22`; latest complete checkpoint:
+- Active plan: `UNIV002.C2.P24`, documenting the normative one-pass
+  `FloatReduction.logSumExp` contract in `math/reduction.ph` with three comment
+  lines only. Preserve the math/numerics boundary and concurrent work.
+- Latest complete plan: `UNIV002.C2.P23`; latest complete checkpoint:
   `UNIV002.C1`.
-- The source inventory is reconciled through P22 source commit
-  `60b2e1463db0d4fd29981f0ec178b46d426edf7a`: 174 paths, no additions or
+- The source inventory is reconciled through P23 source commit
+  `a5f159ffb7534848a0922ebb0a0d5f2bbea358d6`: 174 paths, no additions or
   removals, and 18 changed hashes with the rest matching MOD1. Textual
   inventory heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
@@ -273,9 +274,9 @@ identities.
 - P22 completed Category A comments above `Optional.set`, `Optional.modify`,
   and `Prism.modify`; they describe callback paths and source returns without
   promising callback effects or laws.
-- P23 is active for Category A comments above `Iso.asLens`, `Optional.compose`,
-  `Prism.compose`, and `Prism.asOptional`; document only callback selection
-  and composition order visible in the method bodies.
+- P23 completed six Category A comments above `Iso.asLens`,
+  `Optional.compose`, `Prism.compose`, and `Prism.asOptional`; they document
+  only callback selection and composition order visible in the method bodies.
 
 P14 added one documentation line immediately above `Writer.mapLog`, stating
 that it applies `f` to the log and preserves this Writer's value. The method
@@ -370,3 +371,13 @@ paths, no additions/removals, and eighteen changed hashes against MOD1;
 `acdf2870f9f759d7804124af688e8c3e4cbe7f9e6702816d166d6b245527fb87` through
 source commit `60b2e1463db0d4fd29981f0ec178b46d426edf7a`. Semantic linking
 remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
+
+P23 added six comments above `Iso.asLens`, `Optional.compose`, `Prism.compose`,
+and `Prism.asOptional`, describing only callback paths and composition order
+visible in the source. Exact diff review and scoped `git diff --check` passed;
+no tests were run. Independent reconciliation confirmed 174 matching source
+paths and eighteen changed hashes against MOD1. `functional/optics.ph` is
+recorded at SHA-256
+`87f0d722fc63e8bb4646ef38cc575e2e7be396feb8d86a03cdb3bbaec1d8291c` through
+source commit `a5f159ffb7534848a0922ebb0a0d5f2bbea358d6`. Semantic linking
+remains unverified and shadow runtime parity remains blocked.

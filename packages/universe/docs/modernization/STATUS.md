@@ -13,9 +13,9 @@
 
 ## Current source reconciliation
 
-Through `UNIV002.C2.P22`, the 174 shadow source paths were reconciled against
+Through `UNIV002.C2.P23`, the 174 shadow source paths were reconciled against
 the MOD1 baseline at source revision
-`60b2e1463db0d4fd29981f0ec178b46d426edf7a`. Eighteen source files changed since
+`a5f159ffb7534848a0922ebb0a0d5f2bbea358d6`. Eighteen source files changed since
 baseline; their current SHA-256 values are recorded in `INVENTORY.md`. Other
 source hashes still match baseline. Its textual inventory heuristics remain
 baseline data and are not a current opportunity audit.
@@ -47,11 +47,11 @@ and unchanged-source branches without promising callback effects; the
 inventory is current through the source commit and no semantic or runtime
 claim is made.
 
-`UNIV002.C2.P23` is active for comments above `Iso.asLens`,
+`UNIV002.C2.P23` completed six comments above `Iso.asLens`,
 `Optional.compose`, `Prism.compose`, and `Prism.asOptional` in
-`functional/optics.ph`. It documents callback paths and composition order
-visible in the method bodies; inventory reconciliation will follow the source
-edit.
+`functional/optics.ph`. They document callback paths and composition order
+visible in the method bodies; the inventory overlay now records the updated
+source hash.
 
 ## Active work and exclusions
 
@@ -124,69 +124,26 @@ Use distinct states; do not collapse them into “done”:
 A source-only change may be `SOURCE_READY`; parser/interface checks do not imply semantic/runtime verification. Use `BLOCKED` only for a specific prerequisite or conflict and `DEFERRED` for an intentionally postponed slice.
 
 ## Next action
+## Next action
 
-`UNIV002.C2.P1`–`P4`, `P6`–`P22` completed Category A
-documentation/formatting slices. `UNIV002.C2.P5` completed a Category B
-source-level Gregorian leap-year expression
-rewrite in `time/calendar/month.ph`; its exact shadow parser/unlinked-interface
-test passed. This does not typecheck or execute the method, so semantic linking
-remains `UNVERIFIED` and shadow runtime parity remains `BLOCKED`. P7 documents
-the observed `UtcOffset.seconds` input/range/error contract without changing
-code. The current 174 paths are reconciled against the MOD1 inventory baseline
-through P22's source commit; eighteen changed-file hashes are recorded in
-`INVENTORY.md`, while its textual heuristics remain baseline-only.
-P8 documents the maximum element count returned by `Buffer.capacity`; no
-executable code changed.
-P9 documents that `Bag.count` returns the number of occurrences of the supplied
-value; the source wrapper and native lookup remain unchanged.
-P10 documents that `Reader.run` runs the deferred computation with the supplied
-environment; the method body and signature remain unchanged.
-P11 documents that the mapped Reader transforms the produced value and retains
-the same environment; the method body and signature remain unchanged.
-`UNIV002.C2.P6` documented only the live `ZoneTransition` fields and excludes
-unimplemented derived members. Keep source modernization independent of
-Option/Result/Unit identity, collection iteration ownership, reflection, and
-active linker work. `PackageAuthor` and `PackageRequirement` remain
-`HIGH / DEFER` pending the dedicated constructor, identity, cache, GC,
-reflection, and host-conversion audit.
-Continue with a bounded source-quality slice that respects the active
-identity, iteration, reflection, and linker boundaries. No safe additional
-slice was selected from the remaining stable collections modules: the
-remaining candidates depend on the held iteration boundary or lack a precise
-interval behavior contract. P10 advanced the next priority package, Functional.
-P11 completed a comment-only `Reader.map` slice. The MOD1 hash overlay is
-current through its source commit; no semantic or runtime claim is made.
-P12 completed a comment-only `Writer.map` slice. The inventory is current
-through its source commit; no semantic or runtime claim is made.
-P13 completed a comment-only `State.run` slice documenting the initial state
-and returned transition values. The inventory is current through its source
-commit; no semantic or runtime claim is made.
-P14 documented that `Writer.mapLog` transforms the log and preserves the
-stored value. The inventory is current through its source commit; no semantic
-or runtime claim is made.
-P15 documented that `Either.mapLeft` transforms a Left payload and preserves a
-Right payload. The inventory is current through its source commit; no semantic
-or runtime claim is made.
-P16 documented that `Chain.fold` uses its seed as the initial accumulator and
-visits elements from left to right. The inventory is current through its source
-commit; no semantic or runtime claim is made.
-P17 documented the existing branch mapping of the remaining `Either` payload
-transformations. The inventory is current through its source commit; no
-semantic or runtime claim is made.
-P18 documented the application order of `Arrow.then` and `Arrow.compose`. The
-inventory is current through its source commit; no semantic or runtime claim
-is made.
-P19 documented the input/output mapping of `Arrow.dimap` and the preserved
-first component of `Arrow.second`. The inventory is current through its source
-commit; no semantic or runtime claim is made.
-P20 documented the callback exchange in `Iso.inverse`. The inventory is
-current through its source commit; no semantic or runtime claim is made.
-P21 documented `Iso.compose` callback order and the source-to-focus-to-source
-sequence of `Iso.modify`. The inventory is current through its source commit;
-no semantic or runtime claim is made.
-P22 documented when `Optional.set`, `Optional.modify`, and `Prism.modify` pass
-values to replacement/review callbacks and when the source is returned. The
-inventory is current through its source commit; no semantic or runtime claim
-is made.
-P23 is documenting Optional/Prism composition order and Iso/Prism adapter
-callback paths; the inventory will be refreshed after review.
+`UNIV002.C2.P1`–P23 are complete: twenty-two Category A documentation slices
+and one Category B Gregorian predicate rewrite. P24 is active for three
+comments above `FloatReduction.logSumExp` in `math/reduction.ph`, documenting
+the one-pass stable operation and the normative empty, infinity, and NaN cases
+from `docs/specs/numeric-math.md`. The plan is comments-only; no tests are
+required, and no behavior claim will be made.
+
+The 174 source paths match MOD1, with eighteen changed hashes reconciled
+through source commit `a5f159ffb7534848a0922ebb0a0d5f2bbea358d6`. P24 must
+refresh the changed hash and recompare the full path/hash set. Inventory
+heuristic columns remain baseline-only.
+
+`STDL001.C9.P1` established the Float-based `universe.math` boundary and moved
+optional special functions, statistics, and probability to the `numerics`
+project. Its source/native edits are implemented, but Phalcom source compilation
+and runtime acceptance remain unverified; P24 does not advance that gate.
+
+Keep the architect-guided Option/Result/Unit identity and normative-spec work
+separate. Preserve active MODL001 P4 changes and C3 crypto work. Exclude
+iteration ownership, reflection/typing, S5 concurrency boundaries, production
+providers, bootstrap, native mappings, compiler, and VM changes.
