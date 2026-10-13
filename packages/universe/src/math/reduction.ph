@@ -46,7 +46,7 @@ class FloatReduction {
     return result
   }
 
-  /// Range-aware mean for one finite Float stream.
+  /// Computes the mean of finite Float values; empty input raises ArgumentError.
   @class
   mean<I>(_ values: I) -> Float
     where I |= Iterable, <I as Iterable>::Item == Float
