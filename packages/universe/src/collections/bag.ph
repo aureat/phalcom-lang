@@ -13,6 +13,7 @@ native class Bag<T> is Collection {
   size { self.rawSize }
   totalCount { self.rawSize }
   distinctCount { self.rawDistinctCount }
+  /// Returns the number of occurrences of the supplied value in this bag.
   count(_ value: T) -> Int { self.rawCount(value) }
   contains(_ value: T) -> Bool { self.count(value) > 0 }
 
