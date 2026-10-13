@@ -676,12 +676,9 @@ impl<T> Iterable for Iter<T> {
         subject: TypeTerm::Canonical(iter_ty),
         trait_ref,
     };
-    let evidence = GenericEvidenceEnvironment::try_from_constraints(
-        &[conformance],
-        TypeParameterOwner::Declaration(fixture.decl("Owner")),
-        &snapshot.trait_surfaces,
-    )
-    .expect("generic evidence layout");
+    let evidence =
+        GenericEvidenceEnvironment::try_from_constraints(&[conformance], TypeParameterOwner::Declaration(fixture.decl("Owner")), &snapshot.trait_surfaces)
+            .expect("generic evidence layout");
     let mut budget = QueryBudget::new(100);
     let cancel = CancellationToken::new();
     let mut context = ProjectionNormalizationContext::new(
@@ -698,5 +695,8 @@ impl<T> Iterable for Iter<T> {
         &cancel,
     );
 
-    assert_eq!(normalize_type(&mut store, projection, &mut context), ProjectionNormalizationResult::Normalized(item_ty));
+    assert_eq!(
+        normalize_type(&mut store, projection, &mut context),
+        ProjectionNormalizationResult::Normalized(item_ty)
+    );
 }

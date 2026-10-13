@@ -14,9 +14,9 @@ use super::variance::Variance;
 use crate::identity::{AssociatedStaticDomainDeclarationId, DeclarationId, VariantId};
 use crate::scalar::StaticInt;
 use crate::traits::{AssociatedTypeRequirementId, TraitRef};
+use im::{HashMap, Vector};
 use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
-use im::{HashMap, Vector};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 fn canonical_complete_pack_source_member(selector: &TypeMemberSelector) -> TypeMemberDeclarationId {
@@ -373,6 +373,20 @@ pub struct TypeStore {
 
     never_id: TypeId,
     unit_id: TypeId,
+    #[cfg(feature = "perf-observability")]
+    forked_from_baseline: bool,
+}
+
+#[derive(Clone, Copy)]
+enum TypeStoreMutationCategory {
+    Type,
+    Kind,
+    Parameter,
+    Row,
+    Family,
+    StaticDomain,
+    StaticConstructor,
+    Variant,
 }
 
 impl Default for TypeStore {
@@ -407,6 +421,8 @@ impl TypeStore {
             const_int_domain: StaticDomainId::from_index(0),
             never_id: TypeId::DUMMY,
             unit_id: TypeId::DUMMY,
+            #[cfg(feature = "perf-observability")]
+            forked_from_baseline: false,
         };
 
         // Kind::Type is KindId(0)
@@ -438,9 +454,55 @@ impl TypeStore {
     /// The fork starts fully independent: mutations to the fork do not affect
     /// `self` or any other fork derived from `self`.
     pub fn fork_from_baseline(&self) -> Self {
-        let mut fork = self.clone();
-        fork.id = TypeStoreId(NEXT_TYPE_STORE_ID.fetch_add(1, Ordering::Relaxed));
-        fork
+        #[cfg(feature = "perf-observability")]
+        {
+            use telos_observability::{PerfContext, PerfCounter, PerfOutcome, PerfPhase};
+            let context = PerfContext::current_thread();
+            let span = context.span(PerfPhase::TypeStoreBaselineFork);
+            context.record_counter(PerfCounter::TypeStorePersistentRootForks, 1);
+            context.record_counter(PerfCounter::TypeStoreForkTypeEntries, self.types.len() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkKindEntries, self.kinds.len() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkParameterEntries, self.type_parameters.len() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkRowEntries, self.row_arena.len() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkFamilyEntries, self.family_arena.len() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkStaticDomainEntries, self.static_domains.len() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkStaticConstructorEntries, self.static_constructors.len() as u64);
+            context.record_counter(PerfCounter::TypeStoreForkVariantEntries, self.variant_identities.len() as u64);
+            context.record_counter(PerfCounter::TypeStorePhysicalCowMeasurementUnavailable, 1);
+            let mut fork = self.clone();
+            fork.id = TypeStoreId(NEXT_TYPE_STORE_ID.fetch_add(1, Ordering::Relaxed));
+            fork.forked_from_baseline = true;
+            span.finish(PerfOutcome::Success);
+            fork
+        }
+        #[cfg(not(feature = "perf-observability"))]
+        {
+            let mut fork = self.clone();
+            fork.id = TypeStoreId(NEXT_TYPE_STORE_ID.fetch_add(1, Ordering::Relaxed));
+            fork
+        }
+    }
+
+    fn record_post_fork_mutation(&self, category: TypeStoreMutationCategory) {
+        #[cfg(feature = "perf-observability")]
+        if self.forked_from_baseline {
+            use telos_observability::{PerfContext, PerfCounter};
+            let context = PerfContext::current_thread();
+            context.record_counter(PerfCounter::TypeStorePostForkMutationOperations, 1);
+            let counter = match category {
+                TypeStoreMutationCategory::Type => PerfCounter::TypeStorePostForkTypeMutationOperations,
+                TypeStoreMutationCategory::Kind => PerfCounter::TypeStorePostForkKindMutationOperations,
+                TypeStoreMutationCategory::Parameter => PerfCounter::TypeStorePostForkParameterMutationOperations,
+                TypeStoreMutationCategory::Row => PerfCounter::TypeStorePostForkRowMutationOperations,
+                TypeStoreMutationCategory::Family => PerfCounter::TypeStorePostForkFamilyMutationOperations,
+                TypeStoreMutationCategory::StaticDomain => PerfCounter::TypeStorePostForkStaticDomainMutationOperations,
+                TypeStoreMutationCategory::StaticConstructor => PerfCounter::TypeStorePostForkStaticConstructorMutationOperations,
+                TypeStoreMutationCategory::Variant => PerfCounter::TypeStorePostForkVariantMutationOperations,
+            };
+            context.record_counter(counter, 1);
+        }
+        #[cfg(not(feature = "perf-observability"))]
+        let _ = category;
     }
 
     pub fn id(&self) -> TypeStoreId {
@@ -460,6 +522,7 @@ impl TypeStore {
         let key = (data.owner.clone(), data.index);
         if let TypeParameterOwner::Declaration(ref decl) = data.owner {
             self.parameter_variances.insert((decl.clone(), data.index), data.variance);
+            self.record_post_fork_mutation(TypeStoreMutationCategory::Parameter);
         }
 
         if let Some(&id) = self.parameter_to_id.get(&key) {
@@ -471,6 +534,7 @@ impl TypeStore {
                 // identity. Refresh it in the live store while retained snapshot clones
                 // continue to preserve the provenance from their own revision.
                 self.type_parameters[id.index()].source = data.source;
+                self.record_post_fork_mutation(TypeStoreMutationCategory::Parameter);
                 return id;
             }
         }
@@ -482,11 +546,13 @@ impl TypeStore {
         let id = TypeParameterId(self.type_parameters.len() as u32);
         self.type_parameters.push_back(data);
         self.parameter_to_id.insert(key, id);
+        self.record_post_fork_mutation(TypeStoreMutationCategory::Parameter);
         id
     }
 
     pub fn set_parameter_variance(&mut self, decl: DeclarationId, index: u32, variance: Variance) {
         self.parameter_variances.insert((decl, index), variance);
+        self.record_post_fork_mutation(TypeStoreMutationCategory::Parameter);
     }
 
     pub fn get_parameter_variance(&self, decl: &DeclarationId, index: u32) -> Option<Variance> {
@@ -610,6 +676,7 @@ impl TypeStore {
         let id = KindId(self.kinds.len() as u32);
         self.kinds.push_back(data.clone());
         self.kind_to_id.insert(data, id);
+        self.record_post_fork_mutation(TypeStoreMutationCategory::Kind);
         id
     }
 
@@ -707,6 +774,7 @@ impl TypeStore {
         self.types.push_back(data);
         self.type_kinds.push_back(kind);
         self.type_to_id.insert(key, id);
+        self.record_post_fork_mutation(TypeStoreMutationCategory::Type);
         debug_assert_eq!(self.types.len(), self.type_kinds.len());
         id
     }
@@ -739,6 +807,7 @@ impl TypeStore {
         let id = StaticDomainId::from_index(self.static_domains.len());
         self.static_domains.push_back(data.clone());
         self.static_domain_to_id.insert(data, id);
+        self.record_post_fork_mutation(TypeStoreMutationCategory::StaticDomain);
         id
     }
 
@@ -812,6 +881,7 @@ impl TypeStore {
         let id = AlgebraicStaticConstructorId::from_index(self.static_constructors.len());
         self.static_constructors.push_back(data.clone());
         self.static_constructor_to_id.insert(data, id);
+        self.record_post_fork_mutation(TypeStoreMutationCategory::StaticConstructor);
         id
     }
 
@@ -1638,6 +1708,7 @@ impl TypeStore {
         let id = RecordRowId(self.row_arena.len() as u32);
         self.row_arena.push_back(data.clone());
         self.row_interner.insert(data, id);
+        self.record_post_fork_mutation(TypeStoreMutationCategory::Row);
         id
     }
 
@@ -1714,6 +1785,7 @@ impl TypeStore {
             let id = FamilyTypeId::new(self.family_arena.len() as u32);
             self.family_arena.push_back(family.clone());
             self.family_interner.insert(family, id);
+            self.record_post_fork_mutation(TypeStoreMutationCategory::Family);
             id
         };
 
@@ -2055,6 +2127,7 @@ impl TypeStore {
         let id = VariantTypeId::from_index(self.variant_identities.len());
         self.variant_identities.push_back(variant.clone());
         self.variant_identity_to_id.insert(variant, id);
+        self.record_post_fork_mutation(TypeStoreMutationCategory::Variant);
         id
     }
 
@@ -2249,10 +2322,7 @@ mod tests {
             committed.nominal_type(test_decl(&format!("Shared{index}")));
         }
         let owner = test_decl("GenericOwner");
-        let first_source = crate::diagnostic::SemanticSourceSpan::new(
-            ModuleId::universe_root(),
-            phalcom_common::range::SourceRange::new(1, 2),
-        );
+        let first_source = crate::diagnostic::SemanticSourceSpan::new(ModuleId::universe_root(), phalcom_common::range::SourceRange::new(1, 2));
         let parameter = committed.intern_type_parameter(
             TypeParameterData::new(TypeParameterOwner::Declaration(owner.clone()), 0, "T", KindId::TYPE).with_source(first_source.clone()),
         );
@@ -2266,13 +2336,9 @@ mod tests {
         assert!(committed.lambda_arena.shares_backing_with(&candidate.lambda_arena));
 
         let new_type = candidate.nominal_type(test_decl("CandidateOnly"));
-        let second_source = crate::diagnostic::SemanticSourceSpan::new(
-            ModuleId::universe_root(),
-            phalcom_common::range::SourceRange::new(5, 7),
-        );
-        let same_parameter = candidate.intern_type_parameter(
-            TypeParameterData::new(TypeParameterOwner::Declaration(owner), 0, "T", KindId::TYPE).with_source(second_source.clone()),
-        );
+        let second_source = crate::diagnostic::SemanticSourceSpan::new(ModuleId::universe_root(), phalcom_common::range::SourceRange::new(5, 7));
+        let same_parameter = candidate
+            .intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(owner), 0, "T", KindId::TYPE).with_source(second_source.clone()));
 
         assert_eq!(candidate.id(), committed_id);
         assert_eq!(candidate.unit(), committed_type_id);

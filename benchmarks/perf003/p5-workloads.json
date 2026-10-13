@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "baseline_head": "e2ae4a0fd360e4075ce8ad229a3e39e1531fb771",
+  "workloads": [
+    {
+      "id": "B1",
+      "name": "canonical Universe cold process",
+      "mode": "vm-cold",
+      "lifecycle": "process_cold",
+      "state": "implemented_baseline_blocked",
+      "blocker": "canonical ProductKind source-index failure during VM startup"
+    },
+    {
+      "id": "B2",
+      "name": "canonical semantic baseline cold construction",
+      "mode": "semantic-baseline",
+      "lifecycle": "process_cold",
+      "state": "implemented_profile_completed"
+    },
+    {
+      "id": "B3",
+      "name": "semantic session instantiation with warm baseline",
+      "mode": "session-init",
+      "lifecycle": "session_warm",
+      "state": "implemented_build_checked"
+    },
+    {
+      "id": "B4",
+      "name": "tiny ordinary inline project compile",
+      "mode": "compiler-projection",
+      "lifecycle": "process_cold",
+      "state": "implemented_baseline_blocked",
+      "blocker": "legacy metadata Record-remainder export failure"
+    },
+    {
+      "id": "B5",
+      "name": "tiny standalone compile",
+      "mode": "standalone-compile",
+      "lifecycle": "process_cold",
+      "state": "implemented_build_checked",
+      "fixture": "phalcom-core/tests/fixtures/universe_v1/standalone_module/solo.ph"
+    },
+    {
+      "id": "B6",
+      "name": "medium ordinary package",
+      "mode": "multi-module-project",
+      "lifecycle": "process_cold",
+      "state": "candidate_fixture_build_checked",
+      "fixture": "phalcom-core/tests/fixtures/universe_v1/project_hierarchy",
+      "note": "Current candidate has four source modules; confirm it meets the intended medium-workload cardinality before treating B6 as accepted."
+    },
+    {
+      "id": "B7",
+      "name": "feature-dense package",
+      "mode": null,
+      "lifecycle": "process_cold",
+      "state": "not_implemented"
+    },
+    {
+      "id": "B8",
+      "name": "incremental update variants in one session",
+      "mode": null,
+      "lifecycle": "session_warm",
+      "state": "not_implemented"
+    },
+    {
+      "id": "B9",
+      "name": "warm full VM after canonical product initialization",
+      "mode": null,
+      "lifecycle": "vm_cold_inside_warm_process",
+      "state": "blocked_by_B1",
+      "blocker": "the process cannot reach VM initialization until the canonical source-index failure is resolved"
+    }
+  ]
+}

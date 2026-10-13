@@ -2417,12 +2417,19 @@ trait TargetTrait {
 "#,
         )
         .analyze();
-    assert!(!fixture.analysis.snapshot.has_errors(), "unexpected errors: {:?}", fixture.analysis.snapshot.diagnostics);
+    assert!(
+        !fixture.analysis.snapshot.has_errors(),
+        "unexpected errors: {:?}",
+        fixture.analysis.snapshot.diagnostics
+    );
     let trait_declaration = fixture.decl("main", "TargetTrait");
     let surface = fixture.analysis.snapshot.trait_surfaces.get(&trait_declaration).expect("trait surface");
     let unannotated = surface.associated_type_by_name("Unannotated").expect("unannotated");
     assert!(matches!(unannotated.domain, phalcom_semantic::types::type_member::TypeMemberDomain::Kind(k) if k == phalcom_semantic::KindId::TYPE));
 
     let with_domain = surface.associated_type_by_name("WithDomain").expect("with domain");
-    assert!(matches!(with_domain.domain, phalcom_semantic::types::type_member::TypeMemberDomain::ValueType(_)));
+    assert!(matches!(
+        with_domain.domain,
+        phalcom_semantic::types::type_member::TypeMemberDomain::ValueType(_)
+    ));
 }

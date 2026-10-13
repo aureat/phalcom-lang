@@ -201,6 +201,8 @@ pub fn check_subtype_bounded(
     budget: &mut QueryBudget,
     cancellation: &CancellationToken,
 ) -> RelationOutcome {
+    #[cfg(feature = "perf-observability")]
+    telos_observability::PerfContext::current_thread().record_counter(telos_observability::PerfCounter::TypeRelationSubtypeChecks, 1);
     let mut visited = HashSet::new();
     check_subtype_impl(store, hierarchy, sub, sup, budget, cancellation, &mut visited, 0)
 }
@@ -215,6 +217,8 @@ fn check_subtype_impl(
     visited: &mut HashSet<(TypeId, TypeId)>,
     depth: u16,
 ) -> RelationOutcome {
+    #[cfg(feature = "perf-observability")]
+    telos_observability::PerfContext::current_thread().record_counter(telos_observability::PerfCounter::TypeRelationSteps, 1);
     if cancellation.is_cancelled() {
         return RelationOutcome::Cancelled;
     }
@@ -839,6 +843,8 @@ pub fn check_assignability_bounded(
     budget: &mut QueryBudget,
     cancellation: &CancellationToken,
 ) -> RelationOutcome {
+    #[cfg(feature = "perf-observability")]
+    telos_observability::PerfContext::current_thread().record_counter(telos_observability::PerfCounter::TypeRelationAssignabilityChecks, 1);
     if cancellation.is_cancelled() {
         return RelationOutcome::Cancelled;
     }

@@ -13,7 +13,7 @@ pub mod state;
 
 pub use budget::{BudgetKind, BudgetReport, CancellationToken, QueryBudget};
 pub use dependency::{DependencyEdge, DependencyIndex, DependencyRecorder};
-pub use key::{InputFingerprint, ProductFingerprint, QueryKey};
+pub use key::{InputFingerprint, ProductFingerprint, QueryKey, QueryKind};
 pub use metrics::QueryMetrics;
 pub use product::SemanticProduct;
 pub use query::{
@@ -28,6 +28,26 @@ pub use state::{PublishError, QueryOutcome, QueryState, QueryValue};
 use crate::identity::{ModuleId, SemanticRevision, WorkspaceId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+#[cfg(feature = "perf-observability")]
+use std::time::Instant;
+
+#[derive(Clone, Copy)]
+enum QueryLifecycleEvent {
+    Request,
+    DirectReuse,
+    RevalidatedReuse,
+    Recomputed,
+    Invalidated,
+    Blocked,
+    Cancelled,
+    BudgetExceeded,
+    Failed,
+}
+
+#[cfg(feature = "perf-observability")]
+fn record_semantic_db_counter(counter: telos_observability::PerfCounter, amount: usize) {
+    telos_observability::PerfContext::current_thread().record_counter(counter, amount as u64);
+}
 
 /// Compiler-owned staged semantic database for incremental analysis.
 #[derive(Debug)]
@@ -44,6 +64,8 @@ pub struct SemanticDb {
     revision_recomputed: BTreeSet<QueryKey>,
     revision_revalidated: BTreeSet<QueryKey>,
     transaction: Option<SemanticDbUndoJournal>,
+    #[cfg(feature = "perf-observability")]
+    query_recompute_started: BTreeMap<QueryKey, Instant>,
 }
 
 #[derive(Debug)]
@@ -60,6 +82,18 @@ struct SemanticDbUndoJournal {
 
 impl SemanticDbUndoJournal {
     fn new(db: &mut SemanticDb) -> Self {
+        #[cfg(feature = "perf-observability")]
+        let scheduler = {
+            use telos_observability::{PerfContext, PerfCounter, PerfOutcome, PerfPhase};
+            let context = PerfContext::current_thread();
+            let span = context.span(PerfPhase::SemanticDbSchedulerSnapshot);
+            let scheduler = db.scheduler.clone();
+            span.finish(PerfOutcome::Success);
+            context.record_counter(PerfCounter::SemanticDbSchedulerSnapshotEntries, scheduler.len() as u64);
+            scheduler
+        };
+        #[cfg(not(feature = "perf-observability"))]
+        let scheduler = db.scheduler.clone();
         Self {
             revision: db.revision,
             revision_recomputed: std::mem::take(&mut db.revision_recomputed),
@@ -68,7 +102,7 @@ impl SemanticDbUndoJournal {
             query_keys_by_module: BTreeMap::new(),
             products: BTreeMap::new(),
             last_known_good: BTreeMap::new(),
-            scheduler: db.scheduler.clone(),
+            scheduler,
         }
     }
 }
@@ -94,6 +128,8 @@ impl SemanticDb {
             revision_recomputed: BTreeSet::new(),
             revision_revalidated: BTreeSet::new(),
             transaction: None,
+            #[cfg(feature = "perf-observability")]
+            query_recompute_started: BTreeMap::new(),
         }
     }
 
@@ -111,6 +147,8 @@ impl SemanticDb {
             revision_recomputed: BTreeSet::new(),
             revision_revalidated: BTreeSet::new(),
             transaction: None,
+            #[cfg(feature = "perf-observability")]
+            query_recompute_started: BTreeMap::new(),
         }
     }
 
@@ -175,6 +213,8 @@ impl SemanticDb {
         }
         let old = self.query_states.get(key).cloned();
         self.transaction.as_mut().expect("transaction checked").query_states.insert(key.clone(), old);
+        #[cfg(feature = "perf-observability")]
+        record_semantic_db_counter(telos_observability::PerfCounter::SemanticDbUndoQueryStateEntries, 1);
     }
 
     fn remember_query_products(&mut self, key: &QueryKey) {
@@ -183,14 +223,22 @@ impl SemanticDb {
         }
         let old = self.products.get(key).cloned();
         self.transaction.as_mut().expect("transaction checked").products.insert(key.clone(), old);
+        #[cfg(feature = "perf-observability")]
+        record_semantic_db_counter(telos_observability::PerfCounter::SemanticDbUndoProductEntries, 1);
     }
 
     fn remember_last_known_good(&mut self, key: &QueryKey) {
-        if self.transaction.as_ref().is_none_or(|transaction| transaction.last_known_good.contains_key(key)) {
+        if self
+            .transaction
+            .as_ref()
+            .is_none_or(|transaction| transaction.last_known_good.contains_key(key))
+        {
             return;
         }
         let old = self.last_known_good.get(key).cloned();
         self.transaction.as_mut().expect("transaction checked").last_known_good.insert(key.clone(), old);
+        #[cfg(feature = "perf-observability")]
+        record_semantic_db_counter(telos_observability::PerfCounter::SemanticDbUndoLastKnownGoodEntries, 1);
     }
 
     fn remember_module_query_keys(&mut self, module: &ModuleId) {
@@ -207,6 +255,8 @@ impl SemanticDb {
             .expect("transaction checked")
             .query_keys_by_module
             .insert(module.clone(), old);
+        #[cfg(feature = "perf-observability")]
+        record_semantic_db_counter(telos_observability::PerfCounter::SemanticDbUndoModuleKeyEntries, 1);
     }
 
     pub fn begin_revision(&mut self) -> SemanticRevision {
@@ -239,6 +289,53 @@ impl SemanticDb {
 
     pub fn metrics(&self) -> &QueryMetrics {
         &self.metrics
+    }
+
+    fn record_query_event(&self, key: &QueryKey, event: QueryLifecycleEvent, duration_ns: Option<u64>) {
+        #[cfg(feature = "perf-observability")]
+        {
+            use telos_observability::{PerfAttribution, PerfContext, PerfQueryEvent, PerfScope};
+            let context = PerfContext::current_thread();
+            let context = if let Some(module) = query_key_module(key) {
+                context.with_attribution(PerfAttribution::module(PerfScope::Workspace, format!("{module:?}")))
+            } else {
+                context.with_attribution(PerfAttribution::entity(PerfScope::Workspace, None, format!("{key:?}")))
+            };
+            let event = match event {
+                QueryLifecycleEvent::Request => PerfQueryEvent::Request,
+                QueryLifecycleEvent::DirectReuse => PerfQueryEvent::DirectReuse,
+                QueryLifecycleEvent::RevalidatedReuse => PerfQueryEvent::RevalidatedReuse,
+                QueryLifecycleEvent::Recomputed => PerfQueryEvent::Recomputed,
+                QueryLifecycleEvent::Invalidated => PerfQueryEvent::Invalidated,
+                QueryLifecycleEvent::Blocked => PerfQueryEvent::Blocked,
+                QueryLifecycleEvent::Cancelled => PerfQueryEvent::Cancelled,
+                QueryLifecycleEvent::BudgetExceeded => PerfQueryEvent::BudgetExceeded,
+                QueryLifecycleEvent::Failed => PerfQueryEvent::Failed,
+            };
+            context.record_query_event(key.kind().as_str(), event, duration_ns);
+        }
+        #[cfg(not(feature = "perf-observability"))]
+        let _ = (key, event, duration_ns);
+    }
+
+    /// Marks the beginning of query computation after reuse validation failed.
+    pub(crate) fn record_query_recompute_start(&mut self, key: &QueryKey) {
+        #[cfg(feature = "perf-observability")]
+        self.query_recompute_started.insert(key.clone(), Instant::now());
+        #[cfg(not(feature = "perf-observability"))]
+        let _ = key;
+    }
+
+    fn record_query_recompute_finish(&mut self, key: &QueryKey, event: QueryLifecycleEvent) {
+        self.metrics.record_miss();
+        #[cfg(feature = "perf-observability")]
+        {
+            let started = self.query_recompute_started.remove(key);
+            let elapsed = started.map(|started| u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX));
+            self.record_query_event(key, event, elapsed);
+        }
+        #[cfg(not(feature = "perf-observability"))]
+        let _ = (key, event);
     }
 
     pub fn query_state(&self, key: &QueryKey) -> Option<&QueryState> {
@@ -276,6 +373,16 @@ impl SemanticDb {
     }
 
     pub fn set_state(&mut self, key: QueryKey, state: QueryState) {
+        let terminal_event = match &state {
+            QueryState::Blocked { .. } => Some(QueryLifecycleEvent::Blocked),
+            QueryState::Cancelled { .. } => Some(QueryLifecycleEvent::Cancelled),
+            QueryState::BudgetExceeded { .. } => Some(QueryLifecycleEvent::BudgetExceeded),
+            QueryState::Failed { .. } => Some(QueryLifecycleEvent::Failed),
+            _ => None,
+        };
+        if let Some(event) = terminal_event {
+            self.record_query_recompute_finish(&key, event);
+        }
         self.remember_query_state(&key);
         self.remember_query_products(&key);
         self.index_query_key(&key);
@@ -339,6 +446,8 @@ impl SemanticDb {
     /// This advances only the query's validation revision. The original
     /// computation revision and product fingerprint remain unchanged.
     pub fn validate_reuse(&mut self, key: &QueryKey, input_fingerprint: InputFingerprint) -> bool {
+        self.record_query_event(key, QueryLifecycleEvent::Request, None);
+        let was_current = self.query_states.get(key).and_then(QueryState::validated_revision) == Some(self.revision);
         if !self.is_reusable(key, input_fingerprint) {
             return false;
         }
@@ -350,12 +459,23 @@ impl SemanticDb {
         };
         *validated_revision = current_revision;
         self.revision_revalidated.insert(key.clone());
+        self.record_query_event(
+            key,
+            if was_current {
+                QueryLifecycleEvent::DirectReuse
+            } else {
+                QueryLifecycleEvent::RevalidatedReuse
+            },
+            None,
+        );
         true
     }
 
     /// Marks a ready product current after its exact dependencies have already
     /// been revalidated by the caller and confirmed matching observed fingerprints.
     pub fn validate_ready(&mut self, key: &QueryKey) -> bool {
+        self.record_query_event(key, QueryLifecycleEvent::Request, None);
+        let was_current = self.query_states.get(key).and_then(QueryState::validated_revision) == Some(self.revision);
         if let Some(deps) = self.index.dependencies_of(key) {
             for edge in deps {
                 let Some(dep_state) = self.query_states.get(&edge.dependency) else {
@@ -382,6 +502,15 @@ impl SemanticDb {
         };
         *validated_revision = current_revision;
         self.revision_revalidated.insert(key.clone());
+        self.record_query_event(
+            key,
+            if was_current {
+                QueryLifecycleEvent::DirectReuse
+            } else {
+                QueryLifecycleEvent::RevalidatedReuse
+            },
+            None,
+        );
         true
     }
 
@@ -443,7 +572,7 @@ impl SemanticDb {
             },
         );
         self.products.remove(&key);
-        self.metrics.record_hit();
+        self.record_query_recompute_finish(&key, QueryLifecycleEvent::Recomputed);
         self.revision_recomputed.insert(key);
         Ok(())
     }
@@ -466,6 +595,7 @@ impl SemanticDb {
         self.index.remove_dependencies(key);
         if had_state || had_product {
             self.metrics.record_invalidation();
+            self.record_query_event(key, QueryLifecycleEvent::Invalidated, None);
             true
         } else {
             false
@@ -521,6 +651,7 @@ impl SemanticDb {
             self.products.remove(key);
             self.index.remove_dependencies(key);
             self.metrics.record_invalidation();
+            self.record_query_event(key, QueryLifecycleEvent::Invalidated, None);
         }
         closure
     }
@@ -536,6 +667,7 @@ impl SemanticDb {
             self.products.remove(key);
             self.index.remove_dependencies(key);
             self.metrics.record_invalidation();
+            self.record_query_event(key, QueryLifecycleEvent::Invalidated, None);
         }
         roots
     }
@@ -554,6 +686,7 @@ impl SemanticDb {
             retired += usize::from(self.products.remove(dependent).is_some());
             self.index.remove_dependencies(dependent);
             self.metrics.record_invalidation();
+            self.record_query_event(dependent, QueryLifecycleEvent::Invalidated, None);
         }
         self.remember_query_state(key);
         self.remember_query_products(key);
@@ -561,6 +694,9 @@ impl SemanticDb {
         retired += usize::from(self.query_states.remove(key).is_some());
         retired += usize::from(self.products.remove(key).is_some());
         retired += usize::from(self.last_known_good.remove(key).is_some());
+        if retired > 0 {
+            self.record_query_event(key, QueryLifecycleEvent::Invalidated, None);
+        }
         if let Some(module) = query_key_module(key) {
             self.remember_module_query_keys(module);
             if let Some(module_keys) = self.query_keys_by_module.get_mut(module) {
@@ -598,6 +734,7 @@ impl SemanticDb {
             purged += usize::from(self.query_states.remove(key).is_some());
             purged += usize::from(self.products.remove(key).is_some());
             purged += usize::from(self.last_known_good.remove(key).is_some());
+            self.record_query_event(key, QueryLifecycleEvent::Invalidated, None);
         }
         self.remember_module_query_keys(module);
         self.query_keys_by_module.remove(module);
@@ -613,10 +750,7 @@ impl SemanticDb {
     }
 }
 
-fn restore_query_products(
-    current: &mut BTreeMap<QueryKey, Arc<SemanticProduct>>,
-    undo: BTreeMap<QueryKey, Option<Arc<SemanticProduct>>>,
-) {
+fn restore_query_products(current: &mut BTreeMap<QueryKey, Arc<SemanticProduct>>, undo: BTreeMap<QueryKey, Option<Arc<SemanticProduct>>>) {
     for (key, old) in undo {
         match old {
             Some(product) => {

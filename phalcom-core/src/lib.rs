@@ -38,3 +38,44 @@ pub use instrumentation::*;
 
 #[cfg(test)]
 mod tests {}
+
+/// Records a synchronous successful phase when observability is enabled.
+#[macro_export]
+macro_rules! perf_span {
+    ($phase:expr, $operation:expr $(,)?) => {{
+        #[cfg(feature = "perf-observability")]
+        {
+            ::telos_observability::PerfContext::current_thread().with_span($phase, |_| ($operation)())
+        }
+        #[cfg(not(feature = "perf-observability"))]
+        {
+            ($operation)()
+        }
+    }};
+}
+
+/// Records a fallible phase and the caller-selected outcome for errors.
+#[macro_export]
+macro_rules! perf_span_result {
+    ($phase:expr, $operation:expr, $classify_error:expr $(,)?) => {{
+        #[cfg(feature = "perf-observability")]
+        {
+            ::telos_observability::PerfContext::current_thread().with_span_result($phase, |_| ($operation)(), $classify_error)
+        }
+        #[cfg(not(feature = "perf-observability"))]
+        {
+            ($operation)()
+        }
+    }};
+}
+
+/// Adds to the run-scoped counter when the feature is enabled.
+#[macro_export]
+macro_rules! perf_counter {
+    ($counter:expr, $amount:expr $(,)?) => {{
+        #[cfg(feature = "perf-observability")]
+        {
+            ::telos_observability::PerfContext::current_thread().record_counter($counter, $amount as u64);
+        }
+    }};
+}

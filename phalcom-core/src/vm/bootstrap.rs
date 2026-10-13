@@ -53,88 +53,90 @@ impl VM {
     }
 
     fn new_kernel_with_output(output: Box<dyn RuntimeOutput>) -> Self {
-        let interner = crate::interner::Interner::with_capacity(100);
-        let mut heap = crate::heap::Heap::new();
-        let universe = Universe::new(&mut heap);
-        // The root fiber (ADR-0030 §1): already `Running`, no entry — its
-        // live state is `VM::frames`/`stack`/`open_upvalues` from the start,
-        // so this alloc is bookkeeping only, not a behavior change (D-FIB-4,
-        // Phase 1 is a pure refactor).
-        let current = heap.alloc(Object::Fiber(Box::new(crate::heap::FiberObject::root())));
+        crate::perf_span!(telos_observability::PerfPhase::VmKernel, || {
+            let interner = crate::interner::Interner::with_capacity(100);
+            let mut heap = crate::heap::Heap::new();
+            let universe = Universe::new(&mut heap);
+            // The root fiber (ADR-0030 §1): already `Running`, no entry — its
+            // live state is `VM::frames`/`stack`/`open_upvalues` from the start,
+            // so this alloc is bookkeeping only, not a behavior change (D-FIB-4,
+            // Phase 1 is a pure refactor).
+            let current = heap.alloc(Object::Fiber(Box::new(crate::heap::FiberObject::root())));
 
-        Self {
-            heap,
-            frames: Vec::with_capacity(256),
-            stack: Vec::with_capacity(1024),
-            control_stack: crate::vm::control::ControlStack::new(),
-            current,
-            root_fiber: current,
-            switch_pending: false,
-            native_reentry_depth: 0,
-            native_activation_depth: 0,
-            compiler_internal_dispatch_depth: 0,
-            native_method_contexts: Vec::new(),
-            native_reentry_owners: Vec::new(),
-            next_native_activation_id: 0,
-            interner,
-            reflection_cache: crate::modules::ReflectionCache::new(),
-            start_time: Instant::now(),
-            timezone_adapter: crate::timezone::TimeZoneAdapter::new(),
-            output,
-            module_registry: crate::modules::ModuleRegistry::new(),
-            typing_registry: crate::typing::RuntimeTypingRegistry::new(),
-            pending_metadata_pool: None,
-            pending_metadata_project_universe: None,
-            runtime_type_environments: crate::typing::RuntimeTypeEnvironmentRegistry::new(),
-            runtime_conformance_environments: crate::typing::RuntimeConformanceEnvironmentRegistry::new(),
-            detached_method_objects: HashMap::new(),
-            runtime_typing_context: crate::typing::TypingContextData::new(Box::new([])),
-            runtime_roots: None,
-            universe_bootstrap_measurement: crate::vm::UniverseBootstrapMeasurement::default(),
-            #[cfg(any(test, feature = "test-timings"))]
-            bootstrap_timing: crate::instrumentation::VmBootstrapTiming::default(),
-            privileged_modules: std::collections::HashSet::new(),
-            semantic_roots: None,
-            classes: HashMap::new(),
-            kernel_class_names: std::collections::HashSet::new(),
-            prelude_bindings: HashMap::new(),
-            prelude_variant_bindings: HashMap::new(),
-            universe,
-            next_frame_generation: 0,
-            // The root fiber's `seq` is hardcoded to 1 (`FiberObject::root`); the
-            // first spawned fiber gets 2 (traceback implementation spec §6).
-            next_fiber_seq: 2,
-            world_version: 0,
-            open_upvalues: BTreeMap::new(),
-            ready_queue: std::collections::VecDeque::new(),
-            scheduler_drivers: Vec::new(),
-            unhandled_scheduler_failures: std::collections::VecDeque::new(),
-            next_scheduler_failure_seq: 0,
-            temp_roots: Vec::new(),
-            field_layouts: HashMap::new(),
-            class_parents: HashMap::new(),
-            sealed_classes: HashMap::new(),
-            checking: std::collections::HashSet::new(),
-            compile_mode: crate::compiler::attributes::CompileMode::Debug,
-            strip_contract_metadata: false,
-            unit_kind: crate::compiler::lib::UnitKind::File,
-            product_optimization_mode: crate::compiler::lib::product_opt::ProductOptimizationMode::Enabled,
-            trace_core: false,
-            trace_format_json: false,
-            trace_fibers: false,
-            resources: crate::resource::ResourceTable::new(),
-            strict_resources: false,
-            reactor: crate::reactor::Reactor::default(),
-            max_byte_buffer_len: 64 * 1024 * 1024,
-            numeric_policy: crate::value::NumericPolicy::standard(),
-            adt_registry: crate::adt::RuntimeAdtRegistry::new(),
-            data_registry: crate::data::RuntimeDataRegistry::new(),
-            product_shapes: crate::product::ProductShapeRegistry::new(),
-            anonymous_product_descriptors: crate::product::RuntimeAnonymousProductDescriptorRegistry::new(),
+            Self {
+                heap,
+                frames: Vec::with_capacity(256),
+                stack: Vec::with_capacity(1024),
+                control_stack: crate::vm::control::ControlStack::new(),
+                current,
+                root_fiber: current,
+                switch_pending: false,
+                native_reentry_depth: 0,
+                native_activation_depth: 0,
+                compiler_internal_dispatch_depth: 0,
+                native_method_contexts: Vec::new(),
+                native_reentry_owners: Vec::new(),
+                next_native_activation_id: 0,
+                interner,
+                reflection_cache: crate::modules::ReflectionCache::new(),
+                start_time: Instant::now(),
+                timezone_adapter: crate::timezone::TimeZoneAdapter::new(),
+                output,
+                module_registry: crate::modules::ModuleRegistry::new(),
+                typing_registry: crate::typing::RuntimeTypingRegistry::new(),
+                pending_metadata_pool: None,
+                pending_metadata_project_universe: None,
+                runtime_type_environments: crate::typing::RuntimeTypeEnvironmentRegistry::new(),
+                runtime_conformance_environments: crate::typing::RuntimeConformanceEnvironmentRegistry::new(),
+                detached_method_objects: HashMap::new(),
+                runtime_typing_context: crate::typing::TypingContextData::new(Box::new([])),
+                runtime_roots: None,
+                universe_bootstrap_measurement: crate::vm::UniverseBootstrapMeasurement::default(),
+                #[cfg(any(test, feature = "test-timings"))]
+                bootstrap_timing: crate::instrumentation::VmBootstrapTiming::default(),
+                privileged_modules: std::collections::HashSet::new(),
+                semantic_roots: None,
+                classes: HashMap::new(),
+                kernel_class_names: std::collections::HashSet::new(),
+                prelude_bindings: HashMap::new(),
+                prelude_variant_bindings: HashMap::new(),
+                universe,
+                next_frame_generation: 0,
+                // The root fiber's `seq` is hardcoded to 1 (`FiberObject::root`); the
+                // first spawned fiber gets 2 (traceback implementation spec §6).
+                next_fiber_seq: 2,
+                world_version: 0,
+                open_upvalues: BTreeMap::new(),
+                ready_queue: std::collections::VecDeque::new(),
+                scheduler_drivers: Vec::new(),
+                unhandled_scheduler_failures: std::collections::VecDeque::new(),
+                next_scheduler_failure_seq: 0,
+                temp_roots: Vec::new(),
+                field_layouts: HashMap::new(),
+                class_parents: HashMap::new(),
+                sealed_classes: HashMap::new(),
+                checking: std::collections::HashSet::new(),
+                compile_mode: crate::compiler::attributes::CompileMode::Debug,
+                strip_contract_metadata: false,
+                unit_kind: crate::compiler::lib::UnitKind::File,
+                product_optimization_mode: crate::compiler::lib::product_opt::ProductOptimizationMode::Enabled,
+                trace_core: false,
+                trace_format_json: false,
+                trace_fibers: false,
+                resources: crate::resource::ResourceTable::new(),
+                strict_resources: false,
+                reactor: crate::reactor::Reactor::default(),
+                max_byte_buffer_len: 64 * 1024 * 1024,
+                numeric_policy: crate::value::NumericPolicy::standard(),
+                adt_registry: crate::adt::RuntimeAdtRegistry::new(),
+                data_registry: crate::data::RuntimeDataRegistry::new(),
+                product_shapes: crate::product::ProductShapeRegistry::new(),
+                anonymous_product_descriptors: crate::product::RuntimeAnonymousProductDescriptorRegistry::new(),
 
-            #[cfg(feature = "fiber-pool")]
-            fiber_pool: Vec::new(),
-        }
+                #[cfg(feature = "fiber-pool")]
+                fiber_pool: Vec::new(),
+            }
+        })
     }
 
     /// Creates a fresh VM with the native runtime floor, without executing
@@ -160,9 +162,15 @@ impl VM {
         native_install_mode: NativeInstallMode,
         output: Box<dyn RuntimeOutput>,
     ) -> Result<Self, crate::error::VmBootstrapError> {
-        let mut vm = Self::new_kernel_with_output(output);
-        Self::install_native_runtime(&mut vm, native_install_mode)?;
-        Ok(vm)
+        crate::perf_span_result!(
+            telos_observability::PerfPhase::VmNative,
+            || {
+                let mut vm = Self::new_kernel_with_output(output);
+                Self::install_native_runtime(&mut vm, native_install_mode)?;
+                Ok(vm)
+            },
+            |_| telos_observability::PerfOutcome::BootstrapError,
+        )
     }
 
     /// Creates a VM with an explicit native installation path.
@@ -174,112 +182,120 @@ impl VM {
         native_install_mode: NativeInstallMode,
         output: Box<dyn RuntimeOutput>,
     ) -> Result<Self, crate::error::VmBootstrapError> {
-        #[cfg(any(test, feature = "test-timings"))]
-        crate::instrumentation::record_full_vm_bootstrap();
-        #[cfg(any(test, feature = "test-timings"))]
-        let canonical_started = Instant::now();
-        // Canonical source/native verification, linking, semantic analysis, and
-        // lowering are process-shared. Runtime installation remains fresh.
-        trace_semantic_bootstrap!("canonical universe start");
-        let canonical = crate::modules::canonical_universe_program().map_err(|error| crate::error::VmBootstrapError::CanonicalUniverse(error.to_string()))?;
-        trace_semantic_bootstrap!("canonical universe complete");
-        #[cfg(any(test, feature = "test-timings"))]
-        let canonical_universe_product = canonical_started.elapsed();
-        #[cfg(any(test, feature = "test-timings"))]
-        let kernel_native_started = Instant::now();
-        let mut vm = Self::try_new_native_with_native_install_mode_and_output(native_install_mode, output)?;
-        trace_semantic_bootstrap!("native runtime complete");
-        #[cfg(any(test, feature = "test-timings"))]
-        {
-            vm.bootstrap_timing.canonical_universe_product = canonical_universe_product;
-            vm.bootstrap_timing.kernel_native = kernel_native_started.elapsed();
-        }
+        crate::perf_span_result!(
+            telos_observability::PerfPhase::VmBootstrap,
+            || {
+                #[cfg(any(test, feature = "test-timings"))]
+                crate::instrumentation::record_full_vm_bootstrap();
+                #[cfg(any(test, feature = "test-timings"))]
+                let canonical_started = Instant::now();
+                // Canonical source/native verification, linking, semantic analysis, and
+                // lowering are process-shared. Runtime installation remains fresh.
+                trace_semantic_bootstrap!("canonical universe start");
+                let canonical =
+                    crate::modules::canonical_universe_program().map_err(|error| crate::error::VmBootstrapError::CanonicalUniverse(error.to_string()))?;
+                trace_semantic_bootstrap!("canonical universe complete");
+                #[cfg(any(test, feature = "test-timings"))]
+                let canonical_universe_product = canonical_started.elapsed();
+                #[cfg(any(test, feature = "test-timings"))]
+                let kernel_native_started = Instant::now();
+                let mut vm = Self::try_new_native_with_native_install_mode_and_output(native_install_mode, output)?;
+                trace_semantic_bootstrap!("native runtime complete");
+                #[cfg(any(test, feature = "test-timings"))]
+                {
+                    vm.bootstrap_timing.canonical_universe_product = canonical_universe_product;
+                    vm.bootstrap_timing.kernel_native = kernel_native_started.elapsed();
+                }
 
-        // Source-authored Universe classes are referenced by other canonical
-        // modules while the source bootstrap is still being compiled. Reserve
-        // their real module slots before compiling any initializer so those
-        // references can use linked reads just like native Universe bindings.
-        trace_semantic_bootstrap!("source bindings start");
-        vm.prepare_universe_source_bindings(canonical)?;
-        trace_semantic_bootstrap!("source bindings complete");
-        vm.prepare_universe_static_constants(canonical)?;
-        trace_semantic_bootstrap!("static constants complete");
-        crate::native::install::refresh_registered_primitive_origins(&mut vm, canonical.source_index()).map_err(crate::error::VmBootstrapError::Runtime)?;
-        trace_semantic_bootstrap!("primitive origins complete");
-        if let Some(metadata_bundle) = canonical.program().semantic_metadata.clone() {
-            vm.install_semantic_metadata_bundle(metadata_bundle)
-                .map_err(crate::error::VmBootstrapError::Runtime)?;
-        }
-        trace_semantic_bootstrap!("metadata complete");
+                // Source-authored Universe classes are referenced by other canonical
+                // modules while the source bootstrap is still being compiled. Reserve
+                // their real module slots before compiling any initializer so those
+                // references can use linked reads just like native Universe bindings.
+                trace_semantic_bootstrap!("source bindings start");
+                vm.prepare_universe_source_bindings(canonical)?;
+                trace_semantic_bootstrap!("source bindings complete");
+                vm.prepare_universe_static_constants(canonical)?;
+                trace_semantic_bootstrap!("static constants complete");
+                crate::native::install::refresh_registered_primitive_origins(&mut vm, canonical.source_index())
+                    .map_err(crate::error::VmBootstrapError::Runtime)?;
+                trace_semantic_bootstrap!("primitive origins complete");
+                if let Some(metadata_bundle) = canonical.program().semantic_metadata.clone() {
+                    vm.install_semantic_metadata_bundle(metadata_bundle)
+                        .map_err(crate::error::VmBootstrapError::Runtime)?;
+                }
+                trace_semantic_bootstrap!("metadata complete");
 
-        // Compile and run the registered universe modules now that every native
-        // primitive is installed: this is what actually attaches each
-        // universe submodule's class-reopen (`List`, `Option`, `Some`, `System`,
-        // …) to its bootstrapped kernel row. Must run after
-        // `install_primitives` so a reopen can call the primitives it wraps
-        // (e.g. `List.at(_:)` calling `at_(_:)`).
-        trace_semantic_bootstrap!("source module execution start");
-        vm.run_universe_modules(canonical).map_err(crate::error::VmBootstrapError::Runtime)?;
-        trace_semantic_bootstrap!("source module execution complete");
-        crate::native::install::install_source_owned_primitives(&mut vm, canonical.source_index()).map_err(crate::error::VmBootstrapError::Runtime)?;
-        trace_semantic_bootstrap!("source primitives complete");
-        vm.bind_native_error_constructors();
-        vm.bind_canonical_variant_aliases()?;
-        vm.sync_universe_class_aliases()?;
-        trace_semantic_bootstrap!("aliases complete");
+                // Compile and run the registered universe modules now that every native
+                // primitive is installed: this is what actually attaches each
+                // universe submodule's class-reopen (`List`, `Option`, `Some`, `System`,
+                // …) to its bootstrapped kernel row. Must run after
+                // `install_primitives` so a reopen can call the primitives it wraps
+                // (e.g. `List.at(_:)` calling `at_(_:)`).
+                trace_semantic_bootstrap!("source module execution start");
+                vm.run_universe_modules(canonical).map_err(crate::error::VmBootstrapError::Runtime)?;
+                trace_semantic_bootstrap!("source module execution complete");
+                crate::native::install::install_source_owned_primitives(&mut vm, canonical.source_index()).map_err(crate::error::VmBootstrapError::Runtime)?;
+                trace_semantic_bootstrap!("source primitives complete");
+                vm.bind_native_error_constructors();
+                vm.bind_canonical_variant_aliases()?;
+                vm.sync_universe_class_aliases()?;
+                trace_semantic_bootstrap!("aliases complete");
 
-        // Semantic roots are late-bound to the exact values exported by the
-        // universe sources. No Rust replacement is valid for these identities.
-        {
-            let unsupported = vm
-                .universe_global(&["errors", "unsupported"], "unsupported")
-                .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export canonical unsupported".into()))?;
-            let ellipsis = vm
-                .universe_global(&["object", "ellipsis"], "ellipsis")
-                .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export canonical ellipsis".into()))?;
-            let ordering = vm
-                .universe_global(&["object", "ordering"], "Ordering")
-                .and_then(|value| value.as_obj())
-                .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export Ordering class".into()))?;
-            vm.semantic_roots = Some(crate::vm::SemanticRoots {
-                unsupported,
-                ellipsis,
-                ordering_class: ordering,
-            });
-        }
+                // Semantic roots are late-bound to the exact values exported by the
+                // universe sources. No Rust replacement is valid for these identities.
+                {
+                    let unsupported = vm
+                        .universe_global(&["errors", "unsupported"], "unsupported")
+                        .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export canonical unsupported".into()))?;
+                    let ellipsis = vm
+                        .universe_global(&["object", "ellipsis"], "ellipsis")
+                        .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export canonical ellipsis".into()))?;
+                    let ordering = vm
+                        .universe_global(&["object", "ordering"], "Ordering")
+                        .and_then(|value| value.as_obj())
+                        .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export Ordering class".into()))?;
+                    vm.semantic_roots = Some(crate::vm::SemanticRoots {
+                        unsupported,
+                        ellipsis,
+                        ordering_class: ordering,
+                    });
+                }
 
-        // Snapshot the leaf `toString` override-epoch flags now that
-        // universe reopens (e.g. `String`'s `toString => self`) have
-        // already run and legitimately flipped some of them — see
-        // `Universe::mark_leaf_tostring_pristine`'s doc for why this must
-        // happen exactly here (after bootstrap, before any user code) and
-        // not in `Universe::new`.
-        vm.universe.mark_leaf_tostring_pristine();
+                // Snapshot the leaf `toString` override-epoch flags now that
+                // universe reopens (e.g. `String`'s `toString => self`) have
+                // already run and legitimately flipped some of them — see
+                // `Universe::mark_leaf_tostring_pristine`'s doc for why this must
+                // happen exactly here (after bootstrap, before any user code) and
+                // not in `Universe::new`.
+                vm.universe.mark_leaf_tostring_pristine();
 
-        // R-INV-0.3 (global half) — the `None` **global** resolves to the immediate
-        // value, not the `None` class object (ADR-0007/0010). This
-        // half needs the Universe module globals table, so it lives here rather
-        // than in `verify_invariants`, which is heap-structural (`&Heap` only) and
-        // cannot read module globals (U-CORE-1 spec SD-1).
-        {
-            let none_value = vm
-                .universe_global(&["option", "option"], "None")
-                .ok_or_else(|| crate::error::VmBootstrapError::Invariant("None global must be bound by canonical Option module".into()))?;
-            if none_value != Value::none() {
-                return Err(crate::error::VmBootstrapError::Invariant(
-                    "None global must resolve to immediate absence".into(),
-                ));
-            }
-            if none_value == Value::obj(vm.universe.classes.none_class) {
-                return Err(crate::error::VmBootstrapError::Invariant(
-                    "None global must not resolve to the None class object".into(),
-                ));
-            }
-        }
+                // R-INV-0.3 (global half) — the `None` **global** resolves to the immediate
+                // value, not the `None` class object (ADR-0007/0010). This
+                // half needs the Universe module globals table, so it lives here rather
+                // than in `verify_invariants`, which is heap-structural (`&Heap` only) and
+                // cannot read module globals (U-CORE-1 spec SD-1).
+                {
+                    let none_value = vm
+                        .universe_global(&["option", "option"], "None")
+                        .ok_or_else(|| crate::error::VmBootstrapError::Invariant("None global must be bound by canonical Option module".into()))?;
+                    if none_value != Value::none() {
+                        return Err(crate::error::VmBootstrapError::Invariant(
+                            "None global must resolve to immediate absence".into(),
+                        ));
+                    }
+                    if none_value == Value::obj(vm.universe.classes.none_class) {
+                        return Err(crate::error::VmBootstrapError::Invariant(
+                            "None global must not resolve to the None class object".into(),
+                        ));
+                    }
+                }
 
-        vm.universe.verify_invariants(&vm.heap).map_err(crate::error::VmBootstrapError::Invariant)?;
+                vm.universe.verify_invariants(&vm.heap).map_err(crate::error::VmBootstrapError::Invariant)?;
 
-        Ok(vm)
+                Ok(vm)
+            },
+            |_| telos_observability::PerfOutcome::BootstrapError,
+        )
     }
 
     /// Prepares canonical slots for source-only classes before the Universe
@@ -486,6 +502,7 @@ impl VM {
     ///
     /// Returns any [`crate::error::PhError`] raised while compiling or executing universe modules.
     fn run_universe_modules(&mut self, canonical: &crate::modules::CanonicalUniverseProgram) -> PhResult<()> {
+        crate::perf_counter!(telos_observability::PerfCounter::BootstrapModules, canonical.bootstrap_order().len());
         self.universe_bootstrap_measurement = crate::vm::UniverseBootstrapMeasurement {
             discovered_units: canonical.source_index().units.len(),
             root_reachable_units: canonical.root_reachable().len(),
@@ -495,7 +512,12 @@ impl VM {
             trace_semantic_bootstrap!("module compile start {id}");
             #[cfg(any(test, feature = "test-timings"))]
             let compile_started = Instant::now();
-            let closure = self.compile_universe_module(canonical, id)?;
+            let closure = crate::perf_span_result!(
+                telos_observability::PerfPhase::UniverseVmCompilation,
+                || self.compile_universe_module(canonical, id),
+                |_| telos_observability::PerfOutcome::BootstrapError,
+            )?;
+            crate::perf_counter!(telos_observability::PerfCounter::UniverseModuleCompilations, 1);
             trace_semantic_bootstrap!("module compile complete {id}");
             #[cfg(any(test, feature = "test-timings"))]
             {
@@ -515,7 +537,12 @@ impl VM {
             #[cfg(any(test, feature = "test-timings"))]
             let initializer_started = Instant::now();
             trace_semantic_bootstrap!("module initializer start {id}");
-            self.run_in_module(module, closure)?;
+            crate::perf_span_result!(
+                telos_observability::PerfPhase::UniverseInitializerExecution,
+                || self.run_in_module(module, closure),
+                |_| telos_observability::PerfOutcome::BootstrapError,
+            )?;
+            crate::perf_counter!(telos_observability::PerfCounter::UniverseInitializerExecutions, 1);
             trace_semantic_bootstrap!("module initializer complete {id}");
             #[cfg(any(test, feature = "test-timings"))]
             {

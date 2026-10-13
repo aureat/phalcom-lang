@@ -44,6 +44,26 @@ pub fn load_run(workspace_root: &Path, run_ref: &str) -> Result<BenchmarkRun, St
     BenchmarkRun::from_json_str(&content)
 }
 
+/// Attach a validated compiler profile beside the process-level sample it
+/// describes. The run record stays schema-compatible; the sidecar is optional.
+#[cfg(feature = "perf-observability")]
+pub fn save_internal_profile(workspace_root: &Path, run_id: &str, profile_json: &str) -> Result<PathBuf, String> {
+    let run = load_run(workspace_root, run_id)?;
+    let run_dir = workspace_root.join("target/perf/runs").join(run.run_id);
+    fs::create_dir_all(&run_dir).map_err(|e| e.to_string())?;
+    let path = run_dir.join("internal-profile.json");
+    fs::write(&path, profile_json).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+#[cfg(feature = "perf-observability")]
+pub fn load_internal_profile(workspace_root: &Path, run_ref: &str) -> Result<(BenchmarkRun, String), String> {
+    let run = load_run(workspace_root, run_ref)?;
+    let path = workspace_root.join("target/perf/runs").join(&run.run_id).join("internal-profile.json");
+    let content = fs::read_to_string(&path).map_err(|e| format!("no internal profile attached to run '{}': {e}", run.run_id))?;
+    Ok((run, content))
+}
+
 fn resolve_run_path(workspace_root: &Path, run_ref: &str) -> Result<PathBuf, String> {
     if run_ref == "latest" {
         return find_latest_run(workspace_root);

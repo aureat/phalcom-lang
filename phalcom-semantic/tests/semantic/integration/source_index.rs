@@ -10,9 +10,9 @@ use phalcom_semantic::source_index::{resolve_type_member_projection_targets, res
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
 use phalcom_semantic::{
-    FormalFactRef, FormalSemanticProjection, ModuleId, OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, SemanticOccurrence, SemanticRevision, SemanticTargetId,
-    SnapshotId, SourceBindingKind, SourceCallableKind, SourceIndexContext, SourceNameResolution, SourceReceiverKind, SourceSemanticIndex, TypeStoreId,
-    WorkspaceId, build_source_scope_index,
+    FormalFactRef, FormalSemanticProjection, ModuleId, OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, SemanticOccurrence, SemanticRevision,
+    SemanticTargetId, SnapshotId, SourceBindingKind, SourceCallableKind, SourceIndexContext, SourceNameResolution, SourceReceiverKind, SourceSemanticIndex,
+    TypeStoreId, WorkspaceId, build_source_scope_index,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -56,21 +56,28 @@ fn plain_while_uses_lexical_body_scope_without_fake_selector_occurrence() {
     let body_binding = scopes
         .binding_for_declaration((body_start..body_start + "bodyLocal".len()).into())
         .expect("indexed while-body binding");
-    assert!(scopes
-        .visible_bindings_at(body_start)
-        .iter()
-        .any(|binding| binding.declaration_site == body_binding.declaration_site));
+    assert!(
+        scopes
+            .visible_bindings_at(body_start)
+            .iter()
+            .any(|binding| binding.declaration_site == body_binding.declaration_site)
+    );
 
     let after_start = source.find("after").expect("outer binding after loop");
-    assert!(scopes
-        .visible_bindings_at(after_start)
-        .iter()
-        .all(|binding| binding.name.as_ref() != "bodyLocal"));
+    assert!(
+        scopes
+            .visible_bindings_at(after_start)
+            .iter()
+            .all(|binding| binding.name.as_ref() != "bodyLocal")
+    );
 
     let occurrences = OccurrenceIndex::from_program_with_context(&mut scopes, &parsed.program, None);
-    assert!(occurrences.all().iter().all(|occurrence| {
-        !matches!(&occurrence.hint, Some(OccurrenceHint::Name(name)) if name.as_ref() == "whileTrue")
-    }));
+    assert!(
+        occurrences
+            .all()
+            .iter()
+            .all(|occurrence| { !matches!(&occurrence.hint, Some(OccurrenceHint::Name(name)) if name.as_ref() == "whileTrue") })
+    );
 }
 
 #[test]

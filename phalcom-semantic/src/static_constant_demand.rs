@@ -411,9 +411,11 @@ impl StaticConstantDemandDriver<'_> {
                 id.module(),
             );
             let diagnostic_start = context.diagnostics.len();
-            let expected = if let Some(annotation) = binding.annotation.as_ref().filter(|annotation| {
-                crate::checker::annotation_elaboration::annotation_contains_inference_hole(annotation)
-            }) {
+            let expected = if let Some(annotation) = binding
+                .annotation
+                .as_ref()
+                .filter(|annotation| crate::checker::annotation_elaboration::annotation_contains_inference_hole(annotation))
+            {
                 let (elaboration, _) = context.elaborate_type_annotation(self.resolver, annotation);
                 match elaboration {
                     Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context: inf_ctx, term, .. }) => {

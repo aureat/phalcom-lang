@@ -2,7 +2,13 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Operational metrics and counters for query execution.
+/// Compatibility counters for query execution.
+///
+/// `hits` counts successful cached product retrievals at query call sites.
+/// `misses` counts completed query recomputations, including terminal failed,
+/// blocked, cancelled, or budget-exhausted attempts. Detailed per-kind lifecycle data
+/// belongs to `telos-observability`; these aggregate counters remain available
+/// to existing callers.
 #[derive(Debug, Default)]
 pub struct QueryMetrics {
     pub hits: AtomicU64,

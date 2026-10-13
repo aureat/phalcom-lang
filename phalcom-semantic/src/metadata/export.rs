@@ -49,6 +49,13 @@ use phalcom_type_meta::type_node::{
 };
 use std::collections::{BTreeMap, HashMap};
 
+macro_rules! metadata_perf_counter {
+    ($counter:expr, $amount:expr $(,)?) => {{
+        #[cfg(feature = "perf-observability")]
+        telos_observability::PerfContext::current_thread().record_counter($counter, $amount as u64);
+    }};
+}
+
 type GenericSignatureKey = (TypeParameterOwner, Box<[TypeParameterId]>, Box<[GenericConstraint]>);
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -1554,6 +1561,7 @@ impl<'a> MetadataExporter<'a> {
     }
 
     pub fn export_type_form(&mut self, ty: TypeId) -> Result<TypeNodeId, MetadataExportError> {
+        metadata_perf_counter!(telos_observability::PerfCounter::MetadataTypeExportRequests, 1);
         if ty.index() >= self.store.type_count() {
             return Err(MetadataExportError::NonExportableForm(ty));
         }
@@ -1876,6 +1884,7 @@ impl<'a> MetadataExporter<'a> {
         };
 
         if let Some(&id) = self.type_map.get(&form) {
+            metadata_perf_counter!(telos_observability::PerfCounter::MetadataTypeExportReuse, 1);
             return Ok(id);
         }
 
@@ -2201,6 +2210,7 @@ impl<'a> MetadataExporter<'a> {
             form: form.clone(),
             structural_fingerprint,
         });
+        metadata_perf_counter!(telos_observability::PerfCounter::MetadataUniqueTypeNodes, 1);
         self.type_map.insert(form, id);
         Ok(id)
     }
@@ -2218,6 +2228,7 @@ impl<'a> MetadataExporter<'a> {
                     },
                 });
                 if let Some(&id) = self.type_map.get(&self_node) {
+                    metadata_perf_counter!(telos_observability::PerfCounter::MetadataTypeExportReuse, 1);
                     return Ok(id);
                 }
                 let kind_id = self.export_kind(self.store.kind_of(self.store.unit()))?;
@@ -2245,6 +2256,7 @@ impl<'a> MetadataExporter<'a> {
                     form: self_node.clone(),
                     structural_fingerprint,
                 });
+                metadata_perf_counter!(telos_observability::PerfCounter::MetadataUniqueTypeNodes, 1);
                 self.type_map.insert(self_node, id);
                 Ok(id)
             }
@@ -2263,9 +2275,11 @@ impl<'a> MetadataExporter<'a> {
     }
 
     pub fn export_generic_signature(&mut self, sig: &GenericSignature) -> Result<GenericSignatureRecordId, MetadataExportError> {
+        metadata_perf_counter!(telos_observability::PerfCounter::MetadataGenericSignatureExportRequests, 1);
         sig.validate_publishable(self.store).map_err(MetadataExportError::InvalidGenericSignature)?;
         let key = (sig.owner.clone(), sig.parameters.clone(), sig.constraints.clone());
         if let Some(&id) = self.sig_map.get(&key) {
+            metadata_perf_counter!(telos_observability::PerfCounter::MetadataGenericSignatureExportReuse, 1);
             return Ok(id);
         }
 
@@ -2317,6 +2331,7 @@ impl<'a> MetadataExporter<'a> {
             parameters: param_refs.into_boxed_slice(),
             constraints: constraint_refs.into_boxed_slice(),
         });
+        metadata_perf_counter!(telos_observability::PerfCounter::MetadataUniqueGenericSignatures, 1);
         self.sig_map.insert(key, id);
         Ok(id)
     }
@@ -2362,6 +2377,8 @@ impl<'a> MetadataExporter<'a> {
     }
 
     pub fn build_bundle(mut self, runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)]) -> Result<SemanticMetadataBundle, MetadataExportError> {
+        #[cfg(feature = "perf-observability")]
+        let metadata_total_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExport);
         let mut out_declarations = Vec::new();
         let mut out_aliases = Vec::new();
         let mut out_callables = Vec::new();
@@ -2382,6 +2399,9 @@ impl<'a> MetadataExporter<'a> {
             }
             Ok(())
         };
+        #[cfg(feature = "perf-observability")]
+        let identity_validation_span = telos_observability::PerfContext::current_thread()
+            .span(telos_observability::PerfPhase::MetadataExportProjectIdentityValidation);
         if let Some(declarations) = self.declarations {
             for declaration in declarations.iter().map(|(id, _)| id) {
                 require_project(&declaration.module.project)?;
@@ -2405,7 +2425,13 @@ impl<'a> MetadataExporter<'a> {
         for (module, _, _) in runtime_roots {
             require_project(&module.project)?;
         }
+        #[cfg(feature = "perf-observability")]
+        identity_validation_span.finish(telos_observability::PerfOutcome::Success);
 
+        #[cfg(feature = "perf-observability")]
+        let declarations_span =
+            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportDeclarations);
+        let mut callable_owner_comparisons = 0u64;
         if let Some(decls) = self.declarations {
             for (decl_id, info) in decls.iter() {
                 let form_id = self.export_type_form(info.form)?;
@@ -2424,6 +2450,7 @@ impl<'a> MetadataExporter<'a> {
                 let mut class_callables = Vec::new();
                 if let Some(callables) = self.callables {
                     for (callable, _) in callables.iter() {
+                        callable_owner_comparisons = callable_owner_comparisons.saturating_add(1);
                         if !matches!(&callable.owner, CallableOwnerId::Declaration(owner) if owner == decl_id) {
                             continue;
                         }
@@ -2453,7 +2480,14 @@ impl<'a> MetadataExporter<'a> {
                 });
             }
         }
+        metadata_perf_counter!(telos_observability::PerfCounter::MetadataDeclarationsExported, out_declarations.len());
+        metadata_perf_counter!(telos_observability::PerfCounter::MetadataCallableOwnerComparisons, callable_owner_comparisons);
+        let _ = callable_owner_comparisons;
+        #[cfg(feature = "perf-observability")]
+        declarations_span.finish(telos_observability::PerfOutcome::Success);
 
+        #[cfg(feature = "perf-observability")]
+        let aliases_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportAliases);
         if let Some(aliases) = self.aliases {
             for (decl_id, info) in aliases.iter() {
                 let target = self.export_type_form(info.form)?;
@@ -2473,7 +2507,13 @@ impl<'a> MetadataExporter<'a> {
                 });
             }
         }
+        metadata_perf_counter!(telos_observability::PerfCounter::MetadataAliasesExported, out_aliases.len());
+        #[cfg(feature = "perf-observability")]
+        aliases_span.finish(telos_observability::PerfOutcome::Success);
 
+        #[cfg(feature = "perf-observability")]
+        let callables_span =
+            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportCallables);
         if let Some(call_table) = self.callables {
             for (call_id, sig) in call_table.iter() {
                 let sig_id = if let Some(ref g) = sig.generics {
@@ -2517,7 +2557,12 @@ impl<'a> MetadataExporter<'a> {
                 });
             }
         }
+        metadata_perf_counter!(telos_observability::PerfCounter::MetadataCallablesExported, out_callables.len());
+        #[cfg(feature = "perf-observability")]
+        callables_span.finish(telos_observability::PerfOutcome::Success);
 
+        #[cfg(feature = "perf-observability")]
+        let fields_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportFields);
         if let Some(field_table) = self.fields {
             for (field_id, sig) in field_table.iter() {
                 let ty_slot = self.export_declared_type_fact(&sig.declared_type);
@@ -2532,7 +2577,13 @@ impl<'a> MetadataExporter<'a> {
                 });
             }
         }
+        metadata_perf_counter!(telos_observability::PerfCounter::MetadataFieldsExported, out_fields.len());
+        #[cfg(feature = "perf-observability")]
+        fields_span.finish(telos_observability::PerfOutcome::Success);
 
+        #[cfg(feature = "perf-observability")]
+        let runtime_roots_span =
+            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportRuntimeRoots);
         for &(mod_id, key, ty) in runtime_roots {
             let form_id = self.export_type_form(ty)?;
             out_roots.push(RuntimeTypeFormRoot {
@@ -2541,9 +2592,20 @@ impl<'a> MetadataExporter<'a> {
                 form: form_id,
             });
         }
+        metadata_perf_counter!(telos_observability::PerfCounter::MetadataRuntimeRootsExported, out_roots.len());
+        #[cfg(feature = "perf-observability")]
+        runtime_roots_span.finish(telos_observability::PerfOutcome::Success);
 
+        #[cfg(feature = "perf-observability")]
+        let static_domains_span =
+            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportStaticDomains);
         let static_domain_catalog = self.export_static_domain_catalog()?;
+        #[cfg(feature = "perf-observability")]
+        static_domains_span.finish(telos_observability::PerfOutcome::Success);
 
+        #[cfg(feature = "perf-observability")]
+        let fingerprints_span =
+            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportFingerprints);
         self.parameters.sort_by(|left, right| left.id.cmp(&right.id));
         let mut algebraic_declarations = out_declarations.iter().filter(|record| record.algebraic.is_some()).collect::<Vec<_>>();
         algebraic_declarations.sort_by(|left, right| left.declaration.cmp(&right.declaration));
@@ -2638,6 +2700,8 @@ impl<'a> MetadataExporter<'a> {
             }
         }
         let interface_fingerprint = interface_builder.finish();
+        #[cfg(feature = "perf-observability")]
+        fingerprints_span.finish(telos_observability::PerfOutcome::Success);
         let header = SemanticMetadataHeader {
             schema_version: TYPE_METADATA_SCHEMA_VERSION,
             semantic_model_version: SEMANTIC_MODEL_VERSION,
@@ -2658,7 +2722,7 @@ impl<'a> MetadataExporter<'a> {
             interface_fingerprint,
         };
 
-        Ok(SemanticMetadataBundle {
+        let bundle = SemanticMetadataBundle {
             header,
             kinds: self.kinds.into_boxed_slice(),
             types: self.types.into_boxed_slice(),
@@ -2674,6 +2738,9 @@ impl<'a> MetadataExporter<'a> {
             runtime_roots: out_roots.into_boxed_slice(),
             occurrences: Box::new([]),
             extensions: Box::new([]),
-        })
+        };
+        #[cfg(feature = "perf-observability")]
+        metadata_total_span.finish(telos_observability::PerfOutcome::Success);
+        Ok(bundle)
     }
 }

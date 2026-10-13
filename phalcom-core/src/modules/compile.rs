@@ -111,9 +111,7 @@ fn add_contextual_realization_trait_roots(
     module: &ModuleId,
     realization: &phalcom_semantic::checker::analysis::ContextualRealization,
 ) {
-    use phalcom_semantic::checker::analysis::{
-        ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource,
-    };
+    use phalcom_semantic::checker::analysis::{ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource};
 
     let mut add_selection = |selection: &RealizationCapabilitySelection| {
         let RealizationCapabilitySelection::Evidenced(selection) = selection else {
@@ -358,6 +356,16 @@ pub enum ProgramCompileError {
     GenericEvidenceLayout(String),
 }
 
+#[cfg(feature = "perf-observability")]
+pub(crate) fn classify_program_compile_error(error: &ProgramCompileError) -> telos_observability::PerfOutcome {
+    match error {
+        ProgramCompileError::Parse(_) => telos_observability::PerfOutcome::ParseError,
+        ProgramCompileError::Link(_) => telos_observability::PerfOutcome::LinkError,
+        ProgramCompileError::Semantic(_) | ProgramCompileError::SemanticUpdate(_) => telos_observability::PerfOutcome::SemanticError,
+        _ => telos_observability::PerfOutcome::OtherFailure,
+    }
+}
+
 /// Fully analyzed program snapshot ready for code generation.
 #[derive(Clone, Debug)]
 pub struct AnalyzedProgram {
@@ -452,181 +460,187 @@ pub(crate) fn discover_reachable_dependencies<P: SourceProvider>(
 impl ProgramAnalyzer {
     /// Analyzes an entry selection into an [`AnalyzedProgram`].
     pub fn analyze_entry_selection(entry: EntrySelection) -> Result<AnalyzedProgram, ProgramCompileError> {
-        match entry {
-            EntrySelection::ModuleId(entry_id) => Err(ProgramCompileError::Io(format!(
-                "EntrySelection::ModuleId({entry_id}) cannot be analyzed without an existing linked project universe"
-            ))),
-            EntrySelection::Project(root_dir) => {
-                let manifest_path = if root_dir.ends_with("project.toml") {
-                    root_dir
-                } else {
-                    root_dir.join("project.toml")
-                };
-                if !manifest_path.exists() {
-                    return Err(ProgramCompileError::Io(format!("project manifest not found at {}", manifest_path.display())));
-                }
-                let mut universe = ProjectUniverse::new();
-                let root_id = universe.load_root(&manifest_path)?;
-                let project = universe
-                    .get_project(root_id)
-                    .ok_or_else(|| ProgramCompileError::Io(format!("project {root_id:?} not found")))?;
-                let entry_path = project
-                    .entry
-                    .clone()
-                    .ok_or_else(|| ProgramCompileError::ProjectNotExecutable(manifest_path.display().to_string()))?;
-                let entry_id = ModuleId {
-                    project: root_id.into(),
-                    path: entry_path,
-                };
-                let provider = FilesystemSourceProvider::new();
-                Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
-            }
-            EntrySelection::Package(pkg_dir) => {
-                let canonical_pkg = pkg_dir
-                    .canonicalize()
-                    .map_err(|e| ProgramCompileError::Io(format!("{}: {e}", pkg_dir.display())))?;
-                let pkg_file = canonical_pkg.join("package.ph");
-                if !pkg_file.is_file() {
-                    return Err(ProgramCompileError::Project(ProjectError::MissingRootPackage(canonical_pkg)));
-                }
-                let main_file = canonical_pkg.join("main.ph");
-                if !main_file.is_file() {
-                    return Err(ProgramCompileError::PackageNotExecutable(canonical_pkg.display().to_string()));
-                }
-                let mut universe = ProjectUniverse::new();
-                let root_id = universe.load_standalone_package(&canonical_pkg, Some("main"))?;
-                let entry_id = ModuleId {
-                    project: root_id.into(),
-                    path: ModulePath::from_components(vec![
-                        ModuleComponent::from_identifier("main").map_err(|e| ProgramCompileError::Io(e.to_string()))?,
-                    ]),
-                };
-                let provider = FilesystemSourceProvider::new();
-                Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
-            }
-            EntrySelection::Module(file_path) => {
-                let canonical = file_path
-                    .canonicalize()
-                    .map_err(|e| ProgramCompileError::Io(format!("{}: {}", file_path.display(), e)))?;
-                let mut universe = ProjectUniverse::new();
-                let ownership = classify_entry_ownership(&canonical, &mut universe)?;
-                match ownership {
-                    EntryOwnership::ProjectOwned { project: root_id } => {
-                        let project = universe.get_project(root_id).unwrap();
-                        let rel_path = canonical.strip_prefix(&project.source_root).map_err(|_| {
-                            ProgramCompileError::Io(format!("file {} not under source root {}", file_path.display(), project.source_root.display()))
-                        })?;
-                        let module_path = relative_path_to_module_path(rel_path)?;
+        crate::perf_span_result!(
+            telos_observability::PerfPhase::SourceDiscovery,
+            || {
+                match entry {
+                    EntrySelection::ModuleId(entry_id) => Err(ProgramCompileError::Io(format!(
+                        "EntrySelection::ModuleId({entry_id}) cannot be analyzed without an existing linked project universe"
+                    ))),
+                    EntrySelection::Project(root_dir) => {
+                        let manifest_path = if root_dir.ends_with("project.toml") {
+                            root_dir
+                        } else {
+                            root_dir.join("project.toml")
+                        };
+                        if !manifest_path.exists() {
+                            return Err(ProgramCompileError::Io(format!("project manifest not found at {}", manifest_path.display())));
+                        }
+                        let mut universe = ProjectUniverse::new();
+                        let root_id = universe.load_root(&manifest_path)?;
+                        let project = universe
+                            .get_project(root_id)
+                            .ok_or_else(|| ProgramCompileError::Io(format!("project {root_id:?} not found")))?;
+                        let entry_path = project
+                            .entry
+                            .clone()
+                            .ok_or_else(|| ProgramCompileError::ProjectNotExecutable(manifest_path.display().to_string()))?;
                         let entry_id = ModuleId {
                             project: root_id.into(),
-                            path: module_path,
+                            path: entry_path,
                         };
                         let provider = FilesystemSourceProvider::new();
                         Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
                     }
-                    EntryOwnership::StandalonePackageOwned { package_root } => {
-                        let root_id = universe.load_standalone_package(&package_root, None)?;
-                        let project = universe.get_project(root_id).unwrap();
-                        let rel_path = canonical.strip_prefix(&project.source_root).map_err(|_| {
-                            ProgramCompileError::Io(format!("file {} not under package root {}", file_path.display(), project.source_root.display()))
-                        })?;
-                        let module_path = relative_path_to_module_path(rel_path)?;
+                    EntrySelection::Package(pkg_dir) => {
+                        let canonical_pkg = pkg_dir
+                            .canonicalize()
+                            .map_err(|e| ProgramCompileError::Io(format!("{}: {e}", pkg_dir.display())))?;
+                        let pkg_file = canonical_pkg.join("package.ph");
+                        if !pkg_file.is_file() {
+                            return Err(ProgramCompileError::Project(ProjectError::MissingRootPackage(canonical_pkg)));
+                        }
+                        let main_file = canonical_pkg.join("main.ph");
+                        if !main_file.is_file() {
+                            return Err(ProgramCompileError::PackageNotExecutable(canonical_pkg.display().to_string()));
+                        }
+                        let mut universe = ProjectUniverse::new();
+                        let root_id = universe.load_standalone_package(&canonical_pkg, Some("main"))?;
                         let entry_id = ModuleId {
                             project: root_id.into(),
-                            path: module_path,
+                            path: ModulePath::from_components(vec![
+                                ModuleComponent::from_identifier("main").map_err(|e| ProgramCompileError::Io(e.to_string()))?,
+                            ]),
                         };
                         let provider = FilesystemSourceProvider::new();
                         Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
                     }
-                    EntryOwnership::StandaloneModule { file } => Self::analyze_standalone_module(file),
-                    EntryOwnership::Inline { .. } => Self::analyze_standalone_module(file_path),
-                }
-            }
-            EntrySelection::Inline(source_text) => {
-                let parsed = phalcom_ast::parse(&source_text, 0);
-                if let Some(error) = parsed.errors.first() {
-                    return Err(ProgramCompileError::Parse(error.clone()));
-                }
-                if !parsed.program.preamble.dependencies.is_empty() {
-                    let dep = &parsed.program.preamble.dependencies[0];
-                    let import_name = match dep {
-                        phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(m)) => m.path.to_string(),
-                        phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(s)) => s.path.to_string(),
-                        phalcom_ast::ast::DependencyDecl::ReExport(r) => r.path.to_string(),
-                        phalcom_ast::ast::DependencyDecl::Expose(e) => e.child.name.clone(),
-                    };
-                    return Err(ProgramCompileError::ReplImportRequiresProjectContext {
-                        import_name: import_name.into(),
-                    });
-                }
-                let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
-                let entry_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
-                let universe = Arc::new(ProjectUniverse::new());
-                let interface = InterfaceBuilder::build(entry_id.clone(), ModuleKind::Module, &parsed.program)?;
-                let mut interfaces = BTreeMap::new();
-                interfaces.insert(entry_id.clone(), interface);
+                    EntrySelection::Module(file_path) => {
+                        let canonical = file_path
+                            .canonicalize()
+                            .map_err(|e| ProgramCompileError::Io(format!("{}: {}", file_path.display(), e)))?;
+                        let mut universe = ProjectUniverse::new();
+                        let ownership = classify_entry_ownership(&canonical, &mut universe)?;
+                        match ownership {
+                            EntryOwnership::ProjectOwned { project: root_id } => {
+                                let project = universe.get_project(root_id).unwrap();
+                                let rel_path = canonical.strip_prefix(&project.source_root).map_err(|_| {
+                                    ProgramCompileError::Io(format!("file {} not under source root {}", file_path.display(), project.source_root.display()))
+                                })?;
+                                let module_path = relative_path_to_module_path(rel_path)?;
+                                let entry_id = ModuleId {
+                                    project: root_id.into(),
+                                    path: module_path,
+                                };
+                                let provider = FilesystemSourceProvider::new();
+                                Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
+                            }
+                            EntryOwnership::StandalonePackageOwned { package_root } => {
+                                let root_id = universe.load_standalone_package(&package_root, None)?;
+                                let project = universe.get_project(root_id).unwrap();
+                                let rel_path = canonical.strip_prefix(&project.source_root).map_err(|_| {
+                                    ProgramCompileError::Io(format!("file {} not under package root {}", file_path.display(), project.source_root.display()))
+                                })?;
+                                let module_path = relative_path_to_module_path(rel_path)?;
+                                let entry_id = ModuleId {
+                                    project: root_id.into(),
+                                    path: module_path,
+                                };
+                                let provider = FilesystemSourceProvider::new();
+                                Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
+                            }
+                            EntryOwnership::StandaloneModule { file } => Self::analyze_standalone_module(file),
+                            EntryOwnership::Inline { .. } => Self::analyze_standalone_module(file_path),
+                        }
+                    }
+                    EntrySelection::Inline(source_text) => {
+                        let parsed = phalcom_ast::parse(&source_text, 0);
+                        if let Some(error) = parsed.errors.first() {
+                            return Err(ProgramCompileError::Parse(error.clone()));
+                        }
+                        if !parsed.program.preamble.dependencies.is_empty() {
+                            let dep = &parsed.program.preamble.dependencies[0];
+                            let import_name = match dep {
+                                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(m)) => m.path.to_string(),
+                                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(s)) => s.path.to_string(),
+                                phalcom_ast::ast::DependencyDecl::ReExport(r) => r.path.to_string(),
+                                phalcom_ast::ast::DependencyDecl::Expose(e) => e.child.name.clone(),
+                            };
+                            return Err(ProgramCompileError::ReplImportRequiresProjectContext {
+                                import_name: import_name.into(),
+                            });
+                        }
+                        let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
+                        let entry_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
+                        let universe = Arc::new(ProjectUniverse::new());
+                        let interface = InterfaceBuilder::build(entry_id.clone(), ModuleKind::Module, &parsed.program)?;
+                        let mut interfaces = BTreeMap::new();
+                        interfaces.insert(entry_id.clone(), interface);
 
-                let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
-                    entry_id.clone(),
-                    ModuleKind::Module,
-                    None,
-                    source_text,
-                    Arc::new(parsed.program),
-                ));
-                let mut sources = BTreeMap::new();
-                sources.insert(entry_id.clone(), parsed_unit);
+                        let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
+                            entry_id.clone(),
+                            ModuleKind::Module,
+                            None,
+                            source_text,
+                            Arc::new(parsed.program),
+                        ));
+                        let mut sources = BTreeMap::new();
+                        sources.insert(entry_id.clone(), parsed_unit);
 
-                // Inline evaluation has an implicit Universe runtime. Its semantic
-                // workspace must therefore include the same source-authored
-                // conformance declarations, rather than treating native member
-                // surfaces as a substitute for canonical trait evidence.
-                let provider = UniverseSourceProvider::new();
-                let filesystem = FilesystemSourceProvider::new();
-                let mut resolver = ModuleResolver::new(&universe, &filesystem);
-                for node in provider
-                    .nodes()
-                    .iter()
-                    .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", ..] | ["text", ..] | ["option", "unit"]))
-                {
-                    let path = ModulePath::from_components(
-                        node.path
+                        // Inline evaluation has an implicit Universe runtime. Its semantic
+                        // workspace must therefore include the same source-authored
+                        // conformance declarations, rather than treating native member
+                        // surfaces as a substitute for canonical trait evidence.
+                        let provider = UniverseSourceProvider::new();
+                        let filesystem = FilesystemSourceProvider::new();
+                        let mut resolver = ModuleResolver::new(&universe, &filesystem);
+                        for node in provider
+                            .nodes()
                             .iter()
-                            .map(|component| ModuleComponent::from_identifier(component).expect("canonical Universe component"))
-                            .collect::<Vec<_>>(),
-                    );
-                    let module = ModuleId::universe(path);
-                    interfaces.insert(module.clone(), provider.load_interface(&module)?);
-                    sources.insert(module.clone(), provider.load_parsed(&module)?);
-                }
-                let mut resolved = BTreeMap::new();
-                for (module, interface) in &interfaces {
-                    if !module.project.is_universe() {
-                        continue;
-                    }
-                    for import in &interface.imports {
-                        let path = match import {
-                            ImportSurface::Module(decl) => &decl.path,
-                            ImportSurface::Selective(decl) => &decl.path,
-                            ImportSurface::ReExport(decl) => &decl.path,
-                        };
-                        let target = resolver.resolve_import(module, path)?;
-                        resolved.insert((module.clone(), path.to_string()), target.id);
-                    }
-                }
-                let linked = Arc::new(ModuleLinker::new(universe.clone(), interfaces).link_all(entry_id.clone(), &resolved)?);
+                            .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", ..] | ["text", ..] | ["option", "unit"]))
+                        {
+                            let path = ModulePath::from_components(
+                                node.path
+                                    .iter()
+                                    .map(|component| ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+                                    .collect::<Vec<_>>(),
+                            );
+                            let module = ModuleId::universe(path);
+                            interfaces.insert(module.clone(), provider.load_interface(&module)?);
+                            sources.insert(module.clone(), provider.load_parsed(&module)?);
+                        }
+                        let mut resolved = BTreeMap::new();
+                        for (module, interface) in &interfaces {
+                            if !module.project.is_universe() {
+                                continue;
+                            }
+                            for import in &interface.imports {
+                                let path = match import {
+                                    ImportSurface::Module(decl) => &decl.path,
+                                    ImportSurface::Selective(decl) => &decl.path,
+                                    ImportSurface::ReExport(decl) => &decl.path,
+                                };
+                                let target = resolver.resolve_import(module, path)?;
+                                resolved.insert((module.clone(), path.to_string()), target.id);
+                            }
+                        }
+                        let linked = Arc::new(ModuleLinker::new(universe.clone(), interfaces).link_all(entry_id.clone(), &resolved)?);
 
-                let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0))?;
+                        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0))?;
 
-                Ok(AnalyzedProgram {
-                    project_universe: universe,
-                    linked,
-                    semantic: analysis.snapshot,
-                    sources,
-                    runtime_modules: BTreeSet::from([entry_id.clone()]),
-                    entry: entry_id,
-                })
-            }
-        }
+                        Ok(AnalyzedProgram {
+                            project_universe: universe,
+                            linked,
+                            semantic: analysis.snapshot,
+                            sources,
+                            runtime_modules: BTreeSet::from([entry_id.clone()]),
+                            entry: entry_id,
+                        })
+                    }
+                }
+            },
+            classify_program_compile_error,
+        )
     }
 
     fn analyze_standalone_module(file_path: PathBuf) -> Result<AnalyzedProgram, ProgramCompileError> {
@@ -841,6 +855,14 @@ impl ProgramCompiler {
     }
 
     fn project_analyzed(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
+        crate::perf_span_result!(
+            telos_observability::PerfPhase::CompilerProjection,
+            || Self::project_analyzed_inner(analyzed),
+            classify_program_compile_error,
+        )
+    }
+
+    fn project_analyzed_inner(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
         let mut runtime_root_specs = Vec::<(ModuleId, SourceRange, phalcom_semantic::types::id::TypeId, String)>::new();
         let mut runtime_call_root_specs = Vec::<(
             ModuleId,
@@ -852,6 +874,9 @@ impl ProgramCompiler {
         )>::new();
         let mut runtime_trait_root_specs = Vec::<RuntimeTraitEnvironmentRootSpec>::new();
         let mut runtime_trait_root_seen = BTreeSet::new();
+        #[cfg(feature = "perf-observability")]
+        let runtime_root_span = telos_observability::PerfContext::current_thread()
+            .span(telos_observability::PerfPhase::CompilerProjectionRuntimeRootDiscovery);
         for id in analyzed.linked.modules.keys() {
             if !analyzed.runtime_modules.contains(id) {
                 continue;
@@ -1071,12 +1096,21 @@ impl ProgramCompiler {
                 }
             }
         }
+        crate::perf_counter!(
+            telos_observability::PerfCounter::CompilerRuntimeRootSpecs,
+            runtime_root_specs.len() + runtime_call_root_specs.len() + runtime_trait_root_specs.len()
+        );
+        #[cfg(feature = "perf-observability")]
+        runtime_root_span.finish(telos_observability::PerfOutcome::Success);
         let runtime_root_refs = runtime_root_specs
             .iter()
             .map(|(module, _, ty, key)| (module, key.as_str(), *ty))
             .chain(runtime_call_root_specs.iter().map(|(module, _, _, _, ty, key)| (module, key.as_str(), *ty)))
             .chain(runtime_trait_root_specs.iter().map(|(module, _, _, _, _, ty, key)| (module, key.as_str(), *ty)))
             .collect::<Vec<_>>();
+        #[cfg(feature = "perf-observability")]
+        let metadata_export_span =
+            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::CompilerProjectionMetadataExport);
         let exporter = phalcom_semantic::metadata::MetadataExporter::new(
             analyzed.semantic.store(),
             Some(analyzed.semantic.declarations()),
@@ -1126,6 +1160,11 @@ impl ProgramCompiler {
                 .build_bundle(&runtime_root_refs)
                 .map_err(|e| ProgramCompileError::Io(format!("metadata export error: {e}")))?,
         );
+        #[cfg(feature = "perf-observability")]
+        metadata_export_span.finish(telos_observability::PerfOutcome::Success);
+        #[cfg(feature = "perf-observability")]
+        let runtime_type_recipes_span = telos_observability::PerfContext::current_thread()
+            .span(telos_observability::PerfPhase::CompilerProjectionRuntimeTypeRecipes);
         let mut runtime_type_roots = BTreeMap::<ModuleId, BTreeMap<SourceRange, RuntimeTypeRef>>::new();
         for ((module, range, _, _), root) in runtime_root_specs.iter().zip(metadata_bundle.runtime_roots.iter()) {
             runtime_type_roots.entry(module.clone()).or_default().insert(
@@ -1177,6 +1216,12 @@ impl ProgramCompiler {
             }
             let _ = stable_callable;
         }
+        crate::perf_counter!(telos_observability::PerfCounter::CompilerRuntimeTypeRecipes, call_type_recipes.len());
+        #[cfg(feature = "perf-observability")]
+        runtime_type_recipes_span.finish(telos_observability::PerfOutcome::Success);
+        #[cfg(feature = "perf-observability")]
+        let trait_environments_span = telos_observability::PerfContext::current_thread()
+            .span(telos_observability::PerfPhase::CompilerProjectionTraitEnvironments);
         let mut runtime_trait_environment_bindings = BTreeMap::<ModuleId, super::semantic_lowering::RuntimeTraitEnvironmentBindings>::new();
         for ((module, range, source_impl, requirement, stable_parameter, ty, _key), root) in stable_trait_root_specs.iter().zip(
             metadata_bundle
@@ -1205,6 +1250,15 @@ impl ProgramCompiler {
             updated.sort_by(|(left, _), (right, _)| left.cmp(right));
             *bindings = updated.into_boxed_slice();
         }
+        crate::perf_counter!(
+            telos_observability::PerfCounter::CompilerRuntimeTraitEnvironmentBindings,
+            runtime_trait_environment_bindings.values().map(|environments| environments.values().map(|bindings| bindings.len()).sum::<usize>()).sum::<usize>()
+        );
+        #[cfg(feature = "perf-observability")]
+        trait_environments_span.finish(telos_observability::PerfOutcome::Success);
+        #[cfg(feature = "perf-observability")]
+        let generic_evidence_span = telos_observability::PerfContext::current_thread()
+            .span(telos_observability::PerfPhase::CompilerProjectionGenericEvidence);
         let mut call_conformance_slots =
             BTreeMap::<(ModuleId, SourceRange, phalcom_semantic::identity::CallableId), Vec<crate::typing::RuntimeConformanceSlotRecipe>>::new();
         let default_requirement_slots = super::semantic_lowering::trait_default_requirement_slots(&analyzed.semantic)
@@ -1284,6 +1338,9 @@ impl ProgramCompiler {
                 }
             }
 
+            #[cfg(feature = "perf-observability")]
+            let conditional_calls_span = telos_observability::PerfContext::current_thread()
+                .span(telos_observability::PerfPhase::CompilerProjectionConditionalCalls);
             let mut conditional_applications = Vec::new();
             for expression in analysis.expressions.values() {
                 let mut capabilities = Vec::new();
@@ -1310,14 +1367,19 @@ impl ProgramCompiler {
                     }
                 }
                 let specialization = expression.call_specialization.as_ref();
+                if specialization.is_some() {
+                    crate::perf_counter!(telos_observability::PerfCounter::CompilerSpecializationSites, 1);
+                }
                 if capabilities.is_empty() {
                     if specialization.is_some() {
                         conditional_applications.push((expression, specialization, None));
+                        crate::perf_counter!(telos_observability::PerfCounter::CompilerConditionalApplicationSites, 1);
                     }
                 } else {
                     for capability in capabilities {
                         conditional_call_keys.insert((callable.owner.module().clone(), expression.range, capability.selection.callable.clone()));
                         conditional_applications.push((expression, specialization, Some(capability)));
+                        crate::perf_counter!(telos_observability::PerfCounter::CompilerConditionalApplicationSites, 1);
                     }
                 }
             }
@@ -1445,14 +1507,17 @@ impl ProgramCompiler {
                 for (slot_key, slot_idx) in callee_evidence.layout().slots.iter() {
                     let idx = *slot_idx as usize;
                     let instantiated_subject = match &slot_key.conformance.subject {
-                        phalcom_semantic::types::parameter::TypeTerm::Canonical(ty) => phalcom_semantic::types::instantiation::materialize_type(
-                            &mut materialization_store,
-                            *ty,
-                            &callee_instantiation,
-                            phalcom_semantic::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
-                        )
-                        .map(phalcom_semantic::types::parameter::TypeTerm::Canonical)
-                        .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("conformance subject instantiation failed: {error:?}")))?,
+                        phalcom_semantic::types::parameter::TypeTerm::Canonical(ty) => {
+                            crate::perf_counter!(telos_observability::PerfCounter::CompilerTypeMaterializeCalls, 1);
+                            phalcom_semantic::types::instantiation::materialize_type(
+                                &mut materialization_store,
+                                *ty,
+                                &callee_instantiation,
+                                phalcom_semantic::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
+                            )
+                            .map(phalcom_semantic::types::parameter::TypeTerm::Canonical)
+                            .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("conformance subject instantiation failed: {error:?}")))?
+                        }
                         _ => slot_key.conformance.subject.clone(),
                     };
                     let instantiated_trait_ref = phalcom_semantic::traits::TraitRef::new(
@@ -1463,6 +1528,7 @@ impl ProgramCompiler {
                             .arguments
                             .iter()
                             .map(|&arg| {
+                                crate::perf_counter!(telos_observability::PerfCounter::CompilerTypeMaterializeCalls, 1);
                                 phalcom_semantic::types::instantiation::materialize_type(
                                     &mut materialization_store,
                                     arg,
@@ -1833,8 +1899,15 @@ impl ProgramCompiler {
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                crate::perf_counter!(telos_observability::PerfCounter::CompilerEvidenceSlotsMaterialized, resolved_slots.len());
+                crate::perf_counter!(
+                    telos_observability::PerfCounter::CompilerNestedEvidenceSlotsMaterialized,
+                    resolved_slots.iter().map(count_nested_runtime_slots).sum::<usize>()
+                );
                 call_conformance_slots.insert((callable.owner.module().clone(), expression.range, callee.clone()), resolved_slots);
             }
+            #[cfg(feature = "perf-observability")]
+            conditional_calls_span.finish(telos_observability::PerfOutcome::Success);
         }
 
         let mut all_call_keys = std::collections::BTreeSet::new();
@@ -1856,6 +1929,12 @@ impl ProgramCompiler {
                 .remove(&(module.clone(), range, callee_id.clone()))
                 .unwrap_or_default()
                 .into_boxed_slice();
+            if !bindings.is_empty() || !conformance_slots.is_empty() {
+                crate::perf_counter!(telos_observability::PerfCounter::CompilerSpecializedCallRecipesMaterialized, 1);
+            }
+            if !conformance_slots.is_empty() {
+                crate::perf_counter!(telos_observability::PerfCounter::CompilerConformanceEnvironmentRecipes, 1);
+            }
             let recipe = Arc::new(RuntimeCallEnvironmentRecipe {
                 callable: stable_callable,
                 bindings: bindings.into_boxed_slice(),
@@ -1869,6 +1948,11 @@ impl ProgramCompiler {
             }
             runtime_call_environment_recipes.entry(module).or_default().insert(range, recipe);
         }
+        #[cfg(feature = "perf-observability")]
+        generic_evidence_span.finish(telos_observability::PerfOutcome::Success);
+        #[cfg(feature = "perf-observability")]
+        let module_lowering_span = telos_observability::PerfContext::current_thread()
+            .span(telos_observability::PerfPhase::CompilerProjectionModuleLowering);
         let mut modules = BTreeMap::new();
         for (id, linked_module) in &analyzed.linked.modules {
             if !analyzed.runtime_modules.contains(id) {
@@ -1891,8 +1975,11 @@ impl ProgramCompiler {
             if let Some(environments) = runtime_trait_environment_bindings.get(id) {
                 super::semantic_lowering::attach_runtime_trait_environments(&mut lowering, environments);
             }
+            crate::perf_counter!(telos_observability::PerfCounter::CompilerModulesLowered, 1);
             modules.insert(id.clone(), compile_module(id.clone(), linked_module, source, source_text, Arc::new(lowering)));
         }
+        #[cfg(feature = "perf-observability")]
+        module_lowering_span.finish(telos_observability::PerfOutcome::Success);
 
         Ok(CompiledProgram {
             project_universe: analyzed.project_universe.clone(),
@@ -1912,8 +1999,14 @@ impl ProgramCompiler {
 
     /// Compiles an entry selection by analyzing it first and compiling the analyzed result.
     pub fn compile_entry_selection(entry: EntrySelection) -> Result<CompiledProgram, ProgramCompileError> {
-        let analyzed = ProgramAnalyzer::analyze_entry_selection(entry)?;
-        Self::compile_analyzed(&analyzed)
+        crate::perf_span_result!(
+            telos_observability::PerfPhase::Compilation,
+            || {
+                let analyzed = ProgramAnalyzer::analyze_entry_selection(entry)?;
+                Self::compile_analyzed(&analyzed)
+            },
+            classify_program_compile_error,
+        )
     }
 }
 
@@ -1943,7 +2036,10 @@ fn compile_module(
     source_text: Option<Arc<str>>,
     lowering: Arc<super::semantic_lowering::ModuleLoweringSemantics>,
 ) -> CompiledModule {
-    let plan = ModuleMaterializationPlan::empty(module);
+    let plan = crate::perf_span!(telos_observability::PerfPhase::CompilerProjectionMaterializationPlans, || {
+        crate::perf_counter!(telos_observability::PerfCounter::CompilerMaterializationPlans, 1);
+        ModuleMaterializationPlan::empty(module)
+    });
     CompiledModule {
         id,
         kind: module.interface.kind,
@@ -1954,6 +2050,16 @@ fn compile_module(
         plan,
         lowering,
     }
+}
+
+#[cfg(feature = "perf-observability")]
+fn count_nested_runtime_slots(slot: &crate::typing::RuntimeConformanceSlotRecipe) -> usize {
+    let nested_slots = match slot {
+        crate::typing::RuntimeConformanceSlotRecipe::Selection { nested_slots, .. }
+        | crate::typing::RuntimeConformanceSlotRecipe::DerivedConditional { nested_slots, .. } => nested_slots,
+        crate::typing::RuntimeConformanceSlotRecipe::Forwarded(_) => return 0,
+    };
+    nested_slots.len() + nested_slots.iter().map(|(_, nested)| count_nested_runtime_slots(nested)).sum::<usize>()
 }
 
 #[cfg(test)]

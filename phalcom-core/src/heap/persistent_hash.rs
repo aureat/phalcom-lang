@@ -32,23 +32,13 @@ pub fn compact_index(bitmap: u32, bit: u32) -> usize {
 #[derive(Debug, Clone)]
 pub enum PersistentHashNode {
     /// A terminal node holding a single key-payload pair.
-    Leaf {
-        hash: i64,
-        key: Value,
-        payload: Value,
-    },
+    Leaf { hash: i64, key: Value, payload: Value },
 
     /// A terminal node holding multiple key-payload pairs that share the exact same hash code.
-    Collision {
-        hash: i64,
-        entries: Box<[(Value, Value)]>,
-    },
+    Collision { hash: i64, entries: Box<[(Value, Value)]> },
 
     /// An internal node branching on 5 bits of hash code via a 32-bit popcount bitmap.
-    Branch {
-        bitmap: u32,
-        children: Box<[ObjRef]>,
-    },
+    Branch { bitmap: u32, children: Box<[ObjRef]> },
 }
 
 impl PersistentHashNode {

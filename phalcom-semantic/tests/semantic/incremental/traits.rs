@@ -105,7 +105,9 @@ trait Display {
         "trait default body must depend on its DB-owned surface"
     );
 
-    let second = session.update(input(module.clone(), &source_b, 2)).expect("semantic test update should succeed");
+    let second = session
+        .update(input(module.clone(), &source_b, 2))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "updated diagnostics: {:?}", second.snapshot.diagnostics);
     let second_surface = second.snapshot.trait_surfaces.get(&declaration).expect("updated trait surface").clone();
     assert_eq!(
@@ -136,22 +138,21 @@ impl Contract for Subject { foo() -> Int { self.value } }
     let source_class = source_instance.replace("trait Contract { foo()", "trait Contract { @class foo()");
     let declaration = DeclarationId::new(module.clone(), "Contract".into());
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(input(module.clone(), source_instance, 1)).expect("semantic test update should succeed");
+    let first = session
+        .update(input(module.clone(), source_instance, 1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
     let first_surface = first.snapshot.trait_surfaces.get(&declaration).expect("initial trait surface");
     assert!(first_surface.iter().any(|(requirement, _)| requirement.side == DispatchSide::Instance));
     let first_surface_fingerprint = phalcom_semantic::db::fingerprint::trait_surface_product_fingerprint(first_surface);
-    let (impl_id, first_plan) = first
-        .snapshot
-        .conformance_witness_plans
-        .iter()
-        .next()
-        .expect("initial conformance plan");
+    let (impl_id, first_plan) = first.snapshot.conformance_witness_plans.iter().next().expect("initial conformance plan");
     assert!(matches!(first_plan.completeness, ConformanceCompleteness::Complete));
     let dispatch_key = QueryKey::ConformanceDispatch(impl_id.clone());
     let surface_key = QueryKey::TraitSurface(declaration.clone());
     assert!(session.db().index().dependencies_of(&dispatch_key).is_some_and(|edges| {
-        edges.iter().any(|edge| edge.dependency == surface_key && edge.observed_fingerprint == first_surface_fingerprint)
+        edges
+            .iter()
+            .any(|edge| edge.dependency == surface_key && edge.observed_fingerprint == first_surface_fingerprint)
     }));
 
     let second = session
@@ -167,13 +168,11 @@ impl Contract for Subject { foo() -> Int { self.value } }
         panic!("updated source must retain its trait declaration")
     };
     assert!(
-        trait_def.members[0]
-            .behavior()
-            .is_some_and(|member| matches!(
-                member,
-                phalcom_ast::ast::BehaviorMember::Method(method)
-                    if method.attributes.iter().any(|attribute| attribute.name == "class")
-            )),
+        trait_def.members[0].behavior().is_some_and(|member| matches!(
+            member,
+            phalcom_ast::ast::BehaviorMember::Method(method)
+                if method.attributes.iter().any(|attribute| attribute.name == "class")
+        )),
         "parsed class-side requirement must carry Class side"
     );
     let second_surface = second.snapshot.trait_surfaces.get(&declaration).expect("updated trait surface");
@@ -183,29 +182,49 @@ impl Contract for Subject { foo() -> Int { self.value } }
         second_surface.members.keys().collect::<Vec<_>>()
     );
     let second_surface_fingerprint = phalcom_semantic::db::fingerprint::trait_surface_product_fingerprint(second_surface);
-    assert_ne!(first_surface_fingerprint, second_surface_fingerprint, "changing requirement side changes the trait contract fingerprint");
+    assert_ne!(
+        first_surface_fingerprint, second_surface_fingerprint,
+        "changing requirement side changes the trait contract fingerprint"
+    );
     let second_plan = second.snapshot.conformance_witness_plans.get(impl_id).expect("updated conformance plan");
     assert!(!Arc::ptr_eq(first_plan, second_plan), "dependent conformance analysis must be recomputed");
-    assert_ne!(first_plan.fingerprint, second_plan.fingerprint, "conformance plan records the changed requirement side");
+    assert_ne!(
+        first_plan.fingerprint, second_plan.fingerprint,
+        "conformance plan records the changed requirement side"
+    );
     assert!(matches!(second_plan.completeness, ConformanceCompleteness::Incomplete { .. }));
     assert!(
-        second.snapshot.all_diagnostics().any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::ImplConformanceIncomplete),
+        second
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::ImplConformanceIncomplete),
         "the instance-only witness must no longer satisfy the class-side requirement"
     );
     let stale_witness = first
         .snapshot
         .callable_definitions
         .values()
-        .find(|definition| matches!(
-            &definition.origin,
-            phalcom_semantic::impls::CallableDefinitionOrigin::ConformanceWitness(owner) if owner == impl_id
-        ))
+        .find(|definition| {
+            matches!(
+                &definition.origin,
+                phalcom_semantic::impls::CallableDefinitionOrigin::ConformanceWitness(owner) if owner == impl_id
+            )
+        })
         .expect("initial accepted instance witness")
         .callable
         .clone();
-    assert!(!second.snapshot.callable_definitions.contains_key(&stale_witness), "rejected witness definition must be retired");
-    assert!(second.snapshot.callable_signatures.get(&stale_witness).is_none(), "rejected witness signature must be retired");
-    assert!(!second.snapshot.callable_analyses.contains_key(&stale_witness), "rejected witness analysis must be retired");
+    assert!(
+        !second.snapshot.callable_definitions.contains_key(&stale_witness),
+        "rejected witness definition must be retired"
+    );
+    assert!(
+        second.snapshot.callable_signatures.get(&stale_witness).is_none(),
+        "rejected witness signature must be retired"
+    );
+    assert!(
+        !second.snapshot.callable_analyses.contains_key(&stale_witness),
+        "rejected witness analysis must be retired"
+    );
     assert!(session.db().product(&QueryKey::CallableDefinition(stale_witness.clone())).is_none());
     assert!(session.db().product(&QueryKey::CallableSignature(stale_witness.clone())).is_none());
     assert!(session.db().product(&QueryKey::CallableBody(stale_witness.clone())).is_none());
@@ -213,8 +232,14 @@ impl Contract for Subject { foo() -> Int { self.value } }
     let mut cold = SemanticWorkspaceSession::new();
     let cold_result = cold.update(input(module, &source_class, 1)).expect("semantic test update should succeed");
     let cold_plan = cold_result.snapshot.conformance_witness_plans.get(impl_id).expect("cold conformance plan");
-    assert_eq!(second_plan.fingerprint, cold_plan.fingerprint, "incremental conformance plan must match cold analysis");
-    assert_eq!(second.snapshot.diagnostics, cold_result.snapshot.diagnostics, "incremental diagnostics must match cold analysis");
+    assert_eq!(
+        second_plan.fingerprint, cold_plan.fingerprint,
+        "incremental conformance plan must match cold analysis"
+    );
+    assert_eq!(
+        second.snapshot.diagnostics, cold_result.snapshot.diagnostics,
+        "incremental diagnostics must match cold analysis"
+    );
 }
 
 #[test]
@@ -265,10 +290,12 @@ fn class_side_requirement_edit_rebuilds_reused_conformance_module() {
         .snapshot
         .callable_definitions
         .values()
-        .find(|definition| matches!(
-            &definition.origin,
-            phalcom_semantic::impls::CallableDefinitionOrigin::ConformanceWitness(owner) if owner == &impl_id
-        ))
+        .find(|definition| {
+            matches!(
+                &definition.origin,
+                phalcom_semantic::impls::CallableDefinitionOrigin::ConformanceWitness(owner) if owner == &impl_id
+            )
+        })
         .expect("initial accepted instance witness")
         .callable
         .clone();
@@ -277,8 +304,17 @@ fn class_side_requirement_edit_rebuilds_reused_conformance_module() {
         Selector::method("run", [SelectorSlot::Positional]).unwrap(),
         DispatchSide::Instance,
     );
-    let first_caller_analysis = first.snapshot.callable_analyses.get(&caller).expect("initial dependent caller analysis").clone();
-    let first_impl_shard = session.semantic_structure_shards().get(&impl_module).expect("initial implementation shard").clone();
+    let first_caller_analysis = first
+        .snapshot
+        .callable_analyses
+        .get(&caller)
+        .expect("initial dependent caller analysis")
+        .clone();
+    let first_impl_shard = session
+        .semantic_structure_shards()
+        .get(&impl_module)
+        .expect("initial implementation shard")
+        .clone();
 
     let second = session
         .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
@@ -289,16 +325,25 @@ fn class_side_requirement_edit_rebuilds_reused_conformance_module() {
         }])
         .expect("trait-side update");
     assert!(
-        Arc::ptr_eq(&first_impl_shard, session.semantic_structure_shards().get(&impl_module).expect("retained implementation shard")),
+        Arc::ptr_eq(
+            &first_impl_shard,
+            session.semantic_structure_shards().get(&impl_module).expect("retained implementation shard")
+        ),
         "the conformance source shard should remain structurally reusable"
     );
     let second_plan = second.snapshot.conformance_witness_plans.get(&impl_id).expect("updated conformance plan");
-    assert!(matches!(second_plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }));
+    assert!(matches!(
+        second_plan.completeness,
+        phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }
+    ));
     assert!(!second.snapshot.callable_definitions.contains_key(&stale_witness));
     assert!(second.snapshot.callable_signatures.get(&stale_witness).is_none());
     assert!(!second.snapshot.callable_analyses.contains_key(&stale_witness));
     let second_caller_analysis = second.snapshot.callable_analyses.get(&caller).expect("refreshed dependent caller analysis");
-    assert!(!Arc::ptr_eq(&first_caller_analysis, second_caller_analysis), "witness retirement must refresh dependent clients");
+    assert!(
+        !Arc::ptr_eq(&first_caller_analysis, second_caller_analysis),
+        "witness retirement must refresh dependent clients"
+    );
 
     let mut cold = SemanticWorkspaceSession::new();
     let cold_result = cold
@@ -578,7 +623,9 @@ class Caller { invoke(_ value: Good) { value.value() } }
 
     // A body edit with the same inferred result must not replace the plan or
     // force dispatch clients to observe a different semantic fingerprint.
-    let second = session.update(workspace_input(&source_same_result, 2)).expect("semantic test update should succeed");
+    let second = session
+        .update(workspace_input(&source_same_result, 2))
+        .expect("semantic test update should succeed");
     let second_good_plan = second.snapshot.conformance_witness_plans.get(&good_impl).expect("same-result Good plan");
     let second_text_plan = second.snapshot.conformance_witness_plans.get(&text_impl).expect("same-result Text plan");
     let second_bad_plan = second.snapshot.conformance_witness_plans.get(&bad_impl).expect("same-result Bad plan");
@@ -671,7 +718,9 @@ class Caller { invoke(_ value: Good) { value.value() } }
     }));
 
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold = cold_session.update(workspace_input(&source_int, 1)).expect("semantic test update should succeed");
+    let cold = cold_session
+        .update(workspace_input(&source_int, 1))
+        .expect("semantic test update should succeed");
     assert_eq!(
         third.snapshot.diagnostics, cold.snapshot.diagnostics,
         "changed-result diagnostics must match cold analysis"
@@ -698,11 +747,15 @@ fn invalidated_static_domain_trait_binder_retires_previous_header() {
     let module = module_id();
     let declaration = DeclarationId::new(module.clone(), "Tagged".into());
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(input(module.clone(), "trait Tagged<T> {}\n", 1)).expect("semantic test update should succeed");
+    let first = session
+        .update(input(module.clone(), "trait Tagged<T> {}\n", 1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
     assert!(first.snapshot.trait_headers.contains(&declaration));
 
-    let second = session.update(input(module, "type data Shape { Scalar }\ntrait Tagged<S: Shape> {}\n", 2)).expect("semantic test update should succeed");
+    let second = session
+        .update(input(module, "type data Shape { Scalar }\ntrait Tagged<S: Shape> {}\n", 2))
+        .expect("semantic test update should succeed");
     assert!(
         second.snapshot.all_diagnostics().any(|diagnostic| {
             diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnsupported
@@ -733,9 +786,13 @@ trait Display<T> where T <: Object {
 }
 "#;
     let mut incremental = SemanticWorkspaceSession::new();
-    let first = incremental.update(input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let first = incremental
+        .update(input(module.clone(), source_a, 1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
-    let updated = incremental.update(input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
+    let updated = incremental
+        .update(input(module.clone(), source_b, 2))
+        .expect("semantic test update should succeed");
     let mut cold = SemanticWorkspaceSession::new();
     let cold_result = cold.update(input(module.clone(), source_b, 1)).expect("semantic test update should succeed");
     assert_eq!(updated.snapshot.diagnostics, cold_result.snapshot.diagnostics);

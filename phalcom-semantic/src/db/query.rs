@@ -334,7 +334,7 @@ pub fn query_source_structure(db: &mut SemanticDb, module: ModuleId, product: Ar
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     if let Err(error) = publish_current_product(
         db,
         key.clone(),
@@ -367,6 +367,7 @@ pub fn query_source_formal_attachment(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
+    db.record_query_recompute_start(&key);
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     if let Err(error) = db.record_dependency(&mut recorder, structure_key) {
         return query_failure(db, key, error);
@@ -399,6 +400,7 @@ pub fn query_advisory_callable(db: &mut SemanticDb, summary: Arc<AdvisoryCallabl
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
+    db.record_query_recompute_start(&key);
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     for dependency in summary.dependencies.iter().filter(|dependency| **dependency != summary.callable) {
         let dependency_key = QueryKey::AdvisoryCallable(dependency.clone());
@@ -468,6 +470,7 @@ pub fn query_advisory_module(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
+    db.record_query_recompute_start(&key);
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     let dependency = QueryKey::SourceStructure(product.module.clone());
     if let Err(error) = db.record_dependency(&mut recorder, dependency) {
@@ -516,7 +519,7 @@ pub fn query_parsed_module(db: &mut SemanticDb, module: ModuleId, unit: Arc<Pars
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let product_fingerprint = ProductFingerprint::new(input_fingerprint.raw());
     if let Err(error) = publish_current_product(
         db,
@@ -562,7 +565,7 @@ pub fn query_unlinked_interface(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     if let Err(error) = db.record_dependency(&mut recorder, QueryKey::ParsedModule(module.clone())) {
@@ -620,7 +623,7 @@ pub fn query_resolved_imports<P: phalcom_modules::source::SourceProvider>(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     if let Err(error) = db.record_dependency(&mut recorder, QueryKey::UnlinkedInterface(module.clone())) {
@@ -687,7 +690,7 @@ pub fn query_semantic_component(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     for mod_id in interfaces.keys() {
@@ -782,7 +785,10 @@ pub fn query_hierarchy_edge(
     let (super_decl, captured_dependencies) = if let Some(class_def) = class_def {
         crate::checker::context::resolve_source_class_superclass(&class_decl, class_def, resolver)
     } else {
-        (Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object)), BTreeSet::new())
+        (
+            Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object)),
+            BTreeSet::new(),
+        )
     };
     let input_fingerprint = if let Some(class_def) = class_def {
         crate::db::fingerprint::hierarchy_edge_input_fingerprint(&class_decl, superclass_source(&unit, class_def), &super_decl)
@@ -799,7 +805,7 @@ pub fn query_hierarchy_edge(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     for dependency in captured_dependencies {
@@ -873,7 +879,7 @@ pub fn query_bootstrap_hierarchy_edge(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     let product = Arc::new(HierarchyEdgeProduct::new(class_decl.clone(), super_decl.clone()));
     let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &super_decl, None);
@@ -903,7 +909,7 @@ pub fn query_declaration_shell(db: &mut SemanticDb, shell: Arc<TypeDeclarationSh
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     let product_fingerprint = crate::db::fingerprint::declaration_shell_product_fingerprint(shell.as_ref());
     let dependencies = match shell.as_ref() {
@@ -956,7 +962,7 @@ pub fn query_bootstrap_declaration_surface(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     let product_fingerprint = crate::db::fingerprint::declaration_surface_product_fingerprint(&surface);
     let product = Arc::new(DeclarationSurfaceProduct::new(surface.clone(), diagnostics));
@@ -987,7 +993,7 @@ pub fn query_bootstrap_trait_header(db: &mut SemanticDb, header: Arc<crate::trai
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     if let Err(error) = publish_current_product(
         db,
         key.clone(),
@@ -1019,7 +1025,7 @@ pub fn query_bootstrap_trait_surface(db: &mut SemanticDb, surface: Arc<crate::tr
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     if let Err(error) = db.record_dependency(&mut recorder, header_key) {
         return query_failure(db, key, error);
@@ -1052,7 +1058,7 @@ pub fn query_data_declaration(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let product_fingerprint = crate::db::fingerprint::data_declaration_product_fingerprint(&product);
     if let Err(error) = publish_current_product(
         db,
@@ -1082,7 +1088,7 @@ pub fn query_enum_declaration(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let product_fingerprint = crate::db::fingerprint::enum_declaration_product_fingerprint(&product);
     if let Err(error) = publish_current_product(
         db,
@@ -1113,7 +1119,7 @@ pub fn query_enum_requirements(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let product_fingerprint = crate::db::fingerprint::enum_requirements_product_fingerprint(&product);
     if let Err(error) = publish_current_product(
         db,
@@ -1145,7 +1151,7 @@ pub fn query_type_member_declaration(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let product_fingerprint = crate::db::fingerprint::type_member_declaration_product_fingerprint(&product);
     if let Err(error) = publish_current_product(
         db,
@@ -1176,7 +1182,7 @@ pub fn query_module_static_binding_catalog(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let product_fingerprint = product.product_fingerprint();
     if let Err(error) = publish_current_product(
         db,
@@ -1207,7 +1213,7 @@ pub fn query_module_static_bindings(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let product_fingerprint = product.product_fingerprint();
     if let Err(error) = publish_current_product(
         db,
@@ -1242,7 +1248,7 @@ pub fn query_checked_static_body(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     let mut semantic_dependencies = product.dependencies.iter().cloned().collect::<BTreeSet<_>>();
     semantic_dependencies.insert(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(
@@ -1355,7 +1361,7 @@ pub fn query_static_constant(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     if !matches!(product.outcome, crate::static_eval::StaticEvalOutcome::Recursive(_)) {
@@ -1427,7 +1433,7 @@ pub fn query_static_definition(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let product_fingerprint = crate::db::fingerprint::static_definition_product_fingerprint(&product);
     if let Err(error) = publish_current_product(
         db,
@@ -1497,7 +1503,7 @@ pub fn query_static_definition_with_record_key_projections(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     for declaration in alias_dependencies {
@@ -1551,7 +1557,7 @@ pub fn query_static_domain_case_catalog(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let product_fingerprint = crate::db::fingerprint::static_domain_case_catalog_product_fingerprint(&product);
     if let Err(error) = publish_current_product(
         db,
@@ -1583,7 +1589,7 @@ pub fn query_static_case_signature(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let product_fingerprint = crate::db::fingerprint::static_case_signature_product_fingerprint(&product);
     if let Err(error) = publish_current_product(
         db,
@@ -1616,7 +1622,7 @@ pub fn query_associated_static_domain_declaration(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let product_fingerprint = crate::db::fingerprint::associated_static_domain_declaration_product_fingerprint(&product, store);
     if let Err(error) = publish_current_product(
         db,
@@ -1646,7 +1652,7 @@ pub fn query_associated_surface(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let recorder = crate::db::DependencyRecorder::new(key.clone());
     let product_fingerprint = crate::db::fingerprint::associated_surface_product_fingerprint(&surface);
     if let Err(error) = publish_current_product(
@@ -2391,9 +2397,7 @@ pub(crate) fn refresh_generic_conformance_root(
     let proof = crate::generic_evidence::prove_conformance_with_context(key, &mut proof_context);
     let proof_fingerprint = generic_conformance_proof_fingerprint(key, &proof);
 
-    if db.validate_reuse(&query_key, input_fingerprint)
-        && db.ready_product_fingerprint(&query_key) == Some(proof_fingerprint)
-    {
+    if db.validate_reuse(&query_key, input_fingerprint) && db.ready_product_fingerprint(&query_key) == Some(proof_fingerprint) {
         return QueryOutcome::Ready(());
     }
 
@@ -2557,7 +2561,7 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     // Semantic resolution is query-owned and only runs after the source-contract
     // cache lookup misses. Body-only source edits therefore avoid this branch.
@@ -2653,7 +2657,7 @@ pub fn query_bootstrap_callable_signature(db: &mut SemanticDb, signature: Arc<Ca
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let product_fingerprint = crate::db::fingerprint::callable_signature_product_fingerprint(&signature);
     if let Err(error) = publish_current_product(
         db,
@@ -2704,7 +2708,7 @@ pub fn query_callable_definition(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     if let Err(error) = publish_current_product(
         db,
         key.clone(),
@@ -2870,7 +2874,7 @@ pub fn query_callable_signature_with_inputs(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     for dependency in &captured_dependencies {
         match ensure_semantic_dependency_current(db, dependency, linked, declarations, type_aliases, import_products) {
@@ -2965,7 +2969,7 @@ pub fn query_constructor_initialization_owner(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let product_fingerprint = crate::db::fingerprint::constructor_initialization_owner_product_fingerprint(&product);
     if let Err(error) = publish_current_product(
         db,
@@ -3089,7 +3093,7 @@ pub fn query_field_signature_with_inputs(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     if let Some(projections) = record_key_projections {
         captured_dependencies.extend(projections.dependencies());
@@ -3240,7 +3244,7 @@ pub fn query_linked_interface(db: &mut SemanticDb, module: ModuleId, linked_inte
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     if let Err(error) = publish_current_product(
         db,
@@ -3269,7 +3273,7 @@ pub fn query_module_diagnostics(db: &mut SemanticDb, module: ModuleId, diagnosti
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     if let Err(error) = publish_current_product(
         db,
@@ -3387,7 +3391,7 @@ pub fn query_linked_name(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     if has_linked_interface {
         if let Err(error) = db.record_dependency(&mut recorder, QueryKey::LinkedInterface(module.clone())) {
@@ -3452,7 +3456,7 @@ pub fn query_public_export(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     if has_linked_interface {
         if let Err(error) = db.record_dependency(&mut recorder, QueryKey::LinkedInterface(module.clone())) {
@@ -3492,7 +3496,7 @@ pub fn query_resolved_import(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
     if let Err(error) = publish_current_product(
         db,
         key.clone(),
@@ -3692,7 +3696,7 @@ fn query_callable_body_with_requirement(
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
-    db.metrics().record_miss();
+    db.record_query_recompute_start(&key);
 
     // 2. Perform analysis
     let caller_package = formal_inputs.map(|inputs| inputs.topology.owning_package(&module));

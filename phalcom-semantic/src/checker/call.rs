@@ -638,7 +638,12 @@ fn analyze_application_argument(ctx: &mut CheckingContext<'_>, argument: Applica
     analyze_application_argument_owned(ctx, argument, expected, None)
 }
 
-fn analyze_application_argument_owned(ctx: &mut CheckingContext<'_>, argument: ApplicationArgument<'_>, expected: &ExpectedType, owner: Option<super::sequence_publication::PublicationOwner>) -> TypedExpression {
+fn analyze_application_argument_owned(
+    ctx: &mut CheckingContext<'_>,
+    argument: ApplicationArgument<'_>,
+    expected: &ExpectedType,
+    owner: Option<super::sequence_publication::PublicationOwner>,
+) -> TypedExpression {
     let mut dependencies = if owner.is_some() { ctx.sequence_dependencies() } else { Default::default() };
     dependencies.extend(owner);
     let mut typed = match argument {
@@ -646,7 +651,12 @@ fn analyze_application_argument_owned(ctx: &mut CheckingContext<'_>, argument: A
             ctx.record_call_dependency(typed.causal_invalidity, typed.expression_id.and_then(|id| ctx.explanation_for_expression(id)));
             (*typed).clone()
         }
-        _ => super::expression::analyze_expression_with_publication(ctx, argument.expression().expect("ordinary application argument has an expression"), expected, dependencies),
+        _ => super::expression::analyze_expression_with_publication(
+            ctx,
+            argument.expression().expect("ordinary application argument has an expression"),
+            expected,
+            dependencies,
+        ),
     };
     ctx.record_sequence_dependencies(&typed.publication_dependencies);
     // Solver-local expectations are still inside the generic application
@@ -1731,7 +1741,10 @@ fn apply_generic_callable_in_context(
     // the selected result parameter is callable, so an unannotated closure
     // receives its parameter and return expectations before it is analyzed.
     let expected_result_seeded = if row_session.is_none() {
-        let is_variant_constructor = target.target.as_ref().is_some_and(|target| matches!(target, crate::identity::InvocationTargetId::VariantConstructor(_)));
+        let is_variant_constructor = target
+            .target
+            .as_ref()
+            .is_some_and(|target| matches!(target, crate::identity::InvocationTargetId::VariantConstructor(_)));
         if let (Some(return_term), Some(expected_ty)) = (return_term.as_ref(), expected.ty())
             && (is_variant_constructor || target.data_constructor_shape.is_some() || expected_type_contains_callable_payload(ctx.store, expected_ty))
         {
@@ -2731,19 +2744,22 @@ fn apply_generic_callable_in_context(
 
     let deferred = row_pending_ancestor || matches!(outcome, crate::checker::inference::InferenceOutcome::Underconstrained(_));
     if outcome.is_solved() || (deferred && session_handle.borrow().frame_parent(frame).is_some()) {
-        ctx.deferred_applications.insert(publication_owner, super::sequence_publication::DeferredApplicationRequirements {
-            owner: publication_owner,
-            expression: call_id,
-            range: call_range,
-            terms: var_map.clone(),
-            return_term: return_term.clone(),
-            signature_return: signature.return_type.clone(),
-            rows: row_session.as_ref().and_then(GenericApplicationSession::query_requirements),
-            mandatory_constraints,
-            signatures: domains.signatures().cloned().collect(),
-            exact_arguments: exact_argument_bindings.clone(),
-            deferred,
-        });
+        ctx.deferred_applications.insert(
+            publication_owner,
+            super::sequence_publication::DeferredApplicationRequirements {
+                owner: publication_owner,
+                expression: call_id,
+                range: call_range,
+                terms: var_map.clone(),
+                return_term: return_term.clone(),
+                signature_return: signature.return_type.clone(),
+                rows: row_session.as_ref().and_then(GenericApplicationSession::query_requirements),
+                mandatory_constraints,
+                signatures: domains.signatures().cloned().collect(),
+                exact_arguments: exact_argument_bindings.clone(),
+                deferred,
+            },
+        );
     }
 
     match &outcome {
@@ -3193,24 +3209,26 @@ fn conflict_source_range(
             _ => None,
         }),
     };
-    range.or_else(|| {
-        let ty = match &conflict.failure {
-            crate::checker::inference::InferenceFailureReason::StructuralMismatch { left, right } => [left.as_ref(), right.as_ref()]
-                .into_iter()
-                .find_map(|term| match term {
-                    crate::checker::inference::InferenceTerm::Canonical(ty) => Some(*ty),
-                    _ => None,
-                }),
-            crate::checker::inference::InferenceFailureReason::ConflictingBounds { lower, .. } => Some(*lower),
-            _ => None,
-        }?;
-        ctx.expressions
-            .values()
-            .filter(|expression| expression.range.start >= fallback.start && expression.range.end <= fallback.end)
-            .filter(|expression| expression.knowledge.ty() == Some(ty))
-            .min_by_key(|expression| (expression.range.end - expression.range.start, expression.range.start))
-            .map(|expression| expression.range)
-    }).unwrap_or(fallback)
+    range
+        .or_else(|| {
+            let ty = match &conflict.failure {
+                crate::checker::inference::InferenceFailureReason::StructuralMismatch { left, right } => {
+                    [left.as_ref(), right.as_ref()].into_iter().find_map(|term| match term {
+                        crate::checker::inference::InferenceTerm::Canonical(ty) => Some(*ty),
+                        _ => None,
+                    })
+                }
+                crate::checker::inference::InferenceFailureReason::ConflictingBounds { lower, .. } => Some(*lower),
+                _ => None,
+            }?;
+            ctx.expressions
+                .values()
+                .filter(|expression| expression.range.start >= fallback.start && expression.range.end <= fallback.end)
+                .filter(|expression| expression.knowledge.ty() == Some(ty))
+                .min_by_key(|expression| (expression.range.end - expression.range.start, expression.range.start))
+                .map(|expression| expression.range)
+        })
+        .unwrap_or(fallback)
 }
 
 fn generic_conflict_message(conflict: &crate::checker::inference::InferenceConflict) -> String {
@@ -3774,8 +3792,16 @@ pub(crate) fn validate_deferred_application_obligations(
         // Scalar equalities/subtyping already have exact registered residual
         // identities. Exact-case refinement supplies only conformance authority.
         let mut conformances = signature.clone();
-        conformances.constraints = signature.constraints.iter().filter(|constraint| matches!(constraint, GenericConstraint::Conforms { .. })).cloned().collect();
-        let domains = GenericApplicationDomains { declaration: None, callable: Some(&conformances) };
+        conformances.constraints = signature
+            .constraints
+            .iter()
+            .filter(|constraint| matches!(constraint, GenericConstraint::Conforms { .. }))
+            .cloned()
+            .collect();
+        let domains = GenericApplicationDomains {
+            declaration: None,
+            callable: Some(&conformances),
+        };
         let mut conformance_instantiation = instantiation.clone();
         for (parameter, exact_case) in exact_conformance_arguments(ctx.store, &domains, exact_arguments) {
             conformance_instantiation.bind_type(parameter, exact_case);
@@ -4197,7 +4223,9 @@ impl UnionGenericInferenceScope {
             }
         } else {
             ctx.reject_sequence_owner(probe);
-            if self.owns_context { ctx.reject_sequence_owner(root); }
+            if self.owns_context {
+                ctx.reject_sequence_owner(root);
+            }
         }
         if self.owns_context {
             ctx.pop_inference_frame(self.context, self.root);
@@ -4316,7 +4344,12 @@ fn prepare_union_generic_inference_in_context(
             || ExpectedType::inference_from(context, expected_term, ExpectationOrigin::GenericArgument),
             |ty| ExpectedType::proper_from(ty, ExpectationOrigin::GenericArgument),
         );
-        let typed = analyze_application_argument_owned(ctx, argument, &argument_expected, Some(super::sequence_publication::PublicationOwner(context, probe_frame)));
+        let typed = analyze_application_argument_owned(
+            ctx,
+            argument,
+            &argument_expected,
+            Some(super::sequence_publication::PublicationOwner(context, probe_frame)),
+        );
         record_generic_argument_capture(ctx, &typed);
         let explanation = typed.expression_id.and_then(|id| ctx.explanation_for_expression(id));
         let origin = match (call_id, typed.expression_id) {

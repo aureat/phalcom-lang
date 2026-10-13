@@ -457,8 +457,8 @@ impl<'vm> Compiler<'vm> {
         source: Expr,
         spec: std::sync::Arc<crate::modules::semantic_lowering::ContextualRealizationLoweringSpec>,
     ) -> Result<(), CompilerError> {
-        use phalcom_semantic::checker::analysis::{RealizationCoefficientSource, RealizationEvaluationPlan};
         use crate::modules::semantic_lowering::ContextualRealizationOperationLowering;
+        use phalcom_semantic::checker::analysis::{RealizationCoefficientSource, RealizationEvaluationPlan};
 
         let range = spec.source_range;
         self.emit_contextual_class_receiver(&spec.target_receiver, range)?;

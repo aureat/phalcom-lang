@@ -324,7 +324,9 @@ class Client {
     let client = incremental_module_id("client");
     let mut session = SemanticWorkspaceSession::new();
 
-    let first = session.update(module_value_input(&math, math_source_v1, &client, client_source, 1)).expect("semantic test update should succeed");
+    let first = session
+        .update(module_value_input(&math, math_source_v1, &client, client_source, 1))
+        .expect("semantic test update should succeed");
     let body = CallableId::new(
         DeclarationId::new(client.clone(), "Client".into()),
         phalcom_common::selector::Selector::method("run", []).expect("run selector"),
@@ -349,7 +351,9 @@ class Client {
     );
     let first_revision = first.snapshot.id.revision();
 
-    let second = session.update(module_value_input(&math, math_source_v2, &client, client_source, 2)).expect("semantic test update should succeed");
+    let second = session
+        .update(module_value_input(&math, math_source_v2, &client, client_source, 2))
+        .expect("semantic test update should succeed");
     let second_revision = second.snapshot.id.revision();
     assert_ne!(first_revision, second_revision);
     assert_eq!(
@@ -364,7 +368,9 @@ class Client {
     assert_eq!(session.db().query_state(&body_key).and_then(|state| state.revision()), Some(second_revision));
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_result = cold.update(module_value_input(&math, math_source_v2, &client, client_source, 2)).expect("semantic test update should succeed");
+    let cold_result = cold
+        .update(module_value_input(&math, math_source_v2, &client, client_source, 2))
+        .expect("semantic test update should succeed");
     assert_eq!(
         second.snapshot.diagnostics, cold_result.snapshot.diagnostics,
         "incremental and cold diagnostics agree"

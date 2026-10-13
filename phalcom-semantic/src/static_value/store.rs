@@ -11,8 +11,8 @@ use crate::types::id::{KindId, TypeId};
 use crate::types::relation::{Assignability, TypeHierarchy};
 use crate::types::row::{RecordRowField, RecordRowTail};
 use crate::types::store::{TupleTypeElement, TypeData, TypeStore};
-use num_bigint::BigInt;
 use im::{HashMap, Vector};
+use num_bigint::BigInt;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -465,16 +465,14 @@ impl StaticValueStore {
     /// The production caller must supply the checked result type and expanded
     /// children from a committed `SequenceLiteralResolution`; this method does
     /// not implement a second element-subtyping check.
-    pub fn intern_sequence(
-        &mut self,
-        result_type: TypeId,
-        elements: Vec<StaticValueRef>,
-        types: &TypeStore,
-    ) -> Result<StaticValueRef, StaticValueStoreError> {
+    pub fn intern_sequence(&mut self, result_type: TypeId, elements: Vec<StaticValueRef>, types: &TypeStore) -> Result<StaticValueRef, StaticValueStoreError> {
         self.check_children(elements.iter().copied())?;
         let result_kind = self.checked_kind(result_type, types)?;
         if result_kind != KindId::TYPE {
-            return Err(StaticValueStoreError::NonProperType { ty: result_type, kind: result_kind });
+            return Err(StaticValueStoreError::NonProperType {
+                ty: result_type,
+                kind: result_kind,
+            });
         }
 
         let (declaration, arguments) = match types.get(result_type) {
@@ -563,10 +561,7 @@ impl StaticValueStore {
 
     /// Looks up the ordered children of an immutable positional tuple.
     pub fn get_tuple(&self, id: StaticTupleId) -> Result<&[StaticValueRef], StaticValueStoreError> {
-        self.tuples
-            .get(id.0 as usize)
-            .map(Box::as_ref)
-            .ok_or(StaticValueStoreError::UnknownValue(id.0))
+        self.tuples.get(id.0 as usize).map(Box::as_ref).ok_or(StaticValueStoreError::UnknownValue(id.0))
     }
 
     /// Looks up the ordered fields of an immutable record.
@@ -878,7 +873,10 @@ impl StaticValueStore {
                 let sequence = self.get_sequence(id)?;
                 let kind = self.checked_kind(sequence.result_type, types)?;
                 if kind != KindId::TYPE {
-                    return Err(StaticValueStoreError::NonProperType { ty: sequence.result_type, kind });
+                    return Err(StaticValueStoreError::NonProperType {
+                        ty: sequence.result_type,
+                        kind,
+                    });
                 }
                 sequence.result_type
             }

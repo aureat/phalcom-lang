@@ -105,7 +105,9 @@ class Consumer {
 "#;
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let first = incremental.update(single_module_input(module.clone(), source_without_bound, 1)).expect("semantic test update should succeed");
+    let first = incremental
+        .update(single_module_input(module.clone(), source_without_bound, 1))
+        .expect("semantic test update should succeed");
     assert!(
         !first.snapshot.has_errors(),
         "unbounded constructor call must be valid: {:?}",
@@ -121,7 +123,9 @@ class Consumer {
         .expect("constructor signature fingerprint");
     let consumer_v1 = first.snapshot.callable_analyses.get(&consumer).cloned().expect("consumer analysis v1");
 
-    let second = incremental.update(single_module_input(module.clone(), source_with_bound, 2)).expect("semantic test update should succeed");
+    let second = incremental
+        .update(single_module_input(module.clone(), source_with_bound, 2))
+        .expect("semantic test update should succeed");
     let constructor_fp2 = incremental
         .db()
         .ready_product_fingerprint(&signature_key)
@@ -141,7 +145,9 @@ class Consumer {
     assert!(matches!(call_v2.status, AnalysisStatus::Invalid(_)));
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_update = cold.update(single_module_input(module.clone(), source_with_bound, 1)).expect("semantic test update should succeed");
+    let cold_update = cold
+        .update(single_module_input(module.clone(), source_with_bound, 1))
+        .expect("semantic test update should succeed");
     let cold_consumer = callable_id(&cold_update.snapshot, &module, "Consumer", "use", DispatchSide::Class);
     let cold_call = expression(&cold_update.snapshot, &module, &cold_consumer, "Box.new(1, \"metadata\")");
     assert_eq!(diagnostic_codes(&second.snapshot, &module), diagnostic_codes(&cold_update.snapshot, &module));
@@ -171,7 +177,9 @@ class Box {
 }
 "#;
     let mut setter_session = SemanticWorkspaceSession::new();
-    let setter_first = setter_session.update(single_module_input(setter_module.clone(), setter_a, 1)).expect("semantic test update should succeed");
+    let setter_first = setter_session
+        .update(single_module_input(setter_module.clone(), setter_a, 1))
+        .expect("semantic test update should succeed");
     assert!(
         !setter_first.snapshot.has_errors(),
         "unbounded setter call must be valid: {:?}",
@@ -184,7 +192,9 @@ class Box {
         .ready_product_fingerprint(&QueryKey::CallableSignature(setter.clone()))
         .expect("setter fingerprint");
     let setter_body_v1 = setter_first.snapshot.callable_analyses.get(&setter_run).cloned().expect("setter caller v1");
-    let setter_second = setter_session.update(single_module_input(setter_module.clone(), setter_b, 2)).expect("semantic test update should succeed");
+    let setter_second = setter_session
+        .update(single_module_input(setter_module.clone(), setter_b, 2))
+        .expect("semantic test update should succeed");
     let setter_fp2 = setter_session
         .db()
         .ready_product_fingerprint(&QueryKey::CallableSignature(setter.clone()))
@@ -212,7 +222,9 @@ class Store {
 }
 "#;
     let mut index_session = SemanticWorkspaceSession::new();
-    let index_first = index_session.update(single_module_input(index_module.clone(), index_a, 1)).expect("semantic test update should succeed");
+    let index_first = index_session
+        .update(single_module_input(index_module.clone(), index_a, 1))
+        .expect("semantic test update should succeed");
     assert!(
         !index_first.snapshot.has_errors(),
         "unbounded index setter call must be valid: {:?}",
@@ -225,7 +237,9 @@ class Store {
         .ready_product_fingerprint(&QueryKey::CallableSignature(index_setter.clone()))
         .expect("index setter fingerprint");
     let index_body_v1 = index_first.snapshot.callable_analyses.get(&index_run).cloned().expect("index caller v1");
-    let index_second = index_session.update(single_module_input(index_module.clone(), index_b, 2)).expect("semantic test update should succeed");
+    let index_second = index_session
+        .update(single_module_input(index_module.clone(), index_b, 2))
+        .expect("semantic test update should succeed");
     let index_fp2 = index_session
         .db()
         .ready_product_fingerprint(&QueryKey::CallableSignature(index_setter))
@@ -269,7 +283,9 @@ class Evaluator {
 "#;
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let first = incremental.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let first = incremental
+        .update(single_module_input(module.clone(), source_a, 1))
+        .expect("semantic test update should succeed");
     assert!(
         !first.snapshot.has_errors(),
         "initial variant construction/match must be valid: {:?}",
@@ -285,7 +301,9 @@ class Evaluator {
     let match_v1 = first_match(&first.snapshot, &evaluator);
     assert_eq!(match_v1.arms[0].usefulness, PatternUsefulness::Useful);
 
-    let second = incremental.update(single_module_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
+    let second = incremental
+        .update(single_module_input(module.clone(), source_b, 2))
+        .expect("semantic test update should succeed");
     let enum_fp2 = incremental.db().ready_product_fingerprint(&enum_key).expect("updated enum fingerprint");
     assert_ne!(enum_fp1, enum_fp2, "variant payload/result/bound edit must change enum product fingerprint");
     assert!(!Arc::ptr_eq(
@@ -305,7 +323,9 @@ class Evaluator {
     assert!(matches!(&match_v2.arms[0].pattern, PatternResolution::Variant(_)));
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_update = cold.update(single_module_input(module.clone(), source_b, 1)).expect("semantic test update should succeed");
+    let cold_update = cold
+        .update(single_module_input(module.clone(), source_b, 1))
+        .expect("semantic test update should succeed");
     let cold_evaluator = callable_id(&cold_update.snapshot, &module, "Evaluator", "eval", DispatchSide::Instance);
     let cold_match = first_match(&cold_update.snapshot, &cold_evaluator);
     assert_eq!(
@@ -341,9 +361,13 @@ class Evaluator {
 "#;
 
     let mut incremental = SemanticWorkspaceSession::new();
-    let first = incremental.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let first = incremental
+        .update(single_module_input(module.clone(), source_a, 1))
+        .expect("semantic test update should succeed");
     let evaluator = callable_id(&first.snapshot, &module, "Evaluator", "eval", DispatchSide::Instance);
-    let _ = incremental.update(single_module_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
+    let _ = incremental
+        .update(single_module_input(module.clone(), source_b, 2))
+        .expect("semantic test update should succeed");
     let incremental_match = first_match(incremental.last_snapshot().expect("incremental snapshot"), &evaluator);
     let PatternResolution::Variant(incremental_pattern) = &incremental_match.arms[0].pattern else {
         panic!("expected variant pattern in incremental analysis");
@@ -351,7 +375,9 @@ class Evaluator {
     let incremental_case = incremental_pattern.candidates[0].case_instantiation.as_ref().expect("incremental case opening");
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_update = cold.update(single_module_input(module.clone(), source_b, 1)).expect("semantic test update should succeed");
+    let cold_update = cold
+        .update(single_module_input(module.clone(), source_b, 1))
+        .expect("semantic test update should succeed");
     let cold_evaluator = callable_id(&cold_update.snapshot, &module, "Evaluator", "eval", DispatchSide::Instance);
     let cold_match = first_match(&cold_update.snapshot, &cold_evaluator);
     let PatternResolution::Variant(cold_pattern) = &cold_match.arms[0].pattern else {

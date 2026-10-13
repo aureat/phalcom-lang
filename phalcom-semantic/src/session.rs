@@ -26,7 +26,6 @@ use crate::db::query::{
     query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
-use crate::types::outcome::BlockReason;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, NominalDeclarationHeader, TypeDeclarationShell};
 use crate::diagnostic::{DiagnosticCode, DiagnosticLabel, SemanticDiagnostic, SemanticSourceSpan};
 use crate::dispatch::SurfaceDispatchResolver;
@@ -53,6 +52,7 @@ use crate::types::annotation::{
     GenericBinderSite, TypeFormationOutcome, TypeFormationSite, TypeResolver, resolve_generic_signature, resolve_kind_syntax, type_level_binding_for_parameter,
 };
 use crate::types::id::{KindId, TypeId};
+use crate::types::outcome::BlockReason;
 use crate::types::parameter::{GenericBinderHeader, GenericSignature, TypeParameterOwner};
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
@@ -67,9 +67,91 @@ use phalcom_modules::linker::{LinkedProgram, SymbolId};
 use phalcom_modules::{WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleUpdate, WorkspaceSourceBatchMutation, WorkspaceSourceMutation};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
+
+#[derive(Clone, Copy)]
+enum SemanticPerfOutcome {
+    Success,
+    SemanticError,
+    Blocked,
+    Cancelled,
+    BudgetExceeded,
+}
+
+/// A manually scoped phase that can cover existing control flow without
+/// moving semantic work into wrapper closures. Dropping it on an early return
+/// lets the shared RAII span report failure or panic accurately.
+struct SemanticPerfScope {
+    // Drop the thread-local installation before the span guard records its
+    // fallback outcome.
+    #[cfg(feature = "perf-observability")]
+    context_install: Option<::telos_observability::PerfContextInstallGuard>,
+    #[cfg(feature = "perf-observability")]
+    span: Option<::telos_observability::PerfSpanGuard>,
+}
+
+impl SemanticPerfScope {
+    #[cfg(feature = "perf-observability")]
+    fn start(phase: ::telos_observability::PerfPhase) -> Self {
+        let span = ::telos_observability::PerfContext::current_thread().span(phase);
+        let child = span.child_context();
+        let context_install = child.install_current_thread();
+        Self {
+            context_install: Some(context_install),
+            span: Some(span),
+        }
+    }
+
+    #[cfg(not(feature = "perf-observability"))]
+    fn disabled() -> Self {
+        Self {}
+    }
+
+    fn finish(self, outcome: SemanticPerfOutcome) {
+        #[cfg(feature = "perf-observability")]
+        {
+            let mut this = self;
+            this.context_install.take();
+            if let Some(span) = this.span.take() {
+                let outcome = match outcome {
+                    SemanticPerfOutcome::Success => ::telos_observability::PerfOutcome::Success,
+                    SemanticPerfOutcome::SemanticError => ::telos_observability::PerfOutcome::SemanticError,
+                    SemanticPerfOutcome::Blocked => ::telos_observability::PerfOutcome::Blocked,
+                    SemanticPerfOutcome::Cancelled => ::telos_observability::PerfOutcome::Cancelled,
+                    SemanticPerfOutcome::BudgetExceeded => ::telos_observability::PerfOutcome::BudgetExceeded,
+                };
+                span.finish(outcome);
+            }
+        }
+        #[cfg(not(feature = "perf-observability"))]
+        let _ = (self, outcome);
+    }
+
+}
+
+macro_rules! semantic_perf_scope {
+    ($phase:expr) => {{
+        #[cfg(feature = "perf-observability")]
+        {
+            SemanticPerfScope::start($phase)
+        }
+        #[cfg(not(feature = "perf-observability"))]
+        {
+            SemanticPerfScope::disabled()
+        }
+    }};
+}
+
+macro_rules! semantic_perf_counter {
+    ($counter:expr, $amount:expr $(,)?) => {{
+        #[cfg(feature = "perf-observability")]
+        {
+            ::telos_observability::PerfContext::current_thread().record_counter($counter, $amount as u64);
+        }
+    }};
+}
 
 static CANONICAL_LINKED_UNIVERSE: OnceLock<Arc<LinkedProgram>> = OnceLock::new();
 
@@ -173,6 +255,53 @@ pub struct SemanticUpdateStats {
     pub diagnostic_frontier_work: usize,
 }
 
+#[cfg(feature = "perf-observability")]
+fn record_committed_semantic_update_stats(stats: &SemanticUpdateStats) {
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticModulesRecomputed, stats.modules_recomputed);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticProjectGraphRebuilds, stats.project_graph_rebuilt as u64);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticModulesRelinked, stats.modules_relinked);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallablesRecomputed, stats.callables_recomputed);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallablesReused, stats.callables_reused);
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticStructureShardsRecomputed,
+        stats.semantic_structure_shards_recomputed
+    );
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticStructureShardsReused, stats.semantic_structure_shards_reused);
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticDeclarationProductsRecomputed,
+        stats.declaration_products_recomputed
+    );
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticDeclarationProductsReused, stats.declaration_products_reused);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticHierarchyEdgesRecomputed, stats.hierarchy_edges_recomputed);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticHierarchyEdgesReused, stats.hierarchy_edges_reused);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticAliasRegionsRecomputed, stats.alias_regions_recomputed);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticAliasRegionsReused, stats.alias_regions_reused);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticAliasDependencyNodesConsidered, stats.alias_dependency_nodes_considered);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableSignaturesRecomputed, stats.callable_signatures_recomputed);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableSignaturesReused, stats.callable_signatures_reused);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticFieldSignaturesRecomputed, stats.field_signatures_recomputed);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticFieldSignaturesReused, stats.field_signatures_reused);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodiesRecomputed, stats.callable_bodies_recomputed);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodiesReused, stats.callable_bodies_reused);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticQueryProductsRecomputed, stats.query_products_recomputed);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticQueryProductsRevalidated, stats.query_products_revalidated);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticExactNameProductsRecomputed, stats.exact_name_products_recomputed);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticExactNameProductsReused, stats.exact_name_products_reused);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticLinkedImportersConsidered, stats.linked_importers_considered);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticReverseCandidatesConsidered, stats.reverse_candidates_considered);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticDependentsRecomputed, stats.semantic_dependents_recomputed);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticDependentsReused, stats.semantic_dependents_reused);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SnapshotFullMapMaterializations, stats.snapshot_full_map_materializations);
+    semantic_perf_counter!(::telos_observability::PerfCounter::TypeStoreSnapshotDeepCopies, stats.type_store_snapshot_deep_copies);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SnapshotRootsRetained, stats.snapshot_roots_retained);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SnapshotRootsReplaced, stats.snapshot_roots_replaced);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticAdvisoryFlatteningOperations, stats.advisory_flattening_work);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticDiagnosticFrontierModulesConsidered, stats.diagnostic_frontier_work);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceIndexesRecomputed, stats.source_indexes_recomputed);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticAdvisorySourcesRecomputed, stats.advisory_sources_recomputed);
+    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticAdvisoryCallablesRecomputed, stats.advisory_callables_recomputed);
+}
+
 fn semantic_diagnostics_from_module_diagnostics(diagnostics: &[phalcom_modules::diagnostic::ModuleDiagnostic]) -> Vec<SemanticDiagnostic> {
     diagnostics
         .iter()
@@ -195,6 +324,25 @@ fn semantic_diagnostics_from_module_diagnostics(diagnostics: &[phalcom_modules::
 enum CallableRevisionDisposition {
     Reused,
     Recomputed,
+}
+
+#[derive(Clone, Copy)]
+enum CallableBodyPass {
+    Downstream,
+    CycleRetraction,
+    ConformanceChange,
+    ModuleFacts,
+}
+
+impl CallableBodyPass {
+    fn record_query(self) {
+        match self {
+            Self::Downstream => semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyDownstreamPassQueries, 1),
+            Self::CycleRetraction => semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyCyclePassQueries, 1),
+            Self::ConformanceChange => semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyConformancePassQueries, 1),
+            Self::ModuleFacts => semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyModulePassQueries, 1),
+        }
+    }
 }
 
 fn retain_generic_signature(
@@ -932,26 +1080,27 @@ impl SemanticWorkspaceSession {
         };
         let current_sources = update.sources.keys().cloned().collect::<BTreeSet<_>>();
         let delta = self.merge_pending_semantic_delta(delta, &current_sources);
-        let result = self.update_with_budget_and_cancel_and_delta(
-            SemanticWorkspaceInput {
-                linked: update.linked,
-                sources: update.sources,
-                interfaces: update.interfaces,
-                import_products: update.import_products,
-                module_graph_changed: update.module_graph_changed,
-                import_sites_by_module: update.sites_by_importer,
-                require_canonical_import_products: true,
-                diagnostics: update.diagnostics,
-                blocked_modules: update.blocked_modules,
-                generation,
-                topology: Some(update.topology),
-                reverse_imports: Some(update.reverse_importers),
-            },
-            budget,
-            cancel,
-            Some(delta.clone()),
-        )
-        .map_err(SemanticUpdateFailure::from);
+        let result = self
+            .update_with_budget_and_cancel_and_delta(
+                SemanticWorkspaceInput {
+                    linked: update.linked,
+                    sources: update.sources,
+                    interfaces: update.interfaces,
+                    import_products: update.import_products,
+                    module_graph_changed: update.module_graph_changed,
+                    import_sites_by_module: update.sites_by_importer,
+                    require_canonical_import_products: true,
+                    diagnostics: update.diagnostics,
+                    blocked_modules: update.blocked_modules,
+                    generation,
+                    topology: Some(update.topology),
+                    reverse_imports: Some(update.reverse_importers),
+                },
+                budget,
+                cancel,
+                Some(delta.clone()),
+            )
+            .map_err(SemanticUpdateFailure::from);
         self.pending_semantic_delta = result.as_ref().err().map(|_| delta);
         result
     }
@@ -1063,7 +1212,9 @@ impl SemanticWorkspaceSession {
         cancel: &CancellationToken,
         module_delta: Option<SemanticModuleDelta>,
     ) -> Result<SemanticWorkspaceUpdate, QueryOutcome<()>> {
+        let update_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdate);
         if cancel.is_cancelled() {
+            update_scope.finish(SemanticPerfOutcome::Cancelled);
             return Err(QueryOutcome::Cancelled);
         }
 
@@ -1071,17 +1222,31 @@ impl SemanticWorkspaceSession {
         let previous_static_values = self.static_values.clone();
         let previous_structure_shards = self.semantic_structure_shards.clone();
         self.db.begin_transaction();
+        semantic_perf_counter!(::telos_observability::PerfCounter::SemanticUpdateAttempts, 1);
         let result = self.update_candidate_with_budget_and_cancel_and_delta(input, budget, cancel, module_delta, &previous_structure_shards);
         match result {
             Ok(update) => {
                 self.db.commit_transaction();
+                semantic_perf_counter!(::telos_observability::PerfCounter::SemanticUpdateCommits, 1);
+                #[cfg(feature = "perf-observability")]
+                record_committed_semantic_update_stats(&update.stats);
+                update_scope.finish(SemanticPerfOutcome::Success);
                 Ok(update)
             }
             Err(error) => {
                 self.db.rollback_transaction();
+                semantic_perf_counter!(::telos_observability::PerfCounter::SemanticUpdateRollbacks, 1);
                 self.store = previous_store;
                 self.static_values = previous_static_values;
                 self.semantic_structure_shards = previous_structure_shards;
+                let outcome = match &error {
+                    QueryOutcome::Cancelled => SemanticPerfOutcome::Cancelled,
+                    QueryOutcome::BudgetExceeded(_) => SemanticPerfOutcome::BudgetExceeded,
+                    QueryOutcome::Blocked(_) => SemanticPerfOutcome::Blocked,
+                    QueryOutcome::Ready(()) => SemanticPerfOutcome::Success,
+                    QueryOutcome::Failed(_) => SemanticPerfOutcome::SemanticError,
+                };
+                update_scope.finish(outcome);
                 Err(error)
             }
         }
@@ -1103,6 +1268,7 @@ impl SemanticWorkspaceSession {
         self.db.begin_revision();
         #[cfg(test)]
         self.fail_at_test_publication_point(SemanticPublicationFailpoint::AfterRevisionBegin)?;
+        let inputs_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateInputs);
         let semantic_topology = canonical_topology_for_input(&input);
         let source_resolution_input = crate::db::fingerprint::source_resolution_input_fingerprint(&input.interfaces);
         let linked_component_product = crate::db::fingerprint::semantic_component_product_fingerprint(&input.linked);
@@ -1140,10 +1306,12 @@ impl SemanticWorkspaceSession {
         let delta_changed_modules = module_delta.as_ref().map_or_else(BTreeSet::new, |delta| delta.changed_modules.clone());
         let delta_identity_changes = module_delta.as_ref().map_or_else(BTreeSet::new, |delta| delta.identity_changes.clone());
         let delta_removed_modules = module_delta.as_ref().map_or_else(BTreeSet::new, |delta| delta.removed_modules.clone());
+        inputs_scope.finish(SemanticPerfOutcome::Success);
 
         let mut semantic_structure_shards = BTreeMap::new();
         let mut structural_recomputed_modules = BTreeSet::new();
         let mut structural_reused_modules = BTreeSet::new();
+        let structural_shards_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateStructuralShards);
         for (module, source) in &input.sources {
             let explicitly_changed = delta_changed_modules.contains(module) || delta_identity_changes.contains(module);
             if let Some(previous) = self.semantic_structure_shards.get(module) {
@@ -1175,6 +1343,8 @@ impl SemanticWorkspaceSession {
         self.semantic_structure_shards = semantic_structure_shards;
         #[cfg(test)]
         self.fail_at_test_publication_point(SemanticPublicationFailpoint::AfterStructuralShards)?;
+        structural_shards_scope.finish(SemanticPerfOutcome::Success);
+        let invalidation_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateInvalidation);
         let current_declarations = self
             .semantic_structure_shards
             .values()
@@ -1217,7 +1387,12 @@ impl SemanticWorkspaceSession {
             removed_query_roots.insert(QueryKey::CallableBody(callable.clone()));
             removed_query_roots.insert(QueryKey::AdvisoryCallable(callable.clone()));
         }
-        let removed_closure = self.db.index().reverse_closure(removed_query_roots);
+        let removed_closure = {
+            let scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateDependencyGraphs);
+            let closure = self.db.index().reverse_closure(removed_query_roots);
+            scope.finish(SemanticPerfOutcome::Success);
+            closure
+        };
         invalidated_keys.extend(removed_closure.iter().cloned());
         let mut retired_body_dependents = BTreeSet::new();
         for key in &removed_closure {
@@ -1526,7 +1701,12 @@ impl SemanticWorkspaceSession {
                 );
             }
         }
-        let signature_dependency_work = reverse_signature_dependency_closure(&self.declaration_signature_reverse_dependencies, &signature_change_seeds);
+        let signature_dependency_work = {
+            let scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateDependencyGraphs);
+            let work = reverse_signature_dependency_closure(&self.declaration_signature_reverse_dependencies, &signature_change_seeds);
+            scope.finish(SemanticPerfOutcome::Success);
+            work
+        };
         let signature_alias_work = signature_dependency_work
             .iter()
             .filter_map(|node| match node {
@@ -2058,8 +2238,10 @@ impl SemanticWorkspaceSession {
                 && field_lifecycle_changed_modules.is_empty()
                 && previous.semantic_graph.module_projection() == input.linked.graphs.semantics
         });
+        invalidation_scope.finish(SemanticPerfOutcome::Success);
 
         // 2. Predeclare Every Source Declaration
+        let declaration_preparation_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateDeclarations);
         let mut declarations = self.base_declarations.clone();
         if let Some(previous) = previous_snapshot.as_ref() {
             for (declaration, info) in previous.declarations.iter() {
@@ -2218,6 +2400,7 @@ impl SemanticWorkspaceSession {
             }
         }
         shell_table.predeclare(initial_blueprints);
+        declaration_preparation_scope.finish(SemanticPerfOutcome::Success);
 
         // 3. Construct LinkedTypeResolver
         let mut known_declarations: HashSet<DeclarationId> = declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
@@ -2265,6 +2448,7 @@ impl SemanticWorkspaceSession {
         // such as `data Tensor<T: Type, S: Shape>()` never acquired a shell at
         // all. Full generic signatures are still checked in dependency order
         // below; this pass publishes only their stable binder header.
+        let generic_binder_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateGenericHeaders);
         for module_id in &structural_recomputed_modules {
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
                 continue;
@@ -2319,8 +2503,10 @@ impl SemanticWorkspaceSession {
                 declarations.refresh_shell_preserving_registered_projections(info);
             }
         }
+        generic_binder_scope.finish(SemanticPerfOutcome::Success);
 
         // 4. Enrich Semantic Graph
+        let hierarchy_graph_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateHierarchy);
         let mut semantic_graph = input.linked.graphs.semantics.clone();
         if let Some(previous) = previous_snapshot.as_ref() {
             for module_id in current_modules.iter() {
@@ -2388,6 +2574,7 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
+        hierarchy_graph_scope.finish(SemanticPerfOutcome::Success);
 
         // 5. Realize Declaration Shells
         let mut diags_by_module: BTreeMap<ModuleId, Vec<SemanticDiagnostic>> = BTreeMap::new();
@@ -2432,6 +2619,7 @@ impl SemanticWorkspaceSession {
         }
         let mut associated_surface_recompute_modules = structural_recomputed_modules.clone();
         associated_surface_recompute_modules.extend(removed_modules.iter().cloned());
+        let associated_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateAssociated);
         let (associated_surface_owners, source_associated_surfaces, current_inherent_impl_surface_owners) = build_source_associated_surfaces(
             &self.semantic_structure_shards,
             &previous_structure_shards,
@@ -2460,6 +2648,7 @@ impl SemanticWorkspaceSession {
             }
         }
         resolver.update_associated_type_members(&associated_surfaces_table, &type_member_declarations_table);
+        associated_scope.finish(SemanticPerfOutcome::Success);
         // Case identity is structural source authority. Publish it before the
         // alias/header/member signature scheduler reads any annotation.
         let mut static_case_catalogs = BTreeMap::new();
@@ -2577,6 +2766,7 @@ impl SemanticWorkspaceSession {
             // alias worklist rather than by a parallel prelude form table.
             alias_recomputed_declarations.extend(alias_sources.keys().cloned());
         }
+        let aliases_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateAliases);
         // Alias source edits are not identity edits, so the source shard delta
         // alone cannot seed retained alias consumers. Walk the compact retained
         // dependency graph in reverse to add exactly those consumers whose
@@ -3104,6 +3294,7 @@ impl SemanticWorkspaceSession {
             ));
         }
 
+        let type_members_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateTypeMembers);
         // Resolve source members whose own signature prerequisites are already
         // available. This publishes one canonical surface early enough for
         // aliases that depend on those members; members waiting on aliases are
@@ -3166,6 +3357,7 @@ impl SemanticWorkspaceSession {
             )?;
             pending_members.remove(&id);
         }
+        type_members_scope.finish(SemanticPerfOutcome::Success);
 
         // Lower aliases after their alias dependencies. This matters for
         // imported aliases and preserves transparent substitution across
@@ -3322,7 +3514,9 @@ impl SemanticWorkspaceSession {
             pending_aliases.remove(&declaration);
         }
         resolver.update_static_definitions(&static_definitions_table);
+        aliases_scope.finish(SemanticPerfOutcome::Success);
 
+        let generic_signature_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateGenericHeaders);
         // Generic signatures and supertype templates. Retain the dependency
         // contribution for unchanged headers; only structurally changed or
         // exact reverse-dependent headers are rebuilt below.
@@ -3617,6 +3811,7 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        generic_signature_scope.finish(SemanticPerfOutcome::Success);
         // Trait headers are contract metadata, not nominal declaration types.
         // Resolve their stable declaration-owned generic binders through the
         // same canonical generic-signature path, but publish them separately
@@ -4105,6 +4300,8 @@ impl SemanticWorkspaceSession {
                 if blocked_declarations.contains(&decl_id) || !formal_declarations.contains(&decl_id) {
                     continue;
                 }
+                let field_signatures_scope =
+                    semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateFieldSignatures);
                 for member in &class_def.members {
                     let Some(field_id) = crate::checker::declaration_signature::field_id_for_member(&decl_id, member) else {
                         continue;
@@ -4211,8 +4408,11 @@ impl SemanticWorkspaceSession {
                         QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                     }
                 }
+                field_signatures_scope.finish(SemanticPerfOutcome::Success);
                 // Publish declaration-owned callable signatures first. Dispatch
                 // surfaces are compatibility projections of these facts.
+                let callable_signatures_scope =
+                    semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableSignatures);
                 for member in &class_def.members {
                     let Some(callable_id) = crate::checker::declaration_signature::callable_id_for_member(&decl_id, member) else {
                         continue;
@@ -4327,6 +4527,9 @@ impl SemanticWorkspaceSession {
                         QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                     }
                 }
+                callable_signatures_scope.finish(SemanticPerfOutcome::Success);
+                let declaration_surfaces_scope =
+                    semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateDeclarationSurfaces);
                 let mut delegation_context =
                     crate::checker::CheckingContext::new(Arc::make_mut(&mut self.store), &hierarchy, &resolver, &declarations, module_id.clone());
                 delegation_context.attach_field_signatures(&field_signatures);
@@ -4394,6 +4597,7 @@ impl SemanticWorkspaceSession {
                     };
                     dispatch.update_callable_return_type(&callable, signature.published_return_knowledge());
                 }
+                declaration_surfaces_scope.finish(SemanticPerfOutcome::Success);
             }
         }
 
@@ -4635,6 +4839,7 @@ impl SemanticWorkspaceSession {
             }
         }
         // 6b. Compile and publish data declarations, enum declarations, associated surfaces, and closed-enum requirements.
+        let data_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateData);
         let mut data_semantics = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_data_semantics.clone(), |snapshot| (*snapshot.data_semantics).clone());
@@ -4762,7 +4967,9 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
+        data_scope.finish(SemanticPerfOutcome::Success);
 
+        let conformance_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateConformances);
         let mut inherent_contributions_by_module: BTreeMap<ModuleId, Vec<crate::impls::InherentImplContribution>> = BTreeMap::new();
         let mut inherent_callable_record_key_projections: HashMap<(crate::identity::ImplId, usize), crate::static_key::ProjectedRecordKeySet<'_>> =
             HashMap::new();
@@ -4793,7 +5000,10 @@ impl SemanticWorkspaceSession {
             conformance_associated_type_plans.retain(|impl_id, _| &impl_id.module != module);
             derived_conformance_rules.remove_source(module);
         }
-        for impl_id in conformance_witness_rebuild_impls.iter().filter(|impl_id| !structural_work_modules.contains(&impl_id.module)) {
+        for impl_id in conformance_witness_rebuild_impls
+            .iter()
+            .filter(|impl_id| !structural_work_modules.contains(&impl_id.module))
+        {
             conformance_index.remove(impl_id);
             conformance_witness_plans.remove(impl_id);
             conformance_associated_type_plans.remove(impl_id);
@@ -4813,9 +5023,7 @@ impl SemanticWorkspaceSession {
                 if let Statement::Impl(impl_def) = statement {
                     let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(idx as u32));
                     let is_conformance = matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Conformance { .. });
-                    if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some()
-                        && module_id.path.to_string().contains("collections.list")
-                    {
+                    if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() && module_id.path.to_string().contains("collections.list") {
                         eprintln!("conformance candidate {:?} module={} is_conformance={is_conformance}", impl_id, module_id);
                     }
                     if is_conformance && !conformance_witness_rebuild_impls.contains(&impl_id) {
@@ -4831,10 +5039,11 @@ impl SemanticWorkspaceSession {
                         context.attach_enum_semantics(&enum_semantics);
                         match crate::impls::resolve_conformance_head(&mut context, &trait_headers, &impl_id, impl_def) {
                             Ok(crate::impls::ResolvedConformanceDeclaration::Nominal(head)) => {
-                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some()
-                                    && module_id.path.to_string().contains("collections.list")
-                                {
-                                    eprintln!("conformance resolved {:?} target={:?} trait={:?} eligible={}", impl_id, head.target, head.trait_ref, head.eligible);
+                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() && module_id.path.to_string().contains("collections.list") {
+                                    eprintln!(
+                                        "conformance resolved {:?} target={:?} trait={:?} eligible={}",
+                                        impl_id, head.target, head.trait_ref, head.eligible
+                                    );
                                 }
                                 let authorized = crate::impls::conformance_is_authorized(&head.source_module, &head.trait_ref, &head.target);
                                 let target_owner = head.target.declaration().clone();
@@ -5025,10 +5234,11 @@ impl SemanticWorkspaceSession {
                                 conformance_index.insert(contribution);
                             }
                             Ok(crate::impls::ResolvedConformanceDeclaration::GuardedRule(rule_head)) => {
-                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some()
-                                    && module_id.path.to_string().contains("collections.list")
-                                {
-                                    eprintln!("conformance guarded {:?} target={:?} trait={:?}", impl_id, rule_head.target_template, rule_head.trait_ref);
+                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() && module_id.path.to_string().contains("collections.list") {
+                                    eprintln!(
+                                        "conformance guarded {:?} target={:?} trait={:?}",
+                                        impl_id, rule_head.target_template, rule_head.trait_ref
+                                    );
                                 }
                                 let Some(surface) = trait_surfaces.get(&rule_head.trait_ref.declaration) else {
                                     continue;
@@ -5206,9 +5416,7 @@ impl SemanticWorkspaceSession {
                                 derived_conformance_rules.insert(rule);
                             }
                             Err(diagnostics) => {
-                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some()
-                                    && module_id.path.to_string().contains("collections.list")
-                                {
+                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() && module_id.path.to_string().contains("collections.list") {
                                     eprintln!("conformance rejected {:?}: {:?}", impl_id, diagnostics);
                                 }
                                 diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
@@ -5233,9 +5441,10 @@ impl SemanticWorkspaceSession {
                             };
                             let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
                             let annotations = crate::checker::declaration_signature::callable_syntax_type_annotations(syntax);
-                            if !annotations.iter().any(|annotation| {
-                                crate::checker::declaration_signature::annotation_has_computed_record_key(annotation)
-                            }) {
+                            if !annotations
+                                .iter()
+                                .any(|annotation| crate::checker::declaration_signature::annotation_has_computed_record_key(annotation))
+                            {
                                 continue;
                             }
                             let is_class_side = syntax.attributes().iter().any(|attribute| attribute.name == "class")
@@ -5285,11 +5494,7 @@ impl SemanticWorkspaceSession {
                                         cancel,
                                         active_constants: Vec::new(),
                                     };
-                                    driver.project_annotations(
-                                        QueryKey::CallableSignature(callable_id.clone()),
-                                        module_id,
-                                        annotations.iter().copied(),
-                                    )
+                                    driver.project_annotations(QueryKey::CallableSignature(callable_id.clone()), module_id, annotations.iter().copied())
                                 };
                                 match projection {
                                     crate::static_constant_demand::StaticDemandOutcome::Ready(projections) => break Some(projections),
@@ -5380,6 +5585,8 @@ impl SemanticWorkspaceSession {
             ));
         }
 
+        conformance_scope.finish(SemanticPerfOutcome::Success);
+        let enum_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateEnums);
         for module_id in &structural_work_modules {
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
                 continue;
@@ -5548,6 +5755,8 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        enum_scope.finish(SemanticPerfOutcome::Success);
+        let effective_surfaces_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateConformances);
         for module_id in &structural_work_modules {
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
                 continue;
@@ -5671,7 +5880,9 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
+        effective_surfaces_scope.finish(SemanticPerfOutcome::Success);
 
+        let associated_static_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateAssociated);
         for module_id in &structural_work_modules {
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
                 continue;
@@ -5907,6 +6118,7 @@ impl SemanticWorkspaceSession {
         }
 
         resolver.update_associated_type_members(&associated_surfaces_table, &type_member_declarations_table);
+        associated_static_scope.finish(SemanticPerfOutcome::Success);
 
         // Override safety is a hierarchy-wide publication invariant. Validate
         // only after every formal signature and dispatch surface is available.
@@ -6077,10 +6289,7 @@ impl SemanticWorkspaceSession {
                 .collect::<BTreeSet<_>>();
             bucket_keys
                 .into_iter()
-                .filter(|bucket_key| {
-                    trait_dispatch_index.bucket_fingerprint(bucket_key)
-                        != previous.trait_dispatch_index.bucket_fingerprint(bucket_key)
-                })
+                .filter(|bucket_key| trait_dispatch_index.bucket_fingerprint(bucket_key) != previous.trait_dispatch_index.bucket_fingerprint(bucket_key))
                 .map(QueryKey::TraitDispatchBucket)
                 .collect()
         });
@@ -6130,6 +6339,8 @@ impl SemanticWorkspaceSession {
         // contract. They receive the trait header directly instead of
         // looking for a nominal declaration entry, and their `Self` receiver
         // remains a semantic SelfType with no executable dispatch target.
+        let initial_bodies_scope =
+            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesInitial);
         for (module_id, shard) in &self.semantic_structure_shards {
             let parsed_unit = &shard.source;
             for stmt in &parsed_unit.program.statements {
@@ -6189,6 +6400,7 @@ impl SemanticWorkspaceSession {
                         conformance_semantics: Some(&conformance_semantics),
                         module_values: None,
                     };
+                    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyInitialPassQueries, 1);
                     let outcome = query_callable_body_with_formal_inputs(
                         &mut self.db,
                         CallableBodyQuery {
@@ -6357,6 +6569,7 @@ impl SemanticWorkspaceSession {
                                     refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
                                 }
                                 let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
+                                semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyInitialPassQueries, 1);
                                 let outcome = query_callable_body_with_formal_inputs(
                                     &mut self.db,
                                     CallableBodyQuery {
@@ -6532,6 +6745,7 @@ impl SemanticWorkspaceSession {
                                     refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
                                 }
                                 let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
+                                semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyInitialPassQueries, 1);
                                 let outcome = query_callable_body_with_formal_inputs(
                                     &mut self.db,
                                     CallableBodyQuery {
@@ -6740,6 +6954,7 @@ impl SemanticWorkspaceSession {
                                     refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
                                 }
                                 let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
+                                semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyInitialPassQueries, 1);
                                 let outcome = query_callable_body_with_formal_inputs(
                                     &mut self.db,
                                     CallableBodyQuery {
@@ -6794,6 +7009,10 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        initial_bodies_scope.finish(SemanticPerfOutcome::Success);
+
+        let downstream_bodies_scope =
+            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesDownstream);
         // Only a recomputed callable signature can publish a changed contract
         // to callers. A body-only recomputation with an unchanged declared
         // signature must stop at the provider.
@@ -6876,6 +7095,7 @@ impl SemanticWorkspaceSession {
                 &unit,
                 &formal_inputs,
                 DownstreamCallableBodyState {
+                    pass: CallableBodyPass::Downstream,
                     definitions: &callable_definitions,
                     store: Arc::make_mut(&mut self.store),
                     hierarchy: &hierarchy,
@@ -6889,9 +7109,13 @@ impl SemanticWorkspaceSession {
             )?;
         }
 
+        downstream_bodies_scope.finish(SemanticPerfOutcome::Success);
+
         // 7. Retract stale inferred results for current unseeded direct cycles
         // before allowing the ordinary inferred-result refresh to consume
         // them. The returned SCC set is withheld from that generic loop.
+        let cycle_bodies_scope =
+            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesCycle);
         let (withheld_cycle_callables, cycle_reanalysis_roots) =
             retract_stale_unseeded_callable_result_cycles(&mut self.db, &callable_analyses, &mut callable_signatures, &mut dispatch)?;
         if !cycle_reanalysis_roots.is_empty() {
@@ -6962,6 +7186,7 @@ impl SemanticWorkspaceSession {
                     unit,
                     &reanalysis_formal_inputs,
                     DownstreamCallableBodyState {
+                        pass: CallableBodyPass::CycleRetraction,
                         definitions: &callable_definitions,
                         store: Arc::make_mut(&mut self.store),
                         hierarchy: &hierarchy,
@@ -6976,12 +7201,16 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        cycle_bodies_scope.finish(SemanticPerfOutcome::Success);
+
         // 8. Refine Callable Return Interfaces and Reach Fixed Point
         //
         // This is a specialized session-level loop: body inference and
         // interface publication iterate until return contracts stabilize.
         // During each iteration, we only run inference and update dispatch; we
         // do not run full checking or re-emit diagnostics.
+        let final_body_revalidation_scope =
+            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesFinalRevalidation);
         refresh_inferred_callable_results(InferredCallableRefreshInputs {
             db: &mut self.db,
             sources: &retained_sources,
@@ -7077,6 +7306,8 @@ impl SemanticWorkspaceSession {
             .chain(changed_plan_clients)
             .filter(|callable| current_modules.contains(callable.module()))
             .collect::<BTreeSet<_>>();
+        let conformance_bodies_scope =
+            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesConformance);
         if !affected_plan_clients.is_empty() {
             let reanalysis_signature_snapshot = callable_signatures.clone();
             let reanalysis_conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
@@ -7121,6 +7352,7 @@ impl SemanticWorkspaceSession {
                     unit,
                     &formal_inputs,
                     DownstreamCallableBodyState {
+                        pass: CallableBodyPass::ConformanceChange,
                         definitions: &callable_definitions,
                         store: Arc::make_mut(&mut self.store),
                         hierarchy: &hierarchy,
@@ -7134,6 +7366,7 @@ impl SemanticWorkspaceSession {
                 )?;
             }
         }
+        conformance_bodies_scope.finish(SemanticPerfOutcome::Success);
         let conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
             trait_dispatch: &trait_dispatch_index,
             conformance_index: &conformance_index,
@@ -7143,6 +7376,8 @@ impl SemanticWorkspaceSession {
             callable_signatures: Some(&callable_signatures),
         };
 
+        final_body_revalidation_scope.finish(SemanticPerfOutcome::Success);
+        let module_bodies_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateModuleBodies);
         for (module_id, shard) in &self.semantic_structure_shards {
             if !semantic_work_modules.contains(module_id) {
                 continue;
@@ -7367,6 +7602,7 @@ impl SemanticWorkspaceSession {
                 unit,
                 &module_body_inputs,
                 DownstreamCallableBodyState {
+                    pass: CallableBodyPass::ModuleFacts,
                     definitions: &callable_definitions,
                     store: Arc::make_mut(&mut self.store),
                     hierarchy: &hierarchy,
@@ -7379,6 +7615,7 @@ impl SemanticWorkspaceSession {
                 },
             )?;
         }
+        module_bodies_scope.finish(SemanticPerfOutcome::Success);
         let conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
             trait_dispatch: &trait_dispatch_index,
             conformance_index: &conformance_index,
@@ -7483,6 +7720,7 @@ impl SemanticWorkspaceSession {
             callables.extend(shard.callable_body_fingerprints.keys().cloned());
             source_index_analysis_callables.insert(module.clone(), callables);
         }
+        let source_index_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateSourceIndex);
         let (mut source_index, presentation_sources) = build_source_semantic_index(SourceSemanticIndexInputs {
             sources: &input.sources,
             universe_source_provider: &self.universe_source_provider,
@@ -7523,6 +7761,9 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
+        source_index_scope.finish(SemanticPerfOutcome::Success);
+
+        let advisory_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateAdvisory);
         let mut advisory = build_advisory_workspace(AdvisoryWorkspaceInputs {
             sources: &retained_sources,
             source_index: &source_index,
@@ -7586,6 +7827,7 @@ impl SemanticWorkspaceSession {
         if let Some(error) = advisory_query_failed {
             advisory = advisory.with_status(AdvisoryProductStatus::InternalFailure(error.into_boxed_str()));
         }
+        advisory_scope.finish(SemanticPerfOutcome::Success);
         for declaration in &blocked_declarations {
             declarations.remove(declaration);
         }
@@ -7594,6 +7836,8 @@ impl SemanticWorkspaceSession {
                 .try_declaration_owner()
                 .is_none_or(|owner| owner.name.as_ref() == "<main>" || current_declarations.contains(owner))
         });
+        let formal_projection_scope =
+            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateFormalProjection);
         let previous_formal = self.last_snapshot.as_ref().map(|s| s.formal_projection.as_ref());
         let mut formal_projection = previous_formal.cloned().unwrap_or_default();
         if previous_formal.is_none() {
@@ -7651,6 +7895,7 @@ impl SemanticWorkspaceSession {
                 .unwrap_or_default();
         }
         source_index.set_stats(source_index_stats);
+        formal_projection_scope.finish(SemanticPerfOutcome::Success);
 
         // Static constant checking keeps ordinary checker facts only for
         // runtime bindings. Constant names get unknown types during dependency
@@ -7751,6 +7996,8 @@ impl SemanticWorkspaceSession {
             .filter(|(id, _)| current_modules.contains(&id.module))
             .map(|(id, product)| (id.clone(), product.clone()))
             .collect::<Vec<_>>();
+        let static_definitions_scope =
+            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateStaticDefinitions);
         for (definition_id, definition_product) in static_definitions {
             let Some(module_bindings) = module_static_bindings.get(&definition_id.module) else {
                 return Err(QueryOutcome::Blocked(crate::types::outcome::BlockReason::SuppressedDependency));
@@ -7811,6 +8058,7 @@ impl SemanticWorkspaceSession {
             composed.checked_body = Some(checked_body);
             static_definitions_table.insert(Arc::new(composed));
         }
+        static_definitions_scope.finish(SemanticPerfOutcome::Success);
 
         struct ConstantDeclInfo<'a> {
             id: crate::static_constant::StaticConstantId,
@@ -7824,6 +8072,8 @@ impl SemanticWorkspaceSession {
             input_fingerprint: crate::db::key::InputFingerprint,
         }
 
+        let static_constants_scope =
+            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateStaticConstants);
         let mut constant_declarations: BTreeMap<crate::static_constant::StaticConstantId, ConstantDeclInfo<'_>> = BTreeMap::new();
         for module_id in &current_modules {
             let Some(catalog) = module_static_binding_catalogs.get(module_id) else {
@@ -8304,7 +8554,11 @@ impl SemanticWorkspaceSession {
                         let (elaboration, _) = context.elaborate_type_annotation(&resolver, annotation);
                         match elaboration {
                             Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context: inf_ctx, term, .. }) => {
-                                crate::checker::expected::ExpectedType::inference_from(inf_ctx, term, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                                crate::checker::expected::ExpectedType::inference_from(
+                                    inf_ctx,
+                                    term,
+                                    crate::checker::expected::ExpectationOrigin::DeclarationContract,
+                                )
                             }
                             Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
                                 crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
@@ -8407,6 +8661,8 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        static_constants_scope.finish(SemanticPerfOutcome::Success);
+        let diagnostics_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateDiagnostics);
         let mut semantic_diagnostic_contributions = BTreeMap::new();
         for (module_id, diagnostics) in &diagnostics_map {
             let mut semantic_diagnostics = diagnostics.clone();
@@ -8426,9 +8682,12 @@ impl SemanticWorkspaceSession {
             .into_iter()
             .map(|(module, diagnostics)| (module, Arc::from(diagnostics.into_boxed_slice())))
             .collect();
+        diagnostics_scope.finish(SemanticPerfOutcome::Success);
         let trait_dispatch_index = crate::trait_dispatch::TraitDispatchIndex::build(&conformance_index, &trait_surfaces);
         #[cfg(test)]
         self.apply_test_candidate_type_parameter();
+        let snapshot_publication_scope =
+            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticSnapshotPublication);
         let mut snapshot_obj = SemanticSnapshot::new_with_callable_analyses(
             self.workspace,
             self.db.revision(),
@@ -8486,6 +8745,10 @@ impl SemanticWorkspaceSession {
         // completed. TypeStore and advisory flattening are already shallow at
         // this seam.
         stats.snapshot_full_map_materializations += 8;
+        semantic_perf_counter!(::telos_observability::PerfCounter::SnapshotFullMapMaterializationAttempts, 8);
+        semantic_perf_counter!(::telos_observability::PerfCounter::SnapshotFullMapMaterializationIdentityUnavailable, 8);
+        semantic_perf_counter!(::telos_observability::PerfCounter::SnapshotFullMapMaterializationVolumeUnavailable, 8);
+        semantic_perf_counter!(::telos_observability::PerfCounter::SnapshotFullMapMaterializationDurationUnavailable, 8);
         stats.snapshot_roots_replaced += 8;
         stats.type_store_snapshot_deep_copies = 0;
         stats.advisory_flattening_work = 0;
@@ -8573,6 +8836,7 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        let effects_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateEffects);
         let mut diagnostics_changed = if previous_snapshot.is_none() {
             current_modules.clone()
         } else {
@@ -8642,6 +8906,7 @@ impl SemanticWorkspaceSession {
             .filter(|disposition| **disposition == CallableRevisionDisposition::Reused)
             .count();
         stats.advisory_callables_recomputed = stats.callables_recomputed;
+        effects_scope.finish(SemanticPerfOutcome::Success);
         let recomputed_keys = callable_dispositions
             .iter()
             .filter(|(_, disposition)| **disposition == CallableRevisionDisposition::Recomputed)
@@ -8692,6 +8957,7 @@ impl SemanticWorkspaceSession {
         self.source_fingerprints = new_fingerprints;
         self.requested_deep_modules = None;
 
+        snapshot_publication_scope.finish(SemanticPerfOutcome::Success);
         Ok(SemanticWorkspaceUpdate {
             snapshot,
             invalidated: Arc::from(invalidated_keys.into_iter().collect::<Vec<_>>()),
@@ -8757,8 +9023,7 @@ fn collect_alias_dependencies(
                             collect_alias_dependencies(constraint.as_ref(), module, resolver, aliases, dependencies);
                         }
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_)
-                    | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -8901,8 +9166,7 @@ fn collect_associated_projection_targets(
                             collect_associated_projection_targets(constraint.as_ref(), module, surface, targets);
                         }
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_)
-                    | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -9074,8 +9338,7 @@ fn collect_type_annotation_declarations(
                             collect_type_annotation_declarations(constraint.as_ref(), module, resolver, dependencies);
                         }
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_)
-                    | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -9459,8 +9722,7 @@ fn collect_static_case_signature_dependencies(
                             collect_static_case_signature_dependencies(constraint.as_ref(), module, resolver, catalogs, dependencies);
                         }
                     }
-                    GenericArgumentSyntax::Value(_)
-                    | GenericArgumentSyntax::InferenceHole { .. } => {}
+                    GenericArgumentSyntax::Value(_) | GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -9858,8 +10120,7 @@ fn collect_source_member_projection_dependencies(
                             collect_source_member_projection_dependencies(constraint.as_ref(), module, resolver, members, dependencies);
                         }
                     }
-                    GenericArgumentSyntax::Value(_)
-                    | GenericArgumentSyntax::InferenceHole { .. } => {}
+                    GenericArgumentSyntax::Value(_) | GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -11804,6 +12065,7 @@ fn source_body_for_callable<'a>(
 }
 
 struct DownstreamCallableBodyState<'a> {
+    pass: CallableBodyPass,
     definitions: &'a BTreeMap<CallableId, crate::impls::EffectiveCallableDefinition>,
     store: &'a mut TypeStore,
     hierarchy: &'a MapTypeHierarchy,
@@ -11823,6 +12085,7 @@ fn revalidate_downstream_callable_body(
     state: DownstreamCallableBodyState<'_>,
 ) -> Result<(), QueryOutcome<()>> {
     let DownstreamCallableBodyState {
+        pass,
         definitions,
         store,
         hierarchy,
@@ -11873,6 +12136,7 @@ fn revalidate_downstream_callable_body(
                 .expect("validated covering substitution must materialize its accepted callable signature")
         })
         .unwrap_or(canonical_signature);
+    pass.record_query();
     let outcome = query_callable_body_with_formal_inputs(
         db,
         CallableBodyQuery {
@@ -12390,6 +12654,7 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                         continue;
                     }
                     let declared_signature = callable_signatures.get_for_body(&callable).map(|signature| (&signature.callable, signature));
+                    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyFinalReanalysis, 1);
                     let mut analysis = crate::checker::body::analyze_callable_body(
                         crate::checker::body::BodyAnalysisContext {
                             store,

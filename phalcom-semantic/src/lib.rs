@@ -87,6 +87,7 @@ pub use advisory::{
 };
 pub use associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedFamilyTable, AssociatedMemberId, AssociatedSurface};
 pub use canonical_baseline::*;
+pub use checker::static_iteration::{StaticIterationItemDomain, StaticIterationLaneResolution, StaticIterationLaneResolutionIndex, StaticIterationMode};
 pub use checker::{
     AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CallableReferenceResolution, CallableReferenceResolutionIndex,
     CallableReferenceResolutionKind, CheckingContext, FamilyApplicationCandidate, FamilyApplicationResolution, FamilyApplicationResolutionIndex,
@@ -154,8 +155,8 @@ pub use resolver::LinkedTypeResolver;
 pub use scope::ScopeTable;
 pub use semantic_shard::ModuleSemanticStructureShard;
 pub use session::{
-    SemanticPublicationEffects, SemanticUpdateFailure, SemanticUpdateStats, SemanticWorkspacePublication, SemanticWorkspaceSession,
-    SemanticWorkspaceUpdate, SemanticWorkspaceUpdateError,
+    SemanticPublicationEffects, SemanticUpdateFailure, SemanticUpdateStats, SemanticWorkspacePublication, SemanticWorkspaceSession, SemanticWorkspaceUpdate,
+    SemanticWorkspaceUpdateError,
 };
 pub use signature::{
     CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, ConstructorInitializationProduct, ConstructorInitializationTable,
@@ -170,9 +171,6 @@ pub use static_constant::{CheckedStaticConstantInitializer, CheckedStaticExpress
 pub use static_definition::{
     CheckedStaticBody, StaticBodyId, StaticDefinition, StaticDefinitionBodyRepr, StaticDefinitionProduct, StaticDefinitionSignature, StaticDefinitionTable,
     StaticParameter, resolve_static_definition,
-};
-pub use checker::static_iteration::{
-    StaticIterationItemDomain, StaticIterationLaneResolution, StaticIterationLaneResolutionIndex, StaticIterationMode,
 };
 pub use static_domain::{StaticDomainResolution, StaticValueDomain, is_proper_type, resolve_static_domain, validate_proper_type};
 pub use static_intrinsic::{

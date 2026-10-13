@@ -98,6 +98,13 @@ impl DependencyIndex {
             return;
         }
         transaction.forward.insert(key.clone(), self.forward.get(key).cloned());
+        #[cfg(feature = "perf-observability")]
+        {
+            use telos_observability::{PerfContext, PerfCounter};
+            let context = PerfContext::current_thread();
+            context.record_counter(PerfCounter::SemanticDbUndoDependencyEntries, 1);
+            context.record_counter(PerfCounter::SemanticDbUndoDependencyForwardEntries, 1);
+        }
     }
 
     fn remember_reverse(&mut self, key: &QueryKey) {
@@ -108,6 +115,13 @@ impl DependencyIndex {
             return;
         }
         transaction.reverse.insert(key.clone(), self.reverse.get(key).cloned());
+        #[cfg(feature = "perf-observability")]
+        {
+            use telos_observability::{PerfContext, PerfCounter};
+            let context = PerfContext::current_thread();
+            context.record_counter(PerfCounter::SemanticDbUndoDependencyEntries, 1);
+            context.record_counter(PerfCounter::SemanticDbUndoDependencyReverseEntries, 1);
+        }
     }
 
     pub fn replace_dependencies(&mut self, key: QueryKey, dependencies: impl IntoIterator<Item = DependencyEdge>) {
@@ -191,10 +205,15 @@ impl DependencyIndex {
     pub fn reverse_closure(&self, seeds: impl IntoIterator<Item = QueryKey>) -> BTreeSet<QueryKey> {
         let mut closure = BTreeSet::new();
         let mut worklist: VecDeque<QueryKey> = seeds.into_iter().collect();
+        let seed_count = worklist.len() as u64;
+        let mut nodes_visited = 0u64;
+        let mut edges_considered = 0u64;
 
         while let Some(current) = worklist.pop_front() {
             if closure.insert(current.clone()) {
+                nodes_visited = nodes_visited.saturating_add(1);
                 if let Some(dependents) = self.reverse.get(&current) {
+                    edges_considered = edges_considered.saturating_add(dependents.len() as u64);
                     for dep in dependents {
                         if !closure.contains(dep) {
                             worklist.push_back(dep.clone());
@@ -203,6 +222,17 @@ impl DependencyIndex {
                 }
             }
         }
+
+        #[cfg(feature = "perf-observability")]
+        {
+            use telos_observability::{PerfContext, PerfCounter};
+            let context = PerfContext::current_thread();
+            context.record_counter(PerfCounter::SemanticReverseClosureSeeds, seed_count);
+            context.record_counter(PerfCounter::SemanticReverseClosureNodesVisited, nodes_visited);
+            context.record_counter(PerfCounter::SemanticReverseClosureEdgesConsidered, edges_considered);
+        }
+        #[cfg(not(feature = "perf-observability"))]
+        let _ = (seed_count, nodes_visited, edges_considered);
 
         closure
     }

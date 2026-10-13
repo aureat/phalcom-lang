@@ -285,7 +285,9 @@ class Consumer {
 "#;
 
     let mut session = SemanticWorkspaceSession::new();
-    let update1 = session.update(single_module_input(module.clone(), source_v1, 1)).expect("semantic test update should succeed");
+    let update1 = session
+        .update(single_module_input(module.clone(), source_v1, 1))
+        .expect("semantic test update should succeed");
     let consumer_v1 = update1.snapshot.callable_analyses.get(&consumer_read_id).cloned().expect("Consumer.read v1");
     let call_v1 = consumer_v1
         .expressions
@@ -303,7 +305,9 @@ class Consumer {
         "specialized inherited call must retain Middle's generic supertype template dependency: {dependencies:#?}"
     );
 
-    let update2 = session.update(single_module_input(module.clone(), source_v2, 2)).expect("semantic test update should succeed");
+    let update2 = session
+        .update(single_module_input(module.clone(), source_v2, 2))
+        .expect("semantic test update should succeed");
     assert!(
         update2.recomputed.contains(&QueryKey::CallableBody(consumer_read_id.clone())),
         "generic template change must recompute affected caller; recomputed: {:#?}; stats: {:#?}",
@@ -327,7 +331,9 @@ class Consumer {
     assert!(update2.snapshot.store.format_type(result_v2).contains("Other"));
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_update = cold.update(single_module_input(module, source_v2, 1)).expect("semantic test update should succeed");
+    let cold_update = cold
+        .update(single_module_input(module, source_v2, 1))
+        .expect("semantic test update should succeed");
     let cold_consumer = cold_update.snapshot.callable_analyses.get(&consumer_read_id).expect("cold Consumer.read");
     let cold_call = cold_consumer
         .expressions
@@ -573,7 +579,9 @@ class Base {
 }
 "#;
 
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors());
 
     let owner = DeclarationId::new(module, "Base".into());
@@ -613,7 +621,9 @@ class Main {
 }
 "#;
 
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     let owner = DeclarationId::new(module, "Main".into());
     let callable = CallableId::new(owner, Selector::method("value", []).unwrap(), DispatchSide::Class);
     assert!(
@@ -635,7 +645,9 @@ class Untyped {
 }
 "#;
 
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     let owner = DeclarationId::new(module, "Untyped".into());
     let callable = CallableId::new(owner.clone(), Selector::method("value", []).unwrap(), DispatchSide::Instance);
     let signature_key = QueryKey::CallableSignature(callable.clone());
@@ -684,7 +696,9 @@ class Client {
   @class read() { Api.value() }
 }
 "#;
-    let update_v1 = session.update(single_module_input(module.clone(), source_v1, 1)).expect("semantic test update should succeed");
+    let update_v1 = session
+        .update(single_module_input(module.clone(), source_v1, 1))
+        .expect("semantic test update should succeed");
     let client_v1 = update_v1.snapshot.callable_analyses.get(&client_read).cloned().expect("Client.read v1");
     let stable_v1 = update_v1.snapshot.callable_analyses.get(&stable_keep).cloned().expect("Stable.keep v1");
     assert!(update_v1.snapshot.callable_analyses.contains_key(&api_value));
@@ -700,7 +714,9 @@ class Client {
   @class read() { Api.value() }
 }
 "#;
-    let update_v2 = session.update(single_module_input(module.clone(), source_v2, 2)).expect("semantic test update should succeed");
+    let update_v2 = session
+        .update(single_module_input(module.clone(), source_v2, 2))
+        .expect("semantic test update should succeed");
     assert_eq!(update_v2.stats.callables_recomputed, 1, "body-only edit should recompute Api.value");
     assert_eq!(update_v2.stats.callables_reused, 2, "body-only edit should reuse Client.read and Stable.keep");
     let client_v2 = update_v2.snapshot.callable_analyses.get(&client_read).cloned().expect("Client.read v2");
@@ -723,7 +739,9 @@ class Client {
   @class read() { Api.value() }
 }
 "#;
-    let update_v3 = session.update(single_module_input(module.clone(), source_v3, 3)).expect("semantic test update should succeed");
+    let update_v3 = session
+        .update(single_module_input(module.clone(), source_v3, 3))
+        .expect("semantic test update should succeed");
     assert_eq!(update_v3.stats.callables_recomputed, 2, "signature edit must invalidate caller");
     let client_v3 = update_v3.snapshot.callable_analyses.get(&client_read).expect("Client.read v3");
     let string_ty = update_v3
@@ -747,7 +765,9 @@ class Client {
   @class read() { Api.value() }
 }
 "#;
-    let update_v4 = session.update(single_module_input(module.clone(), source_v4, 4)).expect("semantic test update should succeed");
+    let update_v4 = session
+        .update(single_module_input(module.clone(), source_v4, 4))
+        .expect("semantic test update should succeed");
     assert!(
         update_v4
             .snapshot
@@ -768,7 +788,9 @@ class Client {
   @class read() { Api.value() }
 }
 "#;
-    let update_v5 = session.update(single_module_input(module, source_v5, 5)).expect("semantic test update should succeed");
+    let update_v5 = session
+        .update(single_module_input(module, source_v5, 5))
+        .expect("semantic test update should succeed");
     let client_v5 = update_v5.snapshot.callable_analyses.get(&client_read).expect("Client.read v5");
     let call_v5 = client_v5
         .expressions
@@ -802,7 +824,9 @@ class Leaf { @class value() { 1 } }
 class Middle { @class value() { Leaf.value() } }
 class Top { @class value() { Middle.value() } }
 "#;
-    let first = session.update(single_module_input(module.clone(), source_v1, 1)).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(module.clone(), source_v1, 1))
+        .expect("semantic test update should succeed");
     let middle_v1 = first.snapshot.callable_analyses.get(&middle).cloned().expect("Middle v1");
     let top_v1 = first.snapshot.callable_analyses.get(&top).cloned().expect("Top v1");
     let int_type = first
@@ -821,7 +845,9 @@ class Leaf { @class value() { 2 } }
 class Middle { @class value() { Leaf.value() } }
 class Top { @class value() { Middle.value() } }
 "#;
-    let second = session.update(single_module_input(module, source_v2, 2)).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(module, source_v2, 2))
+        .expect("semantic test update should succeed");
     let middle_v2 = second.snapshot.callable_analyses.get(&middle).expect("Middle v2");
     let top_v2 = second.snapshot.callable_analyses.get(&top).expect("Top v2");
     assert!(second.snapshot.callable_analyses.contains_key(&leaf));
@@ -893,7 +919,9 @@ class Probe {
     };
 
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(module.clone(), source_without_edges, 1)).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(module.clone(), source_without_edges, 1))
+        .expect("semantic test update should succeed");
     assert!(cycle_diagnostics(&first.snapshot).is_empty());
     assert_eq!(
         first.snapshot.store.format_type(
@@ -925,7 +953,9 @@ class Probe {
         )
     });
 
-    let second = session.update(single_module_input(module.clone(), source_with_cycle, 2)).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(module.clone(), source_with_cycle, 2))
+        .expect("semantic test update should succeed");
     assert!(
         Arc::ptr_eq(&unrelated_body_before, &second.snapshot.callable_analyses[&unrelated]),
         "unrelated provider body must remain reusable across SCC retraction"
@@ -1034,7 +1064,9 @@ class Probe {
     );
 
     let mut cold_cycle = SemanticWorkspaceSession::new();
-    let cold_second = cold_cycle.update(single_module_input(module.clone(), source_with_cycle, 1)).expect("semantic test update should succeed");
+    let cold_second = cold_cycle
+        .update(single_module_input(module.clone(), source_with_cycle, 1))
+        .expect("semantic test update should succeed");
     assert_eq!(second_diags, cycle_diagnostics(&cold_second.snapshot));
     for callable_id in [&left, &right, &observer] {
         assert!(
@@ -1065,7 +1097,9 @@ class Probe {
         );
     }
 
-    let third = session.update(single_module_input(module.clone(), source_after_cycle, 3)).expect("semantic test update should succeed");
+    let third = session
+        .update(single_module_input(module.clone(), source_after_cycle, 3))
+        .expect("semantic test update should succeed");
     assert!(
         cycle_diagnostics(&third.snapshot).is_empty(),
         "removing one root-call edge should retract the SCC diagnostic"
@@ -1089,7 +1123,9 @@ class Probe {
     }
 
     let mut cold_after_cycle = SemanticWorkspaceSession::new();
-    let cold_third = cold_after_cycle.update(single_module_input(module, source_after_cycle, 1)).expect("semantic test update should succeed");
+    let cold_third = cold_after_cycle
+        .update(single_module_input(module, source_after_cycle, 1))
+        .expect("semantic test update should succeed");
     assert_eq!(cycle_diagnostics(&third.snapshot), cycle_diagnostics(&cold_third.snapshot));
     for callable_id in [&left, &right, &observer] {
         let incremental = third.snapshot.callable_signatures.get(callable_id).unwrap().published_return_knowledge();

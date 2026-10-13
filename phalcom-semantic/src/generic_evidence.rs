@@ -846,9 +846,9 @@ fn map_conformance_resolution_to_proof(res: ConformanceResolution) -> GenericCon
         // A raw exact witness is not a complete generic proof until its
         // instantiated trait-header obligations have been discharged by the
         // active proof session.
-        ConformanceResolution::Proven(_) => GenericConformanceProof::InternalFailure(
-            "raw exact conformance witness bypassed trait-header proof publication".into(),
-        ),
+        ConformanceResolution::Proven(_) => {
+            GenericConformanceProof::InternalFailure("raw exact conformance witness bypassed trait-header proof publication".into())
+        }
         ConformanceResolution::NotDeclared => GenericConformanceProof::Missing,
         ConformanceResolution::InvalidSource(impl_id) | ConformanceResolution::Incomplete(impl_id) => GenericConformanceProof::Incomplete(impl_id),
         ConformanceResolution::CoherenceConflict(impls) => GenericConformanceProof::CoherenceConflict(impls),
@@ -892,10 +892,7 @@ fn prove_exact_trait_header_contract(
     result
 }
 
-fn complete_exact_conformance_evidence(
-    evidence: Arc<ConformanceEvidence>,
-    context: &mut ConformanceProofContext<'_>,
-) -> GenericConformanceProof {
+fn complete_exact_conformance_evidence(evidence: Arc<ConformanceEvidence>, context: &mut ConformanceProofContext<'_>) -> GenericConformanceProof {
     let trait_header_conformance_proofs = match prove_exact_trait_header_contract(&evidence, context) {
         Ok(proofs) => proofs,
         Err(proof) => return proof,
@@ -1279,6 +1276,12 @@ fn evaluate_conformance_goal(key: &GenericConformanceKey, context: &mut Conforma
 
 /// Recursive conformance proof query evaluated under an explicit session context.
 pub fn prove_conformance_with_context(key: &GenericConformanceKey, context: &mut ConformanceProofContext) -> GenericConformanceProof {
+    #[cfg(feature = "perf-observability")]
+    {
+        let perf = telos_observability::PerfContext::current_thread();
+        perf.record_counter(telos_observability::PerfCounter::GenericConformanceProofAttempts, 1);
+        perf.record_distribution_sample("generic_conformance_nested_proof_depth", context.stack.len() as u64 + 1);
+    }
     if context.cancellation.is_cancelled() {
         return GenericConformanceProof::Cancelled;
     }
@@ -1300,6 +1303,11 @@ pub fn prove_conformance_with_context(key: &GenericConformanceKey, context: &mut
     let proof = evaluate_conformance_goal(key, context);
 
     context.stack.pop();
+    #[cfg(feature = "perf-observability")]
+    if matches!(&proof, GenericConformanceProof::Proven(GenericConformanceEvidence::Derived(_))) {
+        telos_observability::PerfContext::current_thread()
+            .record_counter(telos_observability::PerfCounter::GenericConformanceDerivedProofs, 1);
+    }
     context.memo.insert(key.clone(), ProofMemoState::Completed(proof.clone()));
     proof
 }
@@ -1347,6 +1355,9 @@ pub fn query_generic_conformance_proof_with_structural(
     store: Option<&mut TypeStore>,
     structural: Option<StructuralConformanceContext<'_>>,
 ) -> GenericConformanceProof {
+    #[cfg(feature = "perf-observability")]
+    telos_observability::PerfContext::current_thread()
+        .record_counter(telos_observability::PerfCounter::GenericConformanceProofQueries, 1);
     let mut context = ConformanceProofContext::new(environment, conformance_index, witness_plans, trait_surfaces, declarations, hierarchy, store)
         .with_derived_rules(derived_rules)
         .with_structural(structural);

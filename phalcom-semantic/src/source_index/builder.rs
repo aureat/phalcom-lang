@@ -516,8 +516,7 @@ impl TypeReferenceTargetCollector<'_> {
                                 self.annotation(constraint, bound);
                             }
                         }
-                        phalcom_ast::ast::GenericArgumentSyntax::Value(_)
-                        | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                     }
                 }
             }
@@ -645,8 +644,7 @@ impl TypeReferenceTargetCollector<'_> {
                                 self.annotation(constraint, bound);
                             }
                         }
-                        phalcom_ast::ast::GenericArgumentSyntax::Value(_)
-                        | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                     }
                 }
             }
@@ -809,8 +807,7 @@ impl SourceScopeBuilder<'_> {
                                 self.visit_annotation_projection_targets(constraint);
                             }
                         }
-                        phalcom_ast::ast::GenericArgumentSyntax::Value(_)
-                        | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
+                        phalcom_ast::ast::GenericArgumentSyntax::Value(_) | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                     }
                 }
             }

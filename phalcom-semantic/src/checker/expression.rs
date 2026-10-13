@@ -61,15 +61,13 @@ pub(crate) fn analyze_expression_with_publication(
     let effective_expected = algebraic_expected.as_ref().unwrap_or(expected);
     let expr_id = ctx.alloc_expression_id();
     let missing_inference_owner = match expected {
-        ExpectedType::Inference { context, .. } => {
-            match (ctx.inference_session(*context), ctx.current_inference_frame(*context)) {
-                (Some(_), Some(frame)) => {
-                    dependencies.insert(super::sequence_publication::PublicationOwner(*context, frame));
-                    false
-                }
-                _ => true,
+        ExpectedType::Inference { context, .. } => match (ctx.inference_session(*context), ctx.current_inference_frame(*context)) {
+            (Some(_), Some(frame)) => {
+                dependencies.insert(super::sequence_publication::PublicationOwner(*context, frame));
+                false
             }
-        }
+            _ => true,
+        },
         _ => false,
     };
     ctx.sequence_publication.expression_dependencies.insert(expr_id, dependencies);
@@ -231,7 +229,11 @@ pub(crate) fn analyze_expression_with_publication(
 
 /// Propagates only the provenance of an expectation derived from this result.
 fn analyze_contextual_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
-    let dependencies = if expected.is_none() { Default::default() } else { ctx.sequence_dependencies() };
+    let dependencies = if expected.is_none() {
+        Default::default()
+    } else {
+        ctx.sequence_dependencies()
+    };
     analyze_expression_with_publication(ctx, expr, expected, dependencies)
 }
 
@@ -1667,9 +1669,7 @@ fn analyze_checked_static_application(ctx: &mut CheckingContext<'_>, annotation:
                             return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
                         }
                     },
-                    GenericArgumentSyntax::Expansion(_)
-                    | GenericArgumentSyntax::Remainder(_)
-                    | GenericArgumentSyntax::InferenceHole { .. } => {
+                    GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) | GenericArgumentSyntax::InferenceHole { .. } => {
                         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                             ctx.current_module.clone(),
                             DiagnosticCode::ApplicationArgumentKindMismatch,
@@ -1708,8 +1708,8 @@ fn analyze_checked_static_application(ctx: &mut CheckingContext<'_>, annotation:
 }
 
 fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &phalcom_ast::ast::TypeAnnotation) -> Option<TypedExpression> {
+    use crate::checker::proof_predicate::{ProofPredicateGoal, ProofPredicateKind, ProofPredicateResolution, is_proof_predicate_declaration};
     use phalcom_ast::ast::TypeAnnotationExpr;
-    use crate::checker::proof_predicate::{is_proof_predicate_declaration, ProofPredicateGoal, ProofPredicateKind, ProofPredicateResolution};
 
     let TypeAnnotationExpr::Application { origin, arguments, range } = &annotation.expr else {
         return None;
@@ -1721,7 +1721,11 @@ fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &p
     let declaration = ctx.resolver.resolve_type_name(&ctx.current_module, &reference.root, &members)?;
     let kind = is_proof_predicate_declaration(&declaration)?;
 
-    if ctx.resolver.resolve_static_definition_name(&ctx.current_module, &reference.root, &members).is_some() {
+    if ctx
+        .resolver
+        .resolve_static_definition_name(&ctx.current_module, &reference.root, &members)
+        .is_some()
+    {
         return None;
     }
 
@@ -1822,10 +1826,7 @@ fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &p
             }
 
             let trait_ref = crate::traits::TraitRef::new(decl, resolved_args);
-            let key = crate::generic_evidence::GenericConformanceKey::new(
-                crate::types::parameter::TypeTerm::from(left_ty),
-                trait_ref,
-            );
+            let key = crate::generic_evidence::GenericConformanceKey::new(crate::types::parameter::TypeTerm::from(left_ty), trait_ref);
             ProofPredicateGoal::Conforms { key }
         }
     };
@@ -4330,15 +4331,11 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
         .unwrap_or_default();
     let before = ctx.flow.clone();
 
-    let evaluate_step = |step_ctx: &mut CheckingContext<'_>,
-                         current_header: &FlowState|
-     -> (Option<FlowState>, FlowState, Vec<FlowState>, CausalInvalidity) {
+    let evaluate_step = |step_ctx: &mut CheckingContext<'_>, current_header: &FlowState| -> (Option<FlowState>, FlowState, Vec<FlowState>, CausalInvalidity) {
         step_ctx.flow = current_header.clone();
         let cond_typed = analyze_expression(step_ctx, &while_expr.condition, &expected_bool);
         let cond_typed = match (expected_bool.ty(), cond_typed.knowledge.ty()) {
-            (Some(expected_ty), Some(actual_ty)) if expected_ty != actual_ty => {
-                check_typed_expr(step_ctx, &while_expr.condition, &expected_bool)
-            }
+            (Some(expected_ty), Some(actual_ty)) if expected_ty != actual_ty => check_typed_expr(step_ctx, &while_expr.condition, &expected_bool),
             _ => cond_typed,
         };
         let condition_flow = step_ctx.flow.clone();
@@ -4351,12 +4348,7 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
             super::control::ConditionTruth::AlwaysFalse => FlowState::unreachable(),
             _ => {
                 step_ctx.flow = condition_flow.clone();
-                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(
-                    step_ctx,
-                    &while_expr.condition,
-                    &cond_typed,
-                    true,
-                ) {
+                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(step_ctx, &while_expr.condition, &cond_typed, true) {
                     step_ctx.apply_flow_predicate(&predicate);
                 }
                 step_ctx.flow.clone()
@@ -4366,12 +4358,7 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
             super::control::ConditionTruth::AlwaysTrue => FlowState::unreachable(),
             _ => {
                 step_ctx.flow = condition_flow;
-                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(
-                    step_ctx,
-                    &while_expr.condition,
-                    &cond_typed,
-                    false,
-                ) {
+                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(step_ctx, &while_expr.condition, &cond_typed, false) {
                     step_ctx.apply_flow_predicate(&predicate);
                 }
                 step_ctx.flow.clone()
@@ -4384,12 +4371,7 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
 
         step_ctx.flow = when_true;
         step_ctx.push_loop_frame();
-        let body_res = super::control::analyze_executable_region(
-            step_ctx,
-            &while_expr.body.body,
-            while_expr.body.range,
-            &ExpectedType::None,
-        );
+        let body_res = super::control::analyze_executable_region(step_ctx, &while_expr.body.body, while_expr.body.range, &ExpectedType::None);
         let body_flow = step_ctx.flow.clone();
         let loop_frame = step_ctx.pop_loop_frame();
         let normal_backedge = if body_res.completes_normally() { Some(body_flow) } else { None };
@@ -4747,8 +4729,8 @@ fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, ex
         .ty()
         .is_some_and(|target| super::algebraic_realization::is_canonical_algebra_type(ctx, target));
     if !left_has_basis && !right_has_basis && !expects_algebra {
-        let has_binding_operand = matches!(binary.left.as_ref(), Expr::Var { .. } | Expr::GetProperty(_))
-            || matches!(binary.right.as_ref(), Expr::Var { .. } | Expr::GetProperty(_));
+        let has_binding_operand =
+            matches!(binary.left.as_ref(), Expr::Var { .. } | Expr::GetProperty(_)) || matches!(binary.right.as_ref(), Expr::Var { .. } | Expr::GetProperty(_));
         if matches!(binary.op, BinaryOp::Multiply) && has_binding_operand {
             return synthesize_binding_binary_expr(ctx, binary, expected);
         }

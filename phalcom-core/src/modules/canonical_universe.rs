@@ -129,10 +129,26 @@ pub(crate) static CANONICAL_PROGRAM_PROJECTIONS: AtomicUsize = AtomicUsize::new(
 
 /// Returns the one immutable canonical Universe compiler product for this process.
 pub(crate) fn canonical_universe_program() -> Result<&'static CanonicalUniverseProgram, &'static CanonicalUniverseBuildError> {
-    match CANONICAL_UNIVERSE_PROGRAM.get_or_init(build_canonical_universe_program) {
-        Ok(program) => Ok(program),
-        Err(error) => Err(error),
+    #[cfg(feature = "perf-observability")]
+    if CANONICAL_UNIVERSE_PROGRAM.get().is_some() {
+        crate::perf_counter!(telos_observability::PerfCounter::CanonicalUniverseCacheHits, 1);
     }
+
+    crate::perf_span_result!(
+        telos_observability::PerfPhase::CanonicalUniverse,
+        || {
+            match CANONICAL_UNIVERSE_PROGRAM.get_or_init(|| {
+                crate::perf_counter!(telos_observability::PerfCounter::CanonicalUniverseProductBuilds, 1);
+                crate::perf_span_result!(telos_observability::PerfPhase::CanonicalUniverseBuild, build_canonical_universe_program, |_| {
+                    telos_observability::PerfOutcome::BootstrapError
+                },)
+            }) {
+                Ok(program) => Ok(program),
+                Err(error) => Err(error),
+            }
+        },
+        |_| telos_observability::PerfOutcome::BootstrapError,
+    )
 }
 
 fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, CanonicalUniverseBuildError> {

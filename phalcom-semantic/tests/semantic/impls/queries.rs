@@ -71,7 +71,9 @@ fn analyze_impl(source: &str, selector: Selector) -> (SemanticWorkspaceSession, 
     let module = test_module();
     let callable = CallableId::new(DeclarationId::new(module.clone(), "User".into()), selector, DispatchSide::Instance);
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
     (session, output, callable)
 }
@@ -128,7 +130,9 @@ fn trait_dispatch_index_buckets_eligible_requirements_by_target_selector_and_sid
     let module = test_module();
     let source = "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> String { \"tagged\" } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let user = DeclarationId::new(module, "User".into());
@@ -147,7 +151,9 @@ fn trait_dispatch_query_returns_exact_proven_requirement_selection() {
     let module = test_module();
     let source = "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> String { \"tagged\" } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let user = output
@@ -178,7 +184,9 @@ fn trait_dispatch_query_selects_an_exact_trait_default() {
     let module = test_module();
     let source = "trait Tagged { tag -> String { \"default\" } }\nclass User {}\nimpl Tagged for User {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
     let user = output
         .snapshot
@@ -231,7 +239,9 @@ impl Named for Other {}
 class Neither {}
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let user = output
@@ -298,7 +308,9 @@ class Caller<I> where I |= Iterator {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
     let caller = DeclarationId::new(module, "Caller".into());
     let analysis = output
@@ -345,7 +357,9 @@ impl Iterable for User {}
 impl Independent for User {}
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     let user = output
         .snapshot
         .declarations
@@ -365,7 +379,9 @@ fn trait_dispatch_query_matches_the_exact_generic_target_application() {
     let module = test_module();
     let source = "trait Tagged { tag -> String }\nclass Value<T> {}\nclass Text {}\nclass Number {}\nimpl Tagged for Value<Text> { tag -> String { \"text\" } }\nimpl Tagged for Value<Number> { tag -> String { \"number\" } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let value = output
@@ -431,7 +447,9 @@ fn trait_dispatch_shared_inherent_witnesses_converge() {
     let module = test_module();
     let source = "trait Named { name -> String }\ntrait DisplayNamed { name -> String }\nclass User { name -> String { \"user\" } }\nimpl Named for User {}\nimpl DisplayNamed for User {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
     let user = output
         .snapshot
@@ -452,7 +470,9 @@ fn trait_dispatch_competing_defaults_are_ambiguous() {
     let module = test_module();
     let source = "trait First { tag -> String { \"first\" } }\ntrait Second { tag -> String { \"second\" } }\nclass User {}\nimpl First for User {}\nimpl Second for User {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
     let user = output
         .snapshot
@@ -473,7 +493,9 @@ fn trait_dispatch_distinct_conformance_witnesses_are_ambiguous() {
     let module = test_module();
     let source = "trait First { tag -> String }\ntrait Second { tag -> String }\nclass User {}\nimpl First for User { tag -> String { \"first\" } }\nimpl Second for User { tag -> String { \"second\" } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
     let user = output
         .snapshot
@@ -494,7 +516,9 @@ fn trait_dispatch_exact_enum_case_does_not_propagate_to_root_or_sibling() {
     let module = test_module();
     let source = "trait Tagged { code -> Int }\ndata Status { Ready Waiting }\nimpl Tagged for Status::Ready { code -> Int { 1 } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let status_decl = DeclarationId::new(module.clone(), "Status".into());
@@ -550,7 +574,9 @@ fn ordinary_body_dispatch_consumes_trait_evidence_after_inherent_miss() {
     let source =
         "trait Tagged { tag -> String { \"default\" } }\nclass User {}\nimpl Tagged for User {}\nclass Caller { read(_ user: User) -> String { user.tag } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
     let caller = DeclarationId::new(module, "Caller".into());
     assert!(
@@ -579,7 +605,9 @@ class Caller {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let string_type = output
@@ -691,7 +719,9 @@ fn ordinary_body_dispatch_reports_ambiguous_trait_evidence_at_expression_boundar
     let module = test_module();
     let source = "trait First { tag -> String { \"first\" } }\ntrait Second { tag -> String { \"second\" } }\nclass User {}\nimpl First for User {}\nimpl Second for User {}\nclass Caller { read(_ user: User) -> String { user.tag } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     let diagnostics = output
         .snapshot
         .all_diagnostics()
@@ -793,7 +823,9 @@ fn trait_dispatch_interaction_matrix_preserves_precedence_convergence_and_termin
     for (label, source, expect_site, expect_ambiguity, expected_trait) in cases {
         let module = test_module();
         let mut session = SemanticWorkspaceSession::new();
-        let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+        let output = session
+            .update(single_module_input(module.clone(), source))
+            .expect("semantic test update should succeed");
         let caller = DeclarationId::new(module.clone(), "Caller".into());
         let caller_analysis = output
             .snapshot
@@ -843,7 +875,9 @@ fn conformance_witness_plan_uses_conformance_owned_callable_identity() {
     let module = test_module();
     let source = "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> String { \"tagged\" } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let (_, contribution) = output.snapshot.conformance_index.iter().next().expect("conformance");
@@ -900,7 +934,9 @@ fn trait_requirement_view_specializes_trait_parameter_without_rewriting_callable
     let module = test_module();
     let source = "trait Tagged<T> { value -> T }\nclass User {}\nclass Marker {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let trait_id = DeclarationId::new(module.clone(), "Tagged".into());
@@ -922,7 +958,9 @@ fn incompatible_explicit_conformance_witness_stays_incomplete() {
     let module = test_module();
     let source = "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> Int { 1 } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
     assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }));
     assert!(output.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
@@ -944,7 +982,9 @@ fn missing_conformance_witness_emits_requirement_diagnostic() {
     let module = test_module();
     let source = "trait Sized { size -> Int }\nclass Empty {}\nimpl Sized for Empty {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
     let phalcom_semantic::impls::ConformanceCompleteness::Incomplete { failures } = &plan.completeness else {
         panic!("expected incomplete conformance, got {:?}", plan.completeness);
@@ -1068,7 +1108,9 @@ class Caller { read(_ user: User) -> String { user.tag } }
     for (label, source, expected) in cases {
         let module = test_module();
         let mut session = SemanticWorkspaceSession::new();
-        let output = session.update(single_module_input(module, source)).expect("semantic test update should succeed");
+        let output = session
+            .update(single_module_input(module, source))
+            .expect("semantic test update should succeed");
         let codes = output.snapshot.all_diagnostics().map(|diagnostic| diagnostic.code).collect::<Vec<_>>();
         assert!(codes.contains(&expected), "{label}: expected {expected}, got {codes:?}");
     }
@@ -1079,7 +1121,9 @@ fn known_witness_failure_outranks_another_requirement_uncertainty() {
     let module = test_module();
     let source = "trait Tagged {\n  tag -> String\n  size -> Int\n}\nclass Value<T> {}\nimpl<T> Value<T> where T <: Int { size -> Int { 1 } }\nimpl<T> Tagged for Value<T> { tag -> Int { 1 } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
     let phalcom_semantic::impls::ConformanceCompleteness::Incomplete { failures } = &plan.completeness else {
         panic!("known incompatibility must dominate uncertainty: {:?}", plan.completeness);
@@ -1094,7 +1138,9 @@ fn generic_inherent_witness_is_specialized_through_exact_conformance_target() {
     let module = test_module();
     let source = "trait Valued<T> { value -> T }\nclass Box<T> { value -> T { value } }\nimpl<U> Valued<U> for Box<U> {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
     assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Complete));
@@ -1109,7 +1155,9 @@ fn incompatible_inherent_selector_invalidates_explicit_conformance_witness() {
     let module = test_module();
     let source = "trait Renderable { render -> String }\nclass Item { render -> Int { 1 } }\nimpl Renderable for Item { render -> String { \"x\" } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
     assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }));
     assert!(output.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
@@ -1124,7 +1172,9 @@ fn exact_conditional_inherent_witness_can_outrank_trait_default() {
     let module = test_module();
     let source = "trait Tagged { tag -> String { \"default\" } }\nclass Value<T> {}\nclass Number {}\nclass Text {}\nimpl<T> Value<T> where T <: Number { tag -> String { \"number\" } }\nimpl<T> Tagged for Value<T> {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
     assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Unknown(_)));
     let value = DeclarationId::new(module.clone(), "Value".into());
@@ -1180,7 +1230,9 @@ fn associated_failure_survives_deferred_conditional_witness() {
     let module = test_module();
     let source = "trait Tagged { type Item\n tag -> Int }\nclass Value<T> {}\nclass Number {}\nimpl<T> Value<T> where T <: Number { tag -> Int { 1 } }\nimpl<T> Tagged for Value<T> {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
     assert!(
         matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }),
@@ -1222,7 +1274,9 @@ fn duplicate_associated_failure_survives_deferred_conditional_witness() {
     let module = test_module();
     let source = "trait Tagged { type Item\n tag -> Int }\nclass Value<T> {}\nclass Number {}\nimpl<T> Value<T> where T <: Number { tag -> Int { 1 } }\nimpl<T> Tagged for Value<T> { type Item = Number\n type Item = Int }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
     assert!(matches!(
         plan.completeness,
@@ -1259,7 +1313,9 @@ fn alpha_renamed_member_generics_are_compared_by_contract() {
     let module = test_module();
     let source = "trait Mapper<T> { map<U>(_ value: U) -> U where U == Int, U <: Int }\nclass User {}\nimpl Mapper<Int> for User { map<V>(_ value: V) -> V where V <: Int { value } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
     assert_eq!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Complete);
     assert!(
@@ -1274,7 +1330,9 @@ fn conformance_witness_plan_selects_trait_default_without_target_surface_polluti
     let module = test_module();
     let source = "trait Tagged { tag -> String { \"default\" } }\nclass User {}\nimpl Tagged for User {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let (_, contribution) = output.snapshot.conformance_index.iter().next().expect("conformance");
@@ -1314,7 +1372,9 @@ fn conformance_witness_plan_prefers_compatible_inherent_member_before_default() 
     let module = test_module();
     let source = "trait Tagged { tag -> String { \"default\" } }\nclass User { tag -> String { \"target\" } }\nimpl Tagged for User {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let (_, contribution) = output.snapshot.conformance_index.iter().next().expect("conformance");
@@ -1335,7 +1395,9 @@ fn conformance_plan_retains_exact_case_inherent_applicability_evidence() {
     let module = test_module();
     let source = "trait Tagged { code -> Int }\ndata Status { Ready }\nimpl Status::Ready { code -> Int { 1 } }\nimpl Tagged for Status::Ready {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
     let selection = plan.requirements.values().next().expect("inherent witness selection");
@@ -1384,7 +1446,9 @@ fn conformance_plan_preserves_unknown_conditional_witness_applicability() {
     let module = test_module();
     let source = "trait Tagged { tag -> Int }\nclass Value<T> {}\nimpl<T> Value<T> where T <: Int { tag -> Int { 1 } }\nimpl<T> Tagged for Value<T> {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module, source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module, source))
+        .expect("semantic test update should succeed");
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
     assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Unknown(_)));
 }
@@ -1394,7 +1458,9 @@ fn bodyless_explicit_conformance_member_is_invalid_and_cannot_fall_back_to_defau
     let module = test_module();
     let source = "trait Tagged { tag -> String { \"default\" } }\nclass User {}\nimpl Tagged for User { tag -> String }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
     assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }));
     assert!(output.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
@@ -1409,7 +1475,9 @@ fn unmatched_explicit_conformance_member_invalidates_the_source_plan() {
     let module = test_module();
     let source = "trait Tagged { tag -> String { \"default\" } }\nclass User {}\nimpl Tagged for User { extra -> String { \"extra\" } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
     assert!(plan.invalid_explicit_members);
     assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }));
@@ -1425,7 +1493,9 @@ fn conformance_witness_plan_selects_data_component_without_fabricating_getter() 
     let module = test_module();
     let source = "trait Named { name -> String }\ndata Person(name: String)\nimpl Named for Person {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let (_, contribution) = output.snapshot.conformance_index.iter().next().expect("conformance");
@@ -1447,7 +1517,9 @@ fn exact_data_component_witness_specializes_target_and_trait_parameters() {
     let module = test_module();
     let source = "trait Named<T> { value -> T }\ndata Box<T>(_ value: T)\nclass Marker {}\nimpl<T> Named<T> for Box<T> {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let box_id = DeclarationId::new(module.clone(), "Box".into());
@@ -1494,7 +1566,9 @@ fn generic_conformance_head_matches_exact_target_specialization() {
     let module = test_module();
     let source = "trait Tagged {}\nclass Value<T> {}\nclass Marker {}\nimpl<T> Tagged for Value<T> {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let value = DeclarationId::new(module.clone(), "Value".into());
@@ -1518,7 +1592,9 @@ fn overlapping_generic_and_specialized_conformances_are_rejected() {
     let module = test_module();
     let source = "trait Tagged {}\nclass Value<T> {}\nclass Marker {}\nimpl<T> Tagged for Value<T> {}\nimpl Tagged for Value<Marker> {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     let diagnostics = output.snapshot.diagnostics_for(&module).expect("module diagnostics");
     assert!(
         diagnostics
@@ -1533,12 +1609,16 @@ fn incremental_conformance_add_edit_delete_updates_snapshot_index() {
     let module = test_module();
     let mut session = SemanticWorkspaceSession::new();
     let source_v1 = "trait Tagged {}\nclass User {}\nimpl Tagged for User {}\n";
-    let first = session.update(single_module_input(module.clone(), source_v1)).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(module.clone(), source_v1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
     assert_eq!(first.snapshot.conformance_index.iter().count(), 1);
 
     let source_v2 = "trait Tagged {}\nclass User {}\n";
-    let second = session.update(single_module_input(module.clone(), source_v2)).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(module.clone(), source_v2))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     assert_eq!(
         second.snapshot.conformance_index.iter().count(),
@@ -1547,7 +1627,9 @@ fn incremental_conformance_add_edit_delete_updates_snapshot_index() {
     );
 
     let source_v3 = "trait Tagged {}\nclass User {}\nimpl Tagged for User {}\n";
-    let third = session.update(single_module_input(module, source_v3)).expect("semantic test update should succeed");
+    let third = session
+        .update(single_module_input(module, source_v3))
+        .expect("semantic test update should succeed");
     assert!(!third.snapshot.has_errors(), "diagnostics: {:?}", third.snapshot.diagnostics);
     assert_eq!(third.snapshot.conformance_index.iter().count(), 1, "re-added conformance must be published");
 }
@@ -1558,10 +1640,16 @@ fn incremental_and_cold_conformance_publication_have_the_same_head_identity() {
     let source_v1 = "trait Tagged {}\nclass User {}\n";
     let source_v2 = "trait Tagged {}\nclass User {}\nimpl Tagged for User {}\n";
     let mut incremental = SemanticWorkspaceSession::new();
-    let _ = incremental.update(single_module_input(module.clone(), source_v1)).expect("semantic test update should succeed");
-    let incremental_output = incremental.update(single_module_input(module.clone(), source_v2)).expect("semantic test update should succeed");
+    let _ = incremental
+        .update(single_module_input(module.clone(), source_v1))
+        .expect("semantic test update should succeed");
+    let incremental_output = incremental
+        .update(single_module_input(module.clone(), source_v2))
+        .expect("semantic test update should succeed");
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_output = cold.update(single_module_input(module.clone(), source_v2)).expect("semantic test update should succeed");
+    let cold_output = cold
+        .update(single_module_input(module.clone(), source_v2))
+        .expect("semantic test update should succeed");
 
     let user = incremental_output
         .snapshot
@@ -1598,7 +1686,9 @@ fn incremental_conformance_body_and_unrelated_edits_preserve_evidence_fingerprin
     let source_v2 =
         "trait Tagged { tag -> String }\nclass User {}\nclass Other { keep() -> Bool { false } }\nimpl Tagged for User { tag -> String { \"two\" } }\n";
     let mut incremental = SemanticWorkspaceSession::new();
-    let first = incremental.update(single_module_input(module.clone(), source_v1)).expect("semantic test update should succeed");
+    let first = incremental
+        .update(single_module_input(module.clone(), source_v1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "v1 diagnostics: {:?}", first.snapshot.diagnostics);
     let first_impl = first.snapshot.conformance_index.iter().next().expect("conformance").1.impl_id.clone();
     let trait_ref = TraitRef::new(DeclarationId::new(module.clone(), "Tagged".into()), Vec::new().into_boxed_slice());
@@ -1616,7 +1706,9 @@ fn incremental_conformance_body_and_unrelated_edits_preserve_evidence_fingerprin
         .find_map(|(callable, analysis)| (callable.conformance_owner() == Some(&first_impl)).then_some(analysis.clone()))
         .expect("v1 witness body");
 
-    let second = incremental.update(single_module_input(module.clone(), source_v2)).expect("semantic test update should succeed");
+    let second = incremental
+        .update(single_module_input(module.clone(), source_v2))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "v2 diagnostics: {:?}", second.snapshot.diagnostics);
     let second_user = second
         .snapshot
@@ -1645,7 +1737,9 @@ fn incremental_conformance_body_and_unrelated_edits_preserve_evidence_fingerprin
     );
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold_output = cold.update(single_module_input(module.clone(), source_v2)).expect("semantic test update should succeed");
+    let cold_output = cold
+        .update(single_module_input(module.clone(), source_v2))
+        .expect("semantic test update should succeed");
     assert!(!cold_output.snapshot.has_errors(), "cold diagnostics: {:?}", cold_output.snapshot.diagnostics);
     let cold_user = cold_output
         .snapshot
@@ -1697,7 +1791,9 @@ fn conformance_evidence_fingerprint_tracks_target_trait_and_visibility_contract_
     let mut previous_fingerprint = None;
     for (label, source, complete) in variants {
         let mut session = SemanticWorkspaceSession::new();
-        let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+        let output = session
+            .update(single_module_input(module.clone(), source))
+            .expect("semantic test update should succeed");
         let plan = output.snapshot.conformance_witness_plans.values().next().expect("source plan");
         assert_eq!(
             matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Complete),
@@ -1705,7 +1801,9 @@ fn conformance_evidence_fingerprint_tracks_target_trait_and_visibility_contract_
             "{label} completeness"
         );
         let mut cold = SemanticWorkspaceSession::new();
-        let cold_output = cold.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+        let cold_output = cold
+            .update(single_module_input(module.clone(), source))
+            .expect("semantic test update should succeed");
         let cold_plan = cold_output.snapshot.conformance_witness_plans.values().next().expect("cold source plan");
         assert_eq!(
             plan.fingerprint, cold_plan.fingerprint,
@@ -1730,7 +1828,9 @@ fn distinct_trait_reference_arguments_remain_distinct_conformance_domains() {
     let module = test_module();
     let source = "trait Converter<T> {}\nclass User {}\nclass Int {}\nclass Text {}\nimpl Converter<Int> for User {}\nimpl Converter<Text> for User {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
     assert_eq!(output.snapshot.conformance_index.iter().count(), 2);
 
@@ -1769,7 +1869,9 @@ fn exact_enum_case_conformance_retains_variant_identity() {
     let module = test_module();
     let source = "trait Tagged {}\ndata Result { Ok }\nimpl Tagged for Result::Ok {}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
     let (_, contribution) = output.snapshot.conformance_index.iter().next().expect("conformance contribution");
     let ConformanceTarget::ExactEnumCase(variant) = &contribution.target else {
@@ -1918,7 +2020,9 @@ fn linked_modules_publish_canonical_ownership_through_reexports() {
         initialization_order: vec![traits.clone(), facade.clone(), models.clone(), foreign.clone()],
     });
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(SemanticWorkspaceInput::new(linked, sources, 1)).expect("semantic test update should succeed");
+    let output = session
+        .update(SemanticWorkspaceInput::new(linked, sources, 1))
+        .expect("semantic test update should succeed");
     let trait_decl = DeclarationId::new(traits, "Tagged".into());
     let user_decl = DeclarationId::new(models.clone(), "User".into());
     let user = output.snapshot.declarations.form(&user_decl).expect("User type");
@@ -1942,7 +2046,9 @@ fn p1_generic_specialization_matrix_and_iterable_head_stay_at_head_level() {
     let module = test_module();
     let source = "trait Tagged { tag -> String }\ntrait Iterable<Item, Cursor> {\n  iterate(_ cursor: Cursor) -> Cursor\n  iteratorValue(_ cursor: Cursor) -> Item\n}\nclass Value<T> {}\nclass Text {}\nclass Number {}\nclass Boolish {}\nclass Countdown {}\nimpl Tagged for Value<Text> { tag -> String { \"text\" } }\nimpl Tagged for Value<Number> { tag -> String { \"number\" } }\nimpl Iterable<Countdown, Countdown> for Countdown { iterate(_ cursor: Countdown) -> Countdown { cursor } iteratorValue(_ cursor: Countdown) -> Countdown { cursor } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let value = DeclarationId::new(module.clone(), "Value".into());
@@ -2028,10 +2134,12 @@ fn test_rejected_duplicate_impl_definition_is_not_published() {
         DispatchSide::Instance,
     );
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(
-        module,
-        "class User {}\nimpl User { name() -> String { \"first\" } }\nimpl User { name() -> String { 1 } }\n",
-    )).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(
+            module,
+            "class User {}\nimpl User { name() -> String { \"first\" } }\nimpl User { name() -> String { 1 } }\n",
+        ))
+        .expect("semantic test update should succeed");
     assert!(output.snapshot.has_errors(), "duplicate impl member must diagnose");
 
     let definition = session
@@ -2074,7 +2182,9 @@ impl User {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(
         output
             .snapshot
@@ -2129,13 +2239,19 @@ fn incremental_impl_edit_matches_cold_effective_surfaces() {
     let source_v2 = "class Alpha {}\nclass Beta {}\nimpl Alpha { ping() -> String { \"changed\" } }\nimpl Beta { ping() -> Int { 2 } }\n";
     let module = test_module();
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(module.clone(), source_v1)).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(module.clone(), source_v1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
-    let second = session.update(single_module_input(module.clone(), source_v2)).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(module.clone(), source_v2))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
 
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold = cold_session.update(single_module_input(module, source_v2)).expect("semantic test update should succeed");
+    let cold = cold_session
+        .update(single_module_input(module, source_v2))
+        .expect("semantic test update should succeed");
     assert!(!cold.snapshot.has_errors(), "cold diagnostics: {:?}", cold.snapshot.diagnostics);
 
     for name in ["Alpha", "Beta"] {
@@ -2150,19 +2266,23 @@ fn impl_body_only_edit_preserves_surface_and_reuses_unaffected_callable() {
     let module = test_module();
     let callable = impl_callable("User", Selector::method("greet", []).unwrap());
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(
-        module.clone(),
-        "class User {}\nimpl User { greet() -> String { \"first\" } }\nclass Other { keep() -> Bool { true } }\n",
-    )).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(
+            module.clone(),
+            "class User {}\nimpl User { greet() -> String { \"first\" } }\nclass Other { keep() -> Bool { true } }\n",
+        ))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
     let first_surface = surface_fingerprint(&first, &owner("User"));
     let first_signature = first.snapshot.callable_signatures.get(&callable).expect("impl signature").clone();
     let first_analysis = first.snapshot.callable_analyses.get(&callable).cloned().expect("impl body");
 
-    let second = session.update(single_module_input(
-        module,
-        "class User {}\nimpl User { greet() -> String { \"second\" } }\nclass Other { keep() -> Bool { false } }\n",
-    )).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(
+            module,
+            "class User {}\nimpl User { greet() -> String { \"second\" } }\nclass Other { keep() -> Bool { false } }\n",
+        ))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     assert_eq!(
         first_surface,
@@ -2185,18 +2305,22 @@ fn unrelated_class_body_edit_reuses_impl_callable_and_surface() {
     let module = test_module();
     let callable = impl_callable("User", Selector::method("greet", []).unwrap());
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(
-        module.clone(),
-        "class User {}\nimpl User { greet() -> String { \"hi\" } }\nclass Other { keep() -> Bool { true } }\n",
-    )).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(
+            module.clone(),
+            "class User {}\nimpl User { greet() -> String { \"hi\" } }\nclass Other { keep() -> Bool { true } }\n",
+        ))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
     let first_surface = surface_fingerprint(&first, &owner("User"));
     let first_analysis = first.snapshot.callable_analyses.get(&callable).cloned().expect("impl body");
 
-    let second = session.update(single_module_input(
-        module,
-        "class User {}\nimpl User { greet() -> String { \"hi\" } }\nclass Other { keep() -> Bool { false } }\n",
-    )).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(
+            module,
+            "class User {}\nimpl User { greet() -> String { \"hi\" } }\nclass Other { keep() -> Bool { false } }\n",
+        ))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     assert_eq!(first_surface, surface_fingerprint(&second, &owner("User")));
     assert!(
@@ -2288,19 +2412,23 @@ fn impl_whitespace_and_range_edit_preserves_semantic_surface_fingerprint() {
     let module = test_module();
     let callable = impl_callable("User", Selector::method("greet", []).unwrap());
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(
-        module.clone(),
-        "class User {}\nimpl User { greet() -> String { \"hi\" } }\n",
-    )).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(
+            module.clone(),
+            "class User {}\nimpl User { greet() -> String { \"hi\" } }\n",
+        ))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
     let first_surface = surface_fingerprint(&first, &owner("User"));
     let first_signature =
         phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(first.snapshot.callable_signatures.get(&callable).expect("impl signature"));
 
-    let second = session.update(single_module_input(
-        module,
-        "class User {}\n\nimpl User {\n  greet() -> String {\n    \"hi\"\n  }\n}\n",
-    )).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(
+            module,
+            "class User {}\n\nimpl User {\n  greet() -> String {\n    \"hi\"\n  }\n}\n",
+        ))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     assert_eq!(first_surface, surface_fingerprint(&second, &owner("User")));
     assert_eq!(
@@ -2316,17 +2444,21 @@ fn moving_impl_target_retires_old_callable_and_publishes_new_target() {
     let alpha_ping = impl_callable("Alpha", Selector::method("ping", []).unwrap());
     let beta_ping = impl_callable("Beta", Selector::method("ping", []).unwrap());
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(
-        module.clone(),
-        "class Alpha {}\nclass Beta {}\nimpl Alpha { ping() -> Int { 1 } }\n",
-    )).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(
+            module.clone(),
+            "class Alpha {}\nclass Beta {}\nimpl Alpha { ping() -> Int { 1 } }\n",
+        ))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
     assert!(first.snapshot.callable_definitions.contains_key(&alpha_ping));
 
-    let second = session.update(single_module_input(
-        module,
-        "class Alpha {}\nclass Beta {}\nimpl Beta { ping() -> Int { 1 } }\n",
-    )).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(
+            module,
+            "class Alpha {}\nclass Beta {}\nimpl Beta { ping() -> Int { 1 } }\n",
+        ))
+        .expect("semantic test update should succeed");
     assert!(
         !second.snapshot.callable_definitions.contains_key(&alpha_ping),
         "old target must lose the moved definition"
@@ -2364,17 +2496,23 @@ fn incremental_adding_variant_invalidates_closed_requirement_completeness() {
     let module = test_module();
     let mut session = SemanticWorkspaceSession::new();
     let source_v1 = "data Expr {\n  Lit(val: Int)\n}\nimpl Expr {\n  eval() -> Int\n}\nimpl Expr::Lit(val: _) {\n  eval() -> Int { self.val }\n}\n";
-    let first = session.update(single_module_input(module.clone(), source_v1)).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(module.clone(), source_v1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "v1 must have no diagnostics: {:?}", first.snapshot.diagnostics);
 
     // Adding Add variant without an exact case implementation for eval() must emit missing requirement diagnostic
     let source_v2 = "data Expr {\n  Lit(val: Int)\n  Add(left: Expr, right: Expr)\n}\nimpl Expr {\n  eval() -> Int\n}\nimpl Expr::Lit(val: _) {\n  eval() -> Int { self.val }\n}\n";
-    let second = session.update(single_module_input(module.clone(), source_v2)).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(module.clone(), source_v2))
+        .expect("semantic test update should succeed");
     assert!(second.snapshot.has_errors(), "v2 must produce missing requirement error for Add");
 
     // Cold analysis must produce matching diagnostics
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold = cold_session.update(single_module_input(module, source_v2)).expect("semantic test update should succeed");
+    let cold = cold_session
+        .update(single_module_input(module, source_v2))
+        .expect("semantic test update should succeed");
     assert!(cold.snapshot.has_errors(), "cold v2 must produce missing requirement error");
     assert_eq!(second.snapshot.has_errors(), cold.snapshot.has_errors());
 }
@@ -2384,7 +2522,9 @@ fn incremental_exact_case_body_edit_preserves_unrelated_products() {
     let module = test_module();
     let mut session = SemanticWorkspaceSession::new();
     let source_v1 = "data Expr {\n  Lit(val: Int)\n  Add(left: Expr, right: Expr)\n}\nimpl Expr {\n  eval() -> Int\n}\nimpl Expr::Lit(val: _) {\n  eval() -> Int { self.val }\n}\nimpl Expr::Add(left: _, right: _) {\n  eval() -> Int { self.left.eval() + self.right.eval() }\n}\n";
-    let first = session.update(single_module_input(module.clone(), source_v1)).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(module.clone(), source_v1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
 
     let lit_var = phalcom_semantic::identity::VariantId::new(
@@ -2400,14 +2540,18 @@ fn incremental_exact_case_body_edit_preserves_unrelated_products() {
 
     // Edit only Lit body
     let source_v2 = "data Expr {\n  Lit(val: Int)\n  Add(left: Expr, right: Expr)\n}\nimpl Expr {\n  eval() -> Int\n}\nimpl Expr::Lit(val: _) {\n  eval() -> Int { self.val + 1 }\n}\nimpl Expr::Add(left: _, right: _) {\n  eval() -> Int { self.left.eval() + self.right.eval() }\n}\n";
-    let second = session.update(single_module_input(module.clone(), source_v2)).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(module.clone(), source_v2))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
 
     let second_lit_analysis = second.snapshot.callable_analyses.get(&lit_callable).expect("updated lit body analysis");
     assert!(!Arc::ptr_eq(&first_lit_analysis, second_lit_analysis), "lit body analysis must be refreshed");
 
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold = cold_session.update(single_module_input(module, source_v2)).expect("semantic test update should succeed");
+    let cold = cold_session
+        .update(single_module_input(module, source_v2))
+        .expect("semantic test update should succeed");
     assert_eq!(second.snapshot.callable_definitions, cold.snapshot.callable_definitions);
 }
 
@@ -2416,7 +2560,9 @@ fn incremental_case_only_member_leaves_root_surface_unchanged() {
     let module = test_module();
     let mut session = SemanticWorkspaceSession::new();
     let source_v1 = "data Choice {\n  A\n  B\n}\nimpl Choice::A {\n  aOnly() -> Int { 42 }\n}\n";
-    let first = session.update(single_module_input(module.clone(), source_v1)).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(module.clone(), source_v1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
     let root_surface_v1 = surface_fingerprint(&first, &owner("Choice"));
     let a_variant = phalcom_semantic::identity::VariantId::new(owner("Choice"), Selector::getter("A").unwrap());
@@ -2425,7 +2571,9 @@ fn incremental_case_only_member_leaves_root_surface_unchanged() {
 
     // Add another case-only member to B
     let source_v2 = "data Choice {\n  A\n  B\n}\nimpl Choice::A {\n  aOnly() -> Int { 42 }\n}\nimpl Choice::B {\n  bOnly() -> Int { 99 }\n}\n";
-    let second = session.update(single_module_input(module.clone(), source_v2)).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(module.clone(), source_v2))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     let root_surface_v2 = surface_fingerprint(&second, &owner("Choice"));
     let b_variant = phalcom_semantic::identity::VariantId::new(owner("Choice"), Selector::getter("B").unwrap());
@@ -2444,7 +2592,9 @@ fn incremental_case_only_member_leaves_root_surface_unchanged() {
         "case-only members must not alter root enum declaration surface"
     );
 
-    let third = session.update(single_module_input(module, "data Choice {\n  A\n  B\n}\n")).expect("semantic test update should succeed");
+    let third = session
+        .update(single_module_input(module, "data Choice {\n  A\n  B\n}\n"))
+        .expect("semantic test update should succeed");
     assert!(
         !third.snapshot.has_errors(),
         "removal must not leave diagnostics: {:?}",
@@ -2459,7 +2609,9 @@ fn exact_case_conditional_precedence_shadows_root_requirement() {
     let module = test_module();
     let source = "data Status { Ready Done }\nimpl Status { code() -> Int }\nimpl Status::Ready { code() -> Int { 1 } }\nimpl Status::Done { code() -> Int { 2 } }\nclass Probe { run() -> Int { Status::Ready.code() } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(module.clone(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let selection = output
@@ -2486,7 +2638,9 @@ impl<T> Cell<T> where T |= ClosedAdd {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(test_module(), source)).expect("semantic test update should succeed");
+    let output = session
+        .update(single_module_input(test_module(), source))
+        .expect("semantic test update should succeed");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
     let analysis = output
         .snapshot

@@ -92,7 +92,9 @@ class Child is Base {
 
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let child = DeclarationId::new(module.clone(), "Child".into());
@@ -174,7 +176,9 @@ class Child is Base {
 fn transparent_alias_shell_records_complete_alias_dependency_edge() {
     let module = module_id();
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), "type Base = Int\ntype Derived = Base\n", 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), "type Base = Int\ntype Derived = Base\n", 1))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let base = DeclarationId::new(module.clone(), "Base".into());
@@ -196,11 +200,13 @@ fn transparent_alias_shell_records_complete_alias_dependency_edge() {
 fn generic_annotation_records_referenced_declaration_shell_dependency() {
     let module = module_id();
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(
-        module.clone(),
-        "class Holder<T> {}\nclass Consumer {\n  @class use(_ value: Holder<Int>) -> Int { 1 }\n}\n",
-        1,
-    )).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(
+            module.clone(),
+            "class Holder<T> {}\nclass Consumer {\n  @class use(_ value: Holder<Int>) -> Int { 1 }\n}\n",
+            1,
+        ))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let holder = DeclarationId::new(module.clone(), "Holder".into());
@@ -219,7 +225,9 @@ fn alias_body_semantic_edit_invalidates_consumer_signature() {
     let module = module_id();
     let mut session = SemanticWorkspaceSession::new();
     let source1 = "type Alias = Int\nclass Consumer {\n  @class use(_ value: Alias) -> Int { 1 }\n}\n";
-    let first = session.update(single_module_input(module.clone(), source1, 1)).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(module.clone(), source1, 1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
 
     let alias = DeclarationId::new(module.clone(), "Alias".into());
@@ -231,7 +239,9 @@ fn alias_body_semantic_edit_invalidates_consumer_signature() {
     let signature_revision1 = session.db().query_state(&signature_key).expect("consumer signature").revision();
 
     let source2 = "type Alias = String\nclass Consumer {\n  @class use(_ value: Alias) -> Int { 1 }\n}\n";
-    let second = session.update(single_module_input(module, source2, 2)).expect("semantic test update should succeed");
+    let second = session
+        .update(single_module_input(module, source2, 2))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
 
     let alias_fp2 = session.db().ready_product_fingerprint(&alias_key).expect("updated alias shell product");
@@ -430,7 +440,9 @@ class Api {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let owner = DeclarationId::new(module.clone(), "Api".into());

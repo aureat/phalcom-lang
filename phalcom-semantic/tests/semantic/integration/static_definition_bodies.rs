@@ -601,7 +601,10 @@ fn symbolic_vector_identity_spread_stays_unreduced_before_reading_its_source() {
     let symbolic_resolution = symbolic.sequence_literals.values().next().expect("generic checked identity spread");
     let symbolic_type = symbolic_resolution.result_type;
     let symbolic_extent = symbolic_resolution.extent.expect("symbolic Vector extent");
-    assert!(matches!(fixture.analysis.snapshot.store.get(symbolic_extent), phalcom_semantic::types::store::TypeData::Parameter(_)));
+    assert!(matches!(
+        fixture.analysis.snapshot.store.get(symbolic_extent),
+        phalcom_semantic::types::store::TypeData::Parameter(_)
+    ));
 
     let copied = fixture
         .analysis
@@ -625,16 +628,15 @@ fn symbolic_vector_identity_spread_stays_unreduced_before_reading_its_source() {
     checked.sequence_literals = Arc::new(resolutions);
 
     let mut values = StaticValueStore::new();
-    let outcome = StaticEvaluator::for_checked_expression(
-        &checked,
-        &mut values,
-        &mut QueryBudget::default(),
-        &CancellationToken::new(),
-    )
-    .with_type_store(&fixture.analysis.snapshot.store)
-    .evaluate();
+    let outcome = StaticEvaluator::for_checked_expression(&checked, &mut values, &mut QueryBudget::default(), &CancellationToken::new())
+        .with_type_store(&fixture.analysis.snapshot.store)
+        .evaluate();
     assert!(matches!(outcome, StaticEvalOutcome::Symbolic(_)));
-    assert_eq!(values.len(), 0, "the symbolic spread must stop before reading its source or publishing a sequence root");
+    assert_eq!(
+        values.len(),
+        0,
+        "the symbolic spread must stop before reading its source or publishing a sequence root"
+    );
 }
 
 #[test]
@@ -782,10 +784,7 @@ type BreakCaller: Int { BreakCallee<> }
 fn static_while_uses_loop_control_work_and_rejects_while_true_as_static_control() {
     let boolean_flag_loop = |name: &str, iterations: usize| {
         let flags = (0..iterations).map(|index| format!("flag_{index}")).collect::<Vec<_>>();
-        let declarations = flags
-            .iter()
-            .map(|flag| format!("  let mut {flag} = true\n"))
-            .collect::<String>();
+        let declarations = flags.iter().map(|flag| format!("  let mut {flag} = true\n")).collect::<String>();
         let condition = flags.join(" or ");
         let mut branch = format!("{last} = false", last = flags.last().expect("at least one loop flag"));
         for index in (0..iterations.saturating_sub(1)).rev() {
@@ -885,7 +884,10 @@ type WhileNonBool: Int { while 1 { break }
     let mut long_budget = QueryBudget::new(1_000_000);
     let (long, _) = evaluate("WhileLong", &mut long_budget, &CancellationToken::new());
     assert!(matches!(long, StaticEvalOutcome::Reduced(_)));
-    assert!(long_budget.steps_taken > short_budget.steps_taken, "longer loops must charge more Work transitions");
+    assert!(
+        long_budget.steps_taken > short_budget.steps_taken,
+        "longer loops must charge more Work transitions"
+    );
 
     let mut bounded_budget = QueryBudget::new(64);
     let (bounded, _) = evaluate("WhileForever", &mut bounded_budget, &CancellationToken::new());
@@ -941,7 +943,12 @@ type WhileNonBool: Int { while 1 { break }
         .static_definition(&fixture.decl("main", "WhileNonBool"))
         .and_then(|definition| definition.checked_body.as_ref())
         .expect("checked non-Bool while condition");
-    assert!(non_bool.diagnostics.iter().any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeMismatch));
+    assert!(
+        non_bool
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeMismatch)
+    );
 }
 
 #[test]

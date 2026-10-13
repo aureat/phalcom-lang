@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "run_id": "vm-bootstrap-48894",
+    "started_unix_ns": 1791844768395525000,
+    "observability_level": "summary",
+    "baseline_head": "e2ae4a0fd360e4075ce8ad229a3e39e1531fb771",
+    "execution_tree_head": "303222c3b027c34ddacd4749f056e1095aabfa81",
+    "source_revision": "303222c3b027c34ddacd4749f056e1095aabfa81",
+    "dirty": true,
+    "toolchain": "nightly-2026-07-10-aarch64-apple-darwin",
+    "workload": "process_cold_vm_bootstrap"
+  },
+  "elapsed_ns": 60745875,
+  "spans": [
+    {
+      "id": 1,
+      "phase": "vm.bootstrap",
+      "start_offset_ns": 2143583,
+      "duration_ns": 58598666,
+      "outcome": "bootstrap_error"
+    },
+    {
+      "id": 2,
+      "parent_id": 1,
+      "phase": "canonical_universe.total",
+      "start_offset_ns": 3080000,
+      "duration_ns": 57346917,
+      "outcome": "bootstrap_error"
+    },
+    {
+      "id": 3,
+      "parent_id": 2,
+      "phase": "canonical_universe.build",
+      "start_offset_ns": 3232083,
+      "duration_ns": 57191166,
+      "outcome": "bootstrap_error"
+    }
+  ],
+  "counters": {
+    "canonical_universe_product_builds": 1
+  }
+}

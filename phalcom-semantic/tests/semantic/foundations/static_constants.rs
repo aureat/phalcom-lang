@@ -24,7 +24,9 @@ fn test_module() -> ModuleId {
 fn test_literal_const() {
     let module = test_module();
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), "const A: Int = 42\n", 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), "const A: Int = 42\n", 1))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let id = StaticConstantId::new(module.clone(), "A");
@@ -39,7 +41,9 @@ fn test_literal_const() {
 fn test_computed_const() {
     let module = test_module();
     let mut session = SemanticWorkspaceSession::new();
-    let update = session.update(single_module_input(module.clone(), "const A: Int = 10 + 20\n", 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), "const A: Int = 10 + 20\n", 1))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let id = StaticConstantId::new(module.clone(), "A");
@@ -63,7 +67,9 @@ const tuple_expanded: Array<Int> = [*tuple_source]
 const vector_source: Vector<Int, 2> = <Int, 2>[9, 10]
 const vector_expanded: Vector<Int, 2> = <Int, 2>[*vector_source]
 "#;
-    let update = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = SemanticWorkspaceSession::new()
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let family_and_elements = |name: &str| {
@@ -84,14 +90,20 @@ const vector_expanded: Vector<Int, 2> = <Int, 2>[*vector_source]
         (sequence.family(), children)
     };
 
-    assert_eq!(family_and_elements("array_value"), (StaticSequenceFamily::Array, vec![
-        StaticValueData::Int(StaticInt::Small(1)),
-        StaticValueData::Int(StaticInt::Small(2)),
-    ]));
-    assert_eq!(family_and_elements("vector_value"), (StaticSequenceFamily::Vector, vec![
-        StaticValueData::Int(StaticInt::Small(3)),
-        StaticValueData::Int(StaticInt::Small(4)),
-    ]));
+    assert_eq!(
+        family_and_elements("array_value"),
+        (
+            StaticSequenceFamily::Array,
+            vec![StaticValueData::Int(StaticInt::Small(1)), StaticValueData::Int(StaticInt::Small(2)),]
+        )
+    );
+    assert_eq!(
+        family_and_elements("vector_value"),
+        (
+            StaticSequenceFamily::Vector,
+            vec![StaticValueData::Int(StaticInt::Small(3)), StaticValueData::Int(StaticInt::Small(4)),]
+        )
+    );
     let (nested_family, nested_elements) = family_and_elements("nested_value");
     assert_eq!(nested_family, StaticSequenceFamily::Array);
     assert_eq!(nested_elements.len(), 2);
@@ -102,24 +114,28 @@ const vector_expanded: Vector<Int, 2> = <Int, 2>[*vector_source]
         assert_eq!(update.snapshot.static_values().get_sequence(id).unwrap().family(), StaticSequenceFamily::Array);
     }
     assert_eq!(family_and_elements("empty_vector"), (StaticSequenceFamily::Vector, Vec::new()));
-    assert_eq!(family_and_elements("tuple_expanded"), (StaticSequenceFamily::Array, vec![
-        StaticValueData::Int(StaticInt::Small(7)),
-        StaticValueData::Int(StaticInt::Small(8)),
-    ]));
-    assert_eq!(family_and_elements("vector_expanded"), (StaticSequenceFamily::Vector, vec![
-        StaticValueData::Int(StaticInt::Small(9)),
-        StaticValueData::Int(StaticInt::Small(10)),
-    ]));
+    assert_eq!(
+        family_and_elements("tuple_expanded"),
+        (
+            StaticSequenceFamily::Array,
+            vec![StaticValueData::Int(StaticInt::Small(7)), StaticValueData::Int(StaticInt::Small(8)),]
+        )
+    );
+    assert_eq!(
+        family_and_elements("vector_expanded"),
+        (
+            StaticSequenceFamily::Vector,
+            vec![StaticValueData::Int(StaticInt::Small(9)), StaticValueData::Int(StaticInt::Small(10)),]
+        )
+    );
 }
 
 #[test]
 fn test_static_sequence_list_and_missing_proof_fail_closed() {
     let module = test_module();
-    let update = SemanticWorkspaceSession::new().update(single_module_input(
-        module.clone(),
-        "const legacy: List<Int> = [1, 2]\n",
-        1,
-    )).expect("semantic test update should succeed");
+    let update = SemanticWorkspaceSession::new()
+        .update(single_module_input(module.clone(), "const legacy: List<Int> = [1, 2]\n", 1))
+        .expect("semantic test update should succeed");
     let product = update
         .snapshot
         .static_constant(&StaticConstantId::new(module, "legacy"))
@@ -132,11 +148,9 @@ fn test_static_sequence_list_and_missing_proof_fail_closed() {
     assert!(product.value().is_none());
 
     let module = test_module();
-    let update = SemanticWorkspaceSession::new().update(single_module_input(
-        module.clone(),
-        "const value: Array<Int> = <Int>[1, 2]\n",
-        1,
-    )).expect("semantic test update should succeed");
+    let update = SemanticWorkspaceSession::new()
+        .update(single_module_input(module.clone(), "const value: Array<Int> = <Int>[1, 2]\n", 1))
+        .expect("semantic test update should succeed");
     let product = update
         .snapshot
         .static_constant(&StaticConstantId::new(module, "value"))
@@ -148,14 +162,9 @@ fn test_static_sequence_list_and_missing_proof_fail_closed() {
     checked_expression.sequence_literals = Arc::new(Default::default());
     missing_proof.expression = checked_expression;
     let mut values = phalcom_semantic::static_value::StaticValueStore::new();
-    let outcome = StaticEvaluator::for_constant(
-        &missing_proof,
-        &mut values,
-        &mut QueryBudget::default(),
-        &CancellationToken::new(),
-    )
-    .with_type_store(update.snapshot.store())
-    .evaluate();
+    let outcome = StaticEvaluator::for_constant(&missing_proof, &mut values, &mut QueryBudget::default(), &CancellationToken::new())
+        .with_type_store(update.snapshot.store())
+        .evaluate();
     assert_eq!(outcome, StaticEvalOutcome::Invalid(StaticEvalError::UnsupportedExpression));
     assert_eq!(values.len(), 0, "a missing checker product must stop before child/root publication");
 }
@@ -163,11 +172,9 @@ fn test_static_sequence_list_and_missing_proof_fail_closed() {
 #[test]
 fn test_static_sequence_budget_and_cancellation_do_not_publish_roots() {
     let module = test_module();
-    let update = SemanticWorkspaceSession::new().update(single_module_input(
-        module.clone(),
-        "const value: Array<Int> = <Int>[1, 2, 3, 4]\n",
-        1,
-    )).expect("semantic test update should succeed");
+    let update = SemanticWorkspaceSession::new()
+        .update(single_module_input(module.clone(), "const value: Array<Int> = <Int>[1, 2, 3, 4]\n", 1))
+        .expect("semantic test update should succeed");
     let product = update
         .snapshot
         .static_constant(&StaticConstantId::new(module, "value"))
@@ -185,14 +192,9 @@ fn test_static_sequence_budget_and_cancellation_do_not_publish_roots() {
     let cancellation = CancellationToken::new();
     cancellation.cancel();
     let mut cancelled_values = phalcom_semantic::static_value::StaticValueStore::new();
-    let cancelled = StaticEvaluator::for_constant(
-        product.checked.as_ref(),
-        &mut cancelled_values,
-        &mut QueryBudget::default(),
-        &cancellation,
-    )
-    .with_type_store(update.snapshot.store())
-    .evaluate();
+    let cancelled = StaticEvaluator::for_constant(product.checked.as_ref(), &mut cancelled_values, &mut QueryBudget::default(), &cancellation)
+        .with_type_store(update.snapshot.store())
+        .evaluate();
     assert_eq!(cancelled, StaticEvalOutcome::Cancelled);
     assert_eq!(cancelled_values.len(), 0, "cancellation must not publish a sequence root");
 }
@@ -200,10 +202,18 @@ fn test_static_sequence_budget_and_cancellation_do_not_publish_roots() {
 #[test]
 fn test_unconstrained_empty_static_sequence_remains_diagnostic_after_cutover() {
     let module = test_module();
-    let update = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), "const empty = []\n", 1)).expect("semantic test update should succeed");
-    let diagnostics = update.snapshot.diagnostics.get(&module).expect("diagnostics for underconstrained empty literal");
+    let update = SemanticWorkspaceSession::new()
+        .update(single_module_input(module.clone(), "const empty = []\n", 1))
+        .expect("semantic test update should succeed");
+    let diagnostics = update
+        .snapshot
+        .diagnostics
+        .get(&module)
+        .expect("diagnostics for underconstrained empty literal");
     assert!(
-        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::GenericInferenceUnderconstrained),
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::GenericInferenceUnderconstrained),
         "an empty static literal without result evidence must remain underconstrained: {diagnostics:?}"
     );
     if let Some(product) = update.snapshot.static_constant(&StaticConstantId::new(module, "empty")) {
@@ -214,7 +224,9 @@ fn test_unconstrained_empty_static_sequence_remains_diagnostic_after_cutover() {
 #[test]
 fn test_bare_static_sequence_defaults_to_exact_vector() {
     let module = test_module();
-    let update = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), "const values = [11, 12, 13]\n", 1)).expect("semantic test update should succeed");
+    let update = SemanticWorkspaceSession::new()
+        .update(single_module_input(module.clone(), "const values = [11, 12, 13]\n", 1))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let product = update
@@ -233,7 +245,11 @@ fn test_bare_static_sequence_defaults_to_exact_vector() {
     let sequence = update.snapshot.static_values().get_sequence(*id).expect("Vector sequence");
     assert_eq!(sequence.family(), StaticSequenceFamily::Vector);
     assert_eq!(sequence.elements().len(), 3);
-    let (_, arguments) = update.snapshot.store.applied_nominal_parts(sequence.result_type()).expect("applied Vector type");
+    let (_, arguments) = update
+        .snapshot
+        .store
+        .applied_nominal_parts(sequence.result_type())
+        .expect("applied Vector type");
     let TypeData::ConstInt(extent) = update.snapshot.store.get(arguments[1]) else {
         panic!("bare static Vector must retain its exact extent")
     };
@@ -247,7 +263,9 @@ fn test_static_bracket_support_does_not_authorize_collection_constructors() {
         ("Vector", "const value: Vector<Int, 0> = Vector<Int, 0>.new()\n"),
     ] {
         let module = test_module();
-        let update = SemanticWorkspaceSession::new().update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+        let update = SemanticWorkspaceSession::new()
+            .update(single_module_input(module.clone(), source, 1))
+            .expect("semantic test update should succeed");
         let product = update.snapshot.static_constant(&StaticConstantId::new(module, "value"));
         assert!(
             update.snapshot.has_errors() || product.is_none_or(|product| !product.is_successful()),
@@ -265,7 +283,9 @@ fn test_constant_annotation_projects_a_reduced_constant_record_key() {
     let mut session = SemanticWorkspaceSession::new();
     let source = "const Key: Symbol = #token\nconst Value: { [Key]: Int } = { [#token]: 1 }\n";
 
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     assert!(
         !update.snapshot.has_errors(),
         "computed key annotation should form after Key reduces: {:?}",
@@ -291,7 +311,9 @@ fn test_field_signature_projects_a_cold_computed_record_key() {
     let module = test_module();
     let mut session = SemanticWorkspaceSession::new();
     let source = "const Key: Symbol = #token\nclass Box {\n  _value: { [Key]: Int }\n}\n";
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let field = FieldId::new(DeclarationId::new(module, "Box".into()), "_value", DispatchSide::Instance);
@@ -322,11 +344,15 @@ fn test_field_signature_key_edit_matches_cold_surface_and_invalidates_exactly() 
     let source_a = "const Key: Symbol = #first\nclass Box {\n  _value: { [Key]: Int }\n}\n";
     let source_b = "const Key: Symbol = #second\nclass Box {\n  _value: { [Key]: Int }\n}\n";
     let mut incremental = SemanticWorkspaceSession::new();
-    let first = incremental.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let first = incremental
+        .update(single_module_input(module.clone(), source_a, 1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
     let signature_a = first.snapshot.field_signatures.get(&field).cloned().expect("field signature revision 1");
 
-    let updated = incremental.update(single_module_input(module.clone(), source_b, 2)).expect("semantic test update should succeed");
+    let updated = incremental
+        .update(single_module_input(module.clone(), source_b, 2))
+        .expect("semantic test update should succeed");
     assert!(!updated.snapshot.has_errors(), "diagnostics: {:?}", updated.snapshot.diagnostics);
     let signature_b = updated.snapshot.field_signatures.get(&field).expect("field signature revision 2");
     assert_ne!(signature_a, *signature_b, "the owner signature must change with its selected key");
@@ -349,7 +375,9 @@ fn test_field_signature_key_edit_matches_cold_surface_and_invalidates_exactly() 
         phalcom_semantic::field_key::FieldKey::symbol("second")
     );
 
-    let cold = SemanticWorkspaceSession::new().update(single_module_input(module, source_b, 1)).expect("semantic test update should succeed");
+    let cold = SemanticWorkspaceSession::new()
+        .update(single_module_input(module, source_b, 1))
+        .expect("semantic test update should succeed");
     assert!(!cold.snapshot.has_errors(), "cold diagnostics: {:?}", cold.snapshot.diagnostics);
     let cold_signature = cold.snapshot.field_signatures.get(&field).expect("cold field signature");
     let cold_ty = cold_signature.declared_type.to_knowledge().ty().expect("cold field type");
@@ -375,7 +403,9 @@ class Box {
 
 
 "#;
-    let update = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source_a, 1))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let callable = phalcom_semantic::identity::CallableId::new(
@@ -410,7 +440,9 @@ class Box {
     );
 
     let source_b = source_a.replace("#token", "#second");
-    let updated = session.update(single_module_input(module.clone(), &source_b, 2)).expect("semantic test update should succeed");
+    let updated = session
+        .update(single_module_input(module.clone(), &source_b, 2))
+        .expect("semantic test update should succeed");
     assert!(!updated.snapshot.has_errors(), "incremental diagnostics: {:?}", updated.snapshot.diagnostics);
     let signature_b = updated.snapshot.callable_signatures.get(&callable).expect("updated callable signature");
     assert_ne!(&signature_a, signature_b, "the callable product must republish when its key dependency changes");
@@ -427,7 +459,9 @@ class Box {
         );
     }
 
-    let cold = SemanticWorkspaceSession::new().update(single_module_input(module, &source_b, 1)).expect("semantic test update should succeed");
+    let cold = SemanticWorkspaceSession::new()
+        .update(single_module_input(module, &source_b, 1))
+        .expect("semantic test update should succeed");
     assert!(!cold.snapshot.has_errors(), "cold diagnostics: {:?}", cold.snapshot.diagnostics);
     let cold_signature = cold.snapshot.callable_signatures.get(&callable).expect("cold callable signature");
     let cold_ty = cold_signature.declared_return.to_knowledge().ty().expect("cold return type");
@@ -462,7 +496,9 @@ impl Box {
 }
 "#;
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(module.clone(), source_a, 1)).expect("semantic test update should succeed");
+    let first = session
+        .update(single_module_input(module.clone(), source_a, 1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
 
     let assert_key = |store: &phalcom_semantic::types::store::TypeStore, ty: phalcom_semantic::types::id::TypeId, expected: &str| {
@@ -508,7 +544,9 @@ impl Box {
     assert_key(&first.snapshot.store, surface_signature.return_type.ty().expect("surface return type"), "first");
 
     let source_b = source_a.replace("#first", "#second");
-    let updated = session.update(single_module_input(module.clone(), &source_b, 2)).expect("semantic test update should succeed");
+    let updated = session
+        .update(single_module_input(module.clone(), &source_b, 2))
+        .expect("semantic test update should succeed");
     assert!(!updated.snapshot.has_errors(), "incremental diagnostics: {:?}", updated.snapshot.diagnostics);
     let signature_b = updated
         .snapshot
@@ -531,7 +569,9 @@ impl Box {
         "second",
     );
 
-    let cold = SemanticWorkspaceSession::new().update(single_module_input(module, &source_b, 1)).expect("semantic test update should succeed");
+    let cold = SemanticWorkspaceSession::new()
+        .update(single_module_input(module, &source_b, 1))
+        .expect("semantic test update should succeed");
     assert!(!cold.snapshot.has_errors(), "cold diagnostics: {:?}", cold.snapshot.diagnostics);
     let cold_signature = cold.snapshot.callable_signatures.get(&callable).expect("cold inherent callable signature");
     for (store, signature) in [(&updated.snapshot.store, signature_b), (&cold.snapshot.store, cold_signature)] {
@@ -545,22 +585,22 @@ fn test_constant_annotation_key_cycle_is_diagnosed_as_a_static_constant_cycle() 
     let mut session = SemanticWorkspaceSession::new();
     let source = "const A: Symbol = B\nconst B: { [A]: Int } = { [#token]: 1 }\n";
 
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     let diagnostics = update.snapshot.diagnostics.get(&module).expect("cycle diagnostics");
     assert!(
         diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::StaticConstantCycle),
         "computed-key formation cycle must use the static constant cycle path: {diagnostics:?}"
     );
-    assert!(
-        matches!(
-            update
-                .snapshot
-                .static_constant(&StaticConstantId::new(module, "B"))
-                .expect("B constant product")
-                .outcome,
-            StaticEvalOutcome::Recursive(_)
-        )
-    );
+    assert!(matches!(
+        update
+            .snapshot
+            .static_constant(&StaticConstantId::new(module, "B"))
+            .expect("B constant product")
+            .outcome,
+        StaticEvalOutcome::Recursive(_)
+    ));
 }
 
 #[test]
@@ -569,7 +609,9 @@ fn test_transitive_constant_formation_cycle_retains_computed_key_cause() {
     let mut session = SemanticWorkspaceSession::new();
     let source = "const A: Int = B\nconst B: { [C]: Int } = { [#token]: 1 }\nconst C: Symbol = A\n";
 
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     let diagnostics = update.snapshot.diagnostics.get(&module).expect("cycle diagnostics");
     assert!(
         diagnostics
@@ -645,7 +687,9 @@ fn test_constant_key_edit_republishes_only_its_annotation_consumer() {
     let module = test_module();
     let mut session = SemanticWorkspaceSession::new();
     let source1 = "const Key: Symbol = #first\nconst Value: { [Key]: Int } = { [#first]: 1 }\nconst Other: Int = 7\n";
-    let update1 = session.update(single_module_input(module.clone(), source1, 1)).expect("semantic test update should succeed");
+    let update1 = session
+        .update(single_module_input(module.clone(), source1, 1))
+        .expect("semantic test update should succeed");
     assert!(!update1.snapshot.has_errors(), "diagnostics: {:?}", update1.snapshot.diagnostics);
     let value_id = StaticConstantId::new(module.clone(), "Value");
     let other_id = StaticConstantId::new(module.clone(), "Other");
@@ -653,7 +697,9 @@ fn test_constant_key_edit_republishes_only_its_annotation_consumer() {
     let other1 = update1.snapshot.static_constant(&other_id).cloned().expect("Other revision 1");
 
     let source2 = "const Key: Symbol = #other\nconst Value: { [Key]: Int } = { [#first]: 1 }\nconst Other: Int = 7\n";
-    let update2 = session.update(single_module_input(module, source2, 2)).expect("semantic test update should succeed");
+    let update2 = session
+        .update(single_module_input(module, source2, 2))
+        .expect("semantic test update should succeed");
     let value2 = update2.snapshot.static_constant(&value_id).expect("Value revision 2");
     let other2 = update2.snapshot.static_constant(&other_id).expect("Other revision 2");
     assert!(!Arc::ptr_eq(&value1, value2), "Value must be republished after its selected key changes");
@@ -675,7 +721,9 @@ fn test_same_result_key_source_edit_revalidates_its_annotation_consumer() {
     let mut session = SemanticWorkspaceSession::new();
     let value_id = StaticConstantId::new(module.clone(), "Value");
     let source1 = "const Key: Symbol = #stable\nconst Value: { [Key]: Int } = { [#stable]: 1 }\n";
-    let update1 = session.update(single_module_input(module.clone(), source1, 1)).expect("semantic test update should succeed");
+    let update1 = session
+        .update(single_module_input(module.clone(), source1, 1))
+        .expect("semantic test update should succeed");
     assert!(!update1.snapshot.has_errors(), "diagnostics: {:?}", update1.snapshot.diagnostics);
     let value1 = update1.snapshot.static_constant(&value_id).cloned().expect("Value revision 1");
 
@@ -683,7 +731,9 @@ fn test_same_result_key_source_edit_revalidates_its_annotation_consumer() {
     // preserving the reduced FieldKey. The exact dependency must be
     // revalidated without disturbing unrelated products.
     let source2 = "const Key: Symbol = (#stable)\nconst Value: { [Key]: Int } = { [#stable]: 1 }\n";
-    let update2 = session.update(single_module_input(module.clone(), source2, 2)).expect("semantic test update should succeed");
+    let update2 = session
+        .update(single_module_input(module.clone(), source2, 2))
+        .expect("semantic test update should succeed");
     assert!(!update2.snapshot.has_errors(), "diagnostics: {:?}", update2.snapshot.diagnostics);
     let value2 = update2.snapshot.static_constant(&value_id).expect("Value revision 2");
     assert!(
@@ -698,11 +748,13 @@ fn test_same_result_key_source_edit_revalidates_its_annotation_consumer() {
     );
 
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold = cold_session.update(single_module_input(
-        module.clone(),
-        "const Key: Symbol = (#stable)\nconst Value: { [Key]: Int } = { [#stable]: 1 }\n",
-        1,
-    )).expect("semantic test update should succeed");
+    let cold = cold_session
+        .update(single_module_input(
+            module.clone(),
+            "const Key: Symbol = (#stable)\nconst Value: { [Key]: Int } = { [#stable]: 1 }\n",
+            1,
+        ))
+        .expect("semantic test update should succeed");
     assert_eq!(update2.snapshot.diagnostics.get(&module), cold.snapshot.diagnostics.get(&module));
     let cold_value = cold.snapshot.static_constant(&value_id).expect("cold Value");
     assert!(value2.is_successful() && cold_value.is_successful());
@@ -724,7 +776,9 @@ fn test_const_to_const_dependency() {
     let module = test_module();
     let mut session = SemanticWorkspaceSession::new();
     let source = "const A: Int = 10\nconst B: Int = A + 5\n";
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
 
     let id_a = StaticConstantId::new(module.clone(), "A");
@@ -747,7 +801,9 @@ fn test_key_discriminator_same_module_isolation() {
     let mut session = SemanticWorkspaceSession::new();
 
     let src1 = "const A: Int = 10\nconst B: Int = 20\n";
-    let update1 = session.update(single_module_input(module.clone(), src1, 1)).expect("semantic test update should succeed");
+    let update1 = session
+        .update(single_module_input(module.clone(), src1, 1))
+        .expect("semantic test update should succeed");
     assert!(!update1.snapshot.has_errors());
 
     let id_a = StaticConstantId::new(module.clone(), "A");
@@ -758,7 +814,9 @@ fn test_key_discriminator_same_module_isolation() {
 
     // Rev 2: Edit A to 15, leave B = 20 unchanged.
     let src2 = "const A: Int = 15\nconst B: Int = 20\n";
-    let update2 = session.update(single_module_input(module.clone(), src2, 2)).expect("semantic test update should succeed");
+    let update2 = session
+        .update(single_module_input(module.clone(), src2, 2))
+        .expect("semantic test update should succeed");
     assert!(!update2.snapshot.has_errors());
 
     let prod_a2 = update2.snapshot.static_constant(&id_a).cloned().expect("A rev 2");
@@ -781,7 +839,9 @@ fn test_transitive_invalidation_same_type() {
     let mut session = SemanticWorkspaceSession::new();
 
     let src1 = "const A: Int = 10\nconst B: Int = A + 1\n";
-    let update1 = session.update(single_module_input(module.clone(), src1, 1)).expect("semantic test update should succeed");
+    let update1 = session
+        .update(single_module_input(module.clone(), src1, 1))
+        .expect("semantic test update should succeed");
     assert!(!update1.snapshot.has_errors());
 
     let _id_a = StaticConstantId::new(module.clone(), "A");
@@ -793,7 +853,9 @@ fn test_transitive_invalidation_same_type() {
 
     // Rev 2: Edit A to 20. A's type is still Int, but its value changed.
     let src2 = "const A: Int = 20\nconst B: Int = A + 1\n";
-    let update2 = session.update(single_module_input(module.clone(), src2, 2)).expect("semantic test update should succeed");
+    let update2 = session
+        .update(single_module_input(module.clone(), src2, 2))
+        .expect("semantic test update should succeed");
     assert!(!update2.snapshot.has_errors());
 
     let prod_b2 = update2.snapshot.static_constant(&id_b).cloned().expect("B rev 2");
@@ -808,7 +870,9 @@ fn test_runtime_dependency_rejection() {
     let mut session = SemanticWorkspaceSession::new();
 
     let source = "let runtime_x = 10\nconst C = runtime_x\n";
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
 
     let diags = update.snapshot.diagnostics.get(&module).expect("diagnostics for module");
     assert!(
@@ -829,7 +893,9 @@ fn test_self_cycle() {
     let mut session = SemanticWorkspaceSession::new();
 
     let source = "const A: Int = A\n";
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
 
     let diags = update.snapshot.diagnostics.get(&module).expect("diagnostics for module");
     assert!(
@@ -850,7 +916,9 @@ fn test_mutual_cycle() {
     let mut session = SemanticWorkspaceSession::new();
 
     let source = "const A: Int = B\nconst B: Int = A\n";
-    let update = session.update(single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = session
+        .update(single_module_input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
 
     let diags = update.snapshot.diagnostics.get(&module).expect("diagnostics for module");
     assert!(
@@ -899,7 +967,9 @@ fn test_evaluation_controls_and_lkg() {
         let mut session = SemanticWorkspaceSession::new();
 
         // Rev 1: Valid constant
-        let update1 = session.update(single_module_input(module.clone(), "const A: Int = 42\n", 1)).expect("semantic test update should succeed");
+        let update1 = session
+            .update(single_module_input(module.clone(), "const A: Int = 42\n", 1))
+            .expect("semantic test update should succeed");
         assert!(!update1.snapshot.has_errors());
         let id_a = StaticConstantId::new(module.clone(), "A");
         let prod_a1 = update1.snapshot.static_constant(&id_a).expect("A rev 1");
@@ -908,7 +978,9 @@ fn test_evaluation_controls_and_lkg() {
         assert_eq!(prod_a1.lkg_value, Some(val1));
 
         // Rev 2: Introduce cycle (eval fails)
-        let update2 = session.update(single_module_input(module.clone(), "const A: Int = A\n", 2)).expect("semantic test update should succeed");
+        let update2 = session
+            .update(single_module_input(module.clone(), "const A: Int = A\n", 2))
+            .expect("semantic test update should succeed");
         let prod_a2 = update2.snapshot.static_constant(&id_a).expect("A rev 2");
         assert!(!prod_a2.is_successful());
         assert_eq!(prod_a2.value, None);

@@ -60,34 +60,34 @@ mod compiler_product_optimization;
 mod compiler_static_const;
 #[path = "collections/array.rs"]
 mod core_array;
+#[path = "collections/bag.rs"]
+mod core_bag;
+#[path = "collections/bijection.rs"]
+mod core_bijection;
 #[path = "collections/buffer.rs"]
 mod core_buffer;
 #[path = "collections/contract.rs"]
 mod core_collections;
+#[path = "collections/indexed_dict.rs"]
+mod core_indexed_dict;
+#[path = "collections/mutable_bag.rs"]
+mod core_mutable_bag;
+#[path = "collections/ordered_set.rs"]
+mod core_ordered_set;
 #[path = "collections/outgoing_packs.rs"]
 mod core_outgoing_packs;
 #[path = "collections/outgoing_packs_completion.rs"]
 mod core_outgoing_packs_completion;
 #[path = "collections/pack.rs"]
 mod core_pack;
+#[path = "collections/persistent_hash.rs"]
+mod core_persistent_hash;
 #[path = "collections/slice.rs"]
 mod core_slice;
 #[path = "collections/symbol_selector.rs"]
 mod core_symbol_selector;
 #[path = "collections/vector.rs"]
 mod core_vector;
-#[path = "collections/ordered_set.rs"]
-mod core_ordered_set;
-#[path = "collections/indexed_dict.rs"]
-mod core_indexed_dict;
-#[path = "collections/mutable_bag.rs"]
-mod core_mutable_bag;
-#[path = "collections/persistent_hash.rs"]
-mod core_persistent_hash;
-#[path = "collections/bag.rs"]
-mod core_bag;
-#[path = "collections/bijection.rs"]
-mod core_bijection;
 #[path = "execution/binding_init.rs"]
 mod execution_binding_init;
 #[path = "execution/compiler_authority.rs"]

@@ -13,24 +13,24 @@ pub mod family;
 pub mod fiber;
 pub mod float;
 pub mod index;
-pub mod int;
 pub mod indexed_dict;
+pub mod int;
 pub mod list;
 pub mod map;
-pub mod mutable_bag;
 pub mod math;
 pub mod method;
 pub mod method_family;
 pub mod module;
+pub mod mutable_bag;
 pub mod number;
 pub mod object;
 pub mod option;
 pub(crate) mod ordered_hash;
-pub mod persistent_hash;
+pub mod ordered_set;
 pub mod pack;
+pub mod persistent_hash;
 pub mod random;
 pub mod range;
-pub mod ordered_set;
 pub mod record;
 pub mod reflection;
 pub mod resource;
@@ -408,38 +408,53 @@ pub(crate) fn expect_set(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 }
 
 pub(crate) fn expect_mutable_bag(vm: &VM, value: &Value) -> PhResult<ObjRef> {
-    value.as_obj().filter(|id| vm.heap.as_mutable_bag(*id).is_some()).ok_or_else(|| RuntimeError::Type {
-        expected: "MutableBag",
-        found: value.type_name(),
-    }.into())
+    value.as_obj().filter(|id| vm.heap.as_mutable_bag(*id).is_some()).ok_or_else(|| {
+        RuntimeError::Type {
+            expected: "MutableBag",
+            found: value.type_name(),
+        }
+        .into()
+    })
 }
 
 pub(crate) fn expect_indexed_dict(vm: &VM, value: &Value) -> PhResult<ObjRef> {
-    value.as_obj().filter(|id| vm.heap.as_indexed_dict(*id).is_some()).ok_or_else(|| RuntimeError::Type {
-        expected: "IndexedDict",
-        found: value.type_name(),
-    }.into())
+    value.as_obj().filter(|id| vm.heap.as_indexed_dict(*id).is_some()).ok_or_else(|| {
+        RuntimeError::Type {
+            expected: "IndexedDict",
+            found: value.type_name(),
+        }
+        .into()
+    })
 }
 
 pub(crate) fn expect_ordered_set(vm: &VM, value: &Value) -> PhResult<ObjRef> {
-    value.as_obj().filter(|id| vm.heap.as_ordered_set(*id).is_some()).ok_or_else(|| RuntimeError::Type {
-        expected: "OrderedSet",
-        found: value.type_name(),
-    }.into())
+    value.as_obj().filter(|id| vm.heap.as_ordered_set(*id).is_some()).ok_or_else(|| {
+        RuntimeError::Type {
+            expected: "OrderedSet",
+            found: value.type_name(),
+        }
+        .into()
+    })
 }
 
 pub(crate) fn expect_bag(vm: &VM, value: &Value) -> PhResult<ObjRef> {
-    value.as_obj().filter(|id| vm.heap.as_bag(*id).is_some()).ok_or_else(|| RuntimeError::Type {
-        expected: "Bag",
-        found: value.type_name(),
-    }.into())
+    value.as_obj().filter(|id| vm.heap.as_bag(*id).is_some()).ok_or_else(|| {
+        RuntimeError::Type {
+            expected: "Bag",
+            found: value.type_name(),
+        }
+        .into()
+    })
 }
 
 pub(crate) fn expect_bijection(vm: &VM, value: &Value) -> PhResult<ObjRef> {
-    value.as_obj().filter(|id| vm.heap.as_bijection(*id).is_some()).ok_or_else(|| RuntimeError::Type {
-        expected: "Bijection",
-        found: value.type_name(),
-    }.into())
+    value.as_obj().filter(|id| vm.heap.as_bijection(*id).is_some()).ok_or_else(|| {
+        RuntimeError::Type {
+            expected: "Bijection",
+            found: value.type_name(),
+        }
+        .into()
+    })
 }
 
 /// Extracts a tuple's [`ObjRef`] handle from a receiver value.

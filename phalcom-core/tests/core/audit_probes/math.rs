@@ -1021,7 +1021,8 @@ let mean = stats.mean(values.iterator)
     assert_eq!(owner.path.last().map(AsRef::as_ref), Some("Descriptive"));
 
     let mut vm = VM::new();
-    vm.run_compiled(&program).expect("public Family call executes with its selected generic evidence");
+    vm.run_compiled(&program)
+        .expect("public Family call executes with its selected generic evidence");
     let module = vm.module_registry.get(&program.entry).expect("entry module").object;
     assert_eq!(read_global(&vm, module, "mean").as_float(), Some(2.0));
 
@@ -1035,7 +1036,9 @@ let mean = stats.mean(values.iterator)
     };
     mismatched.modules.get_mut(&mismatched.entry).expect("entry module").lowering = std::sync::Arc::new(lowering);
     let mut mismatched_vm = VM::new();
-    let failure = mismatched_vm.run_compiled(&mismatched).expect_err("same-selector but wrong callable identity must fail closed");
+    let failure = mismatched_vm
+        .run_compiled(&mismatched)
+        .expect_err("same-selector but wrong callable identity must fail closed");
     assert!(
         format!("{}", runtime_error(&failure)).contains("canonical callable identity mismatch"),
         "unexpected failure: {failure}"

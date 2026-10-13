@@ -41,7 +41,8 @@ path = "tests/canonical_bootstrap_stack.rs"
 
 [features]
 default = []
-test-timings = ["phalcom-semantic/test-timings"]
+perf-observability = ["dep:telos-observability", "phalcom-semantic/perf-observability"]
+test-timings = ["perf-observability", "phalcom-semantic/test-timings"]
 # Per-opcode `tracing` instrumentation in the VM dispatch loop (`vm/dispatch.rs`):
 # a `vm_opcode` span plus stack-state `debug!`s around every instruction.
 #
@@ -89,6 +90,7 @@ phalcom-modules = { path = "../phalcom-modules" }
 phalcom-semantic = { path = "../phalcom-semantic" }
 phalcom-diagnostics = { path = "../phalcom-diagnostics" }
 phalcom-type-meta = { path = "../phalcom-type-meta" }
+telos-observability = { path = "../telos-observability", optional = true }
 linkme = { workspace = true }
 indexmap = { workspace = true }
 jiff = { workspace = true }
@@ -118,3 +120,7 @@ tempfile = "3"
 name = "vm_bench"
 harness = false
 required-features = ["benchmarks"]
+
+[[example]]
+name = "perf_observability_profile"
+required-features = ["perf-observability"]

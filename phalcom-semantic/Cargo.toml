@@ -6,7 +6,8 @@ autotests = false
 
 [features]
 default = []
-test-timings = []
+perf-observability = ["dep:telos-observability"]
+test-timings = ["perf-observability"]
 
 [dependencies]
 phalcom-ast = { path = "../phalcom-ast" }
@@ -16,6 +17,7 @@ phalcom-modules = { path = "../phalcom-modules" }
 phalcom-native-meta = { path = "../phalcom-native-meta" }
 phalcom-native-surface = { path = "../phalcom-native-surface" }
 phalcom-type-meta = { path = "../phalcom-type-meta" }
+telos-observability = { path = "../telos-observability", optional = true }
 thiserror = { workspace = true }
 im = { workspace = true }
 num-bigint = { workspace = true }

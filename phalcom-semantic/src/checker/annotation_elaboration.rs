@@ -42,24 +42,17 @@ pub enum AnnotationElaboration {
 pub fn annotation_contains_inference_hole(annotation: &TypeAnnotation) -> bool {
     match &annotation.expr {
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
-            annotation_contains_inference_hole(origin)
-                || arguments.iter().any(argument_contains_inference_hole)
+            annotation_contains_inference_hole(origin) || arguments.iter().any(argument_contains_inference_hole)
         }
-        TypeAnnotationExpr::Union { members, .. } => {
-            members.iter().any(annotation_contains_inference_hole)
-        }
-        TypeAnnotationExpr::Tuple { elements, .. } => {
-            elements.iter().any(|el| match el {
-                phalcom_ast::ast::TypeTupleItem::Element(e) => annotation_contains_inference_hole(&e.ty),
-                phalcom_ast::ast::TypeTupleItem::Expansion(e) => annotation_contains_inference_hole(&e.operand),
-                phalcom_ast::ast::TypeTupleItem::Remainder(r) => match &r.remainder {
-                    phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } => {
-                        annotation_contains_inference_hole(constraint)
-                    }
-                    _ => false,
-                },
-            })
-        }
+        TypeAnnotationExpr::Union { members, .. } => members.iter().any(annotation_contains_inference_hole),
+        TypeAnnotationExpr::Tuple { elements, .. } => elements.iter().any(|el| match el {
+            phalcom_ast::ast::TypeTupleItem::Element(e) => annotation_contains_inference_hole(&e.ty),
+            phalcom_ast::ast::TypeTupleItem::Expansion(e) => annotation_contains_inference_hole(&e.operand),
+            phalcom_ast::ast::TypeTupleItem::Remainder(r) => match &r.remainder {
+                phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } => annotation_contains_inference_hole(constraint),
+                _ => false,
+            },
+        }),
         TypeAnnotationExpr::Callable { parameters, result, .. } => {
             parameters.iter().any(|item| match item {
                 phalcom_ast::ast::TypeCallableItem::Parameter(p) => annotation_contains_inference_hole(&p.ty),
@@ -76,9 +69,7 @@ pub fn argument_contains_inference_hole(arg: &GenericArgumentSyntax) -> bool {
         GenericArgumentSyntax::Single(ann) => annotation_contains_inference_hole(ann),
         GenericArgumentSyntax::Expansion(e) => annotation_contains_inference_hole(&e.operand),
         GenericArgumentSyntax::Remainder(r) => match &r.remainder {
-            phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } => {
-                annotation_contains_inference_hole(constraint)
-            }
+            phalcom_ast::ast::AnonymousRemainderSyntax::Typed { constraint, .. } => annotation_contains_inference_hole(constraint),
             _ => false,
         },
         GenericArgumentSyntax::Value(_) => false,
@@ -98,7 +89,10 @@ pub fn elaborate_annotation(
         if let Some(ty) = knowledge.ty() {
             if let Some((declaration, arguments)) = ctx.store.applied_nominal_static_parts(ty)
                 && declaration == ctx.core_ids.vector
-                && let [crate::types::store::StaticArgument::Term(_element), crate::types::store::StaticArgument::Term(extent)] = arguments[..]
+                && let [
+                    crate::types::store::StaticArgument::Term(_element),
+                    crate::types::store::StaticArgument::Term(extent),
+                ] = arguments[..]
                 && let crate::types::store::TypeData::ConstInt(value) = ctx.store.get(extent)
                 && value.to_bigint() < 0.into()
             {
@@ -160,9 +154,7 @@ fn elaborate_annotation_inner(
 
             let origin_decl = origin_ty.and_then(|ty| ctx.store.nominal_origin_declaration(ty).cloned());
 
-            let generic_sig = origin_decl
-                .as_ref()
-                .and_then(|decl| ctx.declarations.generic_signature(decl).cloned());
+            let generic_sig = origin_decl.as_ref().and_then(|decl| ctx.declarations.generic_signature(decl).cloned());
 
             let arrow_param_kinds = origin_ty.and_then(|ty| match ctx.store.get_kind(ctx.store.kind_of(ty)) {
                 KindData::Arrow { parameters, .. } => Some(parameters.clone()),
@@ -176,12 +168,14 @@ fn elaborate_annotation_inner(
                     .as_ref()
                     .and_then(|sig| sig.parameter_kinds.get(idx).copied())
                     .or_else(|| arrow_param_kinds.as_ref().and_then(|p| p.get(idx).copied()))
-                    .ok_or_else(|| vec![SemanticDiagnostic::error_in(
-                        ctx.current_module.clone(),
-                        DiagnosticCode::ApplicationTooManyArguments,
-                        "generic argument has no corresponding parameter",
-                        arg.range(),
-                    )])?;
+                    .ok_or_else(|| {
+                        vec![SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::ApplicationTooManyArguments,
+                            "generic argument has no corresponding parameter",
+                            arg.range(),
+                        )]
+                    })?;
 
                 match arg {
                     GenericArgumentSyntax::InferenceHole { range } => {
@@ -240,11 +234,7 @@ fn elaborate_annotation_inner(
     }
 }
 
-fn resolve_origin_type(
-    ctx: &mut CheckingContext<'_>,
-    resolver: &dyn TypeResolver,
-    origin: &TypeAnnotation,
-) -> Option<TypeId> {
+fn resolve_origin_type(ctx: &mut CheckingContext<'_>, resolver: &dyn TypeResolver, origin: &TypeAnnotation) -> Option<TypeId> {
     let site = TypeFormationSite::module(ctx.current_module.clone());
     if let TypeAnnotationExpr::Reference(reference) = &origin.expr {
         let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();

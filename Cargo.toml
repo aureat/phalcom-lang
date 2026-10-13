@@ -16,6 +16,7 @@ members = [
     "phalcom-test-support",
     "phalcom-diagnostics",
     "phalcom-type-meta",
+    "telos-observability",
 ]
 resolver = "2"
 default-members = [
@@ -32,6 +33,7 @@ default-members = [
     "phalcom-semantic",
     "phalcom-diagnostics",
     "phalcom-type-meta",
+    "telos-observability",
 ]
 
 [profile.dev]

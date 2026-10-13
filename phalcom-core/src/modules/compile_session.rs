@@ -32,127 +32,139 @@ pub struct ProgramCompilationSession {
 impl ProgramCompilationSession {
     /// Creates a standalone session backed by the canonical semantic baseline.
     pub fn standalone() -> Result<Self, ProgramCompileError> {
-        #[cfg(any(test, feature = "test-timings"))]
-        let init_started = Instant::now();
-        let semantic_session = SemanticWorkspaceSession::new();
-        #[cfg(any(test, feature = "test-timings"))]
-        let pending_session_init = init_started.elapsed();
-        let mut synthetic_ids = SyntheticProjectIdAllocator;
-        let fixture_module_id = ModuleId::synthetic(synthetic_ids.allocate(), ModulePath::root());
-        let fixture_source_id = SourceId(format!("phalcom-perf003-fixture:{fixture_module_id}").into());
-        Ok(Self {
-            semantic_session,
-            generation: 0,
-            fixture_module_id,
-            fixture_source_id,
-            #[cfg(any(test, feature = "test-timings"))]
-            last_fixture_timing: crate::instrumentation::FixtureTiming::default(),
-            #[cfg(any(test, feature = "test-timings"))]
-            pending_session_init,
-        })
+        crate::perf_span_result!(
+            telos_observability::PerfPhase::SemanticSessionInit,
+            || {
+                #[cfg(any(test, feature = "test-timings"))]
+                let init_started = Instant::now();
+                let semantic_session = SemanticWorkspaceSession::new();
+                #[cfg(any(test, feature = "test-timings"))]
+                let pending_session_init = init_started.elapsed();
+                let mut synthetic_ids = SyntheticProjectIdAllocator;
+                let fixture_module_id = ModuleId::synthetic(synthetic_ids.allocate(), ModulePath::root());
+                let fixture_source_id = SourceId(format!("phalcom-perf003-fixture:{fixture_module_id}").into());
+                Ok(Self {
+                    semantic_session,
+                    generation: 0,
+                    fixture_module_id,
+                    fixture_source_id,
+                    #[cfg(any(test, feature = "test-timings"))]
+                    last_fixture_timing: crate::instrumentation::FixtureTiming::default(),
+                    #[cfg(any(test, feature = "test-timings"))]
+                    pending_session_init,
+                })
+            },
+            super::compile::classify_program_compile_error,
+        )
     }
 
     /// Replaces the current fixture source and compiles it through the retained
     /// module and semantic sessions.
     pub fn compile_fixture(&mut self, path: &Path, source_text: &str) -> Result<CompiledProgram, ProgramCompileError> {
-        #[cfg(any(test, feature = "test-timings"))]
-        {
-            self.last_fixture_timing = crate::instrumentation::FixtureTiming {
-                semantic_session_init: std::mem::take(&mut self.pending_session_init),
-                ..crate::instrumentation::FixtureTiming::default()
-            };
-        }
-        #[cfg(any(test, feature = "test-timings"))]
-        let parse_started = Instant::now();
-        let parsed = phalcom_ast::parse(source_text, 0);
-        #[cfg(any(test, feature = "test-timings"))]
-        {
-            self.last_fixture_timing.compile_parse = parse_started.elapsed();
-        }
-        if let Some(error) = parsed.errors.first() {
-            return Err(ProgramCompileError::Parse(error.clone()));
-        }
-
-        for dependency in &parsed.program.preamble.dependencies {
-            let import_path = match dependency {
-                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(decl)) => &decl.path,
-                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(decl)) => &decl.path,
-                phalcom_ast::ast::DependencyDecl::ReExport(decl) => &decl.path,
-                phalcom_ast::ast::DependencyDecl::Expose(decl) => {
-                    return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
-                        import_name: decl.child.name.clone().into(),
-                    });
+        crate::perf_span_result!(
+            telos_observability::PerfPhase::Compilation,
+            || {
+                #[cfg(any(test, feature = "test-timings"))]
+                {
+                    self.last_fixture_timing = crate::instrumentation::FixtureTiming {
+                        semantic_session_init: std::mem::take(&mut self.pending_session_init),
+                        ..crate::instrumentation::FixtureTiming::default()
+                    };
                 }
-            };
-            if !matches!(&import_path.root, phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "universe") {
-                return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
-                    import_name: import_path.to_string().into(),
-                });
-            }
-        }
+                #[cfg(any(test, feature = "test-timings"))]
+                let parse_started = Instant::now();
+                let parsed = phalcom_ast::parse(source_text, 0);
+                #[cfg(any(test, feature = "test-timings"))]
+                {
+                    self.last_fixture_timing.compile_parse = parse_started.elapsed();
+                }
+                if let Some(error) = parsed.errors.first() {
+                    return Err(ProgramCompileError::Parse(error.clone()));
+                }
 
-        self.generation = self.generation.saturating_add(1);
-        let location = SourceLocation {
-            source_id: self.fixture_source_id.clone(),
-            display_path: path.to_path_buf(),
-        };
-        let mutation = WorkspaceSourceBatchMutation::SetOverlayForModule {
-            module: self.fixture_module_id.clone(),
-            source: location,
-            text: Arc::from(source_text),
-            revision: SourceRevision(self.generation),
-            recovered_program: Some(Arc::new(parsed.program)),
-        };
+                for dependency in &parsed.program.preamble.dependencies {
+                    let import_path = match dependency {
+                        phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(decl)) => &decl.path,
+                        phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(decl)) => &decl.path,
+                        phalcom_ast::ast::DependencyDecl::ReExport(decl) => &decl.path,
+                        phalcom_ast::ast::DependencyDecl::Expose(decl) => {
+                            return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
+                                import_name: decl.child.name.clone().into(),
+                            });
+                        }
+                    };
+                    if !matches!(&import_path.root, phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "universe") {
+                        return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
+                            import_name: import_path.to_string().into(),
+                        });
+                    }
+                }
 
-        #[cfg(any(test, feature = "test-timings"))]
-        let link_started = Instant::now();
-        let module_update = match self.semantic_session.module_session_mut().apply_batch([mutation]) {
-            Ok(update) => update,
-            Err(error) => {
+                self.generation = self.generation.saturating_add(1);
+                let location = SourceLocation {
+                    source_id: self.fixture_source_id.clone(),
+                    display_path: path.to_path_buf(),
+                };
+                let mutation = WorkspaceSourceBatchMutation::SetOverlayForModule {
+                    module: self.fixture_module_id.clone(),
+                    source: location,
+                    text: Arc::from(source_text),
+                    revision: SourceRevision(self.generation),
+                    recovered_program: Some(Arc::new(parsed.program)),
+                };
+
+                #[cfg(any(test, feature = "test-timings"))]
+                let link_started = Instant::now();
+                let module_update = match self.semantic_session.module_session_mut().apply_batch([mutation]) {
+                    Ok(update) => update,
+                    Err(error) => {
+                        #[cfg(any(test, feature = "test-timings"))]
+                        {
+                            self.last_fixture_timing.compile_link = link_started.elapsed();
+                        }
+                        return Err(map_workspace_error(error));
+                    }
+                };
                 #[cfg(any(test, feature = "test-timings"))]
                 {
                     self.last_fixture_timing.compile_link = link_started.elapsed();
                 }
-                return Err(map_workspace_error(error));
-            }
-        };
-        #[cfg(any(test, feature = "test-timings"))]
-        {
-            self.last_fixture_timing.compile_link = link_started.elapsed();
-        }
-        #[cfg(any(test, feature = "test-timings"))]
-        let semantic_started = Instant::now();
-        let publication = self
-            .semantic_session
-            .update_module_workspace_with_cancel(module_update, &phalcom_semantic::db::CancellationToken::new())
-            .map_err(phalcom_semantic::SemanticUpdateFailure::from)?;
-        #[cfg(any(test, feature = "test-timings"))]
-        {
-            self.last_fixture_timing.semantic_update = semantic_started.elapsed();
-        }
-        let module_session = self.semantic_session.module_session();
-        let linked = module_session
-            .linked()
-            .cloned()
-            .ok_or_else(|| ProgramCompileError::Io("module session published no linked program".to_owned()))?;
-        let entry = self.fixture_module_id.clone();
-        let analyzed = AnalyzedProgram {
-            project_universe: Arc::new(module_session.universe().clone()),
-            linked,
-            sources: publication.snapshot.sources().as_ref().clone(),
-            semantic: publication.snapshot,
-            runtime_modules: BTreeSet::from([entry.clone()]),
-            entry,
-        };
+                #[cfg(any(test, feature = "test-timings"))]
+                let semantic_started = Instant::now();
+                let publication = self
+                    .semantic_session
+                    .update_module_workspace_with_cancel(module_update, &phalcom_semantic::db::CancellationToken::new())
+                    .map_err(phalcom_semantic::SemanticUpdateFailure::from)?;
+                #[cfg(any(test, feature = "test-timings"))]
+                {
+                    self.last_fixture_timing.semantic_update = semantic_started.elapsed();
+                }
+                let module_session = self.semantic_session.module_session();
+                let linked = module_session
+                    .linked()
+                    .cloned()
+                    .ok_or_else(|| ProgramCompileError::Io("module session published no linked program".to_owned()))?;
+                let entry = self.fixture_module_id.clone();
+                let analyzed = AnalyzedProgram {
+                    project_universe: Arc::new(module_session.universe().clone()),
+                    linked,
+                    sources: publication.snapshot.sources().as_ref().clone(),
+                    semantic: publication.snapshot,
+                    runtime_modules: BTreeSet::from([entry.clone()]),
+                    entry,
+                };
 
-        #[cfg(any(test, feature = "test-timings"))]
-        let projection_started = Instant::now();
-        let compiled = ProgramCompiler::compile_analyzed(&analyzed);
-        #[cfg(any(test, feature = "test-timings"))]
-        {
-            self.last_fixture_timing.compile_projection = projection_started.elapsed();
-        }
-        compiled
+                #[cfg(any(test, feature = "test-timings"))]
+                let projection_started = Instant::now();
+                let compiled = ProgramCompiler::compile_analyzed(&analyzed);
+                #[cfg(any(test, feature = "test-timings"))]
+                {
+                    self.last_fixture_timing.compile_projection = projection_started.elapsed();
+                }
+                compiled
+            },
+            super::compile::classify_program_compile_error,
+        )
     }
 
     /// Returns the latest fixture timing breakdown when test timing support is enabled.

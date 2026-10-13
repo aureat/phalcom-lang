@@ -1,14 +1,10 @@
 use crate::checker::proof_predicate::ProofPredicateGoal;
 use crate::member_projection::{MemberProjection, MemberProjectionArgument, MemberProjectionSubject, StaticMemberProjectionOutcome};
 use crate::static_domain::StaticValueDomain;
-use crate::static_eval::application::{
-    StaticSpecializationArgument, StaticSpecializationEnvironmentError, StaticSpecializationEnvironmentKey,
-};
+use crate::static_eval::application::{StaticSpecializationArgument, StaticSpecializationEnvironmentError, StaticSpecializationEnvironmentKey};
 use crate::static_eval::error::StaticEvalError;
 use crate::static_eval::machine::{StaticArgument, StaticEvaluator, Stop};
-use crate::static_eval::residual::{
-    StaticEvalTerm, StaticResidualApplication, StaticResidualData, StaticResidualParameter, StaticResidualRef,
-};
+use crate::static_eval::residual::{StaticEvalTerm, StaticResidualApplication, StaticResidualData, StaticResidualParameter, StaticResidualRef};
 use crate::traits::TraitRef;
 use crate::types::id::TypeId;
 use crate::types::parameter::TypeTerm;
@@ -60,33 +56,31 @@ pub(crate) fn specialize_residual_term(
 
     let previous_context = evaluator.replace_trusted_branch_context(trusted_context.clone());
     let result = match residual_data {
-        StaticResidualData::Parameter { parameter } => {
-            specialize_parameter(evaluator, residual, &parameter, supplied)
-        }
-        StaticResidualData::Apply { application, result_domain } => {
-            specialize_apply(evaluator, residual, &application, result_domain, supplied)
-        }
-        StaticResidualData::Proof { goal, result_type, environment } => {
-            specialize_proof(evaluator, residual, &goal, result_type, &environment, supplied)
-        }
-        StaticResidualData::MemberProjection { projection, result_domain, environment } => {
-            specialize_member_projection(evaluator, residual, &projection, result_domain, &environment, supplied)
-        }
+        StaticResidualData::Parameter { parameter } => specialize_parameter(evaluator, residual, &parameter, supplied),
+        StaticResidualData::Apply { application, result_domain } => specialize_apply(evaluator, residual, &application, result_domain, supplied),
+        StaticResidualData::Proof {
+            goal,
+            result_type,
+            environment,
+        } => specialize_proof(evaluator, residual, &goal, result_type, &environment, supplied),
+        StaticResidualData::MemberProjection {
+            projection,
+            result_domain,
+            environment,
+        } => specialize_member_projection(evaluator, residual, &projection, result_domain, &environment, supplied),
         _ => Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
     };
     let result = match result {
-        Ok(StaticEvalTerm::Residual(reference)) if reference == residual && evaluator.trusted_branch_context() != &trusted_context => {
-            evaluator
-                .reintern_residual_with_trusted_context(
-                    evaluator
-                        .residuals()
-                        .and_then(|store| store.get(residual).ok())
-                        .cloned()
-                        .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?,
-                    evaluator.trusted_branch_context().clone(),
-                )
-                .map(StaticEvalTerm::Residual)
-        }
+        Ok(StaticEvalTerm::Residual(reference)) if reference == residual && evaluator.trusted_branch_context() != &trusted_context => evaluator
+            .reintern_residual_with_trusted_context(
+                evaluator
+                    .residuals()
+                    .and_then(|store| store.get(residual).ok())
+                    .cloned()
+                    .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?,
+                evaluator.trusted_branch_context().clone(),
+            )
+            .map(StaticEvalTerm::Residual),
         other => other,
     };
     evaluator.replace_trusted_branch_context(previous_context);
@@ -295,27 +289,42 @@ pub(crate) fn substitute_proof_goal(
 ) -> Result<(ProofPredicateGoal, bool), StaticSpecializationEnvironmentError> {
     match goal {
         ProofPredicateGoal::Equivalent { left, right } => {
-            let sub_left = subst.try_apply(types, *left)
+            let sub_left = subst
+                .try_apply(types, *left)
                 .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
-            let sub_right = subst.try_apply(types, *right)
+            let sub_right = subst
+                .try_apply(types, *right)
                 .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
             let changed = sub_left != *left || sub_right != *right;
-            let (min, max) = if sub_left <= sub_right { (sub_left, sub_right) } else { (sub_right, sub_left) };
+            let (min, max) = if sub_left <= sub_right {
+                (sub_left, sub_right)
+            } else {
+                (sub_right, sub_left)
+            };
             Ok((ProofPredicateGoal::Equivalent { left: min, right: max }, changed))
         }
         ProofPredicateGoal::Subtype { lower, upper } => {
-            let sub_lower = subst.try_apply(types, *lower)
+            let sub_lower = subst
+                .try_apply(types, *lower)
                 .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
-            let sub_upper = subst.try_apply(types, *upper)
+            let sub_upper = subst
+                .try_apply(types, *upper)
                 .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
             let changed = sub_lower != *lower || sub_upper != *upper;
-            Ok((ProofPredicateGoal::Subtype { lower: sub_lower, upper: sub_upper }, changed))
+            Ok((
+                ProofPredicateGoal::Subtype {
+                    lower: sub_lower,
+                    upper: sub_upper,
+                },
+                changed,
+            ))
         }
         ProofPredicateGoal::Conforms { key } => {
             let mut changed = false;
             let sub_subject = match &key.subject {
                 TypeTerm::Canonical(ty) => {
-                    let sub_ty = subst.try_apply(types, *ty)
+                    let sub_ty = subst
+                        .try_apply(types, *ty)
                         .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
                     if sub_ty != *ty {
                         changed = true;
@@ -326,33 +335,24 @@ pub(crate) fn substitute_proof_goal(
             };
             let mut sub_args = Vec::with_capacity(key.trait_ref.arguments.len());
             for &arg_ty in key.trait_ref.arguments.iter() {
-                let sub_arg = subst.try_apply(types, arg_ty)
+                let sub_arg = subst
+                    .try_apply(types, arg_ty)
                     .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
                 if sub_arg != arg_ty {
                     changed = true;
                 }
                 sub_args.push(sub_arg);
             }
-            let sub_key = crate::generic_evidence::GenericConformanceKey::new(
-                sub_subject,
-                TraitRef::new(key.trait_ref.declaration.clone(), sub_args),
-            );
+            let sub_key = crate::generic_evidence::GenericConformanceKey::new(sub_subject, TraitRef::new(key.trait_ref.declaration.clone(), sub_args));
             Ok((ProofPredicateGoal::Conforms { key: sub_key }, changed))
         }
     }
 }
 
-fn goal_has_open_terms(
-    goal: &ProofPredicateGoal,
-    evaluator: &StaticEvaluator<'_>,
-) -> Result<bool, Stop> {
+fn goal_has_open_terms(goal: &ProofPredicateGoal, evaluator: &StaticEvaluator<'_>) -> Result<bool, Stop> {
     match goal {
-        ProofPredicateGoal::Equivalent { left, right } => {
-            Ok(evaluator.is_open_type(*left)? || evaluator.is_open_type(*right)?)
-        }
-        ProofPredicateGoal::Subtype { lower, upper } => {
-            Ok(evaluator.is_open_type(*lower)? || evaluator.is_open_type(*upper)?)
-        }
+        ProofPredicateGoal::Equivalent { left, right } => Ok(evaluator.is_open_type(*left)? || evaluator.is_open_type(*right)?),
+        ProofPredicateGoal::Subtype { lower, upper } => Ok(evaluator.is_open_type(*lower)? || evaluator.is_open_type(*upper)?),
         ProofPredicateGoal::Conforms { key } => {
             let open_subject = match &key.subject {
                 TypeTerm::Canonical(ty) => evaluator.is_open_type(*ty)?,
@@ -380,7 +380,8 @@ pub(crate) fn substitute_member_projection(
     let mut changed = false;
     let sub_subject = match &projection.subject {
         MemberProjectionSubject::Type(ty) => {
-            let sub_ty = subst.try_apply(types, *ty)
+            let sub_ty = subst
+                .try_apply(types, *ty)
                 .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
             if sub_ty != *ty {
                 changed = true;
@@ -393,7 +394,8 @@ pub(crate) fn substitute_member_projection(
     for arg in projection.arguments.iter() {
         match arg {
             MemberProjectionArgument::Kinded(crate::types::type_member::TypeMemberArgument::Type(ty)) => {
-                let sub_ty = subst.try_apply(types, *ty)
+                let sub_ty = subst
+                    .try_apply(types, *ty)
                     .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
                 if sub_ty != *ty {
                     changed = true;
@@ -409,7 +411,8 @@ pub(crate) fn substitute_member_projection(
         Some(ev) => {
             let sub_subj = match &ev.subject {
                 TypeTerm::Canonical(ty) => {
-                    let sub_ty = subst.try_apply(types, *ty)
+                    let sub_ty = subst
+                        .try_apply(types, *ty)
                         .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
                     if sub_ty != *ty {
                         changed = true;
@@ -420,7 +423,8 @@ pub(crate) fn substitute_member_projection(
             };
             let mut sub_trait_args = Vec::with_capacity(ev.trait_ref.arguments.len());
             for &arg_ty in ev.trait_ref.arguments.iter() {
-                let sub_arg = subst.try_apply(types, arg_ty)
+                let sub_arg = subst
+                    .try_apply(types, arg_ty)
                     .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
                 if sub_arg != arg_ty {
                     changed = true;
@@ -448,10 +452,7 @@ pub(crate) fn substitute_member_projection(
     Ok((sub_proj, changed))
 }
 
-fn member_projection_is_open(
-    projection: &MemberProjection,
-    evaluator: &StaticEvaluator<'_>,
-) -> Result<bool, Stop> {
+fn member_projection_is_open(projection: &MemberProjection, evaluator: &StaticEvaluator<'_>) -> Result<bool, Stop> {
     if let MemberProjectionSubject::Type(ty) = &projection.subject {
         if evaluator.is_open_type(*ty)? {
             return Ok(true);

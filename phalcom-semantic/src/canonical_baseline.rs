@@ -25,6 +25,28 @@ use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use crate::types::type_member::TypeMemberDeclarationId;
 
+macro_rules! semantic_perf_span {
+    ($phase:expr, $operation:expr $(,)?) => {{
+        #[cfg(feature = "perf-observability")]
+        {
+            ::telos_observability::PerfContext::current_thread().with_span($phase, |_| ($operation)())
+        }
+        #[cfg(not(feature = "perf-observability"))]
+        {
+            ($operation)()
+        }
+    }};
+}
+
+macro_rules! semantic_perf_counter {
+    ($counter:expr, $amount:expr $(,)?) => {{
+        #[cfg(feature = "perf-observability")]
+        {
+            ::telos_observability::PerfContext::current_thread().record_counter($counter, $amount as u64);
+        }
+    }};
+}
+
 /// Process-shared, precomputed semantic products derived from the canonical Universe source.
 ///
 /// Constructed at most once per process and reused across all workspace sessions,
@@ -75,7 +97,13 @@ fn canonical_source_class_supertype_template(
 
 /// Returns the process-shared canonical semantic Universe baseline, building it on first access.
 pub fn canonical_universe_semantic_baseline() -> &'static CanonicalUniverseSemanticBaseline {
+    #[cfg(feature = "perf-observability")]
+    if CANONICAL_UNIVERSE_SEMANTIC_BASELINE.get().is_some() {
+        semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalSemanticBaselineCacheHits, 1);
+    }
+
     CANONICAL_UNIVERSE_SEMANTIC_BASELINE.get_or_init(|| {
+        semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalSemanticBaselineBuilds, 1);
         #[cfg(any(test, feature = "test-timings"))]
         crate::instrumentation::record_baseline_build();
         CanonicalUniverseSemanticBaseline::build_with_provider(phalcom_modules::UniverseSourceProvider::new())
@@ -91,6 +119,14 @@ impl CanonicalUniverseSemanticBaseline {
     /// Builds a baseline for the given provider.
     #[allow(deprecated)]
     pub fn build_with_provider(provider: phalcom_modules::UniverseSourceProvider) -> Self {
+        semantic_perf_span!(
+            ::telos_observability::PerfPhase::CanonicalSemanticBaseline,
+            || Self::build_with_provider_inner(provider)
+        )
+    }
+
+    #[allow(deprecated)]
+    fn build_with_provider_inner(provider: phalcom_modules::UniverseSourceProvider) -> Self {
         let mut store = TypeStore::new();
 
         let mut base_declarations = bootstrap_universe_declarations(&mut store, &crate::core_surface::universe_declaration);
@@ -136,20 +172,32 @@ impl CanonicalUniverseSemanticBaseline {
         ] {
             known_declarations.insert(crate::checker::proof_predicate::proof_predicate_declaration(kind));
         }
-        let canonical_linked = canonical_universe_linked_program(&provider);
-        let resolver = LinkedTypeResolver::new(canonical_linked.clone(), known_declarations, ModuleId::universe_root());
-        let native_report = register_native_surfaces(&mut store, &base_declarations, &resolver, &ModuleId::universe_root(), &mut base_dispatch)
-            .expect("canonical native surface must import during semantic bootstrap");
-        crate::checker::context::ensure_core_object_type_tests(&mut store, &base_declarations, &mut base_dispatch);
+        let canonical_linked = semantic_perf_span!(::telos_observability::PerfPhase::CanonicalBaselineLinkedWorld, || {
+            canonical_universe_linked_program(&provider)
+        });
+        let resolver = semantic_perf_span!(::telos_observability::PerfPhase::CanonicalBaselineLinkedWorld, || {
+            LinkedTypeResolver::new(canonical_linked.clone(), known_declarations, ModuleId::universe_root())
+        });
+        let native_report = semantic_perf_span!(::telos_observability::PerfPhase::CanonicalBaselineNativeSurfaces, || {
+            let native_report = register_native_surfaces(&mut store, &base_declarations, &resolver, &ModuleId::universe_root(), &mut base_dispatch)
+                .expect("canonical native surface must import during semantic bootstrap");
+            crate::checker::context::ensure_core_object_type_tests(&mut store, &base_declarations, &mut base_dispatch);
+            native_report
+        });
 
-        let mut base_callable_signatures = CallableSignatureTable::new();
-        for (_, signature) in native_report.callable_signatures {
-            base_callable_signatures.insert(signature);
-        }
-        let core_class_new = crate::checker::declaration_signature::canonical_core_class_new_signature(&mut store);
-        if base_callable_signatures.get(&core_class_new.callable).is_none() {
-            base_callable_signatures.insert(core_class_new);
-        }
+        let mut base_callable_signatures = semantic_perf_span!(::telos_observability::PerfPhase::CanonicalBaselineCallableSignatures, || {
+            let mut base_callable_signatures = CallableSignatureTable::new();
+            for (_, signature) in native_report.callable_signatures {
+                semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalCallableSignatures, 1);
+                base_callable_signatures.insert(signature);
+            }
+            let core_class_new = crate::checker::declaration_signature::canonical_core_class_new_signature(&mut store);
+            if base_callable_signatures.get(&core_class_new.callable).is_none() {
+                semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalCallableSignatures, 1);
+                base_callable_signatures.insert(core_class_new);
+            }
+            base_callable_signatures
+        });
 
         let mut base_data_semantics = DataSemanticTable::new();
         let mut base_data_products = Vec::new();
@@ -166,7 +214,11 @@ impl CanonicalUniverseSemanticBaseline {
         // declaration forms before constructing the linked resolver so
         // source users can resolve them through the same
         // core identity path as native declarations.
+        semantic_perf_span!(::telos_observability::PerfPhase::CanonicalBaselinePredeclaration, || {
         for node in provider.nodes() {
+            semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalModulesScanned, 1);
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceModuleVisits, 1);
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceUniqueModules, 1);
             let path = phalcom_modules::ModulePath::from_components(
                 node.path
                     .iter()
@@ -177,9 +229,42 @@ impl CanonicalUniverseSemanticBaseline {
             let parsed = provider
                 .load_parsed(&module_id)
                 .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
+            semantic_perf_counter!(
+                ::telos_observability::PerfCounter::CanonicalTopLevelStatementsVisited,
+                parsed.program.statements.len()
+            );
+            semantic_perf_counter!(
+                ::telos_observability::PerfCounter::SemanticSourceTopLevelStatementVisits,
+                parsed.program.statements.len()
+            );
+            semantic_perf_counter!(
+                ::telos_observability::PerfCounter::SemanticSourceUniqueTopLevelStatements,
+                parsed.program.statements.len()
+            );
             // Phase 1: publish structural data/enum products for the complete
             // module before resolving any inherent impl target in that module.
             for stmt in &parsed.program.statements {
+                match stmt {
+                    Statement::TypeAlias(_) | Statement::TypeDefinition(_) => {
+                        semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalDeclarations, 1);
+                    }
+                    Statement::Data(data_def) => {
+                        semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalDeclarations, 1);
+                        semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalDataDeclarations, 1);
+                        if data_def.is_sum() {
+                            semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalEnumDeclarations, 1);
+                        }
+                    }
+                    Statement::Class(_) => {
+                        semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalDeclarations, 1);
+                        semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalClasses, 1);
+                    }
+                    Statement::Trait(_) => {
+                        semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalDeclarations, 1);
+                        semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalTraits, 1);
+                    }
+                    _ => {}
+                }
                 if let Statement::TypeAlias(alias) | Statement::TypeDefinition(alias) = stmt {
                     let declaration = DeclarationId::new(module_id.clone(), alias.name.clone().into());
                     canonical_alias_sources.insert(declaration, (module_id.clone(), alias.clone()));
@@ -254,6 +339,7 @@ impl CanonicalUniverseSemanticBaseline {
                 }
             }
         }
+        });
 
         // Rebuild the resolver after source-owned enum/data forms have been
         // predeclared. The initial native registration only needs the
@@ -270,7 +356,10 @@ impl CanonicalUniverseSemanticBaseline {
             known_declarations.insert(crate::checker::proof_predicate::proof_predicate_declaration(kind));
         }
         let mut trait_associated_types: BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>> = BTreeMap::new();
+        semantic_perf_span!(::telos_observability::PerfPhase::CanonicalBaselineTraitCensus, || {
         for node in provider.nodes() {
+            semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalModulesScanned, 1);
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceModuleVisits, 1);
             let path = phalcom_modules::ModulePath::from_components(
                 node.path
                     .iter()
@@ -281,6 +370,11 @@ impl CanonicalUniverseSemanticBaseline {
             let parsed = provider
                 .load_parsed(&module_id)
                 .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
+            semantic_perf_counter!(
+                ::telos_observability::PerfCounter::CanonicalTopLevelStatementsVisited,
+                parsed.program.statements.len()
+            );
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceTopLevelStatementVisits, parsed.program.statements.len());
             for stmt in &parsed.program.statements {
                 let Statement::Trait(trait_def) = stmt else { continue };
                 let declaration = DeclarationId::new(module_id.clone(), trait_def.name.clone().into());
@@ -297,8 +391,11 @@ impl CanonicalUniverseSemanticBaseline {
                 }
             }
         }
-        let resolver = LinkedTypeResolver::new(canonical_linked.clone(), known_declarations, ModuleId::universe_root())
-            .with_trait_associated_types(Arc::new(trait_associated_types.clone()));
+        });
+        let resolver = semantic_perf_span!(::telos_observability::PerfPhase::CanonicalBaselineLinkedWorld, || {
+            LinkedTypeResolver::new(canonical_linked.clone(), known_declarations, ModuleId::universe_root())
+                .with_trait_associated_types(Arc::new(trait_associated_types.clone()))
+        });
 
         // Universe source owns class inheritance. Native metadata contributes
         // implementation attachment and native-only relations; add each
@@ -307,7 +404,10 @@ impl CanonicalUniverseSemanticBaseline {
         // surfaces. The current source census has 68 explicit `is` clauses,
         // none with applied generic parents. Type-form resolution below also
         // preserves templates for generic classes and future applied forms.
+        semantic_perf_span!(::telos_observability::PerfPhase::CanonicalBaselineHierarchy, || {
         for node in provider.nodes() {
+            semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalModulesScanned, 1);
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceModuleVisits, 1);
             let path = phalcom_modules::ModulePath::from_components(
                 node.path
                     .iter()
@@ -318,13 +418,16 @@ impl CanonicalUniverseSemanticBaseline {
             let parsed = provider
                 .load_parsed(&module_id)
                 .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
+            semantic_perf_counter!(
+                ::telos_observability::PerfCounter::CanonicalTopLevelStatementsVisited,
+                parsed.program.statements.len()
+            );
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceTopLevelStatementVisits, parsed.program.statements.len());
             for stmt in &parsed.program.statements {
                 let Statement::Class(class_def) = stmt else { continue };
                 let declaration = base_declarations
                     .iter()
-                    .find_map(|(declaration, _)| {
-                        (declaration.module == module_id && declaration.name.as_ref() == class_def.name).then(|| declaration.clone())
-                    })
+                    .find_map(|(declaration, _)| (declaration.module == module_id && declaration.name.as_ref() == class_def.name).then(|| declaration.clone()))
                     .unwrap_or_else(|| panic!("canonical Universe class declaration is missing: {module_id}::{}", class_def.name));
                 let (resolved_super_decl, _) = crate::checker::context::resolve_source_class_superclass(&declaration, class_def, &resolver);
                 let source_super_decl = resolved_super_decl.or_else(|| {
@@ -340,7 +443,10 @@ impl CanonicalUniverseSemanticBaseline {
                     (base_hierarchy.superclasses.get(&declaration) == Some(&expected)).then_some(expected)
                 });
                 if class_def.superclass.is_some() && source_super_decl.is_none() {
-                    panic!("could not resolve canonical Universe superclass for {declaration:?}: {:?}", class_def.superclass);
+                    panic!(
+                        "could not resolve canonical Universe superclass for {declaration:?}: {:?}",
+                        class_def.superclass
+                    );
                 }
                 if let Some(super_decl) = source_super_decl.as_ref() {
                     base_hierarchy.insert(declaration.clone(), super_decl.clone());
@@ -358,13 +464,17 @@ impl CanonicalUniverseSemanticBaseline {
                 }
             }
         }
+        });
 
         // Publish source-authored class members into the reusable baseline.
         // Native metadata remains authoritative for colliding native members;
         // source-only members (including generic iterator constructors) are
         // added to the same declaration surface consumed by user analysis.
         let mut canonical_native_diagnostics: BTreeMap<ModuleId, Vec<SemanticDiagnostic>> = BTreeMap::new();
+        semantic_perf_span!(::telos_observability::PerfPhase::CanonicalBaselineClassSurfaces, || {
         for node in provider.nodes() {
+            semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalModulesScanned, 1);
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceModuleVisits, 1);
             let path = phalcom_modules::ModulePath::from_components(
                 node.path
                     .iter()
@@ -375,6 +485,11 @@ impl CanonicalUniverseSemanticBaseline {
             let parsed = provider
                 .load_parsed(&module_id)
                 .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
+            semantic_perf_counter!(
+                ::telos_observability::PerfCounter::CanonicalTopLevelStatementsVisited,
+                parsed.program.statements.len()
+            );
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceTopLevelStatementVisits, parsed.program.statements.len());
             for stmt in &parsed.program.statements {
                 let Statement::Class(class_def) = stmt else { continue };
                 let declaration = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
@@ -411,7 +526,9 @@ impl CanonicalUniverseSemanticBaseline {
                         }
                     }
                 }
+                semantic_perf_span!(::telos_observability::PerfPhase::CanonicalBaselineCallableSignatures, || {
                 for signature in source_signatures.into_values() {
+                    semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalCallableSignatures, 1);
                     if signature.implementation == phalcom_common::modifier::ImplementationKind::Native {
                         let range = signature.source.as_ref().map(|source| source.range).unwrap_or(class_def.range);
                         let native = base_callable_signatures.get(&signature.callable);
@@ -442,14 +559,18 @@ impl CanonicalUniverseSemanticBaseline {
                         base_callable_signatures.insert(signature);
                     }
                 }
+                });
                 base_dispatch.register_surface(declaration.clone(), merged);
                 if let Some(ty) = base_declarations.form(&declaration) {
                     base_dispatch.register_type(ty, declaration);
                 }
             }
         }
+        });
 
         for node in provider.nodes() {
+            semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalModulesScanned, 1);
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceModuleVisits, 1);
             let path = phalcom_modules::ModulePath::from_components(
                 node.path
                     .iter()
@@ -460,12 +581,26 @@ impl CanonicalUniverseSemanticBaseline {
             let parsed = provider
                 .load_parsed(&module_id)
                 .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
+            semantic_perf_counter!(
+                ::telos_observability::PerfCounter::CanonicalTopLevelStatementsVisited,
+                parsed.program.statements.len()
+            );
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceTopLevelStatementVisits, parsed.program.statements.len());
             for stmt in &parsed.program.statements {
                 if let phalcom_ast::ast::Statement::Data(data_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
                     if data_def.is_sum() {
-                        let Some(enum_product) =
-                            crate::checker::enum_declaration::build_enum_semantics(&decl_id, data_def, &mut store, &base_declarations, &resolver, &module_id)
+                        let Some(enum_product) = semantic_perf_span!(
+                            ::telos_observability::PerfPhase::CanonicalBaselineEnums,
+                            || crate::checker::enum_declaration::build_enum_semantics(
+                                &decl_id,
+                                data_def,
+                                &mut store,
+                                &base_declarations,
+                                &resolver,
+                                &module_id
+                            )
+                        )
                         else {
                             continue;
                         };
@@ -475,16 +610,29 @@ impl CanonicalUniverseSemanticBaseline {
                         }
                         base_enum_products.push(Arc::new(enum_product));
                     } else {
-                        let Some(data_product) =
-                            crate::checker::data_declaration::build_data_semantics(&decl_id, data_def, &mut store, &base_declarations, &resolver, &module_id)
+                        let Some(data_product) = semantic_perf_span!(
+                            ::telos_observability::PerfPhase::CanonicalBaselineData,
+                            || crate::checker::data_declaration::build_data_semantics(
+                                &decl_id,
+                                data_def,
+                                &mut store,
+                                &base_declarations,
+                                &resolver,
+                                &module_id
+                            )
+                        )
                         else {
                             continue;
                         };
                         base_data_semantics.insert_data(data_product.info.clone());
                         base_data_products.push(Arc::new(data_product));
 
-                        let assoc_surface = crate::associated::build_data_associated_surface(&decl_id);
+                        let assoc_surface = semantic_perf_span!(
+                            ::telos_observability::PerfPhase::CanonicalBaselineAssociatedSurfaces,
+                            || crate::associated::build_data_associated_surface(&decl_id)
+                        );
                         base_associated_surfaces.insert(decl_id.clone(), assoc_surface.clone());
+                        semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalAssociatedProducts, 1);
                         base_associated_surface_products.push(assoc_surface);
                     }
                 }
@@ -494,6 +642,11 @@ impl CanonicalUniverseSemanticBaseline {
             // target metadata exists. ImplId remains the source-statement ID;
             // the contribution owns all target and callable identity decisions.
             let mut base_inherent_contributions = Vec::new();
+            semantic_perf_counter!(
+                ::telos_observability::PerfCounter::CanonicalTopLevelStatementsVisited,
+                parsed.program.statements.len()
+            );
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceTopLevelStatementVisits, parsed.program.statements.len());
             for (statement_index, stmt) in parsed.program.statements.iter().enumerate() {
                 let phalcom_ast::ast::Statement::Impl(impl_def) = stmt else {
                     continue;
@@ -501,6 +654,7 @@ impl CanonicalUniverseSemanticBaseline {
                 if !matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Inherent) {
                     continue;
                 }
+                semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalImplDeclarations, 1);
                 let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(statement_index as u32));
                 let mut impl_ctx = crate::checker::CheckingContext::new_with_dispatch_ref(
                     &mut store,
@@ -512,7 +666,12 @@ impl CanonicalUniverseSemanticBaseline {
                 );
                 impl_ctx.attach_data_semantics(&base_data_semantics);
                 impl_ctx.attach_enum_semantics(&base_enum_semantics);
-                base_inherent_contributions.push(crate::impls::build_inherent_impl_contribution(&mut impl_ctx, &impl_id, impl_def));
+                let contribution = semantic_perf_span!(
+                    ::telos_observability::PerfPhase::CanonicalBaselineInherentImpls,
+                    || crate::impls::build_inherent_impl_contribution(&mut impl_ctx, &impl_id, impl_def)
+                );
+                semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalCallableSignatures, contribution.members.len());
+                base_inherent_contributions.push(contribution);
             }
 
             // Canonical data declarations have no source class surface of
@@ -538,13 +697,16 @@ impl CanonicalUniverseSemanticBaseline {
                     .filter(|(callable, _)| callable.try_declaration_owner() == Some(&target))
                     .map(|(callable, signature)| (callable.clone(), signature.clone()))
                     .collect::<HashMap<_, _>>();
-                let effective = crate::impls::build_effective_surface(
-                    &target,
-                    &primary_surface,
-                    &primary_signatures,
-                    &contributions,
-                    base_data_semantics.data_info(&target).map(AsRef::as_ref),
-                    base_associated_surfaces.surfaces.get(&target).map(AsRef::as_ref),
+                let effective = semantic_perf_span!(
+                    ::telos_observability::PerfPhase::CanonicalBaselineEffectiveSurfaces,
+                    || crate::impls::build_effective_surface(
+                        &target,
+                        &primary_surface,
+                        &primary_signatures,
+                        &contributions,
+                        base_data_semantics.data_info(&target).map(AsRef::as_ref),
+                        base_associated_surfaces.surfaces.get(&target).map(AsRef::as_ref),
+                    )
                 );
                 base_dispatch.register_surface(target.clone(), (*effective.surface).clone());
                 base_dispatch.register_conditional_members(
@@ -554,11 +716,13 @@ impl CanonicalUniverseSemanticBaseline {
                 for contribution in &contributions {
                     for member in &contribution.members {
                         if member.signature.native_id.is_none() {
+                            semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalCallableSignatures, 1);
                             base_callable_signatures.insert(member.signature.clone());
                         }
                     }
                 }
                 for signature in effective.native_anchors.values() {
+                    semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalCallableSignatures, 1);
                     base_callable_signatures.insert(signature.clone());
                 }
             }
@@ -566,6 +730,11 @@ impl CanonicalUniverseSemanticBaseline {
             // Phase 3: derive enum behavior, requirements, and associated
             // surfaces from those semantic contributions. Enum syntax is
             // structural and supplies no callable fallback.
+            semantic_perf_counter!(
+                ::telos_observability::PerfCounter::CanonicalTopLevelStatementsVisited,
+                parsed.program.statements.len()
+            );
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceTopLevelStatementVisits, parsed.program.statements.len());
             for stmt in &parsed.program.statements {
                 if let phalcom_ast::ast::Statement::Data(enum_def) = stmt {
                     if !enum_def.is_sum() {
@@ -587,7 +756,15 @@ impl CanonicalUniverseSemanticBaseline {
                     );
                     behavior_ctx.attach_data_semantics(&base_data_semantics);
                     behavior_ctx.attach_enum_semantics(&base_enum_semantics);
-                    let behavior_product = crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, Some(enum_def), &enum_contributions);
+                    let behavior_product = semantic_perf_span!(
+                        ::telos_observability::PerfPhase::CanonicalBaselineEnumBehavior,
+                        || crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, Some(enum_def), &enum_contributions)
+                    );
+                    semantic_perf_counter!(
+                        ::telos_observability::PerfCounter::CanonicalCallableSignatures,
+                        behavior_product.root_defaults.len()
+                            + behavior_product.case_implementations.values().map(|signatures| signatures.len()).sum::<usize>()
+                    );
 
                     let mut surface = base_dispatch.surface(&decl_id).cloned().unwrap_or_default();
                     for default_sig in behavior_product.root_defaults.iter() {
@@ -615,7 +792,9 @@ impl CanonicalUniverseSemanticBaseline {
                         }
                     }
 
-                    let (assoc_surface, _assoc_diags) = build_associated_surface(
+                    let (assoc_surface, _assoc_diags) = semantic_perf_span!(
+                        ::telos_observability::PerfPhase::CanonicalBaselineAssociatedSurfaces,
+                        || build_associated_surface(
                         &decl_id,
                         Some(
                             &enum_def
@@ -632,8 +811,10 @@ impl CanonicalUniverseSemanticBaseline {
                         &std::collections::HashSet::new(),
                         &module_id,
                         Some(crate::diagnostic::SemanticSourceSpan::new(module_id.clone(), enum_def.range)),
+                        )
                     );
                     base_associated_surfaces.insert(decl_id.clone(), assoc_surface.clone());
+                    semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalAssociatedProducts, 1);
                     base_associated_surface_products.push(assoc_surface);
 
                     let variants_info: Vec<VariantInfo> = enum_def
@@ -652,15 +833,18 @@ impl CanonicalUniverseSemanticBaseline {
                         case_methods_map.insert(v_id.clone(), sigs.to_vec());
                     }
 
-                    let (case_statuses, req_diags) = check_enum_requirements(
-                        &decl_id,
-                        base_enum_semantics.enum_info(&decl_id).unwrap(),
-                        &variants_info,
-                        &behavior_product.root_requirements,
-                        &case_methods_map,
-                        &mut store,
-                        &base_hierarchy,
-                        &module_id,
+                    let (case_statuses, req_diags) = semantic_perf_span!(
+                        ::telos_observability::PerfPhase::CanonicalBaselineEnumRequirements,
+                        || check_enum_requirements(
+                            &decl_id,
+                            base_enum_semantics.enum_info(&decl_id).unwrap(),
+                            &variants_info,
+                            &behavior_product.root_requirements,
+                            &case_methods_map,
+                            &mut store,
+                            &base_hierarchy,
+                            &module_id,
+                        )
                     );
                     base_enum_requirements.insert(decl_id.clone(), Arc::from(behavior_product.root_requirements.clone()), case_statuses.clone());
                     let req_product = Arc::new(EnumRequirementsProduct {
@@ -677,7 +861,10 @@ impl CanonicalUniverseSemanticBaseline {
         let mut base_type_member_products = Vec::new();
         let mut base_type_member_shells = BTreeMap::<DeclarationId, Vec<crate::associated::AssociatedMemberShell>>::new();
 
+        semantic_perf_span!(::telos_observability::PerfPhase::CanonicalBaselineTypeMembers, || {
         for node in provider.nodes() {
+            semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalModulesScanned, 1);
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceModuleVisits, 1);
             let path = phalcom_modules::ModulePath::from_components(
                 node.path
                     .iter()
@@ -688,6 +875,11 @@ impl CanonicalUniverseSemanticBaseline {
             let parsed = provider
                 .load_parsed(&module_id)
                 .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
+            semantic_perf_counter!(
+                ::telos_observability::PerfCounter::CanonicalTopLevelStatementsVisited,
+                parsed.program.statements.len()
+            );
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceTopLevelStatementVisits, parsed.program.statements.len());
 
             for stmt in &parsed.program.statements {
                 match stmt {
@@ -735,6 +927,7 @@ impl CanonicalUniverseSemanticBaseline {
                                 let arc_prod = Arc::new(product);
                                 base_type_member_declarations.insert(arc_prod.id.clone(), arc_prod.clone());
                                 base_type_member_products.push(arc_prod);
+                                semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalTypeMembers, 1);
                             }
                         }
                     }
@@ -784,6 +977,7 @@ impl CanonicalUniverseSemanticBaseline {
                                 let arc_prod = Arc::new(product);
                                 base_type_member_declarations.insert(arc_prod.id.clone(), arc_prod.clone());
                                 base_type_member_products.push(arc_prod);
+                                semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalTypeMembers, 1);
                             }
                         }
                     }
@@ -791,7 +985,9 @@ impl CanonicalUniverseSemanticBaseline {
                 }
             }
         }
+        });
 
+        semantic_perf_span!(::telos_observability::PerfPhase::CanonicalBaselineAssociatedSurfaces, || {
         for (owner, shells) in base_type_member_shells {
             let base_surface = base_associated_surfaces
                 .surfaces
@@ -801,8 +997,10 @@ impl CanonicalUniverseSemanticBaseline {
             let (surface, _diags) =
                 crate::associated::extend_associated_surface_with_shells(&owner, base_surface, &shells, &HashSet::new(), &HashSet::new(), &owner.module);
             base_associated_surfaces.insert(owner.clone(), surface.clone());
+            semantic_perf_counter!(::telos_observability::PerfCounter::CanonicalAssociatedProducts, 1);
             base_associated_surface_products.push(surface);
         }
+        });
 
         resolver.update_associated_type_members(&base_associated_surfaces, &base_type_member_declarations);
 
