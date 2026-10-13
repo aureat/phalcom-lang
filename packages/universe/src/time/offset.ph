@@ -7,6 +7,8 @@ impl UtcOffset {
   @class
   utc -> UtcOffset { UtcOffset(0) }
 
+  /// Creates an offset from whole seconds in the inclusive range -93,599 through 93,599.
+  /// Raises ArgumentError for values outside that range.
   @class
   seconds(_ value: Int) -> UtcOffset {
     if value < -93_599 or value > 93_599 {
