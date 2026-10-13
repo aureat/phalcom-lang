@@ -9,7 +9,7 @@
 **Date:** 2026-10-13
 **Branch:** `perf/universe-characterization`
 **Worktree:** `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization`
-**Source revision:** `eeca76f3` (continuation over `e71057d9`).
+**Source revision:** `9143262b` (continuation over `ca3c3c03`).
 **Delivery:** source committed; lifecycle records accompany it on `perf/universe-characterization`.
 
 ## Established continuation
@@ -96,3 +96,24 @@ on first process access.
 Keep unrelated worktree state intact. Commit and push were authorized on
 2026-10-13. Broad workspace/release gates and speedup certification were
 deliberately deferred. Delivery does not promote P5 to COMPLETE.
+
+## Continuation at `ca3c3c03`
+
+Module bindings, constructor paths and trait headers/surfaces now parent-read
+the image. Canonical-image integration (four selected), workspace integration
+(18), module-value dependency regression, parent-map tests and core check
+passed. Parent/local count checks passed in exact three-revision replacement.
+Static-case catalogs/signatures have zero entries in this canonical image;
+no general parent contract is established. Conformance index, witness plans
+and derived-rule buckets still copy canonical entries. The user approved a
+layered canonical/local conformance view with exact joint query/coherence
+parity; no P5.G6 exception was approved.
+
+The user resumed P4 prerequisites and approved loader-supplied Symbol identity
+for v12→v13 normalization when an old bundle lacks a Symbol node. The current
+exact singleton failure is public `FixedFields`: metadata cannot encode its
+non-Symbol Record remainder. PR-A Record/Pack facade coverage passes; PR-B is
+not implemented and the exploratory schema change was removed. Continue PR-B
+schema, global/scoped/row export, validation, fingerprints, contextual legacy
+decoding, runtime typing and canonical RuntimePublic proof before P5.T10.
+P5 stays `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.

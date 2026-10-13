@@ -26,6 +26,22 @@ focused-tested PR-A classification repair. PR-B remains investigation only.
 Consume the current `PERF003.C2.P4-handoff.md` and CHECKPOINT before resuming;
 the patch is uncommitted over `e74a9213` and is not full P4 certification.
 
+**Continuation authorization, 2026-10-13:** The user resumed the P4
+prerequisites needed for P5 acceptance and approved decode-time normalization
+of pre-v13 metadata: introduce canonical Symbol key-domain nodes, relocate all
+affected global/scoped node references, and validate compatibility and
+round-trip fidelity. This amends the historical stop above; the older handoff
+still records the earlier stopping point. No P4 completion follows merely from
+this authorization.
+
+**Identity clarification:** A legacy bundle need not contain a Symbol type node
+and its header does not encode the Universe Symbol declaration/version. The
+user selected a loader-supplied validated canonical Symbol identity for the
+normalization. Standalone decode of affected legacy Record metadata without
+that context returns a typed need-for-context error; old bundles without
+affected Record data continue to decode normally. Never infer Universe
+identity from the producer version or a source-text spelling.
+
 ---
 
 # 1. Purpose

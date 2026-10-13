@@ -85,3 +85,22 @@ T6 Slice 4 remains partial: static-case/associated static products, module
 static bindings and other copied maps still need ownership conversion. T7–T8,
 T11–T13 remain open; P4 gates T10/final P5 acceptance. No `.telosc` persistence
 or certified zero-copy claim across all families follows from this increment.
+
+## Module, constructor and trait parent continuation (`ca3c3c03`)
+
+Module binding facts now flow through a canonical-parent `ParentMap` in the
+checker and snapshot. Constructor paths, trait headers and trait surfaces
+likewise retain canonical parents; focused three-revision replacement tests
+prove pointer sharing. Parent-only map iteration/count and constructor/trait
+local/parent counts are exposed for T7. Canonical-image integration passed
+four selected; workspace integration 18; the exact module-value dependency
+test, parent-map tests and core observability check passed. Static-case maps
+have no canonical entries in this image; conformance aggregates still clone.
+
+P4 prerequisites were explicitly resumed by the user. PR-A Record/Pack
+native-facade coverage passed. The canonical compiler singleton still fails
+at `FixedFields` metadata export because v12 cannot encode the non-Symbol
+remainder. The approved PR-B graph normalization requires loader-supplied
+canonical Symbol identity for old bundles lacking a Symbol node; standalone
+decode must return a typed missing-context error for affected bundles. No
+schema change shipped here. P5 remains PARTIAL / FOCUSED_TESTED.

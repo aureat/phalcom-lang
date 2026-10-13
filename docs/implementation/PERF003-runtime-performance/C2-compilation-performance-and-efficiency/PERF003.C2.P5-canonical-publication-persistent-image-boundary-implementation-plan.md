@@ -9,7 +9,7 @@
 **Prepared against committed branch head:** `e74a92132bab6a7b7682a047c05dc01ab4db8b28`  
 **Prepared:** 2026-10-13  
 **Plan status:** `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`
-**Latest implemented source revision:** `eeca76f3` (see CHECKPOINT.md for task census and current acceptance evidence).
+**Latest implemented source revision:** `9143262b` (see CHECKPOINT.md for task census and current acceptance evidence).
 **Primary successor:** `PERF003.C2.P6` — user-only backend/local complexity closure  
 **Artifact successor:** `PERF003.C2.P7` — `.telosc` container + persisted semantic compiler image  
 

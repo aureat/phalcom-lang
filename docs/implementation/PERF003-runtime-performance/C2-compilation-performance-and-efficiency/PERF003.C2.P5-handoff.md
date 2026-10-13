@@ -7,13 +7,13 @@
 **Completion:** `PARTIAL`
 **Verification:** `FOCUSED_TESTED`
 **Date:** 2026-10-13
-**Source revision:** `eeca76f3` (continuation over `e71057d9`)
+**Source revision:** `9143262b` (continuation over `ca3c3c03`)
 **Working Directory:** `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization`
 **Branch:** `perf/universe-characterization`
 
 ---
 
-Current continuation is committed as `eeca76f3`. See
+Current continuation is committed as `9143262b`. See
 `PERF003.C2.P5-baseline-failure-fix-handoff.md` for takeover details and
 CHECKPOINT.md for current evidence. The baseline failures below were observed
 in the earlier Slice 1 session and are now resolved by focused regressions.
@@ -55,8 +55,8 @@ During this session:
 | **P5.T4** | Consumer-specific publication semantics ([`SourceSemanticLevel`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/request.rs#L9)) | **COMPLETED** (in commit `84227536`) |
 | **P5.T5 / P5.T6 Slice 1** | Parent-aware core tables (`DeclarationTypeTable`, `CallableSignatureTable`, `FieldSignatureTable`, `MapTypeHierarchy`) | **IMPLEMENTED** in `aaac8106`; focused unit and canonical-image verification passes; formerly blocked workspace/recomputation filters now pass |
 | **P5.T6 Slices 2–3** | Dispatch/surface, data/enum/associated/enum-requirement/type-member tables | **IMPLEMENTED / FOCUSED_TESTED** in `e71057d9` |
-| **P5.T6 Slice 4** | Alias/static/accepted-callable parent maps established; static-case/associated/module binding maps remain | **PARTIAL / FOCUSED_TESTED** |
-| **P5.T7** | Snapshot/read API hardening for parented canonical aggregates | **PENDING** |
+| **P5.T6 Slice 4** | Alias/static/accepted-callable/module-binding/constructor/trait parent maps established; conformance and other copied aggregates remain | **PARTIAL / FOCUSED_TESTED** |
+| **P5.T7** | Snapshot/read API hardening for parented canonical aggregates | **PARTIAL** (ParentMap and constructor/trait local/parent count/iteration APIs) |
 | **P5.T8** | Formal canonical persistence inventory and capability descriptor | **PENDING** |
 | **P5.T9** | Exhaustive query-family persistence classification used by freeze | **IMPLEMENTED / FOCUSED_TESTED** |
 | **P5.T10** | Bind P4 canonical metadata authority into compiler-image boundary | **BLOCKED ON P4 PR-B** |
@@ -89,12 +89,13 @@ During this session:
 ### Next: Continue residual Slice 4 and T7–T8
 
 Dispatch/data/enum/associated/type-member overlays are established. Alias
-forms, static definitions/constants and accepted callable definitions are
-parent-shared at `eeca76f3`; query freeze consumes the extracted exhaustive
-family classification. Continue remaining static-case/associated static/module
-binding copies, then snapshot/read hardening and persistence inventory. P4
-metadata composition still gates T10 and final P5 acceptance. Do not redo
-established overlay work.
+forms, static definitions/constants, accepted callable definitions, module
+binding facts, constructor paths and trait tables are parent-shared at
+`ca3c3c03`; query freeze consumes the exhaustive family classification.
+Continue layered conformance aggregates, read/persistence inventory and P4
+metadata prerequisites. P4 work was resumed, but the exact canonical
+singleton still fails at `FixedFields` under schema v12. T10/final P5
+acceptance remain gated. Do not redo established overlay work.
 
 ---
 

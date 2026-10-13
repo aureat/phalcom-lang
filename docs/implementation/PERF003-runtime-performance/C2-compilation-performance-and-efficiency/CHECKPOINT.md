@@ -9,8 +9,8 @@ active_plan: PERF003.C2.P5
 latest_completed_plan: PERF003.C2.P3
 next_plan: PERF003.C2.P6
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: eeca76f3
-latest_tested_revision: eeca76f3
+execution_tree_head: 9143262b
+latest_tested_revision: 9143262b
 latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
 
@@ -28,13 +28,12 @@ active_plan: PERF003.C2.P5
 latest_completed_plan: PERF003.C2.P3
 next_plan: PERF003.C2.P6
 next_action: >
-  P5 now shares canonical aliases, static definitions/constants and accepted
-  callable definitions across local revisions without copying their map entries.
-  Query freeze uses one fail-closed family classification available to future
-  artifact projection. Continue T6 static-case/associated and other copied maps,
-  T7 read contracts, T8 persistence inventory and T11 structural counters.
-  T10 and final acceptance remain gated by P4 metadata authority. See
-  PERF003.C2.P5-baseline-failure-fix-handoff.md.
+  P5 also shares canonical module binding facts, constructor paths, trait
+  headers and surfaces. Continue T6 with layered conformance index, witness
+  plans and derived rules, then T7-T8/T11-T12. The user resumed P4 work:
+  implement versioned heterogeneous Record metadata and contextual legacy
+  decoding before canonical RuntimePublic metadata and P5.T10 acceptance.
+  The exact canonical compiler singleton currently fails on FixedFields.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -122,8 +121,8 @@ After:
 | `PERF003.C2.P1` | Canonical Universe Compilation Image & One-Shot Overlay | Package A | IN_PROGRESS | PARTIAL | UNVERIFIED | Shared declaration/interface caches and workspace interface retention are established at `99b84ecc`; commit `a7b75980` added formal-image scaffolding; P2 now owns the implemented formal/query foundation; module-session cutover remains |
 | `PERF003.C2.P2` | Complete Canonical Universe Formal Image and Immutable Canonical Query Roots | Formal/query foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | Formal image, query freeze/reader, provenance validation and core acquisition implemented in the task working-tree patch over `82051480`; focused evidence below; G5/G6 certification remains deferred |
 | `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Exact indexed witness lookup, module-bounded effective-surface signature enumeration, ConformanceIndex partitioning (nominal family + open heads) with brute-force parity, SCC inferred-return settlement, and shared requirement-view passing implemented; focused regressions pass. Retained structural witness plans across revisions and generic proof memoization remain |
-| `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | User-stopped working-tree continuation over e74a9213. T1 accepted; retained-session profile test now passes after bounded T5 export. PR-A classification repair passes 9 source-index tests including actual corpus. T5 nested nominal reachability passes focused tests. PR-B schema migration (v13 heterogeneous Record keys) and T6 canonical authority remain bounded prerequisites; T6–T9 remain gated |
-| `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0–T4 established; T6 core/dispatch/data/enum/associated/type-member and alias/static/accepted-callable overlay increments focused-tested. T9 query-family classification extracted; residual T6 maps, T7–T8, T10–T13 remain open; metadata acceptance remains P4-gated |
+| `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | User resumed P4 prerequisites on 2026-10-13. T1 and bounded T5/PR-A increments stand; Record/Pack facade coverage passes. PR-B schema migration (v13 heterogeneous Record keys), T5 closure proof and T6 canonical authority remain incomplete; T6–T9 gated |
+| `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0–T4 established; T6 also shares module bindings, constructors and trait headers/surfaces. T9 query-family classification extracted; layered conformance, T7–T8, T10–T13 remain open; metadata acceptance remains P4-gated |
 | `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E (historical P5) | PROPOSED | NOT_STARTED | UNVERIFIED | Normalized P6 (formerly P5): module-indexed backend tables, canonical trait-slot precomputation, inherent impl domain index, range lookup indexes, elimination of O(N×M) backend scans |
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
 
@@ -256,6 +255,34 @@ After:
 ---
 
 ## 6. Consultations and amendments
+
+- P4 prerequisite resumption (2026-10-13): user authorized resuming the
+  previously stopped P4 PR-B/schema and canonical RuntimePublic metadata work
+  required by P5.G1. The user specifically approved decode-time graph
+  normalization for pre-v13 metadata: insert canonical Symbol key-domain
+  nodes, relocate affected global/scoped node references and prove old-fixture
+  compatibility. The accepted no-lossy-export, distinct semantic/runtime
+  identity and complete RuntimePublic invariants remain binding. This is
+  authorization to implement and verify, not evidence that P4 or P5 passed.
+
+- P4.PR-B legacy Symbol identity clarification (2026-10-13): valid old bundles
+  can have Record fields without a Symbol type node; the bundle header does not
+  supply a stable canonical Universe Symbol declaration identity. The user
+  selected loader-supplied, validated canonical Symbol identity for graph
+  normalization. Standalone decode of an affected legacy bundle without that
+  context must return a typed need-for-context error rather than guess from
+  `producer_version`. Unaffected legacy bundles retain normal standalone
+  decoding. This is an approved Level 1 identity clarification; it does not
+  weaken pre-v13 compatibility for correctly contextualized loaders.
+
+- P5 conformance ownership clarification (2026-10-13): the live first-update
+  path clones canonical `ConformanceIndex` (five correlated maps), witness-plan
+  map, and `DerivedConformanceRuleIndex` (trait buckets and impl map). Replacing
+  these with a simple parent map would change joint query/coherence behavior and
+  `rules_for_trait` slice semantics. The user selected a layered canonical/local
+  conformance view with merged query and coherence traversal and exact parity
+  tests. No G6 copy exception is approved; conformance evidence must not be
+  strengthened by aggregation or fail-open negative lookup.
 
 - P4 architectural ruling accepted from the user (2026-10-13):
   [full ruling](PERF003.C2.P4-architectural-ruling.md). T1 stays unchanged.
@@ -482,3 +509,25 @@ unused `TypeHierarchy` test import warning remains unrelated. Scoped diff
 whitespace check passed. Full workspace/release, formatting, benchmarks,
 P4 metadata integration and `.telosc` verification remain deferred; P5 is
 `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
+
+### P5 parent-overlay continuation and P4 prerequisite gate (2026-10-13, `ca3c3c03` / `9143262b`)
+
+- Image-backed local updates now share canonical module binding facts,
+  constructor paths and trait headers/surfaces without flattening their maps.
+  `ParentMap` exposes parent-only iteration and constant-time parent counts.
+  Canonical static-case catalogs/signatures have zero entries in the live image;
+  no general parent contract is claimed for them.
+- Focused evidence: canonical-image integration PASS (four selected, 137.44 s);
+  workspace integration PASS (18, 43.23 s); exact module-value dependency
+  PASS (one, 47.24 s); parent-map library PASS (two); core with observability
+  check PASS. Parent-count checks passed in the three-revision image
+  replacement regression. PR-A Record/Pack native anchor test PASS (one).
+- Exact P4 baseline: `canonical_universe_program_is_process_singleton` FAIL
+  (one selected, 48.06 s) at public `FixedFields` metadata export because v12
+  cannot encode its non-Symbol Record remainder. No schema changes were retained;
+  PR-B, P4.T6 and P5.T10 remain incomplete. The semantic test harness retains
+  an unrelated unused-import warning.
+- Conformance index, witness plans and derived-rule buckets still clone
+  canonical entries at first local update. The user approved a layered
+  canonical/local view, not a P5.G6 copy exception; proof/coherence parity
+  must be verified before claiming zero canonical aggregate copies.
