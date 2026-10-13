@@ -2864,6 +2864,7 @@ fn specialize_inherent_applicability(
 /// Workspace-level source index for explicit conformance heads.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConformanceIndex {
+    parent: Option<Arc<Self>>,
     contributions: BTreeMap<ImplId, ConformanceContribution>,
     by_trait: BTreeMap<DeclarationId, BTreeSet<ImplId>>,
     by_trait_family: BTreeMap<DeclarationId, BTreeMap<DeclarationId, BTreeSet<ImplId>>>,
@@ -2874,6 +2875,21 @@ pub struct ConformanceIndex {
 impl ConformanceIndex {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Attaches an immutable canonical head index while keeping local secondary
+    /// indexes independent; queries merge both candidate sets by stable impl ID.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        assert!(parent.parent.is_none(), "conformance parent must be a canonical root");
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
+    }
+
+    /// Number of workspace-owned conformance heads.
+    pub fn local_len(&self) -> usize {
+        self.contributions.len()
     }
 
     pub fn insert(&mut self, contribution: ConformanceContribution) {
@@ -2890,6 +2906,10 @@ impl ConformanceIndex {
     }
 
     fn insert_classified(&mut self, contribution: ConformanceContribution, family: Option<DeclarationId>) {
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.get(&contribution.impl_id).is_some()),
+            "cannot overwrite a canonical conformance head"
+        );
         self.remove(&contribution.impl_id);
         let impl_id = contribution.impl_id.clone();
         let trait_declaration = contribution.trait_ref.declaration.clone();
@@ -2940,11 +2960,24 @@ impl ConformanceIndex {
     }
 
     pub fn get(&self, impl_id: &ImplId) -> Option<&ConformanceContribution> {
-        self.contributions.get(impl_id)
+        self.contributions.get(impl_id).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(impl_id)))
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&ImplId, &ConformanceContribution)> {
-        self.contributions.iter()
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&ImplId, &ConformanceContribution)> + '_> {
+        match &self.parent {
+            Some(parent) => {
+                let mut canonical = parent.contributions.iter().peekable();
+                let mut local = self.contributions.iter().peekable();
+                Box::new(std::iter::from_fn(move || match (canonical.peek(), local.peek()) {
+                    (Some(left), Some(right)) if left.0 <= right.0 => canonical.next(),
+                    (Some(_), Some(_)) => local.next(),
+                    (Some(_), None) => canonical.next(),
+                    (None, Some(_)) => local.next(),
+                    (None, None) => None,
+                }))
+            }
+            None => Box::new(self.contributions.iter()),
+        }
     }
 
     /// Returns every eligible source head matching the exact target and trait
@@ -2955,7 +2988,7 @@ impl ConformanceIndex {
         let mut candidates_considered = 0u64;
         let candidates = self.candidates_for_query(store, target, &trait_ref.declaration);
         for impl_id in candidates {
-            let Some(contribution) = self.contributions.get(&impl_id) else { continue };
+            let Some(contribution) = self.get(&impl_id) else { continue };
             if !contribution.is_lookup_eligible() {
                 continue;
             }
@@ -3012,9 +3045,9 @@ impl ConformanceIndex {
     /// Returns pairs of eligible source heads whose joint target and trait
     /// patterns overlap. No precedence or specialization rule is applied.
     pub fn overlap_conflicts(&self, store: &mut TypeStore) -> Vec<(ImplId, ImplId)> {
-        let mut conflicts = Vec::new();
+        let mut conflicts = self.parent.as_ref().map_or_else(Vec::new, |parent| parent.overlap_conflicts(store));
         let mut candidate_pairs = BTreeSet::new();
-        for trait_declaration in self.by_trait.keys() {
+        for (trait_declaration, local_ids) in &self.by_trait {
             let open = self.open_by_trait.get(trait_declaration);
             if let Some(families) = self.by_trait_family.get(trait_declaration) {
                 for ids in families.values() {
@@ -3027,9 +3060,25 @@ impl ConformanceIndex {
             if let Some(open) = open {
                 add_index_pairs(&mut candidate_pairs, open, open);
             }
+            if let Some(parent) = &self.parent {
+                // Only local heads create new cross-boundary pairs. The
+                // immutable parent indexes stay borrowed; no canonical bucket
+                // is cloned into this workspace during coherence checking.
+                for local_id in local_ids {
+                    let Some(local) = self.contributions.get(local_id) else { continue };
+                    for canonical_id in parent.candidates_for_query(store, local.target_head, trait_declaration) {
+                        let pair = if *local_id < canonical_id {
+                            (local_id.clone(), canonical_id)
+                        } else {
+                            (canonical_id, local_id.clone())
+                        };
+                        candidate_pairs.insert(pair);
+                    }
+                }
+            }
         }
         for (first_id, second_id) in candidate_pairs {
-            let (Some(first), Some(second)) = (self.contributions.get(&first_id), self.contributions.get(&second_id)) else {
+            let (Some(first), Some(second)) = (self.get(&first_id), self.get(&second_id)) else {
                 continue;
             };
             if !first.is_lookup_eligible() || !second.is_lookup_eligible() || first.trait_ref.arguments.len() != second.trait_ref.arguments.len() {
@@ -3049,25 +3098,24 @@ impl ConformanceIndex {
                 conflicts.push((first_id, second_id));
             }
         }
+        conflicts.sort();
+        conflicts.dedup();
         conflicts
     }
 
     fn candidates_for_query(&self, store: &TypeStore, target: TypeId, trait_declaration: &DeclarationId) -> Vec<ImplId> {
-        let Some(by_trait) = self.by_trait.get(trait_declaration) else {
-            return Vec::new();
-        };
-        let Some(family) = nominal_conformance_family(store, target) else {
-            return by_trait.iter().cloned().collect();
-        };
-
-        let mut candidates = self
-            .open_by_trait
-            .get(trait_declaration)
-            .into_iter()
-            .flat_map(|ids| ids.iter().cloned())
-            .collect::<BTreeSet<_>>();
-        if let Some(fixed) = self.by_trait_family.get(trait_declaration).and_then(|families| families.get(family)) {
-            candidates.extend(fixed.iter().cloned());
+        let mut candidates = self.parent.as_ref().map_or_else(BTreeSet::new, |parent| {
+            parent.candidates_for_query(store, target, trait_declaration).into_iter().collect()
+        });
+        if let Some(by_trait) = self.by_trait.get(trait_declaration) {
+            if let Some(family) = nominal_conformance_family(store, target) {
+                candidates.extend(self.open_by_trait.get(trait_declaration).into_iter().flat_map(|ids| ids.iter().cloned()));
+                candidates.extend(
+                    self.by_trait_family.get(trait_declaration).and_then(|families| families.get(family)).into_iter().flat_map(|ids| ids.iter().cloned()),
+                );
+            } else {
+                candidates.extend(by_trait.iter().cloned());
+            }
         }
         candidates.into_iter().collect()
     }
@@ -3117,6 +3165,7 @@ mod conformance_index_partition_tests {
     use phalcom_common::selector::Selector;
     use phalcom_modules::identity::{ModulePath, ResolvedProjectId};
     use std::collections::{BTreeSet, HashMap};
+    use std::sync::Arc;
 
     fn module(project: u32) -> ModuleId {
         ModuleId::resolved(ResolvedProjectId::from_raw(project), ModulePath::root())
@@ -3152,7 +3201,7 @@ mod conformance_index_partition_tests {
 
     fn brute_query(index: &ConformanceIndex, store: &mut TypeStore, target: crate::types::id::TypeId, trait_ref: &TraitRef) -> Vec<ImplId> {
         let mut matches = Vec::<ConformanceHeadMatch>::new();
-        for contribution in index.contributions.values() {
+        for (_, contribution) in index.iter() {
             if !contribution.is_lookup_eligible()
                 || contribution.trait_ref.declaration != trait_ref.declaration
                 || contribution.trait_ref.arguments.len() != trait_ref.arguments.len()
@@ -3183,8 +3232,8 @@ mod conformance_index_partition_tests {
 
     fn brute_overlaps(index: &ConformanceIndex, store: &mut TypeStore) -> Vec<(ImplId, ImplId)> {
         let contributions = index
-            .contributions
-            .values()
+            .iter()
+            .map(|(_, contribution)| contribution)
             .filter(|contribution| contribution.is_lookup_eligible())
             .collect::<Vec<_>>();
         let mut conflicts = Vec::new();
@@ -3224,6 +3273,40 @@ mod conformance_index_partition_tests {
         let mut indexed_store = store.clone();
         let mut brute_store = store.clone();
         assert_eq!(index.overlap_conflicts(&mut indexed_store), brute_overlaps(index, &mut brute_store));
+    }
+
+    #[test]
+    fn layered_conformance_queries_and_cross_boundary_coherence_match_brute_force() {
+        let canonical_module = ModuleId::universe_root();
+        let local_module = module(91);
+        let trait_declaration = declaration(&canonical_module, "Tagged");
+        let family_a = declaration(&canonical_module, "A");
+        let family_b = declaration(&canonical_module, "B");
+        let mut store = TypeStore::new();
+        let a = store.nominal_type(family_a.clone());
+        let b = store.nominal_type(family_b.clone());
+        let canonical_id = implementation(&canonical_module, 1);
+        let local_id = implementation(&local_module, 2);
+        let other_id = implementation(&local_module, 3);
+        let mut parent = ConformanceIndex::new();
+        parent.insert_with_store(&store, contribution(canonical_id.clone(), trait_declaration.clone(), ConformanceTarget::Declaration(family_a.clone()), a));
+        let parent = Arc::new(parent);
+        let mut index = ConformanceIndex::with_parent(parent.clone());
+        index.insert_with_store(&store, contribution(local_id.clone(), trait_declaration.clone(), ConformanceTarget::Declaration(family_a.clone()), a));
+        index.insert_with_store(&store, contribution(other_id.clone(), trait_declaration.clone(), ConformanceTarget::Declaration(family_b), b));
+        let trait_ref = TraitRef::new(trait_declaration, Vec::new());
+        assert_matches_brute(&index, &store, &[(a, trait_ref.clone()), (b, trait_ref.clone())]);
+        assert_eq!(index.overlap_conflicts(&mut store).len(), 1, "canonical and local overlap is not silently accepted");
+        assert!(std::ptr::eq(index.get(&canonical_id).unwrap(), parent.get(&canonical_id).unwrap()));
+        index.remove_source(&canonical_module);
+        assert!(index.get(&canonical_id).is_some());
+        index.remove_source(&local_module);
+        assert_matches_brute(&index, &store, &[(a, trait_ref.clone())]);
+        assert_eq!(index.local_len(), 0);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            index.insert_with_store(&store, contribution(canonical_id, trait_ref.declaration, ConformanceTarget::Declaration(family_a), a));
+        }))
+        .is_err());
     }
 
     #[test]

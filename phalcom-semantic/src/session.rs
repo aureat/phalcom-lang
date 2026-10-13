@@ -5260,7 +5260,14 @@ impl SemanticWorkspaceSession {
         let mut inherent_contributions_by_module: BTreeMap<ModuleId, Vec<crate::impls::InherentImplContribution>> = BTreeMap::new();
         let mut inherent_callable_record_key_projections: HashMap<(crate::identity::ImplId, usize), crate::static_key::ProjectedRecordKeySet<'_>> =
             HashMap::new();
-        let mut conformance_index = aggregate_snapshot.map(|snapshot| (*snapshot.conformance_index).clone()).unwrap_or_default();
+        let mut conformance_index = previous_snapshot.as_ref().map_or_else(
+            || {
+                canonical_snapshot.as_ref().map_or_else(crate::impls::ConformanceIndex::new, |snapshot| {
+                    crate::impls::ConformanceIndex::with_parent(snapshot.conformance_index.clone())
+                })
+            },
+            |snapshot| (*snapshot.conformance_index).clone(),
+        );
         let mut conformance_witness_plans = aggregate_snapshot
             .map(|snapshot| (*snapshot.conformance_witness_plans).clone())
             .unwrap_or_default();
@@ -5273,9 +5280,14 @@ impl SemanticWorkspaceSession {
         let mut conformance_invalid_witnesses: BTreeMap<crate::identity::ImplId, BTreeSet<crate::traits::TraitRequirementId>> = BTreeMap::new();
         let mut conformance_invalid_members = BTreeSet::new();
         let mut conformance_associated_type_plans: BTreeMap<crate::identity::ImplId, crate::impls::ConformanceAssociatedTypePlan> = BTreeMap::new();
-        let mut derived_conformance_rules = aggregate_snapshot
-            .map(|snapshot| (*snapshot.derived_conformance_rules).clone())
-            .unwrap_or_default();
+        let mut derived_conformance_rules = previous_snapshot.as_ref().map_or_else(
+            || {
+                canonical_snapshot.as_ref().map_or_else(crate::derived_conformance::DerivedConformanceRuleIndex::new, |snapshot| {
+                    crate::derived_conformance::DerivedConformanceRuleIndex::with_parent(snapshot.derived_conformance_rules.clone())
+                })
+            },
+            |snapshot| (*snapshot.derived_conformance_rules).clone(),
+        );
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             conformance_index.remove_source(module);
             conformance_witness_plans.retain(|impl_id, _| &impl_id.module != module);

@@ -136,6 +136,8 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
     assert!(image.snapshot().constructor_initializations.iter().next().is_some());
     assert!(image.snapshot().trait_headers.iter().next().is_some());
     assert!(image.snapshot().trait_surfaces.iter().next().is_some());
+    assert!(image.snapshot().derived_conformance_rules.iter().next().is_some());
+    assert!(image.snapshot().conformance_index.iter().next().is_some());
     for (revision, source) in [
         "from universe.collections import Array\nconst value: Int = 1\n",
         "from universe.random import Xoshiro256PlusPlus\nlet value = Xoshiro256PlusPlus.seed(42).nextU64\n",
@@ -207,6 +209,13 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
         }
         for (id, surface) in image.snapshot().trait_surfaces.iter() {
             assert!(std::ptr::eq(update.snapshot.trait_surfaces.get(id).unwrap(), surface));
+        }
+        assert_eq!(update.snapshot.derived_conformance_rules.local_len(), 0);
+        for rule in image.snapshot().derived_conformance_rules.iter() {
+            assert!(std::ptr::eq(update.snapshot.derived_conformance_rules.get_rule(&rule.impl_id).unwrap(), rule));
+        }
+        for (id, contribution) in image.snapshot().conformance_index.iter() {
+            assert!(std::ptr::eq(update.snapshot.conformance_index.get(id).unwrap(), contribution));
         }
         assert!(update.snapshot.store.extends_canonical_prefix(&image.snapshot().store));
         assert!(update.snapshot.static_values.extends_canonical_prefix(&image.snapshot().static_values));
