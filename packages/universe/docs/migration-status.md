@@ -2,35 +2,37 @@
 
 ## Current increment
 
-- **Increment:** S0/S1 baseline, faithful shadow duplication, and initial migration metadata only
+- **Increment:** S0/S1 baseline, faithful shadow duplication, and initial migration metadata
 - **Branch:** `feat/telos-collections`
-- **Commit:** `9be1ed1eba3f94ba05e8e4aca1ee55f5ccf13131` (starting revision; checkout was clean before this increment; this increment is uncommitted)
-- **Scope:** Copy the complete authored legacy Universe package into `packages/universe/`; add initial provenance, identity, module, dependency, and status ledgers.
-- **Files added:** Complete authored shadow package, excluding only ignored, untracked `src/.DS_Store`, plus the five docs in `packages/universe/docs/`.
-- **Files changed:** None in the legacy tree.
+- **Commit:** `4a219874bc6e9d6538c229c2e2da712e9a57eb5e`
+- **Starting revision:** `9be1ed1eba3f94ba05e8e4aca1ee55f5ccf13131`; checkout was clean before this increment.
+- **Scope:** Copy the complete authored legacy Universe package into `packages/universe/`; add provenance, identity, module, dependency, and status ledgers.
+- **Files added:** 172 authored package files (168 `.ph` files and four other files) plus five migration documents.
+- **Files changed:** None in the legacy tree or production compiler/runtime/native/prelude code.
 - **Legacy files modified:** None.
-- **Declarations migrated:** None; ownership and source layout match the legacy tree. The conservative scan indexes 364 top-level type-like declaration lines and 77 top-level value declarations; it does not claim parser/compiler identity validation.
+- **Declarations migrated:** None; the source layout and owners match the legacy tree. The inventories recognize 364 top-level type-like declaration lines and 77 top-level value declarations; they do not claim parser/compiler identity validation.
 - **Interfaces normalized:** None.
-- **Identity changes:** None. Both manifests retain source package name and namespace `universe`; these manifest fields do not make standalone filesystem loading equivalent to the production builtin identity.
+- **Identity changes:** None. Both manifests retain source package name and namespace `universe`; these fields do not make standalone filesystem loading equivalent to production builtin identity.
 
 ## Validation
 
-- The full authored directory was copied, including `project.toml`, authored source, and existing ancillary files; the only exclusion is ignored, untracked Finder metadata `src/.DS_Store`. The baseline contains 173 on-disk regular files: 168 `.ph` files and five other files; 172 regular files were copied (the four non-`.ph` files listed in `legacy-sync.md` plus the 168 `.ph` source files).
-- SHA-256 hashes for all copied legacy files are recorded in `legacy-sync.md` and compared against the copied files.
-- Source-level discoverability inspection found production `UniverseSourceProvider::source_text` is an explicit `include_str!` table targeting only `phalcom-core/core/universe/src/**`; Cargo workspace members are explicit and omit `packages/universe`; `ProjectUniverse::load_root` requires an explicit manifest path and follows declared dependencies. No production registration/build behavior was changed. This is source inspection, not a runtime test.
-- No semantic compiler validation exists for the shadow tree in this increment. No tests or compiler checks were run.
+- The authored directory copy excludes only ignored, untracked Finder metadata at `src/.DS_Store`. The legacy directory has 173 regular files on disk; 172 authored files were copied.
+- The SHA-256 manifest covers all 172 copied legacy files; every copied file matches its recorded hash.
+- Source inventories match internally: 364 declaration rows match across the identity ledger and module map, and 77 top-level value declarations are listed. The native association ledger covers all 78 `UniverseKey` variants (72 binding rows and 6 without a binding row). The prelude inventory lists 37 metadata flags, 9 source-authored additions, and 3 compiler-provided `core.proof` entries.
+- Source-level discoverability inspection found that production `UniverseSourceProvider::source_text` explicitly includes only `phalcom-core/core/universe/src/**`; Cargo workspace members omit `packages/universe`; and `ProjectUniverse::load_root` requires an explicit manifest path. No production registration or build behavior changed. These are source inspections, not runtime tests.
+- No shadow compiler validation is available in this increment. No tests or compiler checks were run. `git diff --check` reports one trailing blank line in copied `src/text/patterns.ph`; that byte is present in the legacy source and retained to preserve the exact copy. The migration-document diff passes the whitespace check.
 
 ## Future integration prerequisite
 
-A standalone `ProjectUniverse` load of the copied manifest would be filesystem-backed and have `Resolved` identity. Production builtin authority remains `ProjectIdentity::Universe` through the explicit legacy `UniverseSourceProvider`; this shadow package is not production builtin authority. This distinction must be preserved during later isolated validation and integration planning.
+A standalone `ProjectUniverse` load of the copied manifest would be filesystem-backed and have `Resolved` identity. Production builtin authority remains `ProjectIdentity::Universe` through the explicit legacy `UniverseSourceProvider`; this shadow package is not production builtin authority. Preserve this distinction during later isolated validation and integration planning.
 
 ## Risks and prerequisites
 
-- The copied source still has the original organization, including `collections/iterator_laws.ph`; controlled reorganization has not begun.
-- Declaration and explicit-import inventories are source scans, not semantic validation. The 364-row type-like declaration index includes intrinsic aliases/data forms, while 77 top-level values are separately listed in `module-map.md`; neither inventory establishes parser/compiler identity. Implicit prelude bindings, native associations, bootstrap roots, and runtime initialization order remain unverified.
-- Isolated semantic analysis for the shadow package is not available/established by this increment. Do not register both source trees in one production module graph or VM.
-- Reconcile subsequent legacy changes through the provenance ledger before later moves.
+- The copied source retains the original organization, including `collections/iterator_laws.ph`; controlled reorganization has not begun.
+- Declaration and import inventories are source scans, not semantic validation. Implicit prelude bindings, native associations, bootstrap roots, and runtime initialization order have not been validated against the shadow package.
+- Isolated semantic analysis for the shadow package is not established. Do not register both source trees in one production module graph or VM.
+- Reconcile later legacy changes through the provenance ledger before migrating affected declarations.
 
 ## Next increment
 
-Begin the controlled scalar/foundational-type migration only after reviewing this baseline and establishing intended target ownership for `Number`, `Int`, `Float`, `Option`, `Result`, and `Unit`. Preserve production authority and record every canonical owner move.
+Begin the controlled scalar/foundational-type migration. Preserve production authority, record each canonical owner move, and mark semantic/native/prelude integration gates according to the evidence available.
