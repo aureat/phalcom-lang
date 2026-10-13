@@ -24,6 +24,25 @@ Different compiler/runtime layers may project different representations of one e
 
 This document defines that contract. It intentionally does not enumerate the full API of the Universe library, define every native primitive ABI, or prescribe patch-by-patch implementation work. The source-visible UTF-8 text contract is owned by [Text and String Model](text.md); the public type-reflection API is owned by [Runtime Typing Reflection](typing/runtime-reflection.md).
 
+## Source authority and migration status
+
+This specification defines the approved post-migration canonical architecture. The module and declaration examples below describe the **TARGET** identity after the shadow migration is integrated unless explicitly marked **ACTIVE**. They do not claim that the current production compiler or VM already loads every target path.
+
+At repository revision `a1621a7cec577952612685508a4c87c90aea86cd` on `feat/telos-collections`, the production compiler and VM still use the legacy source tree under `phalcom-core/core/universe/`. `packages/universe/` is an unregistered shadow tree. `ProjectIdentity::Universe` is the conceptual builtin identity of either source layout, but loading `packages/universe/project.toml` through the ordinary filesystem project loader yields a resolved filesystem project; the manifest does not activate the shadow tree as the builtin.
+
+| Declaration | ACTIVE production owner | TARGET shadow owner |
+|---|---|---|
+| `Number` | `universe.scalar.number::Number` | `universe.scalar.number::Number` |
+| `Int` | `universe.scalar.number::Int` | `universe.scalar.int::Int` |
+| `Float` | `universe.scalar.number::Float` | `universe.scalar.float::Float` |
+| `Option` | `universe.option.option::Option` | `universe.option::Option` |
+| `Result` | `universe.errors.result::Result` | `universe.result::Result` |
+| `Unit` | `universe.option.unit::Unit` | `universe.scalar.unit::Unit` |
+| `Iterator` | `universe.collections.iterator_laws::Iterator` | `universe.collections.iteration.protocols::Iterator` (proposed; unactivated) |
+| `Iterable` | `universe.collections.iterator_laws::Iterable` | `universe.collections.iteration.protocols::Iterable` (proposed; unactivated) |
+
+The TARGET column names the intended single declaration owners after integration. It is not a second production Universe or a permanent alias layer. The proposed iteration protocol owner remains subject to the source-interface and runtime-dependency analysis in the shadow migration; until that gate accepts it, it must not be treated as an established target identity. Current implementation and synchronization evidence is maintained in [`packages/universe/docs/migration-status.md`](../../packages/universe/docs/migration-status.md) and [`packages/universe/docs/identity-migration.md`](../../packages/universe/docs/identity-migration.md).
+
 ---
 
 ## 2. One builtin package, multiple policies
@@ -100,6 +119,10 @@ Universe ≠ native
 
 ## 3. Canonical identity model
 
+The identity mappings in this section describe the TARGET architecture. Where
+an owner differs from the current build, the ACTIVE production owner is shown
+in the source-authority table above.
+
 ### 3.1 Project identity
 
 Universe has a distinct project identity, conceptually:
@@ -122,7 +145,7 @@ A Universe module is identified by:
 ProjectIdentity::Universe + ModulePath
 ```
 
-Examples:
+TARGET module-path examples:
 
 ```text
 universe:<root>
@@ -151,7 +174,7 @@ The exact API is implementation-specific; the semantics are not.
 
 ### 3.3 Declaration identity
 
-Every source-visible builtin declaration is owned by the exact module in which it is authored:
+Every source-visible builtin declaration is owned by the exact module in which it is authored. Each identity shown below is a TARGET identity:
 
 ```text
 universe.scalar.number::Number
@@ -192,7 +215,7 @@ UniverseKey::Result
 UniverseKey::Ordering
 ```
 
-These keys are runtime/native associations, not a second declaration database. Each key maps to the canonical source declaration or to an explicitly internal runtime-support identity:
+These keys are runtime/native associations, not a second declaration database. The following mappings describe the TARGET associations after integration; current ACTIVE paths are listed above:
 
 ```text
 UniverseKey::Int
@@ -372,6 +395,8 @@ Root-level convenience re-exports do not change the defining declaration's ident
 
 The prelude is a visibility policy over canonical declarations. It is not an alternate declaration namespace.
 
+The conceptual bindings below describe the TARGET prelude after integration. The current ACTIVE production prelude still resolves through the owners in the source-authority table.
+
 Conceptually:
 
 ```text
@@ -494,7 +519,7 @@ A compiler/LSP must be able to discover `universe.json` or navigate to `List<T>`
 
 ### 7.1 Identity convergence
 
-The compiler should obtain the same declaration no matter which canonical route reaches it:
+For the TARGET identity, the compiler should obtain the same declaration no matter which canonical route reaches it:
 
 ```text
 UniverseKey::Result
@@ -622,6 +647,10 @@ For example, `Option<Int>` remains an application of canonical `universe.option:
 ---
 
 ## 10. Runtime bootstrap and nominal identity
+
+This section specifies the TARGET bootstrap model for the single canonical
+Universe authority. At the current repository revision, production bootstrap
+continues to use the ACTIVE legacy owners listed in the source-authority table.
 
 Some runtime objects must exist before authored Universe source can execute. Primordial allocation is therefore legitimate for the object/class/metaclass substrate and other runtime-critical identities.
 
