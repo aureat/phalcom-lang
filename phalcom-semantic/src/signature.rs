@@ -312,6 +312,21 @@ impl ConstructorInitializationTable {
         self.by_factory.len()
     }
 
+    /// Number of immutable canonical construction paths.
+    pub fn parent_len(&self) -> usize {
+        self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
+    /// Number of visible canonical and local construction paths.
+    pub fn len(&self) -> usize {
+        self.local_len() + self.parent_len()
+    }
+
+    /// Iterates only locally published construction paths.
+    pub fn iter_local(&self) -> impl Iterator<Item = (&CallableId, &ConstructorInitializationProduct)> {
+        self.by_factory.iter()
+    }
+
     /// Inserts or replaces a canonical construction path.
     pub fn insert(&mut self, product: ConstructorInitializationProduct) {
         assert!(

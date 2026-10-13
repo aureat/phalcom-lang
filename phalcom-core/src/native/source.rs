@@ -915,6 +915,25 @@ mod tests {
     }
 
     #[test]
+    fn record_and_pack_intrinsic_facades_keep_native_class_anchors() {
+        for (name, source, path, key) in [
+            ("Record", "intrinsic data Record<**Fs> {\n  **Fs\n}\n", "record", UniverseKey::Record),
+            ("Pack", "intrinsic data Pack<***Es>(***Es)\n", "pack", UniverseKey::Pack),
+        ] {
+            let module = ModuleId::universe(ModulePath::from_components(
+                ["collections", path]
+                    .into_iter()
+                    .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap())
+                    .collect::<Vec<_>>(),
+            ));
+            let index = NativeSourceIndex::from_program_at(&module, &parse_program(source)).expect("canonical runtime facade indexes");
+            assert!(index.presentations.contains_key(&key), "{name} presentation");
+            assert!(index.classes.contains_key(&key), "{name} native class anchor");
+            assert!(index.census.classes.iter().any(|row| row.universe_key == Some(key) && row.native));
+        }
+    }
+
+    #[test]
     fn bundled_provider_corpus_is_indexable() {
         NativeSourceIndex::build().expect("bundled universe source must parse");
     }

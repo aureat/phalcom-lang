@@ -332,6 +332,21 @@ impl TraitSurfaceTable {
         self.entries.len()
     }
 
+    /// Number of immutable canonical trait contracts.
+    pub fn parent_len(&self) -> usize {
+        self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
+    /// Number of visible canonical and workspace trait contracts.
+    pub fn len(&self) -> usize {
+        self.local_len() + self.parent_len()
+    }
+
+    /// Iterates only workspace-owned trait contracts.
+    pub fn iter_local(&self) -> impl Iterator<Item = (&DeclarationId, &Arc<TraitSurface>)> {
+        self.entries.iter()
+    }
+
     pub fn insert(&mut self, surface: Arc<TraitSurface>) {
         assert!(
             !self.parent.as_ref().is_some_and(|parent| parent.contains(&surface.declaration)),
@@ -786,6 +801,21 @@ impl TraitHeaderTable {
     /// Number of workspace-owned headers.
     pub fn local_len(&self) -> usize {
         self.entries.len()
+    }
+
+    /// Number of immutable canonical trait headers.
+    pub fn parent_len(&self) -> usize {
+        self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
+    /// Number of visible canonical and workspace trait headers.
+    pub fn len(&self) -> usize {
+        self.local_len() + self.parent_len()
+    }
+
+    /// Iterates only workspace-owned trait headers.
+    pub fn iter_local(&self) -> impl Iterator<Item = (&DeclarationId, &Arc<TraitHeader>)> {
+        self.entries.iter()
     }
 
     pub fn insert(&mut self, header: impl Into<Arc<TraitHeader>>) {

@@ -169,6 +169,13 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
         assert_eq!(update.snapshot.static_definitions.local_len(), 0);
         assert_eq!(update.snapshot.callable_definitions.local_len(), 0);
         assert_eq!(update.snapshot.module_static_bindings.local_len(), 1);
+        assert_eq!(update.snapshot.module_static_bindings.parent_len(), image.snapshot().module_static_bindings.len());
+        assert_eq!(update.snapshot.constructor_initializations.local_len(), 0);
+        assert_eq!(update.snapshot.constructor_initializations.parent_len(), image.snapshot().constructor_initializations.iter().count());
+        assert_eq!(update.snapshot.trait_headers.local_len(), 0);
+        assert_eq!(update.snapshot.trait_headers.parent_len(), image.snapshot().trait_headers.iter().count());
+        assert_eq!(update.snapshot.trait_surfaces.local_len(), 0);
+        assert_eq!(update.snapshot.trait_surfaces.parent_len(), image.snapshot().trait_surfaces.iter().count());
         assert_eq!(
             update.snapshot.static_constants.local_len(),
             update.snapshot.static_constants.iter().filter(|(id, _)| !id.module().project.is_universe()).count()
