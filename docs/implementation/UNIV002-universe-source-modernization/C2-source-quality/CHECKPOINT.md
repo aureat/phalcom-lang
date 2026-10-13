@@ -37,7 +37,7 @@ integration, or production cutover.
 | `UNIV002.C2.P12` | Writer.map documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting value transformation and log preservation; exact source review and whitespace check passed, and the 174-path inventory reconciled with 15 changed hashes. |
 | `UNIV002.C2.P13` | State.run documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added two comment lines documenting the initial state input and StateStep outputs; exact source review and whitespace check passed, and the 174-path inventory reconciled with 16 changed hashes. |
 | `UNIV002.C2.P14` | Writer.mapLog documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting log transformation and value preservation; exact source review and whitespace check passed, and the 174-path inventory reconciled with 16 changed hashes. |
-| `UNIV002.C2.P15` | Either.mapLeft documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | One source comment is planned; implementation and inventory reconciliation are pending. |
+| `UNIV002.C2.P15` | Either.mapLeft documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting Left transformation and Right preservation; exact source review and whitespace check passed, and the 174-path inventory reconciled with 16 changed hashes. |
 
 ## Established invariants
 
@@ -193,11 +193,11 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: `UNIV002.C2.P15`, documenting `Either.mapLeft`. The plan
-  authorizes one comment only.
-- Latest complete plan: `UNIV002.C2.P14`; latest complete checkpoint: `UNIV002.C1`.
-- The source inventory is reconciled through P14 source commit
-  `cb6ceb0ebe53cdded4e57effddc4c91665dde403`: 174 paths, no additions or
+- Active plan: none. P15 is complete; the next bounded source-quality plan is
+  not yet active.
+- Latest complete plan: `UNIV002.C2.P15`; latest complete checkpoint: `UNIV002.C1`.
+- The source inventory is reconciled through P15 source commit
+  `88a46e226ea2d899df654b85b8d526aa9b6da92c`: 174 paths, no additions or
   removals, and 16 changed hashes with the rest matching MOD1. Textual
   inventory heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
@@ -228,9 +228,10 @@ identities.
   `functional/writer.ph::Writer.mapLog`; the method transforms the log and
   carries the existing value into the result. Only a comment changed; no
   semantic or runtime claim is made.
-- P15 is active as a bounded Category A comment in
+- P15 completed a bounded Category A comment in
   `functional/either.ph::Either.mapLeft`; the method transforms a Left payload
-  and passes a Right payload through unchanged. Do not change executable code.
+  and passes a Right payload through unchanged. Only a comment changed; no
+  semantic or runtime claim is made.
 
 P14 added one documentation line immediately above `Writer.mapLog`, stating
 that it applies `f` to the log and preserves this Writer's value. The method
@@ -240,4 +241,14 @@ reconciliation confirmed the same 174 `.ph` paths and sixteen changed hashes
 against MOD1; `functional/writer.ph` is recorded at SHA-256
 `69566557fba46dff65545669b9106d4da00bd86f40f18ef0b9c31ae325518a0a` through
 source commit `cb6ceb0ebe53cdded4e57effddc4c91665dde403`. Semantic linking
+remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
+
+P15 added one documentation line immediately above `Either.mapLeft`, stating
+that it transforms a `Left` payload and leaves a `Right` payload unchanged.
+The method body and signature are unchanged. Exact diff review and scoped
+`git diff --check` passed; no tests were run. Independent inventory
+reconciliation confirmed the same 174 `.ph` paths and sixteen changed hashes
+against MOD1; `functional/either.ph` is recorded at SHA-256
+`338c9cc2a4220717c8f70f7b3116cc0eff343c21afbee7f1a81be4400f7ce716` through
+source commit `88a46e226ea2d899df654b85b8d526aa9b6da92c`. Semantic linking
 remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.

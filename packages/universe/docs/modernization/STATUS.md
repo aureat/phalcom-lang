@@ -13,16 +13,12 @@
 
 ## Current source reconciliation
 
-Through `UNIV002.C2.P14`, the 174 shadow source paths were reconciled against
+Through `UNIV002.C2.P15`, the 174 shadow source paths were reconciled against
 the MOD1 baseline at source revision
-`cb6ceb0ebe53cdded4e57effddc4c91665dde403`. Sixteen source files changed since
+`88a46e226ea2d899df654b85b8d526aa9b6da92c`. Sixteen source files changed since
 baseline; their current SHA-256 values are recorded in `INVENTORY.md`. Other
 source hashes still match baseline. Its textual inventory heuristics remain
 baseline data and are not a current opportunity audit.
-
-`UNIV002.C2.P15` is active for one Category A comment above
-`functional/either.ph::Either.mapLeft`. The source hash overlay will be
-refreshed after that comment is implemented and reviewed.
 
 ## Active work and exclusions
 
@@ -96,7 +92,7 @@ A source-only change may be `SOURCE_READY`; parser/interface checks do not imply
 
 ## Next action
 
-`UNIV002.C2.P1`–`P4`, `P6`–`P14` completed Category A
+`UNIV002.C2.P1`–`P4`, `P6`–`P15` completed Category A
 documentation/formatting slices. `UNIV002.C2.P5` completed a Category B
 source-level Gregorian leap-year expression
 rewrite in `time/calendar/month.ph`; its exact shadow parser/unlinked-interface
@@ -104,7 +100,7 @@ test passed. This does not typecheck or execute the method, so semantic linking
 remains `UNVERIFIED` and shadow runtime parity remains `BLOCKED`. P7 documents
 the observed `UtcOffset.seconds` input/range/error contract without changing
 code. The current 174 paths are reconciled against the MOD1 inventory baseline
-through P14's source commit; sixteen changed-file hashes are recorded in
+through P15's source commit; sixteen changed-file hashes are recorded in
 `INVENTORY.md`, while its textual heuristics remain baseline-only.
 P8 documents the maximum element count returned by `Buffer.capacity`; no
 executable code changed.
@@ -134,4 +130,7 @@ and returned transition values. The inventory is current through its source
 commit; no semantic or runtime claim is made.
 P14 documented that `Writer.mapLog` transforms the log and preserves the
 stored value. The inventory is current through its source commit; no semantic
+or runtime claim is made.
+P15 documented that `Either.mapLeft` transforms a Left payload and preserves a
+Right payload. The inventory is current through its source commit; no semantic
 or runtime claim is made.
