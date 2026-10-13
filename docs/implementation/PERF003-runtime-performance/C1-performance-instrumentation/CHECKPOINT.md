@@ -46,13 +46,16 @@ next_action: >
   reaches runtime-root discovery, then metadata export hits the existing Record
   remainder limitation. T11 adds metadata phase spans and work counters; the
   inline profile locates the failure in alias export after declaration export.
-  T12's feature-gated profile attach/show/compare commands, sidecar storage,
-  bounded summaries, and derived ratios are implemented and build-checked; the
-  stored-sample comparison workflow remains unverified. T13 adds a
+  T12's feature-gated profile capture/attach/show/compare commands, sidecar
+  storage, bounded summaries, and derived ratios are implemented and build-
+  checked. Two independently captured B2 profiles were shown and compared as
+  structurally compatible; this verifies the CLI path but is only one pair of
+  timing samples. T13 adds a
   fresh-process runner, typed lifecycle metadata, and initial B1–B6 workloads;
   B7–B8 remain unimplemented, B6 needs size acceptance, and B1/B4 are
-  baseline-blocked. T14's A/B/C/D wrapper exists but has not been run. Next,
-  exercise profile attachment and comparison on two stored runs. Preserve P1's
+  baseline-blocked. T14's observer matrix exists but has not been run. Next,
+  implement B7/B8 and confirm B6 workload size, then collect the observer
+  matrix on compatible workloads. Preserve P1's
   separate T7 frozen-runtime-image
   architecture stop and do not resume P1 T8 runtime-image measurement until its
   amendment and acceptance evidence exist.
@@ -109,7 +112,7 @@ After:
 | Plan | Title | Status | Completion | Verification | Notes |
 |---|---|---|---|---|---|
 | `PERF003.C1.P1` | Test-execution performance: instrumentation, semantic baseline reuse, compilation session reuse, bootstrapped runtime image | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Existing plan retained; T0–T6 evidence and failures remain recorded; T7 is stopped for the separate frozen-runtime-image architecture amendment; T8 is pending |
-| `PERF003.C1.P5` | Compiler & Semantic Performance Observability | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | New follow-up plan, not a replacement or amendment to P1; T0–T13 implementation is in place; T1 report round-trip and T6 query lifecycle tests remain outstanding; T3 full VM startup and T10 downstream compiler projection remain baseline-blocked; T4 cold semantic-baseline, T5 ordinary/canonical update, and T6 ordinary/canonical query-metrics profiles succeed; T7 canonical graph/body-pass, T8 TypeStore/journal, and T9 search-volume profiles succeed; T10/T11 inline projection profiles reach declaration export and identify the baseline alias export failure; T12 stored-sample workflow unverified; T13 incomplete and unverified; T14 overhead matrix not run |
+| `PERF003.C1.P5` | Compiler & Semantic Performance Observability | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | New follow-up plan, not a replacement or amendment to P1; T0–T13 implementation is in place; T1 report round-trip and T6 query lifecycle tests remain outstanding; T3 full VM startup and T10 downstream compiler projection remain baseline-blocked; T4 cold semantic-baseline, T5 ordinary/canonical update, and T6 ordinary/canonical query-metrics profiles succeed; T7 canonical graph/body-pass, T8 TypeStore/journal, and T9 search-volume profiles succeed; T10/T11 inline projection profiles reach declaration export and identify the baseline alias export failure; T12 capture/show/compare path exercised on two B2 samples; T13 incomplete and unverified; T14 overhead matrix not run |
 
 ---
 
@@ -266,9 +269,8 @@ The architect's attached audit and implementer instructions are adopted as execu
 
 ## 7. Next action
 
-Exercise P5 T12 by attaching and comparing profiles for two stored samples.
-Complete B7/B8 and confirm B6 workload size; run the four-level overhead matrix
-on a successful workload. Keep P1 T7/T8 on their separate architecture-
+Complete B7/B8 and confirm B6 workload size; run the five-mode observer matrix
+on compatible workloads. Keep P1 T7/T8 on their separate architecture-
 amendment path; P5's instrumentation of existing bootstrap paths does not
 authorize a frozen runtime image. Do not claim successful canonical compile or
 full-VM benchmarks until the recorded baseline correctness failures are

@@ -16,6 +16,8 @@ pub struct ProfileArgs {
 
 #[derive(Subcommand, Debug)]
 enum ProfileCommands {
+    /// Store a JSON profile as a wall-time sample under target/perf/profiles
+    Capture { report: PathBuf },
     /// Attach a JSON report emitted by an instrumented process to a stored run
     Attach {
         run_ref: String,
@@ -43,6 +45,7 @@ enum ProfileCommands {
 
 pub fn handle(workspace_root: &std::path::Path, args: ProfileArgs) {
     let result = match args.command {
+        ProfileCommands::Capture { report } => capture(workspace_root, &report),
         ProfileCommands::Attach { run_ref, report } => attach(workspace_root, &run_ref, &report),
         ProfileCommands::Show { run_ref, top, json } => show(workspace_root, &run_ref, top, json),
         ProfileCommands::Compare {
@@ -56,6 +59,20 @@ pub fn handle(workspace_root: &std::path::Path, args: ProfileArgs) {
         eprintln!("error: {error}");
         std::process::exit(2);
     }
+}
+
+fn capture(workspace_root: &std::path::Path, report_path: &std::path::Path) -> Result<(), String> {
+    let source = fs::read_to_string(report_path).map_err(|error| format!("failed to read {}: {error}", report_path.display()))?;
+    let report = PerfReport::from_json_str(&source).map_err(|error| error.to_string())?;
+    let normalized = report.to_json_string().map_err(|error| error.to_string())?;
+    let saved = store::save_profile_sample(workspace_root, &report.metadata.run_id, &normalized)?;
+    println!(
+        "Captured profile '{}' as profile:{} ({})",
+        report.metadata.run_id,
+        report.metadata.run_id,
+        saved.display()
+    );
+    Ok(())
 }
 
 fn attach(workspace_root: &std::path::Path, run_ref: &str, report_path: &std::path::Path) -> Result<(), String> {
@@ -81,9 +98,9 @@ fn attach(workspace_root: &std::path::Path, run_ref: &str, report_path: &std::pa
 }
 
 fn show(workspace_root: &std::path::Path, run_ref: &str, top: usize, json: bool) -> Result<(), String> {
-    let (run, profile_json) = store::load_internal_profile(workspace_root, run_ref)?;
+    let (sample_ref, profile_json) = load_profile_ref(workspace_root, run_ref)?;
     let report = PerfReport::from_json_str(&profile_json).map_err(|error| error.to_string())?;
-    let summary = profile_summary(&run.run_id, &report, top);
+    let summary = profile_summary(&sample_ref, &report, top);
     if json {
         println!("{}", serde_json::to_string_pretty(&summary).map_err(|error| error.to_string())?);
     } else {
@@ -93,17 +110,30 @@ fn show(workspace_root: &std::path::Path, run_ref: &str, top: usize, json: bool)
 }
 
 fn compare(workspace_root: &std::path::Path, baseline_ref: &str, candidate_ref: &str, top: usize, json: bool) -> Result<(), String> {
-    let (baseline_run, baseline_json) = store::load_internal_profile(workspace_root, baseline_ref)?;
-    let (candidate_run, candidate_json) = store::load_internal_profile(workspace_root, candidate_ref)?;
+    let (baseline_sample_ref, baseline_json) = load_profile_ref(workspace_root, baseline_ref)?;
+    let (candidate_sample_ref, candidate_json) = load_profile_ref(workspace_root, candidate_ref)?;
     let baseline = PerfReport::from_json_str(&baseline_json).map_err(|error| error.to_string())?;
     let candidate = PerfReport::from_json_str(&candidate_json).map_err(|error| error.to_string())?;
-    let comparison = profile_comparison(&baseline_run.run_id, &baseline, &candidate_run.run_id, &candidate, top);
+    let comparison = profile_comparison(&baseline_sample_ref, &baseline, &candidate_sample_ref, &candidate, top);
     if json {
         println!("{}", serde_json::to_string_pretty(&comparison).map_err(|error| error.to_string())?);
     } else {
         render_comparison(&comparison);
     }
     Ok(())
+}
+
+fn load_profile_ref(workspace_root: &std::path::Path, profile_ref: &str) -> Result<(String, String), String> {
+    if profile_ref == "latest-profile" || profile_ref.starts_with("profile:") {
+        let (profile_id, json) = store::load_profile_sample(workspace_root, profile_ref)?;
+        return Ok((format!("profile:{profile_id}"), json));
+    }
+
+    if let Ok((run, json)) = store::load_internal_profile(workspace_root, profile_ref) {
+        return Ok((run.run_id, json));
+    }
+    let (profile_id, json) = store::load_profile_sample(workspace_root, profile_ref)?;
+    Ok((format!("profile:{profile_id}"), json))
 }
 
 #[derive(Serialize)]
@@ -443,6 +473,7 @@ fn profile_comparison(baseline_sample_id: &str, baseline: &PerfReport, candidate
             }
         })
         .collect();
+    counter_deltas.retain(|delta| delta.delta != 0);
     counter_deltas.sort_by_key(|delta| std::cmp::Reverse(delta.delta.unsigned_abs()));
     counter_deltas.truncate(top);
 
@@ -464,6 +495,13 @@ fn profile_comparison(baseline_sample_id: &str, baseline: &PerfReport, candidate
             }
         })
         .collect();
+    query_deltas.retain(|delta| {
+        delta.requests_delta != 0
+            || delta.direct_reuse_delta != 0
+            || delta.revalidated_reuse_delta != 0
+            || delta.recomputed_delta != 0
+            || delta.invalidated_delta != 0
+    });
     query_deltas.sort_by_key(|delta| {
         std::cmp::Reverse(
             delta.requests_delta.unsigned_abs()

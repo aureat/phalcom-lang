@@ -7,23 +7,26 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
-/// A run-isolated, thread-safe collector. `Off` retains no collection state.
+/// A run-isolated, thread-safe collector. `Off` retains only its elapsed-time
+/// clock and no span, counter, query, or distribution state.
 pub struct PerfRecorder {
     metadata: PerfRunMetadata,
     inner: Option<Arc<RecorderInner>>,
+    started: Instant,
 }
 
 impl PerfRecorder {
     pub fn new(metadata: PerfRunMetadata) -> Self {
+        let started = Instant::now();
         let inner = metadata.observability_level.collects_summary().then(|| {
             Arc::new(RecorderInner {
                 level: metadata.observability_level,
-                started: Instant::now(),
+                started,
                 next_span_id: AtomicU64::new(1),
                 state: Mutex::new(RecorderState::default()),
             })
         });
-        Self { metadata, inner }
+        Self { metadata, inner, started }
     }
 
     pub fn level(&self) -> ObservabilityLevel {
@@ -39,7 +42,7 @@ impl PerfRecorder {
             return PerfReport {
                 schema_version: SCHEMA_VERSION,
                 metadata: self.metadata.clone(),
-                elapsed_ns: 0,
+                elapsed_ns: duration_ns(self.started.elapsed()),
                 spans: Vec::new(),
                 counters: BTreeMap::new(),
                 query_metrics: Vec::new(),

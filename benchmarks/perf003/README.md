@@ -14,9 +14,21 @@ PHALCOM_PERF_BASELINE_HEAD=e2ae4a0fd360e4075ce8ad229a3e39e1531fb771 \
   benchmarks/perf003/run-profile.sh semantic-baseline detailed 5
 ```
 
-`run-overhead-matrix.sh` runs the same workload at `off`, `summary`, `detailed`,
-and `trace` levels. Each sample is a separate process. Use B2 for overhead
-characterization while B1 is blocked by the baseline VM startup failure.
+Store an emitted report and inspect or compare it with:
+
+```sh
+cargo run -p phalcom-core --bin phalcom-perf --features perf-observability -- \
+  profile capture target/perf/profiles/<run-directory>/sample-1.json
+cargo run -p phalcom-core --bin phalcom-perf --features perf-observability -- \
+  profile show profile:<profile-run-id>
+```
+
+`run-overhead-matrix.sh` runs the same workload in five builds/modes:
+feature-disabled, feature-enabled runtime Off, Summary, Detailed, and Trace.
+Each sample is a separate process. The feature-disabled build currently
+supports B2 only. Use B2 for diagnostic comparison while B1 is blocked by the
+baseline VM startup failure; it does not replace the plan's tiny, medium, and
+warm-incremental acceptance workloads.
 
 The current B1–B9 implementation and blocker ledger is
 [`p5-workloads.json`](p5-workloads.json). B7–B8 still need workload bodies;

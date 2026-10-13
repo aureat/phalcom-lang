@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 2 || $# -gt 3 ]]; then
-  echo "usage: $0 <workload> <off|summary|detailed|trace> [samples]" >&2
+  echo "usage: $0 <workload> <disabled|off|summary|detailed|trace> [samples]" >&2
   exit 2
 fi
 
@@ -13,8 +13,8 @@ if [[ ! "$samples" =~ ^[1-9][0-9]*$ ]]; then
   echo "samples must be a positive integer" >&2
   exit 2
 fi
-if [[ ! "$level" =~ ^(off|summary|detailed|trace)$ ]]; then
-  echo "unknown observability level: $level" >&2
+if [[ ! "$level" =~ ^(disabled|off|summary|detailed|trace)$ ]]; then
+  echo "unknown profile mode: $level" >&2
   exit 2
 fi
 if [[ -z "${PHALCOM_PERF_BASELINE_HEAD:-}" ]]; then
@@ -34,9 +34,18 @@ fi
 toolchain="$(rustup show active-toolchain | awk '{print $1}')"
 export RUSTUP_TOOLCHAIN="$toolchain"
 
-cargo build --release -p phalcom-core --example perf_observability_profile --features perf-observability
 target_root="${CARGO_TARGET_DIR:-$repo_root/target}"
-profile_bin="$target_root/release/examples/perf_observability_profile"
+if [[ "$level" == "disabled" ]]; then
+  if [[ "$workload" != "semantic-baseline" ]]; then
+    echo "feature-disabled profiling currently supports only semantic-baseline" >&2
+    exit 2
+  fi
+  cargo build --release -p phalcom-core --example perf_observability_disabled
+  profile_bin="$target_root/release/examples/perf_observability_disabled"
+else
+  cargo build --release -p phalcom-core --example perf_observability_profile --features perf-observability
+  profile_bin="$target_root/release/examples/perf_observability_profile"
+fi
 if [[ ! -x "$profile_bin" ]]; then
   echo "profile executable not found at $profile_bin" >&2
   exit 2
@@ -48,12 +57,16 @@ mkdir -p "$output_dir"
 
 for ((index = 1; index <= samples; index += 1)); do
   report="$output_dir/sample-${index}.json"
+  profile_level_args=("$workload")
+  if [[ "$level" != "disabled" ]]; then
+    profile_level_args+=("$level")
+  fi
   if PHALCOM_PERF_BASELINE_HEAD="$PHALCOM_PERF_BASELINE_HEAD" \
     PHALCOM_PERF_EXECUTION_TREE_HEAD="$execution_tree_head" \
     PHALCOM_PERF_SOURCE_REVISION="$execution_tree_head" \
     PHALCOM_PERF_BRANCH="$branch" \
     PHALCOM_PERF_DIRTY="$dirty" \
-    "$profile_bin" "$workload" "$level" >"$report" 2>/dev/null; then
+    "$profile_bin" "${profile_level_args[@]}" >"$report" 2>/dev/null; then
     exit_code=0
   else
     exit_code=$?

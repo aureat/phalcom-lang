@@ -9,6 +9,6 @@ fi
 workload="$1"
 samples="${2:-5}"
 script_dir="$(cd "$(dirname "$0")" && pwd)"
-for level in off summary detailed trace; do
+for level in disabled off summary detailed trace; do
   "$script_dir/run-profile.sh" "$workload" "$level" "$samples"
 done

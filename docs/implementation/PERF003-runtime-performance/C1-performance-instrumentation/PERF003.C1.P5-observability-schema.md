@@ -44,13 +44,15 @@ Unavailable values carry a reason rather than a fabricated zero.
 
 ## Profile attachment and comparison
 
-An optional internal profile is stored as `internal-profile.json` in the
-corresponding process-sample directory under `target/perf/runs/`. Attach checks
-the report's source revision and dirty state against the sample metadata.
-Comparison reports elapsed time, per-phase durations, counters, and query
-lifecycle deltas. Workload, observability-level, lifecycle, or pinned-baseline
-mismatches make the pair structurally incompatible while preserving the
-measured deltas for inspection.
+`phalcom-perf profile capture` stores a profile-only elapsed-time sample under
+`target/perf/profiles/`. A profile may also be attached as
+`internal-profile.json` in a process-sample directory under `target/perf/runs/`;
+attachment checks the report's source revision and dirty state against the
+sample metadata. Comparison reports elapsed time, per-phase durations,
+counters, and query lifecycle deltas. Workload, observability-level, lifecycle,
+or pinned-baseline mismatches make the pair structurally incompatible while
+preserving the measured deltas for inspection.
 
-The implementation is build-checked, but CLI attachment and comparison have
-not yet been exercised end-to-end.
+Capture, show, and comparison were exercised on two compatible B2 profiles.
+This confirms the CLI data path only; it is one timing pair and not an
+acceptance measurement.

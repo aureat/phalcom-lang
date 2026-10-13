@@ -2471,7 +2471,8 @@ run and baseline-blocked. No tests were added or run.
 
 ### T12 — `phalcom-perf` report integration
 
-Store internal compiler profiles with samples.
+Store internal compiler profiles with samples. Support standalone profile-only
+samples as well as sidecars attached to external process-level runs.
 
 Implement:
 
@@ -2484,18 +2485,21 @@ derived amplification metrics
 
 **Gate T12:** two stored runs can be compared structurally and temporally.
 
-**T12 result:** `phalcom-perf profile attach`, `show`, and `compare` are
-implemented behind `perf-observability`. An internal profile is validated and
-stored as `internal-profile.json` beside its process-level sample. Human and
-JSON summaries include bounded top-N phase/counter views, query lifecycle
-totals, phase/counter/query deltas, and derived source-traversal, dependency-
-fanout, and query-recomputation ratios. Callable-body and copy amplification
-are explicitly reported as unavailable where the report lacks a valid
-denominator or physical-copy measurement. Attaching rejects a source-revision
-or dirty-state mismatch with the stored sample. The feature-enabled
-`phalcom-perf` binary build-check passed. No CLI round-trip/comparison workflow
-or tests were run, so Gate T12 remains unverified; the next action is to exercise
-two stored samples before advancing to the B1–B9 harness.
+**T12 result:** `phalcom-perf profile capture`, `attach`, `show`, and `compare`
+are implemented behind `perf-observability`. Capture stores a validated
+profile-only elapsed-time sample; attach stores a sidecar beside an external
+process-level sample and rejects source-revision or dirty-state mismatches.
+Human and JSON summaries include bounded top-N phase/counter views, query
+lifecycle totals, phase/counter/query deltas, and derived source-traversal,
+dependency-fanout, and query-recomputation ratios. Callable-body and copy
+amplification are explicitly unavailable where the report lacks a valid
+denominator or physical-copy measurement. Two separately captured B2 reports
+for the pinned baseline compared as structurally compatible: the observed
+single-pair internal elapsed times were 76.9 ms and 54.5 ms. This is CLI-path
+evidence only, not a performance conclusion. `profile show`, `capture`, and
+`compare` were exercised; no test suite was run. Focused default and
+feature-enabled `phalcom-perf` build checks passed. Gate T12 is complete at this
+bounded scope.
 
 ---
 
