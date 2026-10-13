@@ -1,5 +1,6 @@
 /// Exact integer algorithms using arbitrary-precision Int arithmetic.
 class IntegerMath {
+  /// Returns the nonnegative greatest common divisor; `gcd(0, 0)` is zero.
   @class
   gcd(_ a: Int, _ b: Int) -> Int {
     let mut x = if a < 0 { -a } else { a }
