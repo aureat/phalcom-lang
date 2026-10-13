@@ -13,9 +13,9 @@
 
 ## Current source reconciliation
 
-Through `UNIV002.C2.P23`, the 174 shadow source paths were reconciled against
+Through `UNIV002.C2.P24`, the 174 shadow source paths were reconciled against
 the MOD1 baseline at source revision
-`a5f159ffb7534848a0922ebb0a0d5f2bbea358d6`. Eighteen source files changed since
+`0e6c058a1dc5f90849f91adf4a16ad3f53eea6ad`. Nineteen source files changed since
 baseline; their current SHA-256 values are recorded in `INVENTORY.md`. Other
 source hashes still match baseline. Its textual inventory heuristics remain
 baseline data and are not a current opportunity audit.
@@ -52,6 +52,11 @@ claim is made.
 `functional/optics.ph`. They document callback paths and composition order
 visible in the method bodies; the inventory overlay now records the updated
 source hash.
+
+`UNIV002.C2.P24` completed three comments above `FloatReduction.logSumExp` in
+`math/reduction.ph`, grounded in `docs/specs/numeric-math.md`. They describe
+the one-pass stable operation and the normative empty, infinity, and NaN
+cases. The algorithm and C9 verification status are unchanged.
 
 ## Active work and exclusions
 
@@ -126,22 +131,22 @@ A source-only change may be `SOURCE_READY`; parser/interface checks do not imply
 ## Next action
 ## Next action
 
-`UNIV002.C2.P1`–P23 are complete: twenty-two Category A documentation slices
-and one Category B Gregorian predicate rewrite. P24 is active for three
-comments above `FloatReduction.logSumExp` in `math/reduction.ph`, documenting
-the one-pass stable operation and the normative empty, infinity, and NaN cases
-from `docs/specs/numeric-math.md`. The plan is comments-only; no tests are
-required, and no behavior claim will be made.
+`UNIV002.C2.P1`–P24 are complete: twenty-three Category A documentation slices
+and one Category B Gregorian predicate rewrite. P25 is active for one comment
+above `IntegerMath.isqrt` in `math/integer.ph`, documenting the floor-root
+result and live negative-input error path from `docs/specs/numeric-math.md`.
+The plan is comments-only; no tests are required, and no behavior claim will be
+made.
 
-The 174 source paths match MOD1, with eighteen changed hashes reconciled
-through source commit `a5f159ffb7534848a0922ebb0a0d5f2bbea358d6`. P24 must
+The 174 source paths match MOD1, with nineteen changed hashes reconciled
+through source commit `0e6c058a1dc5f90849f91adf4a16ad3f53eea6ad`. P25 must
 refresh the changed hash and recompare the full path/hash set. Inventory
 heuristic columns remain baseline-only.
 
 `STDL001.C9.P1` established the Float-based `universe.math` boundary and moved
 optional special functions, statistics, and probability to the `numerics`
 project. Its source/native edits are implemented, but Phalcom source compilation
-and runtime acceptance remain unverified; P24 does not advance that gate.
+and runtime acceptance remain unverified; P24 and P25 do not advance that gate.
 
 Keep the architect-guided Option/Result/Unit identity and normative-spec work
 separate. Preserve active MODL001 P4 changes and C3 crypto work. Exclude

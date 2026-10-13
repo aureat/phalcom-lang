@@ -150,22 +150,6 @@ shadow graph and an execution path for shadow Universe code.
   source commit `e24f37945b1dd6349932013cb6ebf89f33cf979c`.
 - No shadow semantic or runtime claim is made.
 
-## UNIV002.C2.P23 — Optional/Prism composition and adapter documentation
-
-- Added the six planned comments above `Iso.asLens`, `Optional.compose`,
-  `Prism.compose`, and `Prism.asOptional` in `functional/optics.ph`. They
-  describe only callback paths and composition order visible in the methods.
-- Exact source diff review confirmed no declaration, signature, executable
-  expression, import, module owner, or generic identity changed. Scoped
-  `git diff --check` passed. No tests were run for this comments-only slice.
-- Independent comparison confirmed all 174 `.ph` paths still match the MOD1
-  baseline, with 18 changed source hashes and no additions or removals. The
-  inventory overlay is current through source commit
-  `a5f159ffb7534848a0922ebb0a0d5f2bbea358d6`; the `functional/optics.ph` row
-  records SHA-256
-  `87f0d722fc63e8bb4646ef38cc575e2e7be396feb8d86a03cdb3bbaec1d8291c`.
-- No shadow semantic or runtime claim is made.
-
 ## UNIV002.C2.P9 — Bag.count documentation
 
 - Added one comment immediately above `collections/bag.ph::Bag.count` stating
@@ -367,3 +351,37 @@ shadow graph and an execution path for shadow Universe code.
   `acdf2870f9f759d7804124af688e8c3e4cbe7f9e6702816d166d6b245527fb87`
   through source commit `60b2e1463db0d4fd29981f0ec178b46d426edf7a`.
 - No shadow semantic or runtime claim is made.
+
+## UNIV002.C2.P23 — Optional/Prism composition and adapter documentation
+
+- Added the six planned comments above `Iso.asLens`, `Optional.compose`,
+  `Prism.compose`, and `Prism.asOptional` in `functional/optics.ph`. They
+  describe only callback paths and composition order visible in the methods.
+- Exact source diff review confirmed no declaration, signature, executable
+  expression, import, module owner, or generic identity changed. Scoped
+  `git diff --check` passed. No tests were run for this comments-only slice.
+- Independent comparison confirmed all 174 `.ph` paths still match the MOD1
+  baseline, with 18 changed source hashes and no additions or removals. The
+  inventory overlay is current through source commit
+  `a5f159ffb7534848a0922ebb0a0d5f2bbea358d6`; the `functional/optics.ph` row
+  records SHA-256
+  `87f0d722fc63e8bb4646ef38cc575e2e7be396feb8d86a03cdb3bbaec1d8291c`.
+- No shadow semantic or runtime claim is made.
+
+## UNIV002.C2.P24 — Float logSumExp documentation
+
+- Added three comments above `FloatReduction.logSumExp` in
+  `math/reduction.ph`, stating the stable one-pass operation and normative
+  empty/all-negative-infinity, NaN, and positive-infinity results from
+  `docs/specs/numeric-math.md`.
+- Exact diff review confirmed only those comments changed. Scoped
+  `git diff --check` passed. No tests were run for this documentation-only
+  slice.
+- Independent comparison confirmed all 174 `.ph` paths match MOD1, with 19
+  changed source hashes, no additions/removals, and an exact match between the
+  inventory overlay and the live changed-hash map. The `math/reduction.ph` row
+  records SHA-256
+  `cee5648eb971d0546f46ef49e5ec9e7bd6e1c210f8321cd61cc7c395a29310d6` through
+  source commit `0e6c058a1dc5f90849f91adf4a16ad3f53eea6ad`.
+- No semantic or runtime claim is made. `STDL001.C9.P1` Phalcom source/runtime
+  acceptance remains unverified.
