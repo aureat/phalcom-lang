@@ -35,8 +35,14 @@ LANG007 owns implementation work for:
 - stable symbolic projections when a type-level computation is well formed but not yet reducible;
 - substitution, inference, metadata, source indexing, and Universe integration needed to preserve those semantics;
 - C4 structural/static evaluation, first-class Pack transport, Product/Sum reflection, generalized unordered `FieldKey`, and compile-time `const` semantics.
+- C5 interval algebra, immutable Progression, explicit Range bridges, and typed
+  relationship values consumed by canonical structural matching.
 
 LANG007 does not own ordinary runtime collection iteration, general VM dispatch, arbitrary compile-time evaluation, unrelated trait/conformance architecture, or general-purpose metaprogramming unless a later checkpoint explicitly expands the program's bounded objective.
+
+The user-directed C5 expansion owns the new Progression type's canonical
+Iterable/Iterator conformance and its interval/range interaction. It does not
+take over general collection iteration or the Iterator protocol itself.
 
 ## Checkpoint ledger
 
@@ -104,6 +110,21 @@ Current plans:
 - `LANG007.C4.P2` — Static value model, static definitions, evaluator foundation, closed `const` — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 - `LANG007.C4.P3` — First-class Pack and call/rest convergence — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`.
 - `LANG007.C4.P4` — Generalized `FieldKey` and unordered-product calculus — `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+### LANG007.C5 — Interval Algebra, Immutable Progression, and Relational Matching
+
+**State:** `PROPOSED / NOT_STARTED / UNVERIFIED`
+
+Owning record: [`LANG007.C5-CHECKPOINT.md`](LANG007.C5/LANG007.C5-CHECKPOINT.md).
+The checkpoint plans checked interval domains, exact set/Allen relationships,
+immutable affine Progression and fresh iteration, explicit numeric Range bridges,
+and a substantial hotel quotation/scheduling example. The user selected ordinary
+typed relationship values and authorized a new isolated implementation worktree.
+
+- `LANG007.C5.P1` — interval algebra, Progression, and relational matching —
+  `PROPOSED / NOT_STARTED / UNVERIFIED`.
+
+Adding C5 does not replace C4's active work state.
 
 ## Current program lifecycle truth
 

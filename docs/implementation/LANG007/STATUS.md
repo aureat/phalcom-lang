@@ -18,6 +18,7 @@ last_updated: 2026-10-05
 | `LANG007.C2` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | latest: `LANG007.C2.P3` | frozen C2 substrate |
 | `LANG007.C3` | `COMPLETE / IMPLEMENTED / FOCUSED_TESTED` | latest: `LANG007.C3.P5` | fully closed and verified under adopted P5 rulings |
 | `LANG007.C4` | `IN_PROGRESS / PARTIAL / UNVERIFIED` | active: `LANG007.C4.P4` | Structural static evaluation, Pack/Product/Sum reflection, binding semantics, generalized FieldKey |
+| `LANG007.C5` | `PROPOSED / NOT_STARTED / UNVERIFIED` | next: `LANG007.C5.P1` | Interval algebra, immutable Progression, typed relational matching, and hotel example; isolated implementation authorized |
 
 ## Current program state
 
@@ -64,3 +65,11 @@ Detailed P4 progress and the authoritative plan ledger are maintained in
   - `LANG007.C4.P2` — Static value model, static definitions, evaluator foundation, closed `const` — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`
   - `LANG007.C4.P3` — First-class Pack and call/rest convergence — `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`
   - `LANG007.C4.P4` — Generalized `FieldKey` and unordered-product calculus — `IN_PROGRESS / PARTIAL / UNVERIFIED`
+
+### LANG007.C5 — Interval Algebra, Immutable Progression, and Relational Matching
+- State: `PROPOSED / NOT_STARTED / UNVERIFIED`.
+- Plan: `LANG007.C5.P1`; planning records complete, implementation authorized in a new isolated worktree.
+- Checkpoint record: [`LANG007.C5-CHECKPOINT.md`](LANG007.C5/LANG007.C5-CHECKPOINT.md).
+- Companions: [interval design](LANG007.C5/interval-relational-matching-spec.md),
+  [Progression design](LANG007.C5/progression-spec.md), and
+  [hotel example](LANG007.C5/hotel-booking-example.md).
