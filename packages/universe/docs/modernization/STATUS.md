@@ -13,16 +13,16 @@
 
 ## Current source reconciliation
 
-Through `UNIV002.C2.P15`, the 174 shadow source paths were reconciled against
+Through `UNIV002.C2.P16`, the 174 shadow source paths were reconciled against
 the MOD1 baseline at source revision
-`88a46e226ea2d899df654b85b8d526aa9b6da92c`. Sixteen source files changed since
+`09ba7159b094aa0e6137e148d92012a8529d93d2`. Sixteen source files changed since
 baseline; their current SHA-256 values are recorded in `INVENTORY.md`. Other
 source hashes still match baseline. Its textual inventory heuristics remain
 baseline data and are not a current opportunity audit.
 
-`UNIV002.C2.P16` is active for one Category A comment above
-`functional/chain.ph::Chain.fold`. The source hash overlay will be refreshed
-after that comment is implemented and reviewed.
+`UNIV002.C2.P17` is active for Category A comments above the remaining
+`Either.mapRight`, `Either.bimap`, and `Either.swap` methods. The source hash
+overlay will be refreshed after the comments are implemented and reviewed.
 
 ## Active work and exclusions
 
@@ -96,7 +96,7 @@ A source-only change may be `SOURCE_READY`; parser/interface checks do not imply
 
 ## Next action
 
-`UNIV002.C2.P1`–`P4`, `P6`–`P15` completed Category A
+`UNIV002.C2.P1`–`P4`, `P6`–`P16` completed Category A
 documentation/formatting slices. `UNIV002.C2.P5` completed a Category B
 source-level Gregorian leap-year expression
 rewrite in `time/calendar/month.ph`; its exact shadow parser/unlinked-interface
@@ -104,7 +104,7 @@ test passed. This does not typecheck or execute the method, so semantic linking
 remains `UNVERIFIED` and shadow runtime parity remains `BLOCKED`. P7 documents
 the observed `UtcOffset.seconds` input/range/error contract without changing
 code. The current 174 paths are reconciled against the MOD1 inventory baseline
-through P15's source commit; sixteen changed-file hashes are recorded in
+through P16's source commit; sixteen changed-file hashes are recorded in
 `INVENTORY.md`, while its textual heuristics remain baseline-only.
 P8 documents the maximum element count returned by `Buffer.capacity`; no
 executable code changed.
@@ -138,3 +138,6 @@ or runtime claim is made.
 P15 documented that `Either.mapLeft` transforms a Left payload and preserves a
 Right payload. The inventory is current through its source commit; no semantic
 or runtime claim is made.
+P16 documented that `Chain.fold` uses its seed as the initial accumulator and
+visits elements from left to right. The inventory is current through its source
+commit; no semantic or runtime claim is made.

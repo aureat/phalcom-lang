@@ -38,7 +38,8 @@ integration, or production cutover.
 | `UNIV002.C2.P13` | State.run documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added two comment lines documenting the initial state input and StateStep outputs; exact source review and whitespace check passed, and the 174-path inventory reconciled with 16 changed hashes. |
 | `UNIV002.C2.P14` | Writer.mapLog documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting log transformation and value preservation; exact source review and whitespace check passed, and the 174-path inventory reconciled with 16 changed hashes. |
 | `UNIV002.C2.P15` | Either.mapLeft documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting Left transformation and Right preservation; exact source review and whitespace check passed, and the 174-path inventory reconciled with 16 changed hashes. |
-| `UNIV002.C2.P16` | Chain.fold documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | One source comment is planned; implementation and inventory reconciliation are pending. |
+| `UNIV002.C2.P16` | Chain.fold documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting the seed and left-to-right fold order; exact source review and whitespace check passed, and the 174-path inventory reconciled with 16 changed hashes. |
+| `UNIV002.C2.P17` | Either transformation documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | Three related source comments are planned; implementation and inventory reconciliation are pending. |
 
 ## Established invariants
 
@@ -194,11 +195,11 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: `UNIV002.C2.P16`, documenting `Chain.fold`. The plan authorizes
-  one comment only and leaves `collections/iteration/**` untouched.
-- Latest complete plan: `UNIV002.C2.P15`; latest complete checkpoint: `UNIV002.C1`.
-- The source inventory is reconciled through P15 source commit
-  `88a46e226ea2d899df654b85b8d526aa9b6da92c`: 174 paths, no additions or
+- Active plan: `UNIV002.C2.P17`, documenting the remaining `Either` payload
+  transformations. The plan authorizes three comments only.
+- Latest complete plan: `UNIV002.C2.P16`; latest complete checkpoint: `UNIV002.C1`.
+- The source inventory is reconciled through P16 source commit
+  `09ba7159b094aa0e6137e148d92012a8529d93d2`: 174 paths, no additions or
   removals, and 16 changed hashes with the rest matching MOD1. Textual
   inventory heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
@@ -233,10 +234,14 @@ identities.
   `functional/either.ph::Either.mapLeft`; the method transforms a Left payload
   and passes a Right payload through unchanged. Only a comment changed; no
   semantic or runtime claim is made.
-- P16 is active as a bounded Category A comment in
+- P16 completed a bounded Category A comment in
   `functional/chain.ph::Chain.fold`; the method starts from the supplied seed
-  and processes linked elements from head to tail. Do not change executable
-  source or the separate iteration subsystem.
+  and processes linked elements from head to tail. Only a comment changed; no
+  semantic or runtime claim is made. The separate iteration subsystem is
+  unchanged.
+- P17 is active for three Category A comments in `functional/either.ph`:
+  `mapRight`, `bimap`, and `swap`. Preserve existing branch and payload
+  behavior; do not characterize Left as an error.
 
 P14 added one documentation line immediately above `Writer.mapLog`, stating
 that it applies `f` to the log and preserves this Writer's value. The method
@@ -256,4 +261,14 @@ reconciliation confirmed the same 174 `.ph` paths and sixteen changed hashes
 against MOD1; `functional/either.ph` is recorded at SHA-256
 `338c9cc2a4220717c8f70f7b3116cc0eff343c21afbee7f1a81be4400f7ce716` through
 source commit `88a46e226ea2d899df654b85b8d526aa9b6da92c`. Semantic linking
+remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
+
+P16 added one documentation line immediately above `Chain.fold`, stating that
+it folds elements from left to right using `seed` as the initial accumulator.
+The method body, signature, and module ownership are unchanged. Exact diff
+review and scoped `git diff --check` passed; no tests were run. Independent
+inventory reconciliation confirmed the same 174 `.ph` paths and sixteen
+changed hashes against MOD1; `functional/chain.ph` is recorded at SHA-256
+`dd1a494d7e66a0eba7947ad5392cfd52ed7bf213130b18b985eb3f54ad2da026` through
+source commit `09ba7159b094aa0e6137e148d92012a8529d93d2`. Semantic linking
 remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
