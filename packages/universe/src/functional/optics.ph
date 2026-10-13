@@ -10,6 +10,7 @@ impl<S, T> Iso<S, T> {
   @class new(forward: (S) -> T, backward: (T) -> S) -> Iso<S, T> { Iso<S, T>(forward, backward) }
   convert(_ source: S) -> T { self.forward.call(source) }
   restore(_ target: T) -> S { self.backward.call(target) }
+  /// Exchanges the forward and backward callbacks.
   inverse -> Iso<T, S> { Iso<T, S>.new(forward: self.backward, backward: self.forward) }
   compose<U>(_ other: Iso<T, U>) -> Iso<S, U> {
     Iso<S, U>.new(forward: |source| { other.convert(self.convert(source)) }, backward: |target| { self.restore(other.restore(target)) })
