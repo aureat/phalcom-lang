@@ -9,6 +9,8 @@ expose .option
 expose .functional
 expose .time
 expose .concurrency
+expose .diagnostics
+expose .features
 expose .collections
 expose .reflection
 expose .io
@@ -22,7 +24,6 @@ expose .numbers
 expose .random
 expose .process
 expose .net
-expose .concurrent
 expose .testing
 
 import .object
@@ -46,6 +47,8 @@ from .time import (
   Timestamp
 )
 import .concurrency
+import .diagnostics
+import .features
 import .collections
 import .reflection
 import .io
@@ -76,7 +79,6 @@ import .numbers
 import .random
 import .process
 import .net
-import .concurrent
 import .testing
 
 export object
@@ -115,6 +117,8 @@ export (
 )
 export time
 export concurrency
+export diagnostics
+export features
 export collections
 export reflection
 export io
@@ -128,5 +132,4 @@ export numbers
 export random
 export process
 export net
-export concurrent
 export testing
