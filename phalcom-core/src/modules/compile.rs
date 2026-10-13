@@ -4,9 +4,9 @@ use super::artifact::ModuleMaterializationPlan;
 use crate::typing::{MetadataPoolId, RuntimeCallEnvironmentRecipe, RuntimeTypeRecipe, RuntimeTypeRef};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::{
-    EntryOwnership, FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram, ModuleComponent,
-    ModuleId, ModuleKind, ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError, SourceId,
-    SourceLocation, SourceProvider, classify_entry_ownership,
+    EntryOwnership, FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram, ModuleComponent, ModuleId, ModuleKind,
+    ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError, SourceId, SourceLocation, SourceProvider,
+    classify_entry_ownership,
 };
 use phalcom_semantic::SemanticDiagnostic;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -448,7 +448,9 @@ pub(crate) fn discover_reachable_dependencies<P: SourceProvider>(
 
             let target_unit = resolver.resolve_import(&current_id, import_path)?;
             resolved.insert((current_id.clone(), import_path.to_string()), target_unit.id.clone());
-            if target_unit.id.project.is_universe() { continue; }
+            if target_unit.id.project.is_universe() {
+                continue;
+            }
             if visited.insert(target_unit.id.clone()) {
                 pending.push(target_unit.id);
             }
@@ -591,12 +593,24 @@ impl ProgramAnalyzer {
                         let image = phalcom_semantic::canonical_image::canonical_universe_formal_image()
                             .map_err(|error| phalcom_semantic::SemanticUpdateFailure::Failed(error.to_string()))?;
                         let resolved = BTreeMap::new();
-                        let linked = Arc::new(ModuleLinker::new(universe.clone(), interfaces).with_external_modules(image.modules().clone()).link_all(entry_id.clone(), &resolved)?);
+                        let linked = Arc::new(
+                            ModuleLinker::new(universe.clone(), interfaces.clone())
+                                .with_external_modules(image.modules().clone())
+                                .link_all(entry_id.clone(), &resolved)?,
+                        );
 
-                         let analysis = phalcom_semantic::analyze_workspace(
-                             phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0)
-                                 .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal()),
-                         )?;
+                        let analysis = phalcom_semantic::analyze_workspace(
+                            phalcom_semantic::SemanticWorkspaceInput::from_interfaces(
+                                linked.clone(),
+                                sources.clone(),
+                                interfaces
+                                    .iter()
+                                    .map(|(module, interface)| (module.clone(), Arc::new(interface.clone())))
+                                    .collect(),
+                                0,
+                            )
+                            .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal()),
+                        )?;
 
                         Ok(AnalyzedProgram {
                             project_universe: universe,
@@ -672,11 +686,24 @@ impl ProgramAnalyzer {
         let resolved = BTreeMap::new();
         let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, [entry_id.clone()], Some(&entry_id))?;
 
-        let linked = Arc::new(ModuleLinker::new(universe.clone(), discovered.interfaces).with_external_modules(image.modules().clone()).link_all(entry_id.clone(), &discovered.resolved)?);
+        let linked = Arc::new(
+            ModuleLinker::new(universe.clone(), discovered.interfaces.clone())
+                .with_external_modules(image.modules().clone())
+                .link_all(entry_id.clone(), &discovered.resolved)?,
+        );
 
         let analysis = phalcom_semantic::analyze_workspace(
-            phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0)
-                .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal()),
+            phalcom_semantic::SemanticWorkspaceInput::from_interfaces(
+                linked.clone(),
+                discovered.sources.clone(),
+                discovered
+                    .interfaces
+                    .iter()
+                    .map(|(module, interface)| (module.clone(), Arc::new(interface.clone())))
+                    .collect(),
+                0,
+            )
+            .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal()),
         )?;
 
         Ok(AnalyzedProgram {
@@ -709,13 +736,22 @@ impl ProgramAnalyzer {
 
         let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, pending, None)?;
 
-        let linker = ModuleLinker::new(universe.clone(), discovered.interfaces).with_external_modules(image.modules().clone());
+        let linker = ModuleLinker::new(universe.clone(), discovered.interfaces.clone()).with_external_modules(image.modules().clone());
         let linked = Arc::new(linker.link_all(entry.clone(), &discovered.resolved)?);
 
-        let semantic_input = phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0)
-            .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
-        let mut semantic_session = phalcom_semantic::SemanticWorkspaceSession::new()
-            .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
+        let semantic_input = phalcom_semantic::SemanticWorkspaceInput::from_interfaces(
+            linked.clone(),
+            discovered.sources.clone(),
+            discovered
+                .interfaces
+                .iter()
+                .map(|(module, interface)| (module.clone(), Arc::new(interface.clone())))
+                .collect(),
+            0,
+        )
+        .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
+        let mut semantic_session =
+            phalcom_semantic::SemanticWorkspaceSession::new().with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
         let analysis = semantic_session
             .update_with_budget_and_cancel(
                 semantic_input,
@@ -782,8 +818,7 @@ impl ProgramCompiler {
         let mut runtime_trait_root_specs = Vec::<RuntimeTraitEnvironmentRootSpec>::new();
         let mut runtime_trait_root_seen = BTreeSet::new();
         #[cfg(feature = "perf-observability")]
-        let runtime_root_span = telos_observability::PerfContext::current_thread()
-            .span(telos_observability::PerfPhase::CompilerProjectionRuntimeRootDiscovery);
+        let runtime_root_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::CompilerProjectionRuntimeRootDiscovery);
         for id in analyzed.linked.modules.keys() {
             if !analyzed.runtime_modules.contains(id) {
                 continue;
@@ -1016,8 +1051,7 @@ impl ProgramCompiler {
             .chain(runtime_trait_root_specs.iter().map(|(module, _, _, _, _, ty, key)| (module, key.as_str(), *ty)))
             .collect::<Vec<_>>();
         #[cfg(feature = "perf-observability")]
-        let metadata_export_span =
-            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::CompilerProjectionMetadataExport);
+        let metadata_export_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::CompilerProjectionMetadataExport);
         let exporter = phalcom_semantic::metadata::MetadataExporter::new(
             analyzed.semantic.store(),
             Some(analyzed.semantic.declarations()),
@@ -1070,8 +1104,8 @@ impl ProgramCompiler {
         #[cfg(feature = "perf-observability")]
         metadata_export_span.finish(telos_observability::PerfOutcome::Success);
         #[cfg(feature = "perf-observability")]
-        let runtime_type_recipes_span = telos_observability::PerfContext::current_thread()
-            .span(telos_observability::PerfPhase::CompilerProjectionRuntimeTypeRecipes);
+        let runtime_type_recipes_span =
+            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::CompilerProjectionRuntimeTypeRecipes);
         let mut runtime_type_roots = BTreeMap::<ModuleId, BTreeMap<SourceRange, RuntimeTypeRef>>::new();
         for ((module, range, _, _), root) in runtime_root_specs.iter().zip(metadata_bundle.runtime_roots.iter()) {
             runtime_type_roots.entry(module.clone()).or_default().insert(
@@ -1127,8 +1161,8 @@ impl ProgramCompiler {
         #[cfg(feature = "perf-observability")]
         runtime_type_recipes_span.finish(telos_observability::PerfOutcome::Success);
         #[cfg(feature = "perf-observability")]
-        let trait_environments_span = telos_observability::PerfContext::current_thread()
-            .span(telos_observability::PerfPhase::CompilerProjectionTraitEnvironments);
+        let trait_environments_span =
+            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::CompilerProjectionTraitEnvironments);
         let mut runtime_trait_environment_bindings = BTreeMap::<ModuleId, super::semantic_lowering::RuntimeTraitEnvironmentBindings>::new();
         for ((module, range, source_impl, requirement, stable_parameter, ty, _key), root) in stable_trait_root_specs.iter().zip(
             metadata_bundle
@@ -1159,13 +1193,15 @@ impl ProgramCompiler {
         }
         crate::perf_counter!(
             telos_observability::PerfCounter::CompilerRuntimeTraitEnvironmentBindings,
-            runtime_trait_environment_bindings.values().map(|environments| environments.values().map(|bindings| bindings.len()).sum::<usize>()).sum::<usize>()
+            runtime_trait_environment_bindings
+                .values()
+                .map(|environments| environments.values().map(|bindings| bindings.len()).sum::<usize>())
+                .sum::<usize>()
         );
         #[cfg(feature = "perf-observability")]
         trait_environments_span.finish(telos_observability::PerfOutcome::Success);
         #[cfg(feature = "perf-observability")]
-        let generic_evidence_span = telos_observability::PerfContext::current_thread()
-            .span(telos_observability::PerfPhase::CompilerProjectionGenericEvidence);
+        let generic_evidence_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::CompilerProjectionGenericEvidence);
         let mut call_conformance_slots =
             BTreeMap::<(ModuleId, SourceRange, phalcom_semantic::identity::CallableId), Vec<crate::typing::RuntimeConformanceSlotRecipe>>::new();
         let default_requirement_slots = super::semantic_lowering::trait_default_requirement_slots(&analyzed.semantic)
@@ -1246,8 +1282,8 @@ impl ProgramCompiler {
             }
 
             #[cfg(feature = "perf-observability")]
-            let conditional_calls_span = telos_observability::PerfContext::current_thread()
-                .span(telos_observability::PerfPhase::CompilerProjectionConditionalCalls);
+            let conditional_calls_span =
+                telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::CompilerProjectionConditionalCalls);
             let mut conditional_applications = Vec::new();
             for expression in analysis.expressions.values() {
                 let mut capabilities = Vec::new();
@@ -1858,8 +1894,7 @@ impl ProgramCompiler {
         #[cfg(feature = "perf-observability")]
         generic_evidence_span.finish(telos_observability::PerfOutcome::Success);
         #[cfg(feature = "perf-observability")]
-        let module_lowering_span = telos_observability::PerfContext::current_thread()
-            .span(telos_observability::PerfPhase::CompilerProjectionModuleLowering);
+        let module_lowering_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::CompilerProjectionModuleLowering);
         let mut modules = BTreeMap::new();
         for (id, linked_module) in &analyzed.linked.modules {
             if !analyzed.runtime_modules.contains(id) {

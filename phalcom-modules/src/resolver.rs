@@ -716,13 +716,13 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
             return res.clone();
         }
 
-        let parsed = self.load_parsed(module_id)?;
-
         if module_id.project == ProjectIdentity::Universe {
             let result = crate::builtin_interface::BuiltinInterfaceBuilder::build(&self.universe_source, module_id);
             self.interface_cache.insert(module_id.clone(), result.clone());
             return result;
         }
+
+        let parsed = self.load_parsed(module_id)?;
 
         let unlinked = match InterfaceBuilder::build(module_id.clone(), parsed.kind, &parsed.program) {
             Ok(u) => u,
@@ -738,5 +738,26 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
 
         self.interface_cache.insert(module_id.clone(), Ok(unlinked.clone()));
         Ok(unlinked)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ModuleResolver;
+    use crate::identity::{ModuleId, ModulePath};
+    use crate::project::ProjectUniverse;
+    use crate::source::FilesystemSourceProvider;
+
+    #[test]
+    fn canonical_interface_load_does_not_load_parsed_source_per_resolver() {
+        let universe = ProjectUniverse::new();
+        let source = FilesystemSourceProvider::new();
+        let module = ModuleId::universe(ModulePath::root());
+
+        for _ in 0..10 {
+            let mut resolver = ModuleResolver::new(&universe, &source);
+            resolver.load_interface(&module).expect("canonical Universe interface loads");
+            assert!(!resolver.parsed_cache.contains_key(&module));
+        }
     }
 }

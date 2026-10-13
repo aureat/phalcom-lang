@@ -1,8 +1,8 @@
 use crate::identity::ModuleId;
+use crate::request::SemanticProductRequest;
 use crate::session::SemanticUpdateFailure;
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
-use crate::request::SemanticProductRequest;
 use phalcom_ast::ast::Program;
 use phalcom_modules::interface::InterfaceBuilder;
 use phalcom_modules::linker::LinkedProgram;
@@ -53,6 +53,43 @@ impl SemanticWorkspaceInput {
             .iter()
             .map(|(module, interface)| (module.clone(), Arc::new(interface.clone())))
             .collect();
+        let topology = Arc::new(phalcom_modules::topology::ModuleTopology::from_parts(
+            phalcom_modules::stabilization::ResolverGeneration(generation),
+            &linked.universe,
+            &unlinked,
+            &source_locations,
+        ));
+        Self {
+            linked,
+            sources,
+            interfaces: Arc::new(interfaces),
+            import_products: Arc::new(BTreeMap::new()),
+            module_graph_changed: false,
+            import_sites_by_module: Arc::new(BTreeMap::new()),
+            require_canonical_import_products: false,
+            diagnostics: BTreeMap::new(),
+            blocked_modules: BTreeSet::new(),
+            generation,
+            topology: Some(topology),
+            reverse_imports: None,
+            product_request: SemanticProductRequest::default(),
+        }
+    }
+
+    /// Builds an input from interfaces already produced by the module pipeline.
+    /// The supplied interfaces are authoritative and are retained for semantic
+    /// analysis and topology construction without rebuilding them from source.
+    pub fn from_interfaces(
+        linked: Arc<LinkedProgram>,
+        sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+        interfaces: BTreeMap<ModuleId, Arc<phalcom_modules::interface::UnlinkedModuleInterface>>,
+        generation: u64,
+    ) -> Self {
+        let source_locations = sources
+            .iter()
+            .filter_map(|(module, unit)| unit.source.as_ref().map(|source| (module.clone(), source.clone())))
+            .collect();
+        let unlinked = interfaces.iter().map(|(module, interface)| (module.clone(), (**interface).clone())).collect();
         let topology = Arc::new(phalcom_modules::topology::ModuleTopology::from_parts(
             phalcom_modules::stabilization::ResolverGeneration(generation),
             &linked.universe,
@@ -213,6 +250,38 @@ mod tests {
         let input = SemanticWorkspaceInput::new(linked, BTreeMap::from([(module.clone(), parsed)]), 1);
 
         assert!(input.interfaces.contains_key(&module));
+        assert!(input.interfaces[&module].declarations.contains_key("Subject"));
+    }
+
+    #[test]
+    fn from_interfaces_retains_authoritative_products_without_rebuilding() {
+        let source: Arc<str> = Arc::from("class Subject {}\n");
+        let parsed = phalcom_ast::parse(&source, 0);
+        assert!(parsed.errors.is_empty());
+        let module = ModuleId::resolved(ResolvedProjectId::from_raw(2), ModulePath::root());
+        let interface = Arc::new(InterfaceBuilder::build(module.clone(), ModuleKind::Module, &parsed.program).expect("interface builds"));
+        let linked = Arc::new(
+            ModuleLinker::new(Arc::new(ProjectUniverse::new()), BTreeMap::from([(module.clone(), (*interface).clone())]))
+                .link(module.clone(), &BTreeMap::new())
+                .expect("module links"),
+        );
+        let parsed = Arc::new(ParsedModuleUnit::new(
+            module.clone(),
+            ModuleKind::Module,
+            None,
+            source,
+            Arc::new(parsed.program),
+        ));
+
+        let input = SemanticWorkspaceInput::from_interfaces(
+            linked,
+            BTreeMap::from([(module.clone(), parsed)]),
+            BTreeMap::from([(module.clone(), interface.clone())]),
+            4,
+        );
+
+        assert!(Arc::ptr_eq(&input.interfaces[&module], &interface));
+        assert!(input.topology.as_ref().unwrap().nodes.contains_key(&module));
         assert!(input.interfaces[&module].declarations.contains_key("Subject"));
     }
 }

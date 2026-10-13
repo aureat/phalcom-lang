@@ -128,7 +128,6 @@ impl SemanticPerfScope {
         #[cfg(not(feature = "perf-observability"))]
         let _ = (self, outcome);
     }
-
 }
 
 macro_rules! semantic_perf_scope {
@@ -258,7 +257,10 @@ pub struct SemanticUpdateStats {
 #[cfg(feature = "perf-observability")]
 fn record_committed_semantic_update_stats(stats: &SemanticUpdateStats) {
     semantic_perf_counter!(::telos_observability::PerfCounter::SemanticModulesRecomputed, stats.modules_recomputed);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticProjectGraphRebuilds, stats.project_graph_rebuilt as u64);
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticProjectGraphRebuilds,
+        stats.project_graph_rebuilt as u64
+    );
     semantic_perf_counter!(::telos_observability::PerfCounter::SemanticModulesRelinked, stats.modules_relinked);
     semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallablesRecomputed, stats.callables_recomputed);
     semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallablesReused, stats.callables_reused);
@@ -266,40 +268,109 @@ fn record_committed_semantic_update_stats(stats: &SemanticUpdateStats) {
         ::telos_observability::PerfCounter::SemanticStructureShardsRecomputed,
         stats.semantic_structure_shards_recomputed
     );
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticStructureShardsReused, stats.semantic_structure_shards_reused);
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticStructureShardsReused,
+        stats.semantic_structure_shards_reused
+    );
     semantic_perf_counter!(
         ::telos_observability::PerfCounter::SemanticDeclarationProductsRecomputed,
         stats.declaration_products_recomputed
     );
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticDeclarationProductsReused, stats.declaration_products_reused);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticHierarchyEdgesRecomputed, stats.hierarchy_edges_recomputed);
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticDeclarationProductsReused,
+        stats.declaration_products_reused
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticHierarchyEdgesRecomputed,
+        stats.hierarchy_edges_recomputed
+    );
     semantic_perf_counter!(::telos_observability::PerfCounter::SemanticHierarchyEdgesReused, stats.hierarchy_edges_reused);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticAliasRegionsRecomputed, stats.alias_regions_recomputed);
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticAliasRegionsRecomputed,
+        stats.alias_regions_recomputed
+    );
     semantic_perf_counter!(::telos_observability::PerfCounter::SemanticAliasRegionsReused, stats.alias_regions_reused);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticAliasDependencyNodesConsidered, stats.alias_dependency_nodes_considered);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableSignaturesRecomputed, stats.callable_signatures_recomputed);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableSignaturesReused, stats.callable_signatures_reused);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticFieldSignaturesRecomputed, stats.field_signatures_recomputed);
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticAliasDependencyNodesConsidered,
+        stats.alias_dependency_nodes_considered
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticCallableSignaturesRecomputed,
+        stats.callable_signatures_recomputed
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticCallableSignaturesReused,
+        stats.callable_signatures_reused
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticFieldSignaturesRecomputed,
+        stats.field_signatures_recomputed
+    );
     semantic_perf_counter!(::telos_observability::PerfCounter::SemanticFieldSignaturesReused, stats.field_signatures_reused);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodiesRecomputed, stats.callable_bodies_recomputed);
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticCallableBodiesRecomputed,
+        stats.callable_bodies_recomputed
+    );
     semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodiesReused, stats.callable_bodies_reused);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticQueryProductsRecomputed, stats.query_products_recomputed);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticQueryProductsRevalidated, stats.query_products_revalidated);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticExactNameProductsRecomputed, stats.exact_name_products_recomputed);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticExactNameProductsReused, stats.exact_name_products_reused);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticLinkedImportersConsidered, stats.linked_importers_considered);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticReverseCandidatesConsidered, stats.reverse_candidates_considered);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticDependentsRecomputed, stats.semantic_dependents_recomputed);
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticQueryProductsRecomputed,
+        stats.query_products_recomputed
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticQueryProductsRevalidated,
+        stats.query_products_revalidated
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticExactNameProductsRecomputed,
+        stats.exact_name_products_recomputed
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticExactNameProductsReused,
+        stats.exact_name_products_reused
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticLinkedImportersConsidered,
+        stats.linked_importers_considered
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticReverseCandidatesConsidered,
+        stats.reverse_candidates_considered
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticDependentsRecomputed,
+        stats.semantic_dependents_recomputed
+    );
     semantic_perf_counter!(::telos_observability::PerfCounter::SemanticDependentsReused, stats.semantic_dependents_reused);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SnapshotFullMapMaterializations, stats.snapshot_full_map_materializations);
-    semantic_perf_counter!(::telos_observability::PerfCounter::TypeStoreSnapshotDeepCopies, stats.type_store_snapshot_deep_copies);
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SnapshotFullMapMaterializations,
+        stats.snapshot_full_map_materializations
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::TypeStoreSnapshotDeepCopies,
+        stats.type_store_snapshot_deep_copies
+    );
     semantic_perf_counter!(::telos_observability::PerfCounter::SnapshotRootsRetained, stats.snapshot_roots_retained);
     semantic_perf_counter!(::telos_observability::PerfCounter::SnapshotRootsReplaced, stats.snapshot_roots_replaced);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticAdvisoryFlatteningOperations, stats.advisory_flattening_work);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticDiagnosticFrontierModulesConsidered, stats.diagnostic_frontier_work);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticSourceIndexesRecomputed, stats.source_indexes_recomputed);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticAdvisorySourcesRecomputed, stats.advisory_sources_recomputed);
-    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticAdvisoryCallablesRecomputed, stats.advisory_callables_recomputed);
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticAdvisoryFlatteningOperations,
+        stats.advisory_flattening_work
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticDiagnosticFrontierModulesConsidered,
+        stats.diagnostic_frontier_work
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticSourceIndexesRecomputed,
+        stats.source_indexes_recomputed
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticAdvisorySourcesRecomputed,
+        stats.advisory_sources_recomputed
+    );
+    semantic_perf_counter!(
+        ::telos_observability::PerfCounter::SemanticAdvisoryCallablesRecomputed,
+        stats.advisory_callables_recomputed
+    );
 }
 
 fn semantic_diagnostics_from_module_diagnostics(diagnostics: &[phalcom_modules::diagnostic::ModuleDiagnostic]) -> Vec<SemanticDiagnostic> {
@@ -331,7 +402,6 @@ enum CallableBodyPass {
     Downstream,
     CycleRetraction,
     ConformanceChange,
-    ModuleFacts,
 }
 
 impl CallableBodyPass {
@@ -340,7 +410,6 @@ impl CallableBodyPass {
             Self::Downstream => semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyDownstreamPassQueries, 1),
             Self::CycleRetraction => semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyCyclePassQueries, 1),
             Self::ConformanceChange => semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyConformancePassQueries, 1),
-            Self::ModuleFacts => semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyModulePassQueries, 1),
         }
     }
 }
@@ -910,7 +979,12 @@ impl SemanticWorkspaceSession {
 
     /// Creates a new workspace session for a specific workspace ID.
     pub fn with_workspace(workspace: WorkspaceId) -> Self {
-        Self::from_image(workspace, crate::canonical_image::canonical_universe_formal_image().expect("canonical Universe image must build").clone())
+        Self::from_image(
+            workspace,
+            crate::canonical_image::canonical_universe_formal_image()
+                .expect("canonical Universe image must build")
+                .clone(),
+        )
     }
 
     /// Selects the semantic products needed by subsequent module updates.
@@ -923,8 +997,7 @@ impl SemanticWorkspaceSession {
     /// Source overrides themselves are only constructible through the modules
     /// crate's test-support feature; normal production construction uses `new`.
     pub fn with_universe_source_provider(workspace: WorkspaceId, provider: phalcom_modules::UniverseSourceProvider) -> Self {
-        let image = crate::canonical_image::canonical_universe_formal_image_with_provider(&provider)
-            .expect("explicit canonical Universe image must build");
+        let image = crate::canonical_image::canonical_universe_formal_image_with_provider(&provider).expect("explicit canonical Universe image must build");
         Self::from_image(workspace, image)
     }
 
@@ -1305,7 +1378,9 @@ impl SemanticWorkspaceSession {
         let previous_store = self.store.clone();
         let previous_static_values = self.static_values.clone();
         if self.db.canonical_image().is_some() && input.sources.keys().any(|module| module.project.is_universe()) {
-            return Err(QueryOutcome::Failed("canonical Universe sources cannot enter a local workspace; use an explicit provider image".into()));
+            return Err(QueryOutcome::Failed(
+                "canonical Universe sources cannot enter a local workspace; use an explicit provider image".into(),
+            ));
         }
         let previous_structure_shards = self.semantic_structure_shards.clone();
         self.db.begin_transaction();
@@ -1315,8 +1390,9 @@ impl SemanticWorkspaceSession {
             Ok(update) => {
                 #[cfg(feature = "perf-observability")]
                 if self.canonical_image_bootstrap {
-                    ::telos_observability::PerfContext::current_thread()
-                        .with_span(::telos_observability::PerfPhase::CanonicalImageTransactionCommit, |_| self.db.commit_transaction());
+                    ::telos_observability::PerfContext::current_thread().with_span(::telos_observability::PerfPhase::CanonicalImageTransactionCommit, |_| {
+                        self.db.commit_transaction()
+                    });
                 } else {
                     self.db.commit_transaction();
                 }
@@ -2355,8 +2431,7 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        let mut hierarchy = aggregate_snapshot
-            .map_or_else(|| self.base_hierarchy.clone(), |snapshot| (*snapshot.hierarchy).clone());
+        let mut hierarchy = aggregate_snapshot.map_or_else(|| self.base_hierarchy.clone(), |snapshot| (*snapshot.hierarchy).clone());
         for declaration in &hierarchy_edge_work {
             hierarchy.remove_superclass(declaration);
         }
@@ -2516,8 +2591,14 @@ impl SemanticWorkspaceSession {
         let mut trait_associated_types: BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>> = BTreeMap::new();
         if let Some(canonical) = &canonical_snapshot {
             for (declaration, surface) in canonical.trait_surfaces.iter() {
-                trait_associated_types.insert(declaration.clone(), surface.associated_types.iter()
-                    .map(|(id, requirement)| (requirement.name.to_string(), id.clone())).collect());
+                trait_associated_types.insert(
+                    declaration.clone(),
+                    surface
+                        .associated_types
+                        .iter()
+                        .map(|(id, requirement)| (requirement.name.to_string(), id.clone()))
+                        .collect(),
+                );
             }
         }
         for (module, shard) in &self.semantic_structure_shards {
@@ -2710,8 +2791,8 @@ impl SemanticWorkspaceSession {
         // checking any alias or source type-member signature. Checked member
         // products are added to the resolver independently as the signature
         // dependency scheduler makes them available.
-        let mut associated_surfaces_table = aggregate_snapshot
-            .map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| (*snapshot.associated_surfaces).clone());
+        let mut associated_surfaces_table =
+            aggregate_snapshot.map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| (*snapshot.associated_surfaces).clone());
         let mut type_member_declarations_table = aggregate_snapshot.map_or_else(
             || self.base_type_member_declarations.clone(),
             |snapshot| (*snapshot.type_member_declarations).clone(),
@@ -2826,21 +2907,17 @@ impl SemanticWorkspaceSession {
         }
         resolver.update_static_case_catalogs(&static_case_catalogs);
         let static_case_sources = collect_static_case_sources(&self.semantic_structure_shards, &resolver, &static_case_catalogs);
-        let mut static_case_signatures_table = aggregate_snapshot
-            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.static_case_signatures).clone());
+        let mut static_case_signatures_table = aggregate_snapshot.map_or_else(BTreeMap::new, |snapshot| (*snapshot.static_case_signatures).clone());
         for case in &signature_case_work {
             static_case_signatures_table.remove(case);
         }
         resolver.update_static_case_signatures(&static_case_signatures_table);
         let mut blocked_declarations = BTreeSet::new();
-        let mut type_aliases = aggregate_snapshot
-            .map_or_else(TypeAliasTable::new, |snapshot| (*snapshot.type_aliases).clone());
-        let mut static_definitions_table = aggregate_snapshot
-            .map_or_else(StaticDefinitionTable::new, |snapshot| (*snapshot.static_definitions).clone());
-        let mut static_constants_table = aggregate_snapshot
-            .map_or_else(crate::static_constant::StaticConstantTable::new, |snapshot| {
-                (*snapshot.static_constants).clone()
-            });
+        let mut type_aliases = aggregate_snapshot.map_or_else(TypeAliasTable::new, |snapshot| (*snapshot.type_aliases).clone());
+        let mut static_definitions_table = aggregate_snapshot.map_or_else(StaticDefinitionTable::new, |snapshot| (*snapshot.static_definitions).clone());
+        let mut static_constants_table = aggregate_snapshot.map_or_else(crate::static_constant::StaticConstantTable::new, |snapshot| {
+            (*snapshot.static_constants).clone()
+        });
         for module in &structural_recomputed_modules {
             static_constants_table.remove_module(module);
         }
@@ -3986,9 +4063,7 @@ impl SemanticWorkspaceSession {
         // Trait surfaces are semantic contract products, not declaration
         // surfaces. Publish every member signature before any body-analysis
         // work so defaults cannot influence the contract shape they consume.
-        let mut trait_surfaces = aggregate_snapshot
-            .map(|snapshot| (*snapshot.trait_surfaces).clone())
-            .unwrap_or_default();
+        let mut trait_surfaces = aggregate_snapshot.map(|snapshot| (*snapshot.trait_surfaces).clone()).unwrap_or_default();
         for (module_id, shard) in &self.semantic_structure_shards {
             for stmt in &shard.source.program.statements {
                 let Statement::Trait(trait_def) = stmt else { continue };
@@ -4015,51 +4090,50 @@ impl SemanticWorkspaceSession {
         // formal surface, signature, or body query can consume it.
         let mut published_shells = BTreeSet::new();
         if canonical_snapshot.is_none() {
-        for (declaration, info) in self.base_declarations.iter() {
-            published_shells.insert(declaration.clone());
-            match query_declaration_shell(&mut self.db, Arc::new(TypeDeclarationShell::Nominal(info.clone()))) {
-                QueryOutcome::Ready(_) => {}
-                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            for (declaration, info) in self.base_declarations.iter() {
+                published_shells.insert(declaration.clone());
+                match query_declaration_shell(&mut self.db, Arc::new(TypeDeclarationShell::Nominal(info.clone()))) {
+                    QueryOutcome::Ready(_) => {}
+                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                }
             }
-        }
-        for (declaration, _) in self.base_declarations.iter() {
-            let surface = self
-                .base_dispatch
-                .surface(declaration)
-                .cloned()
-                .unwrap_or_else(|| crate::surface::DeclarationSurface::new(Some(declaration.clone())));
-            match query_bootstrap_declaration_surface(&mut self.db, declaration.clone(), Arc::new(surface)) {
-                QueryOutcome::Ready(_) => {}
-                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            for (declaration, _) in self.base_declarations.iter() {
+                let surface = self
+                    .base_dispatch
+                    .surface(declaration)
+                    .cloned()
+                    .unwrap_or_else(|| crate::surface::DeclarationSurface::new(Some(declaration.clone())));
+                match query_bootstrap_declaration_surface(&mut self.db, declaration.clone(), Arc::new(surface)) {
+                    QueryOutcome::Ready(_) => {}
+                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                }
             }
-        }
-        for (_, signature) in self.base_callable_signatures.iter() {
-            match query_bootstrap_callable_signature(&mut self.db, Arc::new(signature.clone())) {
-                QueryOutcome::Ready(_) => {}
-                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            for (_, signature) in self.base_callable_signatures.iter() {
+                match query_bootstrap_callable_signature(&mut self.db, Arc::new(signature.clone())) {
+                    QueryOutcome::Ready(_) => {}
+                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                }
             }
-        }
-        // Canonical source declarations (for example Duration) participate in
-        // tracked hierarchy dependencies just like native bootstrap classes.
-        for (class_decl, _) in self.base_declarations.iter() {
-            match query_bootstrap_hierarchy_edge(&mut self.db, class_decl.clone(), self.base_hierarchy.superclasses.get(class_decl).cloned()) {
-                QueryOutcome::Ready(_) => {}
-                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            // Canonical source declarations (for example Duration) participate in
+            // tracked hierarchy dependencies just like native bootstrap classes.
+            for (class_decl, _) in self.base_declarations.iter() {
+                match query_bootstrap_hierarchy_edge(&mut self.db, class_decl.clone(), self.base_hierarchy.superclasses.get(class_decl).cloned()) {
+                    QueryOutcome::Ready(_) => {}
+                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                }
             }
-        }
-
         }
         // Publish alias shells in dependency order so each edge records the
         // dependency's actual structural product fingerprint.
@@ -4132,6 +4206,55 @@ impl SemanticWorkspaceSession {
                 QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
                 QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
                 QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            }
+        }
+
+        // Keep exact public-export products current before bodies validate
+        // their observed namespace reads. Include cached absent names as well
+        // as currently published exports: an absent-to-present export must
+        // invalidate only the bodies that recorded that exact lookup.
+        let mut public_export_work = self
+            .db
+            .query_keys()
+            .filter_map(|key| match key {
+                QueryKey::PublicExport(module, name) if current_modules.contains(module) => Some((module.clone(), name.clone())),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        for (module, linked_module) in &input.linked.modules {
+            if current_modules.contains(module) {
+                public_export_work.extend(linked_module.interface.exports.keys().map(|name| (module.clone(), name.to_string())));
+            }
+        }
+        let observed_public_exports = public_export_work
+            .iter()
+            .map(|(module, name)| {
+                let key = QueryKey::PublicExport(module.clone(), name.clone());
+                (key.clone(), self.db.ready_product_fingerprint(&key))
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut changed_public_export_roots = BTreeSet::new();
+        for (module, name) in public_export_work {
+            let key = QueryKey::PublicExport(module.clone(), name.clone());
+            match crate::db::query::query_public_export(&mut self.db, module, name, &input.linked) {
+                QueryOutcome::Ready(_) => {
+                    if observed_public_exports.get(&key).copied().flatten() != self.db.ready_product_fingerprint(&key) {
+                        changed_public_export_roots.insert(key);
+                    }
+                }
+                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            }
+        }
+        for dependent in self.db.index().reverse_closure(changed_public_export_roots) {
+            if let QueryKey::CallableBody(callable) = dependent {
+                if current_modules.contains(callable.module()) {
+                    callable_body_work.insert(callable.clone());
+                    semantic_work_modules.insert(callable.module().clone());
+                    diagnostic_work_modules.insert(callable.module().clone());
+                }
             }
         }
 
@@ -4255,14 +4378,11 @@ impl SemanticWorkspaceSession {
         }
 
         // 6. Materialize compatibility dispatch/signature tables from DB-owned formal products.
-        let mut dispatch = aggregate_snapshot
-            .map_or_else(|| self.base_dispatch.clone(), |snapshot| (*snapshot.dispatch).clone());
-        let mut callable_signatures = aggregate_snapshot
-            .map_or_else(|| self.base_callable_signatures.clone(), |snapshot| (*snapshot.callable_signatures).clone());
-        let mut callable_definitions = aggregate_snapshot
-            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.callable_definitions).clone());
-        let mut field_signatures = aggregate_snapshot
-            .map_or_else(FieldSignatureTable::new, |snapshot| (*snapshot.field_signatures).clone());
+        let mut dispatch = aggregate_snapshot.map_or_else(|| self.base_dispatch.clone(), |snapshot| (*snapshot.dispatch).clone());
+        let mut callable_signatures =
+            aggregate_snapshot.map_or_else(|| self.base_callable_signatures.clone(), |snapshot| (*snapshot.callable_signatures).clone());
+        let mut callable_definitions = aggregate_snapshot.map_or_else(BTreeMap::new, |snapshot| (*snapshot.callable_definitions).clone());
+        let mut field_signatures = aggregate_snapshot.map_or_else(FieldSignatureTable::new, |snapshot| (*snapshot.field_signatures).clone());
         for callable in &retired_conformance_witnesses {
             callable_definitions.remove(callable);
             callable_signatures.remove(callable);
@@ -4329,7 +4449,9 @@ impl SemanticWorkspaceSession {
         // second owner of inferred return knowledge.
         let mut trait_default_callables = BTreeSet::new();
         for (owner, surface) in trait_surfaces.iter() {
-            if !current_modules.contains(&owner.module) { continue; }
+            if !current_modules.contains(&owner.module) {
+                continue;
+            }
             for (_, member) in surface.iter() {
                 if !member.default_present {
                     continue;
@@ -4399,8 +4521,7 @@ impl SemanticWorkspaceSession {
                 if blocked_declarations.contains(&decl_id) || !formal_declarations.contains(&decl_id) {
                     continue;
                 }
-                let field_signatures_scope =
-                    semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateFieldSignatures);
+                let field_signatures_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateFieldSignatures);
                 for member in &class_def.members {
                     let Some(field_id) = crate::checker::declaration_signature::field_id_for_member(&decl_id, member) else {
                         continue;
@@ -4510,8 +4631,7 @@ impl SemanticWorkspaceSession {
                 field_signatures_scope.finish(SemanticPerfOutcome::Success);
                 // Publish declaration-owned callable signatures first. Dispatch
                 // surfaces are compatibility projections of these facts.
-                let callable_signatures_scope =
-                    semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableSignatures);
+                let callable_signatures_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableSignatures);
                 for member in &class_def.members {
                     let Some(callable_id) = crate::checker::declaration_signature::callable_id_for_member(&decl_id, member) else {
                         continue;
@@ -4627,8 +4747,7 @@ impl SemanticWorkspaceSession {
                     }
                 }
                 callable_signatures_scope.finish(SemanticPerfOutcome::Success);
-                let declaration_surfaces_scope =
-                    semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateDeclarationSurfaces);
+                let declaration_surfaces_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateDeclarationSurfaces);
                 let mut delegation_context =
                     crate::checker::CheckingContext::new(Arc::make_mut(&mut self.store), &hierarchy, &resolver, &declarations, module_id.clone());
                 delegation_context.attach_field_signatures(&field_signatures);
@@ -4939,14 +5058,11 @@ impl SemanticWorkspaceSession {
         }
         // 6b. Compile and publish data declarations, enum declarations, associated surfaces, and closed-enum requirements.
         let data_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateData);
-        let mut data_semantics = aggregate_snapshot
-            .map_or_else(|| self.base_data_semantics.clone(), |snapshot| (*snapshot.data_semantics).clone());
-        let mut enum_semantics = aggregate_snapshot
-            .map_or_else(|| self.base_enum_semantics.clone(), |snapshot| (*snapshot.enum_semantics).clone());
-        let mut enum_requirements_table = aggregate_snapshot
-            .map_or_else(|| self.base_enum_requirements.clone(), |snapshot| (*snapshot.enum_requirements).clone());
-        let mut associated_static_domains_table = aggregate_snapshot
-            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.associated_static_domains).clone());
+        let mut data_semantics = aggregate_snapshot.map_or_else(|| self.base_data_semantics.clone(), |snapshot| (*snapshot.data_semantics).clone());
+        let mut enum_semantics = aggregate_snapshot.map_or_else(|| self.base_enum_semantics.clone(), |snapshot| (*snapshot.enum_semantics).clone());
+        let mut enum_requirements_table =
+            aggregate_snapshot.map_or_else(|| self.base_enum_requirements.clone(), |snapshot| (*snapshot.enum_requirements).clone());
+        let mut associated_static_domains_table = aggregate_snapshot.map_or_else(BTreeMap::new, |snapshot| (*snapshot.associated_static_domains).clone());
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             data_semantics.remove_module(module);
             enum_semantics.remove_module(module);
@@ -5068,9 +5184,7 @@ impl SemanticWorkspaceSession {
         let mut inherent_contributions_by_module: BTreeMap<ModuleId, Vec<crate::impls::InherentImplContribution>> = BTreeMap::new();
         let mut inherent_callable_record_key_projections: HashMap<(crate::identity::ImplId, usize), crate::static_key::ProjectedRecordKeySet<'_>> =
             HashMap::new();
-        let mut conformance_index = aggregate_snapshot
-            .map(|snapshot| (*snapshot.conformance_index).clone())
-            .unwrap_or_default();
+        let mut conformance_index = aggregate_snapshot.map(|snapshot| (*snapshot.conformance_index).clone()).unwrap_or_default();
         let mut conformance_witness_plans = aggregate_snapshot
             .map(|snapshot| (*snapshot.conformance_witness_plans).clone())
             .unwrap_or_default();
@@ -5323,7 +5437,7 @@ impl SemanticWorkspaceSession {
                                 if let Some(associated_plan) = source_associated_type_plan.take() {
                                     conformance_associated_type_plans.insert(contribution.impl_id.clone(), associated_plan);
                                 }
-                                conformance_index.insert(contribution);
+                                conformance_index.insert_with_store(context.store, contribution);
                             }
                             Ok(crate::impls::ResolvedConformanceDeclaration::GuardedRule(rule_head)) => {
                                 if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() && module_id.path.to_string().contains("collections.list") {
@@ -6427,12 +6541,185 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        let module_bodies_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateModuleBodies);
+        for (module_id, shard) in &self.semantic_structure_shards {
+            if !semantic_work_modules.contains(module_id) {
+                continue;
+            }
+            let parsed_unit = &shard.source;
+            let mut ctx = CheckingContext::new_with_dispatch_ref(
+                Arc::make_mut(&mut self.store),
+                &hierarchy,
+                &resolver,
+                &declarations,
+                &dispatch,
+                module_id.clone(),
+            );
+            ctx.set_caller_package(semantic_topology.owning_package(module_id));
+            ctx.set_access_topology(semantic_topology.as_ref());
+            ctx.attach_field_signatures(&field_signatures);
+            ctx.attach_field_lifecycle(&field_lifecycle);
+            ctx.attach_enum_semantics(&enum_semantics);
+            ctx.attach_data_semantics(&data_semantics);
+            ctx.attach_associated_families(&associated_surfaces_table);
+            ctx.attach_conformance_semantics(&conformance_semantics);
+
+            for stmt in &parsed_unit.program.statements {
+                match stmt {
+                    Statement::Class(class_def) => {
+                        let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                        if blocked_declarations.contains(&decl_id) {
+                            continue;
+                        }
+                        check_class_field_initializers(&mut ctx, class_def);
+                    }
+                    _ => {
+                        check_statement(&mut ctx, stmt);
+                    }
+                }
+            }
+
+            let body_range = parsed_unit.program.preamble.range;
+            let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
+            let callable_id = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
+            let analysis = ctx.finalize(callable_id.clone(), body_range, crate::checker::CallableAnalysisStatus::Complete);
+            callable_analyses.insert(callable_id, Arc::new(analysis));
+        }
+
+        // Module value exports are linker-owned public-name projections. Their
+        // value facts live in the canonical source binding index and must be
+        // available to ordinary top-level checking just like local bindings.
+        let module_value_exports = input
+            .linked
+            .modules
+            .iter()
+            .flat_map(|(module, linked_module)| {
+                linked_module.interface.exports.iter().filter_map(move |(name, export)| match &export.target {
+                    LinkedExportTarget::Binding(symbol) => Some(((module.clone(), name.to_string()), symbol.clone())),
+                    LinkedExportTarget::Module(_) => None,
+                })
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        // The first ordinary pass establishes local module binding facts. Seed
+        // a second pass from those canonical facts so imported values retain
+        // their exact structural type and denotation during normal checking.
+        let mut module_static_bindings = self
+            .semantic_structure_shards
+            .iter()
+            .filter_map(|(module_id, shard)| {
+                let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
+                let main_callable = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
+                let analysis = callable_analyses.get(&main_callable)?;
+                Some((
+                    module_id.clone(),
+                    Arc::new(crate::module_bindings::ModuleStaticBindingIndex::from_module_analysis(
+                        module_id,
+                        &shard.source.program,
+                        analysis,
+                    )),
+                ))
+            })
+            .collect::<BTreeMap<_, _>>();
+        if let Some(canonical) = &canonical_snapshot {
+            module_static_bindings.extend(canonical.module_static_bindings.iter().map(|(id, product)| (id.clone(), product.clone())));
+        }
+        for (module_id, linked_module) in &input.linked.modules {
+            let imported_facts = linked_module
+                .bindings
+                .imports
+                .iter()
+                .filter_map(|(local_name, import_id)| {
+                    let phalcom_modules::linker::LinkedReadSpec::Binding(symbol) = linked_module.linked_reads.get(import_id.0 as usize)? else {
+                        return None;
+                    };
+                    let fact = module_static_bindings.get(&symbol.module)?.get(symbol)?.clone();
+                    Some((local_name.to_string(), fact))
+                })
+                .collect::<Vec<_>>();
+            if let Some(bindings) = module_static_bindings.get_mut(module_id) {
+                for (local_name, fact) in imported_facts {
+                    Arc::make_mut(bindings).insert_imported_binding(&local_name, fact);
+                }
+            }
+        }
+        for (module_id, bindings) in module_static_bindings.clone() {
+            if !current_modules.contains(&module_id) {
+                continue;
+            }
+            let bindings = match crate::db::query::query_module_static_bindings(&mut self.db, bindings) {
+                QueryOutcome::Ready(product) => product,
+                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            };
+            module_static_bindings.insert(module_id, bindings);
+        }
+
+        for (module_id, shard) in &self.semantic_structure_shards {
+            if !semantic_work_modules.contains(module_id) {
+                continue;
+            }
+            let parsed_unit = &shard.source;
+            let mut ctx = CheckingContext::new_with_dispatch_ref(
+                Arc::make_mut(&mut self.store),
+                &hierarchy,
+                &resolver,
+                &declarations,
+                &dispatch,
+                module_id.clone(),
+            );
+            ctx.set_caller_package(semantic_topology.owning_package(module_id));
+            ctx.set_access_topology(semantic_topology.as_ref());
+            ctx.attach_module_value_exports(&module_static_bindings, &module_value_exports);
+            ctx.attach_field_signatures(&field_signatures);
+            ctx.attach_field_lifecycle(&field_lifecycle);
+            ctx.attach_enum_semantics(&enum_semantics);
+            ctx.attach_data_semantics(&data_semantics);
+            ctx.attach_associated_families(&associated_surfaces_table);
+            ctx.attach_conformance_semantics(&conformance_semantics);
+
+            if let Some(linked_module) = input.linked.modules.get(module_id) {
+                for (local_name, import_id) in &linked_module.bindings.imports {
+                    let Some(phalcom_modules::linker::LinkedReadSpec::Binding(symbol)) = linked_module.linked_reads.get(import_id.0 as usize) else {
+                        continue;
+                    };
+                    let Some(fact) = module_static_bindings.get(&symbol.module).and_then(|bindings| bindings.get(symbol)) else {
+                        continue;
+                    };
+                    ctx.declare_checked_binding(local_name.to_string(), &fact.state, fact.phase);
+                }
+            }
+
+            for stmt in &parsed_unit.program.statements {
+                match stmt {
+                    Statement::Class(class_def) => {
+                        let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                        if !blocked_declarations.contains(&decl_id) {
+                            check_class_field_initializers(&mut ctx, class_def);
+                        }
+                    }
+                    _ => {
+                        check_statement(&mut ctx, stmt);
+                    }
+                }
+            }
+
+            let body_range = parsed_unit.program.preamble.range;
+            let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
+            let callable_id = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
+            let analysis = ctx.finalize(callable_id.clone(), body_range, crate::checker::CallableAnalysisStatus::Complete);
+            callable_analyses.insert(callable_id, Arc::new(analysis));
+        }
+
+        module_bodies_scope.finish(SemanticPerfOutcome::Success);
+
         // Trait defaults are checked once against the complete abstract
         // contract. They receive the trait header directly instead of
         // looking for a nominal declaration entry, and their `Self` receiver
         // remains a semantic SelfType with no executable dispatch target.
-        let initial_bodies_scope =
-            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesInitial);
+        let initial_bodies_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesInitial);
         for (module_id, shard) in &self.semantic_structure_shards {
             let parsed_unit = &shard.source;
             for stmt in &parsed_unit.program.statements {
@@ -6490,7 +6777,10 @@ impl SemanticWorkspaceSession {
                         associated_families: Some(&associated_surfaces_table),
                         type_member_declarations: Some(&type_member_declarations_table),
                         conformance_semantics: Some(&conformance_semantics),
-                        module_values: None,
+                        module_values: Some(crate::module_bindings::ModuleValueEnvironment {
+                            bindings: &module_static_bindings,
+                            exports: &module_value_exports,
+                        }),
                     };
                     semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyInitialPassQueries, 1);
                     let outcome = query_callable_body_with_formal_inputs(
@@ -6642,7 +6932,10 @@ impl SemanticWorkspaceSession {
                                     associated_families: Some(&associated_surfaces_table),
                                     type_member_declarations: Some(&type_member_declarations_table),
                                     conformance_semantics: Some(&conformance_semantics),
-                                    module_values: None,
+                                    module_values: Some(crate::module_bindings::ModuleValueEnvironment {
+                                        bindings: &module_static_bindings,
+                                        exports: &module_value_exports,
+                                    }),
                                 };
 
                                 let forced = callable_body_work.contains(&callable_id);
@@ -6820,7 +7113,10 @@ impl SemanticWorkspaceSession {
                                     associated_families: Some(&associated_surfaces_table),
                                     type_member_declarations: Some(&type_member_declarations_table),
                                     conformance_semantics: Some(&conformance_semantics),
-                                    module_values: None,
+                                    module_values: Some(crate::module_bindings::ModuleValueEnvironment {
+                                        bindings: &module_static_bindings,
+                                        exports: &module_value_exports,
+                                    }),
                                 };
                                 let forced = callable_body_work.contains(&callable);
                                 if forced {
@@ -7027,7 +7323,10 @@ impl SemanticWorkspaceSession {
                                     associated_families: Some(&associated_surfaces_table),
                                     type_member_declarations: Some(&type_member_declarations_table),
                                     conformance_semantics: Some(&conformance_semantics),
-                                    module_values: None,
+                                    module_values: Some(crate::module_bindings::ModuleValueEnvironment {
+                                        bindings: &module_static_bindings,
+                                        exports: &module_value_exports,
+                                    }),
                                 };
 
                                 let forced = callable_body_work.contains(&callable_id);
@@ -7103,8 +7402,7 @@ impl SemanticWorkspaceSession {
 
         initial_bodies_scope.finish(SemanticPerfOutcome::Success);
 
-        let downstream_bodies_scope =
-            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesDownstream);
+        let downstream_bodies_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesDownstream);
         // Only a recomputed callable signature can publish a changed contract
         // to callers. A body-only recomputation with an unchanged declared
         // signature must stop at the provider.
@@ -7159,7 +7457,10 @@ impl SemanticWorkspaceSession {
                 associated_families: Some(&associated_surfaces_table),
                 type_member_declarations: Some(&type_member_declarations_table),
                 conformance_semantics: Some(&conformance_semantics),
-                module_values: None,
+                module_values: Some(crate::module_bindings::ModuleValueEnvironment {
+                    bindings: &module_static_bindings,
+                    exports: &module_value_exports,
+                }),
             };
             let has_declared_return = callable_signatures
                 .get_for_body(&callable)
@@ -7206,8 +7507,7 @@ impl SemanticWorkspaceSession {
         // 7. Retract stale inferred results for current unseeded direct cycles
         // before allowing the ordinary inferred-result refresh to consume
         // them. The returned SCC set is withheld from that generic loop.
-        let cycle_bodies_scope =
-            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesCycle);
+        let cycle_bodies_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesCycle);
         let (withheld_cycle_callables, cycle_reanalysis_roots) =
             retract_stale_unseeded_callable_result_cycles(&mut self.db, &callable_analyses, &mut callable_signatures, &mut dispatch)?;
         if !cycle_reanalysis_roots.is_empty() {
@@ -7266,7 +7566,10 @@ impl SemanticWorkspaceSession {
                 associated_families: Some(&associated_surfaces_table),
                 type_member_declarations: Some(&type_member_declarations_table),
                 conformance_semantics: Some(&reanalysis_conformance_semantics),
-                module_values: None,
+                module_values: Some(crate::module_bindings::ModuleValueEnvironment {
+                    bindings: &module_static_bindings,
+                    exports: &module_value_exports,
+                }),
             };
             for callable in &cycle_reanalysis_roots {
                 let Some(unit) = retained_sources.get(callable.module()) else {
@@ -7301,8 +7604,7 @@ impl SemanticWorkspaceSession {
         // interface publication iterate until return contracts stabilize.
         // During each iteration, we only run inference and update dispatch; we
         // do not run full checking or re-emit diagnostics.
-        let final_body_revalidation_scope =
-            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesFinalRevalidation);
+        let final_body_revalidation_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesFinalRevalidation);
         refresh_inferred_callable_results(InferredCallableRefreshInputs {
             db: &mut self.db,
             sources: &retained_sources,
@@ -7322,11 +7624,21 @@ impl SemanticWorkspaceSession {
             associated_surfaces: &associated_surfaces_table,
             topology: semantic_topology.as_ref(),
             callable_dispositions: &mut callable_dispositions,
-            semantic_work_modules: &semantic_work_modules,
             previous_callable_signatures: aggregate_snapshot.map(|snapshot| snapshot.callable_signatures.as_ref()),
             trait_default_callables: &trait_default_callables,
             conformance_semantics: &conformance_semantics,
             withheld_result_callables: &withheld_cycle_callables,
+            module_values: crate::module_bindings::ModuleValueEnvironment {
+                bindings: &module_static_bindings,
+                exports: &module_value_exports,
+            },
+            linked: &input.linked,
+            definitions: &callable_definitions,
+            type_aliases: &type_aliases,
+            type_members: &type_member_declarations_table,
+            import_products: &input.import_products,
+            source_resolution_input,
+            linked_component_product,
             budget,
             cancel,
         })?;
@@ -7398,8 +7710,7 @@ impl SemanticWorkspaceSession {
             .chain(changed_plan_clients)
             .filter(|callable| current_modules.contains(callable.module()))
             .collect::<BTreeSet<_>>();
-        let conformance_bodies_scope =
-            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesConformance);
+        let conformance_bodies_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateCallableBodiesConformance);
         if !affected_plan_clients.is_empty() {
             let reanalysis_signature_snapshot = callable_signatures.clone();
             let reanalysis_conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
@@ -7430,7 +7741,10 @@ impl SemanticWorkspaceSession {
                 associated_families: Some(&associated_surfaces_table),
                 type_member_declarations: Some(&type_member_declarations_table),
                 conformance_semantics: Some(&reanalysis_conformance_semantics),
-                module_values: None,
+                module_values: Some(crate::module_bindings::ModuleValueEnvironment {
+                    bindings: &module_static_bindings,
+                    exports: &module_value_exports,
+                }),
             };
             for callable in &affected_plan_clients {
                 let Some(unit) = retained_sources.get(callable.module()) else {
@@ -7459,7 +7773,7 @@ impl SemanticWorkspaceSession {
             }
         }
         conformance_bodies_scope.finish(SemanticPerfOutcome::Success);
-        let conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
+        let _conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
             trait_dispatch: &trait_dispatch_index,
             conformance_index: &conformance_index,
             witness_plans: &conformance_witness_plans,
@@ -7469,249 +7783,6 @@ impl SemanticWorkspaceSession {
         };
 
         final_body_revalidation_scope.finish(SemanticPerfOutcome::Success);
-        let module_bodies_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateModuleBodies);
-        for (module_id, shard) in &self.semantic_structure_shards {
-            if !semantic_work_modules.contains(module_id) {
-                continue;
-            }
-            let parsed_unit = &shard.source;
-            let mut ctx = CheckingContext::new_with_dispatch_ref(
-                Arc::make_mut(&mut self.store),
-                &hierarchy,
-                &resolver,
-                &declarations,
-                &dispatch,
-                module_id.clone(),
-            );
-            ctx.set_caller_package(semantic_topology.owning_package(module_id));
-            ctx.set_access_topology(semantic_topology.as_ref());
-            ctx.attach_field_signatures(&field_signatures);
-            ctx.attach_field_lifecycle(&field_lifecycle);
-            ctx.attach_enum_semantics(&enum_semantics);
-            ctx.attach_data_semantics(&data_semantics);
-            ctx.attach_associated_families(&associated_surfaces_table);
-            ctx.attach_conformance_semantics(&conformance_semantics);
-
-            for stmt in &parsed_unit.program.statements {
-                match stmt {
-                    Statement::Class(class_def) => {
-                        let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                        if blocked_declarations.contains(&decl_id) {
-                            continue;
-                        }
-                        check_class_field_initializers(&mut ctx, class_def);
-                    }
-                    _ => {
-                        check_statement(&mut ctx, stmt);
-                    }
-                }
-            }
-
-            let body_range = parsed_unit.program.preamble.range;
-            let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
-            let callable_id = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
-            let analysis = ctx.finalize(callable_id.clone(), body_range, crate::checker::CallableAnalysisStatus::Complete);
-            callable_analyses.insert(callable_id, Arc::new(analysis));
-        }
-
-        // Module value exports are linker-owned public-name projections. Their
-        // value facts live in the canonical source binding index and must be
-        // available to ordinary top-level checking just like local bindings.
-        let module_value_exports = input
-            .linked
-            .modules
-            .iter()
-            .flat_map(|(module, linked_module)| {
-                linked_module.interface.exports.iter().filter_map(move |(name, export)| match &export.target {
-                    LinkedExportTarget::Binding(symbol) => Some(((module.clone(), name.to_string()), symbol.clone())),
-                    LinkedExportTarget::Module(_) => None,
-                })
-            })
-            .collect::<BTreeMap<_, _>>();
-
-        // The first ordinary pass establishes local module binding facts. Seed
-        // a second pass from those canonical facts so imported values retain
-        // their exact structural type and denotation during normal checking.
-        let mut module_static_bindings = self
-            .semantic_structure_shards
-            .iter()
-            .filter_map(|(module_id, shard)| {
-                let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
-                let main_callable = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
-                let analysis = callable_analyses.get(&main_callable)?;
-                Some((
-                    module_id.clone(),
-                    Arc::new(crate::module_bindings::ModuleStaticBindingIndex::from_module_analysis(
-                        module_id,
-                        &shard.source.program,
-                        analysis,
-                    )),
-                ))
-            })
-            .collect::<BTreeMap<_, _>>();
-        if let Some(canonical) = &canonical_snapshot {
-            module_static_bindings.extend(canonical.module_static_bindings.iter().map(|(id, product)| (id.clone(), product.clone())));
-        }
-        for (module_id, linked_module) in &input.linked.modules {
-            let imported_facts = linked_module
-                .bindings
-                .imports
-                .iter()
-                .filter_map(|(local_name, import_id)| {
-                    let phalcom_modules::linker::LinkedReadSpec::Binding(symbol) = linked_module.linked_reads.get(import_id.0 as usize)? else {
-                        return None;
-                    };
-                    let fact = module_static_bindings.get(&symbol.module)?.get(symbol)?.clone();
-                    Some((local_name.to_string(), fact))
-                })
-                .collect::<Vec<_>>();
-            if let Some(bindings) = module_static_bindings.get_mut(module_id) {
-                for (local_name, fact) in imported_facts {
-                    Arc::make_mut(bindings).insert_imported_binding(&local_name, fact);
-                }
-            }
-        }
-        for (module_id, bindings) in module_static_bindings.clone() {
-            if !current_modules.contains(&module_id) { continue; }
-            let bindings = match crate::db::query::query_module_static_bindings(&mut self.db, bindings) {
-                QueryOutcome::Ready(product) => product,
-                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
-            };
-            module_static_bindings.insert(module_id, bindings);
-        }
-
-        for (module_id, shard) in &self.semantic_structure_shards {
-            if !semantic_work_modules.contains(module_id) {
-                continue;
-            }
-            let parsed_unit = &shard.source;
-            let mut ctx = CheckingContext::new_with_dispatch_ref(
-                Arc::make_mut(&mut self.store),
-                &hierarchy,
-                &resolver,
-                &declarations,
-                &dispatch,
-                module_id.clone(),
-            );
-            ctx.set_caller_package(semantic_topology.owning_package(module_id));
-            ctx.set_access_topology(semantic_topology.as_ref());
-            ctx.attach_module_value_exports(&module_static_bindings, &module_value_exports);
-            ctx.attach_field_signatures(&field_signatures);
-            ctx.attach_field_lifecycle(&field_lifecycle);
-            ctx.attach_enum_semantics(&enum_semantics);
-            ctx.attach_data_semantics(&data_semantics);
-            ctx.attach_associated_families(&associated_surfaces_table);
-            ctx.attach_conformance_semantics(&conformance_semantics);
-
-            if let Some(linked_module) = input.linked.modules.get(module_id) {
-                for (local_name, import_id) in &linked_module.bindings.imports {
-                    let Some(phalcom_modules::linker::LinkedReadSpec::Binding(symbol)) = linked_module.linked_reads.get(import_id.0 as usize) else {
-                        continue;
-                    };
-                    let Some(fact) = module_static_bindings.get(&symbol.module).and_then(|bindings| bindings.get(symbol)) else {
-                        continue;
-                    };
-                    ctx.declare_checked_binding(local_name.to_string(), &fact.state, fact.phase);
-                }
-            }
-
-            for stmt in &parsed_unit.program.statements {
-                match stmt {
-                    Statement::Class(class_def) => {
-                        let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                        if !blocked_declarations.contains(&decl_id) {
-                            check_class_field_initializers(&mut ctx, class_def);
-                        }
-                    }
-                    _ => {
-                        check_statement(&mut ctx, stmt);
-                    }
-                }
-            }
-
-            let body_range = parsed_unit.program.preamble.range;
-            let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
-            let callable_id = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
-            let analysis = ctx.finalize(callable_id.clone(), body_range, crate::checker::CallableAnalysisStatus::Complete);
-            callable_analyses.insert(callable_id, Arc::new(analysis));
-        }
-
-        // The top-level checker pass above publishes canonical checked module
-        // bindings. Revalidate declaration bodies against that same value
-        // environment so selective and qualified imports share one semantic
-        // owner and their exact dependencies are recorded on CallableBody.
-        let module_body_signature_snapshot = callable_signatures.clone();
-        let module_body_conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
-            trait_dispatch: &trait_dispatch_index,
-            conformance_index: &conformance_index,
-            witness_plans: &conformance_witness_plans,
-            trait_surfaces: &trait_surfaces,
-            derived_conformance_rules: &derived_conformance_rules,
-            callable_signatures: Some(&module_body_signature_snapshot),
-        };
-        let module_body_inputs = FormalQueryInputs {
-            sources: &retained_sources,
-            source_resolution_input,
-            linked_component_product,
-            linked: &input.linked,
-            topology: semantic_topology.as_ref(),
-            import_products: &input.import_products,
-            hierarchy: &hierarchy,
-            base_resolver: &resolver,
-            declarations: &declarations,
-            type_aliases: &type_aliases,
-            field_signatures: Some(&field_signatures),
-            field_lifecycle: Some(&field_lifecycle),
-            constructor_initializations: Some(&constructor_initializations),
-            callable_signatures: Some(&module_body_signature_snapshot),
-            data_semantics: Some(&data_semantics),
-            enum_semantics: Some(&enum_semantics),
-            associated_families: Some(&associated_surfaces_table),
-            type_member_declarations: Some(&type_member_declarations_table),
-            conformance_semantics: Some(&module_body_conformance_semantics),
-            module_values: Some(crate::module_bindings::ModuleValueEnvironment {
-                bindings: &module_static_bindings,
-                exports: &module_value_exports,
-            }),
-        };
-        let module_body_callables = callable_analyses.keys().cloned().collect::<BTreeSet<_>>();
-        for callable in module_body_callables {
-            let Some(unit) = retained_sources.get(callable.module()) else {
-                continue;
-            };
-            let definition = self
-                .db
-                .product(&QueryKey::CallableDefinition(callable.clone()))
-                .and_then(|product| product.as_callable_definition())
-                .cloned();
-            if callable_signatures.get(&callable).is_none() || source_body_for_callable(&callable, definition.as_deref(), unit).is_none() {
-                continue;
-            }
-            semantic_work_modules.insert(callable.module().clone());
-            diagnostic_work_modules.insert(callable.module().clone());
-            revalidate_downstream_callable_body(
-                &mut self.db,
-                &callable,
-                unit,
-                &module_body_inputs,
-                DownstreamCallableBodyState {
-                    pass: CallableBodyPass::ModuleFacts,
-                    definitions: &callable_definitions,
-                    store: Arc::make_mut(&mut self.store),
-                    hierarchy: &hierarchy,
-                    dispatch: &mut dispatch,
-                    callable_signatures: &mut callable_signatures,
-                    callable_analyses: &mut callable_analyses,
-                    callable_dispositions: &mut callable_dispositions,
-                    budget,
-                    cancel,
-                },
-            )?;
-        }
-        module_bodies_scope.finish(SemanticPerfOutcome::Success);
         let conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
             trait_dispatch: &trait_dispatch_index,
             conformance_index: &conformance_index,
@@ -7977,8 +8048,7 @@ impl SemanticWorkspaceSession {
                 .try_declaration_owner()
                 .is_none_or(|owner| owner.name.as_ref() == "<main>" || current_declarations.contains(owner))
         });
-        let formal_projection_scope =
-            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateFormalProjection);
+        let formal_projection_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateFormalProjection);
         let previous_formal = self.last_snapshot.as_ref().map(|s| s.formal_projection.as_ref());
         let mut formal_projection = previous_formal.cloned().unwrap_or_default();
         if previous_formal.is_none() {
@@ -8080,6 +8150,9 @@ impl SemanticWorkspaceSession {
                 ))
             })
             .collect::<BTreeMap<_, _>>();
+        if let Some(canonical) = &canonical_snapshot {
+            module_static_bindings.extend(canonical.module_static_bindings.iter().map(|(id, product)| (id.clone(), product.clone())));
+        }
         for (module_id, linked_module) in &input.linked.modules {
             let imported_facts = linked_module
                 .bindings
@@ -8100,6 +8173,9 @@ impl SemanticWorkspaceSession {
             }
         }
         for (module_id, module_bindings) in module_static_bindings.clone() {
+            if !current_modules.contains(&module_id) {
+                continue;
+            }
             let module_bindings = match crate::db::query::query_module_static_bindings(&mut self.db, module_bindings) {
                 QueryOutcome::Ready(product) => product,
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
@@ -8137,8 +8213,7 @@ impl SemanticWorkspaceSession {
             .filter(|(id, _)| current_modules.contains(&id.module))
             .map(|(id, product)| (id.clone(), product.clone()))
             .collect::<Vec<_>>();
-        let static_definitions_scope =
-            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateStaticDefinitions);
+        let static_definitions_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateStaticDefinitions);
         for (definition_id, definition_product) in static_definitions {
             let Some(module_bindings) = module_static_bindings.get(&definition_id.module) else {
                 return Err(QueryOutcome::Blocked(crate::types::outcome::BlockReason::SuppressedDependency));
@@ -8213,8 +8288,7 @@ impl SemanticWorkspaceSession {
             input_fingerprint: crate::db::key::InputFingerprint,
         }
 
-        let static_constants_scope =
-            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateStaticConstants);
+        let static_constants_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateStaticConstants);
         let mut constant_declarations: BTreeMap<crate::static_constant::StaticConstantId, ConstantDeclInfo<'_>> = BTreeMap::new();
         for module_id in &current_modules {
             let Some(catalog) = module_static_binding_catalogs.get(module_id) else {
@@ -8827,8 +8901,7 @@ impl SemanticWorkspaceSession {
         let trait_dispatch_index = crate::trait_dispatch::TraitDispatchIndex::build(&conformance_index, &trait_surfaces);
         #[cfg(test)]
         self.apply_test_candidate_type_parameter();
-        let snapshot_publication_scope =
-            semantic_perf_scope!(::telos_observability::PerfPhase::SemanticSnapshotPublication);
+        let snapshot_publication_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticSnapshotPublication);
         let mut snapshot_obj = SemanticSnapshot::new_with_callable_analyses(
             self.workspace,
             self.db.revision(),
@@ -12115,6 +12188,23 @@ fn source_body_for_callable<'a>(
     let owner = callable.declaration_owner();
     for (statement_index, statement) in unit.program.statements.iter().enumerate() {
         match statement {
+            Statement::Trait(trait_def) if owner.module == unit.id && owner.name.as_ref() == trait_def.name => {
+                for member in &trait_def.members {
+                    let Some(member) = member.behavior() else { continue };
+                    let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
+                    let candidate =
+                        crate::checker::declaration_signature::callable_id_for_syntax(&callable.owner, syntax, crate::semantic_shard::behavior_side(member));
+                    if candidate.as_ref() != Some(callable) {
+                        continue;
+                    }
+                    return match member {
+                        phalcom_ast::ast::BehaviorMember::Method(m) => Some((m.body.statements()?, m.range)),
+                        phalcom_ast::ast::BehaviorMember::Getter(m) => Some((m.body.statements()?, m.range)),
+                        phalcom_ast::ast::BehaviorMember::Setter(m) => Some((m.body.statements()?, m.range)),
+                        phalcom_ast::ast::BehaviorMember::Index(m) => Some((m.body.statements()?, m.range)),
+                    };
+                }
+            }
             Statement::Class(class_def) if callable.owner == crate::identity::CallableOwnerId::Declaration(owner.clone()) => {
                 let declaration = DeclarationId::new(unit.id.clone(), class_def.name.clone().into());
                 for member in &class_def.members {
@@ -12391,11 +12481,18 @@ struct InferredCallableRefreshInputs<'a> {
     associated_surfaces: &'a AssociatedFamilyTable,
     topology: &'a phalcom_modules::topology::ModuleTopology,
     callable_dispositions: &'a mut BTreeMap<CallableId, CallableRevisionDisposition>,
-    semantic_work_modules: &'a BTreeSet<ModuleId>,
     previous_callable_signatures: Option<&'a CallableSignatureTable>,
     trait_default_callables: &'a BTreeSet<CallableId>,
     conformance_semantics: &'a crate::trait_dispatch::ConformanceSemanticView<'a>,
     withheld_result_callables: &'a BTreeSet<CallableId>,
+    module_values: crate::module_bindings::ModuleValueEnvironment<'a>,
+    linked: &'a LinkedProgram,
+    definitions: &'a BTreeMap<CallableId, crate::impls::EffectiveCallableDefinition>,
+    type_aliases: &'a TypeAliasTable,
+    type_members: &'a BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+    import_products: &'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
+    source_resolution_input: crate::db::InputFingerprint,
+    linked_component_product: crate::db::ProductFingerprint,
     budget: QueryBudget,
     cancel: &'a CancellationToken,
 }
@@ -12536,6 +12633,15 @@ fn refresh_unresolved_callable_result_cycle_diagnostics(
 }
 
 fn callable_result_cycle_components(graph: &BTreeMap<CallableId, BTreeSet<CallableId>>) -> Vec<BTreeSet<CallableId>> {
+    let mut components = callable_result_sccs(graph)
+        .into_iter()
+        .filter(|component| component.len() > 1 || component.first().is_some_and(|node| graph.get(node).is_some_and(|edges| edges.contains(node))))
+        .collect::<Vec<_>>();
+    components.sort_by(|left, right| left.first().cmp(&right.first()));
+    components
+}
+
+fn callable_result_sccs(graph: &BTreeMap<CallableId, BTreeSet<CallableId>>) -> Vec<BTreeSet<CallableId>> {
     struct Tarjan<'a> {
         graph: &'a BTreeMap<CallableId, BTreeSet<CallableId>>,
         next: usize,
@@ -12576,9 +12682,7 @@ fn callable_result_cycle_components(graph: &BTreeMap<CallableId, BTreeSet<Callab
                     break;
                 }
             }
-            if component.len() > 1 || state.graph.get(&node).is_some_and(|dependencies| dependencies.contains(&node)) {
-                state.components.push(component);
-            }
+            state.components.push(component);
         }
     }
 
@@ -12596,19 +12700,39 @@ fn callable_result_cycle_components(graph: &BTreeMap<CallableId, BTreeSet<Callab
             visit(node.clone(), &mut state);
         }
     }
-    state.components.sort_by(|left, right| left.first().cmp(&right.first()));
     state.components
 }
 
-fn same_published_return_contract(left: &crate::types::evidence::TypeKnowledge, right: &crate::types::evidence::TypeKnowledge) -> bool {
-    match (left, right) {
-        (crate::types::evidence::TypeKnowledge::Known(left), crate::types::evidence::TypeKnowledge::Known(right)) => {
-            left.ty() == right.ty() && left.status() == right.status() && left.origin() == right.origin()
-        }
-        (crate::types::evidence::TypeKnowledge::Unknown(left), crate::types::evidence::TypeKnowledge::Unknown(right)) => left == right,
-        (crate::types::evidence::TypeKnowledge::Dynamic(left), crate::types::evidence::TypeKnowledge::Dynamic(right)) => left == right,
-        _ => false,
+/// A private projection of the authoritative published signature, never a
+/// second result authority. Canonical TypeIds already encode specialization.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CallableResultContract(crate::db::ProductFingerprint);
+
+impl CallableResultContract {
+    fn of(signature: &CallableSemanticSignature) -> Self {
+        let mut hasher = DefaultHasher::new();
+        crate::db::fingerprint::hash_type_knowledge(&signature.published_return_knowledge(), false, &mut hasher);
+        Self(crate::db::ProductFingerprint::new(hasher.finish()))
     }
+}
+
+fn result_dependency_graph(
+    analyses: &HashMap<CallableId, Arc<crate::checker::CallableAnalysis>>,
+    signatures: &CallableSignatureTable,
+) -> BTreeMap<CallableId, BTreeSet<CallableId>> {
+    analyses
+        .iter()
+        .filter(|(id, _)| signatures.get_for_body(id).is_some())
+        .map(|(id, analysis)| {
+            let dependencies = analysis
+                .dependencies
+                .iter()
+                .filter(|dependency| analyses.contains_key(*dependency) && signatures.get_for_body(dependency).is_some())
+                .cloned()
+                .collect();
+            (id.clone(), dependencies)
+        })
+        .collect()
 }
 
 fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) -> Result<(), QueryOutcome<()>> {
@@ -12631,244 +12755,278 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
         associated_surfaces,
         topology,
         callable_dispositions,
-        semantic_work_modules,
         previous_callable_signatures,
         trait_default_callables,
         conformance_semantics,
         withheld_result_callables,
+        module_values,
+        linked,
+        definitions,
+        type_aliases,
+        type_members,
+        import_products,
+        source_resolution_input,
+        linked_component_product,
         budget,
         cancel,
     } = inputs;
-    let max_iterations = callable_analyses.len().saturating_add(1).max(1);
-    let mut recomputed_in_prev_iteration = HashSet::new();
+    let mut graph = result_dependency_graph(callable_analyses, callable_signatures);
+    let mut consumers = BTreeMap::<CallableId, BTreeSet<CallableId>>::new();
+    for (id, dependencies) in &graph {
+        for dependency in dependencies {
+            consumers.entry(dependency.clone()).or_default().insert(id.clone());
+        }
+    }
+    let mut pending = BTreeSet::new();
+    let mut contracts = BTreeMap::new();
 
-    for iteration in 0..max_iterations {
+    // Summarize existing products once. Source recomputation alone is not a
+    // result change: unchanged contracts must not fan out to their consumers.
+    for callable in graph.keys() {
+        let Some(signature) = callable_signatures.get_for_body(callable) else {
+            continue;
+        };
+        let signature_id = signature.callable.clone();
+        let old = previous_callable_signatures
+            .and_then(|table| table.get(&signature_id))
+            .map(CallableResultContract::of)
+            .unwrap_or_else(|| CallableResultContract::of(signature));
+        if !withheld_result_callables.contains(callable) {
+            publish_callable_result(db, callable, store, dispatch, callable_signatures, callable_analyses, trait_default_callables)?;
+        }
+        let current = CallableResultContract::of(callable_signatures.get_for_body(callable).unwrap());
+        contracts.insert(callable.clone(), current);
+        if old != current {
+            pending.extend(consumers.get(callable).into_iter().flatten().cloned());
+        }
+    }
+    pending.retain(|callable| !withheld_result_callables.contains(callable));
+    let mut components = callable_result_sccs(&graph);
+    let mut executions = 0u64;
+    let mut cyclic_executions = BTreeMap::<CallableId, u32>::new();
+    while !pending.is_empty() {
         if cancel.is_cancelled() {
             return Err(QueryOutcome::Cancelled);
         }
-
-        let mut changed_callables = if iteration == 0 {
-            callable_dispositions
-                .iter()
-                .filter_map(|(callable, disposition)| {
-                    (*disposition == CallableRevisionDisposition::Recomputed
-                        && callable_signatures
-                            .get_for_body(callable)
-                            .is_some_and(|signature| signature.declared_return.is_unknown()))
-                    .then_some(callable.clone())
-                })
-                .collect()
-        } else {
-            HashSet::new()
-        };
-
-        for (callable, analysis) in callable_analyses.iter() {
-            if withheld_result_callables.contains(callable) {
-                // Unseeded direct-result SCC members were reanalyzed once
-                // after inferred-only signatures were retracted. Their
-                // results must not re-enter the generic publication loop.
-                continue;
-            }
-            let Some(signature) = callable_signatures.get_for_body(callable) else {
-                continue;
-            };
-            let signature_id = signature.callable.clone();
-            if signature_id.try_declaration_owner().is_none() {
-                // Conformance witnesses have no inherent dispatch surface;
-                // their body proof must not update target-owned return data.
-                continue;
-            }
-
-            let old_public = if iteration == 0 {
-                previous_callable_signatures
-                    .and_then(|previous| previous.get(&signature_id))
-                    .map(CallableSemanticSignature::published_return_knowledge)
-                    .unwrap_or_else(|| signature.published_return_knowledge())
-            } else {
-                signature.published_return_knowledge()
-            };
-
-            let Some(signature_mut) = callable_signatures.get_mut(&signature_id) else {
-                continue;
-            };
-
-            if signature_mut.return_validation != analysis.return_validation {
-                signature_mut.return_validation = analysis.return_validation;
-            }
-
-            if signature_mut.declared_return.is_unknown() {
-                let summary = normal_return_summary(store, &analysis.exits.normal_returns);
-                signature_mut.inferred_return = publishable_inferred_return(analysis.status, summary);
-            }
-
-            let new_public = signature_mut.published_return_knowledge();
-            if trait_default_callables.contains(&signature_id) {
-                let updated_signature = Arc::new(signature_mut.clone());
-                match query_bootstrap_callable_signature(db, updated_signature) {
-                    QueryOutcome::Ready(_) => {}
-                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
-                }
-            }
-            let _ = dispatch.update_callable_return_type(&signature_id, new_public.clone());
-
-            if !same_published_return_contract(&old_public, &new_public)
-                || (recomputed_in_prev_iteration.contains(callable) && signature_mut.declared_return.is_unknown())
-            {
-                changed_callables.insert(callable.clone());
-            }
-        }
-
-        if changed_callables.is_empty() {
+        // Tarjan emits dependency SCCs before their consumers. Rebuild this
+        // schedule only after a body actually discovers a different edge set.
+        let Some(component) = components.iter().find(|component| component.iter().any(|id| pending.contains(id))).cloned() else {
             break;
-        }
-
-        let mut recomputed_in_this_iteration = HashSet::new();
-        let refreshed_conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
-            trait_dispatch: conformance_semantics.trait_dispatch,
-            conformance_index: conformance_semantics.conformance_index,
-            witness_plans: conformance_semantics.witness_plans,
-            trait_surfaces: conformance_semantics.trait_surfaces,
-            derived_conformance_rules: conformance_semantics.derived_conformance_rules,
-            callable_signatures: Some(callable_signatures),
         };
-
-        // Recheck only bodies that consume a newly published return contract.
-        // This deliberately bypasses the source-surface query cache: that
-        // cache owns the pre-inference unknown contract, while this pass is
-        // producing the current revision's inferred contract. Unrelated
-        // callable products remain pointer-stable for incremental reuse.
-        for (module_id, parsed_unit) in sources {
-            if !semantic_work_modules.contains(module_id) {
+        let selected = component.iter().filter(|id| pending.remove(*id)).cloned().collect::<Vec<_>>();
+        for callable in selected {
+            if withheld_result_callables.contains(&callable) {
                 continue;
             }
-            for stmt in &parsed_unit.program.statements {
-                let Statement::Class(class_def) = stmt else {
-                    continue;
-                };
-                let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                let type_params_map = if let Some(sig) = declarations.generic_signature(&decl_id) {
-                    let mut map = std::collections::HashMap::new();
-                    for &param_id in sig.parameters.iter() {
-                        let name = store.type_parameter(param_id).name.to_string();
-                        let binding = type_level_binding_for_parameter(store, param_id);
-                        map.insert(name, binding);
-                    }
-                    map
-                } else {
-                    std::collections::HashMap::new()
-                };
-                let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
-                    parent: resolver,
-                    type_parameters: type_params_map,
-                };
-
-                for member in &class_def.members {
-                    let side = match member {
-                        ClassMember::Method(m) if m.is_constructor || m.attributes.iter().any(|a| a.name == "constructor") => {
-                            crate::identity::DispatchSide::Instance
-                        }
-                        _ => crate::checker::declaration::member_side(member),
-                    };
-                    let (selector_opt, body_opt, range_opt) = match member {
-                        ClassMember::Method(m) => {
-                            let slots = m
-                                .params
-                                .iter()
-                                .filter(|p| p.rest_mode == phalcom_ast::ast::RestMode::None)
-                                .map(|p| {
-                                    if let Some(ref label) = p.label {
-                                        if label == "_" {
-                                            phalcom_common::selector::SelectorSlot::Positional
-                                        } else {
-                                            phalcom_common::selector::SelectorSlot::Label(label.clone())
-                                        }
-                                    } else {
-                                        phalcom_common::selector::SelectorSlot::Positional
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            (Selector::method(&m.name, slots).ok(), m.body.statements(), Some(m.range))
-                        }
-                        ClassMember::Getter(g) => (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range)),
-                        ClassMember::Setter(s) => (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range)),
-                        _ => (None, None, None),
-                    };
-
-                    let (Some(selector), Some(body), Some(range)) = (selector_opt, body_opt, range_opt) else {
-                        continue;
-                    };
-                    let callable = crate::identity::CallableId::new(decl_id.clone(), selector, side);
-                    if withheld_result_callables.contains(&callable) {
-                        continue;
-                    }
-                    let affected = callable_analyses
-                        .get(&callable)
-                        .is_some_and(|analysis| analysis.dependencies.iter().any(|dependency| changed_callables.contains(dependency)));
-                    let inferred_return = callable_signatures
-                        .get_for_body(&callable)
-                        .is_some_and(|signature| signature.declared_return.is_unknown());
-                    if !affected || !inferred_return {
-                        continue;
-                    }
-                    let declared_signature = callable_signatures.get_for_body(&callable).map(|signature| (&signature.callable, signature));
-                    semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyFinalReanalysis, 1);
-                    let mut analysis = crate::checker::body::analyze_callable_body(
-                        crate::checker::body::BodyAnalysisContext {
-                            store,
-                            hierarchy,
-                            resolver: &scoped_resolver,
-                            declarations,
-                            dispatch,
-                            trait_surface: None,
-                            conformance_semantics: Some(&refreshed_conformance_semantics),
-                            module: module_id.clone(),
-                            caller_package: Some(topology.owning_package(module_id)),
-                            access_topology: Some(topology),
-                            module_values: None,
-                            linked_module: None,
-                        },
-                        crate::checker::body::CallableBodyRequest {
-                            callable: callable.clone(),
-                            body,
-                            body_range: range,
-                            owner_generic_signature: None,
-                            receiver_value_override: None,
-                            instance_self_override: None,
-                            declared_signature,
-                            budget,
-                            cancel,
-                            field_signatures: Some(field_signatures),
-                            field_lifecycle: Some(field_lifecycle),
-                            constructor_initializations: Some(constructor_initializations),
-                            callable_signatures: Some(&*callable_signatures),
-                            enum_semantics: Some(enum_semantics),
-                            data_semantics: Some(data_semantics),
-                            associated_families: Some(associated_surfaces),
-                            conformance_semantics: None,
-                        },
-                    );
-                    analysis.dependency_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);
-                    let stable_previous = previous_callable_analyses
-                        .and_then(|analyses| analyses.get(&callable))
-                        .or_else(|| callable_analyses.get(&callable));
-                    let replacement = match stable_previous {
-                        Some(previous) if previous.dependency_fingerprint == analysis.dependency_fingerprint => previous.clone(),
-                        _ => Arc::new(analysis),
-                    };
-                    callable_analyses.insert(callable.clone(), replacement.clone());
-                    db.update_callable_body_product(&callable, replacement);
-                    callable_dispositions.insert(callable.clone(), CallableRevisionDisposition::Recomputed);
-                    recomputed_in_this_iteration.insert(callable);
+            executions = executions.saturating_add(1);
+            if executions > budget.max_steps {
+                return Err(QueryOutcome::BudgetExceeded(crate::db::BudgetReport::new(
+                    crate::db::BudgetKind::Steps,
+                    budget.max_steps,
+                    executions,
+                )));
+            }
+            let cyclic = component.len() > 1 || graph.get(&callable).is_some_and(|dependencies| dependencies.contains(&callable));
+            if cyclic {
+                let iterations = cyclic_executions.entry(callable.clone()).or_default();
+                *iterations = iterations.saturating_add(1);
+                if *iterations > budget.max_scc_iterations {
+                    return Err(QueryOutcome::BudgetExceeded(crate::db::BudgetReport::new(
+                        crate::db::BudgetKind::SccIterations,
+                        budget.max_scc_iterations as u64,
+                        *iterations as u64,
+                    )));
                 }
             }
+            let Some(unit) = sources.get(callable.module()) else { continue };
+            let definition = definitions.get(&callable);
+            let Some((body, range)) = source_body_for_callable(&callable, definition, unit) else {
+                continue;
+            };
+            let body_context = definition.and_then(|definition| definition.inherent_body_context.as_ref());
+            let owner_signature = body_context
+                .and_then(|context| context.generic_signature.as_ref())
+                .or_else(|| callable.try_declaration_owner().and_then(|owner| declarations.generic_signature(owner)));
+            let mut type_parameters = HashMap::new();
+            if let Some(generics) = owner_signature {
+                for &parameter in generics.parameters.iter() {
+                    type_parameters.insert(
+                        store.type_parameter(parameter).name.to_string(),
+                        type_level_binding_for_parameter(store, parameter),
+                    );
+                }
+            }
+            let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
+                parent: resolver,
+                type_parameters,
+            };
+            let signature = callable_signatures.get_for_body(&callable).cloned();
+            let Some(signature) = signature else { continue };
+            let signature_id = signature.callable.clone();
+            let body_signature = body_context
+                .map(|context| context.signature_for_body(store, declarations, signature.clone()))
+                .transpose()
+                .map_err(|error| QueryOutcome::Failed(format!("result settlement specialization failed: {error:?}")))?
+                .unwrap_or(signature);
+            let surface = callable
+                .try_declaration_owner()
+                .and_then(|owner| conformance_semantics.trait_surfaces.get(owner));
+            let view = crate::trait_dispatch::ConformanceSemanticView {
+                callable_signatures: Some(&*callable_signatures),
+                ..*conformance_semantics
+            };
+            semantic_perf_counter!(::telos_observability::PerfCounter::SemanticCallableBodyFinalReanalysis, 1);
+            let mut analysis = crate::checker::body::analyze_callable_body(
+                crate::checker::body::BodyAnalysisContext {
+                    store,
+                    hierarchy,
+                    resolver: &scoped_resolver,
+                    declarations,
+                    dispatch,
+                    trait_surface: surface.map(|v| &**v),
+                    conformance_semantics: Some(&view),
+                    module: callable.module().clone(),
+                    caller_package: Some(topology.owning_package(callable.module())),
+                    access_topology: Some(topology),
+                    module_values: Some(module_values),
+                    linked_module: linked.modules.get(callable.module()),
+                },
+                crate::checker::body::CallableBodyRequest {
+                    callable: callable.clone(),
+                    body,
+                    body_range: range,
+                    owner_generic_signature: owner_signature,
+                    receiver_value_override: body_context.and_then(|context| context.runtime_receiver_override(callable.side)),
+                    instance_self_override: body_context.map(|context| context.instance_self_override()),
+                    declared_signature: Some((&signature_id, &body_signature)),
+                    budget,
+                    cancel,
+                    field_signatures: Some(field_signatures),
+                    field_lifecycle: Some(field_lifecycle),
+                    constructor_initializations: Some(constructor_initializations),
+                    callable_signatures: Some(&*callable_signatures),
+                    enum_semantics: Some(enum_semantics),
+                    data_semantics: Some(data_semantics),
+                    associated_families: Some(associated_surfaces),
+                    conformance_semantics: Some(&view),
+                },
+            );
+            match analysis.status {
+                crate::checker::CallableAnalysisStatus::Cancelled => return Err(QueryOutcome::Cancelled),
+                crate::checker::CallableAnalysisStatus::BudgetExceeded => {
+                    return Err(QueryOutcome::BudgetExceeded(crate::db::BudgetReport::new(
+                        crate::db::BudgetKind::Steps,
+                        budget.max_steps,
+                        budget.max_steps,
+                    )));
+                }
+                crate::checker::CallableAnalysisStatus::Blocked => return Err(QueryOutcome::Blocked(crate::types::outcome::BlockReason::SuppressedDependency)),
+                _ => {}
+            }
+            analysis.dependency_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);
+            let stable_previous = previous_callable_analyses
+                .and_then(|analyses| analyses.get(&callable))
+                .or_else(|| callable_analyses.get(&callable));
+            let replacement = match stable_previous {
+                Some(previous) if previous.dependency_fingerprint == analysis.dependency_fingerprint => previous.clone(),
+                _ => Arc::new(analysis),
+            };
+            callable_analyses.insert(callable.clone(), replacement.clone());
+            let key = QueryKey::CallableBody(callable.clone());
+            let formal = FormalQueryInputs {
+                sources,
+                source_resolution_input,
+                linked_component_product,
+                linked,
+                topology,
+                import_products,
+                hierarchy,
+                base_resolver: resolver,
+                declarations,
+                type_aliases,
+                field_signatures: Some(field_signatures),
+                field_lifecycle: Some(field_lifecycle),
+                constructor_initializations: Some(constructor_initializations),
+                callable_signatures: Some(&*callable_signatures),
+                enum_semantics: Some(enum_semantics),
+                data_semantics: Some(data_semantics),
+                associated_families: Some(associated_surfaces),
+                type_member_declarations: Some(type_members),
+                conformance_semantics: Some(&view),
+                module_values: Some(module_values),
+            };
+            let edges = match crate::db::query::callable_analysis_dependencies(db, &key, &replacement, Some(&formal), store, declarations) {
+                QueryOutcome::Ready(edges) => edges,
+                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            };
+            db.update_callable_body_product(&callable, replacement, edges);
+            callable_dispositions.insert(callable.clone(), CallableRevisionDisposition::Recomputed);
+            publish_callable_result(db, &callable, store, dispatch, callable_signatures, callable_analyses, trait_default_callables)?;
+            let current = CallableResultContract::of(callable_signatures.get_for_body(&callable).unwrap());
+            // Rebuild only the touched graph row, including newly discovered
+            // edges. General invalidation remains exclusively in SemanticDb.
+            let dependencies = callable_analyses[&callable]
+                .dependencies
+                .iter()
+                .filter(|dependency| graph.contains_key(*dependency))
+                .cloned()
+                .collect();
+            if graph.get(&callable) != Some(&dependencies) {
+                if let Some(old) = graph.get(&callable) {
+                    for dependency in old {
+                        if let Some(clients) = consumers.get_mut(dependency) {
+                            clients.remove(&callable);
+                        }
+                    }
+                }
+                for dependency in &dependencies {
+                    consumers.entry(dependency.clone()).or_default().insert(callable.clone());
+                }
+                graph.insert(callable.clone(), dependencies);
+                components = callable_result_sccs(&graph);
+            }
+            if contracts.insert(callable.clone(), current) != Some(current) {
+                pending.extend(
+                    consumers
+                        .get(&callable)
+                        .into_iter()
+                        .flatten()
+                        .filter(|id| !withheld_result_callables.contains(*id))
+                        .cloned(),
+                );
+            }
         }
-
-        recomputed_in_prev_iteration = recomputed_in_this_iteration;
     }
+    Ok(())
+}
 
+fn publish_callable_result(
+    db: &mut SemanticDb,
+    callable: &CallableId,
+    store: &mut TypeStore,
+    dispatch: &mut SurfaceDispatchResolver,
+    signatures: &mut CallableSignatureTable,
+    analyses: &HashMap<CallableId, Arc<crate::checker::CallableAnalysis>>,
+    trait_defaults: &BTreeSet<CallableId>,
+) -> Result<(), QueryOutcome<()>> {
+    let Some(signature) = signatures.get_for_body(callable) else { return Ok(()) };
+    let id = signature.callable.clone();
+    if id.try_declaration_owner().is_none() {
+        return Ok(());
+    }
+    let Some(analysis) = analyses.get(callable) else { return Ok(()) };
+    let Some(signature) = signatures.get_mut(&id) else { return Ok(()) };
+    signature.return_validation = analysis.return_validation;
+    if signature.declared_return.is_unknown() {
+        signature.inferred_return = publishable_inferred_return(analysis.status, normal_return_summary(store, &analysis.exits.normal_returns));
+    }
+    if trait_defaults.contains(&id) {
+        ready_or_error(query_bootstrap_callable_signature(db, Arc::new(signature.clone())))?;
+    }
+    dispatch.update_callable_return_type(&id, signature.published_return_knowledge());
     Ok(())
 }
 
@@ -12903,7 +13061,12 @@ fn publish_conformance_witness_plans(
 ) -> Result<BTreeSet<crate::identity::ImplId>, QueryOutcome<()>> {
     let mut changed_plans = BTreeSet::new();
     for (impl_id, contribution) in conformance_index.iter() {
-        if db.canonical_image().is_some_and(|image| image.snapshot().conformance_witness_plans.contains_key(impl_id)) { continue; }
+        // The completed image owns universe conformances immutably. A local
+        // conformance may still augment the same trait/target search space, so
+        // image membership alone is not sufficient grounds to skip it.
+        if contribution.source_module.project.is_universe() {
+            continue;
+        }
         if !contribution.is_lookup_eligible() {
             continue;
         }
@@ -13098,6 +13261,7 @@ fn publish_conformance_witness_plans(
             hierarchy,
             surface,
             callable_signatures,
+            requirement_views,
             conformance_witness_bodies,
             conformance_witness_visibilities,
             &invalid_requirements,

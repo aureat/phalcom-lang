@@ -694,11 +694,20 @@ impl SemanticDb {
         Ok(())
     }
 
-    pub fn update_callable_body_product(&mut self, callable: &crate::identity::CallableId, analysis: Arc<crate::checker::CallableAnalysis>) {
+    pub fn update_callable_body_product(
+        &mut self,
+        callable: &crate::identity::CallableId,
+        analysis: Arc<crate::checker::CallableAnalysis>,
+        dependencies: Vec<crate::db::DependencyEdge>,
+    ) {
         let key = QueryKey::CallableBody(callable.clone());
         self.remember_query_state(&key);
         self.remember_query_products(&key);
         self.remember_last_known_good(&key);
+        let canonical_image = self.canonical.clone();
+        self.index.replace_dependencies_with_leaves(key.clone(), dependencies, |dependency| {
+            canonical_image.as_ref().is_some_and(|image| image.query_image().entry(dependency).is_some())
+        });
         let fp = analysis.dependency_fingerprint;
         let query_value = crate::db::product::SemanticProduct::CallableBody(analysis.clone()).to_query_value();
         if let Some(QueryState::Ready {

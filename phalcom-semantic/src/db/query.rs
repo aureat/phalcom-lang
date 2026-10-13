@@ -1805,9 +1805,7 @@ fn ensure_semantic_dependency_current(
         }
         crate::checker::analysis::SemanticDependency::TraitHeader(declaration) => {
             let key = QueryKey::TraitHeader(declaration.clone());
-            if db.is_current(&key)
-                && db.product(&key).and_then(|product| product.as_trait_header()).is_some()
-            {
+            if db.is_current(&key) && db.product(&key).and_then(|product| product.as_trait_header()).is_some() {
                 QueryOutcome::Ready(())
             } else {
                 QueryOutcome::Blocked(BlockReason::SuppressedDependency)
@@ -2777,10 +2775,7 @@ pub fn query_callable_signature_with_inputs(
         .product(&QueryKey::CallableDefinition(callable.clone()))
         .and_then(|product| product.as_callable_definition())
         .cloned();
-    if !db.is_current(&key)
-        && record_key_projections.is_none()
-        && callable_source_has_computed_record_key(&unit, &callable, effective_definition.as_deref())
-    {
+    if !db.is_current(&key) && record_key_projections.is_none() && callable_source_has_computed_record_key(&unit, &callable, effective_definition.as_deref()) {
         return QueryOutcome::Blocked(BlockReason::UnavailableSemanticOwner(key));
     }
     let projected_resolver = match signature_projection_resolver(resolver, record_key_projections, &key) {
@@ -3678,7 +3673,6 @@ fn query_callable_body_with_requirement(
                 instance_self_override,
                 trait_surface,
                 conformance_semantics: formal_inputs.and_then(|inputs| inputs.conformance_semantics),
-                has_module_value_environment: formal_inputs.is_some_and(|inputs| inputs.module_values.is_some()),
             },
         ),
         None => crate::db::fingerprint::callable_body_input_fingerprint_with_owner_generics(&callable, body, body_range, store, owner_generic_signature),
@@ -3786,51 +3780,13 @@ fn query_callable_body_with_requirement(
         // test fixtures enforce fail-fast policy by asserting the incident
         // collection is empty.
         CallableAnalysisStatus::Complete | CallableAnalysisStatus::Partial | CallableAnalysisStatus::InternalFailure(_) => {
-            let mut recorder = crate::db::DependencyRecorder::new(key.clone());
-            if db.product(&QueryKey::CallableDefinition(callable.clone())).is_some()
-                && let Err(error) = db.record_dependency(&mut recorder, QueryKey::CallableDefinition(callable.clone()))
-            {
-                return query_failure(db, key, error);
-            }
-            for sem_dep in arc_analysis.semantic_dependencies.iter() {
-                let outcome = if let Some(inputs) = formal_inputs {
-                    ensure_formal_semantic_dependency_current(db, sem_dep, inputs, store)
-                } else {
-                    ensure_semantic_dependency_current(db, sem_dep, None, declarations, None, None)
-                };
-                match &outcome {
-                    QueryOutcome::Ready(()) => {}
-                    QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
-                    QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report.clone()),
-                    QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason.clone()),
-                    QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure.clone()),
-                }
-                let dependency = semantic_dependency_query_key(sem_dep);
-                if let crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) = sem_dep {
-                    if let Some(inputs) = formal_inputs {
-                        if let Some(view) = inputs.conformance_semantics {
-                            let Some(fingerprint) = view.fingerprint_for(impl_id) else {
-                                return query_failure(db, key, format!("missing current conformance view for {dependency:?}"));
-                            };
-                            recorder.record(dependency, fingerprint);
-                            continue;
-                        }
-                    }
-                }
-                if let crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket_key) = sem_dep {
-                    if let Some(inputs) = formal_inputs {
-                        if let Some(view) = inputs.conformance_semantics {
-                            let fingerprint = view.bucket_fingerprint(bucket_key);
-                            recorder.record(dependency, fingerprint);
-                            continue;
-                        }
-                    }
-                }
-                if let Err(error) = db.record_dependency(&mut recorder, dependency) {
-                    return query_failure(db, key, error);
-                }
-            }
-            let deps = recorder.finish();
+            let deps = match callable_analysis_dependencies(db, &key, &arc_analysis, formal_inputs, store, declarations) {
+                QueryOutcome::Ready(deps) => deps,
+                QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+                QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+                QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+                QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+            };
             if let Err(error) = publish_current_product(
                 db,
                 key.clone(),
@@ -3844,6 +3800,65 @@ fn query_callable_body_with_requirement(
             QueryOutcome::Ready(arc_analysis)
         }
     }
+}
+
+/// Shared dependency publication for initial analysis and result settlement.
+/// Recomputed bodies replace their observed edges rather than inheriting a
+/// previous body's dynamic dependency set.
+pub(crate) fn callable_analysis_dependencies(
+    db: &mut SemanticDb,
+    key: &QueryKey,
+    arc_analysis: &Arc<CallableAnalysis>,
+    formal_inputs: Option<&FormalQueryInputs<'_>>,
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+) -> QueryOutcome<Vec<DependencyEdge>> {
+    let key = key.clone();
+    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+    if db.product(&QueryKey::CallableDefinition(arc_analysis.callable.clone())).is_some()
+        && let Err(error) = db.record_dependency(&mut recorder, QueryKey::CallableDefinition(arc_analysis.callable.clone()))
+    {
+        return query_failure(db, key, error);
+    }
+    for sem_dep in arc_analysis.semantic_dependencies.iter() {
+        let outcome = if let Some(inputs) = formal_inputs {
+            ensure_formal_semantic_dependency_current(db, sem_dep, inputs, store)
+        } else {
+            ensure_semantic_dependency_current(db, sem_dep, None, declarations, None, None)
+        };
+        match &outcome {
+            QueryOutcome::Ready(()) => {}
+            QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+            QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report.clone()),
+            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason.clone()),
+            QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure.clone()),
+        }
+        let dependency = semantic_dependency_query_key(sem_dep);
+        if let crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) = sem_dep {
+            if let Some(inputs) = formal_inputs {
+                if let Some(view) = inputs.conformance_semantics {
+                    let Some(fingerprint) = view.fingerprint_for(impl_id) else {
+                        return query_failure(db, key, format!("missing current conformance view for {dependency:?}"));
+                    };
+                    recorder.record(dependency, fingerprint);
+                    continue;
+                }
+            }
+        }
+        if let crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket_key) = sem_dep {
+            if let Some(inputs) = formal_inputs {
+                if let Some(view) = inputs.conformance_semantics {
+                    let fingerprint = view.bucket_fingerprint(bucket_key);
+                    recorder.record(dependency, fingerprint);
+                    continue;
+                }
+            }
+        }
+        if let Err(error) = db.record_dependency(&mut recorder, dependency) {
+            return query_failure(db, key, error);
+        }
+    }
+    QueryOutcome::Ready(recorder.finish())
 }
 
 #[cfg(test)]

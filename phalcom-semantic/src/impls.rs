@@ -1964,6 +1964,10 @@ pub fn build_conformance_witness_plan(
     hierarchy: &dyn TypeHierarchy,
     trait_surface: &crate::traits::TraitSurface,
     callable_signatures: &crate::signature::CallableSignatureTable,
+    // Candidate discovery owns structural requirement construction. Completion
+    // consumes that same normalized view, so result-sensitive completion does
+    // not repeat it.
+    requirement_views: BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
     bodyful_callables: &BTreeSet<CallableId>,
     witness_visibilities: &BTreeMap<CallableId, MemberVisibility>,
     invalid_explicit_requirements: &BTreeSet<crate::traits::TraitRequirementId>,
@@ -1978,22 +1982,6 @@ pub fn build_conformance_witness_plan(
     trait_surfaces: &TraitSurfaceTable,
     all_associated_type_plans: &BTreeMap<ImplId, ConformanceAssociatedTypePlan>,
 ) -> ConformanceWitnessPlan {
-    let mut requirement_views = instantiate_conformance_requirements_with_signatures(
-        store,
-        Some(declarations),
-        trait_surface,
-        &contribution.trait_ref,
-        contribution.target_head,
-        &HashMap::new(),
-        callable_signatures,
-    );
-    normalize_source_requirement_views(
-        store,
-        &contribution.trait_ref,
-        contribution.target_head,
-        &associated_type_plan,
-        &mut requirement_views,
-    );
     let mut requirements = BTreeMap::new();
     let mut failures = Vec::new();
     let mut terminal_state = None;
@@ -2877,6 +2865,10 @@ fn specialize_inherent_applicability(
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConformanceIndex {
     contributions: BTreeMap<ImplId, ConformanceContribution>,
+    by_trait: BTreeMap<DeclarationId, BTreeSet<ImplId>>,
+    by_trait_family: BTreeMap<DeclarationId, BTreeMap<DeclarationId, BTreeSet<ImplId>>>,
+    open_by_trait: BTreeMap<DeclarationId, BTreeSet<ImplId>>,
+    family_by_impl: BTreeMap<ImplId, DeclarationId>,
 }
 
 impl ConformanceIndex {
@@ -2885,15 +2877,66 @@ impl ConformanceIndex {
     }
 
     pub fn insert(&mut self, contribution: ConformanceContribution) {
-        self.contributions.insert(contribution.impl_id.clone(), contribution);
+        self.insert_classified(contribution, None);
+    }
+
+    /// Inserts a head using its resolved type shape to classify closed nominal
+    /// families. Store-free callers remain conservative and use the open bucket.
+    pub fn insert_with_store(&mut self, store: &TypeStore, contribution: ConformanceContribution) {
+        let family = nominal_conformance_family(store, contribution.target_head)
+            .filter(|family| *family == contribution.target.declaration())
+            .cloned();
+        self.insert_classified(contribution, family);
+    }
+
+    fn insert_classified(&mut self, contribution: ConformanceContribution, family: Option<DeclarationId>) {
+        self.remove(&contribution.impl_id);
+        let impl_id = contribution.impl_id.clone();
+        let trait_declaration = contribution.trait_ref.declaration.clone();
+        self.by_trait.entry(trait_declaration.clone()).or_default().insert(impl_id.clone());
+        match family {
+            Some(family) => {
+                self.by_trait_family
+                    .entry(trait_declaration.clone())
+                    .or_default()
+                    .entry(family.clone())
+                    .or_default()
+                    .insert(impl_id.clone());
+                self.family_by_impl.insert(impl_id.clone(), family);
+            }
+            None => {
+                self.open_by_trait.entry(trait_declaration).or_default().insert(impl_id.clone());
+            }
+        }
+        self.contributions.insert(impl_id, contribution);
     }
 
     pub fn remove(&mut self, impl_id: &ImplId) {
-        self.contributions.remove(impl_id);
+        let Some(contribution) = self.contributions.remove(impl_id) else { return };
+        let trait_declaration = &contribution.trait_ref.declaration;
+        remove_index_member(&mut self.by_trait, trait_declaration, impl_id);
+        if let Some(family) = self.family_by_impl.remove(impl_id) {
+            if let Some(families) = self.by_trait_family.get_mut(trait_declaration) {
+                remove_index_member(families, &family, impl_id);
+                if families.is_empty() {
+                    self.by_trait_family.remove(trait_declaration);
+                }
+            }
+        } else {
+            remove_index_member(&mut self.open_by_trait, trait_declaration, impl_id);
+        }
     }
 
     pub fn remove_source(&mut self, module: &crate::identity::ModuleId) {
-        self.contributions.retain(|impl_id, _| &impl_id.module != module);
+        let source_impls = self
+            .contributions
+            .keys()
+            .filter(|impl_id| &impl_id.module == module)
+            .cloned()
+            .collect::<Vec<_>>();
+        for impl_id in source_impls {
+            self.remove(&impl_id);
+        }
     }
 
     pub fn get(&self, impl_id: &ImplId) -> Option<&ConformanceContribution> {
@@ -2910,7 +2953,9 @@ impl ConformanceIndex {
     pub fn query_exact(&self, store: &mut TypeStore, target: TypeId, trait_ref: &TraitRef) -> Vec<ConformanceHeadMatch> {
         let mut matches = Vec::new();
         let mut candidates_considered = 0u64;
-        for contribution in self.contributions.values() {
+        let candidates = self.candidates_for_query(store, target, &trait_ref.declaration);
+        for impl_id in candidates {
+            let Some(contribution) = self.contributions.get(&impl_id) else { continue };
             if !contribution.is_lookup_eligible() {
                 continue;
             }
@@ -2967,33 +3012,346 @@ impl ConformanceIndex {
     /// Returns pairs of eligible source heads whose joint target and trait
     /// patterns overlap. No precedence or specialization rule is applied.
     pub fn overlap_conflicts(&self, store: &mut TypeStore) -> Vec<(ImplId, ImplId)> {
-        let contributions = self
+        let mut conflicts = Vec::new();
+        let mut candidate_pairs = BTreeSet::new();
+        for trait_declaration in self.by_trait.keys() {
+            let open = self.open_by_trait.get(trait_declaration);
+            if let Some(families) = self.by_trait_family.get(trait_declaration) {
+                for ids in families.values() {
+                    add_index_pairs(&mut candidate_pairs, ids, ids);
+                    if let Some(open) = open {
+                        add_index_pairs(&mut candidate_pairs, open, ids);
+                    }
+                }
+            }
+            if let Some(open) = open {
+                add_index_pairs(&mut candidate_pairs, open, open);
+            }
+        }
+        for (first_id, second_id) in candidate_pairs {
+            let (Some(first), Some(second)) = (self.contributions.get(&first_id), self.contributions.get(&second_id)) else {
+                continue;
+            };
+            if !first.is_lookup_eligible() || !second.is_lookup_eligible() || first.trait_ref.arguments.len() != second.trait_ref.arguments.len() {
+                continue;
+            }
+            let mut bindings = HashMap::new();
+            if !unify_conformance_head(store, first.target_head, second.target_head, &mut bindings) {
+                continue;
+            }
+            if first
+                .trait_ref
+                .arguments
+                .iter()
+                .zip(second.trait_ref.arguments.iter())
+                .all(|(&left, &right)| unify_conformance_head(store, left, right, &mut bindings))
+            {
+                conflicts.push((first_id, second_id));
+            }
+        }
+        conflicts
+    }
+
+    fn candidates_for_query(&self, store: &TypeStore, target: TypeId, trait_declaration: &DeclarationId) -> Vec<ImplId> {
+        let Some(by_trait) = self.by_trait.get(trait_declaration) else {
+            return Vec::new();
+        };
+        let Some(family) = nominal_conformance_family(store, target) else {
+            return by_trait.iter().cloned().collect();
+        };
+
+        let mut candidates = self
+            .open_by_trait
+            .get(trait_declaration)
+            .into_iter()
+            .flat_map(|ids| ids.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        if let Some(fixed) = self.by_trait_family.get(trait_declaration).and_then(|families| families.get(family)) {
+            candidates.extend(fixed.iter().cloned());
+        }
+        candidates.into_iter().collect()
+    }
+}
+
+fn nominal_conformance_family(store: &TypeStore, mut ty: TypeId) -> Option<&DeclarationId> {
+    loop {
+        match store.get(ty) {
+            TypeData::Nominal { declaration } => return Some(declaration),
+            TypeData::Applied { origin, .. } => ty = *origin,
+            _ => return None,
+        }
+    }
+}
+
+fn remove_index_member<K: Ord>(index: &mut BTreeMap<K, BTreeSet<ImplId>>, key: &K, impl_id: &ImplId) {
+    if let Some(ids) = index.get_mut(key) {
+        ids.remove(impl_id);
+        if ids.is_empty() {
+            index.remove(key);
+        }
+    }
+}
+
+fn add_index_pairs(pairs: &mut BTreeSet<(ImplId, ImplId)>, left: &BTreeSet<ImplId>, right: &BTreeSet<ImplId>) {
+    for first in left {
+        for second in right {
+            if first == second {
+                continue;
+            }
+            let (first, second) = if first < second { (first, second) } else { (second, first) };
+            pairs.insert((first.clone(), second.clone()));
+        }
+    }
+}
+
+#[cfg(test)]
+mod conformance_index_partition_tests {
+    use super::{
+        ConformanceContribution, ConformanceHeadMatch, ConformanceIndex, ConformanceTarget, SemanticSourceSpan, TraitRef, match_impl_domain_head,
+        unify_conformance_head,
+    };
+    use crate::identity::{DeclarationId, ImplId, ImplLocalId, ModuleId, VariantId};
+    use crate::types::id::KindId;
+    use crate::types::parameter::{TypeParameterData, TypeParameterOwner};
+    use crate::types::store::{TypeData, TypeStore};
+    use phalcom_common::selector::Selector;
+    use phalcom_modules::identity::{ModulePath, ResolvedProjectId};
+    use std::collections::{BTreeSet, HashMap};
+
+    fn module(project: u32) -> ModuleId {
+        ModuleId::resolved(ResolvedProjectId::from_raw(project), ModulePath::root())
+    }
+
+    fn declaration(module: &ModuleId, name: &str) -> DeclarationId {
+        DeclarationId::new(module.clone(), name.into())
+    }
+
+    fn implementation(module: &ModuleId, local: u32) -> ImplId {
+        ImplId::new(module.clone(), ImplLocalId(local))
+    }
+
+    fn contribution(
+        impl_id: ImplId,
+        trait_declaration: DeclarationId,
+        target: ConformanceTarget,
+        target_head: crate::types::id::TypeId,
+    ) -> ConformanceContribution {
+        ConformanceContribution {
+            source_module: impl_id.module.clone(),
+            source: SemanticSourceSpan::new(impl_id.module.clone(), phalcom_common::range::SourceRange::default()),
+            impl_id,
+            trait_ref: TraitRef::new(trait_declaration, Vec::new().into_boxed_slice()),
+            target,
+            target_head,
+            generic_signature: None,
+            authorized: true,
+            eligible: true,
+            diagnostics: Box::new([]),
+        }
+    }
+
+    fn brute_query(index: &ConformanceIndex, store: &mut TypeStore, target: crate::types::id::TypeId, trait_ref: &TraitRef) -> Vec<ImplId> {
+        let mut matches = Vec::<ConformanceHeadMatch>::new();
+        for contribution in index.contributions.values() {
+            if !contribution.is_lookup_eligible()
+                || contribution.trait_ref.declaration != trait_ref.declaration
+                || contribution.trait_ref.arguments.len() != trait_ref.arguments.len()
+            {
+                continue;
+            }
+            let mut bindings = HashMap::new();
+            if !match_impl_domain_head(store, contribution.target_head, target, &contribution.impl_id, &mut bindings) {
+                continue;
+            }
+            if contribution
+                .trait_ref
+                .arguments
+                .iter()
+                .zip(trait_ref.arguments.iter())
+                .all(|(&head, &actual)| match_impl_domain_head(store, head, actual, &contribution.impl_id, &mut bindings))
+            {
+                matches.push(ConformanceHeadMatch {
+                    impl_id: contribution.impl_id.clone(),
+                    exact_target: target,
+                    exact_trait_ref: trait_ref.clone(),
+                    impl_bindings: bindings,
+                });
+            }
+        }
+        matches.into_iter().map(|matched| matched.impl_id).collect()
+    }
+
+    fn brute_overlaps(index: &ConformanceIndex, store: &mut TypeStore) -> Vec<(ImplId, ImplId)> {
+        let contributions = index
             .contributions
             .values()
             .filter(|contribution| contribution.is_lookup_eligible())
             .collect::<Vec<_>>();
         let mut conflicts = Vec::new();
-        for (index, first) in contributions.iter().enumerate() {
-            for second in contributions.iter().skip(index + 1) {
+        for (position, first) in contributions.iter().enumerate() {
+            for second in contributions.iter().skip(position + 1) {
                 if first.trait_ref.declaration != second.trait_ref.declaration || first.trait_ref.arguments.len() != second.trait_ref.arguments.len() {
                     continue;
                 }
                 let mut bindings = HashMap::new();
-                if !unify_conformance_head(store, first.target_head, second.target_head, &mut bindings) {
-                    continue;
-                }
-                if first
-                    .trait_ref
-                    .arguments
-                    .iter()
-                    .zip(second.trait_ref.arguments.iter())
-                    .all(|(&left, &right)| unify_conformance_head(store, left, right, &mut bindings))
+                if unify_conformance_head(store, first.target_head, second.target_head, &mut bindings)
+                    && first
+                        .trait_ref
+                        .arguments
+                        .iter()
+                        .zip(second.trait_ref.arguments.iter())
+                        .all(|(&left, &right)| unify_conformance_head(store, left, right, &mut bindings))
                 {
                     conflicts.push((first.impl_id.clone(), second.impl_id.clone()));
                 }
             }
         }
         conflicts
+    }
+
+    fn assert_matches_brute(index: &ConformanceIndex, store: &TypeStore, targets: &[(crate::types::id::TypeId, TraitRef)]) {
+        for (target, trait_ref) in targets {
+            let mut indexed_store = store.clone();
+            let mut brute_store = store.clone();
+            let indexed = index
+                .query_exact(&mut indexed_store, *target, trait_ref)
+                .into_iter()
+                .map(|matched| matched.impl_id)
+                .collect::<Vec<_>>();
+            let brute = brute_query(index, &mut brute_store, *target, trait_ref);
+            assert_eq!(indexed, brute, "indexed query diverged for target {target:?} and trait {trait_ref:?}");
+        }
+        let mut indexed_store = store.clone();
+        let mut brute_store = store.clone();
+        assert_eq!(index.overlap_conflicts(&mut indexed_store), brute_overlaps(index, &mut brute_store));
+    }
+
+    #[test]
+    fn partitions_queries_and_coherence_match_brute_force_through_mutations() {
+        let source_a = module(31);
+        let source_b = module(32);
+        let trait_module = module(33);
+        let trait_declaration = declaration(&trait_module, "Tagged");
+        let other_trait = declaration(&trait_module, "Other");
+        let family_a = declaration(&module(34), "A");
+        let family_b = declaration(&module(35), "B");
+        let enum_family = declaration(&module(36), "Choice");
+        let mut store = TypeStore::new();
+        let a = store.nominal_type(family_a.clone());
+        let b = store.nominal_type(family_b.clone());
+        let choice = store.nominal_type(enum_family.clone());
+        let variant = VariantId::new(enum_family.clone(), Selector::method("Some", []).expect("selector"));
+        let exact_case = store.exact_case_type(&variant, choice).expect("exact enum case type");
+        let bool_ty = store.nominal_type(declaration(&ModuleId::universe_root(), "Bool"));
+
+        let generic_family = declaration(&module(37), "Box");
+        let generic_kind = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+        let generic_form = store.nominal_form(generic_family.clone(), generic_kind);
+        let applied = store.apply_type_form(generic_form, &[bool_ty]).expect("Box<Bool> type");
+        assert!(matches!(store.get(applied), TypeData::Applied { .. }));
+
+        let a_one = implementation(&source_a, 1);
+        let a_duplicate = implementation(&source_a, 2);
+        let b_one = implementation(&source_b, 1);
+        let case_one = implementation(&source_b, 2);
+        let other_trait_impl = implementation(&source_b, 3);
+        let applied_one = implementation(&source_a, 3);
+        let blanket_impl = implementation(&source_b, 4);
+        let blanket_parameter = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Impl(blanket_impl.clone()), 0, "T", KindId::TYPE));
+        let blanket_head = store.parameter_form(blanket_parameter);
+        let mut index = ConformanceIndex::new();
+        index.insert_with_store(
+            &store,
+            contribution(a_one.clone(), trait_declaration.clone(), ConformanceTarget::Declaration(family_a.clone()), a),
+        );
+        index.insert_with_store(
+            &store,
+            contribution(
+                a_duplicate.clone(),
+                trait_declaration.clone(),
+                ConformanceTarget::Declaration(family_a.clone()),
+                a,
+            ),
+        );
+        index.insert_with_store(
+            &store,
+            contribution(b_one.clone(), trait_declaration.clone(), ConformanceTarget::Declaration(family_b.clone()), b),
+        );
+        index.insert(contribution(
+            case_one.clone(),
+            trait_declaration.clone(),
+            ConformanceTarget::ExactEnumCase(variant.clone()),
+            exact_case,
+        ));
+        index.insert(contribution(
+            blanket_impl.clone(),
+            trait_declaration.clone(),
+            ConformanceTarget::Declaration(declaration(&module(38), "Generic")),
+            blanket_head,
+        ));
+        index.insert_with_store(
+            &store,
+            contribution(other_trait_impl, other_trait, ConformanceTarget::Declaration(family_a.clone()), a),
+        );
+        index.insert_with_store(
+            &store,
+            contribution(
+                applied_one.clone(),
+                trait_declaration.clone(),
+                ConformanceTarget::Declaration(generic_family.clone()),
+                applied,
+            ),
+        );
+
+        let trait_ref = TraitRef::new(trait_declaration.clone(), Vec::new().into_boxed_slice());
+        let other_trait_ref = TraitRef::new(declaration(&trait_module, "Other"), Vec::new().into_boxed_slice());
+        let targets = [
+            (a, trait_ref.clone()),
+            (b, trait_ref.clone()),
+            (exact_case, trait_ref.clone()),
+            (applied, trait_ref.clone()),
+            (a, other_trait_ref),
+        ];
+        assert_matches_brute(&index, &store, &targets);
+        assert_eq!(
+            index.candidates_for_query(&store, a, &trait_declaration).into_iter().collect::<BTreeSet<_>>(),
+            BTreeSet::from([a_one.clone(), a_duplicate.clone(), case_one.clone(), blanket_impl.clone()]),
+            "nominal queries include their family and open heads only from the matching trait bucket"
+        );
+        assert_eq!(
+            index
+                .candidates_for_query(&store, exact_case, &trait_declaration)
+                .into_iter()
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                a_one.clone(),
+                a_duplicate.clone(),
+                b_one.clone(),
+                case_one.clone(),
+                applied_one.clone(),
+                blanket_impl.clone()
+            ]),
+            "nonnominal query types conservatively fall back to the full trait bucket"
+        );
+        assert_eq!(
+            index.query_exact(&mut store.clone(), a, &trait_ref).len(),
+            3,
+            "exact duplicate heads and blanket head keep distinct impl identities"
+        );
+
+        index.insert_with_store(
+            &store,
+            contribution(a_one.clone(), trait_declaration.clone(), ConformanceTarget::Declaration(family_b.clone()), b),
+        );
+        assert_matches_brute(&index, &store, &targets);
+        index.remove(&a_duplicate);
+        assert_matches_brute(&index, &store, &targets);
+        index.remove_source(&source_b);
+        assert_matches_brute(&index, &store, &targets);
+        assert_eq!(
+            index.iter().map(|(id, _)| id.clone()).collect::<BTreeSet<_>>(),
+            BTreeSet::from([a_one, applied_one])
+        );
     }
 }
 

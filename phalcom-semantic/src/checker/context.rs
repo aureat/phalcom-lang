@@ -645,6 +645,9 @@ pub struct CheckingContext<'a> {
     pub flow_graph: Option<std::sync::Arc<crate::checker::flow::graph::FlowGraph>>,
     pub dependencies: BTreeSet<CallableId>,
     semantic_dependencies: SharedSemanticDependencies,
+    /// Import provenance follows the selected lexical identity, so shadowing
+    /// does not observe a module product merely because an import was seeded.
+    module_binding_dependencies: BTreeMap<BindingId, Vec<SemanticDependency>>,
     field_signatures: Option<&'a FieldSignatureTable>,
     field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
     pub(crate) constructor_initializations: Option<&'a crate::signature::ConstructorInitializationTable>,
@@ -731,6 +734,7 @@ impl<'a> CheckingContext<'a> {
             caller_package: None,
             access_topology: None,
             phase: EvaluationPhase::Runtime,
+            module_binding_dependencies: BTreeMap::new(),
             module_value_bindings: None,
             module_value_exports: None,
             current_class: None,
@@ -849,6 +853,7 @@ impl<'a> CheckingContext<'a> {
             caller_package: None,
             access_topology: None,
             phase: EvaluationPhase::Runtime,
+            module_binding_dependencies: BTreeMap::new(),
             module_value_bindings: None,
             module_value_exports: None,
             current_class: None,
@@ -946,6 +951,7 @@ impl<'a> CheckingContext<'a> {
             caller_package: self.caller_package.clone(),
             access_topology: self.access_topology,
             phase: self.phase,
+            module_binding_dependencies: self.module_binding_dependencies.clone(),
             module_value_bindings: self.module_value_bindings,
             module_value_exports: self.module_value_exports,
             current_class: self.current_class.clone(),
@@ -1063,6 +1069,17 @@ impl<'a> CheckingContext<'a> {
         linked_module: &phalcom_modules::linker::LinkedModule,
         bindings: &BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
     ) {
+        if let Some(index) = bindings.get(&self.current_module).cloned() {
+            for (name, fact) in index.visible_bindings() {
+                if fact.symbol.module != self.current_module {
+                    continue;
+                }
+                if let BindingDeclarationResult::Inserted(binding) = self.declare_checked_binding(name.to_owned(), &fact.state, fact.phase) {
+                    self.module_binding_dependencies
+                        .insert(binding, vec![SemanticDependency::ModuleStaticBindings(fact.symbol.module.clone())]);
+                }
+            }
+        }
         for (local_name, import_id) in &linked_module.bindings.imports {
             let Some(phalcom_modules::linker::LinkedReadSpec::Binding(symbol)) = linked_module.linked_reads.get(import_id.0 as usize) else {
                 continue;
@@ -1070,12 +1087,15 @@ impl<'a> CheckingContext<'a> {
             let Some(fact) = bindings.get(&symbol.module).and_then(|index| index.get(symbol)) else {
                 continue;
             };
-            self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::LinkedName(
-                self.current_module.clone(),
-                local_name.to_string(),
-            ));
-            self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(symbol.module.clone()));
-            self.declare_checked_binding(local_name.to_string(), &fact.state, fact.phase);
+            if let BindingDeclarationResult::Inserted(binding) = self.declare_checked_binding(local_name.to_string(), &fact.state, fact.phase) {
+                self.module_binding_dependencies.insert(
+                    binding,
+                    vec![
+                        SemanticDependency::LinkedName(self.current_module.clone(), local_name.to_string()),
+                        SemanticDependency::ModuleStaticBindings(symbol.module.clone()),
+                    ],
+                );
+            }
         }
     }
 
@@ -1084,6 +1104,8 @@ impl<'a> CheckingContext<'a> {
     pub(crate) fn resolve_module_export_value(&self, module_alias: &str, public_name: &str) -> Option<ValueSemanticFact> {
         self.record_semantic_dependency(SemanticDependency::LinkedName(self.current_module.clone(), module_alias.to_owned()));
         let module = self.resolver.resolve_module_alias(&self.current_module, module_alias)?;
+        self.record_semantic_dependency(SemanticDependency::PublicExport(module.clone(), public_name.to_owned()));
+        self.record_semantic_dependency(SemanticDependency::ModuleStaticBindingCatalog(module.clone()));
         let exports = self.module_value_exports?;
         let symbol = exports.get(&(module.clone(), public_name.to_owned()))?;
         let bindings = self.module_value_bindings?;
@@ -1150,6 +1172,7 @@ impl<'a> CheckingContext<'a> {
 
         probe.caller_package = self.caller_package.clone();
         probe.access_topology = self.access_topology;
+        probe.module_binding_dependencies = self.module_binding_dependencies.clone();
         probe.module_value_bindings = self.module_value_bindings;
         probe.module_value_exports = self.module_value_exports;
         probe.current_class = self.current_class.clone();
@@ -2458,6 +2481,11 @@ impl<'a> CheckingContext<'a> {
     pub fn lookup_binding_info(&self, name: &str) -> Option<&LocalBindingInfo> {
         for scope in self.scopes.iter().rev() {
             if let Some(info) = scope.get(name) {
+                if let Some(dependencies) = self.module_binding_dependencies.get(&info.id) {
+                    for dependency in dependencies {
+                        self.record_semantic_dependency(dependency.clone());
+                    }
+                }
                 return Some(info);
             }
         }
@@ -2548,7 +2576,12 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub fn lookup_local(&self, name: &str) -> Option<ValueSemanticFact> {
-        let info = self.lookup_binding_info(name)?;
+        let Some(info) = self.lookup_binding_info(name) else {
+            if self.module_value_bindings.is_some() {
+                self.record_semantic_dependency(SemanticDependency::ModuleStaticBindingCatalog(self.current_module.clone()));
+            }
+            return None;
+        };
         let state = self.flow.get_binding(info.id)?;
         Some(ValueSemanticFact {
             knowledge: state.current.clone(),

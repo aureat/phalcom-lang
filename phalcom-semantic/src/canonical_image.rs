@@ -300,7 +300,8 @@ impl CanonicalSemanticQueryImage {
                     | QueryKey::EnumDeclaration(_)
                     | QueryKey::AssociatedSurface(_)
                     | QueryKey::TypeMemberDeclaration(_)
-                    | QueryKey::ModuleStaticBindingCatalog(_) => None,
+                    | QueryKey::ModuleStaticBindingCatalog(_)
+                    | QueryKey::ModuleStaticBindings(_) => None,
                     _ => Some(QueryFreezeRejection::UnsupportedQueryKind),
                 }
             });
@@ -331,6 +332,7 @@ impl CanonicalSemanticQueryImage {
                     | (QueryKey::AssociatedSurface(_), SemanticProduct::AssociatedSurface(_))
                     | (QueryKey::TypeMemberDeclaration(_), SemanticProduct::TypeMemberDeclaration(_))
                     | (QueryKey::ModuleStaticBindingCatalog(_), SemanticProduct::ModuleStaticBindingCatalog(_))
+                    | (QueryKey::ModuleStaticBindings(_), SemanticProduct::ModuleStaticBindings(_))
             ) {
                 census.rejections.insert(key.clone(), QueryFreezeRejection::ProductKindMismatch);
                 continue;
@@ -434,7 +436,9 @@ pub struct CanonicalUniverseFormalImage {
 
 impl CanonicalUniverseFormalImage {
     /// Exact provider used to build this canonical world.
-    pub(crate) fn provider(&self) -> &UniverseSourceProvider { &self.provider }
+    pub(crate) fn provider(&self) -> &UniverseSourceProvider {
+        &self.provider
+    }
     /// Provenance used to validate immutable-origin reads.
     pub fn world(&self) -> &CanonicalSemanticWorldId {
         &self.world

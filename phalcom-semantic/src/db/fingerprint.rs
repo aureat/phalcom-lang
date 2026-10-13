@@ -1786,7 +1786,6 @@ pub struct CallableBodyFormalInputFingerprint<'a> {
     pub instance_self_override: Option<TypeId>,
     pub trait_surface: Option<&'a crate::traits::TraitSurface>,
     pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
-    pub has_module_value_environment: bool,
 }
 
 pub fn callable_body_input_fingerprint_with_formal_inputs(
@@ -1806,12 +1805,11 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
         instance_self_override,
         trait_surface,
         conformance_semantics: _conformance_semantics,
-        has_module_value_environment,
     } = inputs;
     let mut hasher = DefaultHasher::new();
     let base = callable_body_input_fingerprint_with_owner_generics(callable, body, body_range, store, owner_generic_signature);
     base.0.hash(&mut hasher);
-    let has_body_relative_contract = instance_self_override.is_some() || trait_surface.is_some() || has_module_value_environment;
+    let has_body_relative_contract = instance_self_override.is_some() || trait_surface.is_some();
     let has_lifecycle_inputs = lifecycle.is_some_and(|lifecycle| {
         lifecycle
             .fields
@@ -1824,7 +1822,6 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
     if has_body_relative_contract {
         1u8.hash(&mut hasher);
     }
-    has_module_value_environment.hash(&mut hasher);
     instance_self_override.hash(&mut hasher);
     if let Some(surface) = trait_surface {
         1u8.hash(&mut hasher);
