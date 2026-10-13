@@ -275,3 +275,18 @@ shadow graph and an execution path for shadow Universe code.
   `508502608736ae31a51f550d1959d4e5f70b7931c2b077370fb56c8c5baf23d1`
   through source commit `9d03621c86ae1abab4a7f5db170953e1ead3e92d`.
 - No shadow semantic or runtime claim is made.
+
+## UNIV002.C2.P18 — Arrow composition documentation
+
+- Added comments above `functional/arrow.ph::Arrow.then` and
+  `Arrow.compose`, stating the live application order: this arrow before
+  `next`, and `previous` before this arrow. No body, signature, import, module
+  owner, or generic identity changed.
+- Exact diff review and scoped `git diff --check` passed. No tests were run
+  for this comments-only edit.
+- Independent inventory reconciliation compared the live tree with MOD1:
+  the same 174 `.ph` paths remain, with seventeen changed hashes. The existing
+  `functional/arrow.ph` row now records SHA-256
+  `18f48d8445d28bc4ced75f63c37fc6658de93a02170c07548c061340c5cdd4b7`
+  through source commit `2423d7dbdd845d853dc5696c77e4fa2971924550`.
+- No shadow semantic or runtime claim is made.
