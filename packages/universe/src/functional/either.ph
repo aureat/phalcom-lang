@@ -34,6 +34,7 @@ impl<L, R> Either<L, R> {
       Either::Right(value) => Option::Some(value)
     }
   }
+  /// Transforms a `Left` payload and leaves a `Right` payload unchanged.
   mapLeft<A>(_ f: (L) -> A) -> Either<A, R> {
     match self {
       Either::Left(value) => Either<A, R>::Left(f.call(value))
