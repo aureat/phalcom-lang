@@ -117,3 +117,19 @@ shadow graph and an execution path for shadow Universe code.
   does not expose those design-sketch members.
 - Only a comment changed; no tests were run. `git diff --check` passed.
 - This does not establish shadow semantic or runtime behavior.
+
+## UNIV002.C2.P7 — UtcOffset.seconds documentation
+
+- Added two documentation lines before the `@class` annotation for
+  `time/offset.ph::UtcOffset.seconds`, matching the source's established
+  declaration-comment order. They describe whole-second input, the inclusive
+  `-93,599..93,599` range, and `ArgumentError` outside that range.
+- Reviewed the live guard and raise path. The method body, signature, and
+  module ownership are unchanged; the range is not asserted to be normative.
+- Scoped `git diff --check` passed. No tests were run for this comments-only
+  edit. No shadow semantic or runtime claim is made.
+- Independent inventory reconciliation found 174 paths with no additions or
+  removals; 11 source hashes differ from the MOD1 baseline. The new overlay
+  records `time/offset.ph` SHA-256
+  `224103f85df73b206edc3bf065f90d12262cbd4624084206804127938ef9564a` through
+  source commit `58e2a31ec8d6823cb10d68e07def0d53cb62f94f`.

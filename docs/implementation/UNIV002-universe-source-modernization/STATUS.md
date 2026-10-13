@@ -25,7 +25,7 @@ P4 handoff. They remain outside this program's source ownership.
 | Checkpoint | Status | Completion | Verification | Current outcome |
 |---|---|---|---|---|
 | `UNIV002.C1` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Inventory and five-function source pilot complete; semantic/runtime limits recorded. |
-| `UNIV002.C2` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Four Category A slices complete; next plan will target a high-confidence behavior-preserving syntax modernization. |
+| `UNIV002.C2` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | P1–P7 complete: six Category A slices and one Category B predicate rewrite. P5 semantic linking remains unverified and shadow runtime remains blocked; the next slice must avoid active identity/linker and module-ownership holds. |
 | `UNIV002.C3` | PROPOSED | NOT_STARTED | UNVERIFIED | Candidate audit only; no data conversions implied. |
 | `UNIV002.C4` | PROPOSED | NOT_STARTED | UNVERIFIED | Approved data migrations and runtime prerequisites. |
 | `UNIV002.C5` | PROPOSED | NOT_STARTED | UNVERIFIED | Final quality audit. |

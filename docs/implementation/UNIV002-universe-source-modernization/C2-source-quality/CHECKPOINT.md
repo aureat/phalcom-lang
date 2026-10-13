@@ -29,6 +29,7 @@ integration, or production cutover.
 | `UNIV002.C2.P4` | Utf8Error offset documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Comments only; wording matches `docs/specs/text.md` §6 and `git diff --check` passed; no tests required or run. |
 | `UNIV002.C2.P5` | Gregorian leap-year predicate expression | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Exact shadow parser/interface test passed; source-level divisibility review passed. Semantic linking remains unverified and shadow runtime remains blocked. A separate Boolean corpus attempt failed before fixture execution during canonical import resolution; classified unrelated to P5 and left with concurrent MODL001 P4 work. |
 | `UNIV002.C2.P6` | ZoneTransition type documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one type-level comment describing the transition timestamp and offsets before/after. No executable code changed; `git diff --check` passed. |
+| `UNIV002.C2.P7` | UtcOffset.seconds documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added two method documentation lines before `@class`; source body/signature unchanged. Scoped diff check passed; independent inventory reconciliation retained 174 paths and records 11 changed source hashes. Semantic status remains unverified; shadow runtime remains blocked. |
 
 ## Established invariants
 
@@ -48,10 +49,11 @@ integration, or production cutover.
   architect's guidance into a dedicated spec-backed plan before changing those
   modules or identities.
 
-## Starting state
+## Checkpoint source and concurrent-work state
 
 - Branch: `feat/telos-collections`.
-- HEAD: `8d168c0ec9ed0dc6024195bbe98c5875aef44841`.
+- P7 started from `146be31eb76c2c9649fa30f627a2819d02a1041e`; its source-only
+  commit is `58e2a31ec8d6823cb10d68e07def0d53cb62f94f`.
 - Concurrent P4 edits in `phalcom-semantic/src/resolver.rs`,
   `phalcom-semantic/src/session.rs`, `phalcom-semantic/src/workspace.rs`, and
   `phalcom-semantic/tests/semantic/integration/resolver.rs` are unrelated and
@@ -98,6 +100,15 @@ comments-only slice. The comment deliberately does not promise `shift`,
 `isGap`, or `isOverlap`, which appear in an implementation design sketch but
 not in the live source.
 
+P7 added two method documentation lines before the `@class` annotation for
+`UtcOffset.seconds`, matching the existing declaration-comment convention.
+They describe whole-second input, the inclusive `-93_599..93_599` bounds, and
+the live `ArgumentError` path. The method body, signature, and module ownership
+are unchanged. Scoped `git diff --check` passed; no tests were run. An
+independent inventory comparison found 174 unchanged source paths and 11
+changed hashes relative to MOD1, with `time/offset.ph` added to the P6 overlay.
+Semantic linking remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
+
 ## Deferred candidate
 
 `TextCursor.next` has a candidate rewrite from `isSome`/`unwrap` to
@@ -111,12 +122,18 @@ identities.
 ## Active plan and next action
 
 - Active plan: none.
-- Latest complete plan: `UNIV002.C2.P6`; latest complete checkpoint: `UNIV002.C1`.
-- The source inventory is reconciled through P6's source commit
-  `b3a4883e89126d41a3856e1af75e2cc69ee14e10`; ten changed source hashes are
-  recorded in `packages/universe/docs/modernization/INVENTORY.md`.
+- Latest complete plan: `UNIV002.C2.P7`; latest complete checkpoint: `UNIV002.C1`.
+- The source inventory is reconciled through P7 source commit
+  `58e2a31ec8d6823cb10d68e07def0d53cb62f94f`: 174 paths, no additions or
+  removals, and 11 changed hashes with the rest matching MOD1. Textual
+  inventory heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
   grounded in the live source; `docs/implementation/time.md` §29 proposes
   additional derived members that are not implemented in this type.
-- The inventory is current through P6. Choose the next bounded stable source
-  slice; refresh the hash overlay again if that pilot changes source.
+- P7 is a Category A comment-only edit in `time/offset.ph`; the live method
+  enforces the inclusive `-93_599..93_599` range and raises `ArgumentError`
+  outside it. The range is not asserted to be a normative language rule.
+- P7 completed as a documentation-only slice. Select the next stable source
+  modernization independently of the held identity, iteration ownership,
+  reflection, and active linker work; give any Category B/C change its own
+  plan and exact validation boundary.
