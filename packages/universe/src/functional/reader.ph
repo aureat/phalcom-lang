@@ -17,6 +17,7 @@ impl<R, T> Reader<R, T> {
   @class
   ask() -> Reader<R, T> where T == R { Reader<R, T>.new(|environment| { environment }) }
 
+  /// Runs this computation with the supplied environment.
   run(_ environment: R) -> T { self.read.call(environment) }
 
   map<U>(_ f: (T) -> U) -> Reader<R, U> {
