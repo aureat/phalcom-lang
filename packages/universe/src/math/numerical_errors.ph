@@ -1,6 +1,6 @@
 /// Reports a valid argument or result outside the supported numeric range.
 class NumericalRangeError is Error {}
-/// An iterative numerical algorithm did not converge.
+/// Reports failure of a bounded numerical evaluation to converge.
 class NumericalEvaluationError is Error {}
 
 export NumericalRangeError, NumericalEvaluationError
