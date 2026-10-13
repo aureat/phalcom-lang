@@ -27,15 +27,14 @@ active_plan: PERF003.C2.P5
 latest_completed_plan: PERF003.C2.P3
 next_plan: PERF003.C2.P6
 next_action: >
-  Normalized P5 (Canonical Publication & Persistent Image Boundary) activated
-  per user authorization. P4 state is documented: T5 closure and nested nominal
-  discovery pass unit/integration tests; PR-A classification repair passes 9
-  source-index tests; PR-B (heterogeneous Record schema v13) and T6 canonical
-  metadata authority remain a bounded prerequisite for P4.T6-T9 and P5.T10.
-  P5 executes source-independent tasks: T0 entry gate & lifecycle normalization,
-  T1 explicit canonical request contract, T2 product classification, T3 canonical
-  bootstrap cutover, T4 consumer-specific publication semantics, and T5-T7
-  canonical aggregate-parent architecture.
+  Normalized P5 (Canonical Publication & Persistent Image Boundary) in progress:
+  T0-T4 complete in committed head 84227536. Provider isolation in canonical Universe
+  declaration bootstrap resolved and verified across all 4 canonical image integration
+  tests and 10 query/freeze unit tests. T5/T6 Slice 1 in progress: DeclarationTypeTable
+  converted to parent-aware aggregate overlay. Next: complete CallableSignatureTable,
+  FieldSignatureTable, and MapTypeHierarchy parented overlays and wire them into
+  SemanticWorkspaceSession::from_image to eliminate O(Universe) aggregate table copies.
+  See PERF003.C2.P5-handoff.md.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -354,8 +353,20 @@ at the user's request. See [walkthrough](PERF003.C2.P2-walkthrough.md),
   PASS, 1 selected, 0.00 s. Verifies secondary owner index in `CallableSignatureTable`.
 - `signature::tests::field_owner_index_tracks_membership_removal_and_cloning`:
   PASS, 1 selected, 0.00 s. Verifies secondary owner index in `FieldSignatureTable`.
+- `semantic::integration::canonical_image`:
+  PASS, 4 selected, 135.74 s. Verifies complete canonical formal image properties:
+  Send/Sync thread safety, process sharing across concurrent threads, external
+  Universe isolation across local replacement, and source parity and provider isolation.
+- `canonical_formal_image_source_parity_and_provider_isolation`:
+  PASS, 1 selected. Verifies provider-isolated Universe declaration bootstrap with custom source overrides.
+- `canonical_image::tests`:
+  PASS, 10 selected, 39.27 s. Verifies canonical compiler image product completeness validation,
+  frozen query selection, nonready query classification, database read immutability across rollback,
+  world provenance digest collision rejection, and root validation.
+- `declarations::DeclarationTypeTable` parent-aware architecture:
+  Verified compilation and type checking with `with_parent`, delegation lookups, parent chain `iter()`, and local-only mutation.
 - `RUSTFLAGS='' cargo check -p telos-observability`: PASS (clean).
-- `RUSTFLAGS='' cargo check -p phalcom-semantic`: PASS (clean).
+- `RUSTFLAGS='' cargo check -p phalcom-semantic`: PASS (clean, 0 warnings, 0 errors).
 - `RUSTFLAGS='' cargo check -p phalcom-core --features perf-observability`: PASS (17.16 s).
 - `RUSTFLAGS='' cargo check -p phalcom-modules`: PASS (0.17 s).
 - `git diff --check`: PASS (clean).

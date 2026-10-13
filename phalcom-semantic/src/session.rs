@@ -853,6 +853,7 @@ pub struct SemanticWorkspaceSession {
     #[cfg(feature = "perf-observability")]
     canonical_image_bootstrap: bool,
     workspace: WorkspaceId,
+    canonical_image: Option<Arc<crate::canonical_image::CanonicalUniverseFormalImage>>,
     module_session: WorkspaceModuleSession,
     universe_source_provider: phalcom_modules::UniverseSourceProvider,
     product_request: crate::request::SemanticProductRequest,
@@ -863,6 +864,7 @@ pub struct SemanticWorkspaceSession {
     base_hierarchy: MapTypeHierarchy,
     base_dispatch: SurfaceDispatchResolver,
     base_callable_signatures: CallableSignatureTable,
+    base_field_signatures: FieldSignatureTable,
     base_data_semantics: DataSemanticTable,
     base_data_products: Vec<Arc<crate::db::product::DataDeclarationProduct>>,
     base_enum_semantics: EnumSemanticTable,
@@ -1023,16 +1025,18 @@ impl SemanticWorkspaceSession {
             #[cfg(feature = "perf-observability")]
             canonical_image_bootstrap: false,
             workspace,
+            canonical_image: Some(image.clone()),
             module_session: WorkspaceModuleSession::with_external_modules(image.provider().clone(), image.modules().clone()),
             universe_source_provider: image.provider().clone(),
             product_request: crate::request::SemanticProductRequest::default(),
             db,
             store,
             static_values,
-            base_declarations: (*snapshot.declarations).clone(),
-            base_hierarchy: (*snapshot.hierarchy).clone(),
+            base_declarations: DeclarationTypeTable::with_parent(snapshot.declarations.clone()),
+            base_hierarchy: MapTypeHierarchy::with_parent(snapshot.hierarchy.clone()),
             base_dispatch: (*snapshot.dispatch).clone(),
-            base_callable_signatures: (*snapshot.callable_signatures).clone(),
+            base_callable_signatures: CallableSignatureTable::with_parent(snapshot.callable_signatures.clone()),
+            base_field_signatures: FieldSignatureTable::with_parent(snapshot.field_signatures.clone()),
             base_data_semantics: (*snapshot.data_semantics).clone(),
             base_data_products: Vec::new(),
             base_enum_semantics: (*snapshot.enum_semantics).clone(),
@@ -1081,6 +1085,7 @@ impl SemanticWorkspaceSession {
             #[cfg(feature = "perf-observability")]
             canonical_image_bootstrap: false,
             workspace,
+            canonical_image: None,
             module_session: WorkspaceModuleSession::with_universe_source_provider(baseline.provider.clone()),
             universe_source_provider: baseline.provider.clone(),
             product_request: crate::request::SemanticProductRequest::default(),
@@ -1091,6 +1096,7 @@ impl SemanticWorkspaceSession {
             base_hierarchy: baseline.base_hierarchy.clone(),
             base_dispatch: baseline.base_dispatch.clone(),
             base_callable_signatures: baseline.base_callable_signatures.clone(),
+            base_field_signatures: FieldSignatureTable::new(),
             base_data_semantics: baseline.base_data_semantics.clone(),
             base_data_products: baseline.base_data_products.clone(),
             base_enum_semantics: baseline.base_enum_semantics.clone(),
@@ -1134,6 +1140,11 @@ impl SemanticWorkspaceSession {
 
     pub fn workspace(&self) -> WorkspaceId {
         self.workspace
+    }
+
+    /// Returns the immutable canonical image retained by image-backed sessions.
+    pub fn canonical_image(&self) -> Option<&Arc<crate::canonical_image::CanonicalUniverseFormalImage>> {
+        self.canonical_image.as_ref()
     }
 
     /// Returns persistent project/source/module ownership used by compiler updates.
@@ -2417,7 +2428,7 @@ impl SemanticWorkspaceSession {
         let declaration_preparation_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateDeclarations);
         let mut declarations = self.base_declarations.clone();
         if let Some(previous) = previous_snapshot.as_ref() {
-            for (declaration, info) in previous.declarations.iter() {
+            for (declaration, info) in previous.declarations.iter_local() {
                 let retained_from_unchanged_module = structural_reused_modules.contains(&declaration.module);
                 let retained_header_in_changed_module = structural_recomputed_modules.contains(&declaration.module)
                     && current_modules.contains(&declaration.module)
@@ -4126,7 +4137,7 @@ impl SemanticWorkspaceSession {
             // Canonical source declarations (for example Duration) participate in
             // tracked hierarchy dependencies just like native bootstrap classes.
             for (class_decl, _) in self.base_declarations.iter() {
-                match query_bootstrap_hierarchy_edge(&mut self.db, class_decl.clone(), self.base_hierarchy.superclasses.get(class_decl).cloned()) {
+                match query_bootstrap_hierarchy_edge(&mut self.db, class_decl.clone(), self.base_hierarchy.superclass(class_decl).cloned()) {
                     QueryOutcome::Ready(_) => {}
                     QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                     QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
@@ -4382,7 +4393,7 @@ impl SemanticWorkspaceSession {
         let mut callable_signatures =
             aggregate_snapshot.map_or_else(|| self.base_callable_signatures.clone(), |snapshot| (*snapshot.callable_signatures).clone());
         let mut callable_definitions = aggregate_snapshot.map_or_else(BTreeMap::new, |snapshot| (*snapshot.callable_definitions).clone());
-        let mut field_signatures = aggregate_snapshot.map_or_else(FieldSignatureTable::new, |snapshot| (*snapshot.field_signatures).clone());
+        let mut field_signatures = aggregate_snapshot.map_or_else(|| self.base_field_signatures.clone(), |snapshot| (*snapshot.field_signatures).clone());
         for callable in &retired_conformance_witnesses {
             callable_definitions.remove(callable);
             callable_signatures.remove(callable);
@@ -4841,7 +4852,7 @@ impl SemanticWorkspaceSession {
             .collect::<BTreeSet<_>>();
         loop {
             let mut newly_affected = Vec::new();
-            for (child, parent) in &hierarchy.superclasses {
+            for (child, parent) in hierarchy.iter_superclasses() {
                 if constructor_product_work_owners.contains(parent) && !constructor_product_work_owners.contains(child) {
                     constructor_product_work_owners.insert(child.clone());
                     newly_affected.push(child.clone());
@@ -4930,7 +4941,7 @@ impl SemanticWorkspaceSession {
                 let has_construct_attribute = class_def.attributes.iter().any(|attribute| attribute.name == "construct");
                 let has_data_attribute = class_def.attributes.iter().any(|attribute| attribute.name == "data");
                 let source_new = source_constructors.iter().any(|method| method.name == "new");
-                let parent_requires_initialization = hierarchy.superclasses.get(&owner).is_some_and(|parent| {
+                let parent_requires_initialization = hierarchy.superclass(&owner).is_some_and(|parent| {
                     constructor_initializations.iter().any(|(factory, _)| factory.owner == *parent)
                         || self.semantic_structure_shards.get(&parent.module).is_some_and(|parent_shard| {
                             parent_shard.source.program.statements.iter().any(|statement| {

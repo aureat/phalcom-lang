@@ -13,6 +13,8 @@ use phalcom_common::selector::Selector;
 use phalcom_native_meta::{EffectSpec, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_native_surface::NativeSurfaceId;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+#[allow(unused_imports)]
+use std::sync::Arc;
 
 /// Epistemic certification state for a source return contract.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -547,6 +549,7 @@ pub struct FieldSemanticSignature {
 /// Identity-indexed table of callable signatures.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CallableSignatureTable {
+    parent: Option<Arc<CallableSignatureTable>>,
     by_id: HashMap<CallableId, CallableSemanticSignature>,
     module_callables: HashMap<ModuleId, BTreeSet<CallableId>>,
     owner_callables: HashMap<CallableOwnerId, BTreeSet<CallableId>>,
@@ -557,7 +560,38 @@ impl CallableSignatureTable {
         Self::default()
     }
 
+    /// Creates an overlay table referencing an immutable parent authority.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            by_id: HashMap::new(),
+            module_callables: HashMap::new(),
+            owner_callables: HashMap::new(),
+        }
+    }
+
+    pub fn parent(&self) -> Option<&Arc<Self>> {
+        self.parent.as_ref()
+    }
+
+    pub fn local_len(&self) -> usize {
+        self.by_id.len()
+    }
+
+    pub fn len(&self) -> usize {
+        self.by_id.len() + self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_id.is_empty() && self.parent.as_ref().is_none_or(|parent| parent.is_empty())
+    }
+
     pub fn insert(&mut self, sig: CallableSemanticSignature) {
+        debug_assert!(
+            self.parent.as_ref().map_or(true, |parent| parent.get(&sig.callable).is_none()),
+            "local mutation cannot overwrite canonical parent callable: {:?}",
+            sig.callable
+        );
         self.owner_callables
             .entry(sig.callable.owner.clone())
             .or_default()
@@ -605,7 +639,9 @@ impl CallableSignatureTable {
     }
 
     pub fn get(&self, callable: &CallableId) -> Option<&CallableSemanticSignature> {
-        self.by_id.get(callable)
+        self.by_id
+            .get(callable)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(callable)))
     }
 
     /// Exact owner/side/selector lookup for an explicit conformance witness.
@@ -619,7 +655,7 @@ impl CallableSignatureTable {
         selector: &Selector,
     ) -> Option<&CallableSemanticSignature> {
         let id = CallableId::new(crate::identity::CallableOwnerId::Conformance(implementation.clone()), selector.clone(), side);
-        self.by_id.get(&id)
+        self.get(&id)
     }
 
     /// Resolves the declaration-owned signature consumed by one analyzed body.
@@ -646,21 +682,22 @@ impl CallableSignatureTable {
         self.get_for_body(callable).map(|signature| signature.callable.clone())
     }
 
-    pub fn len(&self) -> usize {
-        self.by_id.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.by_id.is_empty()
-    }
-
     /// Enumerates one source owner's signatures using the maintained module index.
-    pub fn iter_module<'a>(&'a self, module: &ModuleId) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> + 'a {
-        self.module_callables
-            .get(module)
-            .into_iter()
-            .flat_map(|ids| ids.iter())
-            .filter_map(|id| self.by_id.get_key_value(id))
+    pub fn iter_module<'a>(&'a self, module: &'a ModuleId) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> + 'a {
+        let mut tables = Vec::new();
+        let mut current = Some(self);
+        while let Some(table) = current {
+            tables.push(table);
+            current = table.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(move |table| {
+            table
+                .module_callables
+                .get(module)
+                .into_iter()
+                .flat_map(|ids| ids.iter())
+                .filter_map(move |id| table.by_id.get_key_value(id))
+        })
     }
 
     /// Enumerates signatures owned by a callable owner using the maintained owner index.
@@ -668,11 +705,20 @@ impl CallableSignatureTable {
         &'a self,
         owner: &CallableOwnerId,
     ) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> {
-        self.owner_callables
-            .get(owner)
-            .into_iter()
-            .flat_map(|ids| ids.iter())
-            .filter_map(|id| self.by_id.get_key_value(id))
+        let mut tables = Vec::new();
+        let mut current = Some(self);
+        while let Some(table) = current {
+            tables.push(table);
+            current = table.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(move |table| {
+            table
+                .owner_callables
+                .get(owner)
+                .into_iter()
+                .flat_map(|ids| ids.iter())
+                .filter_map(move |id| table.by_id.get_key_value(id))
+        })
     }
 
     /// Enumerates signatures owned by a declaration using the maintained owner index.
@@ -681,21 +727,41 @@ impl CallableSignatureTable {
         owner: &DeclarationId,
     ) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> {
         let key = CallableOwnerId::Declaration(owner.clone());
-        self.owner_callables
-            .get(&key)
-            .into_iter()
-            .flat_map(|ids| ids.iter())
-            .filter_map(|id| self.by_id.get_key_value(id))
+        let mut tables = Vec::new();
+        let mut current = Some(self);
+        while let Some(table) = current {
+            tables.push(table);
+            current = table.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(move |table| {
+            table
+                .owner_callables
+                .get(&key)
+                .into_iter()
+                .flat_map(|ids| ids.iter())
+                .filter_map(move |id| table.by_id.get_key_value(id))
+        })
+    }
+
+    pub fn iter_local(&self) -> impl Iterator<Item = (&CallableId, &CallableSemanticSignature)> {
+        self.by_id.iter()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&CallableId, &CallableSemanticSignature)> {
-        self.by_id.iter()
+        let mut tables = Vec::new();
+        let mut current = Some(self);
+        while let Some(table) = current {
+            tables.push(table);
+            current = table.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(|table| table.by_id.iter())
     }
 }
 
 /// Identity-indexed table of field signatures.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FieldSignatureTable {
+    parent: Option<Arc<FieldSignatureTable>>,
     by_id: HashMap<FieldId, FieldSemanticSignature>,
     module_fields: HashMap<ModuleId, BTreeSet<FieldId>>,
     owner_fields: HashMap<DeclarationId, BTreeSet<FieldId>>,
@@ -706,7 +772,38 @@ impl FieldSignatureTable {
         Self::default()
     }
 
+    /// Creates an overlay table referencing an immutable parent authority.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            by_id: HashMap::new(),
+            module_fields: HashMap::new(),
+            owner_fields: HashMap::new(),
+        }
+    }
+
+    pub fn parent(&self) -> Option<&Arc<Self>> {
+        self.parent.as_ref()
+    }
+
+    pub fn local_len(&self) -> usize {
+        self.by_id.len()
+    }
+
+    pub fn len(&self) -> usize {
+        self.by_id.len() + self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_id.is_empty() && self.parent.as_ref().is_none_or(|parent| parent.is_empty())
+    }
+
     pub fn insert(&mut self, sig: FieldSemanticSignature) {
+        debug_assert!(
+            self.parent.as_ref().map_or(true, |parent| parent.get(&sig.field).is_none()),
+            "local mutation cannot overwrite canonical parent field: {:?}",
+            sig.field
+        );
         self.owner_fields.entry(sig.owner.clone()).or_default().insert(sig.field.clone());
         self.module_fields.entry(sig.field.owner.module.clone()).or_default().insert(sig.field.clone());
         self.by_id.insert(sig.field.clone(), sig);
@@ -748,28 +845,41 @@ impl FieldSignatureTable {
     }
 
     pub fn get(&self, field: &FieldId) -> Option<&FieldSemanticSignature> {
-        self.by_id.get(field)
-    }
-
-    pub fn len(&self) -> usize {
-        self.by_id.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.by_id.is_empty()
+        self.by_id
+            .get(field)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(field)))
     }
 
     /// Enumerates fields owned by a declaration using the maintained owner index.
-    pub fn iter_owner<'a>(&'a self, owner: &DeclarationId) -> impl Iterator<Item = (&'a FieldId, &'a FieldSemanticSignature)> + 'a {
-        self.owner_fields
-            .get(owner)
-            .into_iter()
-            .flat_map(|ids| ids.iter())
-            .filter_map(|id| self.by_id.get_key_value(id))
+    pub fn iter_owner<'a>(&'a self, owner: &'a DeclarationId) -> impl Iterator<Item = (&'a FieldId, &'a FieldSemanticSignature)> + 'a {
+        let mut tables = Vec::new();
+        let mut current = Some(self);
+        while let Some(table) = current {
+            tables.push(table);
+            current = table.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(move |table| {
+            table
+                .owner_fields
+                .get(owner)
+                .into_iter()
+                .flat_map(|ids| ids.iter())
+                .filter_map(move |id| table.by_id.get_key_value(id))
+        })
+    }
+
+    pub fn iter_local(&self) -> impl Iterator<Item = (&FieldId, &FieldSemanticSignature)> {
+        self.by_id.iter()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&FieldId, &FieldSemanticSignature)> {
-        self.by_id.iter()
+        let mut tables = Vec::new();
+        let mut current = Some(self);
+        while let Some(table) = current {
+            tables.push(table);
+            current = table.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(|table| table.by_id.iter())
     }
 }
 

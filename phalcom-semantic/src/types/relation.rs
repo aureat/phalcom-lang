@@ -10,6 +10,7 @@ use crate::declarations::GenericSupertypeTemplate;
 use crate::field_key::FieldKey;
 use crate::identity::{DeclarationId, ModuleId};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::Arc;
 
 /// Environment for querying class hierarchies and module declaration relations.
 pub trait TypeHierarchy {
@@ -28,6 +29,7 @@ pub trait TypeHierarchy {
 /// A simple hierarchy based on direct parent maps and supertype templates.
 #[derive(Clone, Debug, Default)]
 pub struct MapTypeHierarchy {
+    parent: Option<Arc<MapTypeHierarchy>>,
     pub superclasses: std::collections::HashMap<DeclarationId, DeclarationId>,
     pub templates: std::collections::HashMap<DeclarationId, GenericSupertypeTemplate>,
     module_declarations: HashMap<ModuleId, BTreeSet<DeclarationId>>,
@@ -36,6 +38,54 @@ pub struct MapTypeHierarchy {
 impl MapTypeHierarchy {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates an overlay hierarchy referencing an immutable parent authority.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            superclasses: HashMap::new(),
+            templates: HashMap::new(),
+            module_declarations: HashMap::new(),
+        }
+    }
+
+    pub fn parent(&self) -> Option<&Arc<Self>> {
+        self.parent.as_ref()
+    }
+
+    pub fn local_len(&self) -> usize {
+        self.module_declarations.values().map(BTreeSet::len).sum()
+    }
+
+    pub fn len(&self) -> usize {
+        self.local_len() + self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.module_declarations.is_empty() && self.parent.as_ref().is_none_or(|parent| parent.is_empty())
+    }
+
+    pub fn superclass(&self, declaration: &DeclarationId) -> Option<&DeclarationId> {
+        self.superclasses
+            .get(declaration)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.superclass(declaration)))
+    }
+
+    pub fn supertype_template(&self, declaration: &DeclarationId) -> Option<&GenericSupertypeTemplate> {
+        self.templates
+            .get(declaration)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.supertype_template(declaration)))
+    }
+
+    pub fn iter_superclasses(&self) -> impl Iterator<Item = (&DeclarationId, &DeclarationId)> {
+        let mut hierarchies = Vec::new();
+        let mut current = Some(self);
+        while let Some(hierarchy) = current {
+            hierarchies.push(hierarchy);
+            current = hierarchy.parent.as_deref();
+        }
+        hierarchies.into_iter().rev().flat_map(|hierarchy| hierarchy.superclasses.iter())
     }
 
     fn track_declaration(&mut self, declaration: &DeclarationId) {
@@ -60,12 +110,23 @@ impl MapTypeHierarchy {
 
     /// Registers the direct superclass contribution for a declaration.
     pub fn insert(&mut self, class: DeclarationId, superclass: DeclarationId) {
+        debug_assert!(
+            self.parent.as_ref().map_or(true, |parent| parent.superclass(&class).is_none()),
+            "local mutation cannot overwrite canonical parent superclass: {class:?}"
+        );
         self.track_declaration(&class);
         self.superclasses.insert(class, superclass);
     }
 
     /// Registers the declaration-shell-owned generic supertype template.
     pub fn insert_template(&mut self, template: GenericSupertypeTemplate) {
+        debug_assert!(
+            self.parent
+                .as_ref()
+                .map_or(true, |parent| parent.supertype_template(&template.declaration).is_none()),
+            "local mutation cannot overwrite canonical parent supertype template: {:?}",
+            template.declaration
+        );
         self.track_declaration(&template.declaration);
         self.templates.insert(template.declaration.clone(), template);
     }
@@ -105,11 +166,11 @@ impl MapTypeHierarchy {
 
 impl TypeHierarchy for MapTypeHierarchy {
     fn superclass(&self, declaration: &DeclarationId) -> Option<&DeclarationId> {
-        self.superclasses.get(declaration)
+        MapTypeHierarchy::superclass(self, declaration)
     }
 
     fn supertype_template(&self, declaration: &DeclarationId) -> Option<&GenericSupertypeTemplate> {
-        self.templates.get(declaration)
+        MapTypeHierarchy::supertype_template(self, declaration)
     }
 
     fn is_subclass(&self, sub: &DeclarationId, sup: &DeclarationId) -> bool {
@@ -119,7 +180,7 @@ impl TypeHierarchy for MapTypeHierarchy {
         let mut curr = sub;
         let mut visited = HashSet::new();
         visited.insert(curr);
-        while let Some(parent) = self.superclasses.get(curr) {
+        while let Some(parent) = self.superclass(curr) {
             if parent == sup {
                 return true;
             }

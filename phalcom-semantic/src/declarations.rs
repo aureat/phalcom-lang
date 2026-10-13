@@ -12,6 +12,7 @@ use phalcom_modules::{ModuleComponent, ModuleId, ModulePath, UniverseSourceProvi
 use phalcom_native_meta::types::KindSpec;
 use phalcom_native_meta::universe::{UNIVERSE_BINDINGS, UniverseBindingKind, UniverseKey};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// Generic supertype template: records static generic supertype (e.g. `Names<T> is Sequence<Option<T>>`).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -178,6 +179,7 @@ impl NominalDeclarationHeader {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DeclarationTypeTable {
+    parent: Option<Arc<DeclarationTypeTable>>,
     entries: HashMap<DeclarationId, DeclarationTypeInfo>,
     intrinsic_static_domains: HashMap<DeclarationId, KindId>,
     intrinsic_type_owners: HashMap<DeclarationId, IntrinsicTypeOwner>,
@@ -186,6 +188,35 @@ pub struct DeclarationTypeTable {
 impl DeclarationTypeTable {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates an overlay table referencing an immutable parent authority.
+    pub fn with_parent(parent: Arc<DeclarationTypeTable>) -> Self {
+        Self {
+            parent: Some(parent),
+            entries: HashMap::new(),
+            intrinsic_static_domains: HashMap::new(),
+            intrinsic_type_owners: HashMap::new(),
+        }
+    }
+
+    /// Read-only handle to the parent table, if parented.
+    pub fn parent(&self) -> Option<&Arc<DeclarationTypeTable>> {
+        self.parent.as_ref()
+    }
+
+    /// Number of local overlay entries.
+    pub fn local_len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Total number of unique declarations accessible through this table and its parents.
+    pub fn len(&self) -> usize {
+        self.entries.len() + self.parent.as_ref().map_or(0, |p| p.len())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty() && self.parent.as_ref().is_none_or(|p| p.is_empty())
     }
 
     /// Replaces the complete declaration product and all independently
@@ -227,6 +258,11 @@ impl DeclarationTypeTable {
     }
 
     fn store_authoritative(&mut self, info: DeclarationTypeInfo) {
+        debug_assert!(
+            self.parent.as_ref().map_or(true, |p| !p.contains(&info.declaration)),
+            "local mutation cannot overwrite canonical parent declaration: {:?}",
+            info.declaration
+        );
         self.intrinsic_static_domains.remove(&info.declaration);
         self.intrinsic_type_owners.remove(&info.declaration);
         if let Some(owner) = info.binding.runtime_owner {
@@ -293,39 +329,58 @@ impl DeclarationTypeTable {
     }
 
     pub fn intrinsic_runtime_owner(&self, declaration: &DeclarationId) -> Option<IntrinsicRuntimeOwner> {
-        self.entries.get(declaration).and_then(|info| info.binding.runtime_owner)
+        self.entries
+            .get(declaration)
+            .and_then(|info| info.binding.runtime_owner)
+            .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_runtime_owner(declaration)))
     }
 
     pub fn intrinsic_runtime_declarations(&self) -> impl Iterator<Item = (&DeclarationId, IntrinsicRuntimeOwner)> {
-        self.entries
-            .iter()
+        self.iter()
             .filter_map(|(declaration, info)| info.binding.runtime_owner.map(|owner| (declaration, owner)))
     }
 
     pub fn semantic_form(&self, declaration: &DeclarationId) -> Option<DeclarationSemanticForm> {
-        self.entries.get(declaration).map(|info| info.binding.semantic_form)
+        self.entries
+            .get(declaration)
+            .map(|info| info.binding.semantic_form)
+            .or_else(|| self.parent.as_ref().and_then(|p| p.semantic_form(declaration)))
     }
 
     pub fn intrinsic_type_owner(&self, declaration: &DeclarationId) -> Option<IntrinsicTypeOwner> {
-        self.intrinsic_type_owners.get(declaration).copied()
+        self.intrinsic_type_owners
+            .get(declaration)
+            .copied()
+            .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_type_owner(declaration)))
     }
 
     pub fn intrinsic_type_owner_declaration(&self, owner: IntrinsicTypeOwner) -> Option<DeclarationId> {
         self.intrinsic_type_owners
             .iter()
             .find_map(|(declaration, candidate)| (*candidate == owner).then(|| declaration.clone()))
+            .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_type_owner_declaration(owner)))
     }
 
     pub fn intrinsic_static_domain_kind(&self, declaration: &DeclarationId) -> Option<KindId> {
-        self.intrinsic_static_domains.get(declaration).copied()
+        self.intrinsic_static_domains
+            .get(declaration)
+            .copied()
+            .or_else(|| self.parent.as_ref().and_then(|p| p.intrinsic_static_domain_kind(declaration)))
     }
 
-    pub fn intrinsic_static_domain_declarations(&self) -> impl Iterator<Item = &DeclarationId> {
-        self.intrinsic_static_domains.keys()
+    pub fn intrinsic_static_domain_declarations<'a>(&'a self) -> impl Iterator<Item = &'a DeclarationId> {
+        let mut tables = Vec::new();
+        let mut curr = Some(self);
+        while let Some(t) = curr {
+            tables.push(t);
+            curr = t.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(|t| t.intrinsic_static_domains.keys())
     }
 
     pub fn is_intrinsic_static_domain(&self, declaration: &DeclarationId) -> bool {
         self.intrinsic_static_domains.contains_key(declaration)
+            || self.parent.as_ref().is_some_and(|p| p.is_intrinsic_static_domain(declaration))
     }
 
     pub fn remove(&mut self, declaration: &DeclarationId) -> Option<DeclarationTypeInfo> {
@@ -335,15 +390,17 @@ impl DeclarationTypeTable {
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&DeclarationTypeInfo> {
-        self.entries.get(declaration)
+        self.entries
+            .get(declaration)
+            .or_else(|| self.parent.as_ref().and_then(|p| p.get(declaration)))
     }
 
     pub fn contains(&self, declaration: &DeclarationId) -> bool {
-        self.entries.contains_key(declaration)
+        self.entries.contains_key(declaration) || self.parent.as_ref().is_some_and(|p| p.contains(declaration))
     }
 
     pub fn form(&self, declaration: &DeclarationId) -> Option<TypeId> {
-        self.entries.get(declaration).map(|info| info.form)
+        self.get(declaration).map(|info| info.form)
     }
 
     /// Returns the proper runtime class projection used by native surface import.
@@ -356,27 +413,39 @@ impl DeclarationTypeTable {
     }
 
     pub fn class_object_type(&self, declaration: &DeclarationId) -> Option<TypeId> {
-        self.entries.get(declaration).map(|info| info.class_object_type)
+        self.get(declaration).map(|info| info.class_object_type)
     }
 
     pub fn kind(&self, declaration: &DeclarationId) -> Option<KindId> {
-        self.entries.get(declaration).map(|info| info.kind)
+        self.get(declaration).map(|info| info.kind)
     }
 
     pub fn generic_signature(&self, declaration: &DeclarationId) -> Option<&GenericSignature> {
-        self.entries.get(declaration).and_then(|info| info.generic_signature.as_ref())
+        self.get(declaration).and_then(|info| info.generic_signature.as_ref())
     }
 
     pub fn generic_binder_header(&self, declaration: &DeclarationId) -> Option<&GenericBinderHeader> {
-        self.entries.get(declaration).and_then(|info| info.generic_binder_header.as_ref())
+        self.get(declaration).and_then(|info| info.generic_binder_header.as_ref())
     }
 
     pub fn supertype_template(&self, declaration: &DeclarationId) -> Option<&GenericSupertypeTemplate> {
-        self.entries.get(declaration).and_then(|info| info.supertype_template.as_ref())
+        self.get(declaration).and_then(|info| info.supertype_template.as_ref())
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&DeclarationId, &DeclarationTypeInfo)> {
+    /// Iterates only local overlay declarations (excluding parent entries).
+    pub fn iter_local(&self) -> std::collections::hash_map::Iter<'_, DeclarationId, DeclarationTypeInfo> {
         self.entries.iter()
+    }
+
+    /// Iterates over all declarations across parent authority and local overlay.
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (&'a DeclarationId, &'a DeclarationTypeInfo)> {
+        let mut tables = Vec::new();
+        let mut curr = Some(self);
+        while let Some(t) = curr {
+            tables.push(t);
+            curr = t.parent.as_deref();
+        }
+        tables.into_iter().rev().flat_map(|t| t.entries.iter())
     }
 }
 
