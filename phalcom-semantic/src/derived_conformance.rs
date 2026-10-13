@@ -94,17 +94,27 @@ impl DerivedRuleView<'_> {
     pub fn is_empty(&self) -> bool {
         self.parent.is_empty() && self.local.is_empty()
     }
+
+    /// Exact indexed rule without materializing either bucket.
+    pub fn get(&self, index: usize) -> Option<&Arc<DerivedConformanceRule>> {
+        if index < self.parent.len() {
+            self.parent.get(index)
+        } else {
+            self.local.get(index - self.parent.len())
+        }
+    }
+
+    /// Iterates canonical rules followed by workspace rules.
+    pub fn iter(&self) -> impl Iterator<Item = &Arc<DerivedConformanceRule>> {
+        self.parent.iter().chain(self.local.iter())
+    }
 }
 
 impl std::ops::Index<usize> for DerivedRuleView<'_> {
     type Output = Arc<DerivedConformanceRule>;
 
     fn index(&self, index: usize) -> &Self::Output {
-        if index < self.parent.len() {
-            &self.parent[index]
-        } else {
-            &self.local[index - self.parent.len()]
-        }
+        self.get(index).expect("derived conformance rule index out of bounds")
     }
 }
 
@@ -176,28 +186,27 @@ impl DerivedConformanceRuleIndex {
     }
 
     pub fn remove_source(&mut self, module: &ModuleId) {
-        self.rules_by_impl.retain(|impl_id, _| &impl_id.module != module);
-        for rules in self.rules_by_trait.values_mut() {
-            rules.retain(|rule| &rule.source_module != module);
+        let removed = self
+            .rules_by_impl
+            .iter()
+            .filter(|(_, rule)| &rule.source_module == module)
+            .map(|(impl_id, _)| impl_id.clone())
+            .collect::<Vec<_>>();
+        for impl_id in removed {
+            self.remove(&impl_id);
         }
-        self.rules_by_trait.retain(|_, rules| !rules.is_empty());
     }
 
-    pub fn iter(&self) -> Box<dyn Iterator<Item = &Arc<DerivedConformanceRule>> + '_> {
-        match &self.parent {
-            Some(parent) => {
-                let mut canonical = parent.rules_by_impl.values().peekable();
-                let mut local = self.rules_by_impl.values().peekable();
-                Box::new(std::iter::from_fn(move || match (canonical.peek(), local.peek()) {
-                    (Some(left), Some(right)) if left.impl_id <= right.impl_id => canonical.next(),
-                    (Some(_), Some(_)) => local.next(),
-                    (Some(_), None) => canonical.next(),
-                    (None, Some(_)) => local.next(),
-                    (None, None) => None,
-                }))
-            }
-            None => Box::new(self.rules_by_impl.values()),
-        }
+    pub fn iter(&self) -> impl Iterator<Item = &Arc<DerivedConformanceRule>> {
+        let mut canonical = self.parent.as_ref().map(|parent| parent.rules_by_impl.values()).into_iter().flatten().peekable();
+        let mut local = self.rules_by_impl.values().peekable();
+        std::iter::from_fn(move || match (canonical.peek(), local.peek()) {
+            (Some(left), Some(right)) if left.impl_id <= right.impl_id => canonical.next(),
+            (Some(_), Some(_)) => local.next(),
+            (Some(_), None) => canonical.next(),
+            (None, Some(_)) => local.next(),
+            (None, None) => None,
+        })
     }
 
     /// Number of workspace-owned rules.
@@ -205,8 +214,13 @@ impl DerivedConformanceRuleIndex {
         self.rules_by_impl.len()
     }
 
+    /// Number of rules in the immutable canonical parent.
+    pub fn parent_len(&self) -> usize {
+        self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
     pub fn len(&self) -> usize {
-        self.local_len() + self.parent.as_ref().map_or(0, |parent| parent.len())
+        self.local_len() + self.parent_len()
     }
 
     pub fn is_empty(&self) -> bool {

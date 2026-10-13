@@ -161,6 +161,30 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
             update.snapshot.conformance_witness_plans.len(),
             image.snapshot().conformance_witness_plans.len()
         );
+        // Canonical conformance heads remain in the same immutable parent
+        // throughout all three local publication revisions.
+        assert_eq!(update.snapshot.derived_conformance_rules.local_len(), 0);
+        assert_eq!(
+            update.snapshot.derived_conformance_rules.parent_len(),
+            image.snapshot().derived_conformance_rules.len()
+        );
+        for rule in image.snapshot().derived_conformance_rules.iter() {
+            assert!(std::ptr::eq(
+                update.snapshot.derived_conformance_rules.get_rule(&rule.impl_id).expect("canonical derived rule"),
+                rule
+            ));
+        }
+        assert_eq!(update.snapshot.conformance_index.local_len(), 0);
+        assert_eq!(
+            update.snapshot.conformance_index.parent_len(),
+            image.snapshot().conformance_index.len()
+        );
+        for (impl_id, contribution) in image.snapshot().conformance_index.iter() {
+            assert!(std::ptr::eq(
+                update.snapshot.conformance_index.get(impl_id).expect("canonical conformance head"),
+                contribution
+            ));
+        }
         assert_eq!(update.snapshot.surfaces.local_len(), 0);
         assert_eq!(update.snapshot.data_semantics.data_decls.local_len(), 0);
         assert_eq!(update.snapshot.enum_semantics.enums.local_len(), 0);
@@ -209,13 +233,6 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
         }
         for (id, surface) in image.snapshot().trait_surfaces.iter() {
             assert!(std::ptr::eq(update.snapshot.trait_surfaces.get(id).unwrap(), surface));
-        }
-        assert_eq!(update.snapshot.derived_conformance_rules.local_len(), 0);
-        for rule in image.snapshot().derived_conformance_rules.iter() {
-            assert!(std::ptr::eq(update.snapshot.derived_conformance_rules.get_rule(&rule.impl_id).unwrap(), rule));
-        }
-        for (id, contribution) in image.snapshot().conformance_index.iter() {
-            assert!(std::ptr::eq(update.snapshot.conformance_index.get(id).unwrap(), contribution));
         }
         assert!(update.snapshot.store.extends_canonical_prefix(&image.snapshot().store));
         assert!(update.snapshot.static_values.extends_canonical_prefix(&image.snapshot().static_values));

@@ -116,4 +116,105 @@ Focused tests passed for canonical/local overlap against brute force, original
 index partition parity, derived-rule incremental/cold parity and condition
 invalidations, actual image replacement sharing, and a core check. Witness
 plans are empty in the current canonical image; a general parented witness
-contract, persistence inventory and metadata composition remain outstanding.
+contract, full persistence capabilities and metadata composition remain outstanding.
+
+The overlapping GitHub-only continuation below was unverified at publication;
+its inventory and useful tests were retained during branch integration.
+
+## P5 conformance-index parent continuation (`b99e0507`; follow-up structural assertions)
+
+- `ConformanceIndex` now keeps a shared immutable canonical parent and mutable
+  local-only contribution/secondary-index buckets. The first image-backed
+  workspace update uses `ConformanceIndex::with_parent`; retained revisions
+  clone only local contributions and the parent handle. Read-through retains
+  exact `ImplId` lookup and deterministic merged iteration.
+- Indexed exact conformance queries combine canonical and local trait/family
+  candidates without materializing a merged conformance table. Overlap
+  detection retains canonical/canonical and local/local checks and includes
+  canonical/local candidate pairs, so local heads cannot evade coherence
+  checking against canonical heads.
+- Canonical insert collisions are rejected. `remove` and `remove_source`
+  affect only local contributions. Added focused unit coverage for cross-layer
+  query/coherence, removal safety, collision rejection and local counts.
+  Expanded the existing three-revision image-session integration regression to
+  assert zero local conformance entries and pointer-identical canonical reads.
+- The preceding `791a0c0d` introduced a typed persistence-family inventory
+  and an in-memory capability census (P5.T8 partial). This is a planning
+  contract, **not** a portable DTO schema, byte encoder or portable digest.
+- **Verification status:** Both source increments and the new regression
+  assertions are committed, but no Rust check/test, formatter, or benchmark
+  was executed in this GitHub-only continuation. No GitHub Actions workflow
+  runs were returned for the branch. Existing `9143262b` test evidence does
+  not certify either later increment.
+- **Remaining:** witness-plan maps and derived-rule buckets still clone
+  canonical entries; T7 read hardening, full T8 compatibility/provenance
+  descriptor, T10 canonical RuntimePublic metadata composition and T11–T13
+  certification remain. P4's `FixedFields` blocker is not assumed resolved.
+  No `.telosc` was written, and P5 must remain PARTIAL.
+
+Recommended first verification commands after branch synchronization:
+
+```sh
+RUSTFLAGS='' cargo check -p phalcom-semantic
+RUSTFLAGS='' cargo test -p phalcom-semantic --lib conformance_index_partition_tests
+RUSTFLAGS='' cargo test -p phalcom-semantic --lib canonical_image
+RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic integration::canonical_image
+RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic incremental::traits
+RUSTFLAGS='' cargo check -p phalcom-core --features perf-observability
+```
+
+## Derived-rule image parent and bounded-read refinement (`e3f1add8`, `2819af8f`)
+
+The derived rule index now preserves canonical rule buckets as one immutable
+parent and stores only local rule additions/replacements in mutable buckets.
+A borrowed `DerivedRuleTraitView` exposes `len`, `get`, indexing and
+iteration over canonical + local source rules, without constructing a merged
+`Vec`. A single parent layer is enforced to support nonallocating iteration.
+`ConformanceIndex::iter` uses the same one-level read model.
+
+A new integration assertion checks, for three successive image-backed local
+revisions, that derived rules remain parent-owned and resolve to the exact
+canonical `Arc`-backed objects. Nested-parent rejection has a dedicated unit
+regression. Local derived-rule re-publication removes prior local trait-bucket
+membership before inserting the replacement; canonical collisions remain
+forbidden.
+
+Persistence classification was strengthened: source-semantic attachments
+required by downstream compilation are not designated rebuildable while P7
+has no proof they can be recreated with Universe source unavailable.
+
+**Verification gap:** GitHub commits are published but no Rust checks,
+tests, formatting commands, CI workflows, performance benchmarks or cold
+compiler tests have been run for these source changes. The last actually
+focused-tested revision is `9143262b`. Do not claim complete G6 zero-copy:
+`conformance_witness_plans` remains a cloned `BTreeMap`, and P4's
+canonical metadata authority is still gated per the recorded incident.
+
+Minimum required verification before attempting the witness-plan migration:
+
+```sh
+RUSTFLAGS='' cargo check -p phalcom-semantic
+RUSTFLAGS='' cargo test -p phalcom-semantic --lib conformance_index_partition_tests
+RUSTFLAGS='' cargo test -p phalcom-semantic --lib canonical_parent_tests
+RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic integration::canonical_image
+RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic incremental::derived_conformance
+RUSTFLAGS='' cargo check -p phalcom-core --features perf-observability
+```
+
+## Reconciled branch verification
+
+The concurrent remote inventory and conformance commits were merged with the
+locally tested layered conformance implementation. The resulting index retains
+stable-ID sorted, allocation-free read iteration and parent/local coherence
+parity without copying canonical buckets; the borrowed derived-rule view also
+supports `get` and indexing. Duplicate assertions in the three-revision image
+regression were removed. The remote `CanonicalImageCapabilities` and 22-family
+inventory remain, with source attachments conservatively required.
+
+After reconciliation, semantic `cargo check`, two conformance partition tests,
+14 canonical-image library tests, one derived parent test, four canonical-image
+integration tests, one derived incremental/cold parity test and the core
+observability build check passed. The earlier remote "unverified" statements
+above describe the GitHub-only commits before integration; this paragraph
+records the integrated evidence. P4 RuntimePublic metadata and P5.T10 remain
+blocked by the v12 `FixedFields` representation gap.

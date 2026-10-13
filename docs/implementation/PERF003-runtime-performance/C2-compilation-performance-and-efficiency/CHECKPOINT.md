@@ -561,3 +561,27 @@ P4 metadata integration and `.telosc` verification remain deferred; P5 is
   entries in this run, but its general parent contract remains pending.
 - P5.T6/T7/T8/T11/T12 and P4.PR-B/T6 are still open. No P5.G6 or P5.G1
   certification follows from these focused checks.
+
+### Concurrent P5 persistence-inventory continuation (`791a0c0d`–`c600b12a`)
+
+- Remote commits introduced a 22-family `CanonicalPersistenceClass` /
+  `CanonicalProductFamily` inventory and `CanonicalImageCapabilities` in
+  `canonical_image.rs`. Source-semantic attachments remain conservatively
+  `RequiredSemantic` without an artifact-only reconstruction contract.
+  T8 still needs complete compatibility/provenance and P4 metadata inputs.
+- Remote conformance and derived-rule changes overlapped the locally tested
+  `7c9bd6d7` work. The merge retains the validated cross-boundary coherence,
+  stable-ID iteration and borrowed trait-rule view, alongside the new inventory
+  and useful remote test/cardinality additions. Remote edits were GitHub-only
+  and unverified when published; integrated-tree verification is separate.
+- Witness-plan map, T7/T8 closure, P4-dependent T10 and T11–T13 remain open.
+
+Integrated-tree verification (after resolving the concurrent conformance
+implementations): `cargo check -p phalcom-semantic` PASS; conformance partition
+library filter PASS (two), canonical-image library filter PASS (14, including
+the inventory classification test), derived-rule parent library regression
+PASS (one), canonical-image integration PASS (four, 125.66 s), derived-rule
+incremental/cold parity PASS (one), and core observability check PASS. Remote
+source had no test evidence when published; these results apply to the
+reconciled tree only. The semantic integration test harness still reports the
+unrelated unused `TypeHierarchy` import warning.

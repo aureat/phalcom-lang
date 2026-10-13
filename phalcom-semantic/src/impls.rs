@@ -2892,6 +2892,21 @@ impl ConformanceIndex {
         self.contributions.len()
     }
 
+    /// Number of canonical heads visible through the parent.
+    pub fn parent_len(&self) -> usize {
+        self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
+    /// Number of visible canonical and local heads.
+    pub fn len(&self) -> usize {
+        self.local_len() + self.parent_len()
+    }
+
+    /// Iterates only workspace-owned conformance heads.
+    pub fn iter_local(&self) -> impl Iterator<Item = (&ImplId, &ConformanceContribution)> {
+        self.contributions.iter()
+    }
+
     pub fn insert(&mut self, contribution: ConformanceContribution) {
         self.insert_classified(contribution, None);
     }
@@ -2963,21 +2978,16 @@ impl ConformanceIndex {
         self.contributions.get(impl_id).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(impl_id)))
     }
 
-    pub fn iter(&self) -> Box<dyn Iterator<Item = (&ImplId, &ConformanceContribution)> + '_> {
-        match &self.parent {
-            Some(parent) => {
-                let mut canonical = parent.contributions.iter().peekable();
-                let mut local = self.contributions.iter().peekable();
-                Box::new(std::iter::from_fn(move || match (canonical.peek(), local.peek()) {
-                    (Some(left), Some(right)) if left.0 <= right.0 => canonical.next(),
-                    (Some(_), Some(_)) => local.next(),
-                    (Some(_), None) => canonical.next(),
-                    (None, Some(_)) => local.next(),
-                    (None, None) => None,
-                }))
-            }
-            None => Box::new(self.contributions.iter()),
-        }
+    pub fn iter(&self) -> impl Iterator<Item = (&ImplId, &ConformanceContribution)> {
+        let mut canonical = self.parent.as_ref().map(|parent| parent.contributions.iter()).into_iter().flatten().peekable();
+        let mut local = self.contributions.iter().peekable();
+        std::iter::from_fn(move || match (canonical.peek(), local.peek()) {
+            (Some(left), Some(right)) if left.0 <= right.0 => canonical.next(),
+            (Some(_), Some(_)) => local.next(),
+            (Some(_), None) => canonical.next(),
+            (None, Some(_)) => local.next(),
+            (None, None) => None,
+        })
     }
 
     /// Returns every eligible source head matching the exact target and trait

@@ -721,8 +721,10 @@ export Stream
 
     let provider_module = out_a.snapshot.module_for_display_path(&provider_path).expect("provider module").clone();
     let stream_decl = DeclarationId::new(provider_module, "Stream".into());
-    let rule_a = &out_a.snapshot.derived_conformance_rules.rules_for_trait(&stream_decl)[0];
-    let rule_b = &out_b.snapshot.derived_conformance_rules.rules_for_trait(&stream_decl)[0];
+    let rules_a = out_a.snapshot.derived_conformance_rules.rules_for_trait(&stream_decl);
+    let rules_b = out_b.snapshot.derived_conformance_rules.rules_for_trait(&stream_decl);
+    let rule_a = &rules_a[0];
+    let rule_b = &rules_b[0];
 
     assert_eq!(
         rule_a.fingerprint, rule_b.fingerprint,
