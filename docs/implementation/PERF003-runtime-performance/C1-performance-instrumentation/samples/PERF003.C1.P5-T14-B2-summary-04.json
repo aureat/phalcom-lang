@@ -1,0 +1,3620 @@
+{
+  "schema_version": 3,
+  "metadata": {
+    "run_id": "perf-profile-10459-1791851202121632000",
+    "started_unix_ns": 1791851202121640000,
+    "observability_level": "summary",
+    "lifecycle": "process_cold",
+    "baseline_head": "e2ae4a0fd360e4075ce8ad229a3e39e1531fb771",
+    "execution_tree_head": "cde1062260a74dc97a43344b1b29466c8529bfee",
+    "source_revision": "cde1062260a74dc97a43344b1b29466c8529bfee",
+    "branch": "perf/universe-characterization",
+    "dirty": false,
+    "toolchain": "nightly-2026-07-10-aarch64-apple-darwin",
+    "workload": "canonical_semantic_baseline"
+  },
+  "elapsed_ns": 48572333,
+  "spans": [
+    {
+      "id": 1,
+      "phase": "semantic.canonical_baseline.total",
+      "start_offset_ns": 6000,
+      "duration_ns": 48554500,
+      "outcome": "success"
+    },
+    {
+      "id": 2,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.linked_world",
+      "start_offset_ns": 11993041,
+      "duration_ns": 9565834,
+      "outcome": "success"
+    },
+    {
+      "id": 3,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.linked_world",
+      "start_offset_ns": 21559416,
+      "duration_ns": 964583,
+      "outcome": "success"
+    },
+    {
+      "id": 4,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.native_surfaces",
+      "start_offset_ns": 22524041,
+      "duration_ns": 3242292,
+      "outcome": "success"
+    },
+    {
+      "id": 5,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 25766541,
+      "duration_ns": 628292,
+      "outcome": "success"
+    },
+    {
+      "id": 6,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.predeclaration",
+      "start_offset_ns": 26394958,
+      "duration_ns": 99584,
+      "outcome": "success"
+    },
+    {
+      "id": 7,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.trait_census",
+      "start_offset_ns": 26551541,
+      "duration_ns": 51042,
+      "outcome": "success"
+    },
+    {
+      "id": 8,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.linked_world",
+      "start_offset_ns": 26602708,
+      "duration_ns": 6834,
+      "outcome": "success"
+    },
+    {
+      "id": 9,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.hierarchy",
+      "start_offset_ns": 26609666,
+      "duration_ns": 818458,
+      "outcome": "success"
+    },
+    {
+      "id": 10,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.class_surfaces",
+      "start_offset_ns": 27428166,
+      "duration_ns": 14773833,
+      "outcome": "success"
+    },
+    {
+      "id": 11,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 27911041,
+      "duration_ns": 46000,
+      "outcome": "success"
+    },
+    {
+      "id": 12,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28003833,
+      "duration_ns": 3208,
+      "outcome": "success"
+    },
+    {
+      "id": 13,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28046291,
+      "duration_ns": 3292,
+      "outcome": "success"
+    },
+    {
+      "id": 14,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28089250,
+      "duration_ns": 3833,
+      "outcome": "success"
+    },
+    {
+      "id": 15,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28129125,
+      "duration_ns": 3083,
+      "outcome": "success"
+    },
+    {
+      "id": 16,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28194333,
+      "duration_ns": 8458,
+      "outcome": "success"
+    },
+    {
+      "id": 17,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28246541,
+      "duration_ns": 3000,
+      "outcome": "success"
+    },
+    {
+      "id": 18,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28302458,
+      "duration_ns": 6458,
+      "outcome": "success"
+    },
+    {
+      "id": 19,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28344583,
+      "duration_ns": 3000,
+      "outcome": "success"
+    },
+    {
+      "id": 20,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28418541,
+      "duration_ns": 7958,
+      "outcome": "success"
+    },
+    {
+      "id": 21,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28468458,
+      "duration_ns": 2750,
+      "outcome": "success"
+    },
+    {
+      "id": 22,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28582791,
+      "duration_ns": 12584,
+      "outcome": "success"
+    },
+    {
+      "id": 23,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28690208,
+      "duration_ns": 13167,
+      "outcome": "success"
+    },
+    {
+      "id": 24,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28770708,
+      "duration_ns": 5750,
+      "outcome": "success"
+    },
+    {
+      "id": 25,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28812375,
+      "duration_ns": 2667,
+      "outcome": "success"
+    },
+    {
+      "id": 26,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28897833,
+      "duration_ns": 7834,
+      "outcome": "success"
+    },
+    {
+      "id": 27,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 28993541,
+      "duration_ns": 9709,
+      "outcome": "success"
+    },
+    {
+      "id": 28,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 29097458,
+      "duration_ns": 8084,
+      "outcome": "success"
+    },
+    {
+      "id": 29,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 29198333,
+      "duration_ns": 9583,
+      "outcome": "success"
+    },
+    {
+      "id": 30,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 29276708,
+      "duration_ns": 6125,
+      "outcome": "success"
+    },
+    {
+      "id": 31,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 29456333,
+      "duration_ns": 17250,
+      "outcome": "success"
+    },
+    {
+      "id": 32,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 29506291,
+      "duration_ns": 1917,
+      "outcome": "success"
+    },
+    {
+      "id": 33,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 29838875,
+      "duration_ns": 35875,
+      "outcome": "success"
+    },
+    {
+      "id": 34,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 29994625,
+      "duration_ns": 11458,
+      "outcome": "success"
+    },
+    {
+      "id": 35,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 30204500,
+      "duration_ns": 7375,
+      "outcome": "success"
+    },
+    {
+      "id": 36,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 30224041,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 37,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 30229041,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 38,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 30296541,
+      "duration_ns": 4750,
+      "outcome": "success"
+    },
+    {
+      "id": 39,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 30310208,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 40,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 30359458,
+      "duration_ns": 4708,
+      "outcome": "success"
+    },
+    {
+      "id": 41,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 30501625,
+      "duration_ns": 14875,
+      "outcome": "success"
+    },
+    {
+      "id": 42,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 30566333,
+      "duration_ns": 3584,
+      "outcome": "success"
+    },
+    {
+      "id": 43,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 30604791,
+      "duration_ns": 3959,
+      "outcome": "success"
+    },
+    {
+      "id": 44,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 30621958,
+      "duration_ns": 1417,
+      "outcome": "success"
+    },
+    {
+      "id": 45,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 30651166,
+      "duration_ns": 6000,
+      "outcome": "success"
+    },
+    {
+      "id": 46,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 30861000,
+      "duration_ns": 22875,
+      "outcome": "success"
+    },
+    {
+      "id": 47,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 30926916,
+      "duration_ns": 2959,
+      "outcome": "success"
+    },
+    {
+      "id": 48,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 30965208,
+      "duration_ns": 4084,
+      "outcome": "success"
+    },
+    {
+      "id": 49,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 31066500,
+      "duration_ns": 7041,
+      "outcome": "success"
+    },
+    {
+      "id": 50,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 31219375,
+      "duration_ns": 23000,
+      "outcome": "success"
+    },
+    {
+      "id": 51,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 31292125,
+      "duration_ns": 4792,
+      "outcome": "success"
+    },
+    {
+      "id": 52,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 31320041,
+      "duration_ns": 1709,
+      "outcome": "success"
+    },
+    {
+      "id": 53,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 31330833,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 54,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 31373041,
+      "duration_ns": 7334,
+      "outcome": "success"
+    },
+    {
+      "id": 55,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 31494833,
+      "duration_ns": 11834,
+      "outcome": "success"
+    },
+    {
+      "id": 56,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 31640666,
+      "duration_ns": 13250,
+      "outcome": "success"
+    },
+    {
+      "id": 57,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 31838750,
+      "duration_ns": 20333,
+      "outcome": "success"
+    },
+    {
+      "id": 58,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 31876083,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 59,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 32509541,
+      "duration_ns": 86250,
+      "outcome": "success"
+    },
+    {
+      "id": 60,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 32666916,
+      "duration_ns": 5958,
+      "outcome": "success"
+    },
+    {
+      "id": 61,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 32716250,
+      "duration_ns": 3583,
+      "outcome": "success"
+    },
+    {
+      "id": 62,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 32769083,
+      "duration_ns": 9709,
+      "outcome": "success"
+    },
+    {
+      "id": 63,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 32814875,
+      "duration_ns": 3125,
+      "outcome": "success"
+    },
+    {
+      "id": 64,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 32891750,
+      "duration_ns": 10041,
+      "outcome": "success"
+    },
+    {
+      "id": 65,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 32939041,
+      "duration_ns": 6584,
+      "outcome": "success"
+    },
+    {
+      "id": 66,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33027916,
+      "duration_ns": 10208,
+      "outcome": "success"
+    },
+    {
+      "id": 67,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33175458,
+      "duration_ns": 12958,
+      "outcome": "success"
+    },
+    {
+      "id": 68,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33270833,
+      "duration_ns": 13417,
+      "outcome": "success"
+    },
+    {
+      "id": 69,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33295166,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 70,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33299875,
+      "duration_ns": 41,
+      "outcome": "success"
+    },
+    {
+      "id": 71,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33334041,
+      "duration_ns": 2875,
+      "outcome": "success"
+    },
+    {
+      "id": 72,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33417083,
+      "duration_ns": 9667,
+      "outcome": "success"
+    },
+    {
+      "id": 73,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33439750,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 74,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33445083,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 75,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33449958,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 76,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33461125,
+      "duration_ns": 3875,
+      "outcome": "success"
+    },
+    {
+      "id": 77,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33470166,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 78,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33475541,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 79,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33492833,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 80,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33530083,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 81,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33534791,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 82,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33552833,
+      "duration_ns": 1500,
+      "outcome": "success"
+    },
+    {
+      "id": 83,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33560041,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 84,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33565291,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 85,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33570958,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 86,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33575958,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 87,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33580916,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 88,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33611500,
+      "duration_ns": 3500,
+      "outcome": "success"
+    },
+    {
+      "id": 89,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33631666,
+      "duration_ns": 1875,
+      "outcome": "success"
+    },
+    {
+      "id": 90,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33663875,
+      "duration_ns": 3375,
+      "outcome": "success"
+    },
+    {
+      "id": 91,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33700833,
+      "duration_ns": 3542,
+      "outcome": "success"
+    },
+    {
+      "id": 92,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33779833,
+      "duration_ns": 9125,
+      "outcome": "success"
+    },
+    {
+      "id": 93,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33800166,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 94,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33849250,
+      "duration_ns": 5458,
+      "outcome": "success"
+    },
+    {
+      "id": 95,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33893916,
+      "duration_ns": 2667,
+      "outcome": "success"
+    },
+    {
+      "id": 96,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 33903541,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 97,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 34058166,
+      "duration_ns": 309709,
+      "outcome": "success"
+    },
+    {
+      "id": 98,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 34474250,
+      "duration_ns": 9416,
+      "outcome": "success"
+    },
+    {
+      "id": 99,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 34567083,
+      "duration_ns": 6708,
+      "outcome": "success"
+    },
+    {
+      "id": 100,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 34882041,
+      "duration_ns": 19875,
+      "outcome": "success"
+    },
+    {
+      "id": 101,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 34949666,
+      "duration_ns": 3291,
+      "outcome": "success"
+    },
+    {
+      "id": 102,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 34992833,
+      "duration_ns": 4042,
+      "outcome": "success"
+    },
+    {
+      "id": 103,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35044083,
+      "duration_ns": 5875,
+      "outcome": "success"
+    },
+    {
+      "id": 104,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35134958,
+      "duration_ns": 8375,
+      "outcome": "success"
+    },
+    {
+      "id": 105,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35153291,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 106,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35196708,
+      "duration_ns": 2500,
+      "outcome": "success"
+    },
+    {
+      "id": 107,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35238416,
+      "duration_ns": 2417,
+      "outcome": "success"
+    },
+    {
+      "id": 108,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35287291,
+      "duration_ns": 2583,
+      "outcome": "success"
+    },
+    {
+      "id": 109,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35336583,
+      "duration_ns": 2750,
+      "outcome": "success"
+    },
+    {
+      "id": 110,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35371541,
+      "duration_ns": 2500,
+      "outcome": "success"
+    },
+    {
+      "id": 111,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35416333,
+      "duration_ns": 2417,
+      "outcome": "success"
+    },
+    {
+      "id": 112,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35460708,
+      "duration_ns": 2792,
+      "outcome": "success"
+    },
+    {
+      "id": 113,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35522500,
+      "duration_ns": 2833,
+      "outcome": "success"
+    },
+    {
+      "id": 114,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35564041,
+      "duration_ns": 2541,
+      "outcome": "success"
+    },
+    {
+      "id": 115,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35606875,
+      "duration_ns": 4500,
+      "outcome": "success"
+    },
+    {
+      "id": 116,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35654875,
+      "duration_ns": 2708,
+      "outcome": "success"
+    },
+    {
+      "id": 117,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35697291,
+      "duration_ns": 2666,
+      "outcome": "success"
+    },
+    {
+      "id": 118,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35750708,
+      "duration_ns": 2875,
+      "outcome": "success"
+    },
+    {
+      "id": 119,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 35795041,
+      "duration_ns": 2541,
+      "outcome": "success"
+    },
+    {
+      "id": 120,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 36094291,
+      "duration_ns": 35209,
+      "outcome": "success"
+    },
+    {
+      "id": 121,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 36183416,
+      "duration_ns": 2875,
+      "outcome": "success"
+    },
+    {
+      "id": 122,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 36348791,
+      "duration_ns": 15875,
+      "outcome": "success"
+    },
+    {
+      "id": 123,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 36408875,
+      "duration_ns": 2750,
+      "outcome": "success"
+    },
+    {
+      "id": 124,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 36568583,
+      "duration_ns": 14125,
+      "outcome": "success"
+    },
+    {
+      "id": 125,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 36627916,
+      "duration_ns": 2625,
+      "outcome": "success"
+    },
+    {
+      "id": 126,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 36746208,
+      "duration_ns": 10708,
+      "outcome": "success"
+    },
+    {
+      "id": 127,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 36796041,
+      "duration_ns": 2542,
+      "outcome": "success"
+    },
+    {
+      "id": 128,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 36970041,
+      "duration_ns": 16709,
+      "outcome": "success"
+    },
+    {
+      "id": 129,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 37032708,
+      "duration_ns": 2709,
+      "outcome": "success"
+    },
+    {
+      "id": 130,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 37252375,
+      "duration_ns": 26541,
+      "outcome": "success"
+    },
+    {
+      "id": 131,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 37337500,
+      "duration_ns": 2833,
+      "outcome": "success"
+    },
+    {
+      "id": 132,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 37380458,
+      "duration_ns": 4167,
+      "outcome": "success"
+    },
+    {
+      "id": 133,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 37424625,
+      "duration_ns": 3708,
+      "outcome": "success"
+    },
+    {
+      "id": 134,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 37455458,
+      "duration_ns": 2584,
+      "outcome": "success"
+    },
+    {
+      "id": 135,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 37504041,
+      "duration_ns": 4041,
+      "outcome": "success"
+    },
+    {
+      "id": 136,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 37549916,
+      "duration_ns": 2792,
+      "outcome": "success"
+    },
+    {
+      "id": 137,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 37596625,
+      "duration_ns": 3375,
+      "outcome": "success"
+    },
+    {
+      "id": 138,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 37647083,
+      "duration_ns": 3333,
+      "outcome": "success"
+    },
+    {
+      "id": 139,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 37771291,
+      "duration_ns": 13500,
+      "outcome": "success"
+    },
+    {
+      "id": 140,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 37832166,
+      "duration_ns": 2958,
+      "outcome": "success"
+    },
+    {
+      "id": 141,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 38025583,
+      "duration_ns": 21584,
+      "outcome": "success"
+    },
+    {
+      "id": 142,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 38104375,
+      "duration_ns": 3000,
+      "outcome": "success"
+    },
+    {
+      "id": 143,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 38154958,
+      "duration_ns": 4000,
+      "outcome": "success"
+    },
+    {
+      "id": 144,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 38201458,
+      "duration_ns": 2833,
+      "outcome": "success"
+    },
+    {
+      "id": 145,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 38468750,
+      "duration_ns": 25166,
+      "outcome": "success"
+    },
+    {
+      "id": 146,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 38543083,
+      "duration_ns": 3250,
+      "outcome": "success"
+    },
+    {
+      "id": 147,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 38770375,
+      "duration_ns": 21958,
+      "outcome": "success"
+    },
+    {
+      "id": 148,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 38838250,
+      "duration_ns": 4875,
+      "outcome": "success"
+    },
+    {
+      "id": 149,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 39066708,
+      "duration_ns": 21750,
+      "outcome": "success"
+    },
+    {
+      "id": 150,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 39151958,
+      "duration_ns": 2042,
+      "outcome": "success"
+    },
+    {
+      "id": 151,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 39341916,
+      "duration_ns": 18709,
+      "outcome": "success"
+    },
+    {
+      "id": 152,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 39413333,
+      "duration_ns": 1958,
+      "outcome": "success"
+    },
+    {
+      "id": 153,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 39473291,
+      "duration_ns": 5833,
+      "outcome": "success"
+    },
+    {
+      "id": 154,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 39511541,
+      "duration_ns": 3125,
+      "outcome": "success"
+    },
+    {
+      "id": 155,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 39537333,
+      "duration_ns": 1958,
+      "outcome": "success"
+    },
+    {
+      "id": 156,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 39656833,
+      "duration_ns": 16667,
+      "outcome": "success"
+    },
+    {
+      "id": 157,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 39729208,
+      "duration_ns": 4875,
+      "outcome": "success"
+    },
+    {
+      "id": 158,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40124750,
+      "duration_ns": 43916,
+      "outcome": "success"
+    },
+    {
+      "id": 159,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40237333,
+      "duration_ns": 2958,
+      "outcome": "success"
+    },
+    {
+      "id": 160,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40305083,
+      "duration_ns": 10167,
+      "outcome": "success"
+    },
+    {
+      "id": 161,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40409458,
+      "duration_ns": 19875,
+      "outcome": "success"
+    },
+    {
+      "id": 162,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40474750,
+      "duration_ns": 5333,
+      "outcome": "success"
+    },
+    {
+      "id": 163,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40488875,
+      "duration_ns": 41,
+      "outcome": "success"
+    },
+    {
+      "id": 164,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40494291,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 165,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40499458,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 166,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40504500,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 167,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40532416,
+      "duration_ns": 2417,
+      "outcome": "success"
+    },
+    {
+      "id": 168,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40570291,
+      "duration_ns": 4709,
+      "outcome": "success"
+    },
+    {
+      "id": 169,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40655375,
+      "duration_ns": 10333,
+      "outcome": "success"
+    },
+    {
+      "id": 170,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40706791,
+      "duration_ns": 3166,
+      "outcome": "success"
+    },
+    {
+      "id": 171,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40879333,
+      "duration_ns": 18750,
+      "outcome": "success"
+    },
+    {
+      "id": 172,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 40977458,
+      "duration_ns": 6625,
+      "outcome": "success"
+    },
+    {
+      "id": 173,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41049875,
+      "duration_ns": 5625,
+      "outcome": "success"
+    },
+    {
+      "id": 174,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41140583,
+      "duration_ns": 13833,
+      "outcome": "success"
+    },
+    {
+      "id": 175,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41227958,
+      "duration_ns": 6500,
+      "outcome": "success"
+    },
+    {
+      "id": 176,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41267875,
+      "duration_ns": 2083,
+      "outcome": "success"
+    },
+    {
+      "id": 177,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41299666,
+      "duration_ns": 2791,
+      "outcome": "success"
+    },
+    {
+      "id": 178,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41341750,
+      "duration_ns": 3500,
+      "outcome": "success"
+    },
+    {
+      "id": 179,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41374916,
+      "duration_ns": 2125,
+      "outcome": "success"
+    },
+    {
+      "id": 180,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41429583,
+      "duration_ns": 5250,
+      "outcome": "success"
+    },
+    {
+      "id": 181,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41497166,
+      "duration_ns": 5917,
+      "outcome": "success"
+    },
+    {
+      "id": 182,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41516833,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 183,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41561125,
+      "duration_ns": 3166,
+      "outcome": "success"
+    },
+    {
+      "id": 184,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41591375,
+      "duration_ns": 1500,
+      "outcome": "success"
+    },
+    {
+      "id": 185,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41605541,
+      "duration_ns": 584,
+      "outcome": "success"
+    },
+    {
+      "id": 186,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41617083,
+      "duration_ns": 583,
+      "outcome": "success"
+    },
+    {
+      "id": 187,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41637166,
+      "duration_ns": 1459,
+      "outcome": "success"
+    },
+    {
+      "id": 188,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41706833,
+      "duration_ns": 5750,
+      "outcome": "success"
+    },
+    {
+      "id": 189,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41764958,
+      "duration_ns": 5209,
+      "outcome": "success"
+    },
+    {
+      "id": 190,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41800250,
+      "duration_ns": 2333,
+      "outcome": "success"
+    },
+    {
+      "id": 191,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41813208,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 192,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41819333,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 193,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41824791,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 194,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41832583,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 195,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41844708,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 196,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41850500,
+      "duration_ns": 41,
+      "outcome": "success"
+    },
+    {
+      "id": 197,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41855666,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 198,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41860541,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 199,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41865541,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 200,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41870666,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 201,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41875625,
+      "duration_ns": 41,
+      "outcome": "success"
+    },
+    {
+      "id": 202,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41880666,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 203,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41885583,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 204,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41890500,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 205,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41899583,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 206,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41905333,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 207,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41911125,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 208,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41919833,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 209,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41924875,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 210,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41929958,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 211,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41935625,
+      "duration_ns": 41,
+      "outcome": "success"
+    },
+    {
+      "id": 212,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41941041,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 213,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41946041,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 214,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41951250,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 215,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41959666,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 216,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41964666,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 217,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41969958,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 218,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41977416,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 219,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41982541,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 220,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41987541,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 221,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 41995041,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 222,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42000000,
+      "duration_ns": 41,
+      "outcome": "success"
+    },
+    {
+      "id": 223,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42004958,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 224,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42014000,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 225,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42019375,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 226,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42024458,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 227,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42029500,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 228,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42034875,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 229,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42039958,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 230,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42051000,
+      "duration_ns": 41,
+      "outcome": "success"
+    },
+    {
+      "id": 231,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42056125,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 232,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42086541,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 233,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42153833,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 234,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42160500,
+      "duration_ns": 41,
+      "outcome": "success"
+    },
+    {
+      "id": 235,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42165541,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 236,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42171291,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 237,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42176500,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 238,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42183166,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 239,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42190000,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 240,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42195708,
+      "duration_ns": 42,
+      "outcome": "success"
+    },
+    {
+      "id": 241,
+      "parent_id": 10,
+      "phase": "semantic.canonical_baseline.callable_signatures",
+      "start_offset_ns": 42200625,
+      "duration_ns": 41,
+      "outcome": "success"
+    },
+    {
+      "id": 242,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 42216958,
+      "duration_ns": 17709,
+      "outcome": "success"
+    },
+    {
+      "id": 243,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 42235416,
+      "duration_ns": 1334,
+      "outcome": "success"
+    },
+    {
+      "id": 244,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42240666,
+      "duration_ns": 55500,
+      "outcome": "success"
+    },
+    {
+      "id": 245,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42301041,
+      "duration_ns": 20250,
+      "outcome": "success"
+    },
+    {
+      "id": 246,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42325500,
+      "duration_ns": 16166,
+      "outcome": "success"
+    },
+    {
+      "id": 247,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42345750,
+      "duration_ns": 16708,
+      "outcome": "success"
+    },
+    {
+      "id": 248,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42366333,
+      "duration_ns": 17917,
+      "outcome": "success"
+    },
+    {
+      "id": 249,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42390500,
+      "duration_ns": 18708,
+      "outcome": "success"
+    },
+    {
+      "id": 250,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42416208,
+      "duration_ns": 14667,
+      "outcome": "success"
+    },
+    {
+      "id": 251,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42434708,
+      "duration_ns": 16000,
+      "outcome": "success"
+    },
+    {
+      "id": 252,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42456958,
+      "duration_ns": 21042,
+      "outcome": "success"
+    },
+    {
+      "id": 253,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 42524041,
+      "duration_ns": 87459,
+      "outcome": "success"
+    },
+    {
+      "id": 254,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 42667291,
+      "duration_ns": 2709,
+      "outcome": "success"
+    },
+    {
+      "id": 255,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 42670291,
+      "duration_ns": 1625,
+      "outcome": "success"
+    },
+    {
+      "id": 256,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 42672291,
+      "duration_ns": 1541,
+      "outcome": "success"
+    },
+    {
+      "id": 257,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 42673916,
+      "duration_ns": 417,
+      "outcome": "success"
+    },
+    {
+      "id": 258,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 42674625,
+      "duration_ns": 1583,
+      "outcome": "success"
+    },
+    {
+      "id": 259,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 42682958,
+      "duration_ns": 375,
+      "outcome": "success"
+    },
+    {
+      "id": 260,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 42683791,
+      "duration_ns": 4125,
+      "outcome": "success"
+    },
+    {
+      "id": 261,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 42688166,
+      "duration_ns": 417,
+      "outcome": "success"
+    },
+    {
+      "id": 262,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 42689541,
+      "duration_ns": 9709,
+      "outcome": "success"
+    },
+    {
+      "id": 263,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 42699416,
+      "duration_ns": 416,
+      "outcome": "success"
+    },
+    {
+      "id": 264,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42702500,
+      "duration_ns": 35958,
+      "outcome": "success"
+    },
+    {
+      "id": 265,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42742708,
+      "duration_ns": 18833,
+      "outcome": "success"
+    },
+    {
+      "id": 266,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42765416,
+      "duration_ns": 13917,
+      "outcome": "success"
+    },
+    {
+      "id": 267,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42783041,
+      "duration_ns": 20459,
+      "outcome": "success"
+    },
+    {
+      "id": 268,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42807208,
+      "duration_ns": 12250,
+      "outcome": "success"
+    },
+    {
+      "id": 269,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42823416,
+      "duration_ns": 22125,
+      "outcome": "success"
+    },
+    {
+      "id": 270,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 42863916,
+      "duration_ns": 25000,
+      "outcome": "success"
+    },
+    {
+      "id": 271,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 42924250,
+      "duration_ns": 8333,
+      "outcome": "success"
+    },
+    {
+      "id": 272,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 42932875,
+      "duration_ns": 375,
+      "outcome": "success"
+    },
+    {
+      "id": 273,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 42940125,
+      "duration_ns": 78250,
+      "outcome": "success"
+    },
+    {
+      "id": 274,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 43043250,
+      "duration_ns": 86625,
+      "outcome": "success"
+    },
+    {
+      "id": 275,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 43227041,
+      "duration_ns": 10334,
+      "outcome": "success"
+    },
+    {
+      "id": 276,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 43238000,
+      "duration_ns": 416,
+      "outcome": "success"
+    },
+    {
+      "id": 277,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 43242166,
+      "duration_ns": 9250,
+      "outcome": "success"
+    },
+    {
+      "id": 278,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 43266958,
+      "duration_ns": 4833,
+      "outcome": "success"
+    },
+    {
+      "id": 279,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 43280000,
+      "duration_ns": 5083,
+      "outcome": "success"
+    },
+    {
+      "id": 280,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 43285541,
+      "duration_ns": 375,
+      "outcome": "success"
+    },
+    {
+      "id": 281,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 43288916,
+      "duration_ns": 11792,
+      "outcome": "success"
+    },
+    {
+      "id": 282,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 43313125,
+      "duration_ns": 7083,
+      "outcome": "success"
+    },
+    {
+      "id": 283,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 43333666,
+      "duration_ns": 4791,
+      "outcome": "success"
+    },
+    {
+      "id": 284,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 43338625,
+      "duration_ns": 541,
+      "outcome": "success"
+    },
+    {
+      "id": 285,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 43339583,
+      "duration_ns": 7417,
+      "outcome": "success"
+    },
+    {
+      "id": 286,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 43347208,
+      "duration_ns": 375,
+      "outcome": "success"
+    },
+    {
+      "id": 287,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 43350166,
+      "duration_ns": 72334,
+      "outcome": "success"
+    },
+    {
+      "id": 288,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 43457166,
+      "duration_ns": 57792,
+      "outcome": "success"
+    },
+    {
+      "id": 289,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 43588625,
+      "duration_ns": 5541,
+      "outcome": "success"
+    },
+    {
+      "id": 290,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 43594375,
+      "duration_ns": 1416,
+      "outcome": "success"
+    },
+    {
+      "id": 291,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 43598625,
+      "duration_ns": 92417,
+      "outcome": "success"
+    },
+    {
+      "id": 292,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 43717583,
+      "duration_ns": 59292,
+      "outcome": "success"
+    },
+    {
+      "id": 293,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 43861250,
+      "duration_ns": 6792,
+      "outcome": "success"
+    },
+    {
+      "id": 294,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 43868375,
+      "duration_ns": 500,
+      "outcome": "success"
+    },
+    {
+      "id": 295,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 43872250,
+      "duration_ns": 48458,
+      "outcome": "success"
+    },
+    {
+      "id": 296,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 43942916,
+      "duration_ns": 34209,
+      "outcome": "success"
+    },
+    {
+      "id": 297,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 44027291,
+      "duration_ns": 8209,
+      "outcome": "success"
+    },
+    {
+      "id": 298,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 44035708,
+      "duration_ns": 417,
+      "outcome": "success"
+    },
+    {
+      "id": 299,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 44039000,
+      "duration_ns": 14166,
+      "outcome": "success"
+    },
+    {
+      "id": 300,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 44067666,
+      "duration_ns": 6917,
+      "outcome": "success"
+    },
+    {
+      "id": 301,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 44088541,
+      "duration_ns": 50875,
+      "outcome": "success"
+    },
+    {
+      "id": 302,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 44150166,
+      "duration_ns": 20083,
+      "outcome": "success"
+    },
+    {
+      "id": 303,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 44183625,
+      "duration_ns": 11125,
+      "outcome": "success"
+    },
+    {
+      "id": 304,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 44218958,
+      "duration_ns": 4208,
+      "outcome": "success"
+    },
+    {
+      "id": 305,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 44244375,
+      "duration_ns": 9666,
+      "outcome": "success"
+    },
+    {
+      "id": 306,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 44264875,
+      "duration_ns": 708,
+      "outcome": "success"
+    },
+    {
+      "id": 307,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 44277500,
+      "duration_ns": 23042,
+      "outcome": "success"
+    },
+    {
+      "id": 308,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 44307708,
+      "duration_ns": 16083,
+      "outcome": "success"
+    },
+    {
+      "id": 309,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 44333291,
+      "duration_ns": 7292,
+      "outcome": "success"
+    },
+    {
+      "id": 310,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 44354666,
+      "duration_ns": 1708,
+      "outcome": "success"
+    },
+    {
+      "id": 311,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 44365083,
+      "duration_ns": 6459,
+      "outcome": "success"
+    },
+    {
+      "id": 312,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 44377125,
+      "duration_ns": 208,
+      "outcome": "success"
+    },
+    {
+      "id": 313,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 44384041,
+      "duration_ns": 9291,
+      "outcome": "success"
+    },
+    {
+      "id": 314,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 44394375,
+      "duration_ns": 500,
+      "outcome": "success"
+    },
+    {
+      "id": 315,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 44397625,
+      "duration_ns": 53833,
+      "outcome": "success"
+    },
+    {
+      "id": 316,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 44467375,
+      "duration_ns": 40583,
+      "outcome": "success"
+    },
+    {
+      "id": 317,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 44561708,
+      "duration_ns": 32583,
+      "outcome": "success"
+    },
+    {
+      "id": 318,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 44610875,
+      "duration_ns": 13625,
+      "outcome": "success"
+    },
+    {
+      "id": 319,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 44625000,
+      "duration_ns": 625,
+      "outcome": "success"
+    },
+    {
+      "id": 320,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 44629500,
+      "duration_ns": 87083,
+      "outcome": "success"
+    },
+    {
+      "id": 321,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 44741916,
+      "duration_ns": 58834,
+      "outcome": "success"
+    },
+    {
+      "id": 322,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 44932958,
+      "duration_ns": 792,
+      "outcome": "success"
+    },
+    {
+      "id": 323,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 44941625,
+      "duration_ns": 3958,
+      "outcome": "success"
+    },
+    {
+      "id": 324,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 44949750,
+      "duration_ns": 667,
+      "outcome": "success"
+    },
+    {
+      "id": 325,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 44968791,
+      "duration_ns": 21834,
+      "outcome": "success"
+    },
+    {
+      "id": 326,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 44991666,
+      "duration_ns": 1000,
+      "outcome": "success"
+    },
+    {
+      "id": 327,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 44996291,
+      "duration_ns": 70375,
+      "outcome": "success"
+    },
+    {
+      "id": 328,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 45097500,
+      "duration_ns": 73208,
+      "outcome": "success"
+    },
+    {
+      "id": 329,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 45222875,
+      "duration_ns": 12291,
+      "outcome": "success"
+    },
+    {
+      "id": 330,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 45235416,
+      "duration_ns": 458,
+      "outcome": "success"
+    },
+    {
+      "id": 331,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 45236375,
+      "duration_ns": 24000,
+      "outcome": "success"
+    },
+    {
+      "id": 332,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 45263500,
+      "duration_ns": 11416,
+      "outcome": "success"
+    },
+    {
+      "id": 333,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 45275125,
+      "duration_ns": 5166,
+      "outcome": "success"
+    },
+    {
+      "id": 334,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 45280666,
+      "duration_ns": 23667,
+      "outcome": "success"
+    },
+    {
+      "id": 335,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 45313333,
+      "duration_ns": 82500,
+      "outcome": "success"
+    },
+    {
+      "id": 336,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 45402041,
+      "duration_ns": 8000,
+      "outcome": "success"
+    },
+    {
+      "id": 337,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 45414416,
+      "duration_ns": 75917,
+      "outcome": "success"
+    },
+    {
+      "id": 338,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 45529708,
+      "duration_ns": 51584,
+      "outcome": "success"
+    },
+    {
+      "id": 339,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 45700833,
+      "duration_ns": 6042,
+      "outcome": "success"
+    },
+    {
+      "id": 340,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 45719958,
+      "duration_ns": 45042,
+      "outcome": "success"
+    },
+    {
+      "id": 341,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 45817708,
+      "duration_ns": 458,
+      "outcome": "success"
+    },
+    {
+      "id": 342,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 45820041,
+      "duration_ns": 5416,
+      "outcome": "success"
+    },
+    {
+      "id": 343,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 45829000,
+      "duration_ns": 333,
+      "outcome": "success"
+    },
+    {
+      "id": 344,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 45837625,
+      "duration_ns": 1583,
+      "outcome": "success"
+    },
+    {
+      "id": 345,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 45847666,
+      "duration_ns": 2875,
+      "outcome": "success"
+    },
+    {
+      "id": 346,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 45857458,
+      "duration_ns": 167,
+      "outcome": "success"
+    },
+    {
+      "id": 347,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 45881500,
+      "duration_ns": 11125,
+      "outcome": "success"
+    },
+    {
+      "id": 348,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 45892958,
+      "duration_ns": 667,
+      "outcome": "success"
+    },
+    {
+      "id": 349,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 45894125,
+      "duration_ns": 6167,
+      "outcome": "success"
+    },
+    {
+      "id": 350,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 45900541,
+      "duration_ns": 458,
+      "outcome": "success"
+    },
+    {
+      "id": 351,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 45903541,
+      "duration_ns": 28375,
+      "outcome": "success"
+    },
+    {
+      "id": 352,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 45936291,
+      "duration_ns": 12583,
+      "outcome": "success"
+    },
+    {
+      "id": 353,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 45965875,
+      "duration_ns": 7791,
+      "outcome": "success"
+    },
+    {
+      "id": 354,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 45990125,
+      "duration_ns": 16708,
+      "outcome": "success"
+    },
+    {
+      "id": 355,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 46036291,
+      "duration_ns": 15000,
+      "outcome": "success"
+    },
+    {
+      "id": 356,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 46058458,
+      "duration_ns": 14000,
+      "outcome": "success"
+    },
+    {
+      "id": 357,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 46091750,
+      "duration_ns": 13166,
+      "outcome": "success"
+    },
+    {
+      "id": 358,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 46126125,
+      "duration_ns": 1500,
+      "outcome": "success"
+    },
+    {
+      "id": 359,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 46140375,
+      "duration_ns": 2667,
+      "outcome": "success"
+    },
+    {
+      "id": 360,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 46145500,
+      "duration_ns": 250,
+      "outcome": "success"
+    },
+    {
+      "id": 361,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 46157000,
+      "duration_ns": 16666,
+      "outcome": "success"
+    },
+    {
+      "id": 362,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 46178583,
+      "duration_ns": 228000,
+      "outcome": "success"
+    },
+    {
+      "id": 363,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 46441708,
+      "duration_ns": 87292,
+      "outcome": "success"
+    },
+    {
+      "id": 364,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 46631125,
+      "duration_ns": 31333,
+      "outcome": "success"
+    },
+    {
+      "id": 365,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 46752833,
+      "duration_ns": 2167,
+      "outcome": "success"
+    },
+    {
+      "id": 366,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 46757708,
+      "duration_ns": 167,
+      "outcome": "success"
+    },
+    {
+      "id": 367,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 46790458,
+      "duration_ns": 12459,
+      "outcome": "success"
+    },
+    {
+      "id": 368,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 46809250,
+      "duration_ns": 100625,
+      "outcome": "success"
+    },
+    {
+      "id": 369,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 46934750,
+      "duration_ns": 44041,
+      "outcome": "success"
+    },
+    {
+      "id": 370,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 47047708,
+      "duration_ns": 11417,
+      "outcome": "success"
+    },
+    {
+      "id": 371,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 47111333,
+      "duration_ns": 1625,
+      "outcome": "success"
+    },
+    {
+      "id": 372,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 47116916,
+      "duration_ns": 3917,
+      "outcome": "success"
+    },
+    {
+      "id": 373,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 47150916,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 374,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 47151333,
+      "duration_ns": 84,
+      "outcome": "success"
+    },
+    {
+      "id": 375,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 47151541,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 376,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 47151791,
+      "duration_ns": 10500,
+      "outcome": "success"
+    },
+    {
+      "id": 377,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 47162458,
+      "duration_ns": 500,
+      "outcome": "success"
+    },
+    {
+      "id": 378,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 47165500,
+      "duration_ns": 2458,
+      "outcome": "success"
+    },
+    {
+      "id": 379,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 47171791,
+      "duration_ns": 1750,
+      "outcome": "success"
+    },
+    {
+      "id": 380,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 47177375,
+      "duration_ns": 2208,
+      "outcome": "success"
+    },
+    {
+      "id": 381,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 47183375,
+      "duration_ns": 11375,
+      "outcome": "success"
+    },
+    {
+      "id": 382,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 47198458,
+      "duration_ns": 88084,
+      "outcome": "success"
+    },
+    {
+      "id": 383,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 47329208,
+      "duration_ns": 833,
+      "outcome": "success"
+    },
+    {
+      "id": 384,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 47355083,
+      "duration_ns": 625,
+      "outcome": "success"
+    },
+    {
+      "id": 385,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 47387541,
+      "duration_ns": 84500,
+      "outcome": "success"
+    },
+    {
+      "id": 386,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 47570833,
+      "duration_ns": 625,
+      "outcome": "success"
+    },
+    {
+      "id": 387,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 47582625,
+      "duration_ns": 83,
+      "outcome": "success"
+    },
+    {
+      "id": 388,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 47583000,
+      "duration_ns": 6541,
+      "outcome": "success"
+    },
+    {
+      "id": 389,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 47589750,
+      "duration_ns": 458,
+      "outcome": "success"
+    },
+    {
+      "id": 390,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 47593625,
+      "duration_ns": 3583,
+      "outcome": "success"
+    },
+    {
+      "id": 391,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 47601500,
+      "duration_ns": 41416,
+      "outcome": "success"
+    },
+    {
+      "id": 392,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 47647166,
+      "duration_ns": 6625,
+      "outcome": "success"
+    },
+    {
+      "id": 393,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 47696666,
+      "duration_ns": 35834,
+      "outcome": "success"
+    },
+    {
+      "id": 394,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 47787125,
+      "duration_ns": 708,
+      "outcome": "success"
+    },
+    {
+      "id": 395,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 47792375,
+      "duration_ns": 6750,
+      "outcome": "success"
+    },
+    {
+      "id": 396,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 47799291,
+      "duration_ns": 1459,
+      "outcome": "success"
+    },
+    {
+      "id": 397,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 47801291,
+      "duration_ns": 14792,
+      "outcome": "success"
+    },
+    {
+      "id": 398,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 47821750,
+      "duration_ns": 14666,
+      "outcome": "success"
+    },
+    {
+      "id": 399,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 47841208,
+      "duration_ns": 37542,
+      "outcome": "success"
+    },
+    {
+      "id": 400,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 47914583,
+      "duration_ns": 38875,
+      "outcome": "success"
+    },
+    {
+      "id": 401,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 48002750,
+      "duration_ns": 375,
+      "outcome": "success"
+    },
+    {
+      "id": 402,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48004333,
+      "duration_ns": 1917,
+      "outcome": "success"
+    },
+    {
+      "id": 403,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 48008583,
+      "duration_ns": 250,
+      "outcome": "success"
+    },
+    {
+      "id": 404,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 48014375,
+      "duration_ns": 333,
+      "outcome": "success"
+    },
+    {
+      "id": 405,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48015666,
+      "duration_ns": 1416,
+      "outcome": "success"
+    },
+    {
+      "id": 406,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 48019791,
+      "duration_ns": 166,
+      "outcome": "success"
+    },
+    {
+      "id": 407,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 48027833,
+      "duration_ns": 7459,
+      "outcome": "success"
+    },
+    {
+      "id": 408,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 48036541,
+      "duration_ns": 11042,
+      "outcome": "success"
+    },
+    {
+      "id": 409,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 48049791,
+      "duration_ns": 19542,
+      "outcome": "success"
+    },
+    {
+      "id": 410,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 48072625,
+      "duration_ns": 8416,
+      "outcome": "success"
+    },
+    {
+      "id": 411,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48081250,
+      "duration_ns": 458,
+      "outcome": "success"
+    },
+    {
+      "id": 412,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 48082000,
+      "duration_ns": 8167,
+      "outcome": "success"
+    },
+    {
+      "id": 413,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 48091291,
+      "duration_ns": 7042,
+      "outcome": "success"
+    },
+    {
+      "id": 414,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48098583,
+      "duration_ns": 417,
+      "outcome": "success"
+    },
+    {
+      "id": 415,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 48099375,
+      "duration_ns": 6916,
+      "outcome": "success"
+    },
+    {
+      "id": 416,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48106625,
+      "duration_ns": 375,
+      "outcome": "success"
+    },
+    {
+      "id": 417,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 48107375,
+      "duration_ns": 17750,
+      "outcome": "success"
+    },
+    {
+      "id": 418,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 48130708,
+      "duration_ns": 6375,
+      "outcome": "success"
+    },
+    {
+      "id": 419,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48137333,
+      "duration_ns": 459,
+      "outcome": "success"
+    },
+    {
+      "id": 420,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 48138125,
+      "duration_ns": 17333,
+      "outcome": "success"
+    },
+    {
+      "id": 421,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enums",
+      "start_offset_ns": 48165291,
+      "duration_ns": 9916,
+      "outcome": "success"
+    },
+    {
+      "id": 422,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.data",
+      "start_offset_ns": 48178000,
+      "duration_ns": 6041,
+      "outcome": "success"
+    },
+    {
+      "id": 423,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48186541,
+      "duration_ns": 416,
+      "outcome": "success"
+    },
+    {
+      "id": 424,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.inherent_impls",
+      "start_offset_ns": 48189625,
+      "duration_ns": 3458,
+      "outcome": "success"
+    },
+    {
+      "id": 425,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.effective_surfaces",
+      "start_offset_ns": 48205625,
+      "duration_ns": 1416,
+      "outcome": "success"
+    },
+    {
+      "id": 426,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 48215958,
+      "duration_ns": 375,
+      "outcome": "success"
+    },
+    {
+      "id": 427,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48217583,
+      "duration_ns": 1833,
+      "outcome": "success"
+    },
+    {
+      "id": 428,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 48220875,
+      "duration_ns": 208,
+      "outcome": "success"
+    },
+    {
+      "id": 429,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 48225583,
+      "duration_ns": 292,
+      "outcome": "success"
+    },
+    {
+      "id": 430,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48227000,
+      "duration_ns": 1541,
+      "outcome": "success"
+    },
+    {
+      "id": 431,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 48231083,
+      "duration_ns": 125,
+      "outcome": "success"
+    },
+    {
+      "id": 432,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 48236083,
+      "duration_ns": 292,
+      "outcome": "success"
+    },
+    {
+      "id": 433,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48237375,
+      "duration_ns": 3666,
+      "outcome": "success"
+    },
+    {
+      "id": 434,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 48244541,
+      "duration_ns": 166,
+      "outcome": "success"
+    },
+    {
+      "id": 435,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 48250000,
+      "duration_ns": 250,
+      "outcome": "success"
+    },
+    {
+      "id": 436,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48251250,
+      "duration_ns": 1417,
+      "outcome": "success"
+    },
+    {
+      "id": 437,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 48253833,
+      "duration_ns": 167,
+      "outcome": "success"
+    },
+    {
+      "id": 438,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 48258166,
+      "duration_ns": 292,
+      "outcome": "success"
+    },
+    {
+      "id": 439,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48259583,
+      "duration_ns": 2625,
+      "outcome": "success"
+    },
+    {
+      "id": 440,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 48269541,
+      "duration_ns": 167,
+      "outcome": "success"
+    },
+    {
+      "id": 441,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 48277291,
+      "duration_ns": 250,
+      "outcome": "success"
+    },
+    {
+      "id": 442,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48278541,
+      "duration_ns": 2459,
+      "outcome": "success"
+    },
+    {
+      "id": 443,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 48284250,
+      "duration_ns": 166,
+      "outcome": "success"
+    },
+    {
+      "id": 444,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_behavior",
+      "start_offset_ns": 48289500,
+      "duration_ns": 1458,
+      "outcome": "success"
+    },
+    {
+      "id": 445,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48292083,
+      "duration_ns": 1625,
+      "outcome": "success"
+    },
+    {
+      "id": 446,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.enum_requirements",
+      "start_offset_ns": 48296375,
+      "duration_ns": 166,
+      "outcome": "success"
+    },
+    {
+      "id": 447,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.type_members",
+      "start_offset_ns": 48312916,
+      "duration_ns": 157666,
+      "outcome": "success"
+    },
+    {
+      "id": 448,
+      "parent_id": 1,
+      "phase": "semantic.canonical_baseline.associated_surfaces",
+      "start_offset_ns": 48470666,
+      "duration_ns": 20541,
+      "outcome": "success"
+    }
+  ],
+  "counters": {
+    "canonical_semantic_baseline_builds": 1,
+    "canonical_modules_scanned": 888,
+    "canonical_top_level_statements_visited": 5352,
+    "semantic_source_unique_modules": 148,
+    "semantic_source_unique_top_level_statements": 669,
+    "semantic_source_module_visits": 888,
+    "semantic_source_top_level_statement_visits": 5352,
+    "canonical_declarations": 315,
+    "canonical_classes": 231,
+    "canonical_traits": 21,
+    "canonical_data_declarations": 50,
+    "canonical_enum_declarations": 17,
+    "canonical_impl_declarations": 45,
+    "canonical_callable_signatures": 2444,
+    "canonical_associated_products": 53,
+    "canonical_type_members": 17
+  }
+}

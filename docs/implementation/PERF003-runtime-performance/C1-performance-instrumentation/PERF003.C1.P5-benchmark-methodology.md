@@ -58,11 +58,15 @@ performance conclusion.
 
 ## Current verification boundary
 
-The runner scripts passed syntax validation and the observability library,
-profile example, and default/feature-enabled `phalcom-perf` targets passed
-`cargo check`. The T12 stored-profile capture/show/compare workflow was exercised
-with two B2 reports. The five-mode runner is available, but its diagnostic B2
-matrix and final characterization have not yet been run; T13–T15 remain
-unverified. The baseline blocks full VM
+The runner scripts passed syntax validation, the workload manifest parsed,
+and the observability library, feature-disabled and feature-enabled profile
+examples, and default/feature-enabled `phalcom-perf` targets passed `cargo
+check`. Rust formatting and whitespace checks passed. The T12 stored-profile
+capture/show/compare workflow was exercised with two B2 reports. A five-mode
+B2 diagnostic matrix completed with five
+successful samples per mode; all reports and process exit codes are retained in
+the sample directory. This does not cover the plan's tiny, medium, and
+warm-incremental acceptance workloads, so T13–T15 remain unverified. The
+baseline blocks full VM
 startup at ProductKind source indexing and inline compiler projection at legacy
 Record-remainder metadata export.

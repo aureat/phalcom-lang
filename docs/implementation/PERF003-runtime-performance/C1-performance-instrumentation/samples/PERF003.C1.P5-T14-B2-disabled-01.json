@@ -1,0 +1,21 @@
+{
+  "counters": {},
+  "distributions": {},
+  "elapsed_ns": 61415917,
+  "metadata": {
+    "baseline_head": "e2ae4a0fd360e4075ce8ad229a3e39e1531fb771",
+    "branch": "perf/universe-characterization",
+    "dirty": false,
+    "execution_tree_head": "cde1062260a74dc97a43344b1b29466c8529bfee",
+    "lifecycle": "process_cold",
+    "observability_level": "off",
+    "run_id": "perf-profile-disabled-10719-1791851245392748000",
+    "source_revision": "cde1062260a74dc97a43344b1b29466c8529bfee",
+    "started_unix_ns": 1791851245392802000,
+    "toolchain": "nightly-2026-07-10-aarch64-apple-darwin",
+    "workload": "canonical_semantic_baseline"
+  },
+  "query_metrics": [],
+  "schema_version": 3,
+  "spans": []
+}

@@ -53,9 +53,12 @@ next_action: >
   timing samples. T13 adds a
   fresh-process runner, typed lifecycle metadata, and initial B1–B6 workloads;
   B7–B8 remain unimplemented, B6 needs size acceptance, and B1/B4 are
-  baseline-blocked. T14's observer matrix exists but has not been run. Next,
-  implement B7/B8 and confirm B6 workload size, then collect the observer
-  matrix on compatible workloads. Preserve P1's
+  baseline-blocked. T14 has a five-mode B2 diagnostic matrix with five
+  successful samples per mode, recorded in the overhead report and raw sample
+  directory; required tiny, medium, and warm-incremental coverage is still
+  missing. Next, implement B7/B8, confirm B6 workload size, and extend the
+  feature-disabled reference to the required compatible workloads before
+  collecting the acceptance matrix. Preserve P1's
   separate T7 frozen-runtime-image
   architecture stop and do not resume P1 T8 runtime-image measurement until its
   amendment and acceptance evidence exist.
@@ -112,7 +115,7 @@ After:
 | Plan | Title | Status | Completion | Verification | Notes |
 |---|---|---|---|---|---|
 | `PERF003.C1.P1` | Test-execution performance: instrumentation, semantic baseline reuse, compilation session reuse, bootstrapped runtime image | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Existing plan retained; T0–T6 evidence and failures remain recorded; T7 is stopped for the separate frozen-runtime-image architecture amendment; T8 is pending |
-| `PERF003.C1.P5` | Compiler & Semantic Performance Observability | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | New follow-up plan, not a replacement or amendment to P1; T0–T13 implementation is in place; T1 report round-trip and T6 query lifecycle tests remain outstanding; T3 full VM startup and T10 downstream compiler projection remain baseline-blocked; T4 cold semantic-baseline, T5 ordinary/canonical update, and T6 ordinary/canonical query-metrics profiles succeed; T7 canonical graph/body-pass, T8 TypeStore/journal, and T9 search-volume profiles succeed; T10/T11 inline projection profiles reach declaration export and identify the baseline alias export failure; T12 capture/show/compare path exercised on two B2 samples; T13 incomplete and unverified; T14 overhead matrix not run |
+| `PERF003.C1.P5` | Compiler & Semantic Performance Observability | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | New follow-up plan, not a replacement or amendment to P1; T0–T13 implementation is in place; T1 report round-trip and T6 query lifecycle tests remain outstanding; T3 full VM startup and T10 downstream compiler projection remain baseline-blocked; T4 cold semantic-baseline, T5 ordinary/canonical update, and T6 ordinary/canonical query-metrics profiles succeed; T7 canonical graph/body-pass, T8 TypeStore/journal, and T9 search-volume profiles succeed; T10/T11 inline projection profiles reach declaration export and identify the baseline alias export failure; T12 capture/show/compare path exercised on two B2 samples; T13 incomplete and unverified; T14 five-mode B2 diagnostic matrix completed, full acceptance workloads absent |
 
 ---
 

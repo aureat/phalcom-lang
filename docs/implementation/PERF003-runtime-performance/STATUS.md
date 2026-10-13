@@ -37,8 +37,11 @@ and compared as compatible. This validates the CLI path, not a performance
 conclusion. T13 adds a separate-process release profile runner,
 typed lifecycle metadata, and initial B1–B6 entries; B7–B8 are unimplemented,
 B6's medium-size status needs acceptance, and B1/B4 are baseline-blocked. T14's
-four-level overhead wrapper is present but has not been run. T13–T15 acceptance
-remains unverified. T1 report
+five-mode matrix completed a B2 diagnostic run with five successful samples
+per mode; the raw profiles, exit codes, and median comparison are recorded in
+the C1 overhead report. B2 does not satisfy the required tiny, medium, and
+warm-incremental workload coverage, so T13–T15 acceptance remains unverified.
+T1 report
 round-trip and T6 deterministic lifecycle tests remain outstanding. Canonical
 compile and full-VM characterization remain blocked by the recorded baseline
 metadata-export and ProductKind source-index failures.

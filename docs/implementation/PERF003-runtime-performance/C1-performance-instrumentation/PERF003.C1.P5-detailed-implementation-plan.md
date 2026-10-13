@@ -2519,9 +2519,12 @@ has a completed earlier profile; B3 warms the semantic baseline outside the
 recorder before measuring session creation; B5 compiles the standalone module
 fixture; B6 uses a four-module project candidate whose medium-size status still
 needs acceptance. B7 and B8 workloads are not implemented, and B9 is blocked by
-B1. The A/B/C/D shell driver is available. Schema, CLI, and example build
-checks passed, and both scripts passed syntax validation. No sample was run, so
-Gate T13 remains unverified and the B1–B9 suite is incomplete.
+B1. The five-mode shell driver is available, including the feature-disabled
+reference build for B2. Schema, CLI, and example build
+checks passed, and both scripts passed syntax validation. The B2 five-mode
+matrix now confirms process-cold labeling and successful fresh-process
+execution, but the suite remains incomplete: B6 size is unaccepted, B7–B8 are
+missing, and B1/B4/B9 are baseline-blocked. Gate T13 remains unverified.
 
 ---
 
@@ -2535,11 +2538,19 @@ If Summary overhead is too high, optimize observability implementation only.
 
 **Gate T14:** overhead acceptance documented.
 
-**T14 result:** the runner can collect `off`, `summary`, `detailed`, and `trace`
-profiles in separate fresh processes for one named workload, with the pinned
-baseline and lifecycle written into each report. The matrix has not been run;
-no observer-overhead percentage or acceptance claim is available. Gate T14 is
-unverified.
+**T14 result:** the five-mode runner collects a feature-disabled reference and
+feature-enabled `off`, `summary`, `detailed`, and `trace` profiles in separate
+fresh processes. A B2 `canonical_semantic_baseline` / `process_cold` diagnostic
+matrix completed with five successful samples per mode and matching clean
+source metadata at `cde1062260a74dc97a43344b1b29466c8529bfee`. Median overhead
+relative to feature-disabled was +1.30% for Off, +0.49% for Summary, +0.40% for
+Detailed, and +5.95% for Trace. Raw reports and exit codes are retained in the
+sample directory and summarized in
+`PERF003.C1.P5-overhead-report.md`. B2 alone does not cover the required
+tiny-package, medium-package, and warm-incremental cases; B7–B8 remain
+unimplemented, B6's size is not accepted, and the disabled harness supports
+only B2. The measured percentages are diagnostic and do not establish overhead
+acceptance. Gate T14 remains incomplete.
 
 ---
 
