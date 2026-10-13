@@ -16,9 +16,11 @@ impl<A, B> Arrow<A, B> {
   @class identity() -> Arrow<A, B> where A == B { Arrow<A, B>.new(|value| { value }) }
   call(_ value: A) -> B { self.transform.call(value) }
 
+  /// Applies this arrow before `next`.
   then<C>(_ next: Arrow<B, C>) -> Arrow<A, C> {
     Arrow<A, C>.new(|value| { next.call(self.call(value)) })
   }
+  /// Applies `previous` before this arrow.
   compose<C>(_ previous: Arrow<C, A>) -> Arrow<C, B> { previous.then(self) }
   dimap<C, D>(before: (C) -> A, after: (B) -> D) -> Arrow<C, D> {
     Arrow<C, D>.new(|value| { after.call(self.call(before.call(value))) })
