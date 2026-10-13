@@ -33,6 +33,7 @@ integration, or production cutover.
 | `UNIV002.C2.P8` | Buffer.capacity documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting the maximum element count; getter body/signature unchanged. Scoped diff check passed; inventory reconciliation retained 174 paths and records 12 changed source hashes. Semantic status remains unverified; shadow runtime remains blocked. |
 | `UNIV002.C2.P9` | Bag.count documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added the occurrence-count comment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 13 changed hashes. |
 | `UNIV002.C2.P10` | Reader.run documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment explaining that run invokes the computation with the supplied environment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 14 changed hashes. |
+| `UNIV002.C2.P11` | Reader.map documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | Document the transformed value and preserved environment; preserve behavior and refresh the inventory after the edit. |
 
 ## Established invariants
 
@@ -155,8 +156,7 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: none; P10 is complete and the next bounded source-quality
-  slice has not yet started.
+- Active plan: `UNIV002.C2.P11`.
 - Latest complete plan: `UNIV002.C2.P10`; latest complete checkpoint: `UNIV002.C1`.
 - The source inventory is reconciled through P10 source commit
   `9cd38fab3fe054e493e7a224f9695c18607c0849`: 174 paths, no additions or
@@ -176,3 +176,7 @@ identities.
 - P10 documented `Reader.run` in the functional package. The exact source
   comment does not alter code; preserve the held identity, iteration,
   reflection, and active linker boundaries.
+- P11 is a bounded Category A comment in `functional/reader.ph::Reader.map`.
+  The source creates a deferred Reader that applies `f` to the produced value
+  while retaining the same environment. No behavior or identity change is in
+  scope.

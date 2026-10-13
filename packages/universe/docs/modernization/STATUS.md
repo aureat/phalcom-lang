@@ -119,3 +119,5 @@ identity, iteration, reflection, and linker boundaries. No safe additional
 slice was selected from the remaining stable collections modules: the
 remaining candidates depend on the held iteration boundary or lack a precise
 interval behavior contract. P10 advanced the next priority package, Functional.
+P11 is active for a comment-only `Reader.map` slice; the MOD1 hash overlay
+remains current through P10 until its source change is committed.
