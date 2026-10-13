@@ -20,6 +20,10 @@ baseline; their current SHA-256 values are recorded in `INVENTORY.md`. Other
 source hashes still match baseline. Its textual inventory heuristics remain
 baseline data and are not a current opportunity audit.
 
+`UNIV002.C2.P16` is active for one Category A comment above
+`functional/chain.ph::Chain.fold`. The source hash overlay will be refreshed
+after that comment is implemented and reviewed.
+
 ## Active work and exclusions
 
 - S4 moved the iteration protocols and adapters into `collections/iteration/package.ph`; that cohesive move is recorded implemented/focused-tested, while its finer split is deferred and blocked by module/runtime-cycle concerns. Exclude edits to `collections/iteration/**` and any ownership/split work. The proposed `List`/`Array`/`Vector` slice-call-site review does not move those modules, but must preserve their dependency on the cohesive iteration owner.
