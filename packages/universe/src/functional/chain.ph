@@ -128,6 +128,7 @@ impl<T> Chain<T> {
     }
   }
 
+  /// Folds elements from left to right, using `seed` as the initial accumulator.
   fold<R>(initial seed: R, using f: (R, T) -> R) -> R {
     let mut result = seed
     let mut remaining = self
