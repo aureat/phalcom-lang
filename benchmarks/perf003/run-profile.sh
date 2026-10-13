@@ -36,8 +36,8 @@ export RUSTUP_TOOLCHAIN="$toolchain"
 
 target_root="${CARGO_TARGET_DIR:-$repo_root/target}"
 if [[ "$level" == "disabled" ]]; then
-  if [[ "$workload" != "semantic-baseline" ]]; then
-    echo "feature-disabled profiling currently supports only semantic-baseline" >&2
+  if [[ ! "$workload" =~ ^(semantic-baseline|session-init|standalone-compile|multi-module-project|feature-dense|incremental-updates)$ ]]; then
+    echo "feature-disabled profiling does not support workload: $workload" >&2
     exit 2
   fi
   cargo build --release -p phalcom-core --example perf_observability_disabled

@@ -5,6 +5,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use telos_observability::{ObservabilityLevel, PerfLifecycle, PerfRecorder, PerfRunMetadata};
 
+#[path = "perf_workloads.rs"]
+mod perf_workloads;
+
 fn required_env(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("set {name} to identify this profile's source state"))
 }
@@ -135,6 +138,8 @@ fn main() {
     let session_init = mode == "session-init";
     let standalone_compile = mode == "standalone-compile";
     let multi_module_project = mode == "multi-module-project";
+    let feature_dense = mode == "feature-dense";
+    let incremental_updates = mode == "incremental-updates";
     if !matches!(
         mode.as_str(),
         "vm-cold"
@@ -145,9 +150,11 @@ fn main() {
             | "session-init"
             | "standalone-compile"
             | "multi-module-project"
+            | "feature-dense"
+            | "incremental-updates"
     ) {
         panic!(
-            "unknown workload {mode}; use vm-cold, semantic-baseline, semantic-update, canonical-update, compiler-projection, session-init, standalone-compile, or multi-module-project"
+            "unknown workload {mode}; use vm-cold, semantic-baseline, semantic-update, canonical-update, compiler-projection, session-init, standalone-compile, multi-module-project, feature-dense, or incremental-updates"
         );
     }
     if session_init {
@@ -163,12 +170,19 @@ fn main() {
         "session-init" => "semantic_session_instantiation",
         "standalone-compile" => "standalone_module_compile",
         "multi-module-project" => "multi_module_project_compile",
+        "feature-dense" => "feature_dense_semantic_package",
+        "incremental-updates" => "incremental_update_variants",
         _ => "process_cold_vm_bootstrap",
     };
     let lifecycle = match mode.as_str() {
         "semantic-update" | "canonical-update" => PerfLifecycle::SessionCold,
-        "session-init" => PerfLifecycle::SessionWarm,
+        "session-init" | "incremental-updates" => PerfLifecycle::SessionWarm,
         _ => PerfLifecycle::ProcessCold,
+    };
+    let mut incremental_workspace = if incremental_updates {
+        Some(perf_workloads::IncrementalWorkspace::prepare())
+    } else {
+        None
     };
     let run_id = format!(
         "perf-profile-{}-{}",
@@ -204,6 +218,14 @@ fn main() {
         std::panic::catch_unwind(profile_standalone_compile).unwrap_or_else(|_| Err("standalone compile workload panicked".to_owned()))
     } else if multi_module_project {
         std::panic::catch_unwind(profile_multi_module_project).unwrap_or_else(|_| Err("multi-module project workload panicked".to_owned()))
+    } else if feature_dense {
+        std::panic::catch_unwind(perf_workloads::run_feature_dense).unwrap_or_else(|_| Err("feature-dense workload panicked".to_owned()))
+    } else if incremental_updates {
+        match incremental_workspace.as_mut().expect("incremental workload is prepared") {
+            Ok(workspace) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| workspace.run_variants()))
+                .unwrap_or_else(|_| Err("incremental update workload panicked".to_owned())),
+            Err(error) => Err(error.clone()),
+        }
     } else if session_init {
         std::panic::catch_unwind(|| {
             drop(phalcom_semantic::SemanticWorkspaceSession::new());
