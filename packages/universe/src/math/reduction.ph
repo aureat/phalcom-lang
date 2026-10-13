@@ -111,7 +111,8 @@ class FloatReduction {
     return Option::Some(result)
   }
 
-  /// Stable two-term log-domain addition with explicit IEEE edge handling.
+  /// Computes stable log-add-exp: NaN propagates; otherwise positive infinity
+  /// dominates, and negative infinity is the additive identity.
   @class
   logAddExp(_ a: Float, _ b: Float) -> Float {
     if a != a { return a }
