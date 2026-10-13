@@ -62,13 +62,13 @@ C1 may be completed only when every numbered P1–P5 plan is `COMPLETE` or expli
 |---|---|---|---|---|---|
 | G0 | Baseline, toolchain pin, affected API census and audit triage | IN_PROGRESS | PARTIAL | UNVERIFIED | P1 baseline and T1 evidence recorded; remaining checkpoint-wide source/test census is not claimed complete |
 | `TYPEAUD001.C1.P1` | Transactional semantic publication and retry, INC-007/011 | IN_PROGRESS | IMPLEMENTED | BASELINE_BLOCKED | Transactional authority/retry implementation and strict consumer migrations are present; G1–G5 have focused coverage, G6/G7 remain partial, G8 has reproduced baseline failures; incident closure and G9 are pending |
-| `TYPEAUD001.C1.P2` | Canonical relation algebra/ordered Tuple relation, INC-002/003/008/010 | PROPOSED | NOT_STARTED | UNVERIFIED | Scope defined; no patch-grade plan authored |
+| `TYPEAUD001.C1.P2` | Canonical relation algebra/ordered Tuple relation, INC-002/003/008/010 | PROPOSED | NOT_STARTED | UNVERIFIED | Patch-grade plan authored; remains proposed while P1 is active |
 | `TYPEAUD001.C1.P3` | Dynamic static-generic argument semantics, INC-009 | PROPOSED | NOT_STARTED | UNVERIFIED | Scope defined; no patch-grade plan authored |
 | `TYPEAUD001.C1.P4` | Lossless canonical materialization, INC-004/005 | PROPOSED | NOT_STARTED | UNVERIFIED | Scope defined; no patch-grade plan authored |
 | `TYPEAUD001.C1.P5` | Open structural intrinsic normalization, INC-012/013 | PROPOSED | NOT_STARTED | UNVERIFIED | Scope defined; no patch-grade plan authored |
 | G6 | Integrated cross-plan certification and incident closure | NOT_RUN | — | UNVERIFIED | Must follow accepted P1–P5 changes |
 
-**Plan record already prepared:** `TYPEAUD001.C1.P1-semantic-publication-luna-patch-grade-implementation-plan.md` (prepared against `b00d75b3`, amended as A1 on 2026-10-12). Its T0–T11 tasks, G0–G9 local gates, and CV-01–CV-31 matrix are **plan-local**, distinct from checkpoint-wide G0/G6. Do not mark any of them passed from plan existence.
+**Prepared plan records:** `TYPEAUD001.C1.P1-semantic-publication-luna-patch-grade-implementation-plan.md` (prepared against `b00d75b3`, amended as A1 on 2026-10-12) and `TYPEAUD001.C1.P2-relation-algebra-ordered-products-luna-patch-grade-implementation-plan.md` (prepared against `e2ae4a0f` on 2026-10-13). P1 remains the active plan. Plan-local tasks and gates are distinct from checkpoint-wide G0/G6; do not mark any of them passed from plan existence.
 
 ### Dependency/implementation sequence
 
