@@ -221,7 +221,7 @@ pub struct SemanticSnapshot {
     /// Immutable static-value arena shared by semantic products in this store lineage.
     pub static_values: Arc<StaticValueStore>,
     /// Ordinary-checker facts keyed by stable module binding identity.
-    pub module_static_bindings: Arc<BTreeMap<ModuleId, Arc<ModuleStaticBindingIndex>>>,
+    pub module_static_bindings: Arc<crate::parent_map::ParentMap<ModuleId, Arc<ModuleStaticBindingIndex>>>,
     /// Retained source-local semantic structure shards for incremental reuse.
     pub semantic_structure_shards: Arc<BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>>,
     pub status: SnapshotStatus,
@@ -286,7 +286,7 @@ impl SemanticSnapshot {
             static_definitions: Arc::new(StaticDefinitionTable::new()),
             static_constants: Arc::new(StaticConstantTable::new()),
             static_values: Arc::new(StaticValueStore::new()),
-            module_static_bindings: Arc::new(BTreeMap::new()),
+            module_static_bindings: Arc::new(crate::parent_map::ParentMap::default()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
             status: SnapshotStatus::Complete,
         }
@@ -352,7 +352,7 @@ impl SemanticSnapshot {
             static_definitions: Arc::new(StaticDefinitionTable::new()),
             static_constants: Arc::new(StaticConstantTable::new()),
             static_values: Arc::new(StaticValueStore::new()),
-            module_static_bindings: Arc::new(BTreeMap::new()),
+            module_static_bindings: Arc::new(crate::parent_map::ParentMap::default()),
             semantic_structure_shards: Arc::new(BTreeMap::new()),
             status: SnapshotStatus::Complete,
         }
@@ -434,7 +434,7 @@ impl SemanticSnapshot {
     }
 
     /// Publishes ordinary checker facts for stable module binding identities.
-    pub fn with_module_static_bindings(mut self, bindings: Arc<BTreeMap<ModuleId, Arc<ModuleStaticBindingIndex>>>) -> Self {
+    pub fn with_module_static_bindings(mut self, bindings: Arc<crate::parent_map::ParentMap<ModuleId, Arc<ModuleStaticBindingIndex>>>) -> Self {
         self.module_static_bindings = bindings;
         self
     }

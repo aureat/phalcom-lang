@@ -310,6 +310,7 @@ impl TraitSurface {
 /// Snapshot-owned trait surfaces keyed by canonical declaration identity.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TraitSurfaceTable {
+    parent: Option<Arc<Self>>,
     entries: BTreeMap<DeclarationId, Arc<TraitSurface>>,
 }
 
@@ -318,24 +319,44 @@ impl TraitSurfaceTable {
         Self::default()
     }
 
+    /// Shares immutable canonical trait contracts with a local workspace.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
+    }
+
+    /// Number of workspace-owned contracts.
+    pub fn local_len(&self) -> usize {
+        self.entries.len()
+    }
+
     pub fn insert(&mut self, surface: Arc<TraitSurface>) {
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.contains(&surface.declaration)),
+            "cannot overwrite a canonical trait surface"
+        );
         self.entries.insert(surface.declaration.clone(), surface);
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&Arc<TraitSurface>> {
-        self.entries.get(declaration)
+        self.entries.get(declaration).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(declaration)))
     }
 
     pub fn contains(&self, declaration: &DeclarationId) -> bool {
-        self.entries.contains_key(declaration)
+        self.get(declaration).is_some()
     }
 
     pub fn remove_module(&mut self, module: &ModuleId) {
         self.entries.retain(|declaration, _| &declaration.module != module);
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&DeclarationId, &Arc<TraitSurface>)> {
-        self.entries.iter()
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&DeclarationId, &Arc<TraitSurface>)> + '_> {
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter().chain(self.entries.iter())),
+            None => Box::new(self.entries.iter()),
+        }
     }
 }
 
@@ -745,6 +766,7 @@ pub struct TraitHeader {
 /// Immutable-by-publication collection of trait headers for one snapshot.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TraitHeaderTable {
+    parent: Option<Arc<Self>>,
     entries: BTreeMap<DeclarationId, Arc<TraitHeader>>,
 }
 
@@ -753,17 +775,34 @@ impl TraitHeaderTable {
         Self::default()
     }
 
+    /// Shares immutable canonical trait headers with a local workspace.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
+    }
+
+    /// Number of workspace-owned headers.
+    pub fn local_len(&self) -> usize {
+        self.entries.len()
+    }
+
     pub fn insert(&mut self, header: impl Into<Arc<TraitHeader>>) {
         let header = header.into();
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.contains(&header.declaration)),
+            "cannot overwrite a canonical trait header"
+        );
         self.entries.insert(header.declaration.clone(), header);
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&Arc<TraitHeader>> {
-        self.entries.get(declaration)
+        self.entries.get(declaration).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(declaration)))
     }
 
     pub fn contains(&self, declaration: &DeclarationId) -> bool {
-        self.entries.contains_key(declaration)
+        self.get(declaration).is_some()
     }
 
     pub fn remove(&mut self, declaration: &DeclarationId) {
@@ -774,8 +813,11 @@ impl TraitHeaderTable {
         self.entries.retain(|declaration, _| &declaration.module != module);
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&DeclarationId, &Arc<TraitHeader>)> {
-        self.entries.iter()
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&DeclarationId, &Arc<TraitHeader>)> + '_> {
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter().chain(self.entries.iter())),
+            None => Box::new(self.entries.iter()),
+        }
     }
 }
 

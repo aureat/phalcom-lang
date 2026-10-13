@@ -46,7 +46,7 @@ use crate::source_index::{
     resolve_type_reference_targets,
 };
 use crate::static_definition::{StaticDefinitionTable, resolve_static_definition};
-use crate::traits::{TraitHeader, TraitRef, TraitSurfaceTable, build_trait_surface};
+use crate::traits::{TraitHeader, TraitHeaderTable, TraitRef, TraitSurfaceTable, build_trait_surface};
 use crate::type_alias::TypeAliasTable;
 use crate::types::annotation::{
     GenericBinderSite, TypeFormationOutcome, TypeFormationSite, TypeResolver, resolve_generic_signature, resolve_kind_syntax, type_level_binding_for_parameter,
@@ -4042,7 +4042,10 @@ impl SemanticWorkspaceSession {
         // Resolve their stable declaration-owned generic binders through the
         // same canonical generic-signature path, but publish them separately
         // from `DeclarationTypeTable` so no fake form or class object exists.
-        let mut trait_headers = aggregate_snapshot.map(|snapshot| (*snapshot.trait_headers).clone()).unwrap_or_default();
+        let mut trait_headers = previous_snapshot.as_ref().map_or_else(
+            || canonical_snapshot.as_ref().map_or_else(TraitHeaderTable::new, |snapshot| TraitHeaderTable::with_parent(snapshot.trait_headers.clone())),
+            |snapshot| (*snapshot.trait_headers).clone(),
+        );
         for module in type_signature_cycle_headers
             .iter()
             .map(|declaration| declaration.module.clone())
@@ -4111,7 +4114,10 @@ impl SemanticWorkspaceSession {
         // Trait surfaces are semantic contract products, not declaration
         // surfaces. Publish every member signature before any body-analysis
         // work so defaults cannot influence the contract shape they consume.
-        let mut trait_surfaces = aggregate_snapshot.map(|snapshot| (*snapshot.trait_surfaces).clone()).unwrap_or_default();
+        let mut trait_surfaces = previous_snapshot.as_ref().map_or_else(
+            || canonical_snapshot.as_ref().map_or_else(TraitSurfaceTable::new, |snapshot| TraitSurfaceTable::with_parent(snapshot.trait_surfaces.clone())),
+            |snapshot| (*snapshot.trait_surfaces).clone(),
+        );
         for (module_id, shard) in &self.semantic_structure_shards {
             for stmt in &shard.source.program.statements {
                 let Statement::Trait(trait_def) = stmt else { continue };
@@ -4884,9 +4890,14 @@ impl SemanticWorkspaceSession {
         // each affected module from its retained source shard and canonical
         // field/callable signatures; neither the source index nor compiler
         // attribute expansion owns these identities.
-        let mut constructor_initializations = aggregate_snapshot.map_or_else(ConstructorInitializationTable::default, |snapshot| {
-            (*snapshot.constructor_initializations).clone()
-        });
+        let mut constructor_initializations = previous_snapshot.as_ref().map_or_else(
+            || {
+                canonical_snapshot.as_ref().map_or_else(ConstructorInitializationTable::default, |snapshot| {
+                    ConstructorInitializationTable::with_parent(snapshot.constructor_initializations.clone())
+                })
+            },
+            |snapshot| (*snapshot.constructor_initializations).clone(),
+        );
         let mut constructor_product_work_modules = formal_declaration_modules
             .iter()
             .cloned()
@@ -6669,25 +6680,21 @@ impl SemanticWorkspaceSession {
         // The first ordinary pass establishes local module binding facts. Seed
         // a second pass from those canonical facts so imported values retain
         // their exact structural type and denotation during normal checking.
-        let mut module_static_bindings = self
-            .semantic_structure_shards
-            .iter()
-            .filter_map(|(module_id, shard)| {
-                let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
-                let main_callable = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
-                let analysis = callable_analyses.get(&main_callable)?;
-                Some((
-                    module_id.clone(),
-                    Arc::new(crate::module_bindings::ModuleStaticBindingIndex::from_module_analysis(
-                        module_id,
-                        &shard.source.program,
-                        analysis,
-                    )),
-                ))
-            })
-            .collect::<BTreeMap<_, _>>();
-        if let Some(canonical) = &canonical_snapshot {
-            module_static_bindings.extend(canonical.module_static_bindings.iter().map(|(id, product)| (id.clone(), product.clone())));
+        let mut module_static_bindings = canonical_snapshot.as_ref().map_or_else(crate::parent_map::ParentMap::default, |snapshot| {
+            crate::parent_map::ParentMap::with_parent(snapshot.module_static_bindings.clone())
+        });
+        for (module_id, shard) in &self.semantic_structure_shards {
+            let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
+            let main_callable = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
+            let Some(analysis) = callable_analyses.get(&main_callable) else { continue };
+            module_static_bindings.insert(
+                module_id.clone(),
+                Arc::new(crate::module_bindings::ModuleStaticBindingIndex::from_module_analysis(
+                    module_id,
+                    &shard.source.program,
+                    analysis,
+                )),
+            );
         }
         for (module_id, linked_module) in &input.linked.modules {
             let imported_facts = linked_module
@@ -6708,10 +6715,8 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        for (module_id, bindings) in module_static_bindings.clone() {
-            if !current_modules.contains(&module_id) {
-                continue;
-            }
+        for (module_id, bindings) in module_static_bindings.iter_local().map(|(id, product)| (id.clone(), product.clone())).collect::<Vec<_>>() {
+            if !current_modules.contains(&module_id) { continue; }
             let bindings = match crate::db::query::query_module_static_bindings(&mut self.db, bindings) {
                 QueryOutcome::Ready(product) => product,
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
@@ -8209,25 +8214,21 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        module_static_bindings = self
-            .semantic_structure_shards
-            .iter()
-            .filter_map(|(module_id, shard)| {
-                let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
-                let main_callable = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
-                let analysis = callable_analyses.get(&main_callable)?;
-                Some((
-                    module_id.clone(),
-                    Arc::new(crate::module_bindings::ModuleStaticBindingIndex::from_module_analysis(
-                        module_id,
-                        &shard.source.program,
-                        analysis,
-                    )),
-                ))
-            })
-            .collect::<BTreeMap<_, _>>();
-        if let Some(canonical) = &canonical_snapshot {
-            module_static_bindings.extend(canonical.module_static_bindings.iter().map(|(id, product)| (id.clone(), product.clone())));
+        module_static_bindings = canonical_snapshot.as_ref().map_or_else(crate::parent_map::ParentMap::default, |snapshot| {
+            crate::parent_map::ParentMap::with_parent(snapshot.module_static_bindings.clone())
+        });
+        for (module_id, shard) in &self.semantic_structure_shards {
+            let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
+            let main_callable = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
+            let Some(analysis) = callable_analyses.get(&main_callable) else { continue };
+            module_static_bindings.insert(
+                module_id.clone(),
+                Arc::new(crate::module_bindings::ModuleStaticBindingIndex::from_module_analysis(
+                    module_id,
+                    &shard.source.program,
+                    analysis,
+                )),
+            );
         }
         for (module_id, linked_module) in &input.linked.modules {
             let imported_facts = linked_module
@@ -8248,10 +8249,8 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        for (module_id, module_bindings) in module_static_bindings.clone() {
-            if !current_modules.contains(&module_id) {
-                continue;
-            }
+        for (module_id, module_bindings) in module_static_bindings.iter_local().map(|(id, product)| (id.clone(), product.clone())).collect::<Vec<_>>() {
+            if !current_modules.contains(&module_id) { continue; }
             let module_bindings = match crate::db::query::query_module_static_bindings(&mut self.db, module_bindings) {
                 QueryOutcome::Ready(product) => product,
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),

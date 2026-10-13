@@ -20,7 +20,7 @@ use std::sync::Arc;
 /// the ordinary checker's published value facts.
 #[derive(Clone, Copy)]
 pub struct ModuleValueEnvironment<'a> {
-    pub bindings: &'a BTreeMap<ModuleId, Arc<ModuleStaticBindingIndex>>,
+    pub bindings: &'a crate::parent_map::ParentMap<ModuleId, Arc<ModuleStaticBindingIndex>>,
     pub exports: &'a BTreeMap<(ModuleId, String), SymbolId>,
 }
 

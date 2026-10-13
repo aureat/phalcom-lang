@@ -293,13 +293,31 @@ pub struct ConstructorInitializationProduct {
 /// Identity-indexed canonical construction paths retained with a semantic snapshot.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConstructorInitializationTable {
+    parent: Option<Arc<Self>>,
     by_factory: BTreeMap<CallableId, ConstructorInitializationProduct>,
     module_factories: BTreeMap<ModuleId, BTreeSet<CallableId>>,
 }
 
 impl ConstructorInitializationTable {
+    /// Attaches canonical construction paths without copying their entries.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
+    }
+
+    /// Number of workspace-owned construction paths.
+    pub fn local_len(&self) -> usize {
+        self.by_factory.len()
+    }
+
     /// Inserts or replaces a canonical construction path.
     pub fn insert(&mut self, product: ConstructorInitializationProduct) {
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.get(&product.factory).is_some()),
+            "cannot overwrite a canonical constructor path"
+        );
         self.module_factories
             .entry(product.factory.module().clone())
             .or_default()
@@ -309,12 +327,15 @@ impl ConstructorInitializationTable {
 
     /// Returns the path for one class-side factory identity.
     pub fn get(&self, factory: &CallableId) -> Option<&ConstructorInitializationProduct> {
-        self.by_factory.get(factory)
+        self.by_factory.get(factory).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(factory)))
     }
 
     /// Returns all paths in stable identity order.
-    pub fn iter(&self) -> impl Iterator<Item = (&CallableId, &ConstructorInitializationProduct)> {
-        self.by_factory.iter()
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&CallableId, &ConstructorInitializationProduct)> + '_> {
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter().chain(self.by_factory.iter())),
+            None => Box::new(self.by_factory.iter()),
+        }
     }
 
     /// Removes every path contributed by a source module.

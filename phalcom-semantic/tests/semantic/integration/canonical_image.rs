@@ -132,6 +132,10 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
     assert!(image.snapshot().static_definitions.iter().next().is_some());
     assert!(image.snapshot().static_constants.iter().next().is_some());
     assert!(image.snapshot().callable_definitions.iter().next().is_some());
+    assert!(image.snapshot().module_static_bindings.iter().next().is_some());
+    assert!(image.snapshot().constructor_initializations.iter().next().is_some());
+    assert!(image.snapshot().trait_headers.iter().next().is_some());
+    assert!(image.snapshot().trait_surfaces.iter().next().is_some());
     for (revision, source) in [
         "from universe.collections import Array\nconst value: Int = 1\n",
         "from universe.random import Xoshiro256PlusPlus\nlet value = Xoshiro256PlusPlus.seed(42).nextU64\n",
@@ -164,6 +168,7 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
         assert_eq!(update.snapshot.type_aliases.local_len(), 0);
         assert_eq!(update.snapshot.static_definitions.local_len(), 0);
         assert_eq!(update.snapshot.callable_definitions.local_len(), 0);
+        assert_eq!(update.snapshot.module_static_bindings.local_len(), 1);
         assert_eq!(
             update.snapshot.static_constants.local_len(),
             update.snapshot.static_constants.iter().filter(|(id, _)| !id.module().project.is_universe()).count()
@@ -183,6 +188,18 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
         }
         for (id, definition) in image.snapshot().callable_definitions.iter() {
             assert!(std::ptr::eq(update.snapshot.callable_definitions.get(id).unwrap(), definition));
+        }
+        for (id, bindings) in image.snapshot().module_static_bindings.iter() {
+            assert!(std::ptr::eq(update.snapshot.module_static_bindings.get(id).unwrap(), bindings));
+        }
+        for (id, initialization) in image.snapshot().constructor_initializations.iter() {
+            assert!(std::ptr::eq(update.snapshot.constructor_initializations.get(id).unwrap(), initialization));
+        }
+        for (id, header) in image.snapshot().trait_headers.iter() {
+            assert!(std::ptr::eq(update.snapshot.trait_headers.get(id).unwrap(), header));
+        }
+        for (id, surface) in image.snapshot().trait_surfaces.iter() {
+            assert!(std::ptr::eq(update.snapshot.trait_surfaces.get(id).unwrap(), surface));
         }
         assert!(update.snapshot.store.extends_canonical_prefix(&image.snapshot().store));
         assert!(update.snapshot.static_values.extends_canonical_prefix(&image.snapshot().static_values));

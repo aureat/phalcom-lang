@@ -585,7 +585,7 @@ pub struct CheckingContext<'a> {
     pub phase: EvaluationPhase,
     /// Checked module value facts available to this body. These facts retain
     /// canonical source `SymbolId`s even when reached through an import alias.
-    module_value_bindings: Option<&'a BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>>,
+    module_value_bindings: Option<&'a crate::parent_map::ParentMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>>,
     /// Linked public value exports keyed by the exporting module and public
     /// spelling. This is deliberately separate from ordinary object dispatch.
     module_value_exports: Option<&'a BTreeMap<(ModuleId, String), phalcom_modules::linker::SymbolId>>,
@@ -1055,7 +1055,7 @@ impl<'a> CheckingContext<'a> {
     /// index owns the exported value's type and denotation.
     pub(crate) fn attach_module_value_exports(
         &mut self,
-        bindings: &'a BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
+        bindings: &'a crate::parent_map::ParentMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
         exports: &'a BTreeMap<(ModuleId, String), phalcom_modules::linker::SymbolId>,
     ) {
         self.module_value_bindings = Some(bindings);
@@ -1067,7 +1067,7 @@ impl<'a> CheckingContext<'a> {
     pub(crate) fn seed_linked_module_import_values(
         &mut self,
         linked_module: &phalcom_modules::linker::LinkedModule,
-        bindings: &BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
+        bindings: &crate::parent_map::ParentMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
     ) {
         if let Some(index) = bindings.get(&self.current_module).cloned() {
             for (name, fact) in index.visible_bindings() {

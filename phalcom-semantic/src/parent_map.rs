@@ -77,6 +77,14 @@ impl<K: Ord, V> ParentMap<K, V> {
         self.local.iter()
     }
 
+    /// Iterates only the immutable canonical parent, without local entries.
+    pub fn iter_parent(&self) -> Box<dyn Iterator<Item = (&K, &V)> + '_> {
+        match &self.parent {
+            Some(parent) => parent.iter(),
+            None => Box::new(std::iter::empty()),
+        }
+    }
+
     /// Iterates all visible keys.
     pub fn keys(&self) -> impl Iterator<Item = &K> {
         self.iter().map(|(key, _)| key)
@@ -92,9 +100,14 @@ impl<K: Ord, V> ParentMap<K, V> {
         self.local.len()
     }
 
+    /// Counts only immutable parent entries.
+    pub fn parent_len(&self) -> usize {
+        self.parent.as_ref().map_or(0, |parent| parent.len())
+    }
+
     /// Counts parent and local contributions without scanning their entries.
     pub fn len(&self) -> usize {
-        self.local.len() + self.parent.as_ref().map_or(0, |parent| parent.len())
+        self.local.len() + self.parent_len()
     }
 
     /// Tests whether both parent and local contributions are empty.
@@ -145,6 +158,8 @@ mod tests {
         let mut overlay = ParentMap::with_parent(parent.clone());
         assert!(Arc::ptr_eq(overlay.parent.as_ref().unwrap(), &parent));
         assert_eq!(overlay.local_len(), 0);
+        assert_eq!(overlay.parent_len(), 1);
+        assert_eq!(overlay.iter_parent().collect::<Vec<_>>(), vec![(&1, &"canonical")]);
         assert_eq!(overlay.get(&1), Some(&"canonical"));
         assert_eq!(overlay.get_mut(&1), None);
         assert_eq!(overlay.remove(&1), None);
@@ -155,6 +170,7 @@ mod tests {
         assert_eq!(published.iter().collect::<Vec<_>>(), vec![(&1, &"canonical"), (&2, &"local")]);
         assert_eq!(parent.len(), 1);
         assert_eq!(overlay.len(), 1);
+        assert_eq!(overlay.parent_len(), 1);
     }
 
     #[test]
