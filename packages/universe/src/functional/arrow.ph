@@ -22,6 +22,7 @@ impl<A, B> Arrow<A, B> {
   }
   /// Applies `previous` before this arrow.
   compose<C>(_ previous: Arrow<C, A>) -> Arrow<C, B> { previous.then(self) }
+  /// Applies `before`, then this arrow, then `after`.
   dimap<C, D>(before: (C) -> A, after: (B) -> D) -> Arrow<C, D> {
     Arrow<C, D>.new(|value| { after.call(self.call(before.call(value))) })
   }
@@ -29,6 +30,7 @@ impl<A, B> Arrow<A, B> {
   first<C>() -> Arrow<Tuple<***(A, C)>, Tuple<***(B, C)>> {
     Arrow<Tuple<***(A, C)>, Tuple<***(B, C)>>.new(|pair| { (self.call(pair[0]), pair[1]) })
   }
+  /// Applies this arrow to the second tuple component and preserves the first.
   second<C>() -> Arrow<Tuple<***(C, A)>, Tuple<***(C, B)>> {
     Arrow<Tuple<***(C, A)>, Tuple<***(C, B)>>.new(|pair| { (pair[0], self.call(pair[1])) })
   }
