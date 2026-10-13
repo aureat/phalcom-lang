@@ -104,3 +104,45 @@ remainder. The approved PR-B graph normalization requires loader-supplied
 canonical Symbol identity for old bundles lacking a Symbol node; standalone
 decode must return a typed missing-context error for affected bundles. No
 schema change shipped here. P5 remains PARTIAL / FOCUSED_TESTED.
+
+## P5 conformance-index parent continuation (`b99e0507`; follow-up structural assertions)
+
+- `ConformanceIndex` now keeps a shared immutable canonical parent and mutable
+  local-only contribution/secondary-index buckets. The first image-backed
+  workspace update uses `ConformanceIndex::with_parent`; retained revisions
+  clone only local contributions and the parent handle. Read-through retains
+  exact `ImplId` lookup and deterministic merged iteration.
+- Indexed exact conformance queries combine canonical and local trait/family
+  candidates without materializing a merged conformance table. Overlap
+  detection retains canonical/canonical and local/local checks and includes
+  canonical/local candidate pairs, so local heads cannot evade coherence
+  checking against canonical heads.
+- Canonical insert collisions are rejected. `remove` and `remove_source`
+  affect only local contributions. Added focused unit coverage for cross-layer
+  query/coherence, removal safety, collision rejection and local counts.
+  Expanded the existing three-revision image-session integration regression to
+  assert zero local conformance entries and pointer-identical canonical reads.
+- The preceding `791a0c0d` introduced a typed persistence-family inventory
+  and an in-memory capability census (P5.T8 partial). This is a planning
+  contract, **not** a portable DTO schema, byte encoder or portable digest.
+- **Verification status:** Both source increments and the new regression
+  assertions are committed, but no Rust check/test, formatter, or benchmark
+  was executed in this GitHub-only continuation. No GitHub Actions workflow
+  runs were returned for the branch. Existing `9143262b` test evidence does
+  not certify either later increment.
+- **Remaining:** witness-plan maps and derived-rule buckets still clone
+  canonical entries; T7 read hardening, full T8 compatibility/provenance
+  descriptor, T10 canonical RuntimePublic metadata composition and T11–T13
+  certification remain. P4's `FixedFields` blocker is not assumed resolved.
+  No `.telosc` was written, and P5 must remain PARTIAL.
+
+Recommended first verification commands after branch synchronization:
+
+```sh
+RUSTFLAGS='' cargo check -p phalcom-semantic
+RUSTFLAGS='' cargo test -p phalcom-semantic --lib conformance_index_partition_tests
+RUSTFLAGS='' cargo test -p phalcom-semantic --lib canonical_image
+RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic integration::canonical_image
+RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic incremental::traits
+RUSTFLAGS='' cargo check -p phalcom-core --features perf-observability
+```

@@ -9,7 +9,7 @@ active_plan: PERF003.C2.P5
 latest_completed_plan: PERF003.C2.P3
 next_plan: PERF003.C2.P6
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: 9143262b
+execution_tree_head: b99e0507
 latest_tested_revision: 9143262b
 latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
@@ -531,3 +531,25 @@ P4 metadata integration and `.telosc` verification remain deferred; P5 is
   canonical entries at first local update. The user approved a layered
   canonical/local view, not a P5.G6 copy exception; proof/coherence parity
   must be verified before claiming zero canonical aggregate copies.
+
+### P5 GitHub-only continuation after tested baseline (`791a0c0d`, `b99e0507`)
+
+- `791a0c0d`: introduced 22-family `CanonicalPersistenceClass` /
+  `CanonicalProductFamily` inventory and `CanonicalImageCapabilities`
+  in `canonical_image.rs`. This advances T8 classification but does not
+  establish relocatable DTOs, metadata composition or durable compatibility
+  digests.
+- `b99e0507`: `ConformanceIndex` now attaches the immutable canonical index
+  by `Arc`, uses local mutable secondary indexes, merges exact query candidates
+  and parent/local coherence checks, and rejects parent `ImplId` collisions.
+  `SemanticWorkspaceSession` uses the canonical parent on the first local
+  publication and preserves it across retained revisions.
+- Integration regression now verifies parent/local conformance counts and
+  pointer-identical parent reads over three local replacements.
+- **Evidence:** GitHub accepted the commits and the remote branch ref was
+  verified. Rust compilation, new tests, full formatting, CI and benchmark
+  execution **not performed** for these increments; do not promote the
+  historical `9143262b` focused-test evidence to the new tree.
+- **Open gates:** witness plans and derived rules still copied; T7 and T8
+  incomplete; P4 prerequisite to T10 unresolved in recorded evidence; T11–T13
+  pending. Do not claim P5 complete or zero copies across all families.
