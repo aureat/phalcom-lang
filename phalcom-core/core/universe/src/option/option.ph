@@ -29,6 +29,79 @@ native data Option<T> {
 }
 
 impl<T> Option<T> {
+  /// Tests a present value; absence is false and never invokes the predicate.
+  isSomeAnd(_ predicate: (T) -> Bool) -> Bool {
+    match self {
+      Option::Some(value) => predicate.call(value)
+      Option::None => false
+    }
+  }
+
+  /// Extracts a value or computes a fallback once, only for None.
+  unwrapOrElse(_ fallback: () -> T) -> T {
+    match self {
+      Option::Some(value) => value
+      Option::None => fallback.call()
+    }
+  }
+
+  /// Converts absence into an error computed lazily, only for None.
+  okOrElse<E>(_ error: () -> E) -> Result<T, E> {
+    match self {
+      Option::Some(value) => Result::Ok(value)
+      Option::None => Result::Error(error.call())
+    }
+  }
+
+  /// Combines two present values. Neither absence invokes combine.
+  /// The other argument is evaluated before the method is called.
+  zipWith<U, R>(_ other: Option<U>, combine: (T, U) -> R) -> Option<R> {
+    match self {
+      Option::Some(left) => {
+        match other {
+          Option::Some(right) => Option::Some(combine.call(left, right))
+          Option::None => Option::None
+        }
+      }
+      Option::None => Option::None
+    }
+  }
+
+  /// Removes one Option layer; Some(None) and None both become None.
+  flatten<U>() -> Option<U> where T == Option<U> {
+    match self {
+      Option::Some(inner) => inner
+      Option::None => Option::None
+    }
+  }
+
+  /// Exchanges Option and Result nesting without discarding an error.
+  /// None -> Ok(None), Some(Ok(v)) -> Ok(Some(v)), Some(Error(e)) -> Error(e).
+  transpose<U, E>() -> Result<Option<U>, E> where T == Result<U, E> {
+    match self {
+      Option::Some(result) => {
+        match result {
+          Result::Ok(value) => Result::Ok(Option::Some(value))
+          Result::Error(error) => Result::Error(error)
+        }
+      }
+      Option::None => Result::Ok(Option::None)
+    }
+  }
+
+  /// Retains the sole present option; two present or two absent values give None.
+  xor(_ other: Option<T>) -> Option<T> {
+    match self {
+      Option::Some(_) => {
+        match other {
+          Option::Some(_) => Option::None
+          Option::None => self
+        }
+      }
+      Option::None => other
+    }
+  }
+
   /// Eliminates this option by invoking the callback corresponding to its
   /// current variant.
   ///

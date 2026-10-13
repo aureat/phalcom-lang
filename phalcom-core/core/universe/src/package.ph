@@ -5,6 +5,7 @@ expose .scalar
 expose .errors
 expose .callable
 expose .option
+expose .functional
 expose .time
 expose .concurrency
 expose .collections
@@ -36,6 +37,7 @@ from .errors import (
 )
 import .callable
 import .option
+import .functional
 import .time
 from .time import (
   Duration,
@@ -103,6 +105,7 @@ export (
 )
 export callable
 export option
+export functional
 export (
   Duration,
   Timestamp
