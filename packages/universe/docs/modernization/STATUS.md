@@ -13,9 +13,9 @@
 
 ## Current source reconciliation
 
-Through `UNIV002.C2.P9`, the 174 shadow source paths were reconciled against
+Through `UNIV002.C2.P10`, the 174 shadow source paths were reconciled against
 the MOD1 baseline at source revision
-`a7fb21a9700b5ab038ff70021392f5be521d6a0b`. Thirteen source files changed since
+`9cd38fab3fe054e493e7a224f9695c18607c0849`. Fourteen source files changed since
 baseline; their current SHA-256 values are recorded in `INVENTORY.md`. Other
 source hashes still match baseline. Its textual inventory heuristics remain
 baseline data and are not a current opportunity audit.
@@ -92,7 +92,7 @@ A source-only change may be `SOURCE_READY`; parser/interface checks do not imply
 
 ## Next action
 
-`UNIV002.C2.P1`–`P4`, `P6`–`P9` completed Category A
+`UNIV002.C2.P1`–`P4`, `P6`–`P10` completed Category A
 documentation/formatting slices. `UNIV002.C2.P5` completed a Category B
 source-level Gregorian leap-year expression
 rewrite in `time/calendar/month.ph`; its exact shadow parser/unlinked-interface
@@ -100,12 +100,14 @@ test passed. This does not typecheck or execute the method, so semantic linking
 remains `UNVERIFIED` and shadow runtime parity remains `BLOCKED`. P7 documents
 the observed `UtcOffset.seconds` input/range/error contract without changing
 code. The current 174 paths are reconciled against the MOD1 inventory baseline
-through P9's source commit; thirteen changed-file hashes are recorded in
+through P10's source commit; fourteen changed-file hashes are recorded in
 `INVENTORY.md`, while its textual heuristics remain baseline-only.
 P8 documents the maximum element count returned by `Buffer.capacity`; no
 executable code changed.
 P9 documents that `Bag.count` returns the number of occurrences of the supplied
 value; the source wrapper and native lookup remain unchanged.
+P10 documents that `Reader.run` runs the deferred computation with the supplied
+environment; the method body and signature remain unchanged.
 `UNIV002.C2.P6` documented only the live `ZoneTransition` fields and excludes
 unimplemented derived members. Keep source modernization independent of
 Option/Result/Unit identity, collection iteration ownership, reflection, and
@@ -113,4 +115,7 @@ active linker work. `PackageAuthor` and `PackageRequirement` remain
 `HIGH / DEFER` pending the dedicated constructor, identity, cache, GC,
 reflection, and host-conversion audit.
 Continue with a bounded source-quality slice that respects the active
-identity, iteration, reflection, and linker boundaries.
+identity, iteration, reflection, and linker boundaries. No safe additional
+slice was selected from the remaining stable collections modules: the
+remaining candidates depend on the held iteration boundary or lack a precise
+interval behavior contract. P10 advanced the next priority package, Functional.

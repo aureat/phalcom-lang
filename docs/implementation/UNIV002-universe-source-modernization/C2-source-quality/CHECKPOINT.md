@@ -32,6 +32,7 @@ integration, or production cutover.
 | `UNIV002.C2.P7` | UtcOffset.seconds documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added two method documentation lines before `@class`; source body/signature unchanged. Scoped diff check passed; independent inventory reconciliation retained 174 paths and records 11 changed source hashes. Semantic status remains unverified; shadow runtime remains blocked. |
 | `UNIV002.C2.P8` | Buffer.capacity documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting the maximum element count; getter body/signature unchanged. Scoped diff check passed; inventory reconciliation retained 174 paths and records 12 changed source hashes. Semantic status remains unverified; shadow runtime remains blocked. |
 | `UNIV002.C2.P9` | Bag.count documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added the occurrence-count comment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 13 changed hashes. |
+| `UNIV002.C2.P10` | Reader.run documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment explaining that run invokes the computation with the supplied environment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 14 changed hashes. |
 
 ## Established invariants
 
@@ -131,6 +132,17 @@ MOD1, with `collections/bag.ph` recorded at
 source commit `a7fb21a9700b5ab038ff70021392f5be521d6a0b`. Semantic linking
 remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
 
+P10 added one documentation line immediately above `Reader.run`, stating that
+it runs the computation with the supplied environment. The method delegates
+to the stored computation with that environment; the comment adds no callback
+count, purity, exception, or memoization promise. Only a comment changed.
+Exact diff review and scoped `git diff --check` passed; no tests were run.
+Independent inventory reconciliation confirmed 174 matching paths and 14
+changed hashes against MOD1, with `functional/reader.ph` recorded at
+`53e1ccb0137ab2c8ecb6f5508a856d21498b881c592d07afd78c0df8e9d74465` through
+source commit `9cd38fab3fe054e493e7a224f9695c18607c0849`. Semantic linking
+remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
+
 ## Deferred candidate
 
 `TextCursor.next` has a candidate rewrite from `isSome`/`unwrap` to
@@ -143,12 +155,12 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: none; P9 is complete and the next bounded source-quality slice
-  has not yet started.
-- Latest complete plan: `UNIV002.C2.P9`; latest complete checkpoint: `UNIV002.C1`.
-- The source inventory is reconciled through P9 source commit
-  `a7fb21a9700b5ab038ff70021392f5be521d6a0b`: 174 paths, no additions or
-  removals, and 13 changed hashes with the rest matching MOD1. Textual
+- Active plan: none; P10 is complete and the next bounded source-quality
+  slice has not yet started.
+- Latest complete plan: `UNIV002.C2.P10`; latest complete checkpoint: `UNIV002.C1`.
+- The source inventory is reconciled through P10 source commit
+  `9cd38fab3fe054e493e7a224f9695c18607c0849`: 174 paths, no additions or
+  removals, and 14 changed hashes with the rest matching MOD1. Textual
   inventory heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
   grounded in the live source; `docs/implementation/time.md` §29 proposes
@@ -161,3 +173,6 @@ identities.
   Both are bounded Category A edits independent of the held identity,
   iteration ownership, reflection, and active linker work. Give any Category
   B/C change its own plan and exact validation boundary.
+- P10 documented `Reader.run` in the functional package. The exact source
+  comment does not alter code; preserve the held identity, iteration,
+  reflection, and active linker boundaries.
