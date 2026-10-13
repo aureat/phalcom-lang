@@ -19,6 +19,7 @@ impl<S, T> Iso<S, T> {
   }
   /// Converts to the focus, applies `f`, then restores a source value.
   modify(_ source: S, using f: (T) -> T) -> S { self.restore(f.call(self.convert(source))) }
+  /// Uses the forward callback for Lens reads and the backward callback for writes.
   asLens -> Lens<S, T> {
     Lens<S, T>.new(get: self.forward, set: |_, value| { self.restore(value) })
   }
@@ -55,6 +56,8 @@ impl<S, T> Optional<S, T> {
       Option::None => source
     }
   }
+  /// Reads through this optional, then `other` for a present focus.
+  /// Routes updates through `other.set` inside a present outer focus.
   compose<U>(_ other: Optional<T, U>) -> Optional<S, U> {
     Optional<S, U>.new(
       get: |source| { self.get(source).flatMap(|part| { other.get(part) }) },
@@ -79,12 +82,15 @@ impl<S, T> Prism<S, T> {
       Option::None => source
     }
   }
+  /// Previews through this prism, then `other`.
+  /// Reviews by applying `other`, then this prism.
   compose<U>(_ other: Prism<T, U>) -> Prism<S, U> {
     Prism<S, U>.new(
       preview: |source| { self.preview(source).flatMap(|part| { other.preview(part) }) },
       review: |value| { self.review(other.review(value)) }
     )
   }
+  /// Uses this prism's selector for optional reads and its review callback for replacement.
   asOptional -> Optional<S, T> {
     Optional<S, T>.new(get: self.select, set: |_, value| { self.review(value) })
   }
