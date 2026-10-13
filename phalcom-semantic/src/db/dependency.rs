@@ -125,14 +125,29 @@ impl DependencyIndex {
     }
 
     pub fn replace_dependencies(&mut self, key: QueryKey, dependencies: impl IntoIterator<Item = DependencyEdge>) {
+        self.replace_dependencies_with_leaves(key, dependencies, |_| false);
+    }
+
+    /// Retains forward observations of immutable roots without reverse edges.
+    pub(crate) fn replace_dependencies_with_leaves(
+        &mut self,
+        key: QueryKey,
+        dependencies: impl IntoIterator<Item = DependencyEdge>,
+        is_immutable: impl Fn(&QueryKey) -> bool,
+    ) {
         let edges: Vec<DependencyEdge> = dependencies.into_iter().collect();
         let mut reverse_keys = self
             .forward
             .get(&key)
             .into_iter()
-            .flat_map(|old_edges| old_edges.iter().map(|edge| edge.dependency.clone()))
+            .flat_map(|old_edges| {
+                old_edges
+                    .iter()
+                    .filter(|edge| !is_immutable(&edge.dependency))
+                    .map(|edge| edge.dependency.clone())
+            })
             .collect::<BTreeSet<_>>();
-        reverse_keys.extend(edges.iter().map(|edge| edge.dependency.clone()));
+        reverse_keys.extend(edges.iter().filter(|edge| !is_immutable(&edge.dependency)).map(|edge| edge.dependency.clone()));
         self.remember_forward(&key);
         for dependency in reverse_keys {
             self.remember_reverse(&dependency);
@@ -146,6 +161,9 @@ impl DependencyIndex {
         }
 
         for edge in &edges {
+            if is_immutable(&edge.dependency) {
+                continue;
+            }
             self.reverse.entry(edge.dependency.clone()).or_default().insert(key.clone());
         }
         self.forward.insert(key, edges);
@@ -159,7 +177,10 @@ impl DependencyIndex {
             .unwrap_or_default();
         self.remember_forward(key);
         for dependency in dependencies {
-            self.remember_reverse(&dependency);
+            // Immutable leaves have no reverse row to mutate or journal.
+            if self.reverse.contains_key(&dependency) {
+                self.remember_reverse(&dependency);
+            }
         }
         if let Some(old_edges) = self.forward.remove(key) {
             for edge in old_edges {

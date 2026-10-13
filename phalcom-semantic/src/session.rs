@@ -781,6 +781,8 @@ fn contribution_delta(
 /// and published immutable snapshots across source revisions.
 #[derive(Debug)]
 pub struct SemanticWorkspaceSession {
+    #[cfg(feature = "perf-observability")]
+    canonical_image_bootstrap: bool,
     workspace: WorkspaceId,
     module_session: WorkspaceModuleSession,
     universe_source_provider: phalcom_modules::UniverseSourceProvider,
@@ -908,7 +910,7 @@ impl SemanticWorkspaceSession {
 
     /// Creates a new workspace session for a specific workspace ID.
     pub fn with_workspace(workspace: WorkspaceId) -> Self {
-        crate::canonical_baseline::canonical_universe_semantic_baseline().instantiate(workspace)
+        Self::from_image(workspace, crate::canonical_image::canonical_universe_formal_image().expect("canonical Universe image must build").clone())
     }
 
     /// Selects the semantic products needed by subsequent module updates.
@@ -921,18 +923,90 @@ impl SemanticWorkspaceSession {
     /// Source overrides themselves are only constructible through the modules
     /// crate's test-support feature; normal production construction uses `new`.
     pub fn with_universe_source_provider(workspace: WorkspaceId, provider: phalcom_modules::UniverseSourceProvider) -> Self {
-        if provider.is_canonical() {
-            crate::canonical_baseline::canonical_universe_semantic_baseline().instantiate(workspace)
-        } else {
-            crate::canonical_baseline::CanonicalUniverseSemanticBaseline::build_with_provider(provider).instantiate(workspace)
-        }
+        let image = crate::canonical_image::canonical_universe_formal_image_with_provider(&provider)
+            .expect("explicit canonical Universe image must build");
+        Self::from_image(workspace, image)
     }
 
+    /// Bootstrap-only constructor that cannot request a completed image.
+    pub(crate) fn from_foundation_for_image(baseline: &crate::canonical_baseline::CanonicalUniverseSemanticBaseline, workspace: WorkspaceId) -> Self {
+        #[allow(unused_mut)]
+        let mut session = Self::from_baseline(baseline, workspace);
+        #[cfg(feature = "perf-observability")]
+        {
+            session.canonical_image_bootstrap = true;
+        }
+        session
+    }
+
+    /// Creates a local workspace over a complete immutable canonical world.
+    /// Local publication history starts empty; final arenas preserve canonical IDs.
+    pub fn from_image(workspace: WorkspaceId, image: Arc<crate::canonical_image::CanonicalUniverseFormalImage>) -> Self {
+        let snapshot = image.snapshot();
+        let db = SemanticDb::with_canonical_image(workspace, image.clone());
+        let store = Arc::new(snapshot.store.fork_from_baseline());
+        let static_values = snapshot.static_values.clone();
+        Self {
+            #[cfg(feature = "perf-observability")]
+            canonical_image_bootstrap: false,
+            workspace,
+            module_session: WorkspaceModuleSession::with_external_modules(image.provider().clone(), image.modules().clone()),
+            universe_source_provider: image.provider().clone(),
+            product_request: crate::request::SemanticProductRequest::default(),
+            db,
+            store,
+            static_values,
+            base_declarations: (*snapshot.declarations).clone(),
+            base_hierarchy: (*snapshot.hierarchy).clone(),
+            base_dispatch: (*snapshot.dispatch).clone(),
+            base_callable_signatures: (*snapshot.callable_signatures).clone(),
+            base_data_semantics: (*snapshot.data_semantics).clone(),
+            base_data_products: Vec::new(),
+            base_enum_semantics: (*snapshot.enum_semantics).clone(),
+            base_enum_products: Vec::new(),
+            base_associated_surfaces: (*snapshot.associated_surfaces).clone(),
+            base_associated_surface_products: Vec::new(),
+            base_type_member_declarations: (*snapshot.type_member_declarations).clone(),
+            base_type_member_products: Vec::new(),
+            base_enum_requirements: (*snapshot.enum_requirements).clone(),
+            base_enum_requirement_products: Vec::new(),
+            sources: BTreeMap::new(),
+            source_fingerprints: BTreeMap::new(),
+            field_lifecycle_fingerprints: BTreeMap::new(),
+            default_field_lifecycle: crate::checker::field_lifecycle::FieldLifecycleTable::default(),
+            semantic_structure_shards: BTreeMap::new(),
+            generic_header_dependencies: BTreeMap::new(),
+            generic_header_reverse_dependencies: BTreeMap::new(),
+            declaration_signature_dependencies: BTreeMap::new(),
+            declaration_signature_reverse_dependencies: BTreeMap::new(),
+            declaration_signature_fingerprints: BTreeMap::new(),
+            inherent_impl_surface_owners: BTreeMap::new(),
+            alias_sources: BTreeMap::new(),
+            alias_dependencies: BTreeMap::new(),
+            alias_reverse_dependencies: BTreeMap::new(),
+            alias_contract_dependencies: BTreeMap::new(),
+            alias_contract_reverse_dependencies: BTreeMap::new(),
+            alias_forms: Arc::new(snapshot.type_aliases.iter().map(|(id, info)| (id.clone(), info.form)).collect()),
+            module_diagnostics: BTreeMap::new(),
+            canonical_native_diagnostics: BTreeMap::new(),
+            semantic_diagnostic_contributions: BTreeMap::new(),
+            last_snapshot: None,
+            last_known_good: None,
+            pending_semantic_delta: None,
+            requested_deep_modules: None,
+            #[cfg(test)]
+            test_publication_failpoint: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            test_candidate_type_parameter: std::sync::Mutex::new(None),
+        }
+    }
     pub(crate) fn from_baseline(baseline: &crate::canonical_baseline::CanonicalUniverseSemanticBaseline, workspace: WorkspaceId) -> Self {
         let db = SemanticDb::with_workspace(workspace);
         let store = Arc::new(baseline.store.fork_from_baseline());
         let static_values = Arc::new(crate::static_value::StaticValueStore::new());
         Self {
+            #[cfg(feature = "perf-observability")]
+            canonical_image_bootstrap: false,
             workspace,
             module_session: WorkspaceModuleSession::with_universe_source_provider(baseline.provider.clone()),
             universe_source_provider: baseline.provider.clone(),
@@ -1230,12 +1304,23 @@ impl SemanticWorkspaceSession {
 
         let previous_store = self.store.clone();
         let previous_static_values = self.static_values.clone();
+        if self.db.canonical_image().is_some() && input.sources.keys().any(|module| module.project.is_universe()) {
+            return Err(QueryOutcome::Failed("canonical Universe sources cannot enter a local workspace; use an explicit provider image".into()));
+        }
         let previous_structure_shards = self.semantic_structure_shards.clone();
         self.db.begin_transaction();
         semantic_perf_counter!(::telos_observability::PerfCounter::SemanticUpdateAttempts, 1);
         let result = self.update_candidate_with_budget_and_cancel_and_delta(input, budget, cancel, module_delta, &previous_structure_shards);
         match result {
             Ok(update) => {
+                #[cfg(feature = "perf-observability")]
+                if self.canonical_image_bootstrap {
+                    ::telos_observability::PerfContext::current_thread()
+                        .with_span(::telos_observability::PerfPhase::CanonicalImageTransactionCommit, |_| self.db.commit_transaction());
+                } else {
+                    self.db.commit_transaction();
+                }
+                #[cfg(not(feature = "perf-observability"))]
                 self.db.commit_transaction();
                 semantic_perf_counter!(::telos_observability::PerfCounter::SemanticUpdateCommits, 1);
                 #[cfg(feature = "perf-observability")]
@@ -1286,6 +1371,8 @@ impl SemanticWorkspaceSession {
         let mut invalidated_keys = BTreeSet::new();
         let mut callable_dispositions = BTreeMap::new();
         let previous_snapshot = self.last_snapshot.clone();
+        let canonical_snapshot = self.db.canonical_image().map(|image| image.snapshot().clone());
+        let aggregate_snapshot = previous_snapshot.as_ref().or(canonical_snapshot.as_ref());
         let previous_field_lifecycle_fingerprints = self.field_lifecycle_fingerprints.clone();
         let previous_module_diagnostics = self.module_diagnostics.clone();
         let current_module_diagnostics = input.diagnostics.clone();
@@ -2268,8 +2355,7 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        let mut hierarchy = previous_snapshot
-            .as_ref()
+        let mut hierarchy = aggregate_snapshot
             .map_or_else(|| self.base_hierarchy.clone(), |snapshot| (*snapshot.hierarchy).clone());
         for declaration in &hierarchy_edge_work {
             hierarchy.remove_superclass(declaration);
@@ -2416,6 +2502,10 @@ impl SemanticWorkspaceSession {
         let mut known_declarations: HashSet<DeclarationId> = declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
         known_declarations.extend(declarations.intrinsic_static_domain_declarations().cloned());
         known_declarations.extend(alias_declarations.iter().cloned());
+        if let Some(canonical) = &canonical_snapshot {
+            known_declarations.extend(canonical.type_aliases.iter().map(|(id, _)| id.clone()));
+            known_declarations.extend(canonical.trait_headers.iter().map(|(id, _)| id.clone()));
+        }
         for kind in [
             crate::checker::proof_predicate::ProofPredicateKind::Equivalent,
             crate::checker::proof_predicate::ProofPredicateKind::Subtype,
@@ -2424,6 +2514,12 @@ impl SemanticWorkspaceSession {
             known_declarations.insert(crate::checker::proof_predicate::proof_predicate_declaration(kind));
         }
         let mut trait_associated_types: BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>> = BTreeMap::new();
+        if let Some(canonical) = &canonical_snapshot {
+            for (declaration, surface) in canonical.trait_surfaces.iter() {
+                trait_associated_types.insert(declaration.clone(), surface.associated_types.iter()
+                    .map(|(id, requirement)| (requirement.name.to_string(), id.clone())).collect());
+            }
+        }
         for (module, shard) in &self.semantic_structure_shards {
             for statement in &shard.source.program.statements {
                 if let Statement::Trait(trait_def) = statement {
@@ -2614,10 +2710,9 @@ impl SemanticWorkspaceSession {
         // checking any alias or source type-member signature. Checked member
         // products are added to the resolver independently as the signature
         // dependency scheduler makes them available.
-        let mut associated_surfaces_table = previous_snapshot
-            .as_ref()
+        let mut associated_surfaces_table = aggregate_snapshot
             .map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| (*snapshot.associated_surfaces).clone());
-        let mut type_member_declarations_table = previous_snapshot.as_ref().map_or_else(
+        let mut type_member_declarations_table = aggregate_snapshot.map_or_else(
             || self.base_type_member_declarations.clone(),
             |snapshot| (*snapshot.type_member_declarations).clone(),
         );
@@ -2661,7 +2756,7 @@ impl SemanticWorkspaceSession {
         associated_scope.finish(SemanticPerfOutcome::Success);
         // Case identity is structural source authority. Publish it before the
         // alias/header/member signature scheduler reads any annotation.
-        let mut static_case_catalogs = BTreeMap::new();
+        let mut static_case_catalogs = aggregate_snapshot.map_or_else(BTreeMap::new, |snapshot| (*snapshot.static_case_catalogs).clone());
         for (module_id, shard) in &self.semantic_structure_shards {
             let mut candidates = BTreeMap::<crate::identity::StaticDomainDeclarationId, Vec<&phalcom_ast::ast::AlgebraicDef>>::new();
             for statement in &shard.source.program.statements {
@@ -2731,22 +2826,18 @@ impl SemanticWorkspaceSession {
         }
         resolver.update_static_case_catalogs(&static_case_catalogs);
         let static_case_sources = collect_static_case_sources(&self.semantic_structure_shards, &resolver, &static_case_catalogs);
-        let mut static_case_signatures_table = previous_snapshot
-            .as_ref()
+        let mut static_case_signatures_table = aggregate_snapshot
             .map_or_else(BTreeMap::new, |snapshot| (*snapshot.static_case_signatures).clone());
         for case in &signature_case_work {
             static_case_signatures_table.remove(case);
         }
         resolver.update_static_case_signatures(&static_case_signatures_table);
         let mut blocked_declarations = BTreeSet::new();
-        let mut type_aliases = previous_snapshot
-            .as_ref()
+        let mut type_aliases = aggregate_snapshot
             .map_or_else(TypeAliasTable::new, |snapshot| (*snapshot.type_aliases).clone());
-        let mut static_definitions_table = previous_snapshot
-            .as_ref()
+        let mut static_definitions_table = aggregate_snapshot
             .map_or_else(StaticDefinitionTable::new, |snapshot| (*snapshot.static_definitions).clone());
-        let mut static_constants_table = previous_snapshot
-            .as_ref()
+        let mut static_constants_table = aggregate_snapshot
             .map_or_else(crate::static_constant::StaticConstantTable::new, |snapshot| {
                 (*snapshot.static_constants).clone()
             });
@@ -3826,7 +3917,7 @@ impl SemanticWorkspaceSession {
         // Resolve their stable declaration-owned generic binders through the
         // same canonical generic-signature path, but publish them separately
         // from `DeclarationTypeTable` so no fake form or class object exists.
-        let mut trait_headers = previous_snapshot.as_ref().map(|snapshot| (*snapshot.trait_headers).clone()).unwrap_or_default();
+        let mut trait_headers = aggregate_snapshot.map(|snapshot| (*snapshot.trait_headers).clone()).unwrap_or_default();
         for module in type_signature_cycle_headers
             .iter()
             .map(|declaration| declaration.module.clone())
@@ -3895,8 +3986,7 @@ impl SemanticWorkspaceSession {
         // Trait surfaces are semantic contract products, not declaration
         // surfaces. Publish every member signature before any body-analysis
         // work so defaults cannot influence the contract shape they consume.
-        let mut trait_surfaces = previous_snapshot
-            .as_ref()
+        let mut trait_surfaces = aggregate_snapshot
             .map(|snapshot| (*snapshot.trait_surfaces).clone())
             .unwrap_or_default();
         for (module_id, shard) in &self.semantic_structure_shards {
@@ -3924,6 +4014,7 @@ impl SemanticWorkspaceSession {
         // Publish declaration type metadata as explicit DB products before any
         // formal surface, signature, or body query can consume it.
         let mut published_shells = BTreeSet::new();
+        if canonical_snapshot.is_none() {
         for (declaration, info) in self.base_declarations.iter() {
             published_shells.insert(declaration.clone());
             match query_declaration_shell(&mut self.db, Arc::new(TypeDeclarationShell::Nominal(info.clone()))) {
@@ -3969,6 +4060,7 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        }
         // Publish alias shells in dependency order so each edge records the
         // dependency's actual structural product fingerprint.
         let alias_shell_work = alias_recomputed_declarations.clone();
@@ -4163,17 +4255,13 @@ impl SemanticWorkspaceSession {
         }
 
         // 6. Materialize compatibility dispatch/signature tables from DB-owned formal products.
-        let mut dispatch = previous_snapshot
-            .as_ref()
+        let mut dispatch = aggregate_snapshot
             .map_or_else(|| self.base_dispatch.clone(), |snapshot| (*snapshot.dispatch).clone());
-        let mut callable_signatures = previous_snapshot
-            .as_ref()
+        let mut callable_signatures = aggregate_snapshot
             .map_or_else(|| self.base_callable_signatures.clone(), |snapshot| (*snapshot.callable_signatures).clone());
-        let mut callable_definitions = previous_snapshot
-            .as_ref()
+        let mut callable_definitions = aggregate_snapshot
             .map_or_else(BTreeMap::new, |snapshot| (*snapshot.callable_definitions).clone());
-        let mut field_signatures = previous_snapshot
-            .as_ref()
+        let mut field_signatures = aggregate_snapshot
             .map_or_else(FieldSignatureTable::new, |snapshot| (*snapshot.field_signatures).clone());
         for callable in &retired_conformance_witnesses {
             callable_definitions.remove(callable);
@@ -4240,7 +4328,8 @@ impl SemanticWorkspaceSession {
         // same table. TraitSurface remains a contract projection, not a
         // second owner of inferred return knowledge.
         let mut trait_default_callables = BTreeSet::new();
-        for (_, surface) in trait_surfaces.iter() {
+        for (owner, surface) in trait_surfaces.iter() {
+            if !current_modules.contains(&owner.module) { continue; }
             for (_, member) in surface.iter() {
                 if !member.default_present {
                     continue;
@@ -4616,7 +4705,7 @@ impl SemanticWorkspaceSession {
         // each affected module from its retained source shard and canonical
         // field/callable signatures; neither the source index nor compiler
         // attribute expansion owns these identities.
-        let mut constructor_initializations = previous_snapshot.as_ref().map_or_else(ConstructorInitializationTable::default, |snapshot| {
+        let mut constructor_initializations = aggregate_snapshot.map_or_else(ConstructorInitializationTable::default, |snapshot| {
             (*snapshot.constructor_initializations).clone()
         });
         let mut constructor_product_work_modules = formal_declaration_modules
@@ -4850,17 +4939,13 @@ impl SemanticWorkspaceSession {
         }
         // 6b. Compile and publish data declarations, enum declarations, associated surfaces, and closed-enum requirements.
         let data_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateData);
-        let mut data_semantics = previous_snapshot
-            .as_ref()
+        let mut data_semantics = aggregate_snapshot
             .map_or_else(|| self.base_data_semantics.clone(), |snapshot| (*snapshot.data_semantics).clone());
-        let mut enum_semantics = previous_snapshot
-            .as_ref()
+        let mut enum_semantics = aggregate_snapshot
             .map_or_else(|| self.base_enum_semantics.clone(), |snapshot| (*snapshot.enum_semantics).clone());
-        let mut enum_requirements_table = previous_snapshot
-            .as_ref()
+        let mut enum_requirements_table = aggregate_snapshot
             .map_or_else(|| self.base_enum_requirements.clone(), |snapshot| (*snapshot.enum_requirements).clone());
-        let mut associated_static_domains_table = previous_snapshot
-            .as_ref()
+        let mut associated_static_domains_table = aggregate_snapshot
             .map_or_else(BTreeMap::new, |snapshot| (*snapshot.associated_static_domains).clone());
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             data_semantics.remove_module(module);
@@ -4983,12 +5068,10 @@ impl SemanticWorkspaceSession {
         let mut inherent_contributions_by_module: BTreeMap<ModuleId, Vec<crate::impls::InherentImplContribution>> = BTreeMap::new();
         let mut inherent_callable_record_key_projections: HashMap<(crate::identity::ImplId, usize), crate::static_key::ProjectedRecordKeySet<'_>> =
             HashMap::new();
-        let mut conformance_index = previous_snapshot
-            .as_ref()
+        let mut conformance_index = aggregate_snapshot
             .map(|snapshot| (*snapshot.conformance_index).clone())
             .unwrap_or_default();
-        let mut conformance_witness_plans = previous_snapshot
-            .as_ref()
+        let mut conformance_witness_plans = aggregate_snapshot
             .map(|snapshot| (*snapshot.conformance_witness_plans).clone())
             .unwrap_or_default();
         let previous_conformance_plan_fingerprints = conformance_witness_plans
@@ -5000,8 +5083,7 @@ impl SemanticWorkspaceSession {
         let mut conformance_invalid_witnesses: BTreeMap<crate::identity::ImplId, BTreeSet<crate::traits::TraitRequirementId>> = BTreeMap::new();
         let mut conformance_invalid_members = BTreeSet::new();
         let mut conformance_associated_type_plans: BTreeMap<crate::identity::ImplId, crate::impls::ConformanceAssociatedTypePlan> = BTreeMap::new();
-        let mut derived_conformance_rules = previous_snapshot
-            .as_ref()
+        let mut derived_conformance_rules = aggregate_snapshot
             .map(|snapshot| (*snapshot.derived_conformance_rules).clone())
             .unwrap_or_default();
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
@@ -5786,7 +5868,7 @@ impl SemanticWorkspaceSession {
                     continue;
                 };
                 let primary_signatures = callable_signatures
-                    .iter()
+                    .iter_module(&target.module)
                     .filter(|(callable, _)| callable.try_declaration_owner() == Some(&target))
                     .map(|(callable, signature)| (callable.clone(), signature.clone()))
                     .collect::<HashMap<_, _>>();
@@ -7241,7 +7323,7 @@ impl SemanticWorkspaceSession {
             topology: semantic_topology.as_ref(),
             callable_dispositions: &mut callable_dispositions,
             semantic_work_modules: &semantic_work_modules,
-            previous_callable_signatures: previous_snapshot.as_ref().map(|snapshot| snapshot.callable_signatures.as_ref()),
+            previous_callable_signatures: aggregate_snapshot.map(|snapshot| snapshot.callable_signatures.as_ref()),
             trait_default_callables: &trait_default_callables,
             conformance_semantics: &conformance_semantics,
             withheld_result_callables: &withheld_cycle_callables,
@@ -7467,6 +7549,9 @@ impl SemanticWorkspaceSession {
                 ))
             })
             .collect::<BTreeMap<_, _>>();
+        if let Some(canonical) = &canonical_snapshot {
+            module_static_bindings.extend(canonical.module_static_bindings.iter().map(|(id, product)| (id.clone(), product.clone())));
+        }
         for (module_id, linked_module) in &input.linked.modules {
             let imported_facts = linked_module
                 .bindings
@@ -7487,6 +7572,7 @@ impl SemanticWorkspaceSession {
             }
         }
         for (module_id, bindings) in module_static_bindings.clone() {
+            if !current_modules.contains(&module_id) { continue; }
             let bindings = match crate::db::query::query_module_static_bindings(&mut self.db, bindings) {
                 QueryOutcome::Ready(product) => product,
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
@@ -12817,6 +12903,7 @@ fn publish_conformance_witness_plans(
 ) -> Result<BTreeSet<crate::identity::ImplId>, QueryOutcome<()>> {
     let mut changed_plans = BTreeSet::new();
     for (impl_id, contribution) in conformance_index.iter() {
+        if db.canonical_image().is_some_and(|image| image.snapshot().conformance_witness_plans.contains_key(impl_id)) { continue; }
         if !contribution.is_lookup_eligible() {
             continue;
         }

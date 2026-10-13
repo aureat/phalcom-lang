@@ -483,6 +483,44 @@ impl TypeStore {
         }
     }
 
+    /// Checks the meaning of every arena index in a finalized canonical prefix.
+    /// This also accepts a persistent fork with a fresh store ID, but rejects
+    /// changed generic variance or lambda meaning. It is a reader-binding check,
+    /// not a hot-path substitute for query currentness.
+    pub fn extends_canonical_prefix(&self, prefix: &Self) -> bool {
+        self.types.len() >= prefix.types.len()
+            && self.types.iter().take(prefix.types.len()).eq(prefix.types.iter())
+            && self.kinds.len() >= prefix.kinds.len()
+            && self.kinds.iter().take(prefix.kinds.len()).eq(prefix.kinds.iter())
+            && self.type_kinds.len() >= prefix.type_kinds.len()
+            && self.type_kinds.iter().take(prefix.type_kinds.len()).eq(prefix.type_kinds.iter())
+            && self.type_parameters.len() >= prefix.type_parameters.len()
+            && self.type_parameters.iter().take(prefix.type_parameters.len()).eq(prefix.type_parameters.iter())
+            && self.row_arena.len() >= prefix.row_arena.len()
+            && self.row_arena.iter().take(prefix.row_arena.len()).eq(prefix.row_arena.iter())
+            && self.family_arena.len() >= prefix.family_arena.len()
+            && self.family_arena.iter().take(prefix.family_arena.len()).eq(prefix.family_arena.iter())
+            && self.variant_identities.len() >= prefix.variant_identities.len()
+            && self
+                .variant_identities
+                .iter()
+                .take(prefix.variant_identities.len())
+                .eq(prefix.variant_identities.iter())
+            && self.static_domains.len() >= prefix.static_domains.len()
+            && self.static_domains.iter().take(prefix.static_domains.len()).eq(prefix.static_domains.iter())
+            && self.static_constructors.len() >= prefix.static_constructors.len()
+            && self
+                .static_constructors
+                .iter()
+                .take(prefix.static_constructors.len())
+                .eq(prefix.static_constructors.iter())
+            && self.lambda_arena.extends_prefix(&prefix.lambda_arena)
+            && prefix
+                .parameter_variances
+                .iter()
+                .all(|(key, value)| self.parameter_variances.get(key) == Some(value))
+    }
+
     fn record_post_fork_mutation(&self, category: TypeStoreMutationCategory) {
         #[cfg(feature = "perf-observability")]
         if self.forked_from_baseline {

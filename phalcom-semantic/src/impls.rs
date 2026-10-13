@@ -2012,10 +2012,9 @@ pub fn build_conformance_witness_plan(
             }));
             continue;
         }
-        let explicit = callable_signatures.iter().find_map(|(callable, _)| {
-            (callable.conformance_owner() == Some(&contribution.impl_id) && callable.selector == requirement.selector && callable.side == requirement.side)
-                .then_some(callable.clone())
-        });
+        let explicit = callable_signatures
+            .get_conformance_witness(&contribution.impl_id, requirement.side, &requirement.selector)
+            .map(|signature| signature.callable.clone());
         if let Some(callable) = explicit {
             if bodyful_callables.contains(&callable) {
                 let Some(candidate) = callable_signatures.get(&callable) else {

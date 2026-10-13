@@ -7,11 +7,10 @@
 use crate::modules::{AnalyzedProgram, CompiledProgram, ProgramCompiler};
 use crate::native::{NativeSourceIndex, PRIMITIVES, verify_native_contracts};
 use phalcom_common::range::SourceRange;
-use phalcom_modules::{FilesystemSourceProvider, ImportSurface, ModuleId, ModuleLinker, ModuleResolver, ProjectUniverse};
+use phalcom_modules::ModuleId;
 use phalcom_semantic::identity::{CallableId, ExpressionId};
 use phalcom_semantic::match_semantics::ExhaustivenessResult;
 use phalcom_semantic::snapshot::SemanticSnapshot;
-use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 use thiserror::Error;
 
@@ -61,21 +60,15 @@ pub(crate) enum CanonicalUniverseBuildError {
     /// Native/source conformance failed.
     #[error("canonical native source contracts failed: {0}")]
     NativeContracts(String),
-    /// A canonical interface could not be loaded.
-    #[error("canonical Universe interface load failed for {module}: {error}")]
-    InterfaceLoad { module: ModuleId, error: String },
-    /// A canonical import could not be resolved.
-    #[error("canonical Universe import resolution failed for {module} and {path}: {error}")]
-    ImportResolution { module: ModuleId, path: String, error: String },
-    /// Canonical source linking failed.
-    #[error("canonical Universe linking failed: {0}")]
-    Linking(String),
     /// Canonical semantic analysis panicked at its existing boundary.
     #[error("canonical Universe semantic analysis panicked")]
     SemanticAnalysisPanicked,
     /// Canonical semantic analysis failed without publishing a snapshot.
     #[error("canonical Universe semantic analysis failed: {0}")]
     SemanticAnalysisFailed(#[from] phalcom_semantic::SemanticUpdateFailure),
+    /// Semantic-owned immutable image acquisition failed.
+    #[error("canonical Universe formal image failed: {0}")]
+    FormalImage(#[from] phalcom_semantic::canonical_image::CanonicalImageError),
     /// A semantic match product lacks the proof required for executable lowering.
     #[error("canonical Universe semantic product is not executable: match in {module} ({callable:?}) at {range:?} is {reason}")]
     NonExecutableMatch {
@@ -162,56 +155,22 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     NATIVE_CONTRACT_VERIFICATIONS.fetch_add(1, Ordering::Relaxed);
     verify_native_contracts(&source_index, &descriptors).map_err(|error| CanonicalUniverseBuildError::NativeContracts(error.to_string()))?;
 
-    let project_universe = Arc::new(ProjectUniverse::new());
-    let filesystem = FilesystemSourceProvider::new();
-    let mut resolver = ModuleResolver::new(&project_universe, &filesystem);
-    let mut interfaces = BTreeMap::new();
-
-    for unit in &source_index.units {
-        let interface = resolver.load_interface(&unit.id).map_err(|error| CanonicalUniverseBuildError::InterfaceLoad {
-            module: unit.id.clone(),
-            error: error.to_string(),
-        })?;
-        interfaces.insert(unit.id.clone(), interface);
-    }
-
-    let mut resolved = BTreeMap::new();
-    for (module, interface) in &interfaces {
-        for import in &interface.imports {
-            let path = match import {
-                ImportSurface::Module(decl) => &decl.path,
-                ImportSurface::Selective(decl) => &decl.path,
-                ImportSurface::ReExport(decl) => &decl.path,
-            };
-            let target = resolver
-                .resolve_import(module, path)
-                .map_err(|error| CanonicalUniverseBuildError::ImportResolution {
-                    module: module.clone(),
-                    path: path.to_string(),
-                    error: error.to_string(),
-                })?;
-            resolved.insert((module.clone(), path.to_string()), target.id);
-        }
-    }
-
-    #[cfg(test)]
-    CANONICAL_LINKS.fetch_add(1, Ordering::Relaxed);
-    let linked = ModuleLinker::new(project_universe.clone(), interfaces)
-        .link_all(ModuleId::universe_root(), &resolved)
-        .map_err(|error| CanonicalUniverseBuildError::Linking(error.to_string()))?;
-    let linked = Arc::new(linked);
-    let sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>> =
-        source_index.units.iter().map(|unit| (unit.id.clone(), unit.clone())).collect();
-    #[cfg(test)]
-    CANONICAL_SEMANTIC_ANALYSES.fetch_add(1, Ordering::Relaxed);
-    let semantic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0))
-    }))
-    .map_err(|_| CanonicalUniverseBuildError::SemanticAnalysisPanicked)?;
-    let semantic = semantic?;
+    // Formal acquisition has one semantic owner. Native descriptor validation
+    // above and executable projection below remain core responsibilities.
+    let image = crate::perf_span!(telos_observability::PerfPhase::CanonicalImageCoreConsumer, || {
+        phalcom_semantic::canonical_image::canonical_universe_formal_image()
+    })
+    .map_err(|error| match error {
+        phalcom_semantic::canonical_image::CanonicalImageError::SemanticUpdate(error) => CanonicalUniverseBuildError::SemanticAnalysisFailed(error),
+        phalcom_semantic::canonical_image::CanonicalImageError::BootstrapPanicked => CanonicalUniverseBuildError::SemanticAnalysisPanicked,
+        error => CanonicalUniverseBuildError::FormalImage(error),
+    })?;
+    let linked = image.linked().clone();
+    let sources = image.sources().clone();
+    let semantic = image.snapshot().clone();
+    let project_universe = linked.universe.clone();
 
     if let Some(diagnostic) = semantic
-        .snapshot
         .diagnostics
         .values()
         .flat_map(|diagnostics| diagnostics.iter())
@@ -219,13 +178,13 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     {
         return Err(CanonicalUniverseBuildError::NativeContracts(diagnostic.message.clone()));
     }
-    ensure_executable_match_coverage(&semantic.snapshot)?;
+    ensure_executable_match_coverage(&semantic)?;
 
     let analyzed = AnalyzedProgram {
         project_universe,
         runtime_modules: linked.modules.keys().cloned().collect(),
         linked,
-        semantic: semantic.snapshot,
+        semantic,
         sources,
         entry: ModuleId::universe_root(),
     };

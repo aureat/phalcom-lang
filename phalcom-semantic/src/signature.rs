@@ -590,6 +590,20 @@ impl CallableSignatureTable {
         self.by_id.get(callable)
     }
 
+    /// Exact owner/side/selector lookup for an explicit conformance witness.
+    /// These three components already form the canonical CallableId, so the
+    /// identity index supplies the candidate without a global signature scan.
+    /// Compatibility and body/evidence validation remain the caller's job.
+    pub fn get_conformance_witness(
+        &self,
+        implementation: &crate::identity::ImplId,
+        side: DispatchSide,
+        selector: &Selector,
+    ) -> Option<&CallableSemanticSignature> {
+        let id = CallableId::new(crate::identity::CallableOwnerId::Conformance(implementation.clone()), selector.clone(), side);
+        self.by_id.get(&id)
+    }
+
     /// Resolves the declaration-owned signature consumed by one analyzed body.
     ///
     /// Constructor bodies execute instance-side while their public declaration
@@ -620,6 +634,15 @@ impl CallableSignatureTable {
 
     pub fn is_empty(&self) -> bool {
         self.by_id.is_empty()
+    }
+
+    /// Enumerates one source owner's signatures using the maintained module index.
+    pub fn iter_module<'a>(&'a self, module: &ModuleId) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> + 'a {
+        self.module_callables
+            .get(module)
+            .into_iter()
+            .flat_map(|ids| ids.iter())
+            .filter_map(|id| self.by_id.get_key_value(id))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&CallableId, &CallableSemanticSignature)> {
@@ -780,6 +803,39 @@ mod tests {
             flow: ReturnFlowSpec::Value,
             lifecycle: NativeLifecycleSpec::UNKNOWN,
         }
+    }
+
+    #[test]
+    fn conformance_witness_lookup_preserves_exact_owner_side_and_selector_after_edits() {
+        use crate::identity::{CallableOwnerId, ImplId, ImplLocalId};
+        let mut table = CallableSignatureTable::new();
+        let mut signature = native_contract_test_signature(TypeId(1), TypeId(2));
+        let implementation = ImplId::new(signature.owner.module.clone(), ImplLocalId(1));
+        let other = ImplId::new(signature.owner.module.clone(), ImplLocalId(2));
+        let selector = signature.selector.clone();
+        table.insert(signature.clone()); // Same selector on an inherent declaration is not a witness.
+        signature.callable = CallableId::new(CallableOwnerId::Conformance(implementation.clone()), selector.clone(), DispatchSide::Instance);
+        let id = signature.callable.clone();
+        table.insert(signature);
+        assert_eq!(
+            table
+                .get_conformance_witness(&implementation, DispatchSide::Instance, &selector)
+                .unwrap()
+                .callable,
+            id
+        );
+        assert!(table.get_conformance_witness(&other, DispatchSide::Instance, &selector).is_none());
+        assert!(table.get_conformance_witness(&implementation, DispatchSide::Class, &selector).is_none());
+        assert_eq!(table.iter_module(&implementation.module).count(), 2);
+        let retained = table.clone();
+        table.remove(&id);
+        assert_eq!(table.iter_module(&implementation.module).count(), 1);
+        assert!(table.get_conformance_witness(&implementation, DispatchSide::Instance, &selector).is_none());
+        assert!(retained.get_conformance_witness(&implementation, DispatchSide::Instance, &selector).is_some());
+        table = retained;
+        table.remove_module(&implementation.module);
+        assert_eq!(table.iter_module(&implementation.module).count(), 0);
+        assert!(table.get_conformance_witness(&implementation, DispatchSide::Instance, &selector).is_none());
     }
 
     #[test]

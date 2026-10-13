@@ -4,9 +4,9 @@ use super::artifact::ModuleMaterializationPlan;
 use crate::typing::{MetadataPoolId, RuntimeCallEnvironmentRecipe, RuntimeTypeRecipe, RuntimeTypeRef};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::{
-    EntryOwnership, FilesystemSourceProvider, ImportSurface, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram, ModuleComponent,
+    EntryOwnership, FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram, ModuleComponent,
     ModuleId, ModuleKind, ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError, SourceId,
-    SourceLocation, SourceProvider, UniverseSourceProvider, classify_entry_ownership,
+    SourceLocation, SourceProvider, classify_entry_ownership,
 };
 use phalcom_semantic::SemanticDiagnostic;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -448,6 +448,7 @@ pub(crate) fn discover_reachable_dependencies<P: SourceProvider>(
 
             let target_unit = resolver.resolve_import(&current_id, import_path)?;
             resolved.insert((current_id.clone(), import_path.to_string()), target_unit.id.clone());
+            if target_unit.id.project.is_universe() { continue; }
             if visited.insert(target_unit.id.clone()) {
                 pending.push(target_unit.id);
             }
@@ -587,44 +588,10 @@ impl ProgramAnalyzer {
                         let mut sources = BTreeMap::new();
                         sources.insert(entry_id.clone(), parsed_unit);
 
-                        // Inline evaluation has an implicit Universe runtime. Its semantic
-                        // workspace must therefore include the same source-authored
-                        // conformance declarations, rather than treating native member
-                        // surfaces as a substitute for canonical trait evidence.
-                        let provider = UniverseSourceProvider::new();
-                        let filesystem = FilesystemSourceProvider::new();
-                        let mut resolver = ModuleResolver::new(&universe, &filesystem);
-                        for node in provider
-                            .nodes()
-                            .iter()
-                            .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", ..] | ["text", ..] | ["option", "unit"]))
-                        {
-                            let path = ModulePath::from_components(
-                                node.path
-                                    .iter()
-                                    .map(|component| ModuleComponent::from_identifier(component).expect("canonical Universe component"))
-                                    .collect::<Vec<_>>(),
-                            );
-                            let module = ModuleId::universe(path);
-                            interfaces.insert(module.clone(), provider.load_interface(&module)?);
-                            sources.insert(module.clone(), provider.load_parsed(&module)?);
-                        }
-                        let mut resolved = BTreeMap::new();
-                        for (module, interface) in &interfaces {
-                            if !module.project.is_universe() {
-                                continue;
-                            }
-                            for import in &interface.imports {
-                                let path = match import {
-                                    ImportSurface::Module(decl) => &decl.path,
-                                    ImportSurface::Selective(decl) => &decl.path,
-                                    ImportSurface::ReExport(decl) => &decl.path,
-                                };
-                                let target = resolver.resolve_import(module, path)?;
-                                resolved.insert((module.clone(), path.to_string()), target.id);
-                            }
-                        }
-                        let linked = Arc::new(ModuleLinker::new(universe.clone(), interfaces).link_all(entry_id.clone(), &resolved)?);
+                        let image = phalcom_semantic::canonical_image::canonical_universe_formal_image()
+                            .map_err(|error| phalcom_semantic::SemanticUpdateFailure::Failed(error.to_string()))?;
+                        let resolved = BTreeMap::new();
+                        let linked = Arc::new(ModuleLinker::new(universe.clone(), interfaces).with_external_modules(image.modules().clone()).link_all(entry_id.clone(), &resolved)?);
 
                          let analysis = phalcom_semantic::analyze_workspace(
                              phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0)
@@ -663,7 +630,7 @@ impl ProgramAnalyzer {
         let entry_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
         let universe = Arc::new(ProjectUniverse::new());
         let interface = InterfaceBuilder::build(entry_id.clone(), ModuleKind::Module, &parsed.program)?;
-        let mut interfaces = BTreeMap::from([(entry_id.clone(), interface)]);
+        let interfaces = BTreeMap::from([(entry_id.clone(), interface)]);
 
         let mut sources = BTreeMap::new();
         let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
@@ -678,27 +645,8 @@ impl ProgramAnalyzer {
         ));
         sources.insert(entry_id.clone(), parsed_unit);
 
-        // Standalone execution has the same implicit Universe runtime as inline
-        // evaluation. Include the source-authored collection and scalar
-        // conformance modules so semantic products such as canonical `for`
-        // lowering are derived from their declared contracts, not native
-        // surfaces or compiler fallback lookup.
-        let universe_provider = UniverseSourceProvider::new();
-        for node in universe_provider
-            .nodes()
-            .iter()
-            .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", ..] | ["text", ..] | ["option", "unit"]))
-        {
-            let path = ModulePath::from_components(
-                node.path
-                    .iter()
-                    .map(|component| ModuleComponent::from_identifier(component).expect("canonical Universe component"))
-                    .collect::<Vec<_>>(),
-            );
-            let module = ModuleId::universe(path);
-            interfaces.insert(module.clone(), universe_provider.load_interface(&module)?);
-            sources.insert(module.clone(), universe_provider.load_parsed(&module)?);
-        }
+        let image = phalcom_semantic::canonical_image::canonical_universe_formal_image()
+            .map_err(|error| phalcom_semantic::SemanticUpdateFailure::Failed(error.to_string()))?;
 
         for dependency in &parsed.program.preamble.dependencies {
             let path = match dependency {
@@ -721,24 +669,10 @@ impl ProgramAnalyzer {
 
         let provider = FilesystemSourceProvider::new();
         let mut resolver = ModuleResolver::new(&universe, &provider);
-        let mut resolved = BTreeMap::new();
-        for (module, interface) in &interfaces {
-            if !module.project.is_universe() {
-                continue;
-            }
-            for import in &interface.imports {
-                let path = match import {
-                    ImportSurface::Module(decl) => &decl.path,
-                    ImportSurface::Selective(decl) => &decl.path,
-                    ImportSurface::ReExport(decl) => &decl.path,
-                };
-                let target = resolver.resolve_import(module, path)?;
-                resolved.insert((module.clone(), path.to_string()), target.id);
-            }
-        }
+        let resolved = BTreeMap::new();
         let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, [entry_id.clone()], Some(&entry_id))?;
 
-        let linked = Arc::new(ModuleLinker::new(universe.clone(), discovered.interfaces).link_all(entry_id.clone(), &discovered.resolved)?);
+        let linked = Arc::new(ModuleLinker::new(universe.clone(), discovered.interfaces).with_external_modules(image.modules().clone()).link_all(entry_id.clone(), &discovered.resolved)?);
 
         let analysis = phalcom_semantic::analyze_workspace(
             phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0)
@@ -761,56 +695,21 @@ impl ProgramAnalyzer {
         entry: ModuleId,
     ) -> Result<AnalyzedProgram, ProgramCompileError> {
         let mut resolver = ModuleResolver::new(&universe, &source_provider);
-        let mut interfaces = BTreeMap::new();
-        let mut sources = BTreeMap::new();
-        let mut resolved = BTreeMap::new();
+        let interfaces = BTreeMap::new();
+        let sources = BTreeMap::new();
+        let resolved = BTreeMap::new();
         let mut pending = vec![entry.clone()];
         if let Some(project_id) = entry.project.as_resolved() {
             let root_id = ModuleId::resolved(project_id, ModulePath::root());
             pending.push(root_id);
         }
 
-        // Package compilation has the same implicit Universe runtime as inline
-        // and standalone execution. Include the source-authored collection and
-        // scalar conformance modules even when the entry module does not import
-        // the module that declares the canonical conformance.
-        let universe_provider = UniverseSourceProvider::new();
-        for node in universe_provider
-            .nodes()
-            .iter()
-            .filter(|node| matches!(node.path, ["collections", ..] | ["scalar", ..] | ["text", ..] | ["option", "unit"]))
-        {
-            let path = ModulePath::from_components(
-                node.path
-                    .iter()
-                    .map(|component| ModuleComponent::from_identifier(component).expect("canonical Universe component"))
-                    .collect::<Vec<_>>(),
-            );
-            let module = ModuleId::universe(path);
-            interfaces.insert(module.clone(), universe_provider.load_interface(&module)?);
-            sources.insert(module.clone(), universe_provider.load_parsed(&module)?);
-        }
-
-        // Resolve imports among the seeded Universe modules before discovery so
-        // the linker can retain their cross-module dependency edges.
-        for (module, interface) in &interfaces {
-            if !module.project.is_universe() {
-                continue;
-            }
-            for import in &interface.imports {
-                let path = match import {
-                    ImportSurface::Module(decl) => &decl.path,
-                    ImportSurface::Selective(decl) => &decl.path,
-                    ImportSurface::ReExport(decl) => &decl.path,
-                };
-                let target = resolver.resolve_import(module, path)?;
-                resolved.insert((module.clone(), path.to_string()), target.id);
-            }
-        }
+        let image = phalcom_semantic::canonical_image::canonical_universe_formal_image()
+            .map_err(|error| phalcom_semantic::SemanticUpdateFailure::Failed(error.to_string()))?;
 
         let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, pending, None)?;
 
-        let linker = ModuleLinker::new(universe.clone(), discovered.interfaces);
+        let linker = ModuleLinker::new(universe.clone(), discovered.interfaces).with_external_modules(image.modules().clone());
         let linked = Arc::new(linker.link_all(entry.clone(), &discovered.resolved)?);
 
         let semantic_input = phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0)

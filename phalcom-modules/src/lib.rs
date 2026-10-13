@@ -72,3 +72,6 @@ pub use source::{
 };
 pub use stabilization::{ResolvedDocumentIdentity, ResolverGeneration};
 pub use topology::{ModuleTopology, TopologyDelta, TopologyFingerprint, TopologyNode};
+
+/// Immutable canonical module inputs for semantic image construction.
+pub mod canonical_products;

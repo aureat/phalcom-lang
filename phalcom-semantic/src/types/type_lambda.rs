@@ -171,6 +171,13 @@ pub struct TypeLambdaArena {
 }
 
 impl TypeLambdaArena {
+    pub(crate) fn extends_prefix(&self, prefix: &Self) -> bool {
+        self.scoped_types.len() >= prefix.scoped_types.len()
+            && self.lambdas.len() >= prefix.lambdas.len()
+            && self.scoped_types.iter().take(prefix.scoped_types.len()).eq(prefix.scoped_types.iter())
+            && self.lambdas.iter().take(prefix.lambdas.len()).eq(prefix.lambdas.iter())
+    }
+
     pub fn new() -> Self {
         Self::default()
     }

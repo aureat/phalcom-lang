@@ -335,6 +335,33 @@ impl Default for StaticValueStore {
 }
 
 impl StaticValueStore {
+    /// Validates all indices of a retained immutable root in this lineage.
+    /// Equal store IDs alone do not prove that two independently extended forks
+    /// contain the same values at a canonical index.
+    pub fn extends_canonical_prefix(&self, prefix: &Self) -> bool {
+        self.id == prefix.id
+            && self.values.len() >= prefix.values.len()
+            && self.values.iter().take(prefix.values.len()).eq(prefix.values.iter())
+            && self.strings.len() >= prefix.strings.len()
+            && self.strings.iter().take(prefix.strings.len()).eq(prefix.strings.iter())
+            && self.symbols.len() >= prefix.symbols.len()
+            && self.symbols.iter().take(prefix.symbols.len()).eq(prefix.symbols.iter())
+            && self.tuples.len() >= prefix.tuples.len()
+            && self.tuples.iter().take(prefix.tuples.len()).eq(prefix.tuples.iter())
+            && self.sequences.len() >= prefix.sequences.len()
+            && self.sequences.iter().take(prefix.sequences.len()).eq(prefix.sequences.iter())
+            && self.records.len() >= prefix.records.len()
+            && self.records.iter().take(prefix.records.len()).eq(prefix.records.iter())
+            && self.data_values.len() >= prefix.data_values.len()
+            && self.data_values.iter().take(prefix.data_values.len()).eq(prefix.data_values.iter())
+            && self.variant_values.len() >= prefix.variant_values.len()
+            && self.variant_values.iter().take(prefix.variant_values.len()).eq(prefix.variant_values.iter())
+            && self.pack_backings.len() >= prefix.pack_backings.len()
+            && self.pack_backings.iter().take(prefix.pack_backings.len()).eq(prefix.pack_backings.iter())
+            && self.packs.len() >= prefix.packs.len()
+            && self.packs.iter().take(prefix.packs.len()).eq(prefix.packs.iter())
+    }
+
     /// Creates a fresh store lineage.
     pub fn new() -> Self {
         Self {

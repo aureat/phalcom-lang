@@ -40,6 +40,20 @@ pub enum PerfPhase {
     ImportResolution,
     #[serde(rename = "link")]
     Link,
+    #[serde(rename = "canonical_image.cache_lookup")]
+    CanonicalImageCacheLookup,
+    #[serde(rename = "canonical_image.build")]
+    CanonicalImageBuild,
+    #[serde(rename = "canonical_image.bootstrap_semantic_update")]
+    CanonicalImageBootstrap,
+    #[serde(rename = "canonical_image.transaction_commit")]
+    CanonicalImageTransactionCommit,
+    #[serde(rename = "canonical_image.snapshot_validate")]
+    CanonicalImageValidate,
+    #[serde(rename = "canonical_image.query_freeze")]
+    CanonicalImageQueryFreeze,
+    #[serde(rename = "canonical_image.core_consumer")]
+    CanonicalImageCoreConsumer,
     #[serde(rename = "canonical_universe.total")]
     CanonicalUniverse,
     #[serde(rename = "canonical_universe.build")]

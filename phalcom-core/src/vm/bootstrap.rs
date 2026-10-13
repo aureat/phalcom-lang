@@ -1271,8 +1271,10 @@ mod tests {
 
         assert_eq!(crate::modules::canonical_universe::SOURCE_INDEX_BUILDS.load(Ordering::Relaxed), 1);
         assert_eq!(crate::modules::canonical_universe::NATIVE_CONTRACT_VERIFICATIONS.load(Ordering::Relaxed), 1);
-        assert_eq!(crate::modules::canonical_universe::CANONICAL_LINKS.load(Ordering::Relaxed), 1);
-        assert_eq!(crate::modules::canonical_universe::CANONICAL_SEMANTIC_ANALYSES.load(Ordering::Relaxed), 1);
+        assert_eq!(crate::modules::canonical_universe::CANONICAL_LINKS.load(Ordering::Relaxed), 0);
+        assert_eq!(crate::modules::canonical_universe::CANONICAL_SEMANTIC_ANALYSES.load(Ordering::Relaxed), 0);
+        assert_eq!(phalcom_semantic::canonical_image::canonical_universe_formal_image_build_count(), 1);
+        assert_eq!(phalcom_semantic::canonical_image::canonical_universe_complete_update_count(), 1);
         assert_eq!(crate::modules::canonical_universe::CANONICAL_PROGRAM_PROJECTIONS.load(Ordering::Relaxed), 1);
         assert_eq!(UNIVERSE_AST_COMPILATIONS.load(Ordering::Relaxed) - compile_before, modules_per_vm * 3);
         assert_eq!(UNIVERSE_INITIALIZER_EXECUTIONS.load(Ordering::Relaxed) - execute_before, modules_per_vm * 3);

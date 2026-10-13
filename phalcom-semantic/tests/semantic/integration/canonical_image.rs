@@ -2,7 +2,43 @@ use phalcom_semantic::canonical_image::{CanonicalUniverseFormalImage, canonical_
 
 #[test]
 fn canonical_formal_image_is_complete_and_process_shared() {
+    let start = std::time::Instant::now();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+    let callers = (0..8)
+        .map(|_| {
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                canonical_universe_formal_image().expect("concurrent first access").clone()
+            })
+        })
+        .collect::<Vec<_>>();
+    let images = callers.into_iter().map(|caller| caller.join().unwrap()).collect::<Vec<_>>();
+    assert!(images.iter().all(|image| std::sync::Arc::ptr_eq(image, &images[0])));
     let first = canonical_universe_formal_image().expect("canonical Universe formal image");
+    let cold = start.elapsed();
+    let start = std::time::Instant::now();
+    for _ in 0..10 {
+        assert!(std::sync::Arc::ptr_eq(first, canonical_universe_formal_image().unwrap()));
+        let reader = first.reader().unwrap();
+        let key = first.query_image().entries().next().unwrap().0;
+        assert!(reader.product(key).is_some());
+    }
+    eprintln!(
+        "canonical image: cold concurrent {:?}; ten warm readers {:?}; sources {}; queries {}; rejected {}; final types {}; incidents {}",
+        cold,
+        start.elapsed(),
+        first.sources().len(),
+        first.query_image().len(),
+        first.query_image().census().rejections.len(),
+        first.snapshot().store.len(),
+        first.snapshot().internal_incidents.len()
+    );
+    assert_eq!(phalcom_semantic::canonical_image::canonical_universe_complete_update_count(), 1);
+    assert!(first.snapshot().status.is_complete());
+    let fresh = phalcom_semantic::SemanticWorkspaceSession::new();
+    assert!(fresh.last_snapshot().is_none());
+    assert!(fresh.last_known_good_snapshot().is_none());
     let second = canonical_universe_formal_image().expect("canonical Universe formal image");
 
     assert!(std::ptr::eq(first, second));
@@ -24,4 +60,95 @@ fn canonical_formal_image_is_complete_and_process_shared() {
 fn canonical_formal_image_is_send_and_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<CanonicalUniverseFormalImage>();
+}
+
+#[test]
+fn canonical_formal_image_source_parity_and_provider_isolation() {
+    use phalcom_modules::{ModuleComponent, ModuleId, ModulePath, UniverseSourceProvider};
+    use phalcom_semantic::canonical_image::canonical_universe_formal_image_with_provider;
+    use std::sync::Arc;
+    let image = canonical_universe_formal_image().unwrap();
+    let input = phalcom_semantic::SemanticWorkspaceInput::new(image.linked().clone(), image.sources().clone(), 0).with_interfaces(image.interfaces().clone());
+    let reference = phalcom_semantic::analyze_workspace(input).unwrap().snapshot;
+    assert_eq!(reference.status, image.snapshot().status);
+    assert_eq!(reference.callable_signatures.len(), image.snapshot().callable_signatures.len());
+    assert_eq!(reference.callable_analyses.len(), image.snapshot().callable_analyses.len());
+    assert_eq!(reference.conformance_witness_plans.len(), image.snapshot().conformance_witness_plans.len());
+    // Store IDs and allocation order may differ across equivalent cold analyses.
+    for (id, declaration) in reference.declarations.iter() {
+        let expected = image.snapshot().declarations.get(id).expect("same declaration identity");
+        assert_eq!(reference.store.format_type(declaration.form), image.snapshot().store.format_type(expected.form));
+        assert_eq!(reference.store.format_kind(declaration.kind), image.snapshot().store.format_kind(expected.kind));
+    }
+    for (id, signature) in reference.callable_signatures.iter() {
+        let expected = image.snapshot().callable_signatures.get(id).expect("same callable identity");
+        assert_eq!(signature.selector, expected.selector);
+        assert_eq!(signature.side, expected.side);
+        assert_eq!(signature.parameters.len(), expected.parameters.len());
+        assert_eq!(signature.return_validation, expected.return_validation);
+        assert_eq!(
+            signature.declared_return.canonical_type().map(|ty| reference.store.format_type(ty)),
+            expected.declared_return.canonical_type().map(|ty| image.snapshot().store.format_type(ty))
+        );
+    }
+    for (module, diagnostics) in reference.diagnostics.iter() {
+        let expected = &image.snapshot().diagnostics[module];
+        assert_eq!(
+            diagnostics.iter().map(|d| (&d.code, &d.message)).collect::<Vec<_>>(),
+            expected.iter().map(|d| (&d.code, &d.message)).collect::<Vec<_>>()
+        );
+    }
+    let module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("math").unwrap(),
+        ModuleComponent::from_identifier("numerical_errors").unwrap(),
+    ]));
+    let provider = UniverseSourceProvider::new();
+    let text = format!("{}\nclass ImageOnlyMarker {{}}\n", provider.source_text(&module).unwrap());
+    let override_provider = UniverseSourceProvider::with_test_source_override(module.clone(), Arc::from(text)).unwrap();
+    let private = canonical_universe_formal_image_with_provider(&override_provider).unwrap();
+    assert_ne!(private.world(), image.world());
+    assert!(!Arc::ptr_eq(&private, image));
+    let marker = phalcom_semantic::identity::DeclarationId::new(module.clone(), "ImageOnlyMarker".into());
+    assert!(private.snapshot().declarations.get(&marker).is_some());
+    assert!(image.snapshot().declarations.get(&marker).is_none());
+    let broken = UniverseSourceProvider::with_test_source_override(module, Arc::from("class {")).unwrap();
+    assert!(canonical_universe_formal_image_with_provider(&broken).is_err());
+    assert!(Arc::ptr_eq(image, canonical_universe_formal_image().unwrap()));
+    assert_eq!(phalcom_semantic::canonical_image::canonical_universe_formal_image_build_count(), 1);
+}
+
+#[test]
+fn ordinary_image_session_keeps_universe_external_across_replacement() {
+    use phalcom_modules::{ModuleId, ModulePath, SourceId, SourceLocation, SourceRevision, SyntheticProjectIdAllocator, WorkspaceSourceBatchMutation};
+    use phalcom_semantic::{SemanticWorkspaceSession, identity::WorkspaceId};
+    use std::sync::Arc;
+    let image = canonical_universe_formal_image().unwrap();
+    let mut ids = SyntheticProjectIdAllocator;
+    let local = ModuleId::synthetic(ids.allocate(), ModulePath::root());
+    let mut session = SemanticWorkspaceSession::from_image(WorkspaceId::from_raw(733), image.clone());
+    assert!(session.last_snapshot().is_none());
+    assert!(session.last_known_good_snapshot().is_none());
+    for (revision, source) in [
+        "from universe.collections import Array\nconst value: Int = 1\n",
+        "from universe.random import Xoshiro256PlusPlus\nlet value = Xoshiro256PlusPlus.seed(42).nextU64\n",
+        "const replacement: Int = 2\n",
+    ].into_iter().enumerate() {
+        let started = std::time::Instant::now();
+        let update = session.apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlayForModule {
+            module: local.clone(),
+            source: SourceLocation { source_id: SourceId("image-overlay.ph".into()), display_path: "/tmp/image-overlay.ph".into() },
+            text: Arc::from(source), revision: SourceRevision(revision as u64 + 1), recovered_program: None,
+        }]).unwrap();
+        eprintln!("local image update {revision}: {:?}; stats {:?}", started.elapsed(), update.stats);
+        assert_eq!(update.snapshot.sources.len(), 1);
+        assert!(update.snapshot.sources.contains_key(&local));
+        assert!(update.snapshot.semantic_structure_shards.keys().all(|module| !module.project.is_universe()));
+        assert!(session.module_session().sources().keys().all(|module| !module.project.is_universe()));
+        assert!(session.module_session().linked_modules().keys().all(|module| !module.project.is_universe()));
+        assert!(!update.snapshot.has_errors(), "{:?}", update.snapshot.diagnostics);
+        assert!(update.snapshot.internal_incidents.is_empty(), "{:?}", update.snapshot.internal_incidents);
+        assert_eq!(update.snapshot.conformance_witness_plans.len(), image.snapshot().conformance_witness_plans.len());
+        assert!(update.snapshot.store.extends_canonical_prefix(&image.snapshot().store));
+        assert!(update.snapshot.static_values.extends_canonical_prefix(&image.snapshot().static_values));
+    }
 }

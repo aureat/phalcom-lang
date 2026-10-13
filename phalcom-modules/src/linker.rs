@@ -150,13 +150,25 @@ pub struct TolerantLinkResult {
 pub struct ModuleLinker {
     universe: Arc<ProjectUniverse>,
     interfaces: BTreeMap<ModuleId, UnlinkedModuleInterface>,
+    external: Option<Arc<crate::canonical_products::CanonicalModuleProducts>>,
 }
 
 impl ModuleLinker {
     /// Creates a linker. The interface map is the complete source universe for
     /// this linking generation; no source is parsed during linking.
     pub fn new(universe: Arc<ProjectUniverse>, interfaces: BTreeMap<ModuleId, UnlinkedModuleInterface>) -> Self {
-        Self { universe, interfaces }
+        Self { universe, interfaces, external: None }
+    }
+
+    /// Resolves remote exports against completed immutable module products.
+    /// External modules never become local linking or initialization work.
+    pub fn with_external_modules(mut self, external: Arc<crate::canonical_products::CanonicalModuleProducts>) -> Self {
+        self.external = Some(external);
+        self
+    }
+
+    fn is_external(&self, module: &ModuleId) -> bool {
+        self.external.as_ref().is_some_and(|image| image.linked().modules.contains_key(module))
     }
 
     /// Links all interfaces using `(importer, logical path)` resolutions.
@@ -204,7 +216,8 @@ impl ModuleLinker {
             .filter(|(module, _)| reachable.contains(*module))
             .map(|(module, interface)| (module.clone(), interface.clone()))
             .collect();
-        let reachable_linker = ModuleLinker::new(self.universe.clone(), reachable_interfaces);
+        let mut reachable_linker = ModuleLinker::new(self.universe.clone(), reachable_interfaces);
+        reachable_linker.external = self.external.clone();
         let mut context = LinkContext::new(&reachable_linker, resolved, true, true);
         match context.build() {
             Ok((modules, graphs, initialization_order)) => TolerantLinkResult {
@@ -299,7 +312,8 @@ impl ModuleLinker {
             .filter(|(module, _)| reachable.contains(*module))
             .map(|(module, interface)| (module.clone(), interface.clone()))
             .collect();
-        let reachable_linker = ModuleLinker::new(self.universe.clone(), reachable_interfaces);
+        let mut reachable_linker = ModuleLinker::new(self.universe.clone(), reachable_interfaces);
+        reachable_linker.external = self.external.clone();
         let mut context = LinkContext::new(&reachable_linker, resolved, allow_unresolved_imports, false);
         context.build().map(|(modules, graphs, initialization_order)| LinkedProgram {
             universe: self.universe.clone(),
@@ -345,7 +359,7 @@ impl ModuleLinker {
                 let Some(target) = resolved
                     .get(&(module.clone(), path.0.to_string()))
                     .cloned()
-                    .filter(|target| self.interfaces.contains_key(target))
+                    .filter(|target| self.interfaces.contains_key(target) || self.is_external(target))
                 else {
                     if allow_unresolved_imports {
                         continue;
@@ -356,6 +370,7 @@ impl ModuleLinker {
                         range: path.1,
                     });
                 };
+                if self.is_external(&target) { continue; }
                 if reachable.insert(target.clone()) {
                     pending.push(target.clone());
                 }
@@ -378,6 +393,7 @@ impl ModuleLinker {
                 let UnlinkedExportTarget::CanonicalDeclaration { module: target, .. } = &export.target else {
                     continue;
                 };
+                if self.is_external(target) { continue; }
                 if !self.interfaces.contains_key(target) {
                     return Err(LinkError::MissingModule { module: target.clone() });
                 }
@@ -906,6 +922,11 @@ impl<'a> LinkContext<'a> {
     }
 
     fn resolve_export(&mut self, module: &ModuleId, name: &str, range: SourceRange, importer: &ModuleId) -> Result<LinkedExport, LinkError> {
+        if let Some(remote) = self.linker.external.as_ref().and_then(|image| image.linked().modules.get(module)) {
+            return remote.interface.exports.get(name).cloned().ok_or_else(|| LinkError::MissingExport {
+                module: module.clone(), importer: importer.clone(), name: name.to_owned(), range,
+            });
+        }
         let key = (module.clone(), name.to_string());
         if let Some(export) = self.linked_exports.get(&key) {
             return Ok(export.clone());

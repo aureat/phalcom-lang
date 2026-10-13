@@ -15,6 +15,40 @@ pub enum PerfCounter {
     BootstrapModules,
     NativeDescriptors,
     NativeAnchors,
+    #[serde(rename = "canonical_image.builds")]
+    CanonicalImageBuilds,
+    #[serde(rename = "canonical_image.cache_hits")]
+    CanonicalImageCacheHits,
+    #[serde(rename = "canonical_image.complete_semantic_updates")]
+    CanonicalImageCompleteUpdates,
+    #[serde(rename = "canonical_image.bootstrap_recursion_attempts")]
+    CanonicalImageRecursionAttempts,
+    #[serde(rename = "canonical_image.snapshot_completeness_failures")]
+    CanonicalImageCompletenessFailures,
+    #[serde(rename = "canonical_query.total_rows_examined")]
+    CanonicalQueryRowsExamined,
+    #[serde(rename = "canonical_query.ready_eligible")]
+    CanonicalQueryReadyEligible,
+    #[serde(rename = "canonical_query.rejected")]
+    CanonicalQueryRejected,
+    #[serde(rename = "canonical_query.immutable_hits")]
+    CanonicalQueryImmutableHits,
+    #[serde(rename = "canonical_type_prefix.validation_errors")]
+    CanonicalTypePrefixValidationErrors,
+    CanonicalQueryRejectedVacant,
+    CanonicalQueryRejectedComputing,
+    CanonicalQueryRejectedCancelled,
+    CanonicalQueryRejectedBudgetExceeded,
+    CanonicalQueryRejectedBlockedRequiresClassification,
+    CanonicalQueryRejectedFailedRequiresClassification,
+    CanonicalQueryRejectedWorkspaceOrigin,
+    CanonicalQueryRejectedStaleValidation,
+    CanonicalQueryRejectedUnsupportedQueryKind,
+    CanonicalQueryRejectedNegativeLocalCandidateSet,
+    CanonicalQueryRejectedMissingTypedProduct,
+    CanonicalQueryRejectedProductKindMismatch,
+    CanonicalQueryRejectedMutableDependency,
+    CanonicalQueryRejectedDependencyCycle,
     CanonicalUniverseProductBuilds,
     CanonicalUniverseCacheHits,
     CanonicalSemanticBaselineBuilds,
