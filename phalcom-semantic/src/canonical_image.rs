@@ -474,6 +474,87 @@ impl CanonicalSemanticQueryImage {
     }
 }
 
+/// P5 persistence classification: a planning contract, not an assertion that
+/// any corresponding process-local Rust object can be serialized unchanged.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CanonicalPersistenceClass {
+    RequiredSemantic,
+    RequiredMetadata,
+    EligibleQuery,
+    OptionalPresentation,
+    OptionalSourceMap,
+    Rebuildable,
+    ProcessLocal,
+    NeverPersist,
+}
+
+/// Independently classified canonical product families. P7 must project
+/// required products to relocatable DTOs, not serialize these objects in place.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum CanonicalProductFamily {
+    ModulesAndInterfaces,
+    ImportsAndTopology,
+    TypeArena,
+    StaticValueArena,
+    DeclarationsAndAliases,
+    HierarchyAndDispatch,
+    CallableSignaturesAndDefinitions,
+    CallableAnalyses,
+    TraitsAndConformance,
+    ConformanceWitnessesAndDispatch,
+    DataAndEnums,
+    AssociatedAndStaticSemantics,
+    FrozenStructuralQueries,
+    RuntimePublicMetadata,
+    CompilerSourceAttachments,
+    EditorPresentation,
+    AdvisoryProducts,
+    SourceMaps,
+    Diagnostics,
+    WorkspaceRevisionHistory,
+    MutableSemanticDatabase,
+    RuntimeHandles,
+}
+
+/// The inventory describes ownership and projected artifact policy.
+/// RuntimePublic metadata is core-owned and composed with this image, not
+/// embedded into the semantic snapshot. This inventory does not supply it.
+pub const CANONICAL_PERSISTENCE_INVENTORY: &[(CanonicalProductFamily, CanonicalPersistenceClass)] = &[
+    (CanonicalProductFamily::ModulesAndInterfaces, CanonicalPersistenceClass::RequiredSemantic),
+    (CanonicalProductFamily::ImportsAndTopology, CanonicalPersistenceClass::RequiredSemantic),
+    (CanonicalProductFamily::TypeArena, CanonicalPersistenceClass::RequiredSemantic),
+    (CanonicalProductFamily::StaticValueArena, CanonicalPersistenceClass::RequiredSemantic),
+    (CanonicalProductFamily::DeclarationsAndAliases, CanonicalPersistenceClass::RequiredSemantic),
+    (CanonicalProductFamily::HierarchyAndDispatch, CanonicalPersistenceClass::RequiredSemantic),
+    (CanonicalProductFamily::CallableSignaturesAndDefinitions, CanonicalPersistenceClass::RequiredSemantic),
+    (CanonicalProductFamily::CallableAnalyses, CanonicalPersistenceClass::RequiredSemantic),
+    (CanonicalProductFamily::TraitsAndConformance, CanonicalPersistenceClass::RequiredSemantic),
+    (CanonicalProductFamily::ConformanceWitnessesAndDispatch, CanonicalPersistenceClass::RequiredSemantic),
+    (CanonicalProductFamily::DataAndEnums, CanonicalPersistenceClass::RequiredSemantic),
+    (CanonicalProductFamily::AssociatedAndStaticSemantics, CanonicalPersistenceClass::RequiredSemantic),
+    (CanonicalProductFamily::FrozenStructuralQueries, CanonicalPersistenceClass::EligibleQuery),
+    (CanonicalProductFamily::RuntimePublicMetadata, CanonicalPersistenceClass::RequiredMetadata),
+    (CanonicalProductFamily::CompilerSourceAttachments, CanonicalPersistenceClass::Rebuildable),
+    (CanonicalProductFamily::EditorPresentation, CanonicalPersistenceClass::OptionalPresentation),
+    (CanonicalProductFamily::AdvisoryProducts, CanonicalPersistenceClass::Rebuildable),
+    (CanonicalProductFamily::SourceMaps, CanonicalPersistenceClass::OptionalSourceMap),
+    (CanonicalProductFamily::Diagnostics, CanonicalPersistenceClass::NeverPersist),
+    (CanonicalProductFamily::WorkspaceRevisionHistory, CanonicalPersistenceClass::NeverPersist),
+    (CanonicalProductFamily::MutableSemanticDatabase, CanonicalPersistenceClass::NeverPersist),
+    (CanonicalProductFamily::RuntimeHandles, CanonicalPersistenceClass::ProcessLocal),
+];
+
+/// Typed, in-process P5 capability census. These values are deliberately not
+/// stable artifact IDs or compatibility digests.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CanonicalImageCapabilities {
+    pub module_count: usize,
+    pub frozen_query_count: usize,
+    pub canonical_type_count: usize,
+    pub runtime_metadata_composed: bool,
+    pub portable_artifact_available: bool,
+}
+
 /// A successfully committed complete semantic publication and its immutable roots.
 #[derive(Debug)]
 pub struct CanonicalUniverseFormalImage {
@@ -535,6 +616,17 @@ impl CanonicalUniverseFormalImage {
     /// Final static-value lineage.
     pub fn static_lineage(&self) -> StaticValueStoreId {
         self.snapshot.static_values.id()
+    }
+    /// Current in-memory capabilities; metadata composition belongs to core
+    /// and portable artifact validation belongs to P7.
+    pub fn capabilities(&self) -> CanonicalImageCapabilities {
+        CanonicalImageCapabilities {
+            module_count: self.modules.sources().len(),
+            frozen_query_count: self.queries.len(),
+            canonical_type_count: self.type_prefix.types,
+            runtime_metadata_composed: false,
+            portable_artifact_available: false,
+        }
     }
     /// Reader using the image's own validated arenas.
     pub fn reader(&self) -> Result<CanonicalQueryReader<'_>, CanonicalImageError> {
@@ -1311,6 +1403,48 @@ mod negative_fact_tests {
                 .product(&key)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn persistence_inventory_is_exhaustive_unique_and_does_not_claim_portability() {
+        use std::collections::BTreeSet;
+        let all = [
+            CanonicalProductFamily::ModulesAndInterfaces,
+            CanonicalProductFamily::ImportsAndTopology,
+            CanonicalProductFamily::TypeArena,
+            CanonicalProductFamily::StaticValueArena,
+            CanonicalProductFamily::DeclarationsAndAliases,
+            CanonicalProductFamily::HierarchyAndDispatch,
+            CanonicalProductFamily::CallableSignaturesAndDefinitions,
+            CanonicalProductFamily::CallableAnalyses,
+            CanonicalProductFamily::TraitsAndConformance,
+            CanonicalProductFamily::ConformanceWitnessesAndDispatch,
+            CanonicalProductFamily::DataAndEnums,
+            CanonicalProductFamily::AssociatedAndStaticSemantics,
+            CanonicalProductFamily::FrozenStructuralQueries,
+            CanonicalProductFamily::RuntimePublicMetadata,
+            CanonicalProductFamily::CompilerSourceAttachments,
+            CanonicalProductFamily::EditorPresentation,
+            CanonicalProductFamily::AdvisoryProducts,
+            CanonicalProductFamily::SourceMaps,
+            CanonicalProductFamily::Diagnostics,
+            CanonicalProductFamily::WorkspaceRevisionHistory,
+            CanonicalProductFamily::MutableSemanticDatabase,
+            CanonicalProductFamily::RuntimeHandles,
+        ];
+        let listed: BTreeSet<_> = CANONICAL_PERSISTENCE_INVENTORY.iter().map(|(family, _)| *family).collect();
+        assert_eq!(listed.len(), CANONICAL_PERSISTENCE_INVENTORY.len());
+        assert_eq!(listed, BTreeSet::from(all));
+        assert!(CANONICAL_PERSISTENCE_INVENTORY.contains(&(
+            CanonicalProductFamily::RuntimePublicMetadata,
+            CanonicalPersistenceClass::RequiredMetadata,
+        )));
+        let image = canonical_universe_formal_image().unwrap();
+        let capabilities = image.capabilities();
+        assert_eq!(capabilities.module_count, image.sources().len());
+        assert_eq!(capabilities.frozen_query_count, image.query_image().len());
+        assert!(!capabilities.runtime_metadata_composed);
+        assert!(!capabilities.portable_artifact_available);
     }
 
     #[test]
