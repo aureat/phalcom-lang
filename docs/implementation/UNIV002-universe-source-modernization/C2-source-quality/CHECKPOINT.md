@@ -112,11 +112,11 @@ identities.
 
 - Active plan: none.
 - Latest complete plan: `UNIV002.C2.P6`; latest complete checkpoint: `UNIV002.C1`.
-- The source inventory was reconciled at `44db9e547521ec712fb2f147a8dbd01e2cb0b34f`;
-  its nine changed source hashes and the unchanged P6 target hash are recorded
-  in `packages/universe/docs/modernization/INVENTORY.md`.
+- The source inventory is reconciled through P6's source commit
+  `b3a4883e89126d41a3856e1af75e2cc69ee14e10`; ten changed source hashes are
+  recorded in `packages/universe/docs/modernization/INVENTORY.md`.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
   grounded in the live source; `docs/implementation/time.md` §29 proposes
   additional derived members that are not implemented in this type.
-- Before another pilot, refresh the source-hash reconciliation for P6's
-  comment-only source change, then choose the next bounded stable source slice.
+- The inventory is current through P6. Choose the next bounded stable source
+  slice; refresh the hash overlay again if that pilot changes source.

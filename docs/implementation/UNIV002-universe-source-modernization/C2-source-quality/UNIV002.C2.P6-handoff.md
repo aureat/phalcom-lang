@@ -13,9 +13,11 @@ verification: FOCUSED_TESTED
 - Worktree: `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/collections`
 - Branch: `feat/telos-collections`
 - Base source revision: `44db9e547521ec712fb2f147a8dbd01e2cb0b34f`
+- P6 source/lifecycle delivery revision: `b3a4883e89126d41a3856e1af75e2cc69ee14e10`.
 - P6 source change: one documentation comment in
   `packages/universe/src/time/zone_transition.ph`.
-- Delivery revision: update after the scoped P6 commit is pushed.
+- The inventory reconciliation has been refreshed through the P6 source
+  revision above; later docs-only record commits do not change the source hash.
 
 ## Completed work and evidence
 
@@ -26,8 +28,7 @@ verification: FOCUSED_TESTED
 - The comment intentionally does not mention `shift`, `isGap`, or
   `isOverlap`; those appear in `docs/implementation/time.md` §29 but are not
   live members of the type.
-- The inventory hash reconciliation in `INVENTORY.md` is a pre-P6 snapshot.
-  Refresh it for the P6 comment before beginning another source pilot.
+- The inventory hash reconciliation in `INVENTORY.md` includes the P6 comment.
 
 ## Inherited boundaries and decisions
 
@@ -49,7 +50,7 @@ verification: FOCUSED_TESTED
 
 ## Next action
 
-Refresh the inventory hash overlay for P6's changed source file, then choose
-the next small stable source-quality slice independently of the unresolved
-identity and active linker work. Do not re-audit completed P1–P6 slices when
-the live source agrees with their walkthroughs.
+Choose the next small stable source-quality slice independently of the
+unresolved identity and active linker work. Refresh the inventory hash overlay
+if that slice changes source. Do not re-audit completed P1–P6 slices when the
+live source agrees with their walkthroughs.

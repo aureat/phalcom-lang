@@ -13,12 +13,12 @@
 
 ## Current source reconciliation
 
-Before `UNIV002.C2.P6`, the 174 shadow source paths were reconciled against the
-MOD1 baseline at revision `44db9e547521ec712fb2f147a8dbd01e2cb0b34f`. Nine
-source files changed since baseline; their current SHA-256 values and the
-unchanged `ZoneTransition` source hash are recorded in
-`INVENTORY.md`. Other source hashes still match baseline. Its textual inventory
-heuristics remain baseline data and are not a current opportunity audit.
+Through `UNIV002.C2.P6`, the 174 shadow source paths were reconciled against
+the MOD1 baseline at source revision
+`b3a4883e89126d41a3856e1af75e2cc69ee14e10`. Ten source files changed since
+baseline; their current SHA-256 values are recorded in `INVENTORY.md`. Other
+source hashes still match baseline. Its textual inventory heuristics remain
+baseline data and are not a current opportunity audit.
 
 ## Active work and exclusions
 
@@ -96,13 +96,12 @@ A source-only change may be `SOURCE_READY`; parser/interface checks do not imply
 `UNIV002.C2.P5` completed the source-level Gregorian leap-year expression
 rewrite in `time/calendar/month.ph`; its exact shadow parser/unlinked-interface
 test passed. This does not typecheck or execute the method, so semantic linking
-remains `UNVERIFIED` and shadow runtime parity remains `BLOCKED`. Before P6,
-the current 174 paths were reconciled against the MOD1 inventory baseline;
-nine changed-file hashes are recorded in `INVENTORY.md`, while its textual
-heuristics remain baseline-only. `UNIV002.C2.P6` completed a comment-only
-description of the live `ZoneTransition` fields and deliberately excludes
-unimplemented derived members. Refresh the hash reconciliation for this
-comment before another pilot. Keep source modernization independent of
+remains `UNVERIFIED` and shadow runtime parity remains `BLOCKED`. The current
+174 paths are reconciled against the MOD1 inventory baseline through P6's
+source commit; ten changed-file hashes are recorded in `INVENTORY.md`, while
+its textual heuristics remain baseline-only. `UNIV002.C2.P6` completed a
+comment-only description of the live `ZoneTransition` fields and deliberately
+excludes unimplemented derived members. Keep source modernization independent of
 Option/Result/Unit identity, collection iteration ownership, reflection, and
 active linker work. `PackageAuthor` and `PackageRequirement` remain
 `HIGH / DEFER` pending the dedicated constructor, identity, cache, GC,
