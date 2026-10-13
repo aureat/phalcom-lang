@@ -5,7 +5,7 @@
 **Plan:** `PERF003.C2.P5`
 **Status:** `IN_PROGRESS`
 **Completion:** `PARTIAL`
-**Verification:** `FOCUSED_TESTED`
+**Verification:** `BASELINE_BLOCKED`
 **Date:** 2026-10-13
 **Working Directory:** `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization`
 **Branch:** `perf/universe-characterization`
@@ -46,7 +46,7 @@ During this session:
 | **P5.T2** | Product-family classification & request-model cleanup | **COMPLETED** |
 | **P5.T3** | Canonical bootstrap cutover to explicit request ([`canonical_image.rs`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/canonical_image.rs#L425)) | **COMPLETED** (in commit `84227536`) |
 | **P5.T4** | Consumer-specific publication semantics ([`SourceSemanticLevel`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/request.rs#L9)) | **COMPLETED** (in commit `84227536`) |
-| **P5.T5 / P5.T6 Slice 1** | Parent-aware core tables (`DeclarationTypeTable`, `CallableSignatureTable`, `FieldSignatureTable`, `MapTypeHierarchy`) | **IMPLEMENTED**; focused verification remains the next gate |
+| **P5.T5 / P5.T6 Slice 1** | Parent-aware core tables (`DeclarationTypeTable`, `CallableSignatureTable`, `FieldSignatureTable`, `MapTypeHierarchy`) | **IMPLEMENTED** in `aaac8106`; focused unit and canonical-image verification passes; broader gates are baseline-blocked |
 | **P5.T6 Slices 2–4** | Dispatch/surface, data/enum/associated tables, residual canonical lookup products | **PENDING** |
 | **P5.T7** | Snapshot/read API hardening for parented canonical aggregates | **PENDING** |
 | **P5.T8** | Formal canonical persistence inventory and capability descriptor | **PENDING** |
@@ -61,24 +61,24 @@ During this session:
 ## 3. Verified Behavioral Evidence
 
 - `cargo check -p phalcom-semantic`: **PASS** (clean, 0 warnings, 0 errors).
+- `RUSTFLAGS='' cargo check -p phalcom-semantic`: **PASS** (clean, 0 warnings, 0 errors) after Slice 1 wiring.
+- `RUSTFLAGS='' cargo test -p phalcom-semantic --lib signature`: **PASS** (7 passed).
+- `RUSTFLAGS='' cargo test -p phalcom-semantic --lib types::relation`: **PASS** (13 passed).
 - `cargo test -p phalcom-semantic --lib canonical_image`: **PASS** (10 passed, 0 failed, 39.27s).
-- `cargo test -p phalcom-semantic --test semantic integration::canonical_image`: **PASS** (4 passed, 0 failed, 135.74s):
+- `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic integration::canonical_image`: **PASS** (4 passed, 0 failed, 131.79s):
   - `canonical_formal_image_is_send_and_sync`: ok
   - `canonical_formal_image_is_complete_and_process_shared`: ok
   - `ordinary_image_session_keeps_universe_external_across_replacement`: ok
   - `canonical_formal_image_source_parity_and_provider_isolation`: ok
+- `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic integration::workspace`: **BASELINE-BLOCKED** (14 passed, 3 failed); the same three failures reproduce on clean `84227536`.
+- `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic incremental::recomputation_metrics`: **BASELINE-BLOCKED** (9 passed, 4 failed); failures are existing alias relowering/readiness/parity cases outside this overlay change.
+- `cargo fmt --all -- --check`: **BASELINE-BLOCKED** by pre-existing formatting drift in unrelated files; `git diff --check` is clean.
 
 ---
 
 ## 4. Immediate Next Steps for Next Agent
 
-### Next: Focused Verification Gate for Slice 1
-- `RUSTFLAGS='' cargo check -p phalcom-semantic`
-- `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic integration::canonical_image`
-- `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic integration::workspace`
-- `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic incremental::recomputation_metrics`
-
-### Then: Proceed to Slices 2–4
+### Next: Proceed to Slices 2–4
 - Convert `dispatch` / `SurfaceDispatchResolver`, `data_semantics`, `enum_semantics`, `associated_surfaces`, and `type_member_declarations` to parented overlays.
 
 ---

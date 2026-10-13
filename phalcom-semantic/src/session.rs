@@ -3482,6 +3482,15 @@ impl SemanticWorkspaceSession {
                 alias.range,
             ));
         }
+        if !alias_cycles.is_empty() {
+            // A cyclic alias graph cannot provide a coherent alias product for
+            // this revision. Keep the snapshot from exposing unrelated retained
+            // aliases as if the revision had published a complete alias world.
+            for declaration in &alias_cycles {
+                declarations.remove(declaration);
+            }
+            type_aliases = TypeAliasTable::new();
+        }
 
         let type_members_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateTypeMembers);
         // Resolve source members whose own signature prerequisites are already
@@ -3554,6 +3563,9 @@ impl SemanticWorkspaceSession {
         let mut pending_aliases = alias_recomputed_declarations.clone();
         for declaration in alias_cycles.iter().chain(type_signature_cycle_aliases.iter()) {
             pending_aliases.remove(declaration);
+        }
+        if !alias_cycles.is_empty() {
+            pending_aliases.clear();
         }
         let mut pending_static_cases = static_case_sources
             .keys()

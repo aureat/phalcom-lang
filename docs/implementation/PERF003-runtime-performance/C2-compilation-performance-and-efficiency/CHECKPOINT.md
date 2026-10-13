@@ -30,11 +30,12 @@ next_action: >
   Normalized P5 (Canonical Publication & Persistent Image Boundary) in progress:
   T0-T4 complete in committed head 84227536. Provider isolation in canonical Universe
   declaration bootstrap resolved and verified across all 4 canonical image integration
-  tests and 10 query/freeze unit tests. T5/T6 Slice 1 in progress: DeclarationTypeTable
-  converted to parent-aware aggregate overlay. Next: complete CallableSignatureTable,
-  FieldSignatureTable, and MapTypeHierarchy parented overlays and wire them into
-  SemanticWorkspaceSession::from_image to eliminate O(Universe) aggregate table copies.
-  See PERF003.C2.P5-handoff.md.
+  tests and 10 query/freeze unit tests. T5/T6 Slice 1 is implemented in aaac8106:
+  DeclarationTypeTable, CallableSignatureTable, FieldSignatureTable, and
+  MapTypeHierarchy now use immutable parent overlays, and image-backed sessions retain
+  the canonical image while avoiding O(Universe) aggregate table copies. Slice 1 focused
+  unit and canonical-image gates pass. Workspace and recomputation gates remain
+  baseline-blocked by failures reproduced on clean 84227536; see the P5 handoff.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.

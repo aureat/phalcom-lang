@@ -13,7 +13,6 @@ use phalcom_common::selector::Selector;
 use phalcom_native_meta::{EffectSpec, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_native_surface::NativeSurfaceId;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-#[allow(unused_imports)]
 use std::sync::Arc;
 
 /// Epistemic certification state for a source return contract.
@@ -592,10 +591,7 @@ impl CallableSignatureTable {
             "local mutation cannot overwrite canonical parent callable: {:?}",
             sig.callable
         );
-        self.owner_callables
-            .entry(sig.callable.owner.clone())
-            .or_default()
-            .insert(sig.callable.clone());
+        self.owner_callables.entry(sig.callable.owner.clone()).or_default().insert(sig.callable.clone());
         self.module_callables
             .entry(sig.callable.module().clone())
             .or_default()
@@ -683,7 +679,8 @@ impl CallableSignatureTable {
     }
 
     /// Enumerates one source owner's signatures using the maintained module index.
-    pub fn iter_module<'a>(&'a self, module: &'a ModuleId) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> + 'a {
+    pub fn iter_module<'a>(&'a self, module: &ModuleId) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> + 'a {
+        let module = module.clone();
         let mut tables = Vec::new();
         let mut current = Some(self);
         while let Some(table) = current {
@@ -693,7 +690,7 @@ impl CallableSignatureTable {
         tables.into_iter().rev().flat_map(move |table| {
             table
                 .module_callables
-                .get(module)
+                .get(&module)
                 .into_iter()
                 .flat_map(|ids| ids.iter())
                 .filter_map(move |id| table.by_id.get_key_value(id))
@@ -701,10 +698,8 @@ impl CallableSignatureTable {
     }
 
     /// Enumerates signatures owned by a callable owner using the maintained owner index.
-    pub fn iter_owner<'a>(
-        &'a self,
-        owner: &CallableOwnerId,
-    ) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> {
+    pub fn iter_owner<'a>(&'a self, owner: &CallableOwnerId) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> {
+        let owner = owner.clone();
         let mut tables = Vec::new();
         let mut current = Some(self);
         while let Some(table) = current {
@@ -714,7 +709,7 @@ impl CallableSignatureTable {
         tables.into_iter().rev().flat_map(move |table| {
             table
                 .owner_callables
-                .get(owner)
+                .get(&owner)
                 .into_iter()
                 .flat_map(|ids| ids.iter())
                 .filter_map(move |id| table.by_id.get_key_value(id))
@@ -722,10 +717,7 @@ impl CallableSignatureTable {
     }
 
     /// Enumerates signatures owned by a declaration using the maintained owner index.
-    pub fn iter_declaration_owner<'a>(
-        &'a self,
-        owner: &DeclarationId,
-    ) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> {
+    pub fn iter_declaration_owner<'a>(&'a self, owner: &DeclarationId) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> {
         let key = CallableOwnerId::Declaration(owner.clone());
         let mut tables = Vec::new();
         let mut current = Some(self);
@@ -845,13 +837,12 @@ impl FieldSignatureTable {
     }
 
     pub fn get(&self, field: &FieldId) -> Option<&FieldSemanticSignature> {
-        self.by_id
-            .get(field)
-            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(field)))
+        self.by_id.get(field).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(field)))
     }
 
     /// Enumerates fields owned by a declaration using the maintained owner index.
-    pub fn iter_owner<'a>(&'a self, owner: &'a DeclarationId) -> impl Iterator<Item = (&'a FieldId, &'a FieldSemanticSignature)> + 'a {
+    pub fn iter_owner<'a>(&'a self, owner: &DeclarationId) -> impl Iterator<Item = (&'a FieldId, &'a FieldSemanticSignature)> + 'a {
+        let owner = owner.clone();
         let mut tables = Vec::new();
         let mut current = Some(self);
         while let Some(table) = current {
@@ -861,7 +852,7 @@ impl FieldSignatureTable {
         tables.into_iter().rev().flat_map(move |table| {
             table
                 .owner_fields
-                .get(owner)
+                .get(&owner)
                 .into_iter()
                 .flat_map(|ids| ids.iter())
                 .filter_map(move |id| table.by_id.get_key_value(id))
