@@ -13,9 +13,9 @@
 
 ## Current source reconciliation
 
-Through `UNIV002.C2.P20`, the 174 shadow source paths were reconciled against
+Through `UNIV002.C2.P21`, the 174 shadow source paths were reconciled against
 the MOD1 baseline at source revision
-`a66c51f84f50dc2476a36836cdd057e7849cb492`. Eighteen source files changed since
+`cb385f1ecccacc38e4746e3b47d4ce5a943387e3`. Eighteen source files changed since
 baseline; their current SHA-256 values are recorded in `INVENTORY.md`. Other
 source hashes still match baseline. Its textual inventory heuristics remain
 baseline data and are not a current opportunity audit.
@@ -36,9 +36,15 @@ semantic or runtime claim is made.
 `functional/optics.ph`. It documents the callback exchange only and preserves
 the existing Product/reflection constraints and callback-law caveat.
 
-`UNIV002.C2.P21` is active for comments above `Iso.compose` and `Iso.modify`
-in `functional/optics.ph`. It documents their existing callback order and
-focus update only; inventory reconciliation will follow the source edit.
+`UNIV002.C2.P21` completed comments above `Iso.compose` and `Iso.modify` in
+`functional/optics.ph`. They document the existing forward/reverse callback
+order and focus update only; the inventory is current through the source
+commit and no semantic or runtime claim is made.
+
+`UNIV002.C2.P22` is active for comments above `Optional.set`,
+`Optional.modify`, and `Prism.modify` in `functional/optics.ph`. It documents
+present/selected versus absent/unselected behavior visible in the methods;
+inventory reconciliation will follow the source edit.
 
 ## Active work and exclusions
 
@@ -112,7 +118,7 @@ A source-only change may be `SOURCE_READY`; parser/interface checks do not imply
 
 ## Next action
 
-`UNIV002.C2.P1`–`P4`, `P6`–`P20` completed Category A
+`UNIV002.C2.P1`–`P4`, `P6`–`P21` completed Category A
 documentation/formatting slices. `UNIV002.C2.P5` completed a Category B
 source-level Gregorian leap-year expression
 rewrite in `time/calendar/month.ph`; its exact shadow parser/unlinked-interface
@@ -120,7 +126,7 @@ test passed. This does not typecheck or execute the method, so semantic linking
 remains `UNVERIFIED` and shadow runtime parity remains `BLOCKED`. P7 documents
 the observed `UtcOffset.seconds` input/range/error contract without changing
 code. The current 174 paths are reconciled against the MOD1 inventory baseline
-through P20's source commit; eighteen changed-file hashes are recorded in
+through P21's source commit; eighteen changed-file hashes are recorded in
 `INVENTORY.md`, while its textual heuristics remain baseline-only.
 P8 documents the maximum element count returned by `Buffer.capacity`; no
 executable code changed.
@@ -168,5 +174,9 @@ first component of `Arrow.second`. The inventory is current through its source
 commit; no semantic or runtime claim is made.
 P20 documented the callback exchange in `Iso.inverse`. The inventory is
 current through its source commit; no semantic or runtime claim is made.
-P21 is documenting `Iso.compose` callback order and the source-to-focus-to-
-source sequence of `Iso.modify`; the inventory will be refreshed after review.
+P21 documented `Iso.compose` callback order and the source-to-focus-to-source
+sequence of `Iso.modify`. The inventory is current through its source commit;
+no semantic or runtime claim is made.
+P22 is documenting present-focus replacement/modification in `Optional` and
+selected-payload modification in `Prism`; the inventory will be refreshed
+after review.

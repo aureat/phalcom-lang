@@ -320,3 +320,19 @@ shadow graph and an execution path for shadow Universe code.
   `57f4a4b83a914259e7d4f77beb32fa25792b5f3d211eee7b7e19753db8b7e44e`
   through source commit `a66c51f84f50dc2476a36836cdd057e7849cb492`.
 - No shadow semantic or runtime claim is made.
+
+## UNIV002.C2.P21 — Iso composition and modification documentation
+
+- Added two comments above `functional/optics.ph::Iso.compose` documenting
+  the existing forward order (`self`, then `other`) and reverse restore order
+  (`other`, then `self`), plus one comment above `Iso.modify` documenting the
+  convert-transform-restore sequence. No callback law is claimed.
+- No declaration, executable source, import, Product/reflection contract,
+  module owner, or generic identity changed. Exact diff review and scoped
+  `git diff --check` passed; no tests were run for this comments-only slice.
+- Independent reconciliation confirmed 174 `.ph` paths, no additions or
+  removals, and eighteen changed hashes against MOD1. The existing
+  `functional/optics.ph` row records SHA-256
+  `e0f95221731b0a0827c109afbba1510f20ce252013ee8d825e757582923e26d8`
+  through source commit `cb385f1ecccacc38e4746e3b47d4ce5a943387e3`.
+- No shadow semantic or runtime claim is made.
