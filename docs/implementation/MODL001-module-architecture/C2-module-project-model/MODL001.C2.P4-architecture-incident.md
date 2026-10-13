@@ -8,8 +8,9 @@
 - **Task/gate:** P4 preflight, especially T1/T2 and CV-01/CV-05/CV-07
 - **Repository/worktree:** `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/collections`
 - **Branch:** `feat/telos-collections`
-- **Starting revision:** `e5988ad80a04769740462de98c51d58b56bd314`
-- **Current revision:** `e5988ad80a04769740462de98c51d58b56bd314`
+- **P4 plan's recorded repository basis:** `e5988ad80a04769740462de98c51d58b56bd314` (the plan's repository grounding; not the live branch head).
+- **Inspected commit at incident preparation:** `da436a6c6b02c98f237a810b2e39f8d4fdc4cf58` (`HEAD`).
+- **Working-tree state before delivery:** dirty with shadow Universe source/specification/inventory edits and two supplementary P4 analysis drafts (`C2P4-SLICE-1.md` and `C2P4-SLICE-2.md`). The shadow paths do not modify the module linker, semantic analysis, compiler, or runtime evidence cited below. The supplementary drafts are committed in `48099fbc` as review inputs, not adopted architecture; the architect response attached by the user remains the decision authority. No P4 implementation was attempted.
 
 ## 2. Escalation trigger
 
@@ -19,6 +20,7 @@ This is a mandatory architecture escalation under triggers 1, 8, 11, and 16 in `
 2. P4 crosses module linking, semantic analysis, compiler lowering, and runtime materialization, beyond the shadow-source migration boundary.
 3. Source phase, canonical semantic evidence, and executable runtime-link contracts affect identity, semantic authority, and runtime initialization.
 4. The proposed plan, P2/P3 design documents, live code, and the initial Universe migration brief do not yet define one executable source-to-runtime contract.
+5. The P4 front matter depends on and follows P2/P3, while the checkpoint still marks P2 and P3 proposed. The incident must resolve whether those predecessors must be completed first or whether P4's dependency/order should be amended before it can become executable work.
 
 No production implementation was attempted. The current source linker’s eager behavior is established behavior; this report does not classify it as a production defect.
 
@@ -50,7 +52,7 @@ The current P4 draft proposes semantic-derived phase classification and a provis
 
 ## 6. Minimal reproduction
 
-There is no supported source-level interface-only import fixture to reproduce. No tests were run for this report.
+There is no supported source-level interface-only import fixture to reproduce. No tests were run for this report. The current tree therefore has no test that proves either (a) imported names remain symbolically resolvable before phase finalization or (b) a provisional link product cannot reach executable initialization.
 
 Existing tests establish only neighboring behavior:
 
@@ -59,7 +61,7 @@ Existing tests establish only neighboring behavior:
 - `phalcom-core/tests/core/modules/linking.rs::comp_07_cycle_ab_detected_and_rejected` tests strict compile/link rejection of a runtime source cycle.
 - `phalcom-modules/tests/linker.rs::link_01_selective_import_produces_binding` tests a normal selective import and linked read.
 
-The P4 draft’s T1 points to module-linker tests for strict runtime-cycle rejection. The strict source compile/link regression is in the core test above; the module graph test is the lower-level graph discriminator.
+The P4 draft's T1 points to module-linker tests for strict runtime-cycle rejection. The strict source compile/link regression is in the core test above; the module graph test is the lower-level graph discriminator. T1 must add an assertion for symbolic resolution before phase finalization and an explicit fail-closed test for executable compile/bootstrap receiving a provisional product; these stage-boundary tests are acceptance evidence, not coverage to defer until the later semantic/runtime tasks.
 
 ## 7. Relevant code path
 
@@ -80,7 +82,7 @@ For a phase-aware design, semantic analysis needs canonical imported identities 
 
 ## 8. Scoped changes and execution state
 
-- No Rust, Telos source, parser, linker, compiler, or runtime implementation was changed for this incident.
+- No Rust, parser, linker, compiler, or runtime implementation was changed for this incident. The concurrent shadow Universe source moves are separate source-only work and are outside the P4 incident scope.
 - A blocked P4 plan draft exists at `docs/implementation/MODL001-module-architecture/C2-module-project-model/MODL001.C2.P4-phase-aware-source-dependencies.md`. It must not be treated as an approved implementation contract until amended from the architect’s decision.
 - No tests or compilation were run. The current documentation diff passes `git diff --check`; the earlier plan draft’s whitespace check is not behavioral evidence.
 - The S3 Option/Result/Unit shadow moves and normative target paths are already present on this branch. They are not part of the unresolved phase-aware import design.
@@ -127,12 +129,15 @@ Do not implement the current P4 draft or reopen the six-child iteration split ye
 5. What incremental fingerprints/invalidation guarantee phase changes match cold analysis?
 6. Is compiler/semantic/core implementation authorized as a separate integration increment, or should this branch record the prerequisite and continue only with source changes that preserve current linker behavior?
 7. Correct P4’s strict-cycle test target and split its acceptance tests by owner: semantic phase proof, final runtime graph, linked-read/materialization coverage, and the S4 iteration integration fixture.
+8. P4 depends on and follows P2/P3, but both remain proposed in the checkpoint. Must P2/P3 be implemented first, or should the dependency/order and scope be amended so the architectural prerequisite can be resolved without treating those proposed plans as completed contracts?
+9. Require T1 tests proving pre-finalization symbolic import resolution and fail-closed rejection of provisional products by executable compile/bootstrap APIs. Confirm where each test belongs and keep phase classification, runtime-read projection, and Universe integration assertions in the later owner-specific gates.
 
 ## 14. Acceptance requirements for a revised plan
 
 - Name a canonical per-import evidence owner and define the stable key, phase join, conservative default, and incremental invalidation.
 - Cover every use site that can require a runtime object or linked read; declaration kind alone must not prove a use is interface-only.
 - Define a provisional semantic-link product and a distinct finalized executable-link product, or an equivalent type-safe stage boundary.
+- Add owner-specific tests proving symbolic import resolution before phase finalization and proving that provisional products cannot reach executable initialization; tests already present cover neither property.
 - Preserve canonical `SymbolId`/`DeclarationId` identity across both products.
 - Prove that every runtime read/materialization requirement has a corresponding runtime edge and slot; interface-only imports remain available to semantic resolution without requiring a runtime value slot.
 - Demonstrate a source-level interface-only case, mixed type/value use, unknown-use fallback, semantic cycle acceptance, strict runtime-cycle rejection, and cold/incremental parity.
