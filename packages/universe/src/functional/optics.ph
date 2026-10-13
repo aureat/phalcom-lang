@@ -41,12 +41,14 @@ impl<S, T> Optional<S, T> {
   type Focus = T
   @class new(get: (S) -> Option<T>, set: (S, T) -> S) -> Optional<S, T> { Optional<S, T>(get, set) }
   get(_ source: S) -> Option<T> { self.read.call(source) }
+  /// Calls the replacement callback for a present focus; otherwise returns the source.
   set(_ source: S, to value: T) -> S {
     match self.get(source) {
       Option::Some(_) => self.replace.call(source, value)
       Option::None => source
     }
   }
+  /// Applies `f` to a present focus and passes it to the replacement callback; absence returns the source.
   modify(_ source: S, using f: (T) -> T) -> S {
     match self.get(source) {
       Option::Some(value) => self.replace.call(source, f.call(value))
@@ -70,6 +72,7 @@ impl<S, T> Prism<S, T> {
   @class new(preview: (S) -> Option<T>, review: (T) -> S) -> Prism<S, T> { Prism<S, T>(preview, review) }
   preview(_ source: S) -> Option<T> { self.select.call(source) }
   review(_ value: T) -> S { self.inject.call(value) }
+  /// Applies `f` to a selected payload and passes it to the review callback; no selection returns the source.
   modify(_ source: S, using f: (T) -> T) -> S {
     match self.preview(source) {
       Option::Some(value) => self.review(f.call(value))
