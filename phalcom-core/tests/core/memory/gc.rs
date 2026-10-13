@@ -222,7 +222,7 @@ fn system_gc_collects_garbage_from_source() {
         module,
         r#"
         class UnusedClass {}
-        let i = 0
+        let mut i = 0
         while (i < 10) {
             UnusedClass.new()
             i = i + 1
@@ -286,7 +286,7 @@ fn automatic_safepoint_fires() {
         module,
         r#"
         class Trash {}
-        let i = 0
+        let mut i = 0
         while (i < 15000) {
             Trash.new()
             i = i + 1
@@ -326,7 +326,7 @@ fn bounded_churn_real_workload() {
     vm.interpret_source(
         module,
         r#"
-        let i = 0
+        let mut i = 0
         while (i < 6000) {
             i = i + 1
         }
@@ -398,7 +398,7 @@ fn verify_invariants_post_automatic_gc() {
     vm.interpret_source(
         module,
         r#"
-        let i = 0
+        let mut i = 0
         while (i < 5000) {
             i = i + 1
         }
@@ -474,7 +474,7 @@ fn ensure_raised_error_survives_collecting_cleanup() {
           || {
             Error.new("boom").raise()
           }.ensure(|| {
-            let i = 0
+            let mut i = 0
             while (i < 6000) {
               List.new()
               i = i + 1
