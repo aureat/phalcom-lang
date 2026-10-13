@@ -385,3 +385,20 @@ shadow graph and an execution path for shadow Universe code.
   source commit `0e6c058a1dc5f90849f91adf4a16ad3f53eea6ad`.
 - No semantic or runtime claim is made. `STDL001.C9.P1` Phalcom source/runtime
   acceptance remains unverified.
+
+## UNIV002.C2.P25 — Integer square-root documentation
+
+- Added one comment before `IntegerMath.isqrt`'s `@class` annotation in
+  `math/integer.ph`, documenting the floor-root result and live negative-input
+  `ArgumentError` path. No executable line or declaration changed.
+- Exact diff review and scoped `git diff --check` passed. No tests were run for
+  this comments-only slice.
+- Independent comparison confirmed all 174 `.ph` paths match MOD1, with 20
+  changed hashes, no additions/removals, and an exact match between the
+  inventory overlay and the live changed-hash map. The `math/integer.ph` row
+  records SHA-256
+  `e0dbcad8876c42812a6f31f9aefe8ff4fe302216842ecf286414f6d030c7031e` through
+  source commit `c09e9706458611f52ab82a90e847cc7b91daa342`.
+- No semantic or runtime claim is made. `STDL001.C9.P1` Phalcom source/runtime
+  acceptance remains unverified.
+

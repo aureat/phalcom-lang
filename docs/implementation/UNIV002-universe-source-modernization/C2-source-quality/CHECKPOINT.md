@@ -47,7 +47,8 @@ integration, or production cutover.
 | `UNIV002.C2.P22` | Optional replacement and Prism modification documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added three comments describing replacement/review callback paths and unchanged-source branches; exact diff review, scoped whitespace check, and 174-path inventory reconciliation passed. Wording was narrowed to avoid promising callback effects. |
 | `UNIV002.C2.P23` | Optional/Prism composition and adapter documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added six callback-path/order comments; exact diff and scoped whitespace review passed; independent reconciliation confirmed 174 unchanged paths and 18 changed hashes. No tests or semantic/runtime claims. |
 | `UNIV002.C2.P24` | Float logSumExp documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added three comments matching the numeric spec; exact diff and scoped whitespace review passed; independent reconciliation confirmed 174 paths and 19 changed hashes. No tests or semantic/runtime claims. |
-| `UNIV002.C2.P25` | Integer square-root documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | One comment is planned above `IntegerMath.isqrt`, grounded in `docs/specs/numeric-math.md`; no behavior changes or tests. |
+| `UNIV002.C2.P25` | Integer square-root documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one spec-backed comment; exact diff and scoped whitespace review passed; independent reconciliation confirmed 174 paths and 20 changed hashes. No tests or semantic/runtime claims. |
+| `UNIV002.C2.P26` | Integer GCD documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | Add one comment grounded in the numeric spec; no executable behavior change. |
 
 ## Established invariants
 
@@ -212,14 +213,15 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: `UNIV002.C2.P25`, documenting the normative floor-root result
-  and live negative-input error path for `IntegerMath.isqrt` with one comment.
-  Preserve the exact Int algorithm owner and concurrent work.
-- Latest complete plan: `UNIV002.C2.P24`; latest complete checkpoint:
-  `UNIV002.C1`.
-- The source inventory is reconciled through P24 source commit
-  `0e6c058a1dc5f90849f91adf4a16ad3f53eea6ad`: 174 paths, no additions or
-  removals, and 19 changed hashes with the rest matching MOD1. Textual
+- Active plan: `UNIV002.C2.P26`, one Category A comment above
+  `IntegerMath.gcd`, grounded in `docs/specs/numeric-math.md`. Keep the edit
+  comment-only and preserve the algorithm and `universe.math` ownership.
+- Latest complete plan: `UNIV002.C2.P25`; P25 walkthrough and handoff are
+  recorded. P26 is active; its focused validation and closeout remain.
+- Latest complete checkpoint: `UNIV002.C1`.
+- The source inventory is reconciled through P25 source commit
+  `c09e9706458611f52ab82a90e847cc7b91daa342`: 174 paths, no additions or
+  removals, and 20 changed hashes with the rest matching MOD1. Textual
   inventory heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
   grounded in the live source; `docs/implementation/time.md` §29 proposes
@@ -391,3 +393,12 @@ hashes against MOD1. `math/reduction.ph` is recorded at SHA-256
 `cee5648eb971d0546f46ef49e5ec9e7bd6e1c210f8321cd61cc7c395a29310d6` through
 source commit `0e6c058a1dc5f90849f91adf4a16ad3f53eea6ad`. No semantic or runtime
 claim is made; C9 source/runtime acceptance remains unverified.
+
+P25 added one comment before `IntegerMath.isqrt`'s `@class` annotation,
+documenting the floor-root result and live negative-input `ArgumentError` path.
+Exact diff review and scoped `git diff --check` passed; no tests were run.
+Independent reconciliation confirmed 174 matching paths and twenty changed
+hashes against MOD1. `math/integer.ph` is recorded at SHA-256
+`e0dbcad8876c42812a6f31f9aefe8ff4fe302216842ecf286414f6d030c7031e` through
+source commit `c09e9706458611f52ab82a90e847cc7b91daa342`. No semantic or
+runtime claim is made; C9 source/runtime acceptance remains unverified.

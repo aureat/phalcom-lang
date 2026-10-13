@@ -13,9 +13,9 @@
 
 ## Current source reconciliation
 
-Through `UNIV002.C2.P24`, the 174 shadow source paths were reconciled against
+Through `UNIV002.C2.P25`, the 174 shadow source paths were reconciled against
 the MOD1 baseline at source revision
-`0e6c058a1dc5f90849f91adf4a16ad3f53eea6ad`. Nineteen source files changed since
+`c09e9706458611f52ab82a90e847cc7b91daa342`. Twenty source files changed since
 baseline; their current SHA-256 values are recorded in `INVENTORY.md`. Other
 source hashes still match baseline. Its textual inventory heuristics remain
 baseline data and are not a current opportunity audit.
@@ -57,6 +57,11 @@ source hash.
 `math/reduction.ph`, grounded in `docs/specs/numeric-math.md`. They describe
 the one-pass stable operation and the normative empty, infinity, and NaN
 cases. The algorithm and C9 verification status are unchanged.
+
+`UNIV002.C2.P25` completed one comment above `IntegerMath.isqrt` in
+`math/integer.ph`, documenting the floor-root result and the live
+negative-input `ArgumentError` path. The integer algorithm and C9 verification
+status are unchanged.
 
 ## Active work and exclusions
 
@@ -131,17 +136,19 @@ A source-only change may be `SOURCE_READY`; parser/interface checks do not imply
 ## Next action
 ## Next action
 
-`UNIV002.C2.P1`–P24 are complete: twenty-three Category A documentation slices
-and one Category B Gregorian predicate rewrite. P25 is active for one comment
-above `IntegerMath.isqrt` in `math/integer.ph`, documenting the floor-root
-result and live negative-input error path from `docs/specs/numeric-math.md`.
-The plan is comments-only; no tests are required, and no behavior claim will be
-made.
+`UNIV002.C2.P1`–P25 are complete: twenty-four Category A documentation
+slices and one Category B Gregorian predicate rewrite. P23 closed the optics
+composition comments. P24 documented `FloatReduction.logSumExp` from the
+normative math contract, and P25 documented `IntegerMath.isqrt`'s floor-root
+result and observed negative-input error path. Both changes are comments-only;
+no tests or semantic/runtime claims were made.
 
-The 174 source paths match MOD1, with nineteen changed hashes reconciled
-through source commit `0e6c058a1dc5f90849f91adf4a16ad3f53eea6ad`. P25 must
-refresh the changed hash and recompare the full path/hash set. Inventory
-heuristic columns remain baseline-only.
+The 174 source paths match MOD1, with twenty changed hashes reconciled through
+source commit `c09e9706458611f52ab82a90e847cc7b91daa342`. The source inventory
+is exact at that commit; its heuristic columns remain baseline-only. P26 is
+active: add one spec-backed Category A comment above `IntegerMath.gcd` in
+`math/integer.ph`. Keep the algorithm, signature, owner, and behavior
+unchanged. Do not use the unresolved Option identity seam as a shortcut.
 
 `STDL001.C9.P1` established the Float-based `universe.math` boundary and moved
 optional special functions, statistics, and probability to the `numerics`

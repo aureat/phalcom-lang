@@ -4,9 +4,9 @@ category: UNIV
 program: UNIV002
 checkpoint: UNIV002.C2
 kind: implementation-plan
-status: IN_PROGRESS
-completion: PARTIAL
-verification: UNVERIFIED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 depends_on:
   - UNIV002.C2.P24
 follows: UNIV002.C2.P24
@@ -218,3 +218,17 @@ At completion, update P25 status, inventory/validation ledger, and checkpoint
 state. Create the P25 walkthrough and handoff with the exact source revision,
 actual comment diff, evidence, semantic/runtime limits, and the next safe
 bounded action.
+
+### Completion evidence
+
+- Added the specified comment immediately before `@class` for
+  `IntegerMath.isqrt` in `packages/universe/src/math/integer.ph`. No executable
+  line, declaration, signature, import, or owner changed.
+- Exact source diff review and scoped `git diff --check` passed. No tests were
+  run, as directed by the comments-only plan.
+- Independent source reconciliation confirmed the 174-path set and current
+  changed-hash overlay against MOD1 through commit
+  `c09e9706458611f52ab82a90e847cc7b91daa342`. `math/integer.ph` SHA-256 is
+  `e0dbcad8876c42812a6f31f9aefe8ff4fe302216842ecf286414f6d030c7031e`.
+- No semantic or runtime claim is made. C9 source/runtime acceptance remains
+  unverified.
