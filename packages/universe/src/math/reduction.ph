@@ -1,6 +1,6 @@
 from .float_kernel import FloatMathKernel
 from .numerical_errors import NumericalRangeError
-from universe.collections.iterator_laws import Iterable
+from universe.collections.iteration import Iterable
 
 /// Stable Float reductions over one-pass inputs; no source value is mutated.
 class FloatReduction {

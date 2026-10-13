@@ -1,6 +1,6 @@
 /// Public collection types and iterator protocols.
 expose .collection
-expose .iterator_laws
+expose .iteration
 expose .list
 expose .array
 expose .vector

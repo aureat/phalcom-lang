@@ -2,7 +2,7 @@
 from .algebra import Semigroup, Monoid
 from .chain import Chain, NonEmpty
 from .validation import Validation
-from universe.collections.iterator_laws import Iterable
+from universe.collections.iteration import Iterable
 
 class Folds {
   @class

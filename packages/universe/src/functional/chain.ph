@@ -1,5 +1,5 @@
 //! Persistent sequences: constant-time prepend and shared immutable tails.
-from universe.collections.iterator_laws import Iterator, Iterable
+from universe.collections.iteration import Iterator, Iterable
 
 /// An immutable homogeneous sequence. Link shares its tail without copying.
 /// Iteration and the operations below use loops rather than recursive calls.

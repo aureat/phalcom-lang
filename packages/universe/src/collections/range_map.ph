@@ -4,7 +4,7 @@
 //! to values `V` with O(log n) point lookup and structural sharing.
 
 from universe.collections.interval import Bound, Interval
-from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+from universe.collections.iteration import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
 /// Internal persistent AVL tree node.
 class RangeMapNode<K, V> {

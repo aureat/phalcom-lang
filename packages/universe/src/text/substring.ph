@@ -1,4 +1,4 @@
-from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+from universe.collections.iteration import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 from universe.scalar.string_index import StringIndex
 
 /// An immutable, non-allocating contiguous text view over a String.
