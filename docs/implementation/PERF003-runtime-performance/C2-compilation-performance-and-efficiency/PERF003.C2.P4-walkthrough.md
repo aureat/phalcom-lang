@@ -4,6 +4,11 @@ Status: IN_PROGRESS / PARTIAL / BASELINE_BLOCKED for the current continuation.
 The original foundation retains its historical FOCUSED_TESTED evidence.
 Branch: `perf/universe-characterization` (worktree: `.worktrees/perf-universe-characterization`).
 
+Latest execution boundary: explicitly stopped by the user on 2026-10-13.
+T1 and the prior incident/handoff were committed and pushed in `e74a9213`.
+The subsequent T5 / PR-A slice is uncommitted. Section 8 below supersedes prior
+next-action and failing-fixture statements where its newer evidence applies.
+
 ---
 
 ## 1. Executive Summary
@@ -151,3 +156,98 @@ visibility input. `SemanticSnapshot::surfaces` already owns member visibility;
 the eventual cutover must consume it. This observation is not permission to
 invent visibility policy or treat foundation unit tests as complete retention
 certification.
+
+## 8. Accepted-ruling continuation, stopped by user
+
+The ruling is saved as `PERF003.C2.P4-architectural-ruling.md`, referenced from
+the active plan and checkpoint. It adds PR-A/PR-B prerequisites to T6 and
+authorizes continuing T5. No subagents were used; T1 source/defaults and its
+retained-session assertions were left unchanged.
+
+### T5 working-tree implementation
+
+- `metadata/export.rs`: explicit `build_bundle_from_closure`; declaration,
+  alias, callable, field and project-identity loops bounded by retained IDs;
+  owner indexes for declaration callable/field lists; field records/lists wired.
+- Legacy detached fixture calls renamed to `build_complete_test_bundle`.
+  The complete-table/catalog path is explicit and is not used by compiler
+  production callers. This is an API migration, not a claim that all renamed
+  test cases have executed.
+- Production static-domain catalog selection starts from exported domain IDs
+  and retained declaration products, following constructor-kind dependencies.
+- New `MetadataEntityIdentity` and `MetadataExportError::Projection` preserve
+  profile, retained top-level entity, failing TypeId and typed underlying cause.
+  Ordinary compilation now uses `ProgramCompileError::Metadata` rather than
+  stringifying exporter failures as I/O errors.
+- Known declared type facts fail closed on export errors instead of becoming
+  unavailable silently. Inferred-return fallback behavior still needs review.
+- `reachability.rs`: optional published member-surface input filters callable
+  and field retention to Public when supplied. Compiler production supplies it.
+- `compile.rs`: roots from executable type/call facts, published local Class/Data
+  declaration IDs and linked public exports; public aliases retained; field
+  signatures supplied; metrics recorded. Canonical bootstrap uses a predicate
+  that retains its own canonical records; ordinary compilation excludes them.
+- `semantic_lowering.rs`: data-construction metadata uses an explicit closure.
+
+This is an incomplete production cutover. In particular, ordinary canonical
+elision is present in the patch, while T6 runtime loading/indexing is not; no
+runtime or cross-pool certification is implied. The inherited closure's type
+traversal is incomplete compared with exporter recursion and must be reconciled
+before T5 completion. Error context reset/root-to-recursive-path coverage and
+retained fingerprint behavior also need final review.
+
+### PR-A working-tree implementation
+
+`native/source.rs::index_program` classifies intrinsic runtime data before
+entering the native facade path. Canonical Tuple/Record/Pack keep their existing
+native anchors; other canonical runtime-class identities and wrong-module
+identities fail closed. Non-runtime-catalog compiler intrinsic data stays in
+the parsed semantic program; sums use normal enum/census indexing and create
+no native anchors. No UniverseKey/catalog changes or ProductKind allowlist.
+
+### Completed evidence
+
+| Gate | Result |
+|---|---|
+| New retained alias/provenance regression | PASS, 1 selected, 0.01 s |
+| Retained-session profile independence regression after T5 | PASS, 1 selected, 43.93 s |
+| Compiler-owned intrinsic data regression before PR-A | FAIL on ProductKind, as expected |
+| `native::source::tests` after PR-A | PASS, 9 selected, 0.05 s; includes bundled source corpus |
+| `metadata::reachability::tests` after nested fix | PASS, 4 selected, 0.01 s; validates Record/Callable/Pack/Projection discovery, elision, rollback |
+
+The alias test checks a fixed String key, not a non-Symbol remainder. PR-A's
+focused fixture asserts Tuple anchors; dedicated Record/Pack facade regression
+coverage remains to be added. Source-index success does not prove canonical
+native contracts, semantic projection or RuntimePublic metadata export.
+
+### PR-B investigation at stop
+
+No `phalcom-type-meta` source, schema version, codec, validation, runtime identity
+or reflection representation was changed. Schema remains v12. Investigation
+confirmed the producer is JSON serde-based (`encode.rs`), advertises schemas
+1–12, and currently represents fixed fields by Symbol-only `name` and anonymous
+remainders without key domains, globally and in scoped/row forms.
+
+The contemplated v13 representation was the ruling's tagged `RecordKeyRef`
+(Symbol/String/exact StaticInt/Bool) and explicit key/value type IDs on
+remainders. Validation ordering/duplicates, child topology/kinds, exporter
+fingerprints, runtime row conversion, display and identity normalization all
+need to carry those facts. The exact migration implementation is undecided.
+
+A possible legacy decode approach was being evaluated: transform legacy JSON
+fields into Symbol keys and materialize canonical Symbol key-domain nodes,
+remapping global/scoped node references while preserving their topological
+order and semantic identity. This is investigation only. Prepending nodes
+requires shifting all global and scoped references, including generics,
+kind-domain environments, declarations, runtime roots and occurrences; simply
+appending a Symbol node would create forward edges. No migration was selected
+or coded, and no new schema tests were written.
+
+### Stop and delivery
+
+User requested immediate stop and lifecycle/handoff reporting. Source edits and
+validation stopped; only lifecycle files updated afterward. P4 remains
+IN_PROGRESS / PARTIAL / BASELINE_BLOCKED with narrower focused T5/PR-A evidence.
+No new commit/push, benchmark, broad certification or independent review.
+The next implementer must consume the current handoff, not rerun the obsolete
+incident diagnosis or change the accepted T1 defaults.

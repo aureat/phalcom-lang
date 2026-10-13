@@ -10,6 +10,22 @@
 **Primary branch context:** `perf/universe-characterization`  
 **Status at authoring:** `PROPOSED / NOT_STARTED / UNVERIFIED`
 
+## Accepted prerequisite amendment — 2026-10-13
+
+The [user's architectural ruling](PERF003.C2.P4-architectural-ruling.md)
+authorizes T5 continuation and adds two bounded T6 prerequisites:
+`P4.PR-A` intrinsic source-index category repair and `P4.PR-B` versioned
+heterogeneous Record metadata (fixed keys, remainder domains, scoped/row forms,
+fingerprints, legacy decoding). T1 defaults and end-to-end assertions stand.
+Export failures must preserve retained entity/root and recursive type context.
+T6 certification and T7–T9 remain gated on usable, faithful canonical
+RuntimePublic metadata. The ruling's acceptance table is binding.
+
+Execution was explicitly stopped by the user after a partial T5 cutover and
+focused-tested PR-A classification repair. PR-B remains investigation only.
+Consume the current `PERF003.C2.P4-handoff.md` and CHECKPOINT before resuming;
+the patch is uncommitted over `e74a9213` and is not full P4 certification.
+
 ---
 
 # 1. Purpose
@@ -716,6 +732,25 @@ target type form
 Type/kind child recursion remains owned by existing `MetadataExporter::export_type_form` / kind export.
 
 Do not duplicate type-graph traversal in two authorities.
+
+#### Accepted T5 dependency-closure amendment — 2026-10-13
+
+The exporter reports nominal declaration references encountered while
+recursively exporting the current closure's runtime type roots. For
+`RuntimePublic`, the compiler adds newly discovered declarations to the root
+set and recomputes the entity closure until the exporter reports no further
+local declarations. The closure remains authoritative for profile visibility,
+canonical external elision, and declaration/member expansion; it does not walk
+`TypeData` children itself. `RuntimeMinimal` retains its existing declaration
+policy and does not expand nominal references into declaration metadata.
+
+Use a disposable exporter configured with the same semantic inputs for
+discovery, so its partial output cannot affect final bundle node ordering. Only
+fully exportable type roots contribute dependencies. Failed probes are retried
+by the final selected-bundle export under the retained entity context, which
+remains responsible for reporting projection errors and type provenance.
+Aggregate closure work metrics across fixed-point rounds and publish retained
+cardinalities from the final closure.
 
 ## Determinism
 

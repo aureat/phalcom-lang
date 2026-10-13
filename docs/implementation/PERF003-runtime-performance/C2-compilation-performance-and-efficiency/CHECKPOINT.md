@@ -9,7 +9,7 @@ active_plan: PERF003.C2.P4
 latest_completed_plan: PERF003.C2.P3
 next_plan: PERF003.C2.P4
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: 4474455cd9137d7e35b7194f4c6e6e246a48bcab
+execution_tree_head: e74a9213
 latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
 
@@ -27,15 +27,14 @@ active_plan: PERF003.C2.P4
 latest_completed_plan: PERF003.C2.P3
 next_plan: PERF003.C2.P4
 next_action: >
-  Complete remaining Package D tasks for PERF003.C2.P4:
-  Resolve the canonical-authority prerequisite incident before cutover.
-  P4.T1 option plumbing is implemented but retained-session verification is
-  baseline-blocked; see PERF003.C2.P4-canonical-authority-incident.md.
-  P4.T5 (MetadataExporter cutover to MetadataReachabilityClosure),
-  P4.T6 (compiler canonical entity partitioning),
-  P4.T7/P4.T8 (RuntimeTypingRegistry stable-identity indexes and inspect.rs same-pool assumption removal),
-  P4.T9 (canonical dependency compatibility), and
-  P4.T11 (focused compiler and reflection regression suites).
+  The user authorized a focused fix for the T5 nested nominal dependency gap.
+  Exporter-owned dependency discovery now feeds RuntimePublic closure rounds;
+  this source change is not verified yet. Continue focused validation, then
+  finish T5 closure/provenance acceptance and PR-B schema-v13 migration.
+  PR-A has 9 focused source-index passes; the canonical singleton/projection
+  has not been rerun after PR-A. Keep T6 certification and T7–T9 behind faithful
+  canonical RuntimePublic authority.
+
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -124,7 +123,7 @@ After:
 | `PERF003.C2.P7` | Consumer-Specific Publication & Demand-Driven Products | Package B | IN_PROGRESS | PARTIAL | UNVERIFIED | Earlier advisory-only slice has focused evidence; commit `a7b75980` adds `PresentationLevel` source-index filtering and Full → RuntimeMinimal → Full coverage changes, which remain unverified; unified source-target traversal remains |
 | `PERF003.C2.P2` | Complete Canonical Universe Formal Image and Immutable Canonical Query Roots | Formal/query foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | Formal image, query freeze/reader, provenance validation and core acquisition implemented in the task working-tree patch over `82051480`; focused evidence below; G5/G6 certification remains deferred |
 | `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Exact indexed witness lookup, module-bounded effective-surface signature enumeration, ConformanceIndex partitioning (nominal family + open heads) with brute-force parity, SCC inferred-return settlement, and shared requirement-view passing implemented; focused regressions pass. Retained structural witness plans across revisions and generic proof memoization remain |
-| `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Foundation retains prior focused evidence. T1 options implemented; isolated compiler profile test passes. Retained-session test fails in existing aggregate export; canonical compiled authority fails on ProductKind before projection. Incident awaits a prerequisite/scope ruling; T5–T9 cutover remains |
+| `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | User-stopped working-tree continuation over e74a9213. T1 accepted; retained-session profile test now passes after bounded T5 export. PR-A classification repair passes 9 source-index tests including actual corpus. PR-B schema migration not started; full T5 closure/provenance acceptance and canonical projection remain unverified. T6–T9 remain gated |
 | `PERF003.C2.P5` | Backend Scans, Trait Slots, and Local Complexity Elimination | Package E | PROPOSED | NOT_STARTED | UNVERIFIED | Module-indexed backend tables, canonical trait-slot precomputation, inherent impl domain index, range lookup indexes |
 
 ---
@@ -153,6 +152,31 @@ After:
 ---
 
 ## 4. Verification evidence
+
+### P4 user-stopped T5 / PR-A continuation (2026-10-13, uncommitted over `e74a9213`)
+
+- `metadata_profile_is_explicit_and_independent_of_semantic_publication`: PASS,
+  1 selected, 43.93 s. Actual retained tiny compilation retains default public,
+  accepts explicit minimal, returns to default public, and retains independent
+  semantic publication. This supersedes the prior failure for that fixture.
+- `retained_alias_error_keeps_root_and_unreachable_alias_is_not_exported`: PASS,
+  1 selected, 0.01 s. Unretained alias omitted; explicitly retained String-key
+  Record alias fails with entity/type context. It does not test remainder domains.
+- `compiler_intrinsic_data_has_no_native_class_anchors`: observed FAIL before
+  PR-A on ProductKind; after repair `native::source::tests`: PASS, 9 selected,
+  0.05 s, including actual bundled source corpus and identity rejection tests.
+- `metadata::reachability::tests`: PASS, 4 selected (including new
+  `reachability_closure_discovers_nested_nominal_dependencies`), 0.01 s.
+  Verifies recursive exporter-driven nominal discovery through Record,
+  Callable, Pack, and AssociatedProjection, canonical module elision,
+  failure rollback, and RuntimeMinimal filtering.
+- No canonical singleton rerun, schema change/test, core integration reflection,
+  broad suite, benchmark, independent review, or final formatting gate completed.
+- Production T5 work is partial. Current closure traversal must be reconciled
+  with the exporter's full recursive type graph before claiming completeness.
+- No commit or push for this continuation. Source edits stopped immediately on
+  user instruction; only lifecycle records updated afterward.
+
 
 ### P4 inline options continuation (2026-10-13, uncommitted over `a82dfe32`)
 
@@ -222,8 +246,8 @@ After:
 |---|---|---|---|
 | `corpus::booleans` | Fails before VM construction: legacy metadata cannot represent Record remainder outside Symbol key domain | D | Pre-existing baseline compiler limitation recorded in PERF003.C1; nonblocking for Package A/B/C/E. Package D will resolve metadata reachability. |
 | `perf_universe_characterization` VM::new() | Fails at runtime: intrinsic runtime data ProductKind is not a canonical Tuple/Record/Pack source declaration | D | Pre-existing runtime bootstrap blocker recorded in PERF003.C1; nonblocking for compiler and semantic optimization. |
-| `P4 canonical authority prerequisite` | Existing exact canonical singleton test fails with the same ProductKind source-index error before projection | D | Reproduced 2026-10-13; blocks P4 T6 canonical authority and runtime proof. See incident; no bootstrap fix attempted. |
-| `P4 retained-session options regression` | Default public compile fails with legacy non-Symbol Record remainder export error | D | One selected test fails before profile assertions; retained as a pending end-to-end gate, not skipped. T1 seam has narrower passing evidence. |
+| `P4 canonical authority prerequisite` | Historical singleton failure at ProductKind source indexing | D | PR-A classification repaired with 9 focused source-index PASS, including actual corpus. Singleton/projection not rerun after repair; PR-B still blocks faithful canonical metadata and T6 proof. |
+| `P4 retained-session options regression` | Historical ordinary aggregate export failure on non-Symbol Record remainder | D, resolved for exact tiny fixture | After T5 slice, default public → explicit minimal → default public test PASS (1 selected). Required retained heterogeneous Record representation remains a separate PR-B prerequisite. |
 | `corpus::blocks` | `blocks_argument_to_method.ph` fails with `[1, 2, 3, 4] does not understand 'fold(initial,using)'` | D | Pre-existing missing library method recorded in PERF003.C1. |
 | `semantic::integration::advisory::analysis::formal_projection_preserves_causal_invalidity_and_binding_contracts` | Expected one causal-invalidity marker but current formal projection publishes a different state | D | Reproduces in isolation outside the demand-driven request path; deferred for the owning formal-projection work. |
 | `incremental::type_store_revisions` callable-count assertions | Existing first-publication callable recomputation counts differ from stale expected values | D | Reproduces in isolation after all source/formal/advisory assertions pass; nonblocking for product-request work. |
@@ -232,12 +256,33 @@ After:
 
 ## 6. Consultations and amendments
 
+- P4 architectural ruling accepted from the user (2026-10-13):
+  [full ruling](PERF003.C2.P4-architectural-ruling.md). T1 stays unchanged.
+  T5 continues with authoritative roots, no aggregate production fallback,
+  and structured export provenance. PR-A classifies compiler-owned intrinsic
+  data separately from native Tuple/Record/Pack facades, preserving fail-closed
+  canonical identity checks. PR-B extends metadata for heterogeneous fixed
+  Record keys and explicit remainder key domains, including scoped/row forms,
+  fingerprints and legacy Symbol-key decoding. No lossy export or public
+  surface omission. T6–T9 remain behind both prerequisites.
+
+- P4 T5 reachability consultation (2026-10-13): following review of
+  `metadata/reachability.rs`, the closure's partial type walker conflicted with
+  the plan's exporter-owned recursive type traversal and missed nested local
+  nominals. The adopted ruling is that a disposable `MetadataExporter` discovers
+  nominal references through `export_type_form`; RuntimePublic adds new local
+  declarations to roots and recomputes closure to a fixed point. Profile and
+  external-identity filtering remain in the closure engine, and final export
+  preserves retained-entity error provenance. The plan amendment is recorded
+  in the active P4 plan. Implementation is present but unverified; no tests
+  were run for this follow-up.
+
 - P4 continuation, 2026-10-13: mandatory trigger 2 raised because the canonical
   compiled metadata authority cannot be built. The incident packet is
   [PERF003.C2.P4-canonical-authority-incident.md](PERF003.C2.P4-canonical-authority-incident.md).
   User required inline work with no subagents; no adviser was spawned and no
-  ruling or plan amendment is assumed. Await a ruling on a prerequisite repair
-  versus bounded detached continuation. Existing profile/semantic rules stand.
+  ruling was assumed at that time. The subsequent accepted ruling above resolves
+  that request and authorizes PR-A/PR-B; existing profile/semantic rules stand.
 
 - L2 (2026-10-13): User requested continuing the compiler optimizations in the
   attached “Canonical Universe Image Implementation and Next Major Performance

@@ -1,5 +1,20 @@
 # IMPLEMENTATION INCIDENT
 
+## Current disposition — 2026-10-13
+
+The [user's architectural ruling](PERF003.C2.P4-architectural-ruling.md)
+resolves the requested scope decision: P4 owns PR-A intrinsic classification and
+PR-B versioned heterogeneous Record metadata; T5 continues, T6 stays gated.
+T1 is accepted unchanged. The uncommitted continuation implements a T5 slice:
+the exact tiny retained-session options test now passes, and an explicitly
+retained unsupported Record alias still fails with entity/type provenance.
+PR-A source-index classification passes nine focused tests including the bundled
+Universe source corpus. Canonical singleton/projection has not been rerun.
+PR-B has only been investigated; no schema migration has been implemented.
+The user explicitly stopped execution; consult the current handoff before
+resuming. The original incident evidence below is historical, not current
+proof that the repaired source index still fails.
+
 ## 1. Identity
 
 - Program/checkpoint/plan: `PERF003` / `PERF003.C2` / `PERF003.C2.P4`
