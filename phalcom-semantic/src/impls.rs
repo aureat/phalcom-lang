@@ -2880,6 +2880,7 @@ impl ConformanceIndex {
 
     /// Attach canonical conformance heads without copying their indexed entries.
     pub fn with_parent(parent: Arc<Self>) -> Self {
+        assert!(parent.parent.is_none(), "canonical conformance parent must be a root index");
         Self {
             parent: Some(parent),
             ..Self::default()
@@ -2978,11 +2979,8 @@ impl ConformanceIndex {
     }
 
     /// Canonical parent followed by local contributions, without flattening.
-    pub fn iter(&self) -> Box<dyn Iterator<Item = (&ImplId, &ConformanceContribution)> + '_> {
-        match &self.parent {
-            Some(parent) => Box::new(parent.iter().chain(self.contributions.iter())),
-            None => Box::new(self.contributions.iter()),
-        }
+    pub fn iter(&self) -> impl Iterator<Item = (&ImplId, &ConformanceContribution)> {
+        self.parent.as_ref().into_iter().flat_map(|parent| parent.contributions.iter()).chain(self.contributions.iter())
     }
 
     /// Returns every eligible source head matching the exact target and trait

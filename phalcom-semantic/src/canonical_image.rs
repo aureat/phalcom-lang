@@ -534,7 +534,10 @@ pub const CANONICAL_PERSISTENCE_INVENTORY: &[(CanonicalProductFamily, CanonicalP
     (CanonicalProductFamily::AssociatedAndStaticSemantics, CanonicalPersistenceClass::RequiredSemantic),
     (CanonicalProductFamily::FrozenStructuralQueries, CanonicalPersistenceClass::EligibleQuery),
     (CanonicalProductFamily::RuntimePublicMetadata, CanonicalPersistenceClass::RequiredMetadata),
-    (CanonicalProductFamily::CompilerSourceAttachments, CanonicalPersistenceClass::Rebuildable),
+    // Until P7 proves source-independent regeneration, compiler-facing source
+    // attachments are required. They cannot be silently rebuilt from absent
+    // canonical syntax in an artifact-only process.
+    (CanonicalProductFamily::CompilerSourceAttachments, CanonicalPersistenceClass::RequiredSemantic),
     (CanonicalProductFamily::EditorPresentation, CanonicalPersistenceClass::OptionalPresentation),
     (CanonicalProductFamily::AdvisoryProducts, CanonicalPersistenceClass::Rebuildable),
     (CanonicalProductFamily::SourceMaps, CanonicalPersistenceClass::OptionalSourceMap),
@@ -1438,6 +1441,10 @@ mod negative_fact_tests {
         assert!(CANONICAL_PERSISTENCE_INVENTORY.contains(&(
             CanonicalProductFamily::RuntimePublicMetadata,
             CanonicalPersistenceClass::RequiredMetadata,
+        )));
+        assert!(CANONICAL_PERSISTENCE_INVENTORY.contains(&(
+            CanonicalProductFamily::CompilerSourceAttachments,
+            CanonicalPersistenceClass::RequiredSemantic,
         )));
         let image = canonical_universe_formal_image().unwrap();
         let capabilities = image.capabilities();

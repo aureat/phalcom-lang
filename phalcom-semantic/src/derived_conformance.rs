@@ -79,30 +79,33 @@ pub struct DerivedConformanceRuleIndex {
 }
 
 /// Borrowed, allocation-free view of canonical and workspace rules for one trait.
-/// Rule iteration is parent-first, preserving deterministic insertion order.
+/// One-level canonical ownership permits static, allocation-free iteration.
 #[derive(Clone, Copy, Debug)]
 pub struct DerivedRuleTraitView<'a> {
-    index: &'a DerivedConformanceRuleIndex,
-    trait_declaration: &'a DeclarationId,
+    canonical: &'a [Arc<DerivedConformanceRule>],
+    local: &'a [Arc<DerivedConformanceRule>],
 }
 
 impl DerivedRuleTraitView<'_> {
-    /// Number of matching canonical and local rules without materializing a slice.
+    /// Number of matching canonical and local rules without materialization.
     pub fn len(&self) -> usize {
-        self.index.trait_rule_len(self.trait_declaration)
+        self.canonical.len() + self.local.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.canonical.is_empty() && self.local.is_empty()
     }
 
-    /// Exact slot in parent-first order.
     pub fn get(&self, index: usize) -> Option<&Arc<DerivedConformanceRule>> {
-        self.index.trait_rule_at(self.trait_declaration, index)
+        if index < self.canonical.len() {
+            self.canonical.get(index)
+        } else {
+            self.local.get(index - self.canonical.len())
+        }
     }
 
-    pub fn iter(&self) -> Box<dyn Iterator<Item = &Arc<DerivedConformanceRule>> + '_> {
-        self.index.trait_rule_iter(self.trait_declaration)
+    pub fn iter(&self) -> impl Iterator<Item = &Arc<DerivedConformanceRule>> {
+        self.canonical.iter().chain(self.local.iter())
     }
 }
 
@@ -116,10 +119,10 @@ impl std::ops::Index<usize> for DerivedRuleTraitView<'_> {
 
 impl<'a> IntoIterator for DerivedRuleTraitView<'a> {
     type Item = &'a Arc<DerivedConformanceRule>;
-    type IntoIter = Box<dyn Iterator<Item = Self::Item> + 'a>;
+    type IntoIter = std::iter::Chain<std::slice::Iter<'a, Arc<DerivedConformanceRule>>, std::slice::Iter<'a, Arc<DerivedConformanceRule>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.index.trait_rule_iter(self.trait_declaration)
+        self.canonical.iter().chain(self.local.iter())
     }
 }
 
@@ -130,6 +133,7 @@ impl DerivedConformanceRuleIndex {
 
     /// Shares immutable canonical rule buckets instead of cloning each entry.
     pub fn with_parent(parent: Arc<Self>) -> Self {
+        assert!(parent.parent.is_none(), "canonical derived-rule parent must be a root index");
         Self {
             parent: Some(parent),
             ..Self::default()
@@ -160,29 +164,14 @@ impl DerivedConformanceRuleIndex {
     }
 
     /// A trait-local view without copying parent buckets or merged rule slices.
-    pub fn rules_for_trait<'a>(&'a self, trait_declaration: &'a DeclarationId) -> DerivedRuleTraitView<'a> {
-        DerivedRuleTraitView { index: self, trait_declaration }
-    }
-
-    fn trait_rule_len(&self, trait_declaration: &DeclarationId) -> usize {
-        self.parent.as_ref().map_or(0, |parent| parent.trait_rule_len(trait_declaration))
-            + self.rules_by_trait.get(trait_declaration).map_or(0, Vec::len)
-    }
-
-    fn trait_rule_at(&self, trait_declaration: &DeclarationId, position: usize) -> Option<&Arc<DerivedConformanceRule>> {
-        let inherited = self.parent.as_ref().map_or(0, |parent| parent.trait_rule_len(trait_declaration));
-        if position < inherited {
-            return self.parent.as_ref().and_then(|parent| parent.trait_rule_at(trait_declaration, position));
-        }
-        self.rules_by_trait.get(trait_declaration).and_then(|rules| rules.get(position - inherited))
-    }
-
-    fn trait_rule_iter<'a>(&'a self, trait_declaration: &'a DeclarationId) -> Box<dyn Iterator<Item = &'a Arc<DerivedConformanceRule>> + 'a> {
-        let local = self.rules_by_trait.get(trait_declaration).into_iter().flat_map(|rules| rules.iter());
-        match &self.parent {
-            Some(parent) => Box::new(parent.trait_rule_iter(trait_declaration).chain(local)),
-            None => Box::new(local),
-        }
+    pub fn rules_for_trait(&self, trait_declaration: &DeclarationId) -> DerivedRuleTraitView<'_> {
+        let canonical = self
+            .parent
+            .as_ref()
+            .and_then(|parent| parent.rules_by_trait.get(trait_declaration))
+            .map_or(&[][..], Vec::as_slice);
+        let local = self.rules_by_trait.get(trait_declaration).map_or(&[][..], Vec::as_slice);
+        DerivedRuleTraitView { canonical, local }
     }
 
     pub fn get_rule(&self, impl_id: &ImplId) -> Option<&Arc<DerivedConformanceRule>> {
@@ -216,11 +205,8 @@ impl DerivedConformanceRuleIndex {
         }
     }
 
-    pub fn iter(&self) -> Box<dyn Iterator<Item = &Arc<DerivedConformanceRule>> + '_> {
-        match &self.parent {
-            Some(parent) => Box::new(parent.iter().chain(self.rules_by_impl.values())),
-            None => Box::new(self.rules_by_impl.values()),
-        }
+    pub fn iter(&self) -> impl Iterator<Item = &Arc<DerivedConformanceRule>> {
+        self.parent.as_ref().into_iter().flat_map(|parent| parent.rules_by_impl.values()).chain(self.rules_by_impl.values())
     }
 
     pub fn len(&self) -> usize {
