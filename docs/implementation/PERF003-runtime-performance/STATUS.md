@@ -57,3 +57,5 @@ retention, one-shot ephemeral overlay compilation, demand-driven publication,
 indexed conformance settlement, profile-driven metadata reachability, and
 indexed backend scans, gated by structural cardinality assertions in
 `telos-observability`.
+
+Current C2 execution: `PERF003.C2.P2`, [formal-image/query-root plan](C2-compilation-performance-and-efficiency/PERF003.C2.P2-canonical-formal-image-and-immutable-query-roots-implementation-plan.md). The user-approved 2026-10-13 amendment reserves P2 for this scope and preserves publication Package B as P7. C2 remains IN_PROGRESS / PARTIAL / UNVERIFIED; the unified architecture is not blanket-adopted.

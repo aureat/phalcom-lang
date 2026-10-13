@@ -5,11 +5,12 @@ kind: optimization
 status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
-active_plan: PERF003.C2.P1
+active_plan: PERF003.C2.P2
 latest_completed_plan: null
-next_plan: PERF003.C2.P1
+next_plan: PERF003.C2.P2
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: 99b84eccf191dab1892fc50e027fc1ced180fb3b
+execution_tree_head: 820514801e0de0480ab8bd03cf676c1e0c137b5a
+latest_tested_predecessor: 99b84eccf191dab1892fc50e027fc1ced180fb3b
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
@@ -22,16 +23,15 @@ checkpoint: PERF003.C2
 status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
-active_plan: PERF003.C2.P1
+active_plan: PERF003.C2.P2
 latest_completed_plan: null
-next_plan: PERF003.C2.P1
+next_plan: PERF003.C2.P2
 next_action: >
-  Complete the canonical Universe formal-image implementation and its focused
-  tests. The current tree declares and tests canonical_image but does not yet
-  contain its implementation module. Reconcile the proposed unified-artifact
-  specification with the active plan before accepting architectural changes;
-  preserve image/workspace ownership and do not cut compilation over until
-  parity and build-once behavior are proven.
+  Continue the image-backed ordinary semantic/module-session and external-module
+  ownership cutover. The image, core acquisition seam and opt-in canonical database
+  parent are implemented. P3 exact witness lookup and module-bounded signature
+  enumeration are implemented. User explicitly deferred broad verification and
+  requested continued compiler optimizations; P2 G5/G6 remain deferred.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -116,9 +116,10 @@ After:
 
 | Plan | Title | Package | Status | Completion | Verification | Notes |
 |---|---|---|---|---|---|---|
-| `PERF003.C2.P1` | Canonical Universe Compilation Image & One-Shot Overlay | Package A | IN_PROGRESS | PARTIAL | UNVERIFIED | Shared declaration/interface caches and workspace interface retention are established at `99b84ecc`; commit `a7b75980` adds canonical formal-image test scaffolding, but its declared `canonical_image` module is absent, and module-session cutover remains |
-| `PERF003.C2.P2` | Consumer-Specific Publication & Demand-Driven Products | Package B | IN_PROGRESS | PARTIAL | UNVERIFIED | Earlier advisory-only slice has focused evidence; commit `a7b75980` adds `PresentationLevel` source-index filtering and Full → RuntimeMinimal → Full coverage changes, which remain unverified; unified source-target traversal remains |
-| `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | PROPOSED | NOT_STARTED | UNVERIFIED | Indexed witness lookup, cached requirement views, structural/final plan split, SCC return settlement, memoized generic proof query |
+| `PERF003.C2.P1` | Canonical Universe Compilation Image & One-Shot Overlay | Package A | IN_PROGRESS | PARTIAL | UNVERIFIED | Shared declaration/interface caches and workspace interface retention are established at `99b84ecc`; commit `a7b75980` added formal-image scaffolding; P2 now owns the implemented formal/query foundation; module-session cutover remains |
+| `PERF003.C2.P7` | Consumer-Specific Publication & Demand-Driven Products | Package B | IN_PROGRESS | PARTIAL | UNVERIFIED | Earlier advisory-only slice has focused evidence; commit `a7b75980` adds `PresentationLevel` source-index filtering and Full → RuntimeMinimal → Full coverage changes, which remain unverified; unified source-target traversal remains |
+| `PERF003.C2.P2` | Complete Canonical Universe Formal Image and Immutable Canonical Query Roots | Formal/query foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | Formal image, query freeze/reader, provenance validation and core acquisition implemented in the task working-tree patch over `82051480`; focused evidence below; G5/G6 certification remains deferred |
+| `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | IN_PROGRESS | PARTIAL | UNVERIFIED | Exact indexed witness lookup and module-bounded effective-surface signature enumeration implemented; one focused lookup/edit regression passed. Requirement caching, structural/final plan split, SCC return settlement and generic proof memoization remain |
 | `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | PROPOSED | NOT_STARTED | UNVERIFIED | `MetadataRetentionPolicy`, reachability closures, `CallableOwnerIndex`, canonical metadata cross-pool references |
 | `PERF003.C2.P5` | Backend Scans, Trait Slots, and Local Complexity Elimination | Package E | PROPOSED | NOT_STARTED | UNVERIFIED | Module-indexed backend tables, canonical trait-slot precomputation, inherent impl domain index, range lookup indexes |
 
@@ -161,7 +162,33 @@ After:
   3. formal projection: `0.014 ms` (previous comparable sample: `151.359 ms`);
   4. total: `10.571 s`; semantic update: `10.441 s`; unchanged final callable reanalysis remains dominant at 3,896 passes / `3.618 s`.
 
-**Current implementation increment — UNVERIFIED (commit `a7b75980`).** Since execution base `99b84ecc`, the semantic request now distinguishes presentation and advisory products. Runtime-minimal publication filters canonical Universe source-index shards while retaining local source/formal products, and publication effects/counters are narrowed to the requested products. Integration tests cover minimal publication and Full → RuntimeMinimal → Full presentation coverage. The tree also declares `phalcom_semantic::canonical_image` and adds a process-sharing/completeness test, but `phalcom-semantic/src/canonical_image.rs` is absent; the formal-image implementation and its test are incomplete. No test or build result in this record applies to commit `a7b75980`. Do not describe the canonical formal image as implemented or verified.
+**Inherited implementation increment — UNVERIFIED (commit `a7b75980`, before P2).** Since execution base `99b84ecc`, the semantic request now distinguishes presentation and advisory products. Runtime-minimal publication filters canonical Universe source-index shards while retaining local source/formal products, and publication effects/counters are narrowed to the requested products. Integration tests cover minimal publication and Full → RuntimeMinimal → Full presentation coverage. That revision declared `phalcom_semantic::canonical_image` and added process-sharing/completeness scaffolding, but lacked `canonical_image.rs`. P2 supplies the module in the current task patch. No test or build result in this record applies to commit `a7b75980`. The old evidence does not certify the new P2 patch.
+
+### P2 task patch (2026-10-13)
+
+- Semantic-owned builder runs the ordinary complete canonical update, then freezes
+  committed products. Core obtains its snapshot without a second formal analysis.
+- Module-owned `CanonicalModuleProducts` is the explicit bounded P1 dependency
+  adapter. Full external-module image/one-shot overlay cutover remains successor work.
+- Query roots have exact world source provenance, final type/static roots, typed
+  payloads, immutable forward observations and exhaustive row rejection accounting.
+  Reader binding rejects foreign worlds/prefixes/static roots. An explicit
+  `SemanticDb::with_canonical_image` now supplies immutable-origin read-through;
+  ordinary session constructors are not switched yet. Local state, invalidation,
+  discard, and rollback remain local. Canonical dependencies retain forward
+  observations without local reverse edges; canonical publication is rejected.
+- Focused concurrent first-access test: PASS (1 selected), eight callers / one
+  image build and complete semantic update; ten warm readers add no analysis.
+  Unoptimized debug sample: cold 70.812812667 s; ten warm readers 32.958 µs.
+  Census: 148 modules, 9,318 rows examined, 2,763 retained, 6,555 rejected, 2,432
+  final types. Ordinary publication retains four internal incidents; preserved,
+  not investigated or certified by this task.
+- First focused freeze/reader unit gate: PASS (5 selected). Final expanded unit
+  and final build-check results are recorded in the walkthrough.
+- The user explicitly requested fast code delivery and no baseline investigation.
+  Source/provider differential parity, core runtime parity, broader existing
+  publication suites and the full G6 performance matrix are deferred. P2 remains
+  IN_PROGRESS / PARTIAL / UNVERIFIED; focused checks do not complete the plan.
 
 ---
 
@@ -179,6 +206,16 @@ After:
 
 ## 6. Consultations and amendments
 
+- L2 (2026-10-13): User requested continuing the compiler optimizations in the
+  attached “Canonical Universe Image Implementation and Next Major Performance
+  Optimizations” response and explicitly deferred broader tests/verification.
+  This expands the earlier image-only scope to successor optimizations. Implemented
+  section 10's opt-in database parent and section 15.1's exact witness lookup.
+  Full session/module ownership cutover is still pending; no broad performance or
+  semantic parity claim follows from these focused increments.
+
+- L0 (2026-10-13): User approved reserving P2 for the attached formal-image/query-root plan and moving existing Package B publication work to P7. No existing P7 ledger package was found. Historical evidence is preserved. Adopt only D1–D10 of the new P2 plan for this scope; the unified specification remains proposed as a whole. No workspace source-ownership cutover is authorized by this amendment. Starting head `82051480`; latest tested predecessor `99b84ecc`; baseline `cargo check -p phalcom-semantic` fails E0583 for the missing image module.
+
 - Consultation based on `COMPILATION-1.md` and `COMPILATION-2.md` confirmed the 5-package architecture.
 - Reaffirmed: no workaround harnesses (e.g. changing `run_inline` alone); optimization must live underneath `ProgramCompiler::compile_entry_selection`.
 - Reaffirmed: canonical image must be strictly immutable; sessions compile user code as persistent overlays.
@@ -189,4 +226,30 @@ After:
 
 ## 7. Next action
 
-Complete `phalcom-semantic/src/canonical_image.rs` and the focused formal-image test, then verify the current Package A/B working-tree changes. Keep the image separate from workspace `last_snapshot`; prove semantic parity and one build per process/world before canonical-aware query lookup, source-ownership changes, or compiler cutover.
+Continue ordinary semantic sessions over the completed image and immutable external
+module catalog, then remove canonical source discovery/seeding at that boundary.
+Keep canonical snapshots separate from local `last_snapshot`/`last_known_good` and
+preserve final arena prefixes, local negative dependencies, and conformance coherence.
+The opt-in DB API is ready; no production ordinary-session cutover is claimed.
+Broader source/provider/runtime parity and the observability matrix are deferred
+at the user's request. See [walkthrough](PERF003.C2.P2-walkthrough.md),
+[handoff](PERF003.C2.P2-handoff.md), and
+[P3 increment](PERF003.C2.P3-indexed-witness-lookup-implementation-plan.md).
+
+### Focused successor evidence (2026-10-13)
+
+- `canonical_image_database_reads_are_immutable_leaves_across_local_rollback`:
+  PASS, 1 selected, 69.43 s including cold canonical bootstrap. Verifies identity
+  sharing, canonical-origin currentness/reuse, forward dependency recording,
+  no canonical invalidation/retirement/publication, and local transaction rollback.
+- `conformance_witness_lookup_preserves_exact_owner_side_and_selector_after_edits`:
+  PASS, 1 selected. Exact impl/side lookup distinguishes inherent declarations,
+  survives table cloning, and observes removals. Final rerun also passed module
+  enumeration assertions (1 selected, 0 failures; 11.64 s compilation).
+- Existing image evidence: 8 focused exporter/provenance tests and one concurrent
+  first-access integration test passed before this successor increment. These
+  results do not certify ordinary-session externalization or runtime performance.
+
+- Final `RUSTFLAGS='' cargo check -p phalcom-core --features perf-observability`:
+  PASS (9.21 s) after the database-parent and indexed lookup changes. Subsequent
+  error-message-only adjustment identifies immutable publication distinctly.

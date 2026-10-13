@@ -1773,3 +1773,7 @@ Do not claim `COMPLETE` until all gates G1 through G6 have succeeded and evidenc
 - [x] Exact counter assertions specified in cardinality evidence table.
 - [x] Deliverable walkthrough and handoff documents specified.
 - [x] No placeholder text or ambiguous requirements remain.
+
+## 2026-10-13 lifecycle amendment
+
+Package B is tracked as PERF003.C2.P7. PERF003.C2.P2 is reserved for the separately adopted [formal-image/query-root plan](PERF003.C2.P2-canonical-formal-image-and-immutable-query-roots-implementation-plan.md). This amendment preserves existing Package B implementation and evidence, and does not adopt the complete proposed unified architecture.
