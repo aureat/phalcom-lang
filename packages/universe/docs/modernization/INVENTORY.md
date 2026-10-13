@@ -9,12 +9,12 @@
 - At baseline capture, the only dirty tracked files were `phalcom-semantic/src/session.rs` and `phalcom-semantic/src/workspace.rs` (3 insertions total); both were preserved. At final review, `git status --short` also showed this task's four new modernization docs and the parent-created `UNIV002.C1.P1` plan/checkpoint records as untracked.
 - Inventory source hashes: SHA-256 of each live shadow file at inventory time.
 
-## Current source hash reconciliation through UNIV002.C2.P25
+## Current source hash reconciliation through UNIV002.C2.P38
 
 - Branch: `feat/telos-collections`
-- Source revision: `c09e9706458611f52ab82a90e847cc7b91daa342`
-- The current tree still contains 174 `.ph` files. Its source paths match the
-  MOD1 baseline paths; twenty files have changed since that snapshot. The current
+- Source revision: `26e70625d5bd131f679096dcbfb8f6365161b7b4`
+- This committed source tree contains 174 `.ph` files. Its source paths match
+  the MOD1 baseline paths; twenty-two files have changed since that snapshot. The
   hashes for those changed files are:
 
 | File | Current SHA-256 |
@@ -32,13 +32,19 @@
 | `functional/state.ph` | `23759cc11a18253e08fc0061787edb3fad85fb8154e96d5a65a7e69572d199f9` |
 | `functional/validation.ph` | `46b9eaf481b3ff1bba3bb6dc6009fa0e25075bf1968ddf1ab3de17ba23384aa3` |
 | `functional/writer.ph` | `69566557fba46dff65545669b9106d4da00bd86f40f18ef0b9c31ae325518a0a` |
-| `math/integer.ph` | `e0dbcad8876c42812a6f31f9aefe8ff4fe302216842ecf286414f6d030c7031e` |
-| `math/reduction.ph` | `cee5648eb971d0546f46ef49e5ec9e7bd6e1c210f8321cd61cc7c395a29310d6` |
+| `math/float_kernel.ph` | `92f228dcd420a8178e679e3960a8667515473019649407739be085c7f58b7074` |
+| `math/integer.ph` | `589db05514cdaf2f5cd4e1a7fc76d1586dae76da6d4e8064ddaabb10c41512d1` |
+| `math/numerical_errors.ph` | `cd67b27aaa2b9a18215c663ee68f8caeb60738f1712e0eb35edd3128a99773d2` |
+| `math/reduction.ph` | `445f40fcedb9111c4a4eb052cfddb9940e1cb99b533cbe5b79a917415afb125f` |
 | `scalar/string_index.ph` | `1d63ba0645ba5341e8ffac0b8e6292d88ff402ffd78f38fff61dd8d6ae491252` |
 | `text/errors.ph` | `f1751604d7e49ba7c55321720b63493677a3bfaa1683f39fb205858c4bfeffda` |
 | `time/calendar/month.ph` | `feae5b76292b70bcff38a8242205eb080b2c6f7db36088a2382e2613f4f4a64f` |
 | `time/offset.ph` | `224103f85df73b206edc3bf065f90d12262cbd4624084206804127938ef9564a` |
 | `time/zone_transition.ph` | `c45fca7cd785ad25c2d711bdbcbddf78d3246f619cce98be90c7191a0614c1f5` |
+
+The shared working tree currently has uncommitted C3 crypto source additions
+and a `packages/universe/src/package.ph` change. These are excluded from this
+reconciliation, which is anchored to the committed P38 source revision above.
 
 All other source hashes match the MOD1 baseline.
 The occurrence and documentation-coverage columns below remain the MOD1

@@ -48,7 +48,19 @@ integration, or production cutover.
 | `UNIV002.C2.P23` | Optional/Prism composition and adapter documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added six callback-path/order comments; exact diff and scoped whitespace review passed; independent reconciliation confirmed 174 unchanged paths and 18 changed hashes. No tests or semantic/runtime claims. |
 | `UNIV002.C2.P24` | Float logSumExp documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added three comments matching the numeric spec; exact diff and scoped whitespace review passed; independent reconciliation confirmed 174 paths and 19 changed hashes. No tests or semantic/runtime claims. |
 | `UNIV002.C2.P25` | Integer square-root documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one spec-backed comment; exact diff and scoped whitespace review passed; independent reconciliation confirmed 174 paths and 20 changed hashes. No tests or semantic/runtime claims. |
-| `UNIV002.C2.P26` | Integer GCD documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | Add one comment grounded in the numeric spec; no executable behavior change. |
+| `UNIV002.C2.P26` | Integer GCD documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one spec-backed comment; exact diff and scoped whitespace review passed; independent reconciliation confirmed 174 paths and 20 changed hashes. No tests or semantic/runtime claims. |
+| `UNIV002.C2.P27` | Integer LCM documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one spec-backed comment; exact diff and scoped whitespace review passed; committed-tree reconciliation confirmed 174 paths and 20 changed hashes. No tests or semantic/runtime claims. |
+| `UNIV002.C2.P28` | Integer factorial documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one numeric-spec-backed comment; exact diff and scoped whitespace review passed; committed-tree reconciliation confirmed 174 paths and 20 changed hashes. No tests or semantic/runtime claims. |
+| `UNIV002.C2.P29` | Integer choose documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one numeric-spec-backed comment; exact diff and scoped whitespace review passed; committed-tree reconciliation confirmed 174 paths and 20 changed hashes. No tests or semantic/runtime claims. |
+| `UNIV002.C2.P30` | Falling factorial documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one numeric-spec-backed comment; exact diff and scoped whitespace review passed; committed-tree reconciliation confirmed 174 paths and 20 changed hashes. No tests or semantic/runtime claims. |
+| `UNIV002.C2.P31` | Rising factorial documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one numeric-spec-backed comment; exact diff and scoped whitespace review passed; committed-tree reconciliation confirmed 174 paths and 20 changed hashes. No tests or semantic/runtime claims. |
+| `UNIV002.C2.P32` | Float hypot documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one numeric-spec-backed comment; exact diff and scoped whitespace review passed; committed-tree reconciliation confirmed 174 paths and 21 changed hashes. No tests or semantic/runtime claims. |
+| `UNIV002.C2.P33` | Float mean documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Replaced one summary comment with the numeric-spec-backed empty-input contract; exact diff, whitespace check, and committed-tree reconciliation passed. |
+| `UNIV002.C2.P34` | Float sum documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Replaced one summary comment with the numeric-spec-backed finite-input, empty-input, and overflow contract; exact diff, whitespace check, and committed-tree reconciliation passed. |
+| `UNIV002.C2.P35` | Float logAddExp documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Clarified NaN propagation and infinity behavior; exact diff, whitespace check, and committed-tree reconciliation passed. |
+| `UNIV002.C2.P36` | Float log1mexp documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Clarified domain and special cases; exact diff, whitespace check, and committed-tree reconciliation passed. |
+| `UNIV002.C2.P37` | NumericalRangeError documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Broadened the type comment to include valid results, matching the numeric spec; exact diff and reconciliation passed. |
+| `UNIV002.C2.P38` | NumericalEvaluationError documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Clarified the bounded-evaluation contract; exact diff, whitespace check, and committed-tree reconciliation passed. |
 
 ## Established invariants
 
@@ -213,16 +225,19 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: `UNIV002.C2.P26`, one Category A comment above
-  `IntegerMath.gcd`, grounded in `docs/specs/numeric-math.md`. Keep the edit
-  comment-only and preserve the algorithm and `universe.math` ownership.
-- Latest complete plan: `UNIV002.C2.P25`; P25 walkthrough and handoff are
-  recorded. P26 is active; its focused validation and closeout remain.
+- Active plan: select the next bounded Category A source-quality candidate
+  for P39 without entering held identity, iteration, reflection, concurrency,
+  or production/runtime concerns.
+- Latest complete plan: `UNIV002.C2.P38`; its walkthrough and handoff are
+  recorded.
 - Latest complete checkpoint: `UNIV002.C1`.
-- The source inventory is reconciled through P25 source commit
-  `c09e9706458611f52ab82a90e847cc7b91daa342`: 174 paths, no additions or
-  removals, and 20 changed hashes with the rest matching MOD1. Textual
-  inventory heuristics remain baseline-only.
+- The source inventory is reconciled through P38 source commit
+  `26e70625d5bd131f679096dcbfb8f6365161b7b4`: 174 `.ph` paths, no additions or
+  removals, and 22 changed hashes with the rest matching MOD1. The shared
+  working tree has separate, uncommitted C3 crypto additions and a
+  `packages/universe/src/package.ph` edit; those are excluded from P38's
+  committed-tree reconciliation and remain with C3. Textual inventory
+  heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
   grounded in the live source; `docs/implementation/time.md` §29 proposes
   additional derived members that are not implemented in this type.
@@ -402,3 +417,140 @@ hashes against MOD1. `math/integer.ph` is recorded at SHA-256
 `e0dbcad8876c42812a6f31f9aefe8ff4fe302216842ecf286414f6d030c7031e` through
 source commit `c09e9706458611f52ab82a90e847cc7b91daa342`. No semantic or
 runtime claim is made; C9 source/runtime acceptance remains unverified.
+
+P26 added one comment above IntegerMath.gcd, documenting the nonnegative
+greatest-common-divisor result and gcd(0, 0) == 0. Exact source diff review
+and scoped git diff --check passed; no tests were run. Independent
+reconciliation confirmed 174 matching paths and 20 changed hashes against
+MOD1. math/integer.ph is recorded at SHA-256 b8676ffb44da904bd038ee4db4bb796eb56b7e96daee09f0751c2100b7c0bfe9 through
+source commit 3529334b9f7d10c172159b14acd224bf1abfd409. No semantic or runtime claim is made; C9
+source/runtime acceptance remains unverified.
+
+P27 added one comment above IntegerMath.lcm, documenting the nonnegative
+least-common-multiple result and zero result when either input is zero. The
+exact source diff contained only that comment; scoped `git diff --check`
+passed. No tests were run. Comparing the committed source tree at
+`7040363594907a524ba3b26a95c075891902eafb` with MOD1 confirmed the same 174
+paths, no additions or removals, and 20 changed hashes; the inventory overlay
+matches that tree. `math/integer.ph` has SHA-256
+`e17e62cc99645bd4e61580a22ee44dd4ef1ae67144116b858d9632fbee5fd933`.
+The live worktree contains separate uncommitted C3 crypto additions and a
+`package.ph` change, excluded from this committed-tree comparison. No semantic
+or runtime claim is made; shadow linking remains unverified and runtime
+parity remains blocked.
+
+P28 added one comment above `IntegerMath.factorial`, documenting the exact
+product and negative-input `ArgumentError` contract from
+`docs/specs/numeric-math.md`. The source diff contained only that comment;
+scoped `git diff --check` passed and no tests were run. Comparison of the
+committed tree at `7c4ca3f98fd8b950b858980dfeade6a00e30e823` with MOD1
+confirmed 174 matching paths, no additions or removals, and 20 changed
+hashes; the inventory overlay matches that tree. `math/integer.ph` has
+SHA-256 `4bf5a45d19b6fab52831a51cce89fe2bafbbc8c267fe70280d16ca1cf7c682ed`.
+Uncommitted C3 crypto additions and the root `package.ph` edit were excluded
+from the committed-tree comparison. No semantic or runtime claim is made.
+
+P30 added one comment above `IntegerMath.fallingFactorial`, documenting the
+exact falling product, negative-argument `ArgumentError`, and zero result when
+`k > n`, matching `docs/specs/numeric-math.md`. The exact source diff contained
+only that comment; scoped `git diff --check` passed and no tests were run.
+Comparing the committed source tree at
+`a64f4725f5e9ca54cac13502e157f03d5f910389` with MOD1 confirmed 174 matching
+paths, no additions or removals, and 20 changed hashes; the inventory overlay
+matches that tree. `math/integer.ph` has SHA-256
+`5d22da47e388f8dbb9be814e7772588e1e1ab7dbd1d94947b9bd59d5bd5424b1`.
+Uncommitted C3 crypto additions and the root `package.ph` edit were excluded
+from the committed-tree comparison. No semantic or runtime claim is made.
+
+P31 added one comment above `IntegerMath.risingFactorial`, documenting the
+exact rising product, negative-argument `ArgumentError`, and one when `k == 0`,
+matching `docs/specs/numeric-math.md`. The exact source diff contained only
+that comment; scoped `git diff --check` passed and no tests were run.
+Comparing the committed source tree at
+`4645c926365758f1c3127e2b4ff755cf97dd8fe5` with MOD1 confirmed 174 matching
+paths, no additions or removals, and 20 changed hashes; the inventory overlay
+matches that tree. `math/integer.ph` has SHA-256
+`589db05514cdaf2f5cd4e1a7fc76d1586dae76da6d4e8064ddaabb10c41512d1`.
+Uncommitted C3 crypto additions and the root `package.ph` edit were excluded
+from the committed-tree comparison. No semantic or runtime claim is made.
+
+P32 added one comment above the native `FloatMathKernel.hypot` declaration
+in `math/float_kernel.ph`, documenting the Float backend's binary64 contract
+from `docs/specs/numeric-math.md` §2. The source diff contained only that
+comment; scoped `git diff --check` passed and no tests were run. Comparing the
+committed source tree at `a351b6a7a286b14d5ece32928153cccd4474bcc0` with MOD1
+confirmed 174 matching paths, no additions or removals, and 21 changed hashes;
+the inventory overlay matches that tree. `math/float_kernel.ph` has SHA-256
+`92f228dcd420a8178e679e3960a8667515473019649407739be085c7f58b7074`.
+Uncommitted C3 crypto additions and the root `package.ph` edit were excluded
+from the committed-tree comparison. No semantic or runtime claim is made.
+
+P33 replaced one summary comment above `FloatReduction.mean` with the
+finite-Float mean and empty-input `ArgumentError` contract from
+`docs/specs/numeric-math.md` §3. The source diff contained only that comment;
+`git show --check` passed and no tests were run. Comparing the committed source
+tree at `e013305787c37873a08bbf24ba57150e60109b41` with MOD1 confirmed 174
+matching paths, no additions or removals, and 21 changed hashes. The updated
+inventory records `math/reduction.ph` SHA-256
+`1115408774517e2a4a6b788f73ee403a001bbc1a734b1ad87a5436f2403532a4`.
+Uncommitted C3 crypto additions and the root `package.ph` edit were excluded.
+No semantic or runtime claim is made.
+
+P34 replaced the comment above `FloatReduction.sum` with the existing
+compensated finite-Float sum contract: empty input returns zero, non-finite
+inputs raise `ArgumentError`, and non-finite results raise
+`NumericalRangeError`. The committed diff contains only that comment change;
+`git show --check` passed and no tests were run. The source tree retains all
+174 MOD1 `.ph` paths and 21 changed hashes. `math/reduction.ph` is recorded at
+SHA-256 `df0ad1c52c4b96e661d325d582feb0baa78c0416db174a8a0bfd4cad63daffc5`
+through commit `9ecf607c4395a7be119c992d99fbf1e1e0004d8f`. No semantic or
+runtime claim is made.
+
+P35 replaced the `FloatReduction.logAddExp` summary comment with the existing
+NaN propagation and infinity behavior from `docs/specs/numeric-math.md` §3.
+The committed source diff contains only that comment change; `git show
+--check` passed and no tests were run. The source tree retains all 174 MOD1
+`.ph` paths and 21 changed hashes. `math/reduction.ph` is recorded at SHA-256
+`83b7ecddb142e4116306b712859b68b3c35dd48aeb22698529c15a07345ec62e` through
+source commit `465ee0ce3bd1663c77976bb95f03e4521ab549ed`. No semantic or
+runtime claim is made.
+
+P36 replaced the `FloatReduction.log1mexp` summary comment with the accepted
+domain and special cases from `docs/specs/numeric-math.md` §3. The committed
+source diff contains only that comment change; `git show --check` passed and
+no tests were run. The source tree retains all 174 MOD1 `.ph` paths and 21
+changed hashes. `math/reduction.ph` is recorded at SHA-256
+`445f40fcedb9111c4a4eb052cfddb9940e1cb99b533cbe5b79a917415afb125f` through
+source commit `0fb428dd36208dad578e53f090f0f68efbebeb0a`. No semantic or
+runtime claim is made.
+
+P37 replaced the `NumericalRangeError` type comment with the normative
+valid-argument-or-result contract from `docs/specs/numeric-math.md` §Errors.
+The committed diff contains only that comment change; `git show --check` passed
+and no tests were run. All 174 MOD1 `.ph` paths remain, and the changed-hash
+overlay contains 22 files. `math/numerical_errors.ph` is recorded at SHA-256
+`92d91003d6830f6719220cca66a38c2e13f983ee0bbd73400666568342a7d4ab` through
+source commit `b2dc59cc07394a85affb6f10159991247cfca8a3`. No semantic or
+runtime claim is made.
+
+P38 replaced the `NumericalEvaluationError` comment with the bounded
+numerical-evaluation convergence contract from `docs/specs/numeric-math.md`
+§Errors. The committed diff contains only that comment change;
+`git show --check` passed and no tests were run. All 174 MOD1 `.ph` paths
+remain, and the changed-hash overlay contains 22 files.
+`math/numerical_errors.ph` is recorded at SHA-256
+`cd67b27aaa2b9a18215c663ee68f8caeb60738f1712e0eb35edd3128a99773d2` through
+source commit `26e70625d5bd131f679096dcbfb8f6365161b7b4`. No semantic or
+runtime claim is made.
+
+P29 added one comment above `IntegerMath.choose`, documenting the exact
+binomial coefficient, negative-`n` `ArgumentError`, and zero result when `k`
+is outside `0..n`, matching `docs/specs/numeric-math.md`. The exact source diff
+contained only that comment; scoped `git diff --check` passed and no tests
+were run. Comparing the committed source tree at
+`3d8ca28971a55212611c1ab17a431324ddb02bba` with MOD1 confirmed 174 matching
+paths, no additions or removals, and 20 changed hashes; the inventory overlay
+matches that tree. `math/integer.ph` has SHA-256
+`f0ce15902253a5030388741f101e96ba821e8f610ce85b173ce96a67a8c7b415`.
+Uncommitted C3 crypto additions and the root `package.ph` edit were excluded
+from the committed-tree comparison. No semantic or runtime claim is made.

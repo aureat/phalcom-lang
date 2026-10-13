@@ -13,12 +13,12 @@
 
 ## Current source reconciliation
 
-Through `UNIV002.C2.P25`, the 174 shadow source paths were reconciled against
+Through `UNIV002.C2.P38`, the 174 shadow source paths were reconciled against
 the MOD1 baseline at source revision
-`c09e9706458611f52ab82a90e847cc7b91daa342`. Twenty source files changed since
-baseline; their current SHA-256 values are recorded in `INVENTORY.md`. Other
-source hashes still match baseline. Its textual inventory heuristics remain
-baseline data and are not a current opportunity audit.
+`26e70625d5bd131f679096dcbfb8f6365161b7b4`. Twenty-two source files changed since baseline; their
+SHA-256 values are recorded in `INVENTORY.md`. Other source hashes still match
+baseline. Its textual inventory heuristics remain baseline data and are not a
+current opportunity audit.
 
 `UNIV002.C2.P17` completed Category A comments above `Either.mapRight`,
 `Either.bimap`, and `Either.swap`. The source hash overlay is current through
@@ -62,6 +62,86 @@ cases. The algorithm and C9 verification status are unchanged.
 `math/integer.ph`, documenting the floor-root result and the live
 negative-input `ArgumentError` path. The integer algorithm and C9 verification
 status are unchanged.
+
+`UNIV002.C2.P26` completed one comment above `IntegerMath.gcd` in
+`math/integer.ph`, documenting the nonnegative result and zero/zero case from
+`docs/specs/numeric-math.md`. The algorithm and C9 verification status are
+unchanged.
+
+`UNIV002.C2.P27` completed one comment above `IntegerMath.lcm` in
+`math/integer.ph`, documenting the nonnegative result and zero-input case from
+`docs/specs/numeric-math.md`. The algorithm and C9 verification status are
+unchanged.
+
+`UNIV002.C2.P28` completed one comment above `IntegerMath.factorial` in
+`math/integer.ph`, documenting the exact product and negative-input
+`ArgumentError` contract from `docs/specs/numeric-math.md`. The algorithm and
+C9 verification status are unchanged.
+
+`UNIV002.C2.P29` completed one comment above `IntegerMath.choose` in
+`math/integer.ph`, documenting the exact coefficient, negative-`n`
+`ArgumentError`, and zero result for out-of-range `k`, as specified in
+`docs/specs/numeric-math.md`. The algorithm and C9 verification status are
+unchanged.
+
+`UNIV002.C2.P30` completed one comment above `IntegerMath.fallingFactorial`
+in `math/integer.ph`, documenting the exact falling product, negative-input
+`ArgumentError`, and zero result when `k > n`, as specified in
+`docs/specs/numeric-math.md`. The algorithm and C9 verification status are
+unchanged.
+
+`UNIV002.C2.P31` completed one comment above `IntegerMath.risingFactorial` in
+`math/integer.ph`, documenting the exact rising product, negative-input
+`ArgumentError`, and one when `k == 0`, as specified in
+`docs/specs/numeric-math.md`. The algorithm and C9 verification status are
+unchanged.
+
+`UNIV002.C2.P32` completed one comment above the native
+`FloatMathKernel.hypot` declaration in `math/float_kernel.ph`, documenting the
+Float backend's binary64 contract from `docs/specs/numeric-math.md` §2. No
+declaration or runtime behavior changed; C9 verification status is unchanged.
+
+`UNIV002.C2.P33` completed a Category A comment replacement above
+`FloatReduction.mean`, documenting the finite-Float mean and empty-input
+`ArgumentError` contract from `docs/specs/numeric-math.md` §3. The source diff
+contained only the comment. The inventory overlay is current through source
+commit `e013305787c37873a08bbf24ba57150e60109b41`; no semantic or runtime
+claim is made.
+
+`UNIV002.C2.P34` completed one Category A comment replacement above
+`FloatReduction.sum`, documenting its compensated finite-Float sum, empty
+input result, non-finite input error, and non-finite result error. The source
+diff contains no executable changes. The inventory overlay is current through
+source commit `9ecf607c4395a7be119c992d99fbf1e1e0004d8f`; no semantic or
+runtime claim is made.
+
+`UNIV002.C2.P35` completed one Category A comment replacement above
+`FloatReduction.logAddExp`, documenting NaN propagation, positive infinity
+dominance, and negative infinity as the additive identity. The source diff
+contains no executable changes. The inventory overlay is current through
+source commit `465ee0ce3bd1663c77976bb95f03e4521ab549ed`; no semantic or
+runtime claim is made.
+
+`UNIV002.C2.P36` completed one Category A comment replacement above
+`FloatReduction.log1mexp`, documenting its domain and special cases from the
+numeric spec. The source diff contains no executable changes. The inventory
+overlay is current through source commit
+`0fb428dd36208dad578e53f090f0f68efbebeb0a`; no semantic or runtime claim is
+made.
+
+`UNIV002.C2.P37` completed one Category A comment replacement above
+`NumericalRangeError`, documenting that it reports a valid argument or result
+outside the supported numeric range. The source diff contains no executable
+changes. The inventory overlay is current through source commit
+`b2dc59cc07394a85affb6f10159991247cfca8a3`; no semantic or runtime claim is
+made.
+
+`UNIV002.C2.P38` completed one Category A comment replacement above
+`NumericalEvaluationError`, documenting the bounded-evaluation convergence
+contract. The source diff contains no executable changes. The inventory
+overlay is current through source commit
+`26e70625d5bd131f679096dcbfb8f6365161b7b4`; no semantic or runtime claim is
+made.
 
 ## Active work and exclusions
 
@@ -134,21 +214,22 @@ Use distinct states; do not collapse them into “done”:
 A source-only change may be `SOURCE_READY`; parser/interface checks do not imply semantic/runtime verification. Use `BLOCKED` only for a specific prerequisite or conflict and `DEFERRED` for an intentionally postponed slice.
 
 ## Next action
-## Next action
 
-`UNIV002.C2.P1`–P25 are complete: twenty-four Category A documentation
-slices and one Category B Gregorian predicate rewrite. P23 closed the optics
-composition comments. P24 documented `FloatReduction.logSumExp` from the
-normative math contract, and P25 documented `IntegerMath.isqrt`'s floor-root
-result and observed negative-input error path. Both changes are comments-only;
-no tests or semantic/runtime claims were made.
+`UNIV002.C2.P1`–P38 are complete: thirty-seven Category A documentation
+slices and one Category B Gregorian predicate rewrite. P33 documents the
+finite-Float mean, P34 documents the finite-Float sum contract, and P35
+documents log-add-exp's NaN and infinity behavior; P36 documents log1mexp's
+domain and special cases; P37 and P38 document the numeric error contracts,
+without changing execution.
 
-The 174 source paths match MOD1, with twenty changed hashes reconciled through
-source commit `c09e9706458611f52ab82a90e847cc7b91daa342`. The source inventory
-is exact at that commit; its heuristic columns remain baseline-only. P26 is
-active: add one spec-backed Category A comment above `IntegerMath.gcd` in
-`math/integer.ph`. Keep the algorithm, signature, owner, and behavior
-unchanged. Do not use the unresolved Option identity seam as a shortcut.
+The 174 source paths match MOD1, with twenty-two changed hashes reconciled
+through source commit `26e70625d5bd131f679096dcbfb8f6365161b7b4`. The committed source
+inventory is exact at that revision; its heuristic columns remain
+baseline-only. The shared worktree also contains uncommitted C3 crypto source
+additions and a `package.ph` edit, which are outside this C2 reconciliation.
+Select a bounded P39 Category A source-quality candidate from the inventory.
+Continue to avoid held identity/spec work, iteration ownership, reflection,
+S5 concurrency boundaries, production providers, compiler, and VM.
 
 `STDL001.C9.P1` established the Float-based `universe.math` boundary and moved
 optional special functions, statistics, and probability to the `numerics`

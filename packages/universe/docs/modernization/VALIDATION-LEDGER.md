@@ -402,3 +402,223 @@ shadow graph and an execution path for shadow Universe code.
 - No semantic or runtime claim is made. `STDL001.C9.P1` Phalcom source/runtime
   acceptance remains unverified.
 
+
+## UNIV002.C2.P26 — Integer GCD documentation
+
+- Added one comment above IntegerMath.gcd in math/integer.ph, documenting
+  the nonnegative result and gcd(0, 0) == 0 from docs/specs/numeric-math.md.
+- Exact diff review confirmed only the planned comment changed. Scoped
+  git diff --check passed. No tests were run for this documentation-only
+  slice.
+- Independent comparison confirmed all 174 .ph paths match MOD1, with 20
+  changed hashes, no additions/removals, and an exact match between the
+  inventory overlay and live changed-hash map. math/integer.ph records
+  SHA-256 b8676ffb44da904bd038ee4db4bb796eb56b7e96daee09f0751c2100b7c0bfe9 through source commit 3529334b9f7d10c172159b14acd224bf1abfd409.
+- No semantic or runtime claim is made. STDL001.C9.P1 source/runtime
+  acceptance remains unverified.
+
+## UNIV002.C2.P27 — Integer LCM documentation
+
+- Added the planned comment above `IntegerMath.lcm` in
+  `math/integer.ph`, documenting the nonnegative result and zero result when
+  either input is zero, as specified in `docs/specs/numeric-math.md`.
+- Exact source diff review confirmed only the planned comment changed. Scoped
+  `git diff --check` passed. No tests were run for this documentation-only
+  slice.
+- Independent comparison of the committed tree at
+  `7040363594907a524ba3b26a95c075891902eafb` confirmed all 174 `.ph` paths
+  match MOD1, with 20 changed hashes and no additions or removals. The
+  `math/integer.ph` row records SHA-256
+  `e17e62cc99645bd4e61580a22ee44dd4ef1ae67144116b858d9632fbee5fd933`.
+  The shared working tree's uncommitted C3 crypto additions and `package.ph`
+  change were excluded from this committed-tree comparison.
+- No semantic or runtime claim is made. Shadow linking remains unverified
+  and runtime parity remains blocked; STDL001.C9.P1 source/runtime acceptance
+  also remains unverified.
+
+## UNIV002.C2.P28 — Integer factorial documentation
+
+- Added one comment above `IntegerMath.factorial` in `math/integer.ph`,
+  documenting the exact product and negative-input `ArgumentError` contract
+  from `docs/specs/numeric-math.md`.
+- Exact source diff review confirmed only the planned comment changed. Scoped
+  `git diff --check` passed. No tests were run for this documentation-only
+  slice.
+- Independent comparison of the committed tree at
+  `7c4ca3f98fd8b950b858980dfeade6a00e30e823` confirmed all 174 `.ph` paths
+  match MOD1, with 20 changed hashes and no additions or removals. The
+  `math/integer.ph` row records SHA-256
+  `4bf5a45d19b6fab52831a51cce89fe2bafbbc8c267fe70280d16ca1cf7c682ed`.
+  Uncommitted C3 crypto additions and the root `package.ph` edit were excluded
+  from this committed-tree comparison.
+- No semantic or runtime claim is made. Shadow linking remains unverified
+  and runtime parity remains blocked; STDL001.C9.P1 source/runtime acceptance
+  also remains unverified.
+
+## UNIV002.C2.P29 — Integer choose documentation
+
+- Added one comment above `IntegerMath.choose` in `math/integer.ph`,
+  documenting the exact binomial coefficient, negative-`n` `ArgumentError`,
+  and zero result when `k < 0` or `k > n`, as specified in
+  `docs/specs/numeric-math.md`.
+- Exact source diff review confirmed only the planned comment changed. Scoped
+  `git diff --check` passed. No tests were run for this documentation-only
+  slice.
+- Independent comparison of the committed tree at
+  `3d8ca28971a55212611c1ab17a431324ddb02bba` confirmed all 174 `.ph` paths
+  match MOD1, with 20 changed hashes and no additions or removals. The
+  `math/integer.ph` row records SHA-256
+  `f0ce15902253a5030388741f101e96ba821e8f610ce85b173ce96a67a8c7b415`.
+  Uncommitted C3 crypto additions and the root `package.ph` edit were excluded
+  from this committed-tree comparison.
+- No semantic or runtime claim is made. Shadow linking remains unverified
+  and runtime parity remains blocked; STDL001.C9.P1 source/runtime acceptance
+  also remains unverified.
+
+## UNIV002.C2.P30 — Falling factorial documentation
+
+- Added one comment above `IntegerMath.fallingFactorial` in
+  `math/integer.ph`, documenting the exact falling product, negative-input
+  `ArgumentError`, and zero result when `k > n`, as specified in
+  `docs/specs/numeric-math.md`.
+- Exact source diff review confirmed only the planned comment changed. Scoped
+  `git diff --check` passed. No tests were run for this documentation-only
+  slice.
+- Independent comparison of the committed tree at
+  `a64f4725f5e9ca54cac13502e157f03d5f910389` confirmed all 174 `.ph` paths
+  match MOD1, with 20 changed hashes and no additions or removals. The
+  `math/integer.ph` row records SHA-256
+  `5d22da47e388f8dbb9be814e7772588e1e1ab7dbd1d94947b9bd59d5bd5424b1`.
+  Uncommitted C3 crypto additions and the root `package.ph` edit were excluded
+  from this committed-tree comparison.
+- No semantic or runtime claim is made. Shadow linking remains unverified
+  and runtime parity remains blocked; STDL001.C9.P1 source/runtime acceptance
+  also remains unverified.
+
+## UNIV002.C2.P31 — Rising factorial documentation
+
+- Added one comment above `IntegerMath.risingFactorial` in
+  `math/integer.ph`, documenting the exact rising product, negative-input
+  `ArgumentError`, and one when `k == 0`, as specified in
+  `docs/specs/numeric-math.md`.
+- Exact source diff review confirmed only the planned comment changed. Scoped
+  `git diff --check` passed. No tests were run for this documentation-only
+  slice.
+- Independent comparison of the committed tree at
+  `4645c926365758f1c3127e2b4ff755cf97dd8fe5` confirmed all 174 `.ph` paths
+  match MOD1, with 20 changed hashes and no additions or removals. The
+  `math/integer.ph` row records SHA-256
+  `589db05514cdaf2f5cd4e1a7fc76d1586dae76da6d4e8064ddaabb10c41512d1`.
+  Uncommitted C3 crypto additions and the root `package.ph` edit were excluded
+  from this committed-tree comparison.
+- No semantic or runtime claim is made. Shadow linking remains unverified
+  and runtime parity remains blocked; STDL001.C9.P1 source/runtime acceptance
+  also remains unverified.
+
+## UNIV002.C2.P32 — Float hypot documentation
+
+- Added one comment above the native `FloatMathKernel.hypot` declaration in
+  `math/float_kernel.ph`, documenting the Float backend's binary64 contract
+  from `docs/specs/numeric-math.md` §2.
+- Exact source diff review confirmed only the planned comment changed. Scoped
+  `git diff --check` passed. No tests were run for this documentation-only
+  slice.
+- Independent comparison of the committed tree at
+  `a351b6a7a286b14d5ece32928153cccd4474bcc0` confirmed all 174 `.ph` paths
+  match MOD1, with 21 changed hashes and no additions or removals. The
+  `math/float_kernel.ph` row records SHA-256
+  `92f228dcd420a8178e679e3960a8667515473019649407739be085c7f58b7074`.
+  Uncommitted C3 crypto additions and the root `package.ph` edit were excluded
+  from this committed-tree comparison.
+- No semantic or runtime claim is made. Shadow linking remains unverified
+  and runtime parity remains blocked; STDL001.C9.P1 source/runtime acceptance
+  also remains unverified.
+## UNIV002.C2.P33 — Float mean documentation
+
+- Replaced one summary comment above `FloatReduction.mean` with the
+  finite-Float mean and empty-input `ArgumentError` contract from
+  `docs/specs/numeric-math.md` §3.
+- Exact committed diff contained only the planned comment replacement;
+  `git show --check` and scoped `git diff --check` passed. No tests were run.
+- Independent committed-tree comparison at
+  `e013305787c37873a08bbf24ba57150e60109b41` confirmed 174 matching MOD1
+  paths, no additions or removals, and 21 changed hashes. The inventory overlay
+  records `math/reduction.ph` SHA-256
+  `1115408774517e2a4a6b788f73ee403a001bbc1a734b1ad87a5436f2403532a4`.
+  Uncommitted C3 crypto additions and the root `package.ph` edit were excluded.
+- No semantic or runtime claim is made. Shadow linking remains unverified,
+  runtime parity remains blocked, and STDL001.C9.P1 acceptance is unverified.
+
+## UNIV002.C2.P34 — Float sum documentation
+
+- Replaced the comment above `FloatReduction.sum` with the existing
+  compensated finite-Float sum contract: zero for empty input,
+  `ArgumentError` for non-finite input, and `NumericalRangeError` for a
+  non-finite result, as specified in `docs/specs/numeric-math.md` §3.
+- Exact committed diff contained only the planned comment replacement;
+  `git show --check` and scoped `git diff --check` passed. No tests were run.
+- Independent committed-tree comparison at
+  `9ecf607c4395a7be119c992d99fbf1e1e0004d8f` confirmed 174 matching MOD1
+  paths, no additions or removals, and 21 changed hashes. The inventory overlay
+  records `math/reduction.ph` SHA-256
+  `df0ad1c52c4b96e661d325d582feb0baa78c0416db174a8a0bfd4cad63daffc5`.
+- No semantic or runtime claim is made. Shadow linking remains unverified,
+  runtime parity remains blocked, and STDL001.C9.P1 acceptance is unverified.
+
+## UNIV002.C2.P35 — Float logAddExp documentation
+
+- Replaced one summary comment above `FloatReduction.logAddExp` with the
+  NaN propagation and infinity behavior from `docs/specs/numeric-math.md` §3.
+- Exact committed diff contained only the planned comment replacement;
+  `git show --check` and scoped `git diff --check` passed. No tests were run.
+- Independent committed-tree comparison at
+  `465ee0ce3bd1663c77976bb95f03e4521ab549ed` confirmed 174 matching MOD1
+  paths, no additions or removals, and 21 changed hashes. The inventory overlay
+  records `math/reduction.ph` SHA-256
+  `83b7ecddb142e4116306b712859b68b3c35dd48aeb22698529c15a07345ec62e`.
+- No semantic or runtime claim is made. Shadow linking remains unverified,
+  runtime parity remains blocked, and STDL001.C9.P1 acceptance is unverified.
+
+## UNIV002.C2.P36 — Float log1mexp documentation
+
+- Replaced one summary comment above `FloatReduction.log1mexp` with the
+  domain and special cases in `docs/specs/numeric-math.md` §3.
+- Exact committed diff contained only the planned comment replacement;
+  `git show --check` and scoped `git diff --check` passed. No tests were run.
+- Independent committed-tree comparison at
+  `0fb428dd36208dad578e53f090f0f68efbebeb0a` confirmed 174 matching MOD1
+  paths, no additions or removals, and 21 changed hashes. The inventory overlay
+  records `math/reduction.ph` SHA-256
+  `445f40fcedb9111c4a4eb052cfddb9940e1cb99b533cbe5b79a917415afb125f`.
+- No semantic or runtime claim is made. Shadow linking remains unverified,
+  runtime parity remains blocked, and STDL001.C9.P1 acceptance is unverified.
+
+## UNIV002.C2.P37 — NumericalRangeError documentation
+
+- Replaced the type comment with the normative contract that
+  `NumericalRangeError` reports a valid argument or result outside the
+  supported numeric range, matching `docs/specs/numeric-math.md` §Errors.
+- Exact committed diff contained only the planned comment replacement;
+  `git show --check` and scoped `git diff --check` passed. No tests were run.
+- Independent committed-tree comparison at
+  `b2dc59cc07394a85affb6f10159991247cfca8a3` confirmed 174 matching MOD1
+  paths, no additions or removals, and 22 changed hashes. The inventory overlay
+  records `math/numerical_errors.ph` SHA-256
+  `92d91003d6830f6719220cca66a38c2e13f983ee0bbd73400666568342a7d4ab`.
+- No semantic or runtime claim is made. Shadow linking remains unverified,
+  runtime parity remains blocked, and STDL001.C9.P1 acceptance is unverified.
+
+## UNIV002.C2.P38 — NumericalEvaluationError documentation
+
+- Replaced the type comment with the normative bounded-evaluation
+  convergence contract from `docs/specs/numeric-math.md` §Errors.
+- Exact committed diff contained only the planned comment replacement;
+  `git show --check` and scoped `git diff --check` passed. No tests were run.
+- Independent committed-tree comparison at
+  `26e70625d5bd131f679096dcbfb8f6365161b7b4` confirmed 174 matching MOD1
+  paths, no additions or removals, and 22 changed hashes. The inventory overlay
+  records `math/numerical_errors.ph` SHA-256
+  `cd67b27aaa2b9a18215c663ee68f8caeb60738f1712e0eb35edd3128a99773d2`.
+- No semantic or runtime claim is made. Shadow linking remains unverified,
+  runtime parity remains blocked, and STDL001.C9.P1 acceptance is unverified.
+
