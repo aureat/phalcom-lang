@@ -305,3 +305,18 @@ shadow graph and an execution path for shadow Universe code.
   `b11292f4feb08e4ba26099183922d35d5871aef09ae8e53899354cbe3b136baf`
   through source commit `5c7f8a1e2675cb486f860f3d22877ef782c06b55`.
 - No shadow semantic or runtime claim is made.
+
+## UNIV002.C2.P20 — Iso.inverse documentation
+
+- Added one comment immediately above `functional/optics.ph::Iso.inverse`,
+  stating that it exchanges the forward and backward callbacks. The method
+  body, signature, Product constraints, reflection import, and module owner
+  are unchanged; no callback round-trip law is claimed.
+- Exact diff review and scoped `git diff --check` passed. No tests were run
+  for this comments-only edit.
+- Independent inventory reconciliation compared the live tree with MOD1:
+  the same 174 `.ph` paths remain, with eighteen changed hashes. The existing
+  `functional/optics.ph` row now records SHA-256
+  `57f4a4b83a914259e7d4f77beb32fa25792b5f3d211eee7b7e19753db8b7e44e`
+  through source commit `a66c51f84f50dc2476a36836cdd057e7849cb492`.
+- No shadow semantic or runtime claim is made.

@@ -42,7 +42,8 @@ integration, or production cutover.
 | `UNIV002.C2.P17` | Either transformation documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added comments for `mapRight`, `bimap`, and `swap`; exact diff review, scoped whitespace check, and 174-path inventory reconciliation passed. |
 | `UNIV002.C2.P18` | Arrow composition documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added application-order comments for `then` and `compose`; exact diff review, scoped whitespace check, and inventory reconciliation passed. |
 | `UNIV002.C2.P19` | Arrow mapping documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added mapping comments for `dimap` and `second`; exact diff review, scoped whitespace check, and inventory reconciliation passed. |
-| `UNIV002.C2.P20` | Iso.inverse documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | One comment is planned to document the callback exchange; implementation and inventory reconciliation are pending. |
+| `UNIV002.C2.P20` | Iso.inverse documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment for the forward/backward callback exchange; exact diff review, scoped whitespace check, and inventory reconciliation passed. |
+| `UNIV002.C2.P21` | Iso composition and modification documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | Three comments are planned to document forward/reverse composition order and focus modification; implementation and inventory reconciliation are pending. |
 
 ## Established invariants
 
@@ -198,13 +199,13 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: `UNIV002.C2.P20`, documenting callback exchange in
-  `Iso.inverse`; the plan authorizes one comment only.
-- Latest complete plan: `UNIV002.C2.P19`; latest complete checkpoint:
+- Active plan: `UNIV002.C2.P21`, documenting `Iso.compose` and `Iso.modify`;
+  the plan authorizes three comment lines only.
+- Latest complete plan: `UNIV002.C2.P20`; latest complete checkpoint:
   `UNIV002.C1`.
-- The source inventory is reconciled through P19 source commit
-  `5c7f8a1e2675cb486f860f3d22877ef782c06b55`: 174 paths, no additions or
-  removals, and 17 changed hashes with the rest matching MOD1. Textual
+- The source inventory is reconciled through P20 source commit
+  `a66c51f84f50dc2476a36836cdd057e7849cb492`: 174 paths, no additions or
+  removals, and 18 changed hashes with the rest matching MOD1. Textual
   inventory heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
   grounded in the live source; `docs/implementation/time.md` §29 proposes
@@ -252,9 +253,11 @@ identities.
 - P19 completed two Category A comments in `functional/arrow.ph`:
   `Arrow.dimap` and `Arrow.second`. They document the input/output mapping and
   preserved tuple component shown by their bodies.
-- P20 is active for one Category A comment above `Iso.inverse` in
-  `functional/optics.ph`. Document the callback exchange only; do not claim
-  that supplied callbacks satisfy round-trip laws.
+- P20 completed one Category A comment above `Iso.inverse` in
+  `functional/optics.ph`. It documents the callback exchange only and does not
+  claim that supplied callbacks satisfy round-trip laws.
+- P21 is active for Category A comments above `Iso.compose` and `Iso.modify`.
+  Document the existing forward/reverse callback order and focus update only.
 
 P14 added one documentation line immediately above `Writer.mapLog`, stating
 that it applies `f` to the log and preserves this Writer's value. The method
@@ -314,4 +317,15 @@ confirmed 174 `.ph` paths, no additions/removals, and seventeen changed hashes
 against MOD1; `functional/arrow.ph` is recorded at SHA-256
 `b11292f4feb08e4ba26099183922d35d5871aef09ae8e53899354cbe3b136baf` through
 source commit `5c7f8a1e2675cb486f860f3d22877ef782c06b55`. Semantic linking
+remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
+
+P20 added one comment immediately above `Iso.inverse` stating that it
+exchanges the forward and backward callbacks. The implementation, Product
+constraints, and reflection import are unchanged; no callback round-trip law
+is claimed. Exact diff review and scoped `git diff --check` passed; no tests
+were run. Independent reconciliation confirmed 174 `.ph` paths, no
+additions/removals, and eighteen changed hashes against MOD1;
+`functional/optics.ph` is recorded at SHA-256
+`57f4a4b83a914259e7d4f77beb32fa25792b5f3d211eee7b7e19753db8b7e44e` through
+source commit `a66c51f84f50dc2476a36836cdd057e7849cb492`. Semantic linking
 remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
