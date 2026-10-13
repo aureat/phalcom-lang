@@ -42,6 +42,12 @@ that context returns a typed need-for-context error; old bundles without
 affected Record data continue to decode normally. Never infer Universe
 identity from the producer version or a source-text spelling.
 
+**Fingerprint clarification:** Retain old structural fingerprints as
+version-tagged legacy provenance when normalizing v12 Record graphs. They
+must not compare equal to v13 semantic-export fingerprints until the semantic
+authority re-exports the normalized graph. `phalcom-type-meta` must not
+independently reconstruct the semantic exporter's hashing algorithm.
+
 ---
 
 # 1. Purpose

@@ -9,8 +9,8 @@ active_plan: PERF003.C2.P5
 latest_completed_plan: PERF003.C2.P3
 next_plan: PERF003.C2.P6
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: 9143262b
-latest_tested_revision: 9143262b
+execution_tree_head: 7c9bd6d7
+latest_tested_revision: 7c9bd6d7
 latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
 
@@ -122,7 +122,7 @@ After:
 | `PERF003.C2.P2` | Complete Canonical Universe Formal Image and Immutable Canonical Query Roots | Formal/query foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | Formal image, query freeze/reader, provenance validation and core acquisition implemented in the task working-tree patch over `82051480`; focused evidence below; G5/G6 certification remains deferred |
 | `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Exact indexed witness lookup, module-bounded effective-surface signature enumeration, ConformanceIndex partitioning (nominal family + open heads) with brute-force parity, SCC inferred-return settlement, and shared requirement-view passing implemented; focused regressions pass. Retained structural witness plans across revisions and generic proof memoization remain |
 | `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | User resumed P4 prerequisites on 2026-10-13. T1 and bounded T5/PR-A increments stand; Record/Pack facade coverage passes. PR-B schema migration (v13 heterogeneous Record keys), T5 closure proof and T6 canonical authority remain incomplete; T6–T9 gated |
-| `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0–T4 established; T6 also shares module bindings, constructors and trait headers/surfaces. T9 query-family classification extracted; layered conformance, T7–T8, T10–T13 remain open; metadata acceptance remains P4-gated |
+| `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0–T4 established; T6 now shares module bindings, constructors, trait headers/surfaces, conformance heads and derived rules. T9 query-family classification extracted; witness plans and other families, T7–T8, T10–T13 remain open; metadata acceptance remains P4-gated |
 | `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E (historical P5) | PROPOSED | NOT_STARTED | UNVERIFIED | Normalized P6 (formerly P5): module-indexed backend tables, canonical trait-slot precomputation, inherent impl domain index, range lookup indexes, elimination of O(N×M) backend scans |
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
 
@@ -283,6 +283,15 @@ After:
   conformance view with merged query and coherence traversal and exact parity
   tests. No G6 copy exception is approved; conformance evidence must not be
   strengthened by aggregation or fail-open negative lookup.
+
+- P4.PR-B fingerprint migration clarification (2026-10-13): decode-time
+  normalization of pre-v13 Record graphs must retain their existing v12
+  structural fingerprints as version-tagged legacy provenance. These are not
+  equivalent to the v13 semantic export fingerprints; cross-version digest
+  comparisons must refuse compatibility until semantic authority re-exports
+  the normalized graph. Do not duplicate semantic fingerprint computation in
+  `phalcom-type-meta` merely to migrate legacy bytes. This choice preserves
+  one hashing authority and a fail-closed mixed-version boundary.
 
 - P4 architectural ruling accepted from the user (2026-10-13):
   [full ruling](PERF003.C2.P4-architectural-ruling.md). T1 stays unchanged.
@@ -531,3 +540,24 @@ P4 metadata integration and `.telosc` verification remain deferred; P5 is
   canonical entries at first local update. The user approved a layered
   canonical/local view, not a P5.G6 copy exception; proof/coherence parity
   must be verified before claiming zero canonical aggregate copies.
+
+### P5 layered conformance progress (2026-10-13, `7c9bd6d7`)
+
+- `ConformanceIndex` now reads immutable canonical contributions through a
+  parent; local secondary indexes remain disjoint. Exact queries merge only
+  indexed parent/local candidates, while coherence considers canonical-local
+  cross pairs without copying parent buckets into the workspace. Iteration
+  remains stable-ID ordered and canonical entries retain reference identity.
+- `DerivedConformanceRuleIndex` retains canonical trait buckets and an impl
+  index through a parent. A borrowed two-slice trait view preserves indexed
+  access, cardinality and iteration without flattening. General rule iteration
+  remains stable-ID ordered for downstream fingerprints.
+- Focused evidence: two conformance partition/brute-force library tests PASS,
+  including a new canonical/local overlap and removal regression; derived
+  parent library regression PASS; derived incremental/cold parity and condition
+  edit regressions PASS (one each); canonical-image replacement regression
+  PASS (one); core with observability check PASS. Canonical witness-plan map
+  is empty in the present image, so its existing cloning copied zero parent
+  entries in this run, but its general parent contract remains pending.
+- P5.T6/T7/T8/T11/T12 and P4.PR-B/T6 are still open. No P5.G6 or P5.G1
+  certification follows from these focused checks.

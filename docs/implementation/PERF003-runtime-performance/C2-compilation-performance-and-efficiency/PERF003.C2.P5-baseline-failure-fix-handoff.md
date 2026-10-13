@@ -9,7 +9,7 @@
 **Date:** 2026-10-13
 **Branch:** `perf/universe-characterization`
 **Worktree:** `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization`
-**Source revision:** `9143262b` (continuation over `ca3c3c03`).
+**Source revision:** `7c9bd6d7` (continuation over `9143262b`).
 **Delivery:** source committed; lifecycle records accompany it on `perf/universe-characterization`.
 
 ## Established continuation
@@ -117,3 +117,15 @@ not implemented and the exploratory schema change was removed. Continue PR-B
 schema, global/scoped/row export, validation, fingerprints, contextual legacy
 decoding, runtime typing and canonical RuntimePublic proof before P5.T10.
 P5 stays `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
+
+## Layered conformance progress
+
+`ConformanceIndex` and `DerivedConformanceRuleIndex` now attach immutable
+canonical parents on the first local revision. Exact candidates, stable-ID
+iteration, derived trait buckets and canonical/local overlap queries are
+composed without copying canonical buckets. New cross-boundary brute-force
+parity, derived-rule parent safety and image replacement tests pass, along
+with focused derived cold/incremental parity and a core check. Current
+canonical witness plans have zero entries, but a general parented witness
+contract is still needed before declaring all P5 families complete. P4.PR-B
+remains the metadata gate; do not infer P5 completion or `.telosc` persistence.

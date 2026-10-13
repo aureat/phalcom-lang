@@ -7,13 +7,13 @@
 **Completion:** `PARTIAL`
 **Verification:** `FOCUSED_TESTED`
 **Date:** 2026-10-13
-**Source revision:** `9143262b` (continuation over `ca3c3c03`)
+**Source revision:** `7c9bd6d7` (continuation over `9143262b`)
 **Working Directory:** `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization`
 **Branch:** `perf/universe-characterization`
 
 ---
 
-Current continuation is committed as `9143262b`. See
+Current continuation is committed as `7c9bd6d7`. See
 `PERF003.C2.P5-baseline-failure-fix-handoff.md` for takeover details and
 CHECKPOINT.md for current evidence. The baseline failures below were observed
 in the earlier Slice 1 session and are now resolved by focused regressions.
@@ -55,7 +55,7 @@ During this session:
 | **P5.T4** | Consumer-specific publication semantics ([`SourceSemanticLevel`](file:///Users/altunhasanli/dev/phalcom/phalcom/.worktrees/perf-universe-characterization/phalcom-semantic/src/request.rs#L9)) | **COMPLETED** (in commit `84227536`) |
 | **P5.T5 / P5.T6 Slice 1** | Parent-aware core tables (`DeclarationTypeTable`, `CallableSignatureTable`, `FieldSignatureTable`, `MapTypeHierarchy`) | **IMPLEMENTED** in `aaac8106`; focused unit and canonical-image verification passes; formerly blocked workspace/recomputation filters now pass |
 | **P5.T6 Slices 2–3** | Dispatch/surface, data/enum/associated/enum-requirement/type-member tables | **IMPLEMENTED / FOCUSED_TESTED** in `e71057d9` |
-| **P5.T6 Slice 4** | Alias/static/accepted-callable/module-binding/constructor/trait parent maps established; conformance and other copied aggregates remain | **PARTIAL / FOCUSED_TESTED** |
+| **P5.T6 Slice 4** | Alias/static/accepted-callable/module-binding/constructor/trait/conformance-head/derived-rule parent views established; witness and other copied aggregates remain | **PARTIAL / FOCUSED_TESTED** |
 | **P5.T7** | Snapshot/read API hardening for parented canonical aggregates | **PARTIAL** (ParentMap and constructor/trait local/parent count/iteration APIs) |
 | **P5.T8** | Formal canonical persistence inventory and capability descriptor | **PENDING** |
 | **P5.T9** | Exhaustive query-family persistence classification used by freeze | **IMPLEMENTED / FOCUSED_TESTED** |

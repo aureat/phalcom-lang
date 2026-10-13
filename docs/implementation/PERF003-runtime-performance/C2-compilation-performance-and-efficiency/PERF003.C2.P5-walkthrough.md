@@ -104,3 +104,16 @@ remainder. The approved PR-B graph normalization requires loader-supplied
 canonical Symbol identity for old bundles lacking a Symbol node; standalone
 decode must return a typed missing-context error for affected bundles. No
 schema change shipped here. P5 remains PARTIAL / FOCUSED_TESTED.
+
+## Layered conformance continuation
+
+Explicit conformance heads and guarded derived rules now use immutable
+canonical parents with local-only mutable secondary indexes. Trait-local
+derived-rule access preserves indexed and iterable reads through a borrowed
+two-slice view. Conformance exact candidates and coherence cross-pairs are
+merged from the two indexes without cloning parent buckets into local state.
+Focused tests passed for canonical/local overlap against brute force, original
+index partition parity, derived-rule incremental/cold parity and condition
+invalidations, actual image replacement sharing, and a core check. Witness
+plans are empty in the current canonical image; a general parented witness
+contract, persistence inventory and metadata composition remain outstanding.
