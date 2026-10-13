@@ -4,7 +4,8 @@ from universe.collections.iteration import Iterable
 
 /// Stable Float reductions over one-pass inputs; no source value is mutated.
 class FloatReduction {
-  /// Compensated, range-aware sum for one finite Float stream.
+  /// Computes a compensated sum of finite Float values; empty input returns zero.
+  /// Non-finite inputs raise ArgumentError; non-finite results raise NumericalRangeError.
   @class
   sum<I>(_ values: I) -> Float
     where I |= Iterable, <I as Iterable>::Item == Float
