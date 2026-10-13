@@ -107,6 +107,70 @@ pub enum QueryFreezeRejection {
     DependencyCycle,
 }
 
+/// Family-level persistence eligibility shared by in-memory freezing and the
+/// future artifact projection. Eligibility alone does not make a row reusable:
+/// freeze still verifies provenance, final content and dependency closure.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CanonicalQueryPersistence {
+    /// A structural positive result may be retained after row validation.
+    EligibleStructural,
+    /// A proof or body can observe the extensible local candidate set.
+    OpenWorld,
+    /// No independently approved relocation/immutability contract exists.
+    Unsupported,
+}
+
+/// Single family classification for both canonical freeze and artifact planning.
+pub const fn canonical_query_persistence(kind: QueryKind) -> CanonicalQueryPersistence {
+    match kind {
+        QueryKind::ParsedModule
+        | QueryKind::UnlinkedInterface
+        | QueryKind::ResolvedImports
+        | QueryKind::LinkedInterface
+        | QueryKind::DeclarationShell
+        | QueryKind::HierarchyEdge
+        | QueryKind::CallableDefinition
+        | QueryKind::CallableSignature
+        | QueryKind::FieldSignature
+        | QueryKind::DeclarationSurface
+        | QueryKind::TraitHeader
+        | QueryKind::TraitSurface
+        | QueryKind::DataDeclaration
+        | QueryKind::EnumDeclaration
+        | QueryKind::AssociatedSurface
+        | QueryKind::TypeMemberDeclaration
+        | QueryKind::ModuleStaticBindingCatalog
+        | QueryKind::ModuleStaticBindings => CanonicalQueryPersistence::EligibleStructural,
+        QueryKind::GenericConformance
+        | QueryKind::ConformanceDispatch
+        | QueryKind::TraitDispatchBucket
+        | QueryKind::CallableBody
+        | QueryKind::CheckedStaticBody => CanonicalQueryPersistence::OpenWorld,
+        QueryKind::SemanticComponent
+        | QueryKind::ConstructorInitialization
+        | QueryKind::CallableEffects
+        | QueryKind::CallableControl
+        | QueryKind::CallableTermination
+        | QueryKind::CallableContracts
+        | QueryKind::VerificationConditions
+        | QueryKind::SourceStructure
+        | QueryKind::SourceFormalAttachment
+        | QueryKind::AdvisoryCallable
+        | QueryKind::AdvisoryModule
+        | QueryKind::ModuleDiagnostics
+        | QueryKind::ModuleMetadata
+        | QueryKind::EnumRequirements
+        | QueryKind::StaticDomainCaseCatalog
+        | QueryKind::StaticCaseSignature
+        | QueryKind::AssociatedStaticDomainDeclaration
+        | QueryKind::ResolvedImport
+        | QueryKind::LinkedName
+        | QueryKind::PublicExport
+        | QueryKind::StaticDefinition
+        | QueryKind::StaticConstant => CanonicalQueryPersistence::Unsupported,
+    }
+}
+
 #[cfg(feature = "perf-observability")]
 impl QueryFreezeRejection {
     fn record(self, count: usize) {
@@ -278,34 +342,10 @@ impl CanonicalSemanticQueryImage {
                 if !crate::db::query_key_module(key).is_some_and(|module| modules.sources().contains_key(module)) {
                     return Some(QueryFreezeRejection::WorkspaceOrigin);
                 }
-                match key {
-                    QueryKey::GenericConformance(_)
-                    | QueryKey::ConformanceDispatch(_)
-                    | QueryKey::TraitDispatchBucket(_)
-                    | QueryKey::CallableBody(_)
-                    | QueryKey::CheckedStaticBody(_) => Some(QueryFreezeRejection::NegativeLocalCandidateSet),
-                    // Structural positive canonical products only. Proof bodies,
-                    // presentation/advisory, static evaluation, and aggregate
-                    // environment queries need their own relocation contracts.
-                    QueryKey::ParsedModule(_)
-                    | QueryKey::UnlinkedInterface(_)
-                    | QueryKey::ResolvedImports(_)
-                    | QueryKey::LinkedInterface(_)
-                    | QueryKey::DeclarationShell(_)
-                    | QueryKey::HierarchyEdge(_)
-                    | QueryKey::CallableDefinition(_)
-                    | QueryKey::CallableSignature(_)
-                    | QueryKey::FieldSignature(_)
-                    | QueryKey::DeclarationSurface(_)
-                    | QueryKey::TraitHeader(_)
-                    | QueryKey::TraitSurface(_)
-                    | QueryKey::DataDeclaration(_)
-                    | QueryKey::EnumDeclaration(_)
-                    | QueryKey::AssociatedSurface(_)
-                    | QueryKey::TypeMemberDeclaration(_)
-                    | QueryKey::ModuleStaticBindingCatalog(_)
-                    | QueryKey::ModuleStaticBindings(_) => None,
-                    _ => Some(QueryFreezeRejection::UnsupportedQueryKind),
+                match canonical_query_persistence(key.kind()) {
+                    CanonicalQueryPersistence::EligibleStructural => None,
+                    CanonicalQueryPersistence::OpenWorld => Some(QueryFreezeRejection::NegativeLocalCandidateSet),
+                    CanonicalQueryPersistence::Unsupported => Some(QueryFreezeRejection::UnsupportedQueryKind),
                 }
             });
             if let Some(reason) = rejection {
@@ -1221,6 +1261,16 @@ mod tests {
 #[cfg(test)]
 mod negative_fact_tests {
     use super::*;
+
+    #[test]
+    fn query_persistence_classification_is_fail_closed_for_nonstructural_products() {
+        assert_eq!(canonical_query_persistence(QueryKind::ParsedModule), CanonicalQueryPersistence::EligibleStructural);
+        assert_eq!(canonical_query_persistence(QueryKind::ModuleStaticBindings), CanonicalQueryPersistence::EligibleStructural);
+        assert_eq!(canonical_query_persistence(QueryKind::GenericConformance), CanonicalQueryPersistence::OpenWorld);
+        assert_eq!(canonical_query_persistence(QueryKind::CallableBody), CanonicalQueryPersistence::OpenWorld);
+        assert_eq!(canonical_query_persistence(QueryKind::StaticConstant), CanonicalQueryPersistence::Unsupported);
+        assert_eq!(canonical_query_persistence(QueryKind::AdvisoryModule), CanonicalQueryPersistence::Unsupported);
+    }
 
     #[test]
     fn canonical_image_never_freezes_negative_local_conformance_search() {

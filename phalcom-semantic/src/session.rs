@@ -51,7 +51,7 @@ use crate::type_alias::TypeAliasTable;
 use crate::types::annotation::{
     GenericBinderSite, TypeFormationOutcome, TypeFormationSite, TypeResolver, resolve_generic_signature, resolve_kind_syntax, type_level_binding_for_parameter,
 };
-use crate::types::id::{KindId, TypeId};
+use crate::types::id::KindId;
 use crate::types::outcome::BlockReason;
 use crate::types::parameter::{GenericBinderHeader, GenericSignature, TypeParameterOwner};
 use crate::types::relation::MapTypeHierarchy;
@@ -892,7 +892,7 @@ pub struct SemanticWorkspaceSession {
     alias_reverse_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
     alias_contract_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
     alias_contract_reverse_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
-    alias_forms: Arc<BTreeMap<DeclarationId, TypeId>>,
+    alias_forms: Arc<TypeAliasTable>,
     module_diagnostics: BTreeMap<ModuleId, Vec<phalcom_modules::diagnostic::ModuleDiagnostic>>,
     canonical_native_diagnostics: BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
     semantic_diagnostic_contributions: BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>,
@@ -1064,7 +1064,7 @@ impl SemanticWorkspaceSession {
             alias_reverse_dependencies: BTreeMap::new(),
             alias_contract_dependencies: BTreeMap::new(),
             alias_contract_reverse_dependencies: BTreeMap::new(),
-            alias_forms: Arc::new(snapshot.type_aliases.iter().map(|(id, info)| (id.clone(), info.form)).collect()),
+            alias_forms: snapshot.type_aliases.clone(),
             module_diagnostics: BTreeMap::new(),
             canonical_native_diagnostics: BTreeMap::new(),
             semantic_diagnostic_contributions: BTreeMap::new(),
@@ -1124,7 +1124,7 @@ impl SemanticWorkspaceSession {
             alias_reverse_dependencies: BTreeMap::new(),
             alias_contract_dependencies: BTreeMap::new(),
             alias_contract_reverse_dependencies: BTreeMap::new(),
-            alias_forms: Arc::new(BTreeMap::new()),
+            alias_forms: Arc::new(TypeAliasTable::new()),
             module_diagnostics: BTreeMap::new(),
             canonical_native_diagnostics: baseline.canonical_native_diagnostics.clone(),
             semantic_diagnostic_contributions: BTreeMap::new(),
@@ -2928,11 +2928,26 @@ impl SemanticWorkspaceSession {
         }
         resolver.update_static_case_signatures(&static_case_signatures_table);
         let mut blocked_declarations = BTreeSet::new();
-        let mut type_aliases = aggregate_snapshot.map_or_else(TypeAliasTable::new, |snapshot| (*snapshot.type_aliases).clone());
-        let mut static_definitions_table = aggregate_snapshot.map_or_else(StaticDefinitionTable::new, |snapshot| (*snapshot.static_definitions).clone());
-        let mut static_constants_table = aggregate_snapshot.map_or_else(crate::static_constant::StaticConstantTable::new, |snapshot| {
-            (*snapshot.static_constants).clone()
-        });
+        let mut type_aliases = previous_snapshot.as_ref().map_or_else(
+            || canonical_snapshot.as_ref().map_or_else(TypeAliasTable::new, |snapshot| TypeAliasTable::with_parent(snapshot.type_aliases.clone())),
+            |snapshot| (*snapshot.type_aliases).clone(),
+        );
+        let mut static_definitions_table = previous_snapshot.as_ref().map_or_else(
+            || {
+                canonical_snapshot
+                    .as_ref()
+                    .map_or_else(StaticDefinitionTable::new, |snapshot| StaticDefinitionTable::with_parent(snapshot.static_definitions.clone()))
+            },
+            |snapshot| (*snapshot.static_definitions).clone(),
+        );
+        let mut static_constants_table = previous_snapshot.as_ref().map_or_else(
+            || {
+                canonical_snapshot.as_ref().map_or_else(crate::static_constant::StaticConstantTable::new, |snapshot| {
+                    crate::static_constant::StaticConstantTable::with_parent(snapshot.static_constants.clone())
+                })
+            },
+            |snapshot| (*snapshot.static_constants).clone(),
+        );
         for module in &structural_recomputed_modules {
             static_constants_table.remove_module(module);
         }
@@ -2975,10 +2990,8 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        let mut alias_form_updates = BTreeMap::new();
         for declaration in &alias_recomputed_declarations {
             resolver.remove_alias_form(declaration.clone());
-            alias_form_updates.insert(declaration.clone(), None);
         }
         for module in &structural_recomputed_modules {
             type_aliases.remove_module(module);
@@ -3504,7 +3517,6 @@ impl SemanticWorkspaceSession {
             type_aliases.remove(declaration);
             static_definitions_table.remove(declaration);
             resolver.remove_alias_form(declaration.clone());
-            alias_form_updates.insert(declaration.clone(), None);
             self.db.retire_query(&QueryKey::DeclarationShell(declaration.clone()));
             self.db.retire_query(&QueryKey::StaticDefinition(declaration.clone()));
         }
@@ -3722,7 +3734,6 @@ impl SemanticWorkspaceSession {
             };
             if let Some(info) = &product.alias_info {
                 resolver.insert_alias_form(declaration.clone(), info.form);
-                alias_form_updates.insert(declaration.clone(), Some(info.form));
                 type_aliases.insert((**info).clone());
             }
             static_definitions_table.insert(product);
@@ -4421,7 +4432,14 @@ impl SemanticWorkspaceSession {
         let mut callable_signatures = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_callable_signatures.clone(), |snapshot| (*snapshot.callable_signatures).clone());
-        let mut callable_definitions = aggregate_snapshot.map_or_else(BTreeMap::new, |snapshot| (*snapshot.callable_definitions).clone());
+        let mut callable_definitions = previous_snapshot.as_ref().map_or_else(
+            || {
+                canonical_snapshot.as_ref().map_or_else(crate::parent_map::ParentMap::default, |snapshot| {
+                    crate::parent_map::ParentMap::with_parent(snapshot.callable_definitions.clone())
+                })
+            },
+            |snapshot| (*snapshot.callable_definitions).clone(),
+        );
         let mut field_signatures = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_field_signatures.clone(), |snapshot| (*snapshot.field_signatures).clone());
@@ -9213,20 +9231,7 @@ impl SemanticWorkspaceSession {
         self.alias_reverse_dependencies = alias_reverse_dependencies;
         self.alias_contract_dependencies = alias_contract_dependencies;
         self.alias_contract_reverse_dependencies = alias_contract_reverse_dependencies;
-        if !alias_form_updates.is_empty() {
-            let mut next_alias_forms = (*self.alias_forms).clone();
-            for (declaration, form) in alias_form_updates {
-                match form {
-                    Some(form) => {
-                        next_alias_forms.insert(declaration, form);
-                    }
-                    None => {
-                        next_alias_forms.remove(&declaration);
-                    }
-                }
-            }
-            self.alias_forms = Arc::new(next_alias_forms);
-        }
+        self.alias_forms = snapshot.type_aliases.clone();
         self.module_diagnostics = current_module_diagnostics;
         self.semantic_diagnostic_contributions = semantic_diagnostic_contributions;
         self.default_field_lifecycle = default_field_lifecycle;
@@ -12375,7 +12380,7 @@ fn source_body_for_callable<'a>(
 
 struct DownstreamCallableBodyState<'a> {
     pass: CallableBodyPass,
-    definitions: &'a BTreeMap<CallableId, crate::impls::EffectiveCallableDefinition>,
+    definitions: &'a crate::parent_map::ParentMap<CallableId, crate::impls::EffectiveCallableDefinition>,
     store: &'a mut TypeStore,
     hierarchy: &'a MapTypeHierarchy,
     dispatch: &'a mut SurfaceDispatchResolver,
@@ -12546,7 +12551,7 @@ struct InferredCallableRefreshInputs<'a> {
     withheld_result_callables: &'a BTreeSet<CallableId>,
     module_values: crate::module_bindings::ModuleValueEnvironment<'a>,
     linked: &'a LinkedProgram,
-    definitions: &'a BTreeMap<CallableId, crate::impls::EffectiveCallableDefinition>,
+    definitions: &'a crate::parent_map::ParentMap<CallableId, crate::impls::EffectiveCallableDefinition>,
     type_aliases: &'a TypeAliasTable,
     type_members: &'a crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
     import_products: &'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,

@@ -137,6 +137,7 @@ impl StaticConstantProduct {
 /// Table storing static constants by canonical identity and module.
 #[derive(Clone, Debug, Default)]
 pub struct StaticConstantTable {
+    parent: Option<Arc<Self>>,
     constants: BTreeMap<StaticConstantId, Arc<StaticConstantProduct>>,
     by_symbol: BTreeMap<SymbolId, StaticConstantId>,
     module_constants: BTreeMap<ModuleId, BTreeSet<StaticConstantId>>,
@@ -147,30 +148,58 @@ impl StaticConstantTable {
         Self::default()
     }
 
+    /// Attaches an immutable canonical constant table without copying its entries.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
+    }
+
+    /// Number of workspace-owned constants, excluding the canonical parent.
+    pub fn local_len(&self) -> usize {
+        self.constants.len()
+    }
+
     pub fn insert(&mut self, product: Arc<StaticConstantProduct>) {
         let id = product.id.clone();
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.get(&id).is_some()),
+            "cannot overwrite a canonical static constant"
+        );
         self.module_constants.entry(id.0.module.clone()).or_default().insert(id.clone());
         self.by_symbol.insert(id.0.clone(), id.clone());
         self.constants.insert(id, product);
     }
 
     pub fn get(&self, id: &StaticConstantId) -> Option<&Arc<StaticConstantProduct>> {
-        self.constants.get(id)
+        self.constants.get(id).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(id)))
     }
 
     pub fn get_by_symbol(&self, symbol: &SymbolId) -> Option<&Arc<StaticConstantProduct>> {
-        self.by_symbol.get(symbol).and_then(|id| self.constants.get(id))
+        self.by_symbol
+            .get(symbol)
+            .and_then(|id| self.constants.get(id))
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get_by_symbol(symbol)))
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&StaticConstantId, &Arc<StaticConstantProduct>)> {
-        self.constants.iter()
+    /// Iterates canonical and workspace constants in stable parent-then-local order.
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&StaticConstantId, &Arc<StaticConstantProduct>)> + '_> {
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter().chain(self.constants.iter())),
+            None => Box::new(self.constants.iter()),
+        }
     }
 
-    pub fn module_constants<'a>(&'a self, module: &ModuleId) -> impl Iterator<Item = &'a Arc<StaticConstantProduct>> + 'a {
-        self.module_constants
+    pub fn module_constants<'a>(&'a self, module: &ModuleId) -> Box<dyn Iterator<Item = &'a Arc<StaticConstantProduct>> + 'a> {
+        let local = self.module_constants
             .get(module)
             .into_iter()
-            .flat_map(move |ids| ids.iter().filter_map(|id| self.constants.get(id)))
+            .flat_map(move |ids| ids.iter().filter_map(|id| self.constants.get(id)));
+        match &self.parent {
+            Some(parent) => Box::new(parent.module_constants(module).chain(local)),
+            None => Box::new(local),
+        }
     }
 
     pub fn remove_module(&mut self, module: &ModuleId) {
@@ -183,10 +212,10 @@ impl StaticConstantTable {
     }
 
     pub fn len(&self) -> usize {
-        self.constants.len()
+        self.constants.len() + self.parent.as_ref().map_or(0, |parent| parent.len())
     }
 
     pub fn is_empty(&self) -> bool {
-        self.constants.is_empty()
+        self.constants.is_empty() && self.parent.as_ref().is_none_or(|parent| parent.is_empty())
     }
 }

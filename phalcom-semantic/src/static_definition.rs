@@ -188,6 +188,7 @@ pub struct StaticDefinitionProduct {
 /// Table storing static definitions by declaration ID and module.
 #[derive(Clone, Debug, Default)]
 pub struct StaticDefinitionTable {
+    parent: Option<Arc<Self>>,
     definitions: BTreeMap<DeclarationId, Arc<StaticDefinitionProduct>>,
     module_definitions: BTreeMap<ModuleId, BTreeSet<DeclarationId>>,
 }
@@ -197,8 +198,25 @@ impl StaticDefinitionTable {
         Self::default()
     }
 
+    /// Attaches the immutable canonical definitions without copying their entries.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
+    }
+
+    /// Number of workspace-owned definitions, excluding the canonical parent.
+    pub fn local_len(&self) -> usize {
+        self.definitions.len()
+    }
+
     pub fn insert(&mut self, product: Arc<StaticDefinitionProduct>) {
         let decl = product.definition.id.clone();
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.contains_key(&decl)),
+            "cannot overwrite a canonical static definition"
+        );
         self.module_definitions.entry(decl.module.clone()).or_default().insert(decl.clone());
         self.definitions.insert(decl, product);
     }
@@ -223,15 +241,19 @@ impl StaticDefinitionTable {
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&Arc<StaticDefinitionProduct>> {
-        self.definitions.get(declaration)
+        self.definitions.get(declaration).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(declaration)))
     }
 
     pub fn contains_key(&self, declaration: &DeclarationId) -> bool {
-        self.definitions.contains_key(declaration)
+        self.get(declaration).is_some()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&DeclarationId, &Arc<StaticDefinitionProduct>)> {
-        self.definitions.iter()
+    /// Iterates canonical and local definitions in stable parent-then-local order.
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&DeclarationId, &Arc<StaticDefinitionProduct>)> + '_> {
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter().chain(self.definitions.iter())),
+            None => Box::new(self.definitions.iter()),
+        }
     }
 }
 

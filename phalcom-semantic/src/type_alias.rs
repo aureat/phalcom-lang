@@ -6,6 +6,7 @@ use crate::types::id::{KindId, TypeId};
 use crate::types::parameter::GenericSignature;
 use phalcom_modules::identity::ModuleId;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypeAliasInfo {
@@ -21,6 +22,7 @@ pub struct TypeAliasInfo {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TypeAliasTable {
+    parent: Option<Arc<Self>>,
     aliases: BTreeMap<DeclarationId, TypeAliasInfo>,
     module_aliases: BTreeMap<ModuleId, BTreeSet<DeclarationId>>,
 }
@@ -30,7 +32,24 @@ impl TypeAliasTable {
         Self::default()
     }
 
+    /// Attaches a read-only canonical alias table without copying its entries.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
+    }
+
+    /// Number of aliases owned by this workspace, excluding the parent.
+    pub fn local_len(&self) -> usize {
+        self.aliases.len()
+    }
+
     pub fn insert(&mut self, info: TypeAliasInfo) {
+        assert!(
+            !self.parent.as_ref().is_some_and(|parent| parent.contains_key(&info.declaration)),
+            "cannot overwrite a canonical alias"
+        );
         self.module_aliases
             .entry(info.declaration.module.clone())
             .or_default()
@@ -62,7 +81,7 @@ impl TypeAliasTable {
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&TypeAliasInfo> {
-        self.aliases.get(declaration)
+        self.aliases.get(declaration).or_else(|| self.parent.as_ref().and_then(|parent| parent.get(declaration)))
     }
 
     pub fn form(&self, declaration: &DeclarationId) -> Option<TypeId> {
@@ -74,14 +93,22 @@ impl TypeAliasTable {
     }
 
     pub fn contains_key(&self, declaration: &DeclarationId) -> bool {
-        self.aliases.contains_key(declaration)
+        self.get(declaration).is_some()
     }
 
-    pub fn declarations_for_module(&self, module: &ModuleId) -> impl Iterator<Item = &DeclarationId> {
-        self.module_aliases.get(module).into_iter().flat_map(|declarations| declarations.iter())
+    pub fn declarations_for_module(&self, module: &ModuleId) -> Box<dyn Iterator<Item = &DeclarationId> + '_> {
+        let local = self.module_aliases.get(module).into_iter().flat_map(|declarations| declarations.iter());
+        match &self.parent {
+            Some(parent) => Box::new(parent.declarations_for_module(module).chain(local)),
+            None => Box::new(local),
+        }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&DeclarationId, &TypeAliasInfo)> {
-        self.aliases.iter()
+    /// Iterates canonical and local aliases in stable parent-then-local order.
+    pub fn iter(&self) -> Box<dyn Iterator<Item = (&DeclarationId, &TypeAliasInfo)> + '_> {
+        match &self.parent {
+            Some(parent) => Box::new(parent.iter().chain(self.aliases.iter())),
+            None => Box::new(self.aliases.iter()),
+        }
     }
 }

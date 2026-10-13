@@ -22,13 +22,13 @@ pub struct LinkedTypeResolver {
     canonical_linked: Option<Arc<LinkedProgram>>,
     known_declarations: HashSet<DeclarationId>,
     prelude_types: Arc<PreludeTypeMap>,
-    retained_alias_forms: Arc<BTreeMap<DeclarationId, crate::types::id::TypeId>>,
+    retained_alias_forms: Arc<crate::type_alias::TypeAliasTable>,
     alias_form_overrides: RefCell<BTreeMap<DeclarationId, Option<crate::types::id::TypeId>>>,
     trait_associated_types: Arc<BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>>>,
     associated_type_members: Arc<RwLock<AssociatedTypeMemberProducts>>,
     static_case_catalogs: Arc<RwLock<BTreeMap<crate::identity::StaticDomainDeclarationId, Arc<crate::static_case::StaticDomainCaseCatalogProduct>>>>,
     static_case_signatures: Arc<RwLock<BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>>>,
-    static_definitions: Arc<RwLock<BTreeMap<DeclarationId, Arc<crate::static_definition::StaticDefinitionProduct>>>>,
+    static_definitions: Arc<RwLock<crate::static_definition::StaticDefinitionTable>>,
 }
 
 impl LinkedTypeResolver {
@@ -50,13 +50,13 @@ impl LinkedTypeResolver {
             canonical_linked: None,
             known_declarations,
             prelude_types,
-            retained_alias_forms: Arc::new(BTreeMap::new()),
+            retained_alias_forms: Arc::new(crate::type_alias::TypeAliasTable::new()),
             alias_form_overrides: RefCell::new(BTreeMap::new()),
             trait_associated_types: Arc::new(BTreeMap::new()),
             associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
             static_case_catalogs: Arc::new(RwLock::new(BTreeMap::new())),
             static_case_signatures: Arc::new(RwLock::new(BTreeMap::new())),
-            static_definitions: Arc::new(RwLock::new(BTreeMap::new())),
+            static_definitions: Arc::new(RwLock::new(crate::static_definition::StaticDefinitionTable::new())),
         }
     }
 
@@ -68,7 +68,7 @@ impl LinkedTypeResolver {
         linked: Arc<LinkedProgram>,
         known_declarations: HashSet<DeclarationId>,
         _legacy_prelude_module: ModuleId,
-        retained_alias_forms: Arc<BTreeMap<DeclarationId, crate::types::id::TypeId>>,
+        retained_alias_forms: Arc<crate::type_alias::TypeAliasTable>,
     ) -> Self {
         Self {
             linked,
@@ -81,7 +81,7 @@ impl LinkedTypeResolver {
             associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
             static_case_catalogs: Arc::new(RwLock::new(BTreeMap::new())),
             static_case_signatures: Arc::new(RwLock::new(BTreeMap::new())),
-            static_definitions: Arc::new(RwLock::new(BTreeMap::new())),
+            static_definitions: Arc::new(RwLock::new(crate::static_definition::StaticDefinitionTable::new())),
         }
     }
 
@@ -150,10 +150,7 @@ impl LinkedTypeResolver {
     /// stable declaration and signature are already final at this stage.
     pub fn update_static_definitions(&self, definitions: &crate::static_definition::StaticDefinitionTable) {
         if let Ok(mut current) = self.static_definitions.write() {
-            *current = definitions
-                .iter()
-                .map(|(declaration, product)| (declaration.clone(), product.clone()))
-                .collect();
+            *current = definitions.clone();
         }
     }
 }
@@ -230,7 +227,7 @@ impl TypeResolver for LinkedTypeResolver {
         if let Some(form) = self.alias_form_overrides.borrow().get(declaration) {
             return *form;
         }
-        self.retained_alias_forms.get(declaration).copied()
+        self.retained_alias_forms.form(declaration)
     }
 
     fn resolve_associated_type_requirement(&self, trait_declaration: &DeclarationId, name: &str) -> Option<crate::traits::AssociatedTypeRequirementId> {

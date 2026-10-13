@@ -169,7 +169,7 @@ pub struct SemanticSnapshot {
     /// Canonical accepted callable-definition provenance, keyed by the
     /// target-owned callable identity. Backend lowering consumes this map
     /// directly and must not reconstruct acceptance from source locations.
-    pub callable_definitions: Arc<BTreeMap<crate::identity::CallableId, EffectiveCallableDefinition>>,
+    pub callable_definitions: Arc<crate::parent_map::ParentMap<crate::identity::CallableId, EffectiveCallableDefinition>>,
     /// Explicit conformance heads published for this exact semantic snapshot.
     /// The index contains source-head matches only, never witness evidence.
     pub conformance_index: Arc<ConformanceIndex>,
@@ -256,7 +256,7 @@ impl SemanticSnapshot {
             dispatch,
             callable_signatures,
             constructor_initializations: Arc::new(ConstructorInitializationTable::default()),
-            callable_definitions: Arc::new(BTreeMap::new()),
+            callable_definitions: Arc::new(crate::parent_map::ParentMap::default()),
             conformance_index: Arc::new(ConformanceIndex::new()),
             conformance_witness_plans: Arc::new(BTreeMap::new()),
             derived_conformance_rules: Arc::new(crate::derived_conformance::DerivedConformanceRuleIndex::new()),
@@ -322,7 +322,7 @@ impl SemanticSnapshot {
             dispatch,
             callable_signatures,
             constructor_initializations: Arc::new(ConstructorInitializationTable::default()),
-            callable_definitions: Arc::new(BTreeMap::new()),
+            callable_definitions: Arc::new(crate::parent_map::ParentMap::default()),
             conformance_index: Arc::new(ConformanceIndex::new()),
             conformance_witness_plans: Arc::new(BTreeMap::new()),
             derived_conformance_rules: Arc::new(crate::derived_conformance::DerivedConformanceRuleIndex::new()),
@@ -472,7 +472,10 @@ impl SemanticSnapshot {
     }
 
     /// Attaches the accepted callable definitions for this exact snapshot.
-    pub fn with_callable_definitions(mut self, definitions: Arc<BTreeMap<crate::identity::CallableId, EffectiveCallableDefinition>>) -> Self {
+    pub fn with_callable_definitions(
+        mut self,
+        definitions: Arc<crate::parent_map::ParentMap<crate::identity::CallableId, EffectiveCallableDefinition>>,
+    ) -> Self {
         self.callable_definitions = definitions;
         self
     }

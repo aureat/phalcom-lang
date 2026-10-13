@@ -128,6 +128,10 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
     let mut session = SemanticWorkspaceSession::from_image(WorkspaceId::from_raw(733), image.clone());
     assert!(session.last_snapshot().is_none());
     assert!(session.last_known_good_snapshot().is_none());
+    assert!(image.snapshot().type_aliases.iter().next().is_some());
+    assert!(image.snapshot().static_definitions.iter().next().is_some());
+    assert!(image.snapshot().static_constants.iter().next().is_some());
+    assert!(image.snapshot().callable_definitions.iter().next().is_some());
     for (revision, source) in [
         "from universe.collections import Array\nconst value: Int = 1\n",
         "from universe.random import Xoshiro256PlusPlus\nlet value = Xoshiro256PlusPlus.seed(42).nextU64\n",
@@ -157,11 +161,49 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
         assert_eq!(update.snapshot.associated_surfaces.surfaces.local_len(), 0);
         assert_eq!(update.snapshot.enum_requirements.requirements.local_len(), 0);
         assert_eq!(update.snapshot.type_member_declarations.local_len(), 0);
+        assert_eq!(update.snapshot.type_aliases.local_len(), 0);
+        assert_eq!(update.snapshot.static_definitions.local_len(), 0);
+        assert_eq!(update.snapshot.callable_definitions.local_len(), 0);
+        assert_eq!(
+            update.snapshot.static_constants.local_len(),
+            update.snapshot.static_constants.iter().filter(|(id, _)| !id.module().project.is_universe()).count()
+        );
         for (id, surface) in image.snapshot().dispatch.surfaces().iter() {
             assert!(std::ptr::eq(update.snapshot.dispatch.get_surface(id).unwrap(), surface));
             assert!(std::ptr::eq(update.snapshot.surfaces.get(id).unwrap(), surface));
         }
+        for (id, alias) in image.snapshot().type_aliases.iter() {
+            assert!(std::ptr::eq(update.snapshot.type_aliases.get(id).unwrap(), alias));
+        }
+        for (id, definition) in image.snapshot().static_definitions.iter() {
+            assert!(std::ptr::eq(update.snapshot.static_definitions.get(id).unwrap(), definition));
+        }
+        for (id, constant) in image.snapshot().static_constants.iter() {
+            assert!(std::ptr::eq(update.snapshot.static_constants.get(id).unwrap(), constant));
+        }
+        for (id, definition) in image.snapshot().callable_definitions.iter() {
+            assert!(std::ptr::eq(update.snapshot.callable_definitions.get(id).unwrap(), definition));
+        }
         assert!(update.snapshot.store.extends_canonical_prefix(&image.snapshot().store));
         assert!(update.snapshot.static_values.extends_canonical_prefix(&image.snapshot().static_values));
     }
+
+    // Local removals and insertions must never shadow or erase canonical facts.
+    let (alias_id, alias) = image.snapshot().type_aliases.iter().next().unwrap();
+    let mut aliases = phalcom_semantic::type_alias::TypeAliasTable::with_parent(image.snapshot().type_aliases.clone());
+    aliases.remove(alias_id);
+    assert!(std::ptr::eq(aliases.get(alias_id).unwrap(), alias));
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| aliases.insert(alias.clone()))).is_err());
+
+    let (definition_id, definition) = image.snapshot().static_definitions.iter().next().unwrap();
+    let mut definitions = phalcom_semantic::static_definition::StaticDefinitionTable::with_parent(image.snapshot().static_definitions.clone());
+    definitions.remove(definition_id);
+    assert!(std::ptr::eq(definitions.get(definition_id).unwrap(), definition));
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| definitions.insert(definition.clone()))).is_err());
+
+    let (constant_id, constant) = image.snapshot().static_constants.iter().next().unwrap();
+    let mut constants = phalcom_semantic::static_constant::StaticConstantTable::with_parent(image.snapshot().static_constants.clone());
+    constants.remove_module(constant_id.module());
+    assert!(std::ptr::eq(constants.get(constant_id).unwrap(), constant));
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| constants.insert(constant.clone()))).is_err());
 }
