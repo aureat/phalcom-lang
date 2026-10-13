@@ -176,3 +176,17 @@ shadow graph and an execution path for shadow Universe code.
   SHA-256 `53e1ccb0137ab2c8ecb6f5508a856d21498b881c592d07afd78c0df8e9d74465`
   through source commit `9cd38fab3fe054e493e7a224f9695c18607c0849`.
 - No shadow semantic or runtime claim is made.
+
+## UNIV002.C2.P11 — Reader.map documentation
+
+- Added one comment immediately above `functional/reader.ph::Reader.map`
+  stating that when run, it transforms the produced value and retains the same
+  environment. The closure invokes the original Reader with that environment,
+  then applies `f` to its result.
+- Only a comment changed. Exact diff review and scoped `git diff --check`
+  passed. No tests were run for this comments-only edit.
+- Independent inventory reconciliation confirmed the same 174 source paths
+  as MOD1, with fourteen changed hashes. `functional/reader.ph` is recorded at
+  SHA-256 `51c0c95da302b4b590c3860bbde14e1bb77a6525293409c32bc36515d39493b6`
+  through source commit `42982dd6daa9c616a025236407c442e36872b29d`.
+- No shadow semantic or runtime claim is made.

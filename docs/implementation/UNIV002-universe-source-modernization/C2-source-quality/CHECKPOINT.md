@@ -33,7 +33,7 @@ integration, or production cutover.
 | `UNIV002.C2.P8` | Buffer.capacity documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting the maximum element count; getter body/signature unchanged. Scoped diff check passed; inventory reconciliation retained 174 paths and records 12 changed source hashes. Semantic status remains unverified; shadow runtime remains blocked. |
 | `UNIV002.C2.P9` | Bag.count documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added the occurrence-count comment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 13 changed hashes. |
 | `UNIV002.C2.P10` | Reader.run documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment explaining that run invokes the computation with the supplied environment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 14 changed hashes. |
-| `UNIV002.C2.P11` | Reader.map documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | Document the transformed value and preserved environment; preserve behavior and refresh the inventory after the edit. |
+| `UNIV002.C2.P11` | Reader.map documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment describing the transformed value and preserved environment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 14 changed hashes. |
 
 ## Established invariants
 
@@ -144,6 +144,18 @@ changed hashes against MOD1, with `functional/reader.ph` recorded at
 source commit `9cd38fab3fe054e493e7a224f9695c18607c0849`. Semantic linking
 remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
 
+P11 added one documentation line above `Reader.map`, stating that when run it
+transforms the produced value and retains the same environment. The closure
+runs the original Reader with the supplied environment, then applies `f` to
+the produced value. The comment makes no eager-execution, callback-count,
+purity, exception, or memoization promise. Only a comment changed. Exact diff
+review and scoped `git diff --check` passed; no tests were run. Independent
+inventory reconciliation confirmed 174 matching paths and 14 changed hashes
+against MOD1; `functional/reader.ph` is recorded at
+`51c0c95da302b4b590c3860bbde14e1bb77a6525293409c32bc36515d39493b6` through
+source commit `42982dd6daa9c616a025236407c442e36872b29d`. Semantic linking
+remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
+
 ## Deferred candidate
 
 `TextCursor.next` has a candidate rewrite from `isSome`/`unwrap` to
@@ -156,10 +168,11 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: `UNIV002.C2.P11`.
-- Latest complete plan: `UNIV002.C2.P10`; latest complete checkpoint: `UNIV002.C1`.
-- The source inventory is reconciled through P10 source commit
-  `9cd38fab3fe054e493e7a224f9695c18607c0849`: 174 paths, no additions or
+- Active plan: none; P11 is complete and the next bounded source-quality
+  slice has not yet started.
+- Latest complete plan: `UNIV002.C2.P11`; latest complete checkpoint: `UNIV002.C1`.
+- The source inventory is reconciled through P11 source commit
+  `42982dd6daa9c616a025236407c442e36872b29d`: 174 paths, no additions or
   removals, and 14 changed hashes with the rest matching MOD1. Textual
   inventory heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
@@ -176,7 +189,7 @@ identities.
 - P10 documented `Reader.run` in the functional package. The exact source
   comment does not alter code; preserve the held identity, iteration,
   reflection, and active linker boundaries.
-- P11 is a bounded Category A comment in `functional/reader.ph::Reader.map`.
+- P11 completed a bounded Category A comment in `functional/reader.ph::Reader.map`.
   The source creates a deferred Reader that applies `f` to the produced value
-  while retaining the same environment. No behavior or identity change is in
+  while retaining the same environment. No behavior or identity change was in
   scope.
