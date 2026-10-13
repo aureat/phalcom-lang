@@ -35,6 +35,7 @@ class IntegerMath {
     return result
   }
 
+  /// Returns the exact binomial coefficient; negative n raises ArgumentError, and k < 0 or k > n returns zero.
   @class
   choose(_ n: Int, _ k: Int) -> Int {
     if n < 0 { ArgumentError.new("choose requires a non-negative n").raise() }
