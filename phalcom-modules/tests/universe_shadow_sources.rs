@@ -46,6 +46,18 @@ fn universe_shadow_sources_parse_and_have_valid_unlinked_interfaces() {
     for name in ITERATION_DECLARATIONS {
         assert!(iteration.interface.declarations.contains_key(name), "iteration declaration `{name}` is missing");
         assert!(iteration.interface.exports.contains_key(name), "iteration declaration `{name}` is not exported");
+
+        let owners = modules
+            .iter()
+            .filter(|(_, module)| module.interface.declarations.contains_key(name))
+            .map(|(path, _)| path.clone())
+            .collect::<Vec<_>>();
+        let expected_owners = if name == "ChainIterator" {
+            vec![iteration_path.clone(), functional_chain_path()]
+        } else {
+            vec![iteration_path.clone()]
+        };
+        assert_eq!(owners, expected_owners, "unexpected shadow owners for `{name}`");
     }
     assert!(!root.join("collections/iterator_laws.ph").exists(), "old shadow source path remains");
 }
@@ -222,6 +234,13 @@ fn iteration_package_path() -> ModulePath {
     ModulePath::from_components(vec![
         ModuleComponent::from_identifier("collections").expect("static module component"),
         ModuleComponent::from_identifier("iteration").expect("static module component"),
+    ])
+}
+
+fn functional_chain_path() -> ModulePath {
+    ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("functional").expect("static module component"),
+        ModuleComponent::from_identifier("chain").expect("static module component"),
     ])
 }
 
