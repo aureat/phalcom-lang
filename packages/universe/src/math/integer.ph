@@ -68,6 +68,7 @@ class IntegerMath {
     return result
   }
 
+  /// Returns the exact rising product; negative arguments raise ArgumentError, and k == 0 returns one.
   @class
   risingFactorial(_ n: Int, _ k: Int) -> Int {
     if n < 0 or k < 0 { ArgumentError.new("risingFactorial requires non-negative arguments").raise() }
