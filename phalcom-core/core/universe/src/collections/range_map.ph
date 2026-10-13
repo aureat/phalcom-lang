@@ -527,7 +527,8 @@ class RangeMap<K, V> is Collection {
 
   /// Snapshot array of normalized entries in sorted order.
   entries -> Array<(interval: Interval<K>, value: V)> {
-    return <(interval: Interval<K>, value: V)>[*self]
+    let result: Array<(interval: Interval<K>, value: V)> = [*self]
+    result
   }
 
   iterator -> RangeMapIterator<K, V> {
@@ -596,13 +597,11 @@ class RangeMapIterator<K, V> {
   }
 
   next -> Option<(interval: Interval<K>, value: V)> {
-    match _pending.popLast {
-      Option::None => Option::None
-      Option::Some(entry) => {
-        self.pushLeftSpine(entry.right)
-        Option::Some((interval: entry.interval, value: entry.value))
-      }
-    }
+    let candidate = _pending.popLast
+    if candidate.isNone { return Option::None }
+    let entry = candidate.unwrap
+    self.pushLeftSpine(entry.right)
+    Option::Some((interval: entry.interval, value: entry.value))
   }
 
   iterator { self }
