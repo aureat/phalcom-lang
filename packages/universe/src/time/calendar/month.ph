@@ -4,9 +4,7 @@
 class Gregorian {
   @class
   isLeapYear(_ year: Int) -> Bool {
-    if (year % 4) != 0 { return false }
-    if (year % 100) != 0 { return true }
-    (year % 400) == 0
+    (year % 4) == 0 and ((year % 100) != 0 or (year % 400) == 0)
   }
 
   @class

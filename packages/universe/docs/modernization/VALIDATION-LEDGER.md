@@ -81,3 +81,30 @@ shadow graph and an execution path for shadow Universe code.
 - Getter signatures and bodies are unchanged.
 - `git diff --check` passed. No tests were added or run for this comments-only
   change.
+
+## UNIV002.C2.P5 — Gregorian leap-year expression
+
+- In `time/calendar/month.ph::Gregorian.isLeapYear`, replaced the two early
+  returns and final divisibility check with the equivalent predicate:
+  `(year % 4) == 0 and ((year % 100) != 0 or (year % 400) == 0)`.
+- Source-level review checked year zero and negative years: divisibility is
+  exactly zero remainder for either sign; the three divisibility clauses
+  represent the same rule as the original branch sequence. Signature, module
+  ownership, and surrounding code are unchanged.
+- Exact command:
+  `RUSTFLAGS='' cargo test -p phalcom-modules --test universe_shadow_sources universe_shadow_sources_parse_and_have_valid_unlinked_interfaces -- --exact`
+- Result: **1 passed, 0 failed, 0 ignored**. This parses shadow sources and
+  validates unlinked module interfaces only; it does not typecheck this method,
+  establish linked identity, or execute the shadow source.
+- A targeted Boolean corpus check was also attempted:
+  `RUSTFLAGS='' cargo test -p phalcom-core --test language-corpus booleans`
+  selected one test but failed during canonical import resolution before the
+  fixture executed: `universe.numbers.capabilities` was reported private from
+  `phalcom-semantic/src/session.rs:114:41`. This is unrelated to the P5 shadow
+  source change; concurrent MODL001 P4 files may be involved, so the failure is
+  left with that active work and was not investigated or rerun here. An initial
+  `--exact` variant selected zero tests and is not counted as evidence.
+- `git diff --check` passed. No production `time` test was used as proof for
+  this shadow edit. Semantic linking remains `UNVERIFIED`; shadow runtime
+  parity remains `BLOCKED` because no complete shadow execution path exists.
+- No performance claim is made.

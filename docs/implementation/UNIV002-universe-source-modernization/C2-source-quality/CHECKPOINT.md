@@ -27,6 +27,7 @@ integration, or production cutover.
 | `UNIV002.C2.P2` | Either API docs and compact match formatting | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Category A only; exact parser/unlinked-interface test passed and scoped diff review confirmed unchanged arms. |
 | `UNIV002.C2.P3` | StringIndex comparison documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Comments only; source/spec review and `git diff --check` passed; no tests required or run. |
 | `UNIV002.C2.P4` | Utf8Error offset documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Comments only; wording matches `docs/specs/text.md` §6 and `git diff --check` passed; no tests required or run. |
+| `UNIV002.C2.P5` | Gregorian leap-year predicate expression | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Exact shadow parser/interface test passed; source-level divisibility review passed. Semantic linking remains unverified and shadow runtime remains blocked. A separate Boolean corpus attempt failed before fixture execution during canonical import resolution; classified unrelated to P5 and left with concurrent MODL001 P4 work. |
 
 ## Established invariants
 
@@ -50,8 +51,8 @@ integration, or production cutover.
 
 - Branch: `feat/telos-collections`.
 - HEAD: `8d168c0ec9ed0dc6024195bbe98c5875aef44841`.
-- Concurrent P4 edits in `phalcom-semantic/src/session.rs`,
-  `phalcom-semantic/src/workspace.rs`, and
+- Concurrent P4 edits in `phalcom-semantic/src/resolver.rs`,
+  `phalcom-semantic/src/session.rs`, `phalcom-semantic/src/workspace.rs`, and
   `phalcom-semantic/tests/semantic/integration/resolver.rs` are unrelated and
   must not be staged or changed. Preserve the untracked
   `docs/implementation/MODL001-module-architecture/C2-module-project-model/MODL001.C2.P4-handoff.md`
@@ -77,6 +78,18 @@ P4's getter comments match the valid-prefix and optional-error-length rules in
 `docs/specs/text.md` §6. Getter signatures and bodies are unchanged;
 `git diff --check` passed. No tests were run for the comments-only change.
 
+P5 replaces `Gregorian.isLeapYear`'s two early returns with the equivalent
+Gregorian predicate. The exact shadow parser/unlinked-interface check selected
+one test and passed; a source-level review covers year zero and negative years
+using exact integer remainder semantics. This does not typecheck or execute the
+shadow method, so semantic linking is `UNVERIFIED` and shadow runtime parity is
+`BLOCKED`. A supplemental Boolean corpus attempt selected one test but failed
+before fixture execution while resolving the canonical import
+`universe.numbers.capabilities` as private at `phalcom-semantic/src/session.rs:114:41`.
+That failure is unrelated to the P5 shadow source and is left with concurrent
+MODL001 P4 work; it was not rerun. The initial `--exact` variant selected zero
+tests and is not evidence.
+
 ## Deferred candidate
 
 `TextCursor.next` has a candidate rewrite from `isSome`/`unwrap` to
@@ -90,8 +103,10 @@ identities.
 ## Active plan and next action
 
 - Active plan: none.
-- Latest complete plan: `UNIV002.C2.P4`; latest complete checkpoint: `UNIV002.C1`.
-- Next: select a high-confidence behavior-preserving syntax modernization
-  independent of Option/Result/Unit identity and the active P4 linker work.
-  Verify source contract and the smallest useful test before editing; escalate
-  semantic or ownership uncertainty.
+- Latest complete plan: `UNIV002.C2.P5`; latest complete checkpoint: `UNIV002.C1`.
+- P5 is source-complete and focused-tested, with the limits above. The
+  supplemental Boolean corpus attempt failed before execution and remains
+  classified outside P5.
+- Next: refresh/reconcile the inventory against the current source revision,
+  then select a small source-quality slice independently of the unresolved
+  Option/Result/Unit identity work and active MODL001 P4 linker work.
