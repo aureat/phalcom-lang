@@ -18,6 +18,8 @@ pub enum StaticEvalError {
     InvalidIntegerLiteral,
     #[error("static argument {index} does not match the checked parameter kind")]
     InvalidArgumentKind { index: u32 },
+    #[error("static residual result does not inhabit its declared domain")]
+    InvalidResultDomain,
     #[error("static evaluator expected {expected} arguments but received {actual}")]
     InvalidArgumentCount { expected: usize, actual: usize },
     #[error("static operation {0:?} has no exact checker authorization")]

@@ -168,13 +168,14 @@ fn specialize_apply(
                 }
                 specialized_args.push(StaticEvalTerm::Kinded(specialized));
             }
-            concrete => {
-                specialized_args.push(*concrete);
+            StaticEvalTerm::Value(value) => {
+                evaluator.validate_static_value_reference(*value)?;
+                specialized_args.push(StaticEvalTerm::Value(*value));
             }
         }
     }
 
-    if any_residual {
+    if any_residual || value_domain_is_open(result_domain, evaluator)? {
         // If no changes to arguments or environment, reuse exact existing residual
         if !args_changed && !result_domain_changed && composed_env == application.environment {
             return Ok(StaticEvalTerm::Residual(original));
@@ -191,7 +192,7 @@ fn specialize_apply(
         return Ok(StaticEvalTerm::Residual(new_ref));
     }
 
-    // 3. All arguments are concrete -> evaluate ordinary static definition
+    // 3. Arguments and result domain are closed -> evaluate ordinary static definition
     let static_args = specialized_args
         .into_iter()
         .map(|term| match term {
@@ -201,7 +202,8 @@ fn specialize_apply(
         })
         .collect::<Vec<_>>();
 
-    evaluator.evaluate_specialized_application(application.definition.clone(), &static_args, composed_env)
+    let result = evaluator.evaluate_specialized_application(application.definition.clone(), &static_args, composed_env)?;
+    evaluator.validate_specialized_result(result, result_domain)
 }
 
 fn specialize_proof(
@@ -212,31 +214,53 @@ fn specialize_proof(
     environment: &StaticSpecializationEnvironmentKey,
     supplied: &StaticSpecializationEnvironmentKey,
 ) -> Result<StaticEvalTerm, Stop> {
+    if supplied.is_empty()
+        && evaluator.inherited_specialization_environment().is_empty()
+        && goal_has_open_terms(goal, evaluator)?
+    {
+        return Ok(StaticEvalTerm::Residual(original));
+    }
     // 1. Compose captured environment with supplied specialization
     let composed_env = evaluator.compose_specialization_environment(environment, supplied)?;
 
     // 2. Substitute goal propositions using substitution closure
     let (specialized_goal, changed) = evaluator.substitute_proof_goal(goal, &composed_env)?;
+    let (specialized_result_domain, result_type_changed) = evaluator.substitute_specialization_domain(
+        StaticValueDomain::ValueType(result_type),
+        &composed_env,
+    )?;
+    let StaticValueDomain::ValueType(specialized_result_type) = specialized_result_domain else {
+        unreachable!();
+    };
+    let goal_is_open = goal_has_open_terms(&specialized_goal, evaluator)?;
+    let result_type_is_open = evaluator.is_open_type(specialized_result_type)?;
 
     // Check No-New-Facts identity
-    if !changed && composed_env == *environment {
-        if goal_has_open_terms(&specialized_goal, evaluator)? {
-            return Ok(StaticEvalTerm::Residual(original));
-        }
+    if !changed && !result_type_changed && composed_env == *environment && (goal_is_open || result_type_is_open) {
+        return Ok(StaticEvalTerm::Residual(original));
     }
 
-    // 3. Check if specialized goal still has open terms
-    if goal_has_open_terms(&specialized_goal, evaluator)? {
-        let new_ref = evaluator.intern_proof_residual_node(specialized_goal, result_type, composed_env)?;
+    // 3. Check if the goal or its declared result type still has open terms
+    if goal_is_open || result_type_is_open {
+        let new_ref = evaluator.intern_proof_residual_node(specialized_goal, specialized_result_type, composed_env)?;
         return Ok(StaticEvalTerm::Residual(new_ref));
     }
 
     // 4. Closed goal: evaluate using existing proof authority
-    let outcome = evaluator.evaluate_proof_predicate_with_environment(&specialized_goal, result_type, composed_env);
+    let outcome = evaluator.evaluate_proof_predicate_with_environment(&specialized_goal, specialized_result_type, composed_env);
     match outcome {
-        Ok(true) => Ok(StaticEvalTerm::Value(evaluator.intern_bool(true))),
-        Ok(false) => Ok(StaticEvalTerm::Value(evaluator.intern_bool(false))),
-        Err(Stop::Symbolic(r)) => Ok(StaticEvalTerm::Residual(r)),
+        Ok(true) => {
+            let result = StaticEvalTerm::Value(evaluator.intern_bool(true));
+            evaluator.validate_specialized_result(result, StaticValueDomain::ValueType(specialized_result_type))
+        }
+        Ok(false) => {
+            let result = StaticEvalTerm::Value(evaluator.intern_bool(false));
+            evaluator.validate_specialized_result(result, StaticValueDomain::ValueType(specialized_result_type))
+        }
+        Err(Stop::Symbolic(r)) => evaluator.validate_specialized_result(
+            StaticEvalTerm::Residual(r),
+            StaticValueDomain::ValueType(specialized_result_type),
+        ),
         Err(stop) => Err(stop),
     }
 }
@@ -249,12 +273,21 @@ fn specialize_member_projection(
     environment: &StaticSpecializationEnvironmentKey,
     supplied: &StaticSpecializationEnvironmentKey,
 ) -> Result<StaticEvalTerm, Stop> {
+    if supplied.is_empty()
+        && evaluator.inherited_specialization_environment().is_empty()
+        && (member_projection_is_open(projection, evaluator)? || value_domain_is_open(result_domain, evaluator)?)
+    {
+        return Ok(StaticEvalTerm::Residual(original));
+    }
     // 1. Compose captured environment with supplied specialization
     let composed_env = evaluator.compose_specialization_environment(environment, supplied)?;
     let (result_domain, result_domain_changed) = evaluator.substitute_specialization_domain(result_domain, &composed_env)?;
 
     // 2. Substitute subject and arguments
     let (specialized_projection, changed) = evaluator.substitute_member_projection(projection, &composed_env)?;
+    if specialized_projection.result_domain != result_domain {
+        return Err(Stop::invalid(StaticEvalError::InvalidResultDomain));
+    }
 
     // Check No-New-Facts identity
     if !changed && !result_domain_changed && composed_env == *environment {
@@ -272,9 +305,19 @@ fn specialize_member_projection(
     // 4. Closed: evaluate using existing StructuralReflectionProjector
     let outcome = evaluator.project_member_with_environment(&specialized_projection, composed_env.clone())?;
     match outcome {
-        StaticMemberProjectionOutcome::ReducedValue(val) => Ok(StaticEvalTerm::Value(val)),
-        StaticMemberProjectionOutcome::ReducedKinded(ty) => Ok(StaticEvalTerm::Kinded(ty)),
+        StaticMemberProjectionOutcome::ReducedValue(val) => {
+            evaluator.validate_specialized_result(StaticEvalTerm::Value(val), result_domain)
+        }
+        StaticMemberProjectionOutcome::ReducedKinded(ty) => {
+            evaluator.validate_specialized_result(StaticEvalTerm::Kinded(ty), result_domain)
+        }
         StaticMemberProjectionOutcome::Stuck(stuck_proj) => {
+            if stuck_proj.member != specialized_projection.member
+                || stuck_proj.arguments != specialized_projection.arguments
+                || stuck_proj.result_domain != result_domain
+            {
+                return Err(Stop::invalid(StaticEvalError::InvalidResultDomain));
+            }
             let new_ref = evaluator.intern_member_projection_residual_node(stuck_proj, result_domain, composed_env)?;
             Ok(StaticEvalTerm::Residual(new_ref))
         }

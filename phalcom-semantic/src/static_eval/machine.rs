@@ -5,6 +5,7 @@ use crate::checker::analysis::{
 };
 use crate::checker::associated::AssociatedResolutionIndex;
 use crate::checker::proof_predicate::ProofPredicateGoal;
+use crate::checker::static_iteration::StaticIterationMode;
 use crate::db::{CancellationToken, QueryBudget};
 use crate::field_key::FieldKey;
 use crate::generic_evidence::{
@@ -1094,10 +1095,21 @@ impl<'a> StaticEvaluator<'a> {
     ) -> Result<TypeId, Stop> {
         let types = evaluator_type_store_mut(&mut self.canonical_types)
             .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+        if ty.index() >= types.len() {
+            return Err(Stop::from(
+                crate::static_eval::application::StaticSpecializationEnvironmentError::ArgumentDomainMismatch,
+            ));
+        }
         let subst = environment.substitution_closure(types)?;
-        subst
+        let specialized = subst
             .try_apply(types, ty)
-            .map_err(|_| Stop::from(crate::static_eval::application::StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution))
+            .map_err(|_| Stop::from(crate::static_eval::application::StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution))?;
+        if specialized.index() >= types.len() {
+            return Err(Stop::from(
+                crate::static_eval::application::StaticSpecializationEnvironmentError::ArgumentDomainMismatch,
+            ));
+        }
+        Ok(specialized)
     }
 
     pub(crate) fn substitute_specialization_domain(
@@ -1203,6 +1215,64 @@ impl<'a> StaticEvaluator<'a> {
                 crate::static_eval::application::StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution,
             )),
         }
+    }
+
+    pub(crate) fn validate_specialized_result(
+        &mut self,
+        result: StaticEvalTerm,
+        expected_domain: StaticValueDomain,
+    ) -> Result<StaticEvalTerm, Stop> {
+        let invalid_domain = || Stop::invalid(StaticEvalError::InvalidResultDomain);
+        match result {
+            StaticEvalTerm::Value(value) => {
+                self.validate_static_value_reference(value)?;
+                match expected_domain {
+                    StaticValueDomain::Kind(expected) => {
+                        let types = evaluator_type_store_ref(&self.canonical_types)
+                            .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                        if self.values.domain_of(value, types).map_err(Stop::from)? != StaticValueDomain::Kind(expected) {
+                            return Err(invalid_domain());
+                        }
+                    }
+                    StaticValueDomain::ValueType(expected) => {
+                        self.validate_specialization_value_type(value, expected).map_err(|error| match error {
+                            Stop::Invalid(StaticEvalError::SpecializationEnvironment(
+                                crate::static_eval::application::StaticSpecializationEnvironmentError::ArgumentDomainMismatch,
+                            )) => invalid_domain(),
+                            other => other,
+                        })?;
+                    }
+                }
+                Ok(StaticEvalTerm::Value(value))
+            }
+            StaticEvalTerm::Kinded(ty) => {
+                let StaticValueDomain::Kind(expected) = expected_domain else {
+                    return Err(invalid_domain());
+                };
+                let types = evaluator_type_store_ref(&self.canonical_types)
+                    .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                if ty.index() >= types.len() || types.kind_of(ty) != expected {
+                    return Err(invalid_domain());
+                }
+                Ok(StaticEvalTerm::Kinded(ty))
+            }
+            StaticEvalTerm::Residual(residual) => {
+                if self.residual_result_domain(residual)? != expected_domain {
+                    return Err(invalid_domain());
+                }
+                Ok(StaticEvalTerm::Residual(residual))
+            }
+        }
+    }
+
+    pub(crate) fn validate_static_value_reference(&self, value: StaticValueRef) -> Result<(), Stop> {
+        if value.store_id() != self.values.id() {
+            return Err(Stop::from(
+                crate::static_eval::application::StaticSpecializationEnvironmentError::ForeignStaticValueStore,
+            ));
+        }
+        self.values.get(value).map_err(Stop::from)?;
+        Ok(())
     }
 
     pub(crate) fn substitute_proof_goal(
@@ -1762,18 +1832,6 @@ impl<'a> StaticEvaluator<'a> {
         Ok(())
     }
 
-    fn root_is_direct_proof(&self) -> bool {
-        let EvaluatorBody::Definition(body) = self.body else {
-            return false;
-        };
-        let crate::static_definition::StaticDefinitionBodyRepr::TypeForm(annotation) = &body.root else {
-            return false;
-        };
-        body.expressions
-            .iter()
-            .any(|(id, expression)| expression.range == annotation.range && body.proof_predicates.contains_key(id))
-    }
-
     fn root_directly_returns_parameter(&self, candidate: &StaticResidualParameter, trusted_context: &StaticTrustedBranchContext) -> bool {
         let EvaluatorBody::Definition(body) = self.body else {
             return false;
@@ -1802,10 +1860,38 @@ impl<'a> StaticEvaluator<'a> {
             && trusted_context.is_empty()
     }
 
-    fn residual_for_root(&mut self, residual: StaticResidualRef) -> Result<StaticResidualRef, Stop> {
-        if self.root_is_direct_proof() {
-            return Ok(residual);
+    fn root_directly_returns_residual(&self, residual: &StaticResidualData) -> bool {
+        let EvaluatorBody::Definition(body) = self.body else {
+            return false;
+        };
+        let range = match &body.root {
+            crate::static_definition::StaticDefinitionBodyRepr::TypeForm(annotation) => annotation.range,
+            crate::static_definition::StaticDefinitionBodyRepr::Expression(expression) => expression.range(),
+            crate::static_definition::StaticDefinitionBodyRepr::Block(_) => return false,
+        };
+        let Some((expression, analysis)) = body.expressions.iter().find(|(_, analysis)| analysis.range == range) else {
+            return false;
+        };
+        match residual {
+            StaticResidualData::Proof { .. } => body.proof_predicates.contains_key(expression),
+            StaticResidualData::MemberProjection { .. } => {
+                body.member_projections.contains_key(expression)
+                    || matches!(
+                        analysis.denotation.as_ref(),
+                        Some(crate::types::denotation::SemanticDenotation::TypeForm(form)
+                            | crate::types::denotation::SemanticDenotation::StaticTerm(form))
+                            if self.direct_parameter_of(*form).is_some()
+                    )
+            }
+            StaticResidualData::Apply { application, .. } => body
+                .static_applications
+                .iter()
+                .any(|checked| checked.expression == *expression && checked.target == application.definition),
+            _ => false,
         }
+    }
+
+    fn residual_for_root(&mut self, residual: StaticResidualRef) -> Result<StaticResidualRef, Stop> {
         let (Some(result_domain), Some(key)) = (self.root_result_domain, self.root_application_key.clone()) else {
             return Ok(residual);
         };
@@ -1819,6 +1905,9 @@ impl<'a> StaticEvaluator<'a> {
             .get(residual)
             .map_err(Stop::from)?
             .clone();
+        if residual_data.result_domain() == result_domain && self.root_directly_returns_residual(&residual_data) {
+            return Ok(residual);
+        }
         if let StaticResidualData::Parameter { parameter } = residual_data {
             if self.root_directly_returns_parameter(&parameter, &trusted_context) {
                 return Ok(residual);
@@ -2311,6 +2400,15 @@ impl<'a> StaticEvaluator<'a> {
                     self.active_branch_proofs.pop();
                 }
                 Work::AfterForSource(container, statement_index, for_stmt) => {
+                    let lane = for_stmt.lanes.first().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let source_expr_id = self.expression_id(lane.iter.range())?;
+                    let resolution = self
+                        .body
+                        .static_iteration_lanes()
+                        .and_then(|lanes| lanes.get(&source_expr_id))
+                        .filter(|resolution| resolution.source_expression == source_expr_id && resolution.source_range == lane.iter.range())
+                        .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let mode = &resolution.mode;
                     let source_val = if let Some(term) = self.completed_kinded_result.take() {
                         let types = evaluator_type_store_ref(&self.canonical_types).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                         let kind = types.kind_of(term);
@@ -2322,7 +2420,17 @@ impl<'a> StaticEvaluator<'a> {
                     } else {
                         stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?
                     };
-                    let cursor = match self.values.get(source_val).map_err(Stop::from)? {
+                    let source = self.values.get(source_val).map_err(Stop::from)?;
+                    if !matches!(
+                        (mode, source),
+                        (StaticIterationMode::PackValues | StaticIterationMode::ReflectedPack, StaticValueData::Pack(_))
+                            | (StaticIterationMode::OrderedProductValues { .. }, StaticValueData::Tuple(_) | StaticValueData::Sequence(_) | StaticValueData::Data(_) | StaticValueData::Unit)
+                            | (StaticIterationMode::UnorderedProductValues, StaticValueData::Record(_) | StaticValueData::Data(_))
+                            | (StaticIterationMode::TypePackTerms | StaticIterationMode::OrderedProductTypes { .. } | StaticIterationMode::UnorderedProductFields, StaticValueData::Type(_))
+                    ) {
+                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                    }
+                    let cursor = match source {
                         StaticValueData::Pack(pack_id) => {
                             let pos = self.values.pack_positionals(*pack_id).map_err(Stop::from)?;
                             let lab = self.values.pack_labeled(*pack_id).map_err(Stop::from)?;
@@ -3534,7 +3642,9 @@ impl<'a> StaticEvaluator<'a> {
         }
         for (parameter, argument) in signature.parameters.iter().zip(arguments) {
             match (parameter.domain, argument) {
-                (crate::static_domain::StaticValueDomain::ValueType(_), StaticArgument::Value(_)) => {}
+                (crate::static_domain::StaticValueDomain::ValueType(_), StaticArgument::Value(value)) => {
+                    self.validate_static_value_reference(*value)?;
+                }
                 (crate::static_domain::StaticValueDomain::Kind(expected), StaticArgument::Kinded(term)) => {
                     let types = evaluator_type_store_ref(&self.canonical_types).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
                     if types.kind_of(*term) != expected {

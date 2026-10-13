@@ -1173,6 +1173,40 @@ fn provider_const_type_change_invalidates_importing_checked_body() {
 }
 
 #[test]
+fn static_for_requires_its_checked_iteration_mode() {
+    let fixture = WorkspaceFixture::new()
+        .module("main", "type Sum: Int { let mut sum = 0\n for x in (1, 2) { sum = sum + x }\n sum }\n")
+        .analyze();
+    let mut body = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "Sum"))
+        .and_then(|definition| definition.checked_body.as_ref())
+        .expect("checked static for body")
+        .as_ref()
+        .clone();
+    let lane = Arc::make_mut(&mut body.static_iteration_lanes)
+        .values_mut()
+        .next()
+        .expect("checked iteration lane");
+    assert!(matches!(lane.mode, phalcom_semantic::checker::static_iteration::StaticIterationMode::OrderedProductValues { .. }));
+    lane.mode = phalcom_semantic::checker::static_iteration::StaticIterationMode::UnorderedProductFields;
+
+    let mut values = StaticValueStore::new();
+    let outcome = StaticEvaluator::new(&body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[])
+        .with_semantic_tables(
+            fixture.analysis.snapshot.store(),
+            &fixture.analysis.snapshot.data_semantics,
+            &fixture.analysis.snapshot.enum_semantics,
+        )
+        .evaluate();
+    assert!(
+        matches!(outcome, StaticEvalOutcome::Invalid(phalcom_semantic::static_eval::StaticEvalError::UnsupportedExpression)),
+        "evaluator must reject a value incompatible with the checked lane mode: {outcome:?}"
+    );
+}
+
+#[test]
 fn static_evaluator_executes_match_for_and_proof_predicates() {
     let source = r#"
 data Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }
