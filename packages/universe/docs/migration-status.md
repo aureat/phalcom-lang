@@ -5,7 +5,7 @@
 - **Increment:** Phase S4 iteration source relocation and isolated source-interface validation.
 - **Branch:** `feat/telos-collections`.
 - **S4 starting revision:** `a1621a7cec577952612685508a4c87c90aea86cd`.
-- **Commits so far:** `74b84dda` (active/target identity clarification), `1404e08f` (iteration source move and validator), `b8083fb0` (validator scope note), and `a4a3bab9` (unique declaration-owner assertions); the S4 status and incident records are in the current documentation change.
+- **Commits so far:** `74b84dda` (active/target identity clarification), `1404e08f` (iteration source move and validator), `b8083fb0` (validator scope note), `a4a3bab9` (unique declaration-owner assertions), and `ae357861` (inventory, incident, and migration records); this update adds the final lifecycle classification.
 - **Legacy baseline:** `9be1ed1eba3f94ba05e8e4aca1ee55f5ccf13131`; the S4-start shadow body matches that baseline digest.
 - **Perf branch observed for merge constraints:** `perf/universe-characterization` at `c0155584972ec8c9f0960e411a9501a9c003de92`. No integration or cherry-pick is proposed in S4.
 - **Scope:** Move all iteration protocols and adapters together into the accurately named shadow module `collections/iteration/package.ph`, retarget every shadow import, expose `.iteration`, and add a test-only parse/interface validator. Record the proposed fine-grained split as blocked by current source-import runtime semantics.
@@ -16,6 +16,8 @@
 - **Test infrastructure:** `phalcom-modules/tests/universe_shadow_sources.rs` parses every shadow `.ph` source, constructs unlinked interfaces using `ModuleId::universe`, checks path collisions, Universe import targets and selected exports, exposed child sources, and hierarchical visibility of the migrated iteration path. It is test-only and does not register the shadow package in production.
 - **Legacy and production changes:** None. No legacy `.ph` source, Universe source provider, native metadata, prelude construction, compiler bootstrap, VM, or runtime registration was changed.
 - **Identity status:** The target identities for `Option`, `Result`, and `Unit` were amended in `docs/specs/universe.md` to match the approved shadow paths. For iteration, the current cohesive shadow source path is `universe.collections.iteration`; the proposed canonical split owner `universe.collections.iteration.protocols` remains deferred and unactivated. `functional.chain::ChainIterator<T>` remains a separate declaration from the generic iteration adapter `ChainIterator<I, J>`.
+- **Completion:** `IMPLEMENTED` for the bounded cohesive source-delivery slice; the proposed six-child protocol/adapter decomposition remains `PARTIAL/BLOCKED`. S4 is not semantically or runtime integrated.
+- **Verification:** `FOCUSED_TESTED` for the unlinked source-interface validator, source-body digest, ownership inventory, and diff hygiene recorded below. Production cutover and semantic/runtime acceptance remain unverified.
 
 ## Declaration and dependency inventory
 
