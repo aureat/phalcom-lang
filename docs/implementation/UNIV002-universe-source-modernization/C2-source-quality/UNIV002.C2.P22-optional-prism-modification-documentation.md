@@ -91,9 +91,9 @@ establish linked semantic identity or runtime behavior.
 Place one comment line immediately above each method. Suggested wording:
 
 ```telos
-/// Applies the replacement callback when a focus is present; otherwise preserves the source.
-/// Transforms and passes a present focus to the replacement callback; otherwise preserves the source.
-/// Transforms and passes a selected payload to the review callback; otherwise preserves the source.
+/// Calls the replacement callback for a present focus; otherwise returns the source.
+/// Applies `f` to a present focus and passes it to the replacement callback; absence returns the source.
+/// Applies `f` to a selected payload and passes it to the review callback; no selection returns the source.
 ```
 
 Equivalent wording is acceptable only if it describes these callback paths
