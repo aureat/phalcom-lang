@@ -3,6 +3,12 @@
 Continue on `perf/universe-characterization` in `.worktrees/perf-universe-characterization`.
 `CHECKPOINT.md` owns durable status and next action.
 
+Current continuation: **IN_PROGRESS / PARTIAL / BASELINE_BLOCKED** (2026-10-13).
+T1 plumbing is present in the working tree, not committed. Do not reimplement it.
+Before further cutover, consume
+[the canonical-authority incident](PERF003.C2.P4-canonical-authority-incident.md)
+and obtain the required prerequisite/scope ruling. No subagents were used.
+
 ---
 
 ## 1. Established in this increment
@@ -37,17 +43,29 @@ Continue on `perf/universe-characterization` in `.worktrees/perf-universe-charac
 ## 3. Ordered Next Actions
 
 1. **`P4.T1` — Compiler Metadata Retention Options Plumbing**:
-   - In `phalcom-core/src/modules/compile.rs`: add `ProgramCompilationOptions { pub metadata_profile: MetadataProfile }` with `Default = RuntimePublic`.
-   - Add `compile_analyzed_with_options` and thread `options.metadata_profile` to `project_analyzed_inner`.
-   - Update `compile_session.rs` to allow `compile_fixture_with_options`.
+   - Implemented: `ProgramCompilationOptions`, default RuntimePublic;
+     `compile_analyzed_with_options`; options threaded to projection/export;
+     `compile_fixture_with_options`; public re-export in `modules/mod.rs`.
+   - `empty_projection_preserves_explicit_metadata_profile`: 1 PASS, all four
+     headers plus legacy default. This is isolated plumbing evidence.
+   - `metadata_profile_is_explicit_and_independent_of_semantic_publication`:
+     1 FAIL before first header assertion, legacy non-Symbol Record remainder.
+     Keep this pending end-to-end gate; do not skip/weaken it.
+   - Core check with perf-observability passes. Full T1 acceptance is not claimed.
 
 2. **`P4.T5` — Cut Exporter Over to Closure**:
+   - First reconcile profile-visible owned members with the already published
+     `SemanticSnapshot::surfaces` visibility products. The current closure does
+     not filter owned callables/fields by visibility.
    - In `phalcom-semantic/src/metadata/export.rs`: add `build_bundle_from_closure(mut self, closure: &MetadataReachabilityClosure, runtime_roots: &[(&ModuleId, &str, TypeId)])`.
    - Replace raw table loops with closure iteration (`closure.declarations`, `closure.callables`, `closure.fields`, `closure.aliases`).
    - Use `callables.iter_declaration_owner(decl_id)` and `fields.iter_owner(decl_id)`.
    - Wire `field_signatures` from `SemanticSnapshot` into exporter.
 
 3. **`P4.T6` — Canonical Metadata External Authority Partitioning**:
+   - Blocked prerequisite: the existing exact canonical singleton test fails at
+     `NativeSourceIndex::build`, rejecting ProductKind before projection. This
+     is the inherited D bootstrap baseline, now blocking the required authority.
    - In `compile.rs:project_analyzed_inner`: exclude canonical Universe declarations from ordinary user compilation closures. Canonical entities are installed once in pool 0 during bootstrap.
 
 4. **`P4.T7` & `P4.T8` — Runtime Registry Stable-Identity Indexes & Reflection Cutover**:
@@ -77,3 +95,17 @@ RUSTFLAGS='' cargo check -p telos-observability
 RUSTFLAGS='' cargo check -p phalcom-semantic
 RUSTFLAGS='' cargo check -p phalcom-core
 ```
+
+## 5. Takeover boundary
+
+No T5 exporter cutover, field wiring, canonical elision in production, registry
+indexing, reflection changes, or compatibility descriptor was implemented in
+this continuation. Existing compilation defaults still use aggregate export.
+No benchmark or broad suite ran. No consultation ruling or plan amendment exists.
+The incident requests a bounded ProductKind prerequisite repair or explicit
+detached continuation pending a separate repair. Do not silently expand into
+canonical source/native ownership or infer that baseline classification permits
+claiming runtime proof.
+
+An unrelated untracked `PERF003.C2-P1-P9-universe-telosc-program-handoff.md`
+appeared during this continuation and was left untouched.

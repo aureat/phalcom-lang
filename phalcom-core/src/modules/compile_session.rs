@@ -11,7 +11,7 @@ use phalcom_modules::{
 };
 use phalcom_semantic::SemanticWorkspaceSession;
 
-use super::compile::{AnalyzedProgram, CompiledProgram, ProgramCompileError, ProgramCompiler};
+use super::compile::{AnalyzedProgram, CompiledProgram, ProgramCompilationOptions, ProgramCompileError, ProgramCompiler};
 
 /// A persistent compilation session that replaces one fixture module at a time.
 ///
@@ -62,6 +62,17 @@ impl ProgramCompilationSession {
     /// Replaces the current fixture source and compiles it through the retained
     /// module and semantic sessions.
     pub fn compile_fixture(&mut self, path: &Path, source_text: &str) -> Result<CompiledProgram, ProgramCompileError> {
+        self.compile_fixture_with_options(path, source_text, &ProgramCompilationOptions::default())
+    }
+
+    /// Replaces and compiles the fixture with explicit metadata retention.
+    /// The semantic session continues to publish runtime-minimal products.
+    pub fn compile_fixture_with_options(
+        &mut self,
+        path: &Path,
+        source_text: &str,
+        options: &ProgramCompilationOptions,
+    ) -> Result<CompiledProgram, ProgramCompileError> {
         crate::perf_span_result!(
             telos_observability::PerfPhase::Compilation,
             || {
@@ -157,7 +168,7 @@ impl ProgramCompilationSession {
 
                 #[cfg(any(test, feature = "test-timings"))]
                 let projection_started = Instant::now();
-                let compiled = ProgramCompiler::compile_analyzed(&analyzed);
+                let compiled = ProgramCompiler::compile_analyzed_with_options(&analyzed, options);
                 #[cfg(any(test, feature = "test-timings"))]
                 {
                     self.last_fixture_timing.compile_projection = projection_started.elapsed();
@@ -194,6 +205,38 @@ fn map_workspace_error(error: WorkspaceModuleSessionError) -> ProgramCompileErro
 mod tests {
     use super::*;
     use crate::modules::compile::{EntrySelection, ProgramCompileError};
+
+    #[test]
+    fn metadata_profile_is_explicit_and_independent_of_semantic_publication() {
+        use phalcom_type_meta::header::MetadataProfile;
+
+        let mut session = ProgramCompilationSession::standalone().unwrap();
+        let path = Path::new("metadata-profile.ph");
+        let source = "const answer: Int = 42\n";
+        let public = session.compile_fixture(path, source).unwrap();
+        assert_eq!(public.semantic_metadata.as_ref().unwrap().header.profile, MetadataProfile::RuntimePublic);
+        let minimal = session
+            .compile_fixture_with_options(
+                path,
+                source,
+                &ProgramCompilationOptions {
+                    metadata_profile: MetadataProfile::RuntimeMinimal,
+                },
+            )
+            .unwrap();
+        assert_eq!(minimal.semantic_metadata.as_ref().unwrap().header.profile, MetadataProfile::RuntimeMinimal);
+        let public_again = session.compile_fixture(path, source).unwrap();
+        assert_eq!(public_again.semantic_metadata.as_ref().unwrap().header.profile, MetadataProfile::RuntimePublic);
+        assert!(
+            session
+                .semantic_session
+                .last_snapshot()
+                .unwrap()
+                .source_index
+                .modules()
+                .all(|(module, _)| !module.project.is_universe())
+        );
+    }
 
     fn semantic_error(result: Result<CompiledProgram, ProgramCompileError>) -> crate::modules::compile::ProgramSemanticDiagnostics {
         match result {

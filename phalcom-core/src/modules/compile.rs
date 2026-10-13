@@ -779,13 +779,34 @@ impl ProgramAnalyzer {
 /// Compiler facade over an analyzed semantic program.
 pub struct ProgramCompiler;
 
+/// Runtime metadata retention, independent of semantic publication products.
+#[derive(Clone, Debug)]
+pub struct ProgramCompilationOptions {
+    /// Requested retention profile for the emitted metadata bundle.
+    pub metadata_profile: phalcom_type_meta::header::MetadataProfile,
+}
+
+impl Default for ProgramCompilationOptions {
+    fn default() -> Self {
+        Self {
+            metadata_profile: phalcom_type_meta::header::MetadataProfile::RuntimePublic,
+        }
+    }
+}
+
 impl ProgramCompiler {
     /// Compiles an analyzed program into a fully linked `CompiledProgram`.
     pub fn compile_analyzed(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
+        Self::compile_analyzed_with_options(analyzed, &ProgramCompilationOptions::default())
+    }
+
+    /// Compiles with an explicit metadata profile while retaining the analysis's
+    /// independently selected semantic products.
+    pub fn compile_analyzed_with_options(analyzed: &AnalyzedProgram, options: &ProgramCompilationOptions) -> Result<CompiledProgram, ProgramCompileError> {
         if analyzed.semantic.has_errors() {
             return Err(ProgramCompileError::Semantic(ProgramSemanticDiagnostics::from_snapshot(&analyzed.semantic)));
         }
-        Self::project_analyzed(analyzed)
+        Self::project_analyzed(analyzed, options)
     }
 
     /// Compiles the canonical source-complete Universe projection.
@@ -794,18 +815,18 @@ impl ProgramCompiler {
     /// even when semantic diagnostics change. Ordinary user/project compilation
     /// continues to reject semantic errors through [`Self::compile_analyzed`].
     pub(crate) fn compile_analyzed_for_canonical_bootstrap(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
-        Self::project_analyzed(analyzed)
+        Self::project_analyzed(analyzed, &ProgramCompilationOptions::default())
     }
 
-    fn project_analyzed(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
+    fn project_analyzed(analyzed: &AnalyzedProgram, options: &ProgramCompilationOptions) -> Result<CompiledProgram, ProgramCompileError> {
         crate::perf_span_result!(
             telos_observability::PerfPhase::CompilerProjection,
-            || Self::project_analyzed_inner(analyzed),
+            || Self::project_analyzed_inner(analyzed, options),
             classify_program_compile_error,
         )
     }
 
-    fn project_analyzed_inner(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
+    fn project_analyzed_inner(analyzed: &AnalyzedProgram, options: &ProgramCompilationOptions) -> Result<CompiledProgram, ProgramCompileError> {
         let mut runtime_root_specs = Vec::<(ModuleId, SourceRange, phalcom_semantic::types::id::TypeId, String)>::new();
         let mut runtime_call_root_specs = Vec::<(
             ModuleId,
@@ -1057,7 +1078,7 @@ impl ProgramCompiler {
             Some(analyzed.semantic.declarations()),
             Some(analyzed.semantic.callable_signatures().as_ref()),
             None,
-            phalcom_type_meta::header::MetadataProfile::RuntimePublic,
+            options.metadata_profile,
         )
         .with_project_universe(&analyzed.project_universe)
         .with_algebraic_semantics(&analyzed.semantic.data_semantics, &analyzed.semantic.enum_semantics)
@@ -2009,6 +2030,56 @@ mod tests {
     use super::ProgramCompileError;
     use crate::typing::RuntimeTypeRecipe;
     use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
+
+    #[test]
+    fn empty_projection_preserves_explicit_metadata_profile() {
+        use super::{AnalyzedProgram, ProgramCompilationOptions, ProgramCompiler};
+        use phalcom_type_meta::header::MetadataProfile;
+        use std::sync::Arc;
+
+        // Isolate the compiler input seam from canonical bootstrap and the
+        // separately tracked whole-world metadata export failure.
+        let entry = ModuleId::universe_root();
+        let semantic = phalcom_semantic::SemanticSnapshot::new(
+            phalcom_semantic::identity::WorkspaceId(1),
+            phalcom_semantic::identity::SemanticRevision(1),
+            0,
+            Arc::new(phalcom_semantic::types::store::TypeStore::new()),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        );
+        let analyzed = AnalyzedProgram {
+            project_universe: Arc::new(phalcom_modules::ProjectUniverse::new()),
+            linked: Arc::new(phalcom_modules::LinkedProgram {
+                universe: Arc::new(phalcom_modules::ProjectUniverse::new()),
+                modules: Default::default(),
+                graphs: Default::default(),
+                entry: entry.clone(),
+                initialization_order: Vec::new(),
+            }),
+            semantic: Arc::new(semantic),
+            sources: Default::default(),
+            runtime_modules: Default::default(),
+            entry,
+        };
+        let default = ProgramCompiler::compile_analyzed(&analyzed).unwrap();
+        assert_eq!(default.semantic_metadata.as_ref().unwrap().header.profile, MetadataProfile::RuntimePublic);
+        for metadata_profile in [
+            MetadataProfile::RuntimeMinimal,
+            MetadataProfile::RuntimePublic,
+            MetadataProfile::ToolingDebug,
+            MetadataProfile::Proof,
+        ] {
+            let program = ProgramCompiler::compile_analyzed_with_options(&analyzed, &ProgramCompilationOptions { metadata_profile }).unwrap();
+            assert_eq!(program.semantic_metadata.as_ref().unwrap().header.profile, metadata_profile);
+        }
+    }
 
     #[test]
     fn compiler_error_keeps_semantic_publication_failure_typed() {

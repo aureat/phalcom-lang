@@ -28,7 +28,9 @@ latest_completed_plan: PERF003.C2.P3
 next_plan: PERF003.C2.P4
 next_action: >
   Complete remaining Package D tasks for PERF003.C2.P4:
-  P4.T1 (ProgramCompilationOptions metadata_profile plumbing),
+  Resolve the canonical-authority prerequisite incident before cutover.
+  P4.T1 option plumbing is implemented but retained-session verification is
+  baseline-blocked; see PERF003.C2.P4-canonical-authority-incident.md.
   P4.T5 (MetadataExporter cutover to MetadataReachabilityClosure),
   P4.T6 (compiler canonical entity partitioning),
   P4.T7/P4.T8 (RuntimeTypingRegistry stable-identity indexes and inspect.rs same-pool assumption removal),
@@ -122,7 +124,7 @@ After:
 | `PERF003.C2.P7` | Consumer-Specific Publication & Demand-Driven Products | Package B | IN_PROGRESS | PARTIAL | UNVERIFIED | Earlier advisory-only slice has focused evidence; commit `a7b75980` adds `PresentationLevel` source-index filtering and Full → RuntimeMinimal → Full coverage changes, which remain unverified; unified source-target traversal remains |
 | `PERF003.C2.P2` | Complete Canonical Universe Formal Image and Immutable Canonical Query Roots | Formal/query foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | Formal image, query freeze/reader, provenance validation and core acquisition implemented in the task working-tree patch over `82051480`; focused evidence below; G5/G6 certification remains deferred |
 | `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Exact indexed witness lookup, module-bounded effective-surface signature enumeration, ConformanceIndex partitioning (nominal family + open heads) with brute-force parity, SCC inferred-return settlement, and shared requirement-view passing implemented; focused regressions pass. Retained structural witness plans across revisions and generic proof memoization remain |
-| `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Active plan: `MetadataRootSet`, `MetadataRetentionRequest`, `MetadataReachabilityClosure` engine, `CallableSignatureTable` and `FieldSignatureTable` owner indexes, 14 `PerfCounter` metrics, and canonical authority elision unit tested. Exporter cutover, compiler option plumbing, and runtime stable-identity indexing remain |
+| `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Foundation retains prior focused evidence. T1 options implemented; isolated compiler profile test passes. Retained-session test fails in existing aggregate export; canonical compiled authority fails on ProductKind before projection. Incident awaits a prerequisite/scope ruling; T5–T9 cutover remains |
 | `PERF003.C2.P5` | Backend Scans, Trait Slots, and Local Complexity Elimination | Package E | PROPOSED | NOT_STARTED | UNVERIFIED | Module-indexed backend tables, canonical trait-slot precomputation, inherent impl domain index, range lookup indexes |
 
 ---
@@ -143,10 +145,26 @@ After:
 - Canonical Universe declarations, callables, and fields (`module_id.project.is_universe()`) are elided from ordinary user bundles by the reachability closure; only non-universe local entities and cross-pool nominal references are retained.
 - `CallableSignatureTable` and `FieldSignatureTable` maintain declaration-owner reverse indexes (`owner_callables` and `owner_fields`), eliminating quadratic $O(\text{declarations} \times \text{all callables})$ scans.
 - `telos-observability` tracks metadata reachability, canonical elision, and runtime lookup metrics via 14 new `PerfCounter` variants.
+- T1 adds `ProgramCompilationOptions` and explicit analyzed/session compilation
+  entry points. Existing APIs and canonical bootstrap default to RuntimePublic;
+  semantic publication remains independent. The profile reaches the existing
+  exporter, but production retention is still aggregate until T5.
 
 ---
 
 ## 4. Verification evidence
+
+### P4 inline options continuation (2026-10-13, uncommitted over `a82dfe32`)
+
+- Core `cargo check` with `RUSTFLAGS=''` and `perf-observability`: PASS (18.99 s).
+- `empty_projection_preserves_explicit_metadata_profile`: PASS, 1 selected;
+  default public and four explicit profile headers. Plumbing evidence only.
+- Retained-session options regression: FAIL, 1 selected, inherited non-Symbol
+  Record remainder export error before header assertions.
+- Exact canonical singleton regression: FAIL, 1 selected, ProductKind
+  source-index rejection before projection; canonical authority unavailable.
+- Scoped diff hygiene passes. Broad compiler/reflection/runtime/performance gates
+  deferred pending the incident ruling. No P4 completion or speedup claimed.
 
 - Empirical characterization gathered in `COMPILATION-1.md` and `COMPILATION-2.md` confirms:
   1. `UniverseSourceDeclarationCatalog::build` and `InterfaceBuilder::build` are invoked for all Universe modules on every one-shot compilation.
@@ -204,6 +222,8 @@ After:
 |---|---|---|---|
 | `corpus::booleans` | Fails before VM construction: legacy metadata cannot represent Record remainder outside Symbol key domain | D | Pre-existing baseline compiler limitation recorded in PERF003.C1; nonblocking for Package A/B/C/E. Package D will resolve metadata reachability. |
 | `perf_universe_characterization` VM::new() | Fails at runtime: intrinsic runtime data ProductKind is not a canonical Tuple/Record/Pack source declaration | D | Pre-existing runtime bootstrap blocker recorded in PERF003.C1; nonblocking for compiler and semantic optimization. |
+| `P4 canonical authority prerequisite` | Existing exact canonical singleton test fails with the same ProductKind source-index error before projection | D | Reproduced 2026-10-13; blocks P4 T6 canonical authority and runtime proof. See incident; no bootstrap fix attempted. |
+| `P4 retained-session options regression` | Default public compile fails with legacy non-Symbol Record remainder export error | D | One selected test fails before profile assertions; retained as a pending end-to-end gate, not skipped. T1 seam has narrower passing evidence. |
 | `corpus::blocks` | `blocks_argument_to_method.ph` fails with `[1, 2, 3, 4] does not understand 'fold(initial,using)'` | D | Pre-existing missing library method recorded in PERF003.C1. |
 | `semantic::integration::advisory::analysis::formal_projection_preserves_causal_invalidity_and_binding_contracts` | Expected one causal-invalidity marker but current formal projection publishes a different state | D | Reproduces in isolation outside the demand-driven request path; deferred for the owning formal-projection work. |
 | `incremental::type_store_revisions` callable-count assertions | Existing first-publication callable recomputation counts differ from stale expected values | D | Reproduces in isolation after all source/formal/advisory assertions pass; nonblocking for product-request work. |
@@ -211,6 +231,13 @@ After:
 ---
 
 ## 6. Consultations and amendments
+
+- P4 continuation, 2026-10-13: mandatory trigger 2 raised because the canonical
+  compiled metadata authority cannot be built. The incident packet is
+  [PERF003.C2.P4-canonical-authority-incident.md](PERF003.C2.P4-canonical-authority-incident.md).
+  User required inline work with no subagents; no adviser was spawned and no
+  ruling or plan amendment is assumed. Await a ruling on a prerequisite repair
+  versus bounded detached continuation. Existing profile/semantic rules stand.
 
 - L2 (2026-10-13): User requested continuing the compiler optimizations in the
   attached “Canonical Universe Image Implementation and Next Major Performance
