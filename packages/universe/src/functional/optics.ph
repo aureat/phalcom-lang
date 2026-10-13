@@ -12,9 +12,12 @@ impl<S, T> Iso<S, T> {
   restore(_ target: T) -> S { self.backward.call(target) }
   /// Exchanges the forward and backward callbacks.
   inverse -> Iso<T, S> { Iso<T, S>.new(forward: self.backward, backward: self.forward) }
+  /// Applies this isomorphism, then `other`, in the forward direction.
+  /// Restores by applying `other` first, then this isomorphism.
   compose<U>(_ other: Iso<T, U>) -> Iso<S, U> {
     Iso<S, U>.new(forward: |source| { other.convert(self.convert(source)) }, backward: |target| { self.restore(other.restore(target)) })
   }
+  /// Converts to the focus, applies `f`, then restores a source value.
   modify(_ source: S, using f: (T) -> T) -> S { self.restore(f.call(self.convert(source))) }
   asLens -> Lens<S, T> {
     Lens<S, T>.new(get: self.forward, set: |_, value| { self.restore(value) })
