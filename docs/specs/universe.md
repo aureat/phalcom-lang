@@ -30,7 +30,7 @@ This specification defines the approved post-migration canonical architecture. T
 
 At repository revision `a1621a7cec577952612685508a4c87c90aea86cd` on `feat/telos-collections`, the production compiler and VM still use the legacy source tree under `phalcom-core/core/universe/`. `packages/universe/` is an unregistered shadow tree. `ProjectIdentity::Universe` is the conceptual builtin identity of either source layout, but loading `packages/universe/project.toml` through the ordinary filesystem project loader yields a resolved filesystem project; the manifest does not activate the shadow tree as the builtin.
 
-| Declaration | ACTIVE production owner | TARGET canonical owner (proposed) |
+| Declaration | ACTIVE production owner | TARGET canonical owner after integration |
 |---|---|---|
 | `Number` | `universe.scalar.number::Number` | `universe.scalar.number::Number` |
 | `Int` | `universe.scalar.number::Int` | `universe.scalar.int::Int` |
@@ -41,7 +41,7 @@ At repository revision `a1621a7cec577952612685508a4c87c90aea86cd` on `feat/telos
 | `Iterator` | `universe.collections.iterator_laws::Iterator` | `universe.collections.iteration.protocols::Iterator` (proposed; unactivated) |
 | `Iterable` | `universe.collections.iterator_laws::Iterable` | `universe.collections.iteration.protocols::Iterable` (proposed; unactivated) |
 
-The TARGET column names the intended single declaration owners after integration. It is not a second production Universe or a permanent alias layer. The S4 shadow source currently authors the iteration protocols and adapters together in `universe.collections.iteration`; that cohesive placement preserves the source while the proposed `universe.collections.iteration.protocols` owner and adapter-module split remain deferred. Ordinary source imports currently carry runtime dependency edges, so the split must wait for a supported interface-only dependency model or another validated design. Neither the current shadow owner nor the proposed split has been activated in production. Current implementation and synchronization evidence is maintained in [`packages/universe/docs/migration-status.md`](../../packages/universe/docs/migration-status.md) and [`packages/universe/docs/identity-migration.md`](../../packages/universe/docs/identity-migration.md).
+The TARGET column names the intended single declaration owners after integration. It is not a second production Universe or a permanent alias layer. The shadow-source owner moves for `Number`, `Int`, `Float`, `Option`, `Result`, and `Unit` are approved migration targets; production remains on the ACTIVE owners until a separate integration decision. The S4 shadow source currently authors the iteration protocols and adapters together in `universe.collections.iteration`; that cohesive placement preserves the source while the proposed `universe.collections.iteration.protocols` owner and adapter-module split remain deferred. Ordinary source imports currently carry runtime dependency edges, so the split must wait for a supported interface-only dependency model or another validated design. Neither the current shadow owner nor the proposed split has been activated in production. Current implementation and synchronization evidence is maintained in [`packages/universe/docs/migration-status.md`](../../packages/universe/docs/migration-status.md) and [`packages/universe/docs/identity-migration.md`](../../packages/universe/docs/identity-migration.md).
 
 ---
 

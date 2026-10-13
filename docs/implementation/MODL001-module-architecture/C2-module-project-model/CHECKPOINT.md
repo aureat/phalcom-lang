@@ -21,3 +21,4 @@ source changes.
 | `MODL001.C2.P1` | Module syntax and project resolution | Proposed |
 | `MODL001.C2.P2` | Module linking graphs and LSP integration | Proposed; follows P1 |
 | `MODL001.C2.P3` | Module runtime initialization and execution | Proposed; follows P2 |
+| `MODL001.C2.P4` | Phase-aware source dependencies for the S4 iteration-split prerequisite | Blocked before start; see [architecture incident](MODL001.C2.P4-architecture-incident.md) |

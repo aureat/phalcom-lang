@@ -32,4 +32,4 @@ The legacy `phalcom-core/core/universe/` source and production provider remain u
 
 ## Next owner and gate
 
-The next compiler/module-system integration plan should first implement or identify a tested interface-only source dependency mechanism under the established import and runtime rules. Revisit the six-child split only after a focused linked-interface and initialization-graph test demonstrates an acyclic runtime graph and preserved canonical declaration identity. Until then, mark the fine-grained split `BLOCKED/PARTIAL`.
+The proposed compiler/module-system prerequisite is tracked by `MODL001.C2.P4`, but its implementation is blocked pending an architectural decision about phase evidence and provisional versus executable linking; see the [incident report](../../../docs/implementation/MODL001-module-architecture/C2-module-project-model/MODL001.C2.P4-architecture-incident.md). Revisit the six-child split only after a focused linked-interface and initialization-graph test demonstrates an acyclic runtime graph and preserved canonical declaration identity. Until then, keep the fine-grained split `BLOCKED/PARTIAL`.
