@@ -2,14 +2,14 @@
 id: PERF003.C2
 program: PERF003
 kind: optimization
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 active_plan: PERF003.C2.P1
 latest_completed_plan: null
 next_plan: PERF003.C2.P1
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: 303222c3b027c34ddacd4749f056e1095aabfa81
+execution_tree_head: 99b84eccf191dab1892fc50e027fc1ced180fb3b
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
@@ -19,21 +19,19 @@ execution_tree_head: 303222c3b027c34ddacd4749f056e1095aabfa81
 ```yaml
 program: PERF003
 checkpoint: PERF003.C2
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 active_plan: PERF003.C2.P1
 latest_completed_plan: null
 next_plan: PERF003.C2.P1
 next_action: >
-  Adopt PERF003.C2-detailed-implementation-plan.md. Begin execution of Phase 1
-  (Package A / Plan PERF003.C2.P1): implement process-shared
-  UniverseSourceDeclarationCatalog, eliminate ModuleResolver's 148-interface
-  rebuild loop, preserve interface/import/topology products in
-  SemanticWorkspaceInput, treat canonical Universe as baseline revision ancestry
-  (Revision U -> Revision U+1), and route ProgramCompiler::compile_entry_selection
-  through the ephemeral overlay session. Validate structural cardinality counters
-  using telos-observability.
+  Complete the canonical Universe formal-image implementation and its focused
+  tests. The current tree declares and tests canonical_image but does not yet
+  contain its implementation module. Reconcile the proposed unified-artifact
+  specification with the active plan before accepting architectural changes;
+  preserve image/workspace ownership and do not cut compilation over until
+  parity and build-once behavior are proven.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -118,8 +116,8 @@ After:
 
 | Plan | Title | Package | Status | Completion | Verification | Notes |
 |---|---|---|---|---|---|---|
-| `PERF003.C2.P1` | Canonical Universe Compilation Image & One-Shot Overlay | Package A | PROPOSED | NOT_STARTED | UNVERIFIED | Eliminates 148-interface rebuild, routes one-shot through overlay session, establishes immutable canonical image and revision ancestry |
-| `PERF003.C2.P2` | Consumer-Specific Publication & Demand-Driven Products | Package B | PROPOSED | NOT_STARTED | UNVERIFIED | Installs `CompilationProductRequest`, splits presentation from core semantics, collapses AST traversals, disables advisory in runtime mode |
+| `PERF003.C2.P1` | Canonical Universe Compilation Image & One-Shot Overlay | Package A | IN_PROGRESS | PARTIAL | UNVERIFIED | Shared declaration/interface caches and workspace interface retention are established at `99b84ecc`; commit `a7b75980` adds canonical formal-image test scaffolding, but its declared `canonical_image` module is absent, and module-session cutover remains |
+| `PERF003.C2.P2` | Consumer-Specific Publication & Demand-Driven Products | Package B | IN_PROGRESS | PARTIAL | UNVERIFIED | Earlier advisory-only slice has focused evidence; commit `a7b75980` adds `PresentationLevel` source-index filtering and Full → RuntimeMinimal → Full coverage changes, which remain unverified; unified source-target traversal remains |
 | `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | PROPOSED | NOT_STARTED | UNVERIFIED | Indexed witness lookup, cached requirement views, structural/final plan split, SCC return settlement, memoized generic proof query |
 | `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | PROPOSED | NOT_STARTED | UNVERIFIED | `MetadataRetentionPolicy`, reachability closures, `CallableOwnerIndex`, canonical metadata cross-pool references |
 | `PERF003.C2.P5` | Backend Scans, Trait Slots, and Local Complexity Elimination | Package E | PROPOSED | NOT_STARTED | UNVERIFIED | Module-indexed backend tables, canonical trait-slot precomputation, inherent impl domain index, range lookup indexes |
@@ -133,6 +131,11 @@ After:
 - `SemanticWorkspaceSession` wraps updates in a `SemanticDb` undo-journal transaction; session forks must preserve canonical immutability.
 - `telos-observability` provides exhaustive counters, hierarchical spans, and query metrics across compiler projection, semantic updates, TypeStore forks, and metadata export.
 - `CanonicalUniverseProgram` already builds a complete semantic analysis of the Universe on first access; this formal result must be preserved in `CanonicalUniverseCompilationImage` rather than discarded.
+- Canonical `UniverseSourceDeclarationCatalog` and interface projections are process-shared for the canonical provider; source-provider overrides remain isolated from those caches.
+- `SemanticWorkspaceInput::new` retains the exact interfaces used to construct topology instead of forcing downstream reconstruction.
+- `SemanticProductRequest::default()` preserves full tooling-compatible publication. Runtime compiler entry points explicitly request `runtime_minimal()`.
+- Runtime-minimal publication retains non-Universe source/formal shards required by lowering, publishes no canonical Universe presentation shards, and publishes an empty advisory workspace.
+- Canonical immutable dependencies must not be installed as workspace `last_snapshot`; the upcoming image remains a separate read-only lifetime domain.
 
 ---
 
@@ -146,6 +149,19 @@ After:
   5. `analyze_workspace` transiently computes the complete Universe semantic snapshot during `canonical_universe_program()`, but discards it immediately after lowering.
   6. Runtime compilation constructs a full presentation index for 148 Universe modules and runs a 41-module advisory fixed point.
   7. Metadata export scans all declarations and callables across the Universe regardless of requested profile.
+- Prior focused demand-driven publication evidence recorded at execution head `99b84ecc` (does not cover the current working-tree delta):
+  1. `runtime_minimal_skips_advisory_publication` passes with one non-Universe source/formal shard and zero advisory products/recomputation counts.
+  2. `product_request_changes_replace_presentation_coverage` passes for `Full -> RuntimeMinimal -> Full` in one retained session.
+  3. `incremental::workspace_indexing`: 19 passed.
+  4. `phalcom-modules --test parse_cache`: 2 passed.
+  5. `cargo check -p phalcom-core --features perf-observability`: passed.
+- Detailed compiler-projection profile `compiler-projection-detailed-20261013T023039Z-50783` measured:
+  1. source-index recomputation: 1 module, `0.364 ms` (previous comparable sample: 41 modules, `603.428 ms`);
+  2. advisory: `0.750 us` (pre-bypass sample: `280.829 ms`);
+  3. formal projection: `0.014 ms` (previous comparable sample: `151.359 ms`);
+  4. total: `10.571 s`; semantic update: `10.441 s`; unchanged final callable reanalysis remains dominant at 3,896 passes / `3.618 s`.
+
+**Current implementation increment — UNVERIFIED (commit `a7b75980`).** Since execution base `99b84ecc`, the semantic request now distinguishes presentation and advisory products. Runtime-minimal publication filters canonical Universe source-index shards while retaining local source/formal products, and publication effects/counters are narrowed to the requested products. Integration tests cover minimal publication and Full → RuntimeMinimal → Full presentation coverage. The tree also declares `phalcom_semantic::canonical_image` and adds a process-sharing/completeness test, but `phalcom-semantic/src/canonical_image.rs` is absent; the formal-image implementation and its test are incomplete. No test or build result in this record applies to commit `a7b75980`. Do not describe the canonical formal image as implemented or verified.
 
 ---
 
@@ -156,6 +172,8 @@ After:
 | `corpus::booleans` | Fails before VM construction: legacy metadata cannot represent Record remainder outside Symbol key domain | D | Pre-existing baseline compiler limitation recorded in PERF003.C1; nonblocking for Package A/B/C/E. Package D will resolve metadata reachability. |
 | `perf_universe_characterization` VM::new() | Fails at runtime: intrinsic runtime data ProductKind is not a canonical Tuple/Record/Pack source declaration | D | Pre-existing runtime bootstrap blocker recorded in PERF003.C1; nonblocking for compiler and semantic optimization. |
 | `corpus::blocks` | `blocks_argument_to_method.ph` fails with `[1, 2, 3, 4] does not understand 'fold(initial,using)'` | D | Pre-existing missing library method recorded in PERF003.C1. |
+| `semantic::integration::advisory::analysis::formal_projection_preserves_causal_invalidity_and_binding_contracts` | Expected one causal-invalidity marker but current formal projection publishes a different state | D | Reproduces in isolation outside the demand-driven request path; deferred for the owning formal-projection work. |
+| `incremental::type_store_revisions` callable-count assertions | Existing first-publication callable recomputation counts differ from stale expected values | D | Reproduces in isolation after all source/formal/advisory assertions pass; nonblocking for product-request work. |
 
 ---
 
@@ -165,9 +183,10 @@ After:
 - Reaffirmed: no workaround harnesses (e.g. changing `run_inline` alone); optimization must live underneath `ProgramCompiler::compile_entry_selection`.
 - Reaffirmed: canonical image must be strictly immutable; sessions compile user code as persistent overlays.
 - Reaffirmed: structural work cardinality (measured via `telos-observability`) is the primary gate, preventing faster hardware from masking algorithmic regressions.
+- `PERF003-C2-Unified-Compiler-Artifact-Implementation-Spec.md` was added as a proposed architecture for review. It is not an adopted plan amendment; the active detailed implementation plan and this checkpoint remain the execution and lifecycle records until an explicit decision is recorded.
 
 ---
 
 ## 7. Next action
 
-Begin execution of `PERF003.C2.P1` (Package A: Tasks T1–T6). Establish the process-shared declaration catalog, resolver interface cache reuse, module product forwarding, and ephemeral overlay session. Verify with structural counters.
+Complete `phalcom-semantic/src/canonical_image.rs` and the focused formal-image test, then verify the current Package A/B working-tree changes. Keep the image separate from workspace `last_snapshot`; prove semantic parity and one build per process/world before canonical-aware query lookup, source-ownership changes, or compiler cutover.
