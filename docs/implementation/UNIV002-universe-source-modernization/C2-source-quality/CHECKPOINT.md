@@ -36,6 +36,7 @@ integration, or production cutover.
 | `UNIV002.C2.P11` | Reader.map documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment describing the transformed value and preserved environment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 14 changed hashes. |
 | `UNIV002.C2.P12` | Writer.map documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting value transformation and log preservation; exact source review and whitespace check passed, and the 174-path inventory reconciled with 15 changed hashes. |
 | `UNIV002.C2.P13` | State.run documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added two comment lines documenting the initial state input and StateStep outputs; exact source review and whitespace check passed, and the 174-path inventory reconciled with 16 changed hashes. |
+| `UNIV002.C2.P14` | Writer.mapLog documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | One source comment is planned; implementation and inventory reconciliation are pending. |
 
 ## Established invariants
 
@@ -191,8 +192,8 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: none; P13 is complete and the next bounded source-quality
-  slice has not yet started.
+- Active plan: `UNIV002.C2.P14`, documenting `Writer.mapLog` in the stable
+  Functional package. The plan authorizes one comment only.
 - Latest complete plan: `UNIV002.C2.P13`; latest complete checkpoint: `UNIV002.C1`.
 - The source inventory is reconciled through P13 source commit
   `44beb521c830c836a70f827ca7288c7345b3e2ba`: 174 paths, no additions or
@@ -222,3 +223,6 @@ identities.
 - P13 completed a bounded Category A comment in `functional/state.ph::State.run`.
   The method invokes the transition with the supplied initial state and
   returns a `StateStep` containing the produced value and successor state.
+- P14 is active as a bounded Category A comment in
+  `functional/writer.ph::Writer.mapLog`; the method transforms the log and
+  carries the existing value into the result. Do not change executable source.
