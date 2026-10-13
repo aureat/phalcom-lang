@@ -54,6 +54,7 @@ class IntegerMath {
     return result
   }
 
+  /// Returns the exact falling product; negative arguments raise ArgumentError, and k > n returns zero.
   @class
   fallingFactorial(_ n: Int, _ k: Int) -> Int {
     if n < 0 or k < 0 { ArgumentError.new("fallingFactorial requires non-negative arguments").raise() }
