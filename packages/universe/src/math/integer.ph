@@ -77,6 +77,7 @@ class IntegerMath {
     return result
   }
 
+  /// Returns the floor of the square root; negative inputs raise `ArgumentError`.
   @class
   isqrt(_ n: Int) -> Int {
     if n < 0 { ArgumentError.new("isqrt requires a non-negative Int").raise() }
