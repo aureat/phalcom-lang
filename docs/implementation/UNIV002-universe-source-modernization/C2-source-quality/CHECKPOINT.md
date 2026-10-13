@@ -36,7 +36,7 @@ integration, or production cutover.
 | `UNIV002.C2.P11` | Reader.map documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment describing the transformed value and preserved environment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 14 changed hashes. |
 | `UNIV002.C2.P12` | Writer.map documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting value transformation and log preservation; exact source review and whitespace check passed, and the 174-path inventory reconciled with 15 changed hashes. |
 | `UNIV002.C2.P13` | State.run documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added two comment lines documenting the initial state input and StateStep outputs; exact source review and whitespace check passed, and the 174-path inventory reconciled with 16 changed hashes. |
-| `UNIV002.C2.P14` | Writer.mapLog documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | One source comment is planned; implementation and inventory reconciliation are pending. |
+| `UNIV002.C2.P14` | Writer.mapLog documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting log transformation and value preservation; exact source review and whitespace check passed, and the 174-path inventory reconciled with 16 changed hashes. |
 
 ## Established invariants
 
@@ -192,11 +192,11 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: `UNIV002.C2.P14`, documenting `Writer.mapLog` in the stable
-  Functional package. The plan authorizes one comment only.
-- Latest complete plan: `UNIV002.C2.P13`; latest complete checkpoint: `UNIV002.C1`.
-- The source inventory is reconciled through P13 source commit
-  `44beb521c830c836a70f827ca7288c7345b3e2ba`: 174 paths, no additions or
+- Active plan: none. P14 is complete; the next bounded source-quality plan is
+  not yet active.
+- Latest complete plan: `UNIV002.C2.P14`; latest complete checkpoint: `UNIV002.C1`.
+- The source inventory is reconciled through P14 source commit
+  `cb6ceb0ebe53cdded4e57effddc4c91665dde403`: 174 paths, no additions or
   removals, and 16 changed hashes with the rest matching MOD1. Textual
   inventory heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
@@ -223,6 +223,17 @@ identities.
 - P13 completed a bounded Category A comment in `functional/state.ph::State.run`.
   The method invokes the transition with the supplied initial state and
   returns a `StateStep` containing the produced value and successor state.
-- P14 is active as a bounded Category A comment in
+- P14 completed a bounded Category A comment in
   `functional/writer.ph::Writer.mapLog`; the method transforms the log and
-  carries the existing value into the result. Do not change executable source.
+  carries the existing value into the result. Only a comment changed; no
+  semantic or runtime claim is made.
+
+P14 added one documentation line immediately above `Writer.mapLog`, stating
+that it applies `f` to the log and preserves this Writer's value. The method
+body and signature are unchanged. Exact diff review and scoped
+`git diff --check` passed; no tests were run. Independent inventory
+reconciliation confirmed the same 174 `.ph` paths and sixteen changed hashes
+against MOD1; `functional/writer.ph` is recorded at SHA-256
+`69566557fba46dff65545669b9106d4da00bd86f40f18ef0b9c31ae325518a0a` through
+source commit `cb6ceb0ebe53cdded4e57effddc4c91665dde403`. Semantic linking
+remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
