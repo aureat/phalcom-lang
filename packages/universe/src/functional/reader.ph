@@ -20,6 +20,7 @@ impl<R, T> Reader<R, T> {
   /// Runs this computation with the supplied environment.
   run(_ environment: R) -> T { self.read.call(environment) }
 
+  /// When run, transforms the produced value and retains the same environment.
   map<U>(_ f: (T) -> U) -> Reader<R, U> {
     Reader<R, U>.new(|environment| { f.call(self.run(environment)) })
   }
