@@ -1,6 +1,7 @@
 from universe.time.timestamp import Timestamp
 from universe.time.offset import UtcOffset
 
+/// Records a transition timestamp and the offsets before and after it.
 data ZoneTransition private(
   _ timestamp: Timestamp,
   _ offsetBefore: UtcOffset,

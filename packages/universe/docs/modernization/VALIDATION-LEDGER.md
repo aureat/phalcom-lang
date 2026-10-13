@@ -108,3 +108,12 @@ shadow graph and an execution path for shadow Universe code.
   this shadow edit. Semantic linking remains `UNVERIFIED`; shadow runtime
   parity remains `BLOCKED` because no complete shadow execution path exists.
 - No performance claim is made.
+
+## UNIV002.C2.P6 — ZoneTransition type documentation
+
+- Added one declaration-level comment to `time/zone_transition.ph`, describing
+  the stored transition timestamp and the offsets before and after it.
+- `shift`, `isGap`, and `isOverlap` were not documented because the live type
+  does not expose those design-sketch members.
+- Only a comment changed; no tests were run. `git diff --check` passed.
+- This does not establish shadow semantic or runtime behavior.

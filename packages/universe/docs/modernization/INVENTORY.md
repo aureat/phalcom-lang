@@ -1,6 +1,6 @@
 # Shadow Universe modernization inventory
 
-## Snapshot
+## MOD1 baseline snapshot
 
 - Branch: `feat/telos-collections`
 - HEAD: `18aaf8b568a0b45dd450befc35932bb7a1fdd442`
@@ -9,9 +9,35 @@
 - At baseline capture, the only dirty tracked files were `phalcom-semantic/src/session.rs` and `phalcom-semantic/src/workspace.rs` (3 insertions total); both were preserved. At final review, `git status --short` also showed this task's four new modernization docs and the parent-created `UNIV002.C1.P1` plan/checkpoint records as untracked.
 - Inventory source hashes: SHA-256 of each live shadow file at inventory time.
 
+## Current source hash reconciliation before UNIV002.C2.P6
+
+- Branch: `feat/telos-collections`
+- Revision: `44db9e547521ec712fb2f147a8dbd01e2cb0b34f`
+- The current tree still contains 174 `.ph` files. Its source paths match the
+  MOD1 baseline paths; nine files have changed since that snapshot. The current
+  hashes for those changed files are:
+
+| File | Current SHA-256 |
+|---|---|
+| `collections/array.ph` | `6b9cbd9ff2d93dcde69c5e02676d93125f463dccc6509cbf6312ffed76f81ff2` |
+| `collections/list.ph` | `a6faa5664dc098a1b32ba06a317e59cf9c35e2df5ac7ea1c40062e359f25c741` |
+| `collections/vector.ph` | `8934df5a96be81fa0ec1b46528a15666337cd5f45d815a893735222528cff7cb` |
+| `functional/chain.ph` | `1636691049ea12c9bc32274beaa0dc04f1585c9846cea76114f2e74fe6cd4fad` |
+| `functional/either.ph` | `4ea073b9ec44ab2f26ac6381d377266284867060c5007a031dc58bb878368824` |
+| `functional/validation.ph` | `46b9eaf481b3ff1bba3bb6dc6009fa0e25075bf1968ddf1ab3de17ba23384aa3` |
+| `scalar/string_index.ph` | `1d63ba0645ba5341e8ffac0b8e6292d88ff402ffd78f38fff61dd8d6ae491252` |
+| `text/errors.ph` | `f1751604d7e49ba7c55321720b63493677a3bfaa1683f39fb205858c4bfeffda` |
+| `time/calendar/month.ph` | `feae5b76292b70bcff38a8242205eb080b2c6f7db36088a2382e2613f4f4a64f` |
+
+All other source hashes match the MOD1 baseline. In particular,
+`time/zone_transition.ph` is unchanged at
+`a931b46791942c13cadef8a6017c87407a9407f28ba65d7c3e32e432a8489b5e`.
+The occurrence and documentation-coverage columns below remain the MOD1
+baseline heuristics; they have not been rescanned after the listed edits.
+
 ## Evidence and limits
 
-The current S4 test-only validator calls the Phalcom AST parser and builds unlinked interfaces for every shadow source; `migration-status.md` records its prior focused PASS. That is syntax/interface evidence from the recorded S4 run, not a fresh run on this snapshot and not semantic, canonical identity, or runtime evidence. This task did not run tests. Per-file occurrence columns below are textual scans of the current source. `.match` receiver categories are inferred only from nearby `some:`/`none:` or `ok:`/`err:` labels; they are not type-checked. They are not AST classifications or rewrite instructions. `?` means the requested count needs an AST-aware/manual pass; textual candidates are explicitly marked as such. In particular, match receiver classes, receiver categories, whether a declaration is public, source-doc association, whether control flow is compact, untyped public API status, dataflow-based unnecessary mutability, and actual modernization suitability cannot be established by token counts alone. The declaration and missing-doc columns use source scans and textual adjacency heuristics. Declaration names are top-level source-scanner candidates, not resolved public interface declarations; `export` lists can include re-exports. Missing declaration documentation is a textual adjacency estimate, not an AST doc-attachment result.
+The current S4 test-only validator calls the Phalcom AST parser and builds unlinked interfaces for every shadow source; `migration-status.md` records its prior focused PASS. That is syntax/interface evidence from the recorded S4 run, not a fresh run on this snapshot and not semantic, canonical identity, or runtime evidence. This task did not run tests. Per-file occurrence and documentation-coverage columns below are textual scans from the MOD1 baseline, not the current source. `.match` receiver categories are inferred only from nearby `some:`/`none:` or `ok:`/`err:` labels; they are not type-checked. They are not AST classifications or rewrite instructions. `?` means the requested count needs an AST-aware/manual pass; textual candidates are explicitly marked as such. In particular, match receiver classes, receiver categories, whether a declaration is public, source-doc association, whether control flow is compact, untyped public API status, dataflow-based unnecessary mutability, and actual modernization suitability cannot be established by token counts alone. The declaration and missing-doc columns use source scans and textual adjacency heuristics. Declaration names are top-level source-scanner candidates, not resolved public interface declarations; `export` lists can include re-exports. Missing declaration documentation is a textual adjacency estimate, not an AST doc-attachment result.
 
 `Native risk` is a triage heuristic: `high` where the file contains `native`, `medium` where runtime/identity-sensitive names are present, and `low` otherwise. It is not a boundary audit. Source declarations and files are listed for coverage; this ledger does not imply a change to ownership or identity.
 

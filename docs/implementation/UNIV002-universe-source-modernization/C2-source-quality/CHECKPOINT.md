@@ -28,6 +28,7 @@ integration, or production cutover.
 | `UNIV002.C2.P3` | StringIndex comparison documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Comments only; source/spec review and `git diff --check` passed; no tests required or run. |
 | `UNIV002.C2.P4` | Utf8Error offset documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Comments only; wording matches `docs/specs/text.md` §6 and `git diff --check` passed; no tests required or run. |
 | `UNIV002.C2.P5` | Gregorian leap-year predicate expression | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Exact shadow parser/interface test passed; source-level divisibility review passed. Semantic linking remains unverified and shadow runtime remains blocked. A separate Boolean corpus attempt failed before fixture execution during canonical import resolution; classified unrelated to P5 and left with concurrent MODL001 P4 work. |
+| `UNIV002.C2.P6` | ZoneTransition type documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one type-level comment describing the transition timestamp and offsets before/after. No executable code changed; `git diff --check` passed. |
 
 ## Established invariants
 
@@ -90,6 +91,13 @@ That failure is unrelated to the P5 shadow source and is left with concurrent
 MODL001 P4 work; it was not rerun. The initial `--exact` variant selected zero
 tests and is not evidence.
 
+P6 added one type-level documentation comment to `ZoneTransition`, describing
+its stored timestamp and before/after offsets. No declaration or executable
+line changed. `git diff --check` passed; no tests were run for this
+comments-only slice. The comment deliberately does not promise `shift`,
+`isGap`, or `isOverlap`, which appear in an implementation design sketch but
+not in the live source.
+
 ## Deferred candidate
 
 `TextCursor.next` has a candidate rewrite from `isSome`/`unwrap` to
@@ -103,10 +111,12 @@ identities.
 ## Active plan and next action
 
 - Active plan: none.
-- Latest complete plan: `UNIV002.C2.P5`; latest complete checkpoint: `UNIV002.C1`.
-- P5 is source-complete and focused-tested, with the limits above. The
-  supplemental Boolean corpus attempt failed before execution and remains
-  classified outside P5.
-- Next: refresh/reconcile the inventory against the current source revision,
-  then select a small source-quality slice independently of the unresolved
-  Option/Result/Unit identity work and active MODL001 P4 linker work.
+- Latest complete plan: `UNIV002.C2.P6`; latest complete checkpoint: `UNIV002.C1`.
+- The source inventory was reconciled at `44db9e547521ec712fb2f147a8dbd01e2cb0b34f`;
+  its nine changed source hashes and the unchanged P6 target hash are recorded
+  in `packages/universe/docs/modernization/INVENTORY.md`.
+- P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
+  grounded in the live source; `docs/implementation/time.md` §29 proposes
+  additional derived members that are not implemented in this type.
+- Before another pilot, refresh the source-hash reconciliation for P6's
+  comment-only source change, then choose the next bounded stable source slice.
