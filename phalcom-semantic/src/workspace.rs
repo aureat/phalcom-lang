@@ -172,6 +172,7 @@ pub fn try_analyze_single_module(module: ModuleId, source: Arc<str>, program: Ar
 
     try_analyze_workspace(SemanticWorkspaceInput {
         linked,
+        semantic_linked: None,
         sources,
         interfaces: Arc::new(input_interfaces),
         import_products: Arc::new(BTreeMap::new()),

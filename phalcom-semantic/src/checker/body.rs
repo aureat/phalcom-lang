@@ -54,6 +54,7 @@ pub struct BodyAnalysisContext<'a> {
     pub access_topology: Option<&'a phalcom_modules::topology::ModuleTopology>,
     pub module_values: Option<crate::module_bindings::ModuleValueEnvironment<'a>>,
     pub linked_module: Option<&'a phalcom_modules::linker::LinkedModule>,
+    pub semantic_linked_module: Option<&'a phalcom_modules::linker::SemanticLinkedModule>,
 }
 
 /// Inputs specific to one callable-body analysis.
@@ -101,6 +102,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         access_topology,
         module_values,
         linked_module,
+        semantic_linked_module,
     } = context;
     let CallableBodyRequest {
         callable,
@@ -176,9 +178,13 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     if let Some(topology) = access_topology {
         ctx.set_access_topology(topology);
     }
-    if let (Some(module_values), Some(linked_module)) = (module_values, linked_module) {
+    if let Some(module_values) = module_values {
         ctx.attach_module_value_exports(module_values.bindings, module_values.exports);
-        ctx.seed_linked_module_import_values(linked_module, module_values.bindings);
+        if let Some(semantic_linked_module) = semantic_linked_module {
+            ctx.seed_symbolic_module_import_values(semantic_linked_module, module_values.bindings);
+        } else if let Some(linked_module) = linked_module {
+            ctx.seed_linked_module_import_values(linked_module, module_values.bindings);
+        }
     }
     if let Some(view) = conformance_semantics.or(request_conformance_semantics) {
         ctx.attach_conformance_semantics(view);

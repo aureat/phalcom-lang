@@ -659,6 +659,8 @@ pub struct CallableAnalysis {
     /// not a hash of dependency-edge metadata.
     pub dependency_fingerprint: crate::db::ProductFingerprint,
     pub status: CallableAnalysisStatus,
+    /// Joined use-phases for each imported source binding observed in this callable body.
+    pub observed_import_phases: Arc<std::collections::BTreeMap<phalcom_modules::identity::SourceImportBindingId, phalcom_modules::graph::DependencyPhase>>,
 }
 
 #[cfg(test)]

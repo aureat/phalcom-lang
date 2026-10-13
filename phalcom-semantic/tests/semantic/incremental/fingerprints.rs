@@ -137,6 +137,7 @@ fn callable_analysis() -> CallableAnalysis {
         constructor_super_initializer: None,
         dependency_fingerprint: ProductFingerprint::new(0),
         status: CallableAnalysisStatus::Complete,
+        observed_import_phases: Arc::new(BTreeMap::new()),
     }
 }
 

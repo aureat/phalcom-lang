@@ -399,6 +399,10 @@ impl TypeResolver for TrackingTypeResolver<'_> {
         self.inner.resolve_module_alias(current_module, alias)
     }
 
+    fn resolve_import_binding_id(&self, current_module: &ModuleId, name: &str) -> Option<phalcom_modules::identity::SourceImportBindingId> {
+        self.inner.resolve_import_binding_id(current_module, name)
+    }
+
     fn resolve_associated_type_requirement(&self, trait_declaration: &DeclarationId, name: &str) -> Option<crate::traits::AssociatedTypeRequirementId> {
         self.inner.resolve_associated_type_requirement(trait_declaration, name)
     }
@@ -593,6 +597,8 @@ pub struct CheckingContext<'a> {
     pub current_class: Option<DeclarationId>,
     pub current_side: DispatchSide,
     pub current_callable: Option<CallableId>,
+    pub(crate) imported_source_bindings: BTreeMap<BindingId, phalcom_modules::identity::SourceImportBindingId>,
+    pub(crate) observed_import_phases: BTreeMap<phalcom_modules::identity::SourceImportBindingId, phalcom_modules::graph::DependencyPhase>,
     /// Owner whose canonical instance constructor body is currently checked.
     /// Set only from a declaration signature carrying constructor semantics.
     pub(crate) current_constructor_owner: Option<DeclarationId>,
@@ -737,6 +743,8 @@ impl<'a> CheckingContext<'a> {
             current_class: None,
             current_side: DispatchSide::Instance,
             current_callable: None,
+            imported_source_bindings: BTreeMap::new(),
+            observed_import_phases: BTreeMap::new(),
             current_constructor_owner: None,
             internal_failure_policy: InternalFailurePolicy::Contain,
             control: CheckerControl::default(),
@@ -855,6 +863,8 @@ impl<'a> CheckingContext<'a> {
             current_class: None,
             current_side: DispatchSide::Instance,
             current_callable: None,
+            imported_source_bindings: BTreeMap::new(),
+            observed_import_phases: BTreeMap::new(),
             current_constructor_owner: None,
             internal_failure_policy: InternalFailurePolicy::Contain,
             control,
@@ -952,6 +962,8 @@ impl<'a> CheckingContext<'a> {
             current_class: self.current_class.clone(),
             current_side: self.current_side,
             current_callable: self.current_callable.clone(),
+            imported_source_bindings: self.imported_source_bindings.clone(),
+            observed_import_phases: self.observed_import_phases.clone(),
             current_constructor_owner: self.current_constructor_owner.clone(),
             internal_failure_policy: self.internal_failure_policy,
             control: self.control.clone(),
@@ -1077,6 +1089,43 @@ impl<'a> CheckingContext<'a> {
             ));
             self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(symbol.module.clone()));
             self.declare_checked_binding(local_name.to_string(), &fact.state, fact.phase);
+        }
+    }
+
+    pub(crate) fn record_import_phase(
+        &mut self,
+        id: &phalcom_modules::identity::SourceImportBindingId,
+        phase: phalcom_modules::graph::DependencyPhase,
+    ) {
+        self.observed_import_phases
+            .entry(id.clone())
+            .and_modify(|p| *p = p.join(phase))
+            .or_insert(phase);
+    }
+
+    pub(crate) fn seed_symbolic_module_import_values(
+        &mut self,
+        semantic_module: &phalcom_modules::linker::SemanticLinkedModule,
+        bindings: &BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
+    ) {
+        for (_id, import_binding) in &semantic_module.imports.bindings {
+            let phalcom_modules::linker::SymbolicImportTarget::Binding(ref symbol) = import_binding.target else {
+                continue;
+            };
+            let Some(fact) = bindings.get(&symbol.module).and_then(|index| index.get(symbol)) else {
+                continue;
+            };
+            let local_name = import_binding.local_name.to_string();
+            self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::LinkedName(
+                self.current_module.clone(),
+                local_name.clone(),
+            ));
+            self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(symbol.module.clone()));
+            if let BindingDeclarationResult::Inserted(binding_id) =
+                self.declare_checked_binding(local_name, &fact.state, fact.phase)
+            {
+                self.imported_source_bindings.insert(binding_id, import_binding.id.clone());
+            }
         }
     }
 
@@ -1834,6 +1883,13 @@ impl<'a> CheckingContext<'a> {
         resolver: &dyn TypeResolver,
         annotation: &phalcom_ast::ast::TypeAnnotation,
     ) -> (TypeKnowledge, crate::checker::causal::CausalInvalidity) {
+        let mut roots = Vec::new();
+        crate::phase_evidence::collect_type_annotation_roots(annotation, &mut roots);
+        for root in roots {
+            if let Some(import_id) = resolver.resolve_import_binding_id(&self.current_module, &root) {
+                self.record_import_phase(&import_id, phalcom_modules::graph::DependencyPhase::InterfaceOnly);
+            }
+        }
         let mut diagnostics = Vec::new();
         let mut site = if let Some(owner) = self.current_class.clone() {
             TypeFormationSite::member(self.current_module.clone(), owner, self.current_side)
@@ -4007,6 +4063,7 @@ impl<'a> CheckingContext<'a> {
             constructor_super_initializer: self.constructor_super_initializer,
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status,
+            observed_import_phases: std::sync::Arc::new(self.observed_import_phases),
         }
     }
 

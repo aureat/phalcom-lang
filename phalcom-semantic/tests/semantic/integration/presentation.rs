@@ -193,6 +193,7 @@ fn presentation_index_projects_formal_sites_without_reanalysis() {
         constructor_super_initializer: None,
         dependency_fingerprint: ProductFingerprint::new(7),
         status: CallableAnalysisStatus::Complete,
+        observed_import_phases: Arc::new(BTreeMap::new()),
     };
 
     let presenter = TypePresenter::new(&store);
@@ -265,6 +266,7 @@ fn presentation_preserves_non_ready_formal_states() {
         constructor_super_initializer: None,
         dependency_fingerprint: ProductFingerprint::new(8),
         status: CallableAnalysisStatus::Complete,
+        observed_import_phases: Arc::new(BTreeMap::new()),
     };
     let index = SemanticPresentationIndex::from_callable_analysis(module, &analysis, &presenter);
     assert_eq!(

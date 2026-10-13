@@ -5,8 +5,8 @@ program: MODL001
 checkpoint: MODL001.C2
 kind: implementation-plan
 status: IN_PROGRESS
-completion: NOT_STARTED
-verification: UNVERIFIED
+completion: PARTIAL
+verification: FOCUSED_TESTED
 depends_on:
   - MODL001.C2.P2
   - MODL001.C2.P3

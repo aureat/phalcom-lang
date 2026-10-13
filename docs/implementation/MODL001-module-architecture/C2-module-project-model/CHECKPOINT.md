@@ -3,8 +3,8 @@ id: MODL001.C2
 program: MODL001
 kind: implementation
 status: IN_PROGRESS
-completion: NOT_STARTED
-verification: UNVERIFIED
+completion: PARTIAL
+verification: FOCUSED_TESTED
 ---
 
 # MODL001.C2 — module project model
@@ -21,11 +21,11 @@ source changes.
 | `MODL001.C2.P1` | Module syntax and project resolution | Proposed |
 | `MODL001.C2.P2` | Module linking graphs and LSP integration | Proposed; follows P1 |
 | `MODL001.C2.P3` | Module runtime initialization and execution | Proposed; follows P2 |
-| `MODL001.C2.P4` | Phase-aware source dependencies for the S4 iteration-split prerequisite | Active under the approved architectural ruling; T0 contract amendment completed; implementation and verification pending |
+| `MODL001.C2.P4` | Phase-aware source dependencies for the S4 iteration-split prerequisite | IN_PROGRESS / PARTIAL / FOCUSED_TESTED; T0–T4 complete & focused-tested; see [continuation handoff](MODL001.C2.P4-handoff.md) |
 
 ## P4 architecture incident state — 2026-10-13
 
-The incident is resolved by the user-supplied approved `MODL001.C2.P4-architectural-ruling-and-implementer-directive.md`, dated 2026-10-13, supplied from the `perf-universe-characterization` worktree. The ruling reviewed collections revision `b679028c8ff634e17828003572bd2a6e1a0d79ad`, which is the clean starting revision for implementation. P4 is `IN_PROGRESS / NOT_STARTED / UNVERIFIED`.
+The incident is resolved by the user-supplied approved `MODL001.C2.P4-architectural-ruling-and-implementer-directive.md`, dated 2026-10-13, supplied from the `perf-universe-characterization` worktree. The ruling reviewed collections revision `b679028c8ff634e17828003572bd2a6e1a0d79ad`, which is the clean starting revision for implementation. P4 is `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
 
 ## Adopted ruling and T0 amendment
 
@@ -37,4 +37,15 @@ The incident is resolved by the user-supplied approved `MODL001.C2.P4-architectu
 - Whole-module imports, direct re-exports, external superclasses, static constants, and unused imports remain Runtime. No syntax, runtime SCC tolerance, identity duplication, or production Universe cutover is authorized.
 - P2/P3 pipeline/input contracts and the P4 task sequence are amended accordingly. Required evidence includes symbolic resolution without executable slots, type-enforced stage isolation, mixed-use/runtime cycles, generated reads, and cold/incremental parity.
 
-The Slice 1–3 documents remain supporting review inputs. The ruling is the adopted authority. Next action: execute P4 T1; keep the iteration and remaining concurrency declarations cohesive until the focused integration gate passes.
+The Slice 1–3 documents remain supporting review inputs. The ruling is the adopted authority. Next action: proceed to T5 (Executable finalization with requirements in `phalcom-modules/src/linker.rs`) and T6 (core compilation pipeline integration in `phalcom-core/src/modules/compile.rs`) as recorded in [the continuation handoff](MODL001.C2.P4-handoff.md).
+
+## Implementation state — 2026-10-13
+
+P4 is `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`.
+Completed tasks:
+- **T0:** Architecture documentation & plan amendment.
+- **T1:** Module-layer staged identities & symbolic products (`SourceImportBindingId`, `SymbolicImportTable`, `SemanticLinkedProgram`). All 16 linker unit tests pass in `phalcom-modules/tests/linker.rs`.
+- **T2:** Semantic resolver decoupling & symbolic resolution. Resolver resolves against symbolic imports without runtime slots; 4/4 integration tests pass in `phalcom-semantic/tests/semantic/integration/resolver.rs` (including mutual type cycle resolution).
+- **T3:** Checking context & AST phase evidence collection. AST node extraction implemented in `phase_evidence.rs`; `CheckingContext` tracks imported binding provenance and records runtime vs interface-only phases; `CallableAnalysis.observed_import_phases` published.
+- **T4:** Snapshot phase products & session integration. `SemanticSnapshot` carries `import_phase_products` and `generated_runtime_requirements`; `session.rs` wires `semantic_linked` into type resolvers, query inputs, and computes module import phase products at snapshot creation.
+Next action: T5 (finalize executable with requirements) and T6 (core compilation integration).

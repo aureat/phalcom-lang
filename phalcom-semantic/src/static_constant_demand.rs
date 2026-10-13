@@ -543,6 +543,7 @@ impl StaticConstantDemandDriver<'_> {
             type_member_declarations: None,
             conformance_semantics: None,
             module_values: None,
+            semantic_linked: None,
         };
         let published = match crate::db::query::query_static_constant(self.db, product, self.values, &inputs, self.store) {
             QueryOutcome::Ready(product) => product,
@@ -661,6 +662,7 @@ impl StaticConstantDemandDriver<'_> {
                 type_member_declarations: None,
                 conformance_semantics: None,
                 module_values: None,
+                semantic_linked: None,
             };
             let published = match crate::db::query::query_static_constant(self.db, product, self.values, &inputs, self.store) {
                 QueryOutcome::Ready(product) => product,

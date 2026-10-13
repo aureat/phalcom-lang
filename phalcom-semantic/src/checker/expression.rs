@@ -347,6 +347,9 @@ fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, exp
                 typed.denotation = fact.denotation;
                 if let Some(info) = ctx.lookup_binding_info(value) {
                     let binding_id = info.id;
+                    if let Some(import_id) = ctx.imported_source_bindings.get(&binding_id).cloned() {
+                        ctx.record_import_phase(&import_id, phalcom_modules::graph::DependencyPhase::Runtime);
+                    }
                     typed.binding_read = Some(binding_id);
                     typed.local_type = ctx.local_binding_type(binding_id).cloned();
                     if let Some(local_type) = typed.local_type.clone() {
@@ -387,6 +390,9 @@ fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, exp
                 }
                 typed
             } else if let Some(decl) = ctx.resolve_type_name(value) {
+                if let Some(import_id) = ctx.resolver.resolve_import_binding_id(&ctx.current_module, value) {
+                    ctx.record_import_phase(&import_id, phalcom_modules::graph::DependencyPhase::Runtime);
+                }
                 if let Some(info) = ctx.declaration_info(&decl) {
                     TypedExpression::established(info.class_object_type, EvidenceOrigin::DeclarationSemantics, *range)
                         .with_denotation(SemanticDenotation::TypeForm(info.form))

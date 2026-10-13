@@ -177,6 +177,11 @@ pub trait TypeResolver {
         None
     }
 
+    /// Resolve an imported binding identity for this root name in the current module context.
+    fn resolve_import_binding_id(&self, _current_module: &ModuleId, _name: &str) -> Option<phalcom_modules::identity::SourceImportBindingId> {
+        None
+    }
+
     /// Resolve an associated type requirement by trait declaration and member name.
     fn resolve_associated_type_requirement(&self, _trait_declaration: &DeclarationId, _name: &str) -> Option<AssociatedTypeRequirementId> {
         None
@@ -331,6 +336,10 @@ impl<'a> TypeResolver for ScopedTypeResolver<'a> {
 
     fn resolve_module_alias(&self, current_module: &ModuleId, alias: &str) -> Option<ModuleId> {
         self.parent.resolve_module_alias(current_module, alias)
+    }
+
+    fn resolve_import_binding_id(&self, current_module: &ModuleId, name: &str) -> Option<phalcom_modules::identity::SourceImportBindingId> {
+        self.parent.resolve_import_binding_id(current_module, name)
     }
 
     fn resolve_associated_type_requirement(&self, trait_declaration: &DeclarationId, name: &str) -> Option<AssociatedTypeRequirementId> {
