@@ -34,6 +34,7 @@ integration, or production cutover.
 | `UNIV002.C2.P9` | Bag.count documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added the occurrence-count comment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 13 changed hashes. |
 | `UNIV002.C2.P10` | Reader.run documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment explaining that run invokes the computation with the supplied environment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 14 changed hashes. |
 | `UNIV002.C2.P11` | Reader.map documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment describing the transformed value and preserved environment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 14 changed hashes. |
+| `UNIV002.C2.P12` | Writer.map documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | Document value transformation and log preservation; preserve behavior and refresh the inventory after the edit. |
 
 ## Established invariants
 
@@ -168,8 +169,7 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: none; P11 is complete and the next bounded source-quality
-  slice has not yet started.
+- Active plan: `UNIV002.C2.P12`.
 - Latest complete plan: `UNIV002.C2.P11`; latest complete checkpoint: `UNIV002.C1`.
 - The source inventory is reconciled through P11 source commit
   `42982dd6daa9c616a025236407c442e36872b29d`: 174 paths, no additions or
@@ -193,3 +193,6 @@ identities.
   The source creates a deferred Reader that applies `f` to the produced value
   while retaining the same environment. No behavior or identity change was in
   scope.
+- P12 is a bounded Category A comment in `functional/writer.ph::Writer.map`.
+  The method applies `f` to the stored value and carries the stored log into
+  the result. No behavior or identity change is in scope.

@@ -123,3 +123,5 @@ remaining candidates depend on the held iteration boundary or lack a precise
 interval behavior contract. P10 advanced the next priority package, Functional.
 P11 completed a comment-only `Reader.map` slice. The MOD1 hash overlay is
 current through its source commit; no semantic or runtime claim is made.
+P12 is active for a comment-only `Writer.map` slice; the inventory remains
+current through P11 until that source change is committed.
