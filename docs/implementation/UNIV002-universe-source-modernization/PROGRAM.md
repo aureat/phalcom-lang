@@ -24,8 +24,8 @@ runtime complete. MOD9 is the final quality audit after those increments.
 
 | Checkpoint | Objective | Status |
 |---|---|---|
-| `UNIV002.C1` | Establish the shadow-source inventory and modernization contract, then verify a bounded pilot. | IN_PROGRESS |
-| `UNIV002.C2` | Modernize source by stable domain/module boundaries (MOD2–MOD4). | PROPOSED |
+| `UNIV002.C1` | Establish the shadow-source inventory and modernization contract, then verify a bounded pilot. | COMPLETE |
+| `UNIV002.C2` | Modernize source by stable domain/module boundaries (MOD2–MOD4). | IN_PROGRESS |
 | `UNIV002.C3` | Audit immutable-data candidates and native/runtime prerequisites (MOD5). | PROPOSED |
 | `UNIV002.C4` | Implement approved data waves with canonical runtime integration (MOD6–MOD8). | PROPOSED |
 | `UNIV002.C5` | Audit overall shadow-Universe quality and record remaining deferrals (MOD9). | PROPOSED |

@@ -25,7 +25,9 @@ class Utf8Error is Error {
     Utf8Error.new(validUpTo, errorLength)
   }
 
+  /// Byte count of the valid prefix before the first invalid sequence.
   validUpTo -> Int { _validUpTo }
+  /// Length of the invalid sequence when known; otherwise `None`.
   errorLength -> Option<Int> { _errorLength }
   message -> String { "invalid UTF-8 sequence" }
 }

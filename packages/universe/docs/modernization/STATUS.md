@@ -7,14 +7,14 @@
 - **HEAD:** `18aaf8b568a0b45dd450befc35932bb7a1fdd442`
 - **Source files:** 174 `.ph` files under `packages/universe/src`.
 - **Dirty scope at baseline capture:** `phalcom-semantic/src/session.rs` and `phalcom-semantic/src/workspace.rs` only (3 insertions total); preserved untouched. The final status also includes these four task docs and the parent-created P1 plan/checkpoint records as untracked.
-- **Current classification:** Inventory, guidelines, and language-feature matrix reviewed. MOD1 is **COMPLETE / IMPLEMENTED / FOCUSED_TESTED**. No source modernization has been performed yet.
+- **Baseline classification:** Inventory, guidelines, and language-feature matrix reviewed. MOD1 is **COMPLETE / IMPLEMENTED / FOCUSED_TESTED**. The baseline predates the C1.P2 source pilot recorded below.
 - **Parser evidence:** `migration-status.md` records the S4 source validator as `FOCUSED_TESTED` for parsing all then-current shadow sources and building unlinked interfaces. It is prior evidence, not rerun at this HEAD. It does not prove semantic identity, linked semantic correctness, runtime behavior, or production cutover.
 - **P1 checks:** filesystem count, per-source SHA-256 capture, targeted source inspection, independent exact inventory-path/hash comparison (174 paths, no differences), and `git diff --check` for the modernization docs. No tests, parser, compiler, semantic, or runtime commands were run for P1.
 
 ## Active work and exclusions
 
 - S4 moved the iteration protocols and adapters into `collections/iteration/package.ph`; that cohesive move is recorded implemented/focused-tested, while its finer split is deferred and blocked by module/runtime-cycle concerns. Exclude edits to `collections/iteration/**` and any ownership/split work. The proposed `List`/`Array`/`Vector` slice-call-site review does not move those modules, but must preserve their dependency on the cohesive iteration owner.
-- Shadow semantic-linking/P4 work is active outside this source-quality inventory. `phalcom-semantic/src/session.rs` and `workspace.rs` are concurrently modified. Exclude reflection/typing, semantic-link-dependent source/interface changes, and any change requiring a new linker or canonical shadow identity.
+- Shadow semantic-linking/P4 work is active outside this source-quality inventory. `phalcom-semantic/src/session.rs`, `workspace.rs`, and `tests/semantic/integration/resolver.rs` are concurrently modified, with an untracked P4 handoff. Exclude reflection/typing, semantic-link-dependent source/interface changes, and any change requiring a new linker or canonical shadow identity.
 - S5's System/Future separation is explicitly held for an architecture decision. Exclude `concurrency/fiber.ph` and related module-boundary changes.
 - Production source providers, native mappings, prelude construction, bootstrap, VM, and legacy source are out of scope.
 
@@ -83,8 +83,13 @@ A source-only change may be `SOURCE_READY`; parser/interface checks do not imply
 
 ## Next action
 
-Begin the next source-quality slice from the inventory using stable module
-ownership and the MOD2–MOD4 sequence. Keep data representation changes
-separate; `PackageAuthor` and `PackageRequirement` remain `HIGH / DEFER`
-pending the dedicated constructor, identity, cache, GC, reflection, and
-host-conversion audit.
+`UNIV002.C2.P1` and `UNIV002.C2.P2` completed Category A documentation and
+formatting slices in `functional/validation.ph` and `functional/either.ph`.
+`UNIV002.C2.P3` completed documentation for the `StringIndex` comparison
+methods against the text specification. `UNIV002.C2.P4` completed docs for the
+UTF-8 error offset accessors against the same spec. The next slice will target
+a high-confidence behavior-preserving syntax modernization. Keep data
+representation changes separate;
+`PackageAuthor` and `PackageRequirement` remain `HIGH / DEFER` pending the
+dedicated constructor, identity, cache, GC, reflection, and host-conversion
+audit.

@@ -10,6 +10,7 @@ data Validation<T, E> {
 }
 
 impl<T, E> Validation<T, E> {
+  /// Converts `Ok(value)` to `Valid(value)` and `Error(error)` to `Invalid(error)`.
   @class
   fromResult(_ result: Result<T, E>) -> Validation<T, E> {
     match result {
@@ -18,6 +19,7 @@ impl<T, E> Validation<T, E> {
     }
   }
 
+  /// Converts `Valid(value)` to `Ok(value)` and `Invalid(error)` to `Error(error)`.
   toResult -> Result<T, E> {
     match self {
       Validation::Valid(value) => Result::Ok(value)
@@ -25,6 +27,7 @@ impl<T, E> Validation<T, E> {
     }
   }
 
+  /// Returns true for `Valid` and false for `Invalid`.
   isValid -> Bool {
     match self {
       Validation::Valid(_) => true
@@ -32,6 +35,7 @@ impl<T, E> Validation<T, E> {
     }
   }
 
+  /// Returns true for `Invalid` and false for `Valid`.
   isInvalid -> Bool { not self.isValid }
 
   /// Invokes exactly the callback selected by the current variant.
@@ -62,7 +66,11 @@ impl<T, E> Validation<T, E> {
     match self {
       Validation::Invalid(_) => self
       Validation::Valid(value) => {
-        if predicate.call(value) { self } else { Validation<T, E>::Invalid(error.call(value)) }
+        if predicate.call(value) {
+          self
+        } else {
+          Validation<T, E>::Invalid(error.call(value))
+        }
       }
     }
   }
