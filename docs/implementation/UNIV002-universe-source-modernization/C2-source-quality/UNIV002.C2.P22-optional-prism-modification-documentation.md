@@ -27,9 +27,9 @@ or runtime behavior.
 
 ## 1. Goal
 
-Document how Optional replacement and modification affect a present focus,
-how they preserve a source without a focus, and how Prism modification handles
-a selected payload.
+Document when Optional and Prism methods pass values to their callbacks and
+when they return the original source. Do not imply that caller-supplied
+callbacks satisfy replacement, review, or round-trip laws.
 
 ## 2. Checkpoint acceptance objective
 
@@ -49,13 +49,14 @@ predecessor: UNIV002.C2.P21
 
 `packages/universe/src/functional/optics.ph` has SHA-256
 `e0f95221731b0a0827c109afbba1510f20ce252013ee8d825e757582923e26d8` at plan
-start. `Optional.set` reads the optional focus and replaces it for `Some`,
-returning the original source for `None`. `Optional.modify` reads the focus,
-applies `f` and replaces for `Some`, and returns the original source for
-`None`. `Prism.modify` previews the source, applies `f` and reviews the result
-for `Some`, and returns the original source for `None`. Re-read the live
-methods before editing. Adapt mechanical drift locally; treat contract or
-ownership drift as a stop condition.
+start. `Optional.set` reads the optional focus and passes the source and
+supplied value to its replacement callback for `Some`, returning the original
+source for `None`. `Optional.modify` reads the focus, applies `f`, and passes
+the result to the replacement callback for `Some`; it returns the original
+source for `None`. `Prism.modify` previews the source, applies `f`, and passes
+the result to the review callback for `Some`; it returns the original source
+for `None`. Re-read the live methods before editing. Adapt mechanical drift
+locally; treat contract or ownership drift as a stop condition.
 
 ## 4. Required reads before implementation
 
@@ -81,23 +82,23 @@ establish linked semantic identity or runtime behavior.
 
 | Concept | Current symbol/path | Owner | Invariant |
 |---|---|---|---|
-| Optional replacement | `Optional.set`, `functional/optics.ph` | Shadow Functional source | Replace only for a present focus; preserve the input source for an absent focus. |
-| Optional modification | `Optional.modify`, same module | Shadow Functional source | Transform and replace a present focus; preserve the input source when absent. |
-| Prism modification | `Prism.modify`, same module | Shadow Functional source | Transform and review a selected payload; preserve the input source when unselected. |
+| Optional replacement | `Optional.set`, `functional/optics.ph` | Shadow Functional source | Call the replacement callback for a present focus; return the input source for an absent focus. |
+| Optional modification | `Optional.modify`, same module | Shadow Functional source | Transform a present focus and pass it to the replacement callback; return the input source when absent. |
+| Prism modification | `Prism.modify`, same module | Shadow Functional source | Transform a selected payload and pass it to the review callback; return the input source when unselected. |
 
 ## 7. Architecture
 
 Place one comment line immediately above each method. Suggested wording:
 
 ```telos
-/// Replaces a present focus and leaves the source unchanged when absent.
-/// Transforms a present focus and replaces it, leaving the source unchanged when absent.
-/// Transforms a selected payload and reinjects it; an unselected source is unchanged.
+/// Applies the replacement callback when a focus is present; otherwise preserves the source.
+/// Transforms and passes a present focus to the replacement callback; otherwise preserves the source.
+/// Transforms and passes a selected payload to the review callback; otherwise preserves the source.
 ```
 
-Equivalent wording is acceptable only if it preserves these branch outcomes.
-Do not edit the match expressions, callbacks, declarations, signatures, or
-adjacent methods.
+Equivalent wording is acceptable only if it describes these callback paths
+without promising callback effects. Do not edit the match expressions,
+callbacks, declarations, signatures, or adjacent methods.
 
 ## 8. Ownership boundaries
 
@@ -116,18 +117,20 @@ adjacent methods.
 
 | Fact | Canonical owner | Consumers | Forbidden duplicate |
 |---|---|---|---|
-| Present/absent replacement | `Optional.set` body | Its documentation | A comment promising replacement when absent. |
-| Present/absent modification | `Optional.modify` body | Its documentation | A second update algorithm or callback-count guarantee. |
-| Selected/unselected modification | `Prism.modify` body | Its documentation | A comment promising changes for an unselected source. |
+| Present/absent replacement | `Optional.set` body | Its documentation | A comment claiming callback effects or invocation for an absent focus. |
+| Present/absent modification | `Optional.modify` body | Its documentation | A second update algorithm or callback-effect/count guarantee. |
+| Selected/unselected modification | `Prism.modify` body | Its documentation | A comment claiming review-callback effects or invocation for an unselected source. |
 
 ## 9. Global invariants
 
-- **INV-01:** `Optional.set` documentation states replacement for a present
-  focus and preservation of the source when absent.
-- **INV-02:** `Optional.modify` documentation states transformation and
-  replacement for a present focus and preservation when absent.
-- **INV-03:** `Prism.modify` documentation states transformation/review of a
-  selected payload and preservation of an unselected source.
+- **INV-01:** `Optional.set` documentation states that the replacement
+  callback is used for a present focus and the source is returned when absent.
+- **INV-02:** `Optional.modify` documentation states that `f` is applied to a
+  present focus and the result is passed to the replacement callback; absent
+  focus returns the source.
+- **INV-03:** `Prism.modify` documentation states that `f` is applied to a
+  selected payload and the result is passed to the review callback; an
+  unselected source is returned unchanged.
 - **INV-04:** No declaration, signature, executable line, import, module
   owner, or generic identity changes.
 - **INV-05:** No callback-law, count, purity, exception, or timing promise is
@@ -160,7 +163,8 @@ require stopping and re-scoping rather than expanding this plan.
 
 ### FIXED
 
-- Preserve all branch outcomes in INV-01 through INV-03.
+- Preserve callback and branch paths in INV-01 through INV-03 without
+  implying properties of the supplied callbacks.
 - Preserve declaration, body, ownership, identity, and runtime behavior.
 - Do not promise callback properties or callback laws.
 
