@@ -23,6 +23,7 @@ native class FloatMathKernel is Object {
   @class native asinh(_ value: Float) -> Float
   @class native acosh(_ value: Float) -> Float
   @class native atanh(_ value: Float) -> Float
+  /// Computes hypot(x, y) with the Float backend's binary64 semantics.
   @class native hypot(_ x: Float, _ y: Float) -> Float
 }
 
