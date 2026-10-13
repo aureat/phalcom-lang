@@ -348,8 +348,8 @@ pub enum ProgramCompileError {
     #[error("semantic error:\n{0}")]
     Semantic(ProgramSemanticDiagnostics),
     /// Semantic update failed without publishing a current executable snapshot.
-    #[error("semantic update failed: {0}")]
-    SemanticUpdate(String),
+    #[error(transparent)]
+    SemanticUpdate(#[from] phalcom_semantic::SemanticUpdateFailure),
     /// Generic I/O error.
     #[error("io error: {0}")]
     Io(String),
@@ -615,7 +615,7 @@ impl ProgramAnalyzer {
                 }
                 let linked = Arc::new(ModuleLinker::new(universe.clone(), interfaces).link_all(entry_id.clone(), &resolved)?);
 
-                let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0));
+                let analysis = phalcom_semantic::try_analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0))?;
 
                 Ok(AnalyzedProgram {
                     project_universe: universe,
@@ -723,7 +723,7 @@ impl ProgramAnalyzer {
 
         let linked = Arc::new(ModuleLinker::new(universe.clone(), discovered.interfaces).link_all(entry_id.clone(), &discovered.resolved)?);
 
-        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0));
+        let analysis = phalcom_semantic::try_analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), discovered.sources.clone(), 0))?;
 
         Ok(AnalyzedProgram {
             project_universe: universe,
@@ -801,7 +801,7 @@ impl ProgramAnalyzer {
                 phalcom_semantic::db::QueryBudget::default(),
                 &phalcom_semantic::db::CancellationToken::new(),
             )
-            .map_err(|error| ProgramCompileError::SemanticUpdate(format!("{error:?}")))?
+            .map_err(phalcom_semantic::SemanticUpdateFailure::from)?
             .snapshot;
 
         Ok(AnalyzedProgram {

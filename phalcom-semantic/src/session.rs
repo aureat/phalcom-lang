@@ -13,7 +13,7 @@ use crate::checker::declaration::check_class_field_initializers;
 use crate::checker::statement::check_statement;
 use crate::data_semantics::DataSemanticTable;
 use crate::db::SemanticDb;
-use crate::db::budget::{CancellationToken, QueryBudget};
+use crate::db::budget::{BudgetReport, CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::product::EnumRequirementsProduct;
 use crate::db::query::{
@@ -52,6 +52,7 @@ use crate::types::annotation::{
     GenericBinderSite, TypeFormationOutcome, TypeFormationSite, TypeResolver, resolve_generic_signature, resolve_kind_syntax, type_level_binding_for_parameter,
 };
 use crate::types::id::{KindId, TypeId};
+use crate::types::outcome::BlockReason;
 use crate::types::parameter::{GenericBinderHeader, GenericSignature, TypeParameterOwner};
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
@@ -66,6 +67,7 @@ use phalcom_modules::linker::{LinkedProgram, SymbolId};
 use phalcom_modules::{WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleUpdate, WorkspaceSourceBatchMutation, WorkspaceSourceMutation};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
 
@@ -415,6 +417,52 @@ pub struct SemanticWorkspacePublication {
 /// Compatibility name for existing compiler tests and lower-level callers.
 pub type SemanticWorkspaceUpdate = SemanticWorkspacePublication;
 
+/// Operational failure that prevented a semantic workspace publication.
+///
+/// This is distinct from source diagnostics: failures never produce a new
+/// authoritative snapshot.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SemanticUpdateFailure {
+    Cancelled,
+    BudgetExceeded(BudgetReport),
+    Blocked(BlockReason),
+    Failed(String),
+}
+
+impl From<QueryOutcome<()>> for SemanticUpdateFailure {
+    fn from(outcome: QueryOutcome<()>) -> Self {
+        match outcome {
+            QueryOutcome::Cancelled => Self::Cancelled,
+            QueryOutcome::BudgetExceeded(report) => Self::BudgetExceeded(report),
+            QueryOutcome::Blocked(reason) => Self::Blocked(reason),
+            QueryOutcome::Failed(failure) => Self::Failed(failure),
+            QueryOutcome::Ready(()) => Self::Failed("unexpected ready outcome in semantic error path".to_string()),
+        }
+    }
+}
+
+impl fmt::Display for SemanticUpdateFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Cancelled => formatter.write_str("semantic update cancelled"),
+            Self::BudgetExceeded(report) => write!(formatter, "semantic update budget exceeded: {report:?}"),
+            Self::Blocked(reason) => write!(formatter, "semantic update blocked: {reason:?}"),
+            Self::Failed(failure) => write!(formatter, "semantic update failed: {failure}"),
+        }
+    }
+}
+
+impl std::error::Error for SemanticUpdateFailure {}
+
+/// Failure from an accepted module update or its semantic publication.
+#[derive(Debug, thiserror::Error)]
+pub enum SemanticWorkspaceUpdateError {
+    #[error(transparent)]
+    Module(#[from] WorkspaceModuleSessionError),
+    #[error(transparent)]
+    Semantic(#[from] SemanticUpdateFailure),
+}
+
 #[derive(Clone, Debug, Default)]
 struct SemanticModuleDelta {
     changed_modules: BTreeSet<ModuleId>,
@@ -748,25 +796,25 @@ impl SemanticWorkspaceSession {
 
     /// Loads requested project roots into the compiler-owned module session
     /// before source discovery begins.
-    pub fn prepare_workspace_roots(&mut self, roots: &[std::path::PathBuf]) -> Result<SemanticWorkspacePublication, WorkspaceModuleSessionError> {
+    pub fn prepare_workspace_roots(&mut self, roots: &[std::path::PathBuf]) -> Result<SemanticWorkspacePublication, SemanticWorkspaceUpdateError> {
         let update = self.module_session.set_workspace_roots(roots, &phalcom_modules::NullDependencyProvider)?;
-        Ok(self.update_module_workspace(update))
+        Ok(self.try_update_module_workspace(update)?)
     }
 
     /// Applies one module lifecycle mutation and publishes its semantic snapshot.
-    pub fn apply_module_mutation(&mut self, mutation: WorkspaceSourceMutation) -> Result<SemanticWorkspaceUpdate, WorkspaceModuleSessionError> {
+    pub fn apply_module_mutation(&mut self, mutation: WorkspaceSourceMutation) -> Result<SemanticWorkspaceUpdate, SemanticWorkspaceUpdateError> {
         let update = self.module_session.apply(mutation)?;
-        Ok(self.update_module_workspace(update))
+        Ok(self.try_update_module_workspace(update)?)
     }
 
     /// Applies one heterogeneous module/source batch and publishes one
     /// canonical semantic snapshot for the resulting workspace generation.
-    pub fn apply_module_mutations<I>(&mut self, mutations: I) -> Result<SemanticWorkspacePublication, WorkspaceModuleSessionError>
+    pub fn apply_module_mutations<I>(&mut self, mutations: I) -> Result<SemanticWorkspacePublication, SemanticWorkspaceUpdateError>
     where
         I: IntoIterator<Item = WorkspaceSourceBatchMutation>,
     {
         let update = self.module_session.apply_batch(mutations)?;
-        Ok(self.update_module_workspace(update))
+        Ok(self.try_update_module_workspace(update)?)
     }
 
     /// Applies a module batch while restricting first-publication deep work to
@@ -777,11 +825,11 @@ impl SemanticWorkspaceSession {
         &mut self,
         mutations: I,
         deep_modules: BTreeSet<ModuleId>,
-    ) -> Result<SemanticWorkspacePublication, WorkspaceModuleSessionError>
+    ) -> Result<SemanticWorkspacePublication, SemanticWorkspaceUpdateError>
     where
         I: IntoIterator<Item = WorkspaceSourceBatchMutation>,
     {
-        self.requested_deep_modules = Some(deep_modules);
+        self.requested_deep_modules.get_or_insert_with(BTreeSet::new).extend(deep_modules);
         self.apply_module_mutations(mutations)
     }
 
@@ -802,7 +850,9 @@ impl SemanticWorkspaceSession {
         // deep roots; the dependency expansion below adds their transitive
         // linked providers when a Local scan previously published only
         // shallow module products.
-        self.requested_deep_modules = Some(update.changed_modules.clone());
+        self.requested_deep_modules
+            .get_or_insert_with(BTreeSet::new)
+            .extend(update.changed_modules.iter().cloned());
         self.update_module_workspace_with_cancel(update, cancel)
     }
 
@@ -821,7 +871,8 @@ impl SemanticWorkspaceSession {
             module_stats: update.stats.clone(),
             module_graph_changed: update.module_graph_changed,
         };
-        let delta = self.merge_pending_semantic_delta(delta);
+        let current_sources = update.sources.keys().cloned().collect::<BTreeSet<_>>();
+        let delta = self.merge_pending_semantic_delta(delta, &current_sources);
         let result = self.update_with_budget_and_cancel_and_delta(
             SemanticWorkspaceInput {
                 linked: update.linked,
@@ -849,19 +900,27 @@ impl SemanticWorkspaceSession {
         result
     }
 
-    fn merge_pending_semantic_delta(&mut self, mut current: SemanticModuleDelta) -> SemanticModuleDelta {
-        let Some(previous) = self.pending_semantic_delta.take() else {
-            return current;
-        };
-        current.changed_modules.extend(previous.changed_modules);
-        current.removed_modules.extend(previous.removed_modules);
-        current.identity_changes.extend(previous.identity_changes);
-        current.module_graph_changed |= previous.module_graph_changed;
+    fn merge_pending_semantic_delta(&self, mut current: SemanticModuleDelta, current_sources: &BTreeSet<ModuleId>) -> SemanticModuleDelta {
+        if let Some(previous) = &self.pending_semantic_delta {
+            current.changed_modules.extend(previous.changed_modules.iter().cloned());
+            current.removed_modules.extend(previous.removed_modules.iter().cloned());
+            current.identity_changes.extend(previous.identity_changes.iter().cloned());
+            current.module_graph_changed |= previous.module_graph_changed;
+        }
+        current.changed_modules.retain(|module| current_sources.contains(module));
+        current.removed_modules.retain(|module| !current_sources.contains(module));
+        current.identity_changes.retain(|module| current_sources.contains(module));
         current
     }
 
     /// Publishes semantic products for an already-linked module workspace update.
     pub fn update_module_workspace(&mut self, update: WorkspaceModuleUpdate) -> SemanticWorkspaceUpdate {
+        self.try_update_module_workspace(update)
+            .unwrap_or_else(|error| panic!("semantic workspace update failed: {error}"))
+    }
+
+    /// Fallible form of [`Self::update_module_workspace`].
+    pub fn try_update_module_workspace(&mut self, update: WorkspaceModuleUpdate) -> Result<SemanticWorkspaceUpdate, SemanticUpdateFailure> {
         let generation = self.module_session.generation();
         let delta = SemanticModuleDelta {
             changed_modules: update.changed_modules.clone(),
@@ -870,8 +929,9 @@ impl SemanticWorkspaceSession {
             module_stats: update.stats.clone(),
             module_graph_changed: update.module_graph_changed,
         };
-        let delta = self.merge_pending_semantic_delta(delta);
-        self.update_with_delta(
+        let current_sources = update.sources.keys().cloned().collect::<BTreeSet<_>>();
+        let delta = self.merge_pending_semantic_delta(delta, &current_sources);
+        let result = self.update_with_delta(
             SemanticWorkspaceInput {
                 linked: update.linked,
                 sources: update.sources,
@@ -886,8 +946,10 @@ impl SemanticWorkspaceSession {
                 topology: Some(update.topology),
                 reverse_imports: Some(update.reverse_importers),
             },
-            Some(delta),
-        )
+            Some(delta.clone()),
+        );
+        self.pending_semantic_delta = result.as_ref().err().map(|_| delta);
+        result
     }
 
     pub fn db(&self) -> &SemanticDb {
@@ -921,42 +983,22 @@ impl SemanticWorkspaceSession {
 
     /// Performs an incremental semantic analysis update on this session.
     pub fn update(&mut self, input: SemanticWorkspaceInput) -> SemanticWorkspaceUpdate {
+        self.try_update(input)
+            .unwrap_or_else(|error| panic!("semantic workspace update failed: {error}"))
+    }
+
+    /// Performs an incremental update and returns operational failures without publishing stale snapshots.
+    pub fn try_update(&mut self, input: SemanticWorkspaceInput) -> Result<SemanticWorkspaceUpdate, SemanticUpdateFailure> {
         self.update_with_delta(input, None)
     }
 
-    fn update_with_delta(&mut self, input: SemanticWorkspaceInput, module_delta: Option<SemanticModuleDelta>) -> SemanticWorkspaceUpdate {
-        let generation = input.generation;
-        let sources = input.sources.clone();
-        let linked = input.linked.clone();
-        let module_stats = module_delta.as_ref().map(|delta| delta.module_stats.clone());
+    fn update_with_delta(
+        &mut self,
+        input: SemanticWorkspaceInput,
+        module_delta: Option<SemanticModuleDelta>,
+    ) -> Result<SemanticWorkspaceUpdate, SemanticUpdateFailure> {
         self.update_with_budget_and_cancel_and_delta(input, QueryBudget::default(), &CancellationToken::new(), module_delta)
-            .unwrap_or_else(|_| {
-                let snapshot = self.last_known_good.clone().unwrap_or_else(|| {
-                    Arc::new(SemanticSnapshot::new_with_callable_analyses(
-                        self.workspace,
-                        self.db.revision(),
-                        generation,
-                        self.store.clone(),
-                        Arc::new(sources),
-                        Arc::new(self.base_dispatch.surfaces().clone()),
-                        Arc::new(self.base_dispatch.clone()),
-                        Arc::new(self.base_callable_signatures.clone()),
-                        Arc::new(self.base_declarations.clone()),
-                        Arc::new(self.base_hierarchy.clone()),
-                        Arc::new(BTreeMap::new()),
-                        Arc::new(linked.graphs.semantics.clone()),
-                        Arc::new(HashMap::new()),
-                    ))
-                });
-                SemanticWorkspaceUpdate {
-                    snapshot,
-                    invalidated: Arc::from(Vec::new()),
-                    recomputed: Arc::from(Vec::new()),
-                    stats: SemanticUpdateStats::default(),
-                    module_stats,
-                    effects: SemanticPublicationEffects::default(),
-                }
-            })
+            .map_err(SemanticUpdateFailure::from)
     }
 
     /// Performs an incremental update under an explicit query budget and cancellation token.
@@ -976,6 +1018,39 @@ impl SemanticWorkspaceSession {
         budget: QueryBudget,
         cancel: &CancellationToken,
         module_delta: Option<SemanticModuleDelta>,
+    ) -> Result<SemanticWorkspaceUpdate, QueryOutcome<()>> {
+        if cancel.is_cancelled() {
+            return Err(QueryOutcome::Cancelled);
+        }
+
+        let previous_store = self.store.clone();
+        let previous_static_values = self.static_values.clone();
+        let previous_structure_shards = self.semantic_structure_shards.clone();
+        self.db.begin_transaction();
+        let result = self.update_candidate_with_budget_and_cancel_and_delta(input, budget, cancel, module_delta, &previous_structure_shards);
+        match result {
+            Ok(update) => {
+                self.db.commit_transaction();
+                Ok(update)
+            }
+            Err(error) => {
+                self.db.rollback_transaction();
+                self.store = previous_store;
+                self.static_values = previous_static_values;
+                self.semantic_structure_shards = previous_structure_shards;
+                Err(error)
+            }
+        }
+    }
+
+    #[allow(deprecated)]
+    fn update_candidate_with_budget_and_cancel_and_delta(
+        &mut self,
+        input: SemanticWorkspaceInput,
+        budget: QueryBudget,
+        cancel: &CancellationToken,
+        module_delta: Option<SemanticModuleDelta>,
+        previous_structure_shards: &BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>,
     ) -> Result<SemanticWorkspaceUpdate, QueryOutcome<()>> {
         if cancel.is_cancelled() {
             return Err(QueryOutcome::Cancelled);
@@ -1020,7 +1095,6 @@ impl SemanticWorkspaceSession {
         let delta_identity_changes = module_delta.as_ref().map_or_else(BTreeSet::new, |delta| delta.identity_changes.clone());
         let delta_removed_modules = module_delta.as_ref().map_or_else(BTreeSet::new, |delta| delta.removed_modules.clone());
 
-        let previous_structure_shards = self.semantic_structure_shards.clone();
         let mut semantic_structure_shards = BTreeMap::new();
         let mut structural_recomputed_modules = BTreeSet::new();
         let mut structural_reused_modules = BTreeSet::new();
@@ -1279,9 +1353,6 @@ impl SemanticWorkspaceSession {
                 .cloned(),
         );
 
-        self.sources = input.sources.clone();
-        self.source_fingerprints = new_fingerprints;
-
         // Generic declaration headers form a second exact dependency graph:
         // a provider header edit must reach only headers whose bounds,
         // constraints, or superclass template mention that provider.
@@ -1479,7 +1550,7 @@ impl SemanticWorkspaceSession {
         }
         let mut field_signature_work = BTreeSet::new();
         let mut declaration_shell_work = BTreeSet::new();
-        let requested_deep_modules = self.requested_deep_modules.take();
+        let requested_deep_modules = self.requested_deep_modules.clone();
         let mut semantic_work_modules = if previous_snapshot.is_none() {
             requested_deep_modules.clone().unwrap_or_else(|| current_modules.clone())
         } else {
@@ -8519,6 +8590,10 @@ impl SemanticWorkspaceSession {
             .map(|(callable, _)| QueryKey::CallableBody(callable.clone()))
             .collect::<Vec<_>>();
 
+        if cancel.is_cancelled() {
+            return Err(QueryOutcome::Cancelled);
+        }
+
         self.last_snapshot = Some(snapshot.clone());
         self.last_known_good = Some(snapshot.clone());
         self.field_lifecycle_fingerprints = next_field_lifecycle_fingerprints;
@@ -8550,6 +8625,9 @@ impl SemanticWorkspaceSession {
         self.module_diagnostics = current_module_diagnostics;
         self.semantic_diagnostic_contributions = semantic_diagnostic_contributions;
         self.default_field_lifecycle = default_field_lifecycle;
+        self.sources = input.sources.clone();
+        self.source_fingerprints = new_fingerprints;
+        self.requested_deep_modules = None;
 
         Ok(SemanticWorkspaceUpdate {
             snapshot,

@@ -73,6 +73,9 @@ pub(crate) enum CanonicalUniverseBuildError {
     /// Canonical semantic analysis panicked at its existing boundary.
     #[error("canonical Universe semantic analysis panicked")]
     SemanticAnalysisPanicked,
+    /// Canonical semantic analysis failed without publishing a snapshot.
+    #[error("canonical Universe semantic analysis failed: {0}")]
+    SemanticAnalysisFailed(#[from] phalcom_semantic::SemanticUpdateFailure),
     /// A semantic match product lacks the proof required for executable lowering.
     #[error("canonical Universe semantic product is not executable: match in {module} ({callable:?}) at {range:?} is {reason}")]
     NonExecutableMatch {
@@ -186,9 +189,10 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     #[cfg(test)]
     CANONICAL_SEMANTIC_ANALYSES.fetch_add(1, Ordering::Relaxed);
     let semantic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0))
+        phalcom_semantic::try_analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0))
     }))
     .map_err(|_| CanonicalUniverseBuildError::SemanticAnalysisPanicked)?;
+    let semantic = semantic?;
 
     if let Some(diagnostic) = semantic
         .snapshot

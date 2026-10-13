@@ -1,10 +1,10 @@
 use crate::identity::ModuleId;
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
+use crate::session::SemanticUpdateFailure;
 use phalcom_ast::ast::Program;
 use phalcom_modules::interface::InterfaceBuilder;
-use phalcom_modules::linker::{LinkedModule, LinkedProgram};
-use phalcom_modules::metadata::ModuleMetadata;
+use phalcom_modules::linker::LinkedProgram;
 use phalcom_modules::source::ModuleKind;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -121,53 +121,35 @@ pub struct SemanticAnalysis {
 
 /// Analyzes an entire linked workspace and returns an immutable semantic snapshot for this generation.
 pub fn analyze_workspace(input: SemanticWorkspaceInput) -> SemanticAnalysis {
+    try_analyze_workspace(input).unwrap_or_else(|error| panic!("semantic workspace analysis failed: {error}"))
+}
+
+/// Fallible workspace analysis entry point for executable and service consumers.
+pub fn try_analyze_workspace(input: SemanticWorkspaceInput) -> Result<SemanticAnalysis, SemanticUpdateFailure> {
     let mut session = crate::session::SemanticWorkspaceSession::new();
-    let update = session.update(input);
-    SemanticAnalysis { snapshot: update.snapshot }
+    let update = session.try_update(input)?;
+    Ok(SemanticAnalysis { snapshot: update.snapshot })
 }
 
 /// Convenience helper to analyze a single module as a standalone workspace.
 pub fn analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Program>) -> SemanticAnalysis {
-    let unlinked =
-        InterfaceBuilder::build(module.clone(), ModuleKind::Module, &program).unwrap_or_else(|_| phalcom_modules::interface::UnlinkedModuleInterface {
-            id: module.clone(),
-            kind: ModuleKind::Module,
-            imports: Vec::new(),
-            exports: BTreeMap::new(),
-            declarations: BTreeMap::new(),
-            exposed_children: std::collections::BTreeSet::new(),
-            metadata: ModuleMetadata::default(),
-        });
+    try_analyze_single_module(module, source, program).unwrap_or_else(|error| panic!("single-module semantic analysis failed: {error}"))
+}
+
+/// Fallible single-module analysis that preserves interface and linking failures.
+pub fn try_analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Program>) -> Result<SemanticAnalysis, SemanticUpdateFailure> {
+    let unlinked = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &program)
+        .map_err(|error| SemanticUpdateFailure::Failed(format!("single-module interface construction failed: {error}")))?;
 
     let universe = Arc::new(phalcom_modules::project::ProjectUniverse::new());
     let mut interfaces = BTreeMap::new();
     interfaces.insert(module.clone(), unlinked.clone());
     let linker = phalcom_modules::linker::ModuleLinker::new(universe.clone(), interfaces);
-    let linked = linker
-        .link_with_unresolved_imports(module.clone(), &BTreeMap::new())
-        .map(Arc::new)
-        .unwrap_or_else(|_| {
-            let linked_mod = LinkedModule {
-                interface: phalcom_modules::interface::LinkedModuleInterface {
-                    module: module.clone(),
-                    kind: ModuleKind::Module,
-                    exports: BTreeMap::new(),
-                    metadata: ModuleMetadata::default(),
-                },
-                bindings: phalcom_modules::linker::ModuleBindingLayout::default(),
-                linked_reads: Vec::new(),
-                runtime_dependencies: Vec::new(),
-            };
-            let mut modules = BTreeMap::new();
-            modules.insert(module.clone(), linked_mod);
-            Arc::new(LinkedProgram {
-                universe,
-                modules,
-                graphs: phalcom_modules::graph::ModuleGraphs::default(),
-                entry: module.clone(),
-                initialization_order: vec![module.clone()],
-            })
-        });
+    let linked = Arc::new(
+        linker
+            .link_with_unresolved_imports(module.clone(), &BTreeMap::new())
+            .map_err(|error| SemanticUpdateFailure::Failed(format!("single-module linking failed: {error}")))?,
+    );
 
     let mut sources = BTreeMap::new();
     sources.insert(
@@ -178,7 +160,7 @@ pub fn analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Pr
     let mut input_interfaces = BTreeMap::new();
     input_interfaces.insert(module, Arc::new(unlinked));
 
-    analyze_workspace(SemanticWorkspaceInput {
+    try_analyze_workspace(SemanticWorkspaceInput {
         linked,
         sources,
         interfaces: Arc::new(input_interfaces),
