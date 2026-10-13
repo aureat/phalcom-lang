@@ -47,6 +47,8 @@ impl<S, T> State<S, T> {
     State<S, T>.new(|state| { StateStep<S, T>(state: state, value: f.call(state)) })
   }
 
+  /// Runs this transition with the supplied initial state.
+  /// The returned `StateStep` contains the produced value and successor state.
   run(_ initial: S) -> StateStep<S, T> { self.transition.call(initial) }
 
   /// Executes the transition once and returns only its value.
