@@ -32,11 +32,25 @@ and alias export, where the existing legacy metadata Record-remainder failure
 stops the run; later compiler projection phases remain unobserved. T12 adds
 feature-gated `phalcom-perf profile attach/show/compare` commands, sidecar
 storage, bounded summaries, and available derived ratios; its feature-enabled
-binary build-check passed. T13 adds a separate-process release profile runner,
+binary build-check passed, and two separately captured B2 reports were shown
+and compared as compatible. This validates the CLI path, not a performance
+conclusion. T13 adds a separate-process release profile runner,
 typed lifecycle metadata, and initial B1–B6 entries; B7–B8 are unimplemented,
 B6's medium-size status needs acceptance, and B1/B4 are baseline-blocked. T14's
-four-level overhead wrapper is present but has not been run. T12's stored-sample
-comparison workflow and T13–T15 acceptance remain unverified. T1 report
+four-level overhead wrapper is present but has not been run. T13–T15 acceptance
+remains unverified. T1 report
 round-trip and T6 deterministic lifecycle tests remain outstanding. Canonical
 compile and full-VM characterization remain blocked by the recorded baseline
 metadata-export and ProductKind source-index failures.
+
+## PERF003.C2 status
+
+PERF003.C2 is proposed with an authoritative checkpoint record in
+`C2-compilation-performance-and-efficiency/CHECKPOINT.md` and a comprehensive
+Luna patch-grade implementation plan in
+`C2-compilation-performance-and-efficiency/PERF003.C2-detailed-implementation-plan.md`.
+It coordinates 5 packages (Packages A–E) spanning canonical compilation image
+retention, one-shot ephemeral overlay compilation, demand-driven publication,
+indexed conformance settlement, profile-driven metadata reachability, and
+indexed backend scans, gated by structural cardinality assertions in
+`telos-observability`.
