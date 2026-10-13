@@ -22,6 +22,7 @@ class IntegerMath {
     return product
   }
 
+  /// Computes the exact product from 1 through n; negative inputs raise ArgumentError.
   @class
   factorial(_ n: Int) -> Int {
     if n < 0 { ArgumentError.new("factorial requires a non-negative Int").raise() }
