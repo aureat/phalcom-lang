@@ -64,7 +64,7 @@ impl MetadataRootSet {
 pub struct MetadataRetentionRequest<'a> {
     pub profile: MetadataProfile,
     pub roots: &'a MetadataRootSet,
-    pub member_surfaces: Option<&'a std::collections::HashMap<DeclarationId, crate::surface::DeclarationSurface>>,
+    pub member_surfaces: Option<&'a crate::parent_map::ParentMap<DeclarationId, crate::surface::DeclarationSurface>>,
 }
 
 impl<'a> MetadataRetentionRequest<'a> {
@@ -73,7 +73,7 @@ impl<'a> MetadataRetentionRequest<'a> {
     }
 
     /// Uses canonical published visibility when retaining declaration members.
-    pub fn with_member_surfaces(mut self, surfaces: &'a std::collections::HashMap<DeclarationId, crate::surface::DeclarationSurface>) -> Self {
+    pub fn with_member_surfaces(mut self, surfaces: &'a crate::parent_map::ParentMap<DeclarationId, crate::surface::DeclarationSurface>) -> Self {
         self.member_surfaces = Some(surfaces);
         self
     }

@@ -6,7 +6,6 @@ use crate::surface::MemberVisibility;
 use crate::types::case_environment::CaseTypeEnvironment;
 use crate::types::id::{TypeId, VariantTypeId};
 use crate::types::parameter::GenericSignature;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Structural shape of an enum variant: singleton value vs constructor.
@@ -124,26 +123,34 @@ pub struct EnumInfo {
 /// Table of all published enum and variant declarations in a snapshot.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct EnumSemanticTable {
-    pub enums: HashMap<DeclarationId, Arc<EnumInfo>>,
-    pub variants: HashMap<VariantId, Arc<VariantInfo>>,
+    pub enums: Arc<crate::parent_map::ParentMap<DeclarationId, Arc<EnumInfo>>>,
+    pub variants: Arc<crate::parent_map::ParentMap<VariantId, Arc<VariantInfo>>>,
 }
 
 impl EnumSemanticTable {
+    /// Shares canonical entries and starts with empty local contributions.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            enums: Arc::new(crate::parent_map::ParentMap::with_parent(parent.enums.clone())),
+            variants: Arc::new(crate::parent_map::ParentMap::with_parent(parent.variants.clone())),
+        }
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn insert_enum(&mut self, info: Arc<EnumInfo>) {
-        self.enums.insert(info.owner.clone(), info);
+        Arc::make_mut(&mut self.enums).insert(info.owner.clone(), info);
     }
 
     pub fn insert_variant(&mut self, info: Arc<VariantInfo>) {
-        self.variants.insert(info.id.clone(), info);
+        Arc::make_mut(&mut self.variants).insert(info.id.clone(), info);
     }
 
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
-        self.enums.retain(|owner, _| &owner.module != module);
-        self.variants.retain(|variant, _| &variant.owner.module != module);
+        Arc::make_mut(&mut self.enums).retain(|owner, _| &owner.module != module);
+        Arc::make_mut(&mut self.variants).retain(|variant, _| &variant.owner.module != module);
     }
 
     pub fn enum_info(&self, owner: &DeclarationId) -> Option<&EnumInfo> {

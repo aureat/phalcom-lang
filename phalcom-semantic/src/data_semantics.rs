@@ -7,7 +7,6 @@ use crate::types::parameter::GenericSignature;
 use crate::types::row::RecordRowTail;
 use crate::types::store::{StaticArgument, TypeData, TypeStore};
 use phalcom_common::modifier::Visibility;
-use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -520,16 +519,23 @@ fn append_record_component(
 /// Table of all published data declarations in a snapshot.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DataSemanticTable {
-    pub data_decls: HashMap<DeclarationId, Arc<DataInfo>>,
+    pub data_decls: Arc<crate::parent_map::ParentMap<DeclarationId, Arc<DataInfo>>>,
 }
 
 impl DataSemanticTable {
+    /// Shares canonical entries and starts with empty local contributions.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            data_decls: Arc::new(crate::parent_map::ParentMap::with_parent(parent.data_decls.clone())),
+        }
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn insert_data(&mut self, info: Arc<DataInfo>) {
-        self.data_decls.insert(info.owner.clone(), info);
+        Arc::make_mut(&mut self.data_decls).insert(info.owner.clone(), info);
     }
 
     pub fn get(&self, owner: &DeclarationId) -> Option<&Arc<DataInfo>> {
@@ -541,6 +547,6 @@ impl DataSemanticTable {
     }
 
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
-        self.data_decls.retain(|owner, _| &owner.module != module);
+        Arc::make_mut(&mut self.data_decls).retain(|owner, _| &owner.module != module);
     }
 }

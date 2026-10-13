@@ -1068,7 +1068,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
     // 1. Project Enums in this module
     let core_ids = phalcom_semantic::core_surface::CoreDeclarationIds::default();
     let mut enums = Vec::new();
-    for (owner, enum_info) in &snapshot.enum_semantics.enums {
+    for (owner, enum_info) in snapshot.enum_semantics.enums.iter() {
         if owner.module != *module {
             continue;
         }
@@ -1122,7 +1122,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
 
     // 2. Project Data Declarations in this module
     let mut data_decls = Vec::new();
-    for (owner, data_info) in &snapshot.data_semantics.data_decls {
+    for (owner, data_info) in snapshot.data_semantics.data_decls.iter() {
         if owner.module != *module {
             continue;
         }

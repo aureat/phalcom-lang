@@ -99,6 +99,8 @@ pub enum QueryFreezeRejection {
     MissingTypedProduct,
     /// Typed payload does not match its query family.
     ProductKindMismatch,
+    /// Query content no longer agrees with the finalized structural authority.
+    FinalAggregateMismatch,
     /// A dependency is not retained or its observed fingerprint changed.
     MutableDependency,
     /// Cyclic dependencies lack an independently validated freeze contract.
@@ -122,6 +124,7 @@ impl QueryFreezeRejection {
             Self::NegativeLocalCandidateSet => PerfCounter::CanonicalQueryRejectedNegativeLocalCandidateSet,
             Self::MissingTypedProduct => PerfCounter::CanonicalQueryRejectedMissingTypedProduct,
             Self::ProductKindMismatch => PerfCounter::CanonicalQueryRejectedProductKindMismatch,
+            Self::FinalAggregateMismatch => PerfCounter::CanonicalQueryRejectedFinalAggregateMismatch,
             Self::MutableDependency => PerfCounter::CanonicalQueryRejectedMutableDependency,
             Self::DependencyCycle => PerfCounter::CanonicalQueryRejectedDependencyCycle,
         };
@@ -345,6 +348,14 @@ impl CanonicalSemanticQueryImage {
             else {
                 unreachable!()
             };
+            if matches!(
+                key,
+                QueryKey::CallableSignature(_) | QueryKey::FieldSignature(_) | QueryKey::DeclarationSurface(_) | QueryKey::TypeMemberDeclaration(_)
+            ) && aggregate_structural_fingerprint(snapshot, key) != Some(*product_fingerprint)
+            {
+                census.rejections.insert(key.clone(), QueryFreezeRejection::FinalAggregateMismatch);
+                continue;
+            }
             entries.insert(
                 key.clone(),
                 CanonicalQueryEntry {
@@ -431,10 +442,20 @@ pub struct CanonicalUniverseFormalImage {
     modules: Arc<CanonicalModuleProducts>,
     snapshot: Arc<SemanticSnapshot>,
     queries: Arc<CanonicalSemanticQueryImage>,
+    dependency_fingerprints: BTreeMap<QueryKey, ProductFingerprint>,
     type_prefix: CanonicalTypePrefixId,
 }
 
 impl CanonicalUniverseFormalImage {
+    /// Exact immutable dependency evidence, independent of query freeze eligibility.
+    /// Aggregate-only entries do not imply a reusable query or typed query product.
+    pub fn dependency_fingerprint(&self, key: &QueryKey) -> Option<ProductFingerprint> {
+        self.queries
+            .entry(key)
+            .map(|entry| entry.product_fingerprint)
+            .or_else(|| self.dependency_fingerprints.get(key).copied())
+    }
+
     /// Exact provider used to build this canonical world.
     pub(crate) fn provider(&self) -> &UniverseSourceProvider {
         &self.provider
@@ -647,6 +668,7 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
     let queries = Arc::new(image_span(ImagePhase::QueryFreeze, || {
         CanonicalSemanticQueryImage::freeze(session.db(), world.clone(), &snapshot, &modules)
     })?);
+    let dependency_fingerprints = aggregate_dependency_fingerprints(session.db(), &snapshot, &queries)?;
     let type_prefix = CanonicalTypePrefixId {
         store: snapshot.store.id(),
         types: snapshot.store.len(),
@@ -657,6 +679,7 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
         modules,
         snapshot,
         queries,
+        dependency_fingerprints,
         type_prefix,
     });
     if provider.is_canonical() {
@@ -664,6 +687,91 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
     }
     image_counter!(CanonicalImageBuilds, 1);
     Ok(image)
+}
+
+fn aggregate_structural_fingerprint(snapshot: &SemanticSnapshot, key: &QueryKey) -> Option<ProductFingerprint> {
+    use crate::db::fingerprint;
+    match key {
+        QueryKey::CallableSignature(id) => snapshot.callable_signatures.get(id).map(fingerprint::callable_signature_product_fingerprint),
+        QueryKey::FieldSignature(id) => snapshot.field_signatures.get(id).map(fingerprint::field_signature_product_fingerprint),
+        QueryKey::DeclarationSurface(id) => snapshot.dispatch.get_surface(id).map(fingerprint::declaration_surface_product_fingerprint),
+        QueryKey::TypeMemberDeclaration(id) => snapshot
+            .type_member_declarations
+            .get(id)
+            .map(|product| fingerprint::type_member_declaration_product_fingerprint(product)),
+        _ => None,
+    }
+}
+
+/// Derives dependency evidence from committed aggregate authority without relaxing
+/// query freeze closure or manufacturing mutable database rows.
+fn aggregate_dependency_fingerprints(
+    db: &SemanticDb,
+    snapshot: &SemanticSnapshot,
+    queries: &CanonicalSemanticQueryImage,
+) -> Result<BTreeMap<QueryKey, ProductFingerprint>, CanonicalImageError> {
+    use crate::db::fingerprint;
+    let mut fingerprints = BTreeMap::new();
+    for (id, signature) in snapshot.callable_signatures.iter() {
+        fingerprints.insert(
+            QueryKey::CallableSignature(id.clone()),
+            fingerprint::callable_signature_product_fingerprint(signature),
+        );
+    }
+    for (id, signature) in snapshot.field_signatures.iter() {
+        fingerprints.insert(
+            QueryKey::FieldSignature(id.clone()),
+            fingerprint::field_signature_product_fingerprint(signature),
+        );
+    }
+    for (id, surface) in snapshot.dispatch.surfaces().iter() {
+        fingerprints.insert(
+            QueryKey::DeclarationSurface(id.clone()),
+            fingerprint::declaration_surface_product_fingerprint(surface),
+        );
+    }
+    for (id, product) in snapshot.type_member_declarations.iter() {
+        fingerprints.insert(
+            QueryKey::TypeMemberDeclaration(id.clone()),
+            fingerprint::type_member_declaration_product_fingerprint(product),
+        );
+    }
+    // Hierarchy fingerprints include source syntax (including generic arguments).
+    // Preserve the completed owner's fingerprint, and require agreement with the
+    // final aggregate rather than inventing an edge from an absent parent entry.
+    for key in db.query_keys() {
+        let QueryKey::HierarchyEdge(id) = key else {
+            continue;
+        };
+        let Some(QueryState::Ready {
+            validated_revision,
+            product_fingerprint,
+            ..
+        }) = db.query_state(key)
+        else {
+            continue;
+        };
+        if *validated_revision != db.revision() || !snapshot.declarations.contains(id) {
+            continue;
+        }
+        let Some(product) = db.product(key).and_then(|product| product.as_hierarchy_edge()) else {
+            continue;
+        };
+        if product.class_decl != *id || product.super_decl.as_ref() != snapshot.hierarchy.superclass(id) {
+            return Err(CanonicalImageError::IncompletePublication(format!(
+                "hierarchy dependency disagrees with final aggregate: {key:?}"
+            )));
+        }
+        fingerprints.insert(key.clone(), *product_fingerprint);
+    }
+    for (key, fingerprint) in &fingerprints {
+        if queries.entry(key).is_some_and(|entry| entry.product_fingerprint != *fingerprint) {
+            return Err(CanonicalImageError::IncompletePublication(format!(
+                "frozen query disagrees with final aggregate: {key:?}"
+            )));
+        }
+    }
+    Ok(fingerprints)
 }
 
 fn validate_publication(
@@ -782,6 +890,116 @@ mod tests {
         assert!(db.local_query_state(&key).is_none());
         assert!(Arc::ptr_eq(db.product(&key).unwrap(), &retained));
         assert_eq!(db.query_keys().count(), 0);
+    }
+
+    #[test]
+    fn freeze_rejects_structural_rows_changed_by_final_settlement_and_their_dependents() {
+        let image = canonical_universe_formal_image().unwrap();
+        let (id, surface) = image.snapshot().dispatch.surfaces().iter().next().unwrap();
+        let key = QueryKey::DeclarationSurface(id.clone());
+        let fingerprint = crate::db::fingerprint::declaration_surface_product_fingerprint(surface);
+        let mut db = SemanticDb::with_workspace(WorkspaceId::from_raw(92));
+        let publish_surface = |db: &mut SemanticDb, fingerprint| {
+            db.publish_product_ready(
+                key.clone(),
+                db.revision(),
+                InputFingerprint(1),
+                fingerprint,
+                SemanticProduct::DeclarationSurface(Arc::new(crate::db::product::DeclarationSurfaceProduct {
+                    surface: Arc::new(surface.clone()),
+                    diagnostics: Arc::from([]),
+                })),
+                [],
+            )
+            .unwrap();
+        };
+        publish_surface(&mut db, fingerprint);
+        assert!(freeze(&db, image).entry(&key).is_some());
+        let stale = ProductFingerprint(fingerprint.raw().wrapping_add(1));
+        publish_surface(&mut db, stale);
+        let module = image.sources().keys().next().unwrap().clone();
+        let dependent = QueryKey::ParsedModule(module.clone());
+        publish(
+            &mut db,
+            image,
+            module,
+            vec![DependencyEdge {
+                dependent: dependent.clone(),
+                dependency: key.clone(),
+                observed_fingerprint: stale,
+            }],
+        );
+        let queries = freeze(&db, image);
+        assert_eq!(queries.census.rejections[&key], QueryFreezeRejection::FinalAggregateMismatch);
+        assert_eq!(queries.census.rejections[&dependent], QueryFreezeRejection::MutableDependency);
+        assert_eq!(image.dependency_fingerprint(&key), Some(fingerprint));
+    }
+
+    #[test]
+    fn canonical_aggregate_dependencies_are_exact_and_do_not_synthesize_queries() {
+        let image = canonical_universe_formal_image().unwrap().clone();
+        let key = image
+            .dependency_fingerprints
+            .keys()
+            .find(|key| image.query_image().entry(key).is_none())
+            .expect("aggregate-only canonical dependency")
+            .clone();
+        let fingerprint = image.dependency_fingerprint(&key).unwrap();
+        let mut db = SemanticDb::with_canonical_image(WorkspaceId::from_raw(91), image.clone());
+        let module = ModuleId::resolved(
+            phalcom_modules::identity::ResolvedProjectId::from_raw(99),
+            phalcom_modules::identity::ModulePath::root(),
+        );
+        let local = QueryKey::ParsedModule(module);
+        let mut recorder = crate::db::DependencyRecorder::new(local.clone());
+        db.record_dependency(&mut recorder, key.clone()).unwrap();
+        let edges = recorder.finish();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].observed_fingerprint, fingerprint);
+        assert!(!db.is_current(&key));
+        assert!(!db.is_reusable(&key, InputFingerprint(0)));
+        assert!(db.product(&key).is_none());
+        db.publish_product_ready(
+            local.clone(),
+            db.revision(),
+            InputFingerprint(1),
+            ProductFingerprint(2),
+            SemanticProduct::ParsedModule(image.sources().values().next().unwrap().clone()),
+            edges.clone(),
+        )
+        .unwrap();
+        assert!(db.is_reusable(&local, InputFingerprint(1)));
+        assert!(db.index().dependents_of(&key).is_none_or(|dependents| dependents.is_empty()));
+        let mut mismatched = edges;
+        mismatched[0].observed_fingerprint = ProductFingerprint(fingerprint.raw().wrapping_add(1));
+        db.publish_product_ready(
+            local.clone(),
+            db.revision(),
+            InputFingerprint(1),
+            ProductFingerprint(2),
+            SemanticProduct::ParsedModule(image.sources().values().next().unwrap().clone()),
+            mismatched,
+        )
+        .unwrap();
+        assert!(!db.is_reusable(&local, InputFingerprint(1)));
+        let absent = crate::identity::DeclarationId::new(ModuleId::universe_root(), "MissingCanonicalDeclaration".into());
+        let absent_callable = crate::identity::CallableId::new(
+            absent.clone(),
+            phalcom_common::selector::Selector::method("missing", []).unwrap(),
+            crate::identity::DispatchSide::Instance,
+        );
+        for absent_key in [
+            QueryKey::HierarchyEdge(absent.clone()),
+            QueryKey::DeclarationSurface(absent),
+            QueryKey::CallableSignature(absent_callable),
+        ] {
+            let mut recorder = crate::db::DependencyRecorder::new(local.clone());
+            assert!(db.record_dependency(&mut recorder, absent_key).is_err());
+            assert!(recorder.finish().is_empty());
+        }
+        db.set_state(key.clone(), QueryState::Vacant);
+        assert!(db.dependency_fingerprint(&key).is_none());
+        assert_eq!(db.query_keys().count(), 2);
     }
 
     #[test]

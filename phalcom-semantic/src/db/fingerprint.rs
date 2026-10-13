@@ -2977,6 +2977,13 @@ pub fn static_definition_product_fingerprint(product: &crate::static_definition:
         }
         None => 0u8.hash(&mut hasher),
     }
+    match &product.alias_info {
+        Some(info) => {
+            1u8.hash(&mut hasher);
+            hash_type_alias_info(info, &mut hasher);
+        }
+        None => 0u8.hash(&mut hasher),
+    }
     finish_product(hasher)
 }
 

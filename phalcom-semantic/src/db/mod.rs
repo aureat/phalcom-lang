@@ -190,8 +190,19 @@ impl SemanticDb {
         self.canonical_entry(key).is_some()
     }
 
+    /// Current dependency evidence from a local query or exact immutable image product.
+    /// This does not make aggregate-only products reusable database queries.
+    pub fn dependency_fingerprint(&self, key: &QueryKey) -> Option<ProductFingerprint> {
+        if let Some(state) = self.query_states.get(key) {
+            return (state.is_ready() && state.validated_revision() == Some(self.revision))
+                .then(|| state.product_fingerprint())
+                .flatten();
+        }
+        self.canonical.as_ref()?.dependency_fingerprint(key)
+    }
+
     fn dependency_matches(&self, edge: &DependencyEdge) -> bool {
-        self.is_current(&edge.dependency) && self.ready_product_fingerprint(&edge.dependency) == Some(edge.observed_fingerprint)
+        self.dependency_fingerprint(&edge.dependency) == Some(edge.observed_fingerprint)
     }
 
     pub fn workspace(&self) -> WorkspaceId {
@@ -578,8 +589,8 @@ impl SemanticDb {
     /// present in the cache.
     pub fn record_dependency(&self, recorder: &mut DependencyRecorder, dependency: QueryKey) -> Result<(), String> {
         if !self.query_states.contains_key(&dependency) {
-            if let Some(entry) = self.canonical_entry(&dependency) {
-                recorder.record(dependency, entry.product_fingerprint);
+            if let Some(fingerprint) = self.canonical.as_ref().and_then(|image| image.dependency_fingerprint(&dependency)) {
+                recorder.record(dependency, fingerprint);
                 return Ok(());
             }
         }
@@ -625,9 +636,10 @@ impl SemanticDb {
         self.remember_query_state(&key);
         self.remember_query_products(&key);
         self.index_query_key(&key);
-        let immutable = self.canonical.as_ref().map(|image| image.query_image());
+        let immutable = self.canonical.as_ref();
+        let local_states = &self.query_states;
         self.index.replace_dependencies_with_leaves(key.clone(), dependencies, |dependency| {
-            immutable.is_some_and(|image| image.entry(dependency).is_some())
+            !local_states.contains_key(dependency) && immutable.is_some_and(|image| image.dependency_fingerprint(dependency).is_some())
         });
         self.query_states.insert(
             key.clone(),
@@ -705,8 +717,9 @@ impl SemanticDb {
         self.remember_query_products(&key);
         self.remember_last_known_good(&key);
         let canonical_image = self.canonical.clone();
+        let local_states = &self.query_states;
         self.index.replace_dependencies_with_leaves(key.clone(), dependencies, |dependency| {
-            canonical_image.as_ref().is_some_and(|image| image.query_image().entry(dependency).is_some())
+            !local_states.contains_key(dependency) && canonical_image.as_ref().is_some_and(|image| image.dependency_fingerprint(dependency).is_some())
         });
         let fp = analysis.dependency_fingerprint;
         let query_value = crate::db::product::SemanticProduct::CallableBody(analysis.clone()).to_query_value();

@@ -147,7 +147,20 @@ fn ordinary_image_session_keeps_universe_external_across_replacement() {
         assert!(session.module_session().linked_modules().keys().all(|module| !module.project.is_universe()));
         assert!(!update.snapshot.has_errors(), "{:?}", update.snapshot.diagnostics);
         assert!(update.snapshot.internal_incidents.is_empty(), "{:?}", update.snapshot.internal_incidents);
-        assert_eq!(update.snapshot.conformance_witness_plans.len(), image.snapshot().conformance_witness_plans.len());
+        assert_eq!(
+            update.snapshot.conformance_witness_plans.len(),
+            image.snapshot().conformance_witness_plans.len()
+        );
+        assert_eq!(update.snapshot.surfaces.local_len(), 0);
+        assert_eq!(update.snapshot.data_semantics.data_decls.local_len(), 0);
+        assert_eq!(update.snapshot.enum_semantics.enums.local_len(), 0);
+        assert_eq!(update.snapshot.associated_surfaces.surfaces.local_len(), 0);
+        assert_eq!(update.snapshot.enum_requirements.requirements.local_len(), 0);
+        assert_eq!(update.snapshot.type_member_declarations.local_len(), 0);
+        for (id, surface) in image.snapshot().dispatch.surfaces().iter() {
+            assert!(std::ptr::eq(update.snapshot.dispatch.get_surface(id).unwrap(), surface));
+            assert!(std::ptr::eq(update.snapshot.surfaces.get(id).unwrap(), surface));
+        }
         assert!(update.snapshot.store.extends_canonical_prefix(&image.snapshot().store));
         assert!(update.snapshot.static_values.extends_canonical_prefix(&image.snapshot().static_values));
     }

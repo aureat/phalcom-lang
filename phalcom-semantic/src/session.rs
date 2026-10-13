@@ -871,7 +871,8 @@ pub struct SemanticWorkspaceSession {
     base_enum_products: Vec<Arc<crate::db::product::EnumDeclarationProduct>>,
     base_associated_surfaces: AssociatedFamilyTable,
     base_associated_surface_products: Vec<Arc<crate::associated::AssociatedSurface>>,
-    base_type_member_declarations: BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+    base_type_member_declarations:
+        crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
     base_type_member_products: Vec<Arc<crate::db::product::TypeMemberDeclarationProduct>>,
     base_enum_requirements: EnumRequirementTable,
     base_enum_requirement_products: Vec<(DeclarationId, Arc<crate::db::product::EnumRequirementsProduct>)>,
@@ -1034,18 +1035,18 @@ impl SemanticWorkspaceSession {
             static_values,
             base_declarations: DeclarationTypeTable::with_parent(snapshot.declarations.clone()),
             base_hierarchy: MapTypeHierarchy::with_parent(snapshot.hierarchy.clone()),
-            base_dispatch: (*snapshot.dispatch).clone(),
+            base_dispatch: SurfaceDispatchResolver::with_parent(snapshot.dispatch.clone()),
             base_callable_signatures: CallableSignatureTable::with_parent(snapshot.callable_signatures.clone()),
             base_field_signatures: FieldSignatureTable::with_parent(snapshot.field_signatures.clone()),
-            base_data_semantics: (*snapshot.data_semantics).clone(),
+            base_data_semantics: DataSemanticTable::with_parent(snapshot.data_semantics.clone()),
             base_data_products: Vec::new(),
-            base_enum_semantics: (*snapshot.enum_semantics).clone(),
+            base_enum_semantics: EnumSemanticTable::with_parent(snapshot.enum_semantics.clone()),
             base_enum_products: Vec::new(),
-            base_associated_surfaces: (*snapshot.associated_surfaces).clone(),
+            base_associated_surfaces: AssociatedFamilyTable::with_parent(snapshot.associated_surfaces.clone()),
             base_associated_surface_products: Vec::new(),
-            base_type_member_declarations: (*snapshot.type_member_declarations).clone(),
+            base_type_member_declarations: crate::parent_map::ParentMap::with_parent(snapshot.type_member_declarations.clone()),
             base_type_member_products: Vec::new(),
-            base_enum_requirements: (*snapshot.enum_requirements).clone(),
+            base_enum_requirements: EnumRequirementTable::with_parent(snapshot.enum_requirements.clone()),
             base_enum_requirement_products: Vec::new(),
             sources: BTreeMap::new(),
             source_fingerprints: BTreeMap::new(),
@@ -2442,7 +2443,9 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        let mut hierarchy = aggregate_snapshot.map_or_else(|| self.base_hierarchy.clone(), |snapshot| (*snapshot.hierarchy).clone());
+        let mut hierarchy = previous_snapshot
+            .as_ref()
+            .map_or_else(|| self.base_hierarchy.clone(), |snapshot| (*snapshot.hierarchy).clone());
         for declaration in &hierarchy_edge_work {
             hierarchy.remove_superclass(declaration);
         }
@@ -2802,9 +2805,10 @@ impl SemanticWorkspaceSession {
         // checking any alias or source type-member signature. Checked member
         // products are added to the resolver independently as the signature
         // dependency scheduler makes them available.
-        let mut associated_surfaces_table =
-            aggregate_snapshot.map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| (*snapshot.associated_surfaces).clone());
-        let mut type_member_declarations_table = aggregate_snapshot.map_or_else(
+        let mut associated_surfaces_table = previous_snapshot
+            .as_ref()
+            .map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| (*snapshot.associated_surfaces).clone());
+        let mut type_member_declarations_table = previous_snapshot.as_ref().map_or_else(
             || self.base_type_member_declarations.clone(),
             |snapshot| (*snapshot.type_member_declarations).clone(),
         );
@@ -3482,14 +3486,27 @@ impl SemanticWorkspaceSession {
                 alias.range,
             ));
         }
-        if !alias_cycles.is_empty() {
-            // A cyclic alias graph cannot provide a coherent alias product for
-            // this revision. Keep the snapshot from exposing unrelated retained
-            // aliases as if the revision had published a complete alias world.
-            for declaration in &alias_cycles {
-                declarations.remove(declaration);
+        // Quarantine the invalid component and its dependent aliases, preserving
+        // unrelated canonical and local products in this revision.
+        let mut invalid_aliases = alias_cycles.union(&type_signature_cycle_aliases).cloned().collect::<BTreeSet<_>>();
+        let mut invalid_pending = invalid_aliases.iter().cloned().collect::<Vec<_>>();
+        while let Some(provider) = invalid_pending.pop() {
+            if let Some(consumers) = alias_reverse_dependencies.get(&provider) {
+                for consumer in consumers {
+                    if invalid_aliases.insert(consumer.clone()) {
+                        invalid_pending.push(consumer.clone());
+                    }
+                }
             }
-            type_aliases = TypeAliasTable::new();
+        }
+        for declaration in &invalid_aliases {
+            declarations.remove(declaration);
+            type_aliases.remove(declaration);
+            static_definitions_table.remove(declaration);
+            resolver.remove_alias_form(declaration.clone());
+            alias_form_updates.insert(declaration.clone(), None);
+            self.db.retire_query(&QueryKey::DeclarationShell(declaration.clone()));
+            self.db.retire_query(&QueryKey::StaticDefinition(declaration.clone()));
         }
 
         let type_members_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateTypeMembers);
@@ -3561,11 +3578,8 @@ impl SemanticWorkspaceSession {
         // imported aliases and preserves transparent substitution across
         // modules; cycles were removed above and never reach publication.
         let mut pending_aliases = alias_recomputed_declarations.clone();
-        for declaration in alias_cycles.iter().chain(type_signature_cycle_aliases.iter()) {
+        for declaration in &invalid_aliases {
             pending_aliases.remove(declaration);
-        }
-        if !alias_cycles.is_empty() {
-            pending_aliases.clear();
         }
         let mut pending_static_cases = static_case_sources
             .keys()
@@ -4401,11 +4415,16 @@ impl SemanticWorkspaceSession {
         }
 
         // 6. Materialize compatibility dispatch/signature tables from DB-owned formal products.
-        let mut dispatch = aggregate_snapshot.map_or_else(|| self.base_dispatch.clone(), |snapshot| (*snapshot.dispatch).clone());
-        let mut callable_signatures =
-            aggregate_snapshot.map_or_else(|| self.base_callable_signatures.clone(), |snapshot| (*snapshot.callable_signatures).clone());
+        let mut dispatch = previous_snapshot
+            .as_ref()
+            .map_or_else(|| self.base_dispatch.clone(), |snapshot| (*snapshot.dispatch).clone());
+        let mut callable_signatures = previous_snapshot
+            .as_ref()
+            .map_or_else(|| self.base_callable_signatures.clone(), |snapshot| (*snapshot.callable_signatures).clone());
         let mut callable_definitions = aggregate_snapshot.map_or_else(BTreeMap::new, |snapshot| (*snapshot.callable_definitions).clone());
-        let mut field_signatures = aggregate_snapshot.map_or_else(|| self.base_field_signatures.clone(), |snapshot| (*snapshot.field_signatures).clone());
+        let mut field_signatures = previous_snapshot
+            .as_ref()
+            .map_or_else(|| self.base_field_signatures.clone(), |snapshot| (*snapshot.field_signatures).clone());
         for callable in &retired_conformance_witnesses {
             callable_definitions.remove(callable);
             callable_signatures.remove(callable);
@@ -5081,10 +5100,15 @@ impl SemanticWorkspaceSession {
         }
         // 6b. Compile and publish data declarations, enum declarations, associated surfaces, and closed-enum requirements.
         let data_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateData);
-        let mut data_semantics = aggregate_snapshot.map_or_else(|| self.base_data_semantics.clone(), |snapshot| (*snapshot.data_semantics).clone());
-        let mut enum_semantics = aggregate_snapshot.map_or_else(|| self.base_enum_semantics.clone(), |snapshot| (*snapshot.enum_semantics).clone());
-        let mut enum_requirements_table =
-            aggregate_snapshot.map_or_else(|| self.base_enum_requirements.clone(), |snapshot| (*snapshot.enum_requirements).clone());
+        let mut data_semantics = previous_snapshot
+            .as_ref()
+            .map_or_else(|| self.base_data_semantics.clone(), |snapshot| (*snapshot.data_semantics).clone());
+        let mut enum_semantics = previous_snapshot
+            .as_ref()
+            .map_or_else(|| self.base_enum_semantics.clone(), |snapshot| (*snapshot.enum_semantics).clone());
+        let mut enum_requirements_table = previous_snapshot
+            .as_ref()
+            .map_or_else(|| self.base_enum_requirements.clone(), |snapshot| (*snapshot.enum_requirements).clone());
         let mut associated_static_domains_table = aggregate_snapshot.map_or_else(BTreeMap::new, |snapshot| (*snapshot.associated_static_domains).clone());
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             data_semantics.remove_module(module);
@@ -8942,7 +8966,7 @@ impl SemanticWorkspaceSession {
             input.generation,
             self.store.clone(),
             Arc::new(retained_sources.clone()),
-            Arc::new(dispatch.surfaces().clone()),
+            Arc::new(HashMap::new()),
             Arc::new(dispatch),
             Arc::new(callable_signatures),
             Arc::new(declarations),
@@ -8953,6 +8977,7 @@ impl SemanticWorkspaceSession {
             Arc::new(formal_projection),
         );
 
+        snapshot_obj.surfaces = snapshot_obj.dispatch.surfaces().clone();
         snapshot_obj = snapshot_obj.with_field_signatures(Arc::new(field_signatures));
         snapshot_obj = snapshot_obj.with_constructor_initializations(Arc::new(constructor_initializations));
         snapshot_obj = snapshot_obj.with_callable_definitions(Arc::new(callable_definitions));
@@ -10814,7 +10839,7 @@ fn publish_type_member_owner(
     store: &mut TypeStore,
     resolver: &LinkedTypeResolver,
     surfaces: &crate::associated::AssociatedFamilyTable,
-    members: &mut BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+    members: &mut crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
     declarations: &DeclarationTypeTable,
     id: &crate::types::type_member::TypeMemberDeclarationId,
     module: &ModuleId,
@@ -10852,7 +10877,7 @@ fn service_type_member_demands(
     type_aliases: &TypeAliasTable,
     declarations: &DeclarationTypeTable,
     surfaces: &crate::associated::AssociatedFamilyTable,
-    members: &mut BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+    members: &mut crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
     static_case_signatures: &BTreeMap<crate::identity::StaticCaseId, Arc<crate::static_case::StaticCaseSignatureProduct>>,
     cycle_members: &BTreeSet<crate::types::type_member::TypeMemberDeclarationId>,
     member_definitions: &BTreeMap<crate::types::type_member::TypeMemberDeclarationId, (ModuleId, &phalcom_ast::ast::TypeMemberDef)>,
@@ -12523,7 +12548,7 @@ struct InferredCallableRefreshInputs<'a> {
     linked: &'a LinkedProgram,
     definitions: &'a BTreeMap<CallableId, crate::impls::EffectiveCallableDefinition>,
     type_aliases: &'a TypeAliasTable,
-    type_members: &'a BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+    type_members: &'a crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
     import_products: &'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
     source_resolution_input: crate::db::InputFingerprint,
     linked_component_product: crate::db::ProductFingerprint,

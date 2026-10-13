@@ -43,6 +43,7 @@ pub enum PerfCounter {
     CanonicalQueryRejectedFailedRequiresClassification,
     CanonicalQueryRejectedWorkspaceOrigin,
     CanonicalQueryRejectedStaleValidation,
+    CanonicalQueryRejectedFinalAggregateMismatch,
     CanonicalQueryRejectedUnsupportedQueryKind,
     CanonicalQueryRejectedNegativeLocalCandidateSet,
     CanonicalQueryRejectedMissingTypedProduct,

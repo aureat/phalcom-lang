@@ -161,7 +161,7 @@ pub struct SemanticSnapshot {
     /// Read-only compiler-generated source documents used solely for semantic
     /// provenance and editor presentation. They are never analysis inputs.
     pub presentation_sources: Arc<BTreeMap<ModuleId, Arc<str>>>,
-    pub surfaces: Arc<HashMap<DeclarationId, DeclarationSurface>>,
+    pub surfaces: Arc<crate::parent_map::ParentMap<DeclarationId, DeclarationSurface>>,
     pub dispatch: Arc<SurfaceDispatchResolver>,
     pub callable_signatures: Arc<CallableSignatureTable>,
     /// Canonical class-side factory to instance-initializer construction paths.
@@ -205,7 +205,8 @@ pub struct SemanticSnapshot {
     pub associated_surfaces: Arc<AssociatedFamilyTable>,
     /// Checked source type-member contracts keyed by stable declaration identity.
     /// Associated namespace selection remains exclusively in `associated_surfaces`.
-    pub type_member_declarations: Arc<BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
+    pub type_member_declarations:
+        Arc<crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
     /// Checked associated static-domain declarations keyed by stable owner/name identity.
     pub associated_static_domains:
         Arc<BTreeMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>>,
@@ -251,7 +252,7 @@ impl SemanticSnapshot {
             store,
             sources,
             presentation_sources: Arc::new(BTreeMap::new()),
-            surfaces,
+            surfaces: Arc::new(crate::parent_map::ParentMap::from(surfaces.as_ref())),
             dispatch,
             callable_signatures,
             constructor_initializations: Arc::new(ConstructorInitializationTable::default()),
@@ -278,7 +279,7 @@ impl SemanticSnapshot {
             enum_semantics: Arc::new(EnumSemanticTable::new()),
             enum_requirements: Arc::new(EnumRequirementTable::new()),
             associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
-            type_member_declarations: Arc::new(BTreeMap::new()),
+            type_member_declarations: Arc::new(crate::parent_map::ParentMap::default()),
             associated_static_domains: Arc::new(BTreeMap::new()),
             static_case_catalogs: Arc::new(BTreeMap::new()),
             static_case_signatures: Arc::new(BTreeMap::new()),
@@ -317,7 +318,7 @@ impl SemanticSnapshot {
             store,
             sources,
             presentation_sources: Arc::new(BTreeMap::new()),
-            surfaces,
+            surfaces: Arc::new(crate::parent_map::ParentMap::from(surfaces.as_ref())),
             dispatch,
             callable_signatures,
             constructor_initializations: Arc::new(ConstructorInitializationTable::default()),
@@ -344,7 +345,7 @@ impl SemanticSnapshot {
             enum_semantics: Arc::new(EnumSemanticTable::new()),
             enum_requirements: Arc::new(EnumRequirementTable::new()),
             associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
-            type_member_declarations: Arc::new(BTreeMap::new()),
+            type_member_declarations: Arc::new(crate::parent_map::ParentMap::default()),
             associated_static_domains: Arc::new(BTreeMap::new()),
             static_case_catalogs: Arc::new(BTreeMap::new()),
             static_case_signatures: Arc::new(BTreeMap::new()),
@@ -384,7 +385,9 @@ impl SemanticSnapshot {
 
     pub fn with_type_member_declarations(
         mut self,
-        declarations: Arc<BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
+        declarations: Arc<
+            crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+        >,
     ) -> Self {
         self.type_member_declarations = declarations;
         self
@@ -657,7 +660,7 @@ impl SemanticSnapshot {
         &self.sources
     }
 
-    pub fn surfaces(&self) -> &Arc<HashMap<DeclarationId, DeclarationSurface>> {
+    pub fn surfaces(&self) -> &Arc<crate::parent_map::ParentMap<DeclarationId, DeclarationSurface>> {
         &self.surfaces
     }
 

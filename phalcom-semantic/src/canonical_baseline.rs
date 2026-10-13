@@ -66,7 +66,7 @@ pub struct CanonicalUniverseSemanticBaseline {
     pub(crate) base_enum_products: Vec<Arc<EnumDeclarationProduct>>,
     pub(crate) base_associated_surfaces: AssociatedFamilyTable,
     pub(crate) base_associated_surface_products: Vec<Arc<AssociatedSurface>>,
-    pub(crate) base_type_member_declarations: BTreeMap<TypeMemberDeclarationId, Arc<TypeMemberDeclarationProduct>>,
+    pub(crate) base_type_member_declarations: crate::parent_map::ParentMap<TypeMemberDeclarationId, Arc<TypeMemberDeclarationProduct>>,
     pub(crate) base_type_member_products: Vec<Arc<TypeMemberDeclarationProduct>>,
     pub(crate) base_enum_requirements: EnumRequirementTable,
     pub(crate) base_enum_requirement_products: Vec<(DeclarationId, Arc<EnumRequirementsProduct>)>,
@@ -857,7 +857,7 @@ impl CanonicalUniverseSemanticBaseline {
             }
         }
 
-        let mut base_type_member_declarations = BTreeMap::new();
+        let mut base_type_member_declarations = crate::parent_map::ParentMap::default();
         let mut base_type_member_products = Vec::new();
         let mut base_type_member_shells = BTreeMap::<DeclarationId, Vec<crate::associated::AssociatedMemberShell>>::new();
 

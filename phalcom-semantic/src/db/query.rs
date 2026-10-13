@@ -54,7 +54,7 @@ pub struct FormalQueryInputs<'a> {
     pub enum_semantics: Option<&'a crate::enum_semantics::EnumSemanticTable>,
     pub associated_families: Option<&'a crate::associated::AssociatedFamilyTable>,
     pub type_member_declarations:
-        Option<&'a BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
+        Option<&'a crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>>,
     pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
     /// Checked module value facts used by the ordinary callable body checker.
     pub module_values: Option<crate::module_bindings::ModuleValueEnvironment<'a>>,
@@ -1427,7 +1427,9 @@ pub fn query_static_definition(
 ) -> QueryOutcome<Arc<crate::static_definition::StaticDefinitionProduct>> {
     let key = QueryKey::StaticDefinition(product.definition.id.clone());
     let input_fingerprint = crate::db::fingerprint::static_definition_input_fingerprint(&product);
-    if db.validate_reuse(&key, input_fingerprint) {
+    let product_fingerprint = crate::db::fingerprint::static_definition_product_fingerprint(&product);
+    // Source may be unchanged while an imported alias resolves to a new form.
+    if db.ready_product_fingerprint(&key) == Some(product_fingerprint) && db.validate_reuse(&key, input_fingerprint) {
         if let Some(cached) = db.product(&key).and_then(|value| value.as_static_definition()) {
             db.metrics().record_hit();
             return QueryOutcome::Ready(cached.clone());
@@ -1437,7 +1439,6 @@ pub fn query_static_definition(
         db.discard_for_recompute(&key);
     }
     db.record_query_recompute_start(&key);
-    let product_fingerprint = crate::db::fingerprint::static_definition_product_fingerprint(&product);
     if let Err(error) = publish_current_product(
         db,
         key.clone(),
@@ -1474,7 +1475,7 @@ pub fn query_static_definition_with_record_key_projections(
         if dependency_key == key {
             return query_failure(db, key, "static definition projection captured a self-dependency");
         }
-        if !db.is_current(&dependency_key) {
+        if db.dependency_fingerprint(&dependency_key).is_none() {
             return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
         }
     }
@@ -1491,13 +1492,15 @@ pub fn query_static_definition_with_record_key_projections(
             if conformance_semantics.is_none() {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             }
-        } else if !db.is_current(&dependency_key) {
+        } else if db.dependency_fingerprint(&dependency_key).is_none() {
             return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
         }
     }
 
     let input_fingerprint = signature_projection_input_fingerprint(crate::db::fingerprint::static_definition_input_fingerprint(&product), Some(projections));
-    if db.validate_reuse(&key, input_fingerprint)
+    let product_fingerprint = crate::db::fingerprint::static_definition_product_fingerprint(&product);
+    if db.ready_product_fingerprint(&key) == Some(product_fingerprint)
+        && db.validate_reuse(&key, input_fingerprint)
         && let Some(cached) = db.product(&key).and_then(|value| value.as_static_definition())
     {
         db.metrics().record_hit();
@@ -1530,7 +1533,6 @@ pub fn query_static_definition_with_record_key_projections(
             return query_failure(db, key, error);
         }
     }
-    let product_fingerprint = crate::db::fingerprint::static_definition_product_fingerprint(&product);
     if let Err(error) = publish_current_product(
         db,
         key.clone(),
@@ -1895,7 +1897,7 @@ fn unit_outcome<T>(outcome: QueryOutcome<T>) -> QueryOutcome<()> {
 }
 
 fn ensure_dependency_state_current(db: &SemanticDb, key: &QueryKey) -> QueryOutcome<()> {
-    if db.query_state(key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+    if db.dependency_fingerprint(key).is_some() {
         QueryOutcome::Ready(())
     } else {
         QueryOutcome::Failed(format!(
@@ -1915,6 +1917,9 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
     store: &mut TypeStore,
 ) -> QueryOutcome<()> {
     let key = semantic_dependency_query_key(dependency);
+    if db.query_state(&key).is_none() && db.dependency_fingerprint(&key).is_some() {
+        return QueryOutcome::Ready(());
+    }
     if db.is_current(&key) {
         if let crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket_key) = dependency {
             let Some(view) = inputs.conformance_semantics else {
@@ -1938,9 +1943,6 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             Some(inputs.import_products),
         )),
         crate::checker::analysis::SemanticDependency::CallableSignature(callable) => {
-            if !inputs.sources.contains_key(callable.module()) && callable.module().project == phalcom_modules::ProjectIdentity::Universe {
-                return QueryOutcome::Ready(());
-            }
             let Some(unit) = inputs.sources.get(callable.module()).cloned() else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
@@ -1961,9 +1963,6 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             ))
         }
         crate::checker::analysis::SemanticDependency::FieldSignature(field) => {
-            if !inputs.sources.contains_key(&field.owner.module) && field.owner.module.project == phalcom_modules::ProjectIdentity::Universe {
-                return QueryOutcome::Ready(());
-            }
             let Some(unit) = inputs.sources.get(&field.owner.module).cloned() else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
@@ -1999,9 +1998,6 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             ))
         }
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => {
-            if !inputs.sources.contains_key(&declaration.module) && declaration.module.project == phalcom_modules::ProjectIdentity::Universe {
-                return QueryOutcome::Ready(());
-            }
             let Some(unit) = inputs.sources.get(&declaration.module).cloned() else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
@@ -2075,9 +2071,6 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             refresh_generic_conformance_root(db, conformance_key, view, inputs.declarations, inputs.hierarchy, store)
         }
         crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => {
-            if !inputs.sources.contains_key(&declaration.module) && declaration.module.project == phalcom_modules::ProjectIdentity::Universe {
-                return QueryOutcome::Ready(());
-            }
             let Some(unit) = inputs.sources.get(&declaration.module).cloned() else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
@@ -2154,9 +2147,6 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             unit_outcome(query_associated_surface(db, surface))
         }
         crate::checker::analysis::SemanticDependency::TypeMemberDeclaration(declaration) => {
-            if !inputs.sources.contains_key(&declaration.owner.module) && declaration.owner.module.project == phalcom_modules::ProjectIdentity::Universe {
-                return QueryOutcome::Ready(());
-            }
             let Some(table) = inputs.type_member_declarations else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };

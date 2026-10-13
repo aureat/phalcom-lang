@@ -223,24 +223,31 @@ impl AssociatedSurface {
 /// Table of associated family surfaces indexed by declaration owner.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AssociatedFamilyTable {
-    pub surfaces: HashMap<DeclarationId, Arc<AssociatedSurface>>,
+    pub surfaces: Arc<crate::parent_map::ParentMap<DeclarationId, Arc<AssociatedSurface>>>,
 }
 
 impl AssociatedFamilyTable {
+    /// Shares canonical entries and starts with empty local contributions.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            surfaces: Arc::new(crate::parent_map::ParentMap::with_parent(parent.surfaces.clone())),
+        }
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn insert(&mut self, owner: DeclarationId, surface: Arc<AssociatedSurface>) {
-        self.surfaces.insert(owner, surface);
+        Arc::make_mut(&mut self.surfaces).insert(owner, surface);
     }
 
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
-        self.surfaces.retain(|owner, _| &owner.module != module);
+        Arc::make_mut(&mut self.surfaces).retain(|owner, _| &owner.module != module);
     }
 
     pub fn remove(&mut self, owner: &DeclarationId) {
-        self.surfaces.remove(owner);
+        Arc::make_mut(&mut self.surfaces).remove(owner);
     }
 }
 

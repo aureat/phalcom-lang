@@ -48,23 +48,31 @@ pub struct CaseRequirementResult {
 /// Snapshot-level table of closed-enum requirements and case statuses.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct EnumRequirementTable {
-    pub requirements: HashMap<DeclarationId, Arc<[EnumRequirement]>>,
-    pub case_statuses: HashMap<DeclarationId, Arc<[CaseRequirementResult]>>,
+    pub requirements: Arc<crate::parent_map::ParentMap<DeclarationId, Arc<[EnumRequirement]>>>,
+    pub case_statuses: Arc<crate::parent_map::ParentMap<DeclarationId, Arc<[CaseRequirementResult]>>>,
 }
 
 impl EnumRequirementTable {
+    /// Shares canonical entries and starts with empty local contributions.
+    pub fn with_parent(parent: Arc<Self>) -> Self {
+        Self {
+            requirements: Arc::new(crate::parent_map::ParentMap::with_parent(parent.requirements.clone())),
+            case_statuses: Arc::new(crate::parent_map::ParentMap::with_parent(parent.case_statuses.clone())),
+        }
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn insert(&mut self, owner: DeclarationId, requirements: Arc<[EnumRequirement]>, statuses: Arc<[CaseRequirementResult]>) {
-        self.requirements.insert(owner.clone(), requirements);
-        self.case_statuses.insert(owner, statuses);
+        Arc::make_mut(&mut self.requirements).insert(owner.clone(), requirements);
+        Arc::make_mut(&mut self.case_statuses).insert(owner, statuses);
     }
 
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
-        self.requirements.retain(|owner, _| &owner.module != module);
-        self.case_statuses.retain(|owner, _| &owner.module != module);
+        Arc::make_mut(&mut self.requirements).retain(|owner, _| &owner.module != module);
+        Arc::make_mut(&mut self.case_statuses).retain(|owner, _| &owner.module != module);
     }
 }
 

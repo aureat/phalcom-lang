@@ -10,8 +10,8 @@ use std::sync::{Arc, RwLock};
 
 #[derive(Clone, Debug, Default)]
 struct AssociatedTypeMemberProducts {
-    surfaces: BTreeMap<DeclarationId, Arc<crate::associated::AssociatedSurface>>,
-    declarations: BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+    surfaces: Arc<crate::parent_map::ParentMap<DeclarationId, Arc<crate::associated::AssociatedSurface>>>,
+    declarations: crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
 }
 
 /// A project-aware type resolver that resolves type names through the linker layout
@@ -122,10 +122,10 @@ impl LinkedTypeResolver {
     pub fn update_associated_type_members(
         &self,
         surfaces: &crate::associated::AssociatedFamilyTable,
-        declarations: &BTreeMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+        declarations: &crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
     ) {
         if let Ok(mut products) = self.associated_type_members.write() {
-            products.surfaces = surfaces.surfaces.iter().map(|(owner, surface)| (owner.clone(), surface.clone())).collect();
+            products.surfaces = surfaces.surfaces.clone();
             products.declarations = declarations.clone();
         }
     }

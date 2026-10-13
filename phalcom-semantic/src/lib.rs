@@ -44,6 +44,7 @@ pub mod member_projection;
 pub mod metadata;
 pub mod module_bindings;
 pub mod module_product;
+pub mod parent_map;
 pub mod prelude;
 pub mod presentation;
 pub mod prover;

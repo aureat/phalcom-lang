@@ -405,7 +405,7 @@ pub fn resolve_static_definition(
         }
     };
 
-    let result_domain = if let Some(domain_syntax) = &def.result_domain {
+    let mut result_domain = if let Some(domain_syntax) = &def.result_domain {
         match resolve_static_domain(store, declarations, resolver, site, domain_syntax, diagnostics) {
             TypeFormationOutcome::Ready(domain) => domain,
             _ => StaticValueDomain::Kind(KindId::TYPE),
@@ -423,11 +423,8 @@ pub fn resolve_static_definition(
     };
 
     // Compatibility projection for transparent type aliases
-    let explicit_result_kind = def.result_domain.as_ref().and_then(|_| match result_domain {
-        StaticValueDomain::Kind(kind) => Some(kind),
-        _ => None,
-    });
-    let alias_info = if let StaticValueDomain::Kind(_) = result_domain {
+    let explicit_result_kind = def.result_domain.is_some();
+    let alias_info = if let StaticValueDomain::Kind(expected_kind) = result_domain {
         if let StaticDefinitionBodyRepr::TypeForm(ref ann) = body_repr {
             if kinded_params.len() == parameters.len() {
                 let form_outcome = match generic_signature.as_ref() {
@@ -440,19 +437,22 @@ pub fn resolve_static_definition(
                             TypeData::Lambda(lambda_id) => store.arena().get_lambda(*lambda_id).result_kind,
                             _ => store.kind_of(form_type_id),
                         };
-                        if explicit_result_kind.is_some_and(|expected_kind| expected_kind != actual_result_kind) {
+                        if explicit_result_kind && expected_kind != actual_result_kind {
                             diagnostics.push(SemanticDiagnostic::error_in(
                                 module_id.clone(),
                                 DiagnosticCode::AnnotationUnresolved,
                                 format!(
                                     "static definition body has kind {}, expected {}",
                                     store.format_kind(actual_result_kind),
-                                    store.format_kind(explicit_result_kind.expect("explicit result kind exists"))
+                                    store.format_kind(expected_kind)
                                 ),
                                 def.body.range(),
                             ));
                             None
                         } else {
+                            if !explicit_result_kind {
+                                result_domain = StaticValueDomain::Kind(actual_result_kind);
+                            }
                             let actual_kind = store.kind_of(form_type_id);
                             Some(Arc::new(TypeAliasInfo {
                                 declaration: declaration_id.clone(),
