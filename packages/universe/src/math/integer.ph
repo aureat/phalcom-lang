@@ -13,6 +13,7 @@ class IntegerMath {
     return x
   }
 
+  /// Returns the nonnegative least common multiple; zero if either input is zero.
   @class
   lcm(_ a: Int, _ b: Int) -> Int {
     if a == 0 or b == 0 { return 0 }
