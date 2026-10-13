@@ -4,6 +4,7 @@
 
 - **Increment:** Phase S3 foundational-type ownership continuation (Option/Result/Unit) and normative identity alignment
 - **Branch:** `feat/telos-collections`
+- **Commit:** `089083cf833342c6f22f571bae04e4dae5efa1d3`
 - **Base revision:** `f62a8c2a1fea3d25e58a0fe52ed6f699619d93f2`
 - **Scope:** Move Option to `option.ph`, Result to `result.ph`, and Unit to `scalar/unit.ph`; update package facades, current source inventories, and normative canonical paths.
 - **Files added:** `src/option.ph`, `src/result.ph`, `src/scalar/unit.ph`.
