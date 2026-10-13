@@ -4,7 +4,7 @@ The table records distinct module dependencies authored by top-level `import` an
 
 Current resolved distinct edges: **216**.
 
-The S0 copied baseline recorded **208** edges. The scalar split added 6 net edges; this foundational-type increment adds 2 explicit package-facade edges, for 216 current edges.
+The S0 copied baseline recorded **208** edges. The scalar split added 6 net edges; the foundational-type increment added 2 explicit package-facade edges. S4 retargeted 23 existing edges from `universe.collections.iterator_laws` to `universe.collections.iteration` without changing the edge count, leaving **216** current edges.
 
 | S3 change | From module | Resolved target module |
 |---|---|---|
@@ -21,6 +21,10 @@ The S0 copied baseline recorded **208** edges. The scalar split added 6 net edge
 |---|---|---|
 | Added | `universe` | `universe.result` |
 | Added | `universe.scalar` | `universe.scalar.unit` |
+
+| S4 iteration relocation | From module | Previous target | Current target |
+|---|---|---|---|
+| Retargeted (23 source dependencies) | collection, string, text, functional, and math consumers | `universe.collections.iterator_laws` | `universe.collections.iteration` |
 
 | From module | Resolved target module | Evidence |
 |---|---|---|
@@ -247,3 +251,4 @@ The S0 copied baseline recorded **208** edges. The scalar split added 6 net edge
 - Scalar owner modules now import `Number`; the scalar facade imports and re-exports `Number`, `Int`, and `Float`. The import graph records these edges, but no shadow linker/runtime initialization behavior was verified.
 - Production bootstrap and native source anchors still use the legacy tree. Do not register both source trees in one production module graph or VM.
 - Any later split that changes dependency cycles, initialization, or native ownership requires isolated semantic/runtime validation before integration.
+- The current `iteration/package.ph` keeps protocols and adapters cohesive. Splitting protocol defaults from adapter implementations would create runtime edges in both directions under the present source import model; see [`iteration-split-incident.md`](iteration-split-incident.md).
