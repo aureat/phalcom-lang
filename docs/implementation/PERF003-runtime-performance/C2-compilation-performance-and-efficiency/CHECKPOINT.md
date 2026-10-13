@@ -9,8 +9,8 @@ active_plan: PERF003.C2.P2
 latest_completed_plan: null
 next_plan: PERF003.C2.P2
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: 820514801e0de0480ab8bd03cf676c1e0c137b5a
-latest_tested_predecessor: 99b84eccf191dab1892fc50e027fc1ced180fb3b
+execution_tree_head: c931faeaf801cdf92b7a39c77404792e94a60026
+latest_tested_predecessor: bf1a69c6089e4879bbaa024fc202e14a808147a7
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
@@ -164,7 +164,7 @@ After:
 
 **Inherited implementation increment — UNVERIFIED (commit `a7b75980`, before P2).** Since execution base `99b84ecc`, the semantic request now distinguishes presentation and advisory products. Runtime-minimal publication filters canonical Universe source-index shards while retaining local source/formal products, and publication effects/counters are narrowed to the requested products. Integration tests cover minimal publication and Full → RuntimeMinimal → Full presentation coverage. That revision declared `phalcom_semantic::canonical_image` and added process-sharing/completeness scaffolding, but lacked `canonical_image.rs`. P2 supplies the module in the current task patch. No test or build result in this record applies to commit `a7b75980`. The old evidence does not certify the new P2 patch.
 
-### P2 task patch (2026-10-13)
+### P2 task patch (2026-10-13, committed at `bf1a69c6`; lifecycle docs `c931faea`)
 
 - Semantic-owned builder runs the ordinary complete canonical update, then freezes
   committed products. Core obtains its snapshot without a second formal analysis.

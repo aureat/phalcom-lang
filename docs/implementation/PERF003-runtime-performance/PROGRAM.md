@@ -21,4 +21,4 @@ characterization remain blocked by recorded baseline failures.
 PERF003.C2 is proposed with a detailed patch-grade implementation plan
 grounded in the COMPILATION-1 and COMPILATION-2 architectural analyses.
 
-Current C2 execution: `PERF003.C2.P2`, [formal-image/query-root plan](C2-compilation-performance-and-efficiency/PERF003.C2.P2-canonical-formal-image-and-immutable-query-roots-implementation-plan.md). The user-approved 2026-10-13 amendment reserves P2 for this scope and preserves publication Package B as P7. C2 remains IN_PROGRESS / PARTIAL / UNVERIFIED; the unified architecture is not blanket-adopted.
+Current C2 execution: `PERF003.C2.P2`, [formal-image/query-root plan](C2-compilation-performance-and-efficiency/PERF003.C2.P2-canonical-formal-image-and-immutable-query-roots-implementation-plan.md). The user-approved 2026-10-13 amendment reserves P2 for this scope and preserves publication Package B as P7. P2 foundation and initial P3 indexed witness lookup are implemented and committed (`bf1a69c6`, `c931faea`). C2 remains IN_PROGRESS / PARTIAL / UNVERIFIED; the unified architecture is not blanket-adopted.

@@ -1,7 +1,8 @@
 # PERF003.C2.P3 handoff — first increment
 
-Continue on `perf/universe-characterization` in the existing worktree. Changes are
-uncommitted. `CHECKPOINT.md` owns durable status and next action.
+Continue on `perf/universe-characterization` in the existing worktree. First
+increment is committed at `bf1a69c6` (code) and `c931faea` (records).
+`CHECKPOINT.md` owns durable status and next action.
 
 `CallableSignatureTable::get_conformance_witness` is exact indexed lookup;
 `iter_module` uses the existing maintained module index. Do not add another witness

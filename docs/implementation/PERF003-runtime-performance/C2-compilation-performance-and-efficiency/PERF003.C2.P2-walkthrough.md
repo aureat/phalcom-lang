@@ -9,7 +9,8 @@ verification: UNVERIFIED
 # PERF003.C2.P2 implementation walkthrough
 
 Implemented on `perf/universe-characterization` in `.worktrees/perf-universe-characterization`,
-over `820514801e0de0480ab8bd03cf676c1e0c137b5a`; source changes remain uncommitted.
+committed at `bf1a69c6089e4879bbaa024fc202e14a808147a7` with records at `c931faeaf801cdf92b7a39c77404792e94a60026`
+over predecessor `820514801e0de0480ab8bd03cf676c1e0c137b5a`.
 
 The semantic crate now builds and caches a completed formal Universe publication,
 then freezes a closed set of committed typed query roots. The module crate retains

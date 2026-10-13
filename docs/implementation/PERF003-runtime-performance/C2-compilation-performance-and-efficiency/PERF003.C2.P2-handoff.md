@@ -9,7 +9,8 @@ verification: UNVERIFIED
 # PERF003.C2.P2 handoff
 
 Continue in `.worktrees/perf-universe-characterization`, branch
-`perf/universe-characterization`. Preserve the current uncommitted task patch.
+`perf/universe-characterization`. Current increments are committed at
+`bf1a69c6` (code) and `c931faea` (records).
 `CHECKPOINT.md` owns checkpoint-wide status and evidence.
 
 Stable takeover APIs:

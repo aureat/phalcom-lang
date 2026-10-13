@@ -1,6 +1,7 @@
 # PERF003.C2.P3 walkthrough — first increment
 
 Status: IN_PROGRESS / PARTIAL / UNVERIFIED at full P3 scope.
+Committed at `bf1a69c6` (code) and `c931faea` (records) on `perf/universe-characterization`.
 
 Exact conformance witness lookup now constructs the canonical conformance-owned
 CallableId and consults the existing hash table, replacing one global signature

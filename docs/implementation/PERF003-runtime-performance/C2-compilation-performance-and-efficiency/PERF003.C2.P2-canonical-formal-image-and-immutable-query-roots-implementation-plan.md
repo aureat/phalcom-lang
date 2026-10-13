@@ -5,7 +5,7 @@
 **Plan ID:** `PERF003.C2.P2` (L0 approved by user on 2026-10-13; prior Package B is P7)  
 **Status:** `IN_PROGRESS / PARTIAL / UNVERIFIED` for the new P2 scope; upstream C2 remains `IN_PROGRESS / PARTIAL / UNVERIFIED`  
 **Branch under discussion:** `perf/universe-characterization`  
-**Latest commits reported by implementer:** `a7b75980` (unverified WIP), `82051480` (checkpoint/spec lifecycle updates); clean and synchronized with remote  
+**Latest commits reported by implementer:** `bf1a69c6` (formal image, query roots, exact witness lookup), `c931faea` (docs/lifecycle); clean and synchronized with remote  
 **Evidence limitations:** This document is grounded in the supplied checkpoint, the corrected architecture investigation, the proposed unified implementation specification, and the supplied prior audit. It is **not** a fresh checkout review or a successful test report. Exact current signatures and line numbers must be checked against HEAD before edits.
 
 ---
