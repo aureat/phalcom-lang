@@ -13,9 +13,9 @@
 
 ## Current source reconciliation
 
-Through `UNIV002.C2.P12`, the 174 shadow source paths were reconciled against
+Through `UNIV002.C2.P13`, the 174 shadow source paths were reconciled against
 the MOD1 baseline at source revision
-`de77efaf6b4019ccea426ff51ffa300d925af364`. Fifteen source files changed since
+`44beb521c830c836a70f827ca7288c7345b3e2ba`. Sixteen source files changed since
 baseline; their current SHA-256 values are recorded in `INVENTORY.md`. Other
 source hashes still match baseline. Its textual inventory heuristics remain
 baseline data and are not a current opportunity audit.
@@ -92,7 +92,7 @@ A source-only change may be `SOURCE_READY`; parser/interface checks do not imply
 
 ## Next action
 
-`UNIV002.C2.P1`–`P4`, `P6`–`P12` completed Category A
+`UNIV002.C2.P1`–`P4`, `P6`–`P13` completed Category A
 documentation/formatting slices. `UNIV002.C2.P5` completed a Category B
 source-level Gregorian leap-year expression
 rewrite in `time/calendar/month.ph`; its exact shadow parser/unlinked-interface
@@ -100,7 +100,7 @@ test passed. This does not typecheck or execute the method, so semantic linking
 remains `UNVERIFIED` and shadow runtime parity remains `BLOCKED`. P7 documents
 the observed `UtcOffset.seconds` input/range/error contract without changing
 code. The current 174 paths are reconciled against the MOD1 inventory baseline
-through P12's source commit; fifteen changed-file hashes are recorded in
+through P13's source commit; sixteen changed-file hashes are recorded in
 `INVENTORY.md`, while its textual heuristics remain baseline-only.
 P8 documents the maximum element count returned by `Buffer.capacity`; no
 executable code changed.
@@ -125,5 +125,6 @@ P11 completed a comment-only `Reader.map` slice. The MOD1 hash overlay is
 current through its source commit; no semantic or runtime claim is made.
 P12 completed a comment-only `Writer.map` slice. The inventory is current
 through its source commit; no semantic or runtime claim is made.
-P13 is active for a comment-only `State.run` slice; the inventory remains
-current through P12 until that source change is committed.
+P13 completed a comment-only `State.run` slice documenting the initial state
+and returned transition values. The inventory is current through its source
+commit; no semantic or runtime claim is made.

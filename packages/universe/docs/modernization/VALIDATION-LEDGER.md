@@ -203,3 +203,16 @@ shadow graph and an execution path for shadow Universe code.
   SHA-256 `71d2bdf4af929aa0db0ab0de7e4a9e439760b37e203be82fce2a2952979a230e`
   through source commit `de77efaf6b4019ccea426ff51ffa300d925af364`.
 - No shadow semantic or runtime claim is made.
+
+## UNIV002.C2.P13 — State.run documentation
+
+- Added two comments immediately above `functional/state.ph::State.run`
+  stating that it runs the transition with the supplied initial state and
+  returns a `StateStep` containing the produced value and successor state.
+- Only comments changed. Exact diff review and scoped `git diff --check`
+  passed. No tests were run for this comments-only edit.
+- Independent inventory reconciliation confirmed the same 174 source paths
+  as MOD1, with sixteen changed hashes. `functional/state.ph` is recorded at
+  SHA-256 `23759cc11a18253e08fc0061787edb3fad85fb8154e96d5a65a7e69572d199f9`
+  through source commit `44beb521c830c836a70f827ca7288c7345b3e2ba`.
+- No shadow semantic or runtime claim is made.
