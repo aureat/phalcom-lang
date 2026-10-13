@@ -34,7 +34,7 @@ integration, or production cutover.
 | `UNIV002.C2.P9` | Bag.count documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added the occurrence-count comment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 13 changed hashes. |
 | `UNIV002.C2.P10` | Reader.run documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment explaining that run invokes the computation with the supplied environment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 14 changed hashes. |
 | `UNIV002.C2.P11` | Reader.map documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment describing the transformed value and preserved environment; exact source review and whitespace check passed, and the 174-path inventory reconciled with 14 changed hashes. |
-| `UNIV002.C2.P12` | Writer.map documentation | IN_PROGRESS | PARTIAL | UNVERIFIED | Document value transformation and log preservation; preserve behavior and refresh the inventory after the edit. |
+| `UNIV002.C2.P12` | Writer.map documentation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Added one comment documenting value transformation and log preservation; exact source review and whitespace check passed, and the 174-path inventory reconciled with 15 changed hashes. |
 
 ## Established invariants
 
@@ -157,6 +157,16 @@ against MOD1; `functional/reader.ph` is recorded at
 source commit `42982dd6daa9c616a025236407c442e36872b29d`. Semantic linking
 remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
 
+P12 added one documentation line above `Writer.map`, stating that it applies
+`f` to the value and preserves this Writer's log. The constructor applies the
+callback to `self.value` and passes through `self.log` unchanged. Only a
+comment changed. Exact diff review and scoped `git diff --check` passed; no
+tests were run. Independent inventory reconciliation confirmed 174 matching
+paths and 15 changed hashes against MOD1; `functional/writer.ph` is recorded
+at `71d2bdf4af929aa0db0ab0de7e4a9e439760b37e203be82fce2a2952979a230e` through
+source commit `de77efaf6b4019ccea426ff51ffa300d925af364`. Semantic linking
+remains `UNVERIFIED` and shadow runtime remains `BLOCKED`.
+
 ## Deferred candidate
 
 `TextCursor.next` has a candidate rewrite from `isSome`/`unwrap` to
@@ -169,11 +179,12 @@ identities.
 
 ## Active plan and next action
 
-- Active plan: `UNIV002.C2.P12`.
-- Latest complete plan: `UNIV002.C2.P11`; latest complete checkpoint: `UNIV002.C1`.
-- The source inventory is reconciled through P11 source commit
-  `42982dd6daa9c616a025236407c442e36872b29d`: 174 paths, no additions or
-  removals, and 14 changed hashes with the rest matching MOD1. Textual
+- Active plan: none; P12 is complete and the next bounded source-quality
+  slice has not yet started.
+- Latest complete plan: `UNIV002.C2.P12`; latest complete checkpoint: `UNIV002.C1`.
+- The source inventory is reconciled through P12 source commit
+  `de77efaf6b4019ccea426ff51ffa300d925af364`: 174 paths, no additions or
+  removals, and 15 changed hashes with the rest matching MOD1. Textual
   inventory heuristics remain baseline-only.
 - P6 is complete as a docs-only change to `ZoneTransition`. Keep its wording
   grounded in the live source; `docs/implementation/time.md` §29 proposes
@@ -193,6 +204,6 @@ identities.
   The source creates a deferred Reader that applies `f` to the produced value
   while retaining the same environment. No behavior or identity change was in
   scope.
-- P12 is a bounded Category A comment in `functional/writer.ph::Writer.map`.
+- P12 completed a bounded Category A comment in `functional/writer.ph::Writer.map`.
   The method applies `f` to the stored value and carries the stored log into
-  the result. No behavior or identity change is in scope.
+  the result. No behavior or identity change was in scope.

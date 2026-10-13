@@ -190,3 +190,16 @@ shadow graph and an execution path for shadow Universe code.
   SHA-256 `51c0c95da302b4b590c3860bbde14e1bb77a6525293409c32bc36515d39493b6`
   through source commit `42982dd6daa9c616a025236407c442e36872b29d`.
 - No shadow semantic or runtime claim is made.
+
+## UNIV002.C2.P12 — Writer.map documentation
+
+- Added one comment immediately above `functional/writer.ph::Writer.map`
+  stating that it applies `f` to the value and preserves this Writer's log.
+  The live method applies `f` to `self.value` and passes through `self.log`.
+- Only a comment changed. Exact diff review and scoped `git diff --check`
+  passed. No tests were run for this comments-only edit.
+- Independent inventory reconciliation confirmed the same 174 source paths
+  as MOD1, with fifteen changed hashes. `functional/writer.ph` is recorded at
+  SHA-256 `71d2bdf4af929aa0db0ab0de7e4a9e439760b37e203be82fce2a2952979a230e`
+  through source commit `de77efaf6b4019ccea426ff51ffa300d925af364`.
+- No shadow semantic or runtime claim is made.

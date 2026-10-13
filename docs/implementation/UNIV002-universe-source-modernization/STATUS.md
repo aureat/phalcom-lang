@@ -25,7 +25,7 @@ P4 handoff. They remain outside this program's source ownership.
 | Checkpoint | Status | Completion | Verification | Current outcome |
 |---|---|---|---|---|
 | `UNIV002.C1` | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Inventory and five-function source pilot complete; semantic/runtime limits recorded. |
-| `UNIV002.C2` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | P1–P11 complete: ten Category A slices and one Category B predicate rewrite; P12 is active. P5 semantic linking remains unverified and shadow runtime remains blocked. P9 documents `Bag.count`; P10 documents `Reader.run`; P11 documents `Reader.map`; P12 documents `Writer.map`. |
+| `UNIV002.C2` | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | P1–P12 complete: eleven Category A slices and one Category B predicate rewrite. P5 semantic linking remains unverified and shadow runtime remains blocked. P9 documents `Bag.count`; P10 documents `Reader.run`; P11 documents `Reader.map`; P12 documents `Writer.map`. |
 | `UNIV002.C3` | PROPOSED | NOT_STARTED | UNVERIFIED | Candidate audit only; no data conversions implied. |
 | `UNIV002.C4` | PROPOSED | NOT_STARTED | UNVERIFIED | Approved data migrations and runtime prerequisites. |
 | `UNIV002.C5` | PROPOSED | NOT_STARTED | UNVERIFIED | Final quality audit. |
