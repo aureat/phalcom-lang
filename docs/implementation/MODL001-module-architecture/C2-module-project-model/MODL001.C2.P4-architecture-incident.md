@@ -10,7 +10,7 @@
 - **Branch:** `feat/telos-collections`
 - **P4 plan's recorded repository basis:** `e5988ad80a04769740462de98c51d58b56bd314` (the plan's repository grounding; not the live branch head).
 - **Inspected commit at incident preparation:** `da436a6c6b02c98f237a810b2e39f8d4fdc4cf58` (`HEAD`).
-- **Working-tree state before delivery:** dirty with shadow Universe source/specification/inventory edits and two supplementary P4 analysis drafts (`C2P4-SLICE-1.md` and `C2P4-SLICE-2.md`). The shadow paths do not modify the module linker, semantic analysis, compiler, or runtime evidence cited below. The supplementary drafts are committed in `48099fbc` as review inputs, not adopted architecture; the architect response attached by the user remains the decision authority. No P4 implementation was attempted.
+- **Working-tree state before delivery:** dirty with shadow Universe source/specification/inventory edits and three supplementary P4 analysis drafts (`C2P4-SLICE-1.md`, `C2P4-SLICE-2.md`, and `C2P4-SLICE-3.md`). The shadow paths do not modify the module linker, semantic analysis, compiler, or runtime evidence cited below. The supplementary drafts are committed in `48099fbc` and `bd2cbccc` as review inputs, not adopted architecture; the architect response attached by the user remains the decision authority. No P4 implementation was attempted.
 
 ## 2. Escalation trigger
 
