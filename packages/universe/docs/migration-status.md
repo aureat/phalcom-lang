@@ -4,7 +4,7 @@
 
 - **Increment:** S3 scalar split — `Number`, `Int`, and `Float`
 - **Branch:** `feat/telos-collections`
-- **Commit:** Pending final review; based on `4d98eb53` (`docs(universe): record baseline delivery status`).
+- **Commit:** `8e8078a268c4390ce5f5f9e76d9ec47266f0add0` (`feat(universe): split shadow scalar type owners`); S3 began at `4d98eb53`.
 - **Scope:** Keep `Number` in `scalar/number.ph`; move `Int` to `scalar/int.ph` and `Float` to `scalar/float.ph`; author explicit module exports and re-export all three through the scalar package; update shadow migration inventories.
 - **Files added:** `src/scalar/int.ph`, `src/scalar/float.ph`.
 - **Files changed:** Shadow scalar source, identity ledger, current module map, dependency graph, legacy synchronization ledger, and migration status.
