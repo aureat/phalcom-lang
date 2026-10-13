@@ -2,7 +2,7 @@
 
 use super::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use super::diagnostic::SemanticSourceSpan;
-use super::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId, ModuleId};
+use super::identity::{CallableId, CallableOwnerId, CallableParameterId, DeclarationId, DispatchSide, FieldId, ModuleId};
 use super::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use super::types::parameter::{GenericSignature, TypeTerm};
 use crate::types::id::TypeId;
@@ -549,6 +549,7 @@ pub struct FieldSemanticSignature {
 pub struct CallableSignatureTable {
     by_id: HashMap<CallableId, CallableSemanticSignature>,
     module_callables: HashMap<ModuleId, BTreeSet<CallableId>>,
+    owner_callables: HashMap<CallableOwnerId, BTreeSet<CallableId>>,
 }
 
 impl CallableSignatureTable {
@@ -557,6 +558,10 @@ impl CallableSignatureTable {
     }
 
     pub fn insert(&mut self, sig: CallableSemanticSignature) {
+        self.owner_callables
+            .entry(sig.callable.owner.clone())
+            .or_default()
+            .insert(sig.callable.clone());
         self.module_callables
             .entry(sig.callable.module().clone())
             .or_default()
@@ -567,7 +572,14 @@ impl CallableSignatureTable {
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
         if let Some(callables) = self.module_callables.remove(module) {
             for callable in callables {
-                self.by_id.remove(&callable);
+                if let Some(sig) = self.by_id.remove(&callable) {
+                    if let Some(owner_entries) = self.owner_callables.get_mut(&sig.callable.owner) {
+                        owner_entries.remove(&callable);
+                        if owner_entries.is_empty() {
+                            self.owner_callables.remove(&sig.callable.owner);
+                        }
+                    }
+                }
             }
         }
     }
@@ -578,6 +590,12 @@ impl CallableSignatureTable {
         let Some(signature) = self.by_id.remove(callable) else {
             return;
         };
+        if let Some(callables) = self.owner_callables.get_mut(&signature.callable.owner) {
+            callables.remove(callable);
+            if callables.is_empty() {
+                self.owner_callables.remove(&signature.callable.owner);
+            }
+        }
         if let Some(callables) = self.module_callables.get_mut(signature.callable.module()) {
             callables.remove(callable);
             if callables.is_empty() {
@@ -645,6 +663,31 @@ impl CallableSignatureTable {
             .filter_map(|id| self.by_id.get_key_value(id))
     }
 
+    /// Enumerates signatures owned by a callable owner using the maintained owner index.
+    pub fn iter_owner<'a>(
+        &'a self,
+        owner: &CallableOwnerId,
+    ) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> {
+        self.owner_callables
+            .get(owner)
+            .into_iter()
+            .flat_map(|ids| ids.iter())
+            .filter_map(|id| self.by_id.get_key_value(id))
+    }
+
+    /// Enumerates signatures owned by a declaration using the maintained owner index.
+    pub fn iter_declaration_owner<'a>(
+        &'a self,
+        owner: &DeclarationId,
+    ) -> impl Iterator<Item = (&'a CallableId, &'a CallableSemanticSignature)> {
+        let key = CallableOwnerId::Declaration(owner.clone());
+        self.owner_callables
+            .get(&key)
+            .into_iter()
+            .flat_map(|ids| ids.iter())
+            .filter_map(|id| self.by_id.get_key_value(id))
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (&CallableId, &CallableSemanticSignature)> {
         self.by_id.iter()
     }
@@ -655,6 +698,7 @@ impl CallableSignatureTable {
 pub struct FieldSignatureTable {
     by_id: HashMap<FieldId, FieldSemanticSignature>,
     module_fields: HashMap<ModuleId, BTreeSet<FieldId>>,
+    owner_fields: HashMap<DeclarationId, BTreeSet<FieldId>>,
 }
 
 impl FieldSignatureTable {
@@ -663,6 +707,7 @@ impl FieldSignatureTable {
     }
 
     pub fn insert(&mut self, sig: FieldSemanticSignature) {
+        self.owner_fields.entry(sig.owner.clone()).or_default().insert(sig.field.clone());
         self.module_fields.entry(sig.field.owner.module.clone()).or_default().insert(sig.field.clone());
         self.by_id.insert(sig.field.clone(), sig);
     }
@@ -670,7 +715,14 @@ impl FieldSignatureTable {
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
         if let Some(fields) = self.module_fields.remove(module) {
             for field in fields {
-                self.by_id.remove(&field);
+                if let Some(sig) = self.by_id.remove(&field) {
+                    if let Some(owner_entries) = self.owner_fields.get_mut(&sig.owner) {
+                        owner_entries.remove(&field);
+                        if owner_entries.is_empty() {
+                            self.owner_fields.remove(&sig.owner);
+                        }
+                    }
+                }
             }
         }
     }
@@ -681,6 +733,12 @@ impl FieldSignatureTable {
         let Some(signature) = self.by_id.remove(field) else {
             return;
         };
+        if let Some(fields) = self.owner_fields.get_mut(&signature.owner) {
+            fields.remove(field);
+            if fields.is_empty() {
+                self.owner_fields.remove(&signature.owner);
+            }
+        }
         if let Some(fields) = self.module_fields.get_mut(&signature.owner.module) {
             fields.remove(field);
             if fields.is_empty() {
@@ -699,6 +757,15 @@ impl FieldSignatureTable {
 
     pub fn is_empty(&self) -> bool {
         self.by_id.is_empty()
+    }
+
+    /// Enumerates fields owned by a declaration using the maintained owner index.
+    pub fn iter_owner<'a>(&'a self, owner: &DeclarationId) -> impl Iterator<Item = (&'a FieldId, &'a FieldSemanticSignature)> + 'a {
+        self.owner_fields
+            .get(owner)
+            .into_iter()
+            .flat_map(|ids| ids.iter())
+            .filter_map(|id| self.by_id.get_key_value(id))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&FieldId, &FieldSemanticSignature)> {
@@ -852,5 +919,97 @@ mod tests {
 
         let return_mismatch = native_contract_test_signature(TypeId(1), TypeId(4));
         assert_eq!(source.native_contract_mismatch(&return_mismatch).as_deref(), Some("return type differs"));
+    }
+
+    #[test]
+    fn callable_owner_index_tracks_membership_removal_and_cloning() {
+        let mut table = CallableSignatureTable::new();
+        let sig1 = native_contract_test_signature(TypeId(1), TypeId(2));
+        let owner1 = sig1.owner.clone();
+        let id1 = sig1.callable.clone();
+
+        let owner2 = DeclarationId::new(owner1.module.clone(), "Other".into());
+        let selector2 = Selector::method("doWork", vec![]).unwrap();
+        let id2 = CallableId::new(owner2.clone(), selector2.clone(), DispatchSide::Instance);
+        let mut sig2 = sig1.clone();
+        sig2.callable = id2.clone();
+        sig2.owner = owner2.clone();
+        sig2.selector = selector2;
+
+        table.insert(sig1);
+        table.insert(sig2);
+
+        assert_eq!(table.iter_declaration_owner(&owner1).count(), 1);
+        assert_eq!(table.iter_declaration_owner(&owner2).count(), 1);
+
+        let cloned = table.clone();
+        assert_eq!(cloned.iter_declaration_owner(&owner1).count(), 1);
+        assert_eq!(cloned.iter_declaration_owner(&owner2).count(), 1);
+
+        table.remove(&id1);
+        assert_eq!(table.iter_declaration_owner(&owner1).count(), 0);
+        assert_eq!(table.iter_declaration_owner(&owner2).count(), 1);
+        assert_eq!(cloned.iter_declaration_owner(&owner1).count(), 1);
+
+        let mut table2 = cloned;
+        table2.remove_module(&owner1.module);
+        assert_eq!(table2.iter_declaration_owner(&owner1).count(), 0);
+        assert_eq!(table2.iter_declaration_owner(&owner2).count(), 0);
+    }
+
+    #[test]
+    fn field_owner_index_tracks_membership_removal_and_cloning() {
+        let mut table = FieldSignatureTable::new();
+        let module = ModuleId::universe_root();
+        let owner1 = DeclarationId::new(module.clone(), "Owner1".into());
+        let owner2 = DeclarationId::new(module.clone(), "Owner2".into());
+
+        let field1 = FieldId::new(owner1.clone(), "f1", DispatchSide::Instance);
+        let field2 = FieldId::new(owner1.clone(), "f2", DispatchSide::Instance);
+        let field3 = FieldId::new(owner2.clone(), "f3", DispatchSide::Instance);
+
+        table.insert(FieldSemanticSignature {
+            field: field1.clone(),
+            owner: owner1.clone(),
+            side: DispatchSide::Instance,
+            name: "f1".into(),
+            mutable: false,
+            declared_type: DeclaredTypeFact::known(TypeTerm::Canonical(TypeId(1)), DeclaredTypeBasis::DeclarationSemantics),
+            source: None,
+        });
+        table.insert(FieldSemanticSignature {
+            field: field2.clone(),
+            owner: owner1.clone(),
+            side: DispatchSide::Instance,
+            name: "f2".into(),
+            mutable: false,
+            declared_type: DeclaredTypeFact::known(TypeTerm::Canonical(TypeId(2)), DeclaredTypeBasis::DeclarationSemantics),
+            source: None,
+        });
+        table.insert(FieldSemanticSignature {
+            field: field3.clone(),
+            owner: owner2.clone(),
+            side: DispatchSide::Instance,
+            name: "f3".into(),
+            mutable: false,
+            declared_type: DeclaredTypeFact::known(TypeTerm::Canonical(TypeId(3)), DeclaredTypeBasis::DeclarationSemantics),
+            source: None,
+        });
+
+        assert_eq!(table.iter_owner(&owner1).count(), 2);
+        assert_eq!(table.iter_owner(&owner2).count(), 1);
+
+        let cloned = table.clone();
+        assert_eq!(cloned.iter_owner(&owner1).count(), 2);
+        assert_eq!(cloned.iter_owner(&owner2).count(), 1);
+
+        table.remove(&field1);
+        assert_eq!(table.iter_owner(&owner1).count(), 1);
+        assert_eq!(cloned.iter_owner(&owner1).count(), 2);
+
+        let mut table2 = cloned;
+        table2.remove_module(&module);
+        assert_eq!(table2.iter_owner(&owner1).count(), 0);
+        assert_eq!(table2.iter_owner(&owner2).count(), 0);
     }
 }

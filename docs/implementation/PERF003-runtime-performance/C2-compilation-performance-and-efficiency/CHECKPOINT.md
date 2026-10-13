@@ -5,11 +5,11 @@ kind: optimization
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P3
-latest_completed_plan: null
-next_plan: PERF003.C2.P3
+active_plan: PERF003.C2.P4
+latest_completed_plan: PERF003.C2.P3
+next_plan: PERF003.C2.P4
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: c34f9c3fee75f33304a85c229dcf0a5133816479
+execution_tree_head: 4474455cd9137d7e35b7194f4c6e6e246a48bcab
 latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
 
@@ -23,17 +23,17 @@ checkpoint: PERF003.C2
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active_plan: PERF003.C2.P3
-latest_completed_plan: null
-next_plan: PERF003.C2.P3
+active_plan: PERF003.C2.P4
+latest_completed_plan: PERF003.C2.P3
+next_plan: PERF003.C2.P4
 next_action: >
-  Continue Package C settlement and witness plan optimizations. ConformanceIndex
-  nominal-family partitioning and coherence matching brute-force parity, deterministic
-  SCC/affected-result callable settlement, module-value dependency tracking precision,
-  and initial witness plan requirement-view sharing are implemented and verified.
-  Next step is persistent retained structural witness plans across revisions (with
-  separate structural vs return-sensitive fingerprints and explicit query edges) and
-  generic proof memoization. Broad suites and certification remain deferred.
+  Complete remaining Package D tasks for PERF003.C2.P4:
+  P4.T1 (ProgramCompilationOptions metadata_profile plumbing),
+  P4.T5 (MetadataExporter cutover to MetadataReachabilityClosure),
+  P4.T6 (compiler canonical entity partitioning),
+  P4.T7/P4.T8 (RuntimeTypingRegistry stable-identity indexes and inspect.rs same-pool assumption removal),
+  P4.T9 (canonical dependency compatibility), and
+  P4.T11 (focused compiler and reflection regression suites).
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -121,8 +121,8 @@ After:
 | `PERF003.C2.P1` | Canonical Universe Compilation Image & One-Shot Overlay | Package A | IN_PROGRESS | PARTIAL | UNVERIFIED | Shared declaration/interface caches and workspace interface retention are established at `99b84ecc`; commit `a7b75980` added formal-image scaffolding; P2 now owns the implemented formal/query foundation; module-session cutover remains |
 | `PERF003.C2.P7` | Consumer-Specific Publication & Demand-Driven Products | Package B | IN_PROGRESS | PARTIAL | UNVERIFIED | Earlier advisory-only slice has focused evidence; commit `a7b75980` adds `PresentationLevel` source-index filtering and Full → RuntimeMinimal → Full coverage changes, which remain unverified; unified source-target traversal remains |
 | `PERF003.C2.P2` | Complete Canonical Universe Formal Image and Immutable Canonical Query Roots | Formal/query foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | Formal image, query freeze/reader, provenance validation and core acquisition implemented in the task working-tree patch over `82051480`; focused evidence below; G5/G6 certification remains deferred |
-| `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Exact indexed witness lookup, module-bounded effective-surface signature enumeration, ConformanceIndex partitioning (nominal family + open heads) with brute-force parity, SCC inferred-return settlement, and shared requirement-view passing implemented; focused regressions pass. Retained structural witness plans across revisions and generic proof memoization remain |
-| `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | PROPOSED | NOT_STARTED | UNVERIFIED | `MetadataRetentionPolicy`, reachability closures, `CallableOwnerIndex`, canonical metadata cross-pool references |
+| `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Exact indexed witness lookup, module-bounded effective-surface signature enumeration, ConformanceIndex partitioning (nominal family + open heads) with brute-force parity, SCC inferred-return settlement, and shared requirement-view passing implemented; focused regressions pass. Retained structural witness plans across revisions and generic proof memoization remain |
+| `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | Active plan: `MetadataRootSet`, `MetadataRetentionRequest`, `MetadataReachabilityClosure` engine, `CallableSignatureTable` and `FieldSignatureTable` owner indexes, 14 `PerfCounter` metrics, and canonical authority elision unit tested. Exporter cutover, compiler option plumbing, and runtime stable-identity indexing remain |
 | `PERF003.C2.P5` | Backend Scans, Trait Slots, and Local Complexity Elimination | Package E | PROPOSED | NOT_STARTED | UNVERIFIED | Module-indexed backend tables, canonical trait-slot precomputation, inherent impl domain index, range lookup indexes |
 
 ---
@@ -139,6 +139,10 @@ After:
 - `SemanticProductRequest::default()` preserves full tooling-compatible publication. Runtime compiler entry points explicitly request `runtime_minimal()`.
 - Runtime-minimal publication retains non-Universe source/formal shards required by lowering, publishes no canonical Universe presentation shards, and publishes an empty advisory workspace.
 - Canonical immutable dependencies must not be installed as workspace `last_snapshot`; the upcoming image remains a separate read-only lifetime domain.
+- `MetadataReachabilityClosure` enforces `MetadataProfile` via explicit reachability traversal from roots (`MetadataRootSet`).
+- Canonical Universe declarations, callables, and fields (`module_id.project.is_universe()`) are elided from ordinary user bundles by the reachability closure; only non-universe local entities and cross-pool nominal references are retained.
+- `CallableSignatureTable` and `FieldSignatureTable` maintain declaration-owner reverse indexes (`owner_callables` and `owner_fields`), eliminating quadratic $O(\text{declarations} \times \text{all callables})$ scans.
+- `telos-observability` tracks metadata reachability, canonical elision, and runtime lookup metrics via 14 new `PerfCounter` variants.
 
 ---
 
@@ -266,7 +270,18 @@ at the user's request. See [walkthrough](PERF003.C2.P2-walkthrough.md),
 - `conformance_witness_lookup_preserves_exact_owner_side_and_selector_after_edits`:
   PASS, 1 selected. Exact impl/side lookup distinguishes inherent declarations,
   survives table cloning, and observes removals.
-- `RUSTFLAGS='' cargo check -p phalcom-semantic`: PASS (3.94 s).
+- `metadata::reachability::tests::metadata_root_set_tracks_cardinalities`:
+  PASS, 1 selected, 0.00 s. Verifies root tracking and cardinality computations.
+- `metadata::reachability::tests::reachability_closure_minimal_vs_public_retention`:
+  PASS, 1 selected, 0.01 s. Verifies profile-driven retention for `RuntimeMinimal` vs `RuntimePublic`.
+- `metadata::reachability::tests::reachability_closure_elides_canonical_authorities`:
+  PASS, 1 selected, 0.01 s. Verifies that canonical Universe declarations, callables, and fields are elided as external authorities.
+- `signature::tests::callable_owner_index_tracks_membership_removal_and_cloning`:
+  PASS, 1 selected, 0.00 s. Verifies secondary owner index in `CallableSignatureTable`.
+- `signature::tests::field_owner_index_tracks_membership_removal_and_cloning`:
+  PASS, 1 selected, 0.00 s. Verifies secondary owner index in `FieldSignatureTable`.
+- `RUSTFLAGS='' cargo check -p telos-observability`: PASS (clean).
+- `RUSTFLAGS='' cargo check -p phalcom-semantic`: PASS (clean).
 - `RUSTFLAGS='' cargo check -p phalcom-core --features perf-observability`: PASS (17.16 s).
 - `RUSTFLAGS='' cargo check -p phalcom-modules`: PASS (0.17 s).
 - `git diff --check`: PASS (clean).
