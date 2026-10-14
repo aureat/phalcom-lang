@@ -46,7 +46,7 @@ active `perf/universe-characterization` branch.
 
 ## Acceptance
 
-**PENDING until focused CI passes on this convergence tree.** Required:
+**MERGED / FOCUSED_VERIFIED on 2026-10-15.** Scoped acceptance covers:
 contextual enum filters, associated lookup and pattern matching (including
 repeated-owner GADT instantiations), incremental rejected candidate edit,
 type/row inference solver isolation, compiler execution of contextual enums,
@@ -56,4 +56,53 @@ proofs and additional incremental/flow cases remain open.
 
 Remote branch deletion is safe only after successful integration and after
 checking for open PRs and unpushed/dirty worktrees. GitHub can inspect remote
-history, not unpushed worktree changes. 
+history, not unpushed worktree changes.
+
+## Final merge and validation closure (2026-10-15)
+
+PR [#22](https://github.com/aureat/phalcom-lang/pull/22) was merged into
+`feat/consolidation-universe` as **`60c2c6ab0480e0eb45c9873d54e88100161eeb41`**.
+The source tree was independently validated on its exact pre-merge head
+`10ed730e6634ed59c93c3078b84c72eee10bb9ba` by the successful focused
+GitHub Actions [run 38623529172](https://github.com/aureat/phalcom-lang/actions/runs/38623529172).
+Both focused jobs succeeded:
+
+| Exact acceptance | Focused CI result |
+| --- | --- |
+| Contextual enum inference and generic-owner regression | 23 passed |
+| Associated lookup, construction, visibility | 26 passed |
+| Enum/GADT and repeated-owner patterns | 163 passed, 16 ignored |
+| Type/row inference candidate isolation | 1 passed |
+| Module linker; module graph | 25 passed; 5 passed |
+| Core compiler check | Passed |
+| Contextual enum compilation and VM execution | 1 passed |
+| Canonical Universe bootstrap and finalized user linked reads | 1 passed |
+| Native-floor `None` identity | 1 passed |
+
+The initial convergence run correctly found real compile-time diagnostics in
+`universe.collections.bag` and `universe.collections.bijection`, where
+`Array<T>.at(index) -> T | None` was passed into a constructor needing `T`.
+In both canonical and mirrored Universe sources, the already range-checked
+iterator now uses strict `Array[index] -> T`. The runtime fixture's union
+construction was also adjusted to keep both branches reachable, and a
+generic contextual expectation regression was added. No late runtime read
+insertion, relaxed cycle validation or generic-inference bypass was introduced.
+
+**Full workspace CI remains red, not certified.** [Run 38623537797](https://github.com/aureat/phalcom-lang/actions/runs/38623537797)
+failed on the known external parser/snapshot integration cases (7 failures in
+`phalcom-ast --test integration`), Clippy in untouched `phalcom-ast` and
+`phalcom-type-meta`, repository-wide Rustfmt drift and VS Code E2E.
+This scoped merge must not be described as a green workspace/release.
+
+**Remote branch retirement audit:** GitHub ancestry checks confirmed all four
+branches `feat/integration-universe`, `feat/telos-collections`,
+`feat/consolidation-bootstrap-integrated` and
+`feat/all-features-consolidation` have **0 unique commits** absent from
+`feat/consolidation-universe`. Their remote refs are history-redundant.
+However, GitHub ancestry and PR state cannot prove that local worktrees
+have no uncommitted, untracked or unpushed changes. No local-worktree
+deletion or remote-branch deletion is certified by this record. Protect
+`main`, `perf/universe-characterization` and
+`feat/consolidation-universe`; preserve concurrent work. Full enum-inference
+program completeness remains PARTIAL, with overload, local-rigid, projection
+flow and broader incremental acceptance remaining.
