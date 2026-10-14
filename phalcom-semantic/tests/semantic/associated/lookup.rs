@@ -1075,3 +1075,56 @@ class Holder<T> {
         "contextual construction within a generic owner must preserve T: {diagnostics:#?}"
     );
 }
+
+#[test]
+fn contextual_enum_completion_generic_trait_projection_survives_while_let() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Envelope<T> { some(_ value: T) none }
+trait Stream {
+  type Item
+  next -> Envelope<Self::Item>
+}
+class Probe {
+  @class
+  consume<I>(_ source: I) -> Int
+    where I |= Stream
+  {
+    let mut cursor: I = source
+    let mut count: Int = 0
+    while let some(item) = cursor.next {
+      let preserved: <I as Stream>::Item = item
+      count = count + 1
+    }
+    count
+  }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+}
+
+#[test]
+fn contextual_enum_completion_mutable_generic_flow_preserves_case_owner() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Envelope<T> { some(_ value: T) none }
+class Carrier<T> {
+  @class
+  advance(_ input: T) -> Envelope<T> {
+    let mut state: Envelope<T> = some(input)
+    if let some(value) = state {
+      state = none
+    }
+    state = some(input)
+    while let some(value) = state {
+      let preserved: T = value
+      state = none
+    }
+    state
+  }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+}
