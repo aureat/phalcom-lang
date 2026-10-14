@@ -142,3 +142,27 @@ Focused evidence:
 
 Workspace and release certification remain deferred. The other P4 generated
 producer families and cross-stage CV/T8 gaps remain open.
+
+## Integrated closure verification — 2026-10-14
+
+PR #21 merged the native-floor/runtime-availability repair into
+`feat/consolidation-universe` as `57c7cb66`. During reconciliation the
+previously unverified bootstrap-order invariant exposed an unsatisfied
+runtime edge `collections.interval -> errors.argument`, opposite to the
+authored-import-only source index's initialization schedule. The correction
+retains the source index's initializer closure but imposes the finalized
+runtime DAG as the dependency-first schedule, with stable authored-order ties.
+No effective graph edge was silently removed.
+
+A separate invariant repair prevents `SourceInitializedValue` availability
+proofs for modules whose source initializers are not executed. The exact
+source-value proof regression, native-floor catalog inventory, executable
+canonical bootstrap/user linked-read discriminator, and `None.is` object
+identity test all passed on integration head `b1ee59f4`, as did the module
+graph 5/5, linker 25/25, semantic phase evidence 12/12, source-order 3/3,
+and pattern scratch 3/3 focused tests.
+
+Authoritative scoped CI:
+https://github.com/aureat/phalcom-lang/actions/runs/38613486708 (SUCCESS).
+Historic failures above remain incident evidence only. Full workspace and
+release certification are separate and incomplete; P4 remains PARTIAL.

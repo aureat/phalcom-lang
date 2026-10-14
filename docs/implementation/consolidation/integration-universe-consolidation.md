@@ -138,7 +138,7 @@ on earlier revisions and do not verify the latest stabilization commits.
   developments and reconcile isolated collection fixes only after source-level
   equivalence review. Do not import the concurrent enum inference change.
 
-### Remaining blockers and verification
+### Historical blocker snapshot and verification (superseded by merge `57c7cb66`)
 
 The canonical generated-requirement cycle is **not resolved**. The earlier
 failed bootstrap remains the latest completed execution evidence; the new
@@ -165,7 +165,7 @@ Do not relax runtime cycles, add late compiler reads, or claim bootstrap
 acceptance without executable tests. Remote GitHub updates were committed;
 this execution environment has neither a Phalcom checkout nor Rust Cargo.
 
-### Failure-only cycle producer differential (2026-10-14)
+### Historical diagnostic-only cycle producer differential (superseded by typed linker provenance)
 
 - `d8791b4f`: when (and only when) canonical executable finalization rejects a
   runtime cycle, rerun immutable finalization over **authored imports only**,
@@ -201,7 +201,7 @@ an immutable read target, (2) actual availability of the runtime value, and
 preallocated-but-uninitialized slots as available values. Do not simply erase
 owner-only requirements or relax the DAG.
 
-### Integration candidate — native-floor bootstrap closure (2026-10-14)
+### Integrated bootstrap closure — merged and focused-verified (2026-10-14)
 
 This record preserves the historical failed-bootstrap investigation above.
 The separate preservation branch `feat/consolidation-bootstrap-repair` at
@@ -221,27 +221,43 @@ typed cycle path in `phalcom-modules`; their combined-family regression now
 lives in the modules linker suite. The independent list-pattern scratch
 layout correction is preserved.
 
-**Validation status: PENDING on the combined merge tree.** The repair branch
-walkthrough records focused green tests (linker 24/24, graph 5/5, semantic
-12/12, canonical bootstrap 1/1, native floor 1/1, object-model identity 1/1),
-but those tests were executed against `3d61f2b4`, not the integrated tree.
-The merge candidate adds bootstrap-order tests and a combined-producer cycle
-test, which also require running. No workspace/release certification is
-claimed. MODL001.C2.P4 remains IN_PROGRESS / PARTIAL.
+**Integration outcome: MERGED / FOCUSED_VERIFIED.** The canonical bootstrap
+blocker is closed on `feat/consolidation-universe` by merged PR #21,
+commit `57c7cb66`. The separate local repair `3d61f2b4` was merged with
+the latest consolidation baseline and verified on the integration head
+`b1ee59f4` by the scoped GitHub Actions run
+https://github.com/aureat/phalcom-lang/actions/runs/38613486708.
 
-Required combined verification:
+The first integration run detected an additional runtime correctness defect:
+the authored-import source index scheduled `collections.interval` before
+`errors.argument`, while an unsatisfied effective finalized runtime edge
+required `errors.argument` before `collections.interval`. The accepted
+correction retains the source index as owner of the initializer *closure* but
+stably topologically orders that closure against the finalized runtime DAG.
+Authored order remains the deterministic tie-breaker for independent modules;
+the source bootstrap order invariant remains enforced. There is no DAG exemption
+or late compiler read insertion.
 
-```sh
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-modules --test linker
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-modules --test graph
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic integration::phase_evidence
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib finalized_bootstrap_order_ -- --nocapture
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib pattern_temp_depth_tests -- --nocapture
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_linking::mat_01_export_slots_populated -- --exact --nocapture
-RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core object_model_invariants::isa_is_reflexive_and_superclass_closed -- --exact --nocapture
-```
+The availability contract now publishes `SourceInitializedValue` proofs only
+for modules whose source initializers actually execute, not all linked/catalogued
+modules. A negative/positive regression verifies that constraint. Native-floor
+availability continues to require exact installed binding and product identity.
 
-Review the actual native-floor target/product proofs, reserved-slot negative
-cases, user-import read retention, source bootstrap order, and strict cycle
-rejection before marking this candidate merge-ready.
+**Focused results on `b1ee59f4`:** core `cargo check` passed; modules graph
+5/5; modules linker 25/25; semantic phase evidence 12/12; bootstrap schedule
+regression 3/3; pattern scratch-layout regression 3/3; post-bootstrap source
+proof regression 1/1; fresh native-floor catalog inventory 1/1; canonical
+VM bootstrap plus finalized ordinary-user linked read 1/1; class-membership
+and `None` identity regression 1/1. Both focused workflow jobs completed
+successfully. The commit was subsequently merged as `57c7cb66`.
+
+**Workspace-wide CI remains non-green outside this consolidation change:**
+`phalcom-ast` parser/snapshot integration failures, Clippy warnings in
+untouched lexer/type-metadata code, broad Rustfmt drift, and VS Code
+extension-host responsiveness. Do not misrepresent these unrelated failures
+as a green workspace/release certification, or absorb unrelated repairs into
+the accepted bootstrap scope.
+
+**Remaining:** MODL001.C2.P4 is still IN_PROGRESS / PARTIAL / FOCUSED_TESTED;
+other T4 requirement producer families and T7/T8 cross-stage acceptance remain
+open. PERF and concurrent enum feature work remain excluded.

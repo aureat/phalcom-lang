@@ -153,3 +153,28 @@ initialization ordering. Other P4 T4/T7/T8 coverage gaps remain open.
   still open. No workspace/release certification was run.
 - Certification boundary: exact canonical bootstrap and selected focused
   cross-layer regressions; no workspace/release certification.
+
+### Consolidated canonical bootstrap acceptance — 2026-10-14
+
+Integrated native-floor bootstrap availability closure and related
+compiler/VM repairs were merged by PR #21 into `feat/consolidation-universe`
+at `57c7cb66`. The integrated source head `b1ee59f4` passed focused CI
+(https://github.com/aureat/phalcom-lang/actions/runs/38613486708):
+`phalcom-core` check; graph 5/5; linker 25/25; semantic phase evidence
+12/12; canonical bootstrap order 3/3; pattern scratch 3/3; negative
+post-bootstrap source-value proof 1/1; native-floor inventory 1/1; executable
+canonical Universe bootstrap plus user finalized linked read 1/1; and
+`None` class-membership 1/1.
+
+Integration additionally repaired source initializer scheduling: the source
+index selects the executable source closure, whereas the finalized effective
+runtime DAG supplies execution dependencies. Stable topological sorting keeps
+the former authored order wherever dependencies permit; it rejects real
+cycles instead of suppressing generated edges. Post-bootstrap
+`SourceInitializedValue` proofs are now limited to executed source modules,
+not all linked modules. The immediate `None` binding remains preserved.
+
+**Checkpoint remains IN_PROGRESS / PARTIAL / FOCUSED_TESTED.** Bootstrap blocker
+closure is not T4-family completion or T7/T8 CV/release certification.
+Workspace CI still fails in untouched AST parser snapshots, lint/format
+baseline, and VS Code E2E; do not claim workspace/release green.
