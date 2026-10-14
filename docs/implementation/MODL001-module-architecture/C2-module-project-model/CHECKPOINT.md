@@ -118,3 +118,11 @@ not authorize late compiler read insertion. Runtime retest is recorded in the
 P4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; producer-family and
 cross-stage acceptance gaps above remain open. PERF and the production source
 cutover are excluded from this consolidation work.
+
+
+Canonical Universe runtime acceptance remains blocked after staged-linking
+integration exposed strict generated-requirement cycles across collections,
+scalars, option, and errors. The failed exact runtime discriminator and decision
+packet are in the [canonical bootstrap incident](../../consolidation/canonical-universe-runtime-cycle-incident.md).
+Do not close P4 or weaken runtime DAG validation. The canonical staging candidate
+requires an architectural decision on native-floor versus source-init ownership.

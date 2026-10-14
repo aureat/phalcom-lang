@@ -180,16 +180,21 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
 
     #[cfg(test)]
     CANONICAL_LINKS.fetch_add(1, Ordering::Relaxed);
-    let linked_program = ModuleLinker::new(project_universe.clone(), interfaces)
-        .link_all(ModuleId::universe_root(), &resolved)
-        .map_err(|error| CanonicalUniverseBuildError::Linking(error.to_string()))?;
-    let linked_for_semantics = Arc::new(linked_program.clone());
+    let linker = ModuleLinker::new(project_universe.clone(), interfaces);
+    let symbolic = Arc::new(
+        linker.link_semantic(ModuleId::universe_root(), &resolved)
+            .map_err(|error| CanonicalUniverseBuildError::Linking(error.to_string()))?,
+    );
+    let linked_for_semantics = symbolic.to_unfinalized_program();
     let sources: BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>> =
         source_index.units.iter().map(|unit| (unit.id.clone(), unit.clone())).collect();
     #[cfg(test)]
     CANONICAL_SEMANTIC_ANALYSES.fetch_add(1, Ordering::Relaxed);
     let semantic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        phalcom_semantic::try_analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked_for_semantics.clone(), sources.clone(), 0))
+        phalcom_semantic::try_analyze_workspace(
+            phalcom_semantic::SemanticWorkspaceInput::new(linked_for_semantics.clone(), sources.clone(), 0)
+                .with_semantic_linked(symbolic.clone()),
+        )
     }))
     .map_err(|_| CanonicalUniverseBuildError::SemanticAnalysisPanicked)?;
     let semantic = semantic?;
@@ -205,8 +210,11 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     }
     ensure_executable_match_coverage(&semantic.snapshot)?;
 
+    let runtime_modules = symbolic.modules.keys().cloned().collect();
+    let mut requirements = semantic.snapshot.generated_runtime_requirements.to_vec();
+    requirements.extend(crate::modules::compile::runtime_metadata_type_requirements(&semantic.snapshot, &sources, &runtime_modules));
     let linked = Arc::new(
-        phalcom_modules::ExecutableLinkedProgram::from_conservative_link(linked_program)
+        linker.finalize_executable_with_requirements((*symbolic).clone(), &semantic.snapshot.import_phase_products, &requirements)
             .map_err(|error| CanonicalUniverseBuildError::Linking(error.to_string()))?,
     );
 

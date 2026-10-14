@@ -529,7 +529,7 @@ fn contextual_receiver_read_requirement(
 
 /// Projects the same runtime reification/type roots consumed by metadata
 /// export into graph-only owner requirements before executable finalization.
-fn runtime_metadata_type_requirements(
+pub(super) fn runtime_metadata_type_requirements(
     snapshot: &phalcom_semantic::SemanticSnapshot,
     sources: &BTreeMap<ModuleId, Arc<phalcom_modules::source::ParsedModuleUnit>>,
     runtime_modules: &BTreeSet<ModuleId>,

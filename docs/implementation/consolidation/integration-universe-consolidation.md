@@ -1,6 +1,6 @@
 ---
 kind: integration-record
-status: IN_PROGRESS
+status: BLOCKED
 completion: PARTIAL
 verification: UNVERIFIED
 date: 2026-10-14
@@ -27,7 +27,8 @@ modules-owned generated requirements and finalized executable products.
 - Core, semantic, and LSP crate checks passed after conflict resolution.
 - Module linker integration tests: 18 passed, zero failures.
 - Semantic phase-evidence tests: 12 passed, including the optional-initializer regression.
-- Functional bootstrap and runtime acceptance: pending.
+- Shadow Universe parser/interface census: 1 passed after correcting effects/fold/folds imports to `collections.iteration`.
+- Functional bootstrap and runtime acceptance: FAILED; strict generated-requirement cycle requires architectural decision.
 
 The compiler's staged helper preserves fallible semantic updates, followed by
 `finalize_executable_with_requirements`. Optional checked static initializers
@@ -70,8 +71,31 @@ initialization scheduling. No compiler mutation, validation bypass, or semantic
 ownership transfer was introduced. The original authored edges remain. A
 three-module re-export regression proves the executable wrapper accepts the
 finalized reads and schedules the owner before its consumer. All 18 linker tests
-passed after this correction. Compiler/runtime retest is pending.
+passed after this correction. Compiler/runtime retest cleared that graph-coverage failure but exposed missing generated reads.
 
 The inherited `functional/chain.ph` twins differ only in their import owner:
 legacy `collections.iterator_laws` versus shadow `collections.iteration`. This
 is the intentional shadow migration, not behavioral drift to erase by copying.
+
+## Canonical staged construction
+
+The runtime retest cleared `UncoveredRuntimeRead`, then failed six materialization
+tests because `callable.function` lacked a finalized `Error` read. Canonical
+Universe construction still used `link_all` and never supplied symbolic linkage
+to semantic analysis, so it did not receive the generated-requirement products
+used by ordinary programs.
+
+Canonical construction now follows the same existing staged contract:
+`link_semantic` → fallible semantic analysis with symbolic linkage → generated
+requirements plus the existing metadata-owner projection → executable
+finalization. The source provider, project identity, and eager bootstrap policy
+remain unchanged. Core and LSP checks passed after this correction. The exact
+`modules_linking::mat_01_export_slots_populated` runtime discriminator failed strict DAG validation (0 passed, 1 failed, 140.05 seconds).
+
+
+Final state: the three branch histories are consolidated, but runtime acceptance
+is blocked. See [architectural incident and handoff](canonical-universe-runtime-cycle-incident.md).
+Core/semantic/LSP checks and focused linker/phase-evidence checks do not certify
+a working VM. Full workspace, collection/property suites, static metadata parity,
+and source-free PERF gates were deliberately not run. The latest canonical
+staging correction is a reviewable candidate, not accepted bootstrap closure.
