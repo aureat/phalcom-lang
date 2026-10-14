@@ -119,6 +119,10 @@ on earlier revisions and do not verify the latest stabilization commits.
 - `b19df039`: isolate the bootstrap-order validator and add focused synthetic
   reversed-order, dependency-first, and outside-closure regression tests.
   **Tests were committed but not executed.**
+- `e9670ed0`, `b4be8ada`: label cycle-internal generated requirements by
+  `semantic-generated` versus `metadata-type-owner` producer, bound the
+  rendered diagnostic to 128 distinct edges, and preserve SCC membership
+  throughout iterator projection. No change to the executable edge set.
 
 ### Pattern-frame cleanup
 
@@ -145,9 +149,17 @@ action is:
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_linking::mat_01_export_slots_populated -- --exact --nocapture
 ```
 
-Then run the two new focused unit-test filters via the core library target,
-followed by module linker, semantic phase evidence, and relevant collections
-integration tests. First establish the exact rejected edge provenance; do not
+The next bounded Rust gates are:
+
+```sh
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib pattern_temp_depth_tests -- --nocapture
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib finalized_bootstrap_order_ -- --nocapture
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib canonical_cycle_diagnostic_ -- --nocapture
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-modules --test linker -- --nocapture
+```
+
+After those targeted gates, run semantic phase evidence, canonical bootstrap,
+and relevant collections integration tests. First establish the exact rejected edge provenance; do not
 remove graph-only edges merely because their `read_target` is `None`.
 Do not relax runtime cycles, add late compiler reads, or claim bootstrap
 acceptance without executable tests. Remote GitHub updates were committed;
