@@ -628,10 +628,29 @@ fn symbolic_vector_identity_spread_stays_unreduced_before_reading_its_source() {
     checked.sequence_literals = Arc::new(resolutions);
 
     let mut values = StaticValueStore::new();
-    let outcome = StaticEvaluator::for_checked_expression(&checked, &mut values, &mut QueryBudget::default(), &CancellationToken::new())
-        .with_type_store(&fixture.analysis.snapshot.store)
-        .evaluate();
-    assert!(matches!(outcome, StaticEvalOutcome::Symbolic(_)));
+    let (outcome, residuals) = {
+        let mut budget = QueryBudget::default();
+        let cancellation = CancellationToken::new();
+        let mut evaluator =
+            StaticEvaluator::for_checked_expression(&checked, &mut values, &mut budget, &cancellation).with_type_store(&fixture.analysis.snapshot.store);
+        let outcome = evaluator.evaluate();
+        (outcome, evaluator.take_residuals().map(Arc::new))
+    };
+    let StaticEvalOutcome::Symbolic(reference) = outcome else {
+        panic!("symbolic spread must retain a residual: {outcome:?}");
+    };
+    let mut product = copied.as_ref().clone();
+    product.outcome = outcome;
+    product.residuals = residuals;
+    product.value = None;
+    product.lkg_value = None;
+    let retained = Arc::new(product);
+    let clone = retained.clone();
+    drop(retained);
+    assert!(
+        clone.residuals.as_ref().expect("published symbolic store").get(reference).is_ok(),
+        "symbolic constant products must resolve residuals after evaluator teardown"
+    );
     assert_eq!(
         values.len(),
         0,

@@ -3,6 +3,7 @@
 pub mod artifact;
 pub mod builtin;
 pub mod builtin_interface;
+pub mod compiler_artifact;
 pub mod declaration;
 pub mod diagnostic;
 pub mod dunder;

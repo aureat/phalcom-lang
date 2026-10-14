@@ -150,7 +150,7 @@ pub struct TolerantLinkResult {
 pub struct ModuleLinker {
     universe: Arc<ProjectUniverse>,
     interfaces: BTreeMap<ModuleId, UnlinkedModuleInterface>,
-    external: Option<Arc<crate::canonical_products::CanonicalModuleProducts>>,
+    external: Option<Arc<crate::canonical_products::CanonicalExternalModuleWorld>>,
 }
 
 impl ModuleLinker {
@@ -162,7 +162,7 @@ impl ModuleLinker {
 
     /// Resolves remote exports against completed immutable module products.
     /// External modules never become local linking or initialization work.
-    pub fn with_external_modules(mut self, external: Arc<crate::canonical_products::CanonicalModuleProducts>) -> Self {
+    pub fn with_external_modules(mut self, external: Arc<crate::canonical_products::CanonicalExternalModuleWorld>) -> Self {
         self.external = Some(external);
         self
     }

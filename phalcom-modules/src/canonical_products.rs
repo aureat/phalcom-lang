@@ -1,18 +1,46 @@
 //! Immutable module-layer inputs retained by a completed semantic Universe image.
 //!
-//! This is the bounded P1 dependency adapter, not a replacement module linker or
-//! the future external-module image. Interfaces come from the provider cache.
+//! Completed external authority is independent of source-backed build products.
+//! Source compilation captures interfaces from the provider cache once.
 
-use crate::{LinkedProgram, ModuleComponent, ModuleId, ModulePath, ParsedModuleUnit, UniverseSourceProvider, UnlinkedModuleInterface};
+use crate::{LinkedProgram, ModuleComponent, ModuleId, ModulePath, ModuleTopology, ParsedModuleUnit, UniverseSourceProvider, UnlinkedModuleInterface};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+/// Source-free, completed canonical module authority consumed by local workspaces.
+#[derive(Debug)]
+pub struct CanonicalExternalModuleWorld {
+    linked: Arc<LinkedProgram>,
+    interfaces: BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>>,
+    topology: Arc<ModuleTopology>,
+}
+
+impl CanonicalExternalModuleWorld {
+    /// Materializes completed authority; does not parse, build interfaces, or link.
+    pub fn from_parts(
+        linked: Arc<LinkedProgram>,
+        interfaces: BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>>,
+        topology: Arc<ModuleTopology>,
+    ) -> Result<Self, String> {
+        if linked.modules.len() != topology.nodes.len()
+            || linked.modules.len() != interfaces.len()
+            || linked.modules.keys().any(|id| !interfaces.contains_key(id) || !topology.nodes.contains_key(id))
+        {
+            return Err("canonical linked/interface/topology module sets differ".into());
+        }
+        Ok(Self { linked, interfaces, topology })
+    }
+
+    pub fn linked(&self) -> &Arc<LinkedProgram> { &self.linked }
+    pub fn interfaces(&self) -> &BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>> { &self.interfaces }
+    pub fn topology(&self) -> &Arc<ModuleTopology> { &self.topology }
+}
 
 /// Complete canonical module inputs with deterministic source provenance.
 #[derive(Debug)]
 pub struct CanonicalModuleProducts {
-    linked: Arc<LinkedProgram>,
+    external: Arc<CanonicalExternalModuleWorld>,
     sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
-    interfaces: BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>>,
     source_fingerprint: u64,
 }
 
@@ -49,25 +77,29 @@ impl CanonicalModuleProducts {
                 }
             }
         }
+        let plain_interfaces = interfaces.iter().map(|(id, iface)| (id.clone(), (**iface).clone())).collect();
+        let topology = Arc::new(ModuleTopology::from_parts(crate::ResolverGeneration(0), &linked.universe, &plain_interfaces, &BTreeMap::new()));
+        let external = Arc::new(CanonicalExternalModuleWorld::from_parts(linked, interfaces, topology)?);
         Ok(Self {
-            linked,
+            external,
             sources,
-            interfaces,
             source_fingerprint: fingerprint,
         })
     }
 
     /// The foundation's authoritative linked program.
     pub fn linked(&self) -> &Arc<LinkedProgram> {
-        &self.linked
+        self.external.linked()
     }
+    /// Source-free dependency authority, without build provenance.
+    pub fn external(&self) -> &Arc<CanonicalExternalModuleWorld> { &self.external }
     /// Complete source modules, including modules outside runtime reachability.
     pub fn sources(&self) -> &BTreeMap<ModuleId, Arc<ParsedModuleUnit>> {
         &self.sources
     }
     /// Provider-derived interfaces used to build topology.
     pub fn interfaces(&self) -> &BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>> {
-        &self.interfaces
+        self.external.interfaces()
     }
     /// Deterministic digest of module identities and exact provider source texts.
     pub fn source_fingerprint(&self) -> u64 {

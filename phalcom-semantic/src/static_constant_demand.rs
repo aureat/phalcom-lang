@@ -501,14 +501,20 @@ impl StaticConstantDemandDriver<'_> {
             }
         }
 
-        let outcome = {
+        let (outcome, residuals) = {
             let mut budget = self.budget;
-            crate::static_eval::StaticEvaluator::for_constant(&checked, self.values, &mut budget, self.cancel)
+            let mut evaluator = crate::static_eval::StaticEvaluator::for_constant(&checked, self.values, &mut budget, self.cancel)
                 .with_static_constants(self.constants)
                 .with_static_definitions(self.definitions)
                 .with_type_store(self.store)
-                .with_semantic_tables(self.store, self.data_semantics, self.enum_semantics)
-                .evaluate()
+                .with_semantic_tables(self.store, self.data_semantics, self.enum_semantics);
+            let outcome = evaluator.evaluate();
+            let residuals = if matches!(outcome, crate::static_eval::StaticEvalOutcome::Symbolic(_)) {
+                evaluator.take_residuals().map(Arc::new)
+            } else {
+                None
+            };
+            (outcome, residuals)
         };
         let value = match &outcome {
             crate::static_eval::StaticEvalOutcome::Reduced(value) => Some(*value),
@@ -520,6 +526,7 @@ impl StaticConstantDemandDriver<'_> {
             initializer_range: initializer.range(),
             checked: checked.clone(),
             outcome,
+            residuals,
             value,
             lkg_value: value,
             diagnostics: checked.diagnostics.clone(),
@@ -638,6 +645,7 @@ impl StaticConstantDemandDriver<'_> {
                 initializer_range: seed.initializer_range.unwrap_or_else(|| initializer.range()),
                 checked: Arc::new(checked),
                 outcome: crate::static_eval::StaticEvalOutcome::Recursive(crate::static_eval::StaticCycle::empty()),
+                residuals: None,
                 value: None,
                 lkg_value: None,
                 diagnostics: Arc::from(diagnostics.into_boxed_slice()),

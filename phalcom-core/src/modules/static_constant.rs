@@ -53,6 +53,34 @@ impl VM {
                 };
                 Value::obj(self.heap.alloc(object))
             }
+            MaterializationDescriptor::Tuple(elements) => {
+                let mut values = Vec::with_capacity(elements.len());
+                for element in elements.iter() {
+                    values.push(self.materialize_descriptor(element, owner)?);
+                }
+                crate::product::finish_tuple(self, values, Vec::new()).map_err(|e| RuntimeError::Internal(format!("{e:?}")))?
+            }
+            MaterializationDescriptor::Record(fields) => {
+                let mut rec_fields = Vec::with_capacity(fields.len());
+                for (key, element) in fields.iter() {
+                    let val = self.materialize_descriptor(element, owner)?;
+                    rec_fields.push((key.clone(), val));
+                }
+                crate::product::finish_record(self, rec_fields).map_err(|e| RuntimeError::Internal(format!("{e:?}")))?
+            }
+            MaterializationDescriptor::Pack { positionals, labeled } => {
+                let mut pos = Vec::with_capacity(positionals.len());
+                for element in positionals.iter() {
+                    pos.push(self.materialize_descriptor(element, owner)?);
+                }
+                let mut lab = Vec::with_capacity(labeled.len());
+                for (sym_name, element) in labeled.iter() {
+                    let sym = self.interner.intern(sym_name);
+                    let val = self.materialize_descriptor(element, owner)?;
+                    lab.push((sym, val));
+                }
+                crate::product::finish_pack(self, pos, lab).map_err(|e| RuntimeError::Internal(format!("{e:?}")))?
+            }
             MaterializationDescriptor::DeferredStructural(_) | MaterializationDescriptor::Unsupported(_) => {
                 return Err(RuntimeError::Internal(format!("static constant {owner} has no supported runtime materialization")).into());
             }
@@ -244,6 +272,43 @@ mod tests {
         assert!(vm.heap.as_vector(nested_vector).is_some(), "nested sequence traces its Vector child");
         assert!(matches!(vm.heap.get(nested_string), Object::Str(_)), "nested String survives forced GC");
         assert_eq!(vm.heap.as_large_int(nested_large), Some(&large), "nested LargeInt survives forced GC");
+    }
+
+    #[test]
+    fn structural_sequence_materialization_preserves_values_labels_and_owner_identity() {
+        let mut vm = VM::new();
+        let owner_id = vm.module_registry.iter().next().expect("bootstrapped owner module").0.clone();
+        let key = phalcom_semantic::field_key::FieldKey::symbol("pair");
+        let spec = StaticConstantLoweringSpec {
+            id: StaticConstantId::new(owner_id, "__static_test_structural_sequence"),
+            descriptor: MaterializationDescriptor::Sequence {
+                kind: SequenceMaterializationKind::Vector,
+                elements: Arc::from([MaterializationDescriptor::Pack {
+                    positionals: Arc::from([MaterializationDescriptor::Tuple(Arc::from([
+                        MaterializationDescriptor::Int(StaticInt::Small(7)),
+                        MaterializationDescriptor::String(Arc::from("retained")),
+                    ]))]),
+                    labeled: Arc::from([(
+                        Arc::from("named"),
+                        MaterializationDescriptor::Record(Arc::from([(key.clone(), MaterializationDescriptor::Int(StaticInt::Small(8)))])),
+                    )]),
+                }]),
+            },
+        };
+        let reference = vm.ensure_static_constant_materialized(&spec).expect("structural sequence materialization");
+        let value = vm.resolve_static_constant(reference).unwrap();
+        let repeated = vm.ensure_static_constant_materialized(&spec).unwrap();
+        assert_eq!(vm.resolve_static_constant(repeated).unwrap(), value, "owner value must be reused");
+        let pack = vm.heap.vector(value.as_obj().unwrap()).elements()[0];
+        let label = vm.interner.find("named").unwrap();
+        let view = vm.pack_view_value(pack).expect("materialized Pack");
+        let tuple = view.get_positional(0).unwrap();
+        let record = view.get_by_label(label).unwrap();
+        let tuple_values = vm.tuple_view_value(tuple).expect("materialized Tuple").values();
+        assert_eq!(tuple_values[0], Value::int(7));
+        assert!(matches!(vm.heap.get(tuple_values[1].as_obj().unwrap()), Object::Str(_)));
+        assert_eq!(vm.record_view_value(record).expect("materialized Record").entries(), vec![(key, Value::int(8))]);
+        assert_eq!(vm.temp_root_depth(), 0, "owner publication releases temporary roots");
     }
 
     #[test]

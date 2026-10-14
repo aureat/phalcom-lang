@@ -489,7 +489,7 @@ mod tests {
 
         let caps = view.capabilities();
         assert!(caps.runtime_metadata_composed);
-        assert_eq!(caps.module_count, view.formal.modules().sources().len());
+        assert_eq!(caps.module_count, view.formal.modules().linked().modules.len());
         assert_eq!(caps.canonical_type_count, view.formal.type_prefix().type_count());
     }
 }

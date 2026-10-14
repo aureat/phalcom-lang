@@ -171,6 +171,9 @@ pub struct TypeLambdaArena {
 }
 
 impl TypeLambdaArena {
+    /// Bounded persistence census, excluding presentation provenance.
+    pub(crate) fn artifact_counts(&self) -> (usize, usize) { (self.scoped_types.len(), self.lambdas.len()) }
+
     pub(crate) fn extends_prefix(&self, prefix: &Self) -> bool {
         self.scoped_types.len() >= prefix.scoped_types.len()
             && self.lambdas.len() >= prefix.lambdas.len()

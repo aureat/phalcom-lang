@@ -105,6 +105,8 @@ pub struct StaticConstantProduct {
     pub initializer_range: SourceRange,
     pub checked: Arc<CheckedStaticConstantInitializer>,
     pub outcome: StaticEvalOutcome,
+    /// Owns every node referenced by a published symbolic outcome.
+    pub residuals: Option<Arc<crate::static_eval::StaticResidualStore>>,
     pub value: Option<StaticValueRef>,
     pub lkg_value: Option<StaticValueRef>,
     pub diagnostics: Arc<[SemanticDiagnostic]>,

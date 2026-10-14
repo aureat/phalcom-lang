@@ -855,7 +855,7 @@ pub struct SemanticWorkspaceSession {
     workspace: WorkspaceId,
     canonical_image: Option<Arc<crate::canonical_image::CanonicalUniverseFormalImage>>,
     module_session: WorkspaceModuleSession,
-    universe_source_provider: phalcom_modules::UniverseSourceProvider,
+    universe_source_provider: Option<phalcom_modules::UniverseSourceProvider>,
     product_request: crate::request::SemanticProductRequest,
     db: SemanticDb,
     store: Arc<TypeStore>,
@@ -1032,8 +1032,8 @@ impl SemanticWorkspaceSession {
             canonical_image_bootstrap: false,
             workspace,
             canonical_image: Some(image.clone()),
-            module_session: WorkspaceModuleSession::with_external_modules(image.provider().clone(), image.modules().clone()),
-            universe_source_provider: image.provider().clone(),
+            module_session: WorkspaceModuleSession::with_external_modules(image.modules().clone()),
+            universe_source_provider: image.presentation_provider().cloned(),
             product_request: crate::request::SemanticProductRequest::default(),
             db,
             store,
@@ -1093,7 +1093,7 @@ impl SemanticWorkspaceSession {
             workspace,
             canonical_image: None,
             module_session: WorkspaceModuleSession::with_universe_source_provider(baseline.provider.clone()),
-            universe_source_provider: baseline.provider.clone(),
+            universe_source_provider: Some(baseline.provider.clone()),
             product_request: crate::request::SemanticProductRequest::default(),
             db,
             store,
@@ -1843,7 +1843,11 @@ impl SemanticWorkspaceSession {
         ] {
             signature_known_declarations.insert(crate::checker::proof_predicate::proof_predicate_declaration(kind));
         }
-        let canonical_linked = canonical_universe_linked_program(&self.universe_source_provider);
+        let canonical_linked = if let Some(image) = &self.canonical_image {
+            image.linked().clone()
+        } else {
+            canonical_universe_linked_program(self.universe_source_provider.as_ref().expect("foundation session owns a provider"))
+        };
         let signature_resolver = LinkedTypeResolver::with_retained_alias_forms(
             input.linked.clone(),
             signature_known_declarations,
@@ -2486,7 +2490,8 @@ impl SemanticWorkspaceSession {
         if !removed_modules.is_empty() {
             for module in &removed_modules {
                 alias_sources.retain(|declaration, _| &declaration.module != module);
-                let Ok(source) = self.universe_source_provider.load_parsed(module) else {
+                let Some(provider) = &self.universe_source_provider else { continue; };
+                let Ok(source) = provider.load_parsed(module) else {
                     continue;
                 };
                 for statement in &source.program.statements {
@@ -2638,7 +2643,11 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        let canonical_linked = canonical_universe_linked_program(&self.universe_source_provider);
+        let canonical_linked = if let Some(image) = &self.canonical_image {
+            image.linked().clone()
+        } else {
+            canonical_universe_linked_program(self.universe_source_provider.as_ref().expect("foundation session owns a provider"))
+        };
         let resolver = LinkedTypeResolver::with_retained_alias_forms(
             input.linked.clone(),
             known_declarations.clone(),
@@ -7999,7 +8008,7 @@ impl SemanticWorkspaceSession {
         }
         let source_index_effect_modules = source_index_rebuild_modules.clone();
         let canonical_presentation_modules = if presentation_requested {
-            canonical_presentation_modules(&self.universe_source_provider)
+            self.universe_source_provider.as_ref().map(canonical_presentation_modules).unwrap_or_default()
         } else {
             BTreeSet::new()
         };
@@ -8045,7 +8054,7 @@ impl SemanticWorkspaceSession {
         let source_index_scope = semantic_perf_scope!(::telos_observability::PerfPhase::SemanticUpdateSourceIndex);
         let (mut source_index, presentation_sources) = build_source_semantic_index(SourceSemanticIndexInputs {
             sources: &input.sources,
-            universe_source_provider: &self.universe_source_provider,
+            universe_source_provider: self.universe_source_provider.as_ref(),
             callable_analyses: &callable_analyses,
             import_products: &input.import_products,
             require_canonical_import_products: input.require_canonical_import_products,
@@ -8729,6 +8738,7 @@ impl SemanticWorkspaceSession {
                         initializer_range: decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
                         checked,
                         outcome: crate::static_eval::StaticEvalOutcome::Recursive(crate::static_eval::StaticCycle::empty()),
+                        residuals: None,
                         value: None,
                         lkg_value: previous_snapshot
                             .as_ref()
@@ -8947,6 +8957,11 @@ impl SemanticWorkspaceSession {
                             .with_semantic_tables_mut(type_store, &data_semantics, &enum_semantics);
 
                     let outcome = evaluator.evaluate();
+                    let residuals = if matches!(outcome, crate::static_eval::StaticEvalOutcome::Symbolic(_)) {
+                        evaluator.take_residuals().map(Arc::new)
+                    } else {
+                        None
+                    };
                     drop(evaluator);
                     #[cfg(test)]
                     self.fail_at_test_publication_point(SemanticPublicationFailpoint::AfterStaticValueMutation)?;
@@ -8969,6 +8984,7 @@ impl SemanticWorkspaceSession {
                         initializer_range: decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
                         checked: checked.clone(),
                         outcome,
+                        residuals,
                         value,
                         lkg_value,
                         diagnostics: checked.diagnostics.clone(),
@@ -11304,7 +11320,7 @@ fn semantic_target_for_linked_symbol(symbol: &SymbolId, nominal_declarations: &H
 
 struct SourceSemanticIndexInputs<'a> {
     sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
-    universe_source_provider: &'a phalcom_modules::UniverseSourceProvider,
+    universe_source_provider: Option<&'a phalcom_modules::UniverseSourceProvider>,
     callable_analyses: &'a HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
     import_products: &'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
     require_canonical_import_products: bool,
@@ -11365,7 +11381,7 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
     let mut presentation_sources = BTreeMap::new();
     let provider = universe_source_provider;
     let presentation_modules = if include_canonical_presentation {
-        canonical_presentation_modules(provider)
+        provider.map(canonical_presentation_modules).unwrap_or_default()
     } else {
         BTreeSet::new()
     };
@@ -11388,7 +11404,7 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
         if sources.contains_key(module) || (previous.is_some() && !rebuild_modules.contains(module)) {
             continue;
         }
-        let parsed = provider.load_parsed(module).expect("canonical Universe presentation source must load");
+        let parsed = provider.expect("source presentation requires a source provider").load_parsed(module).expect("canonical Universe presentation source must load");
         presentation_sources.insert(module.clone(), parsed.text.clone());
         index_sources.insert(module.clone(), parsed);
     }

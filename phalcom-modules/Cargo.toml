@@ -7,6 +7,7 @@ edition = "2024"
 test-support = []
 
 [dependencies]
+phalcom-compiler-artifact = { path = "../phalcom-compiler-artifact" }
 phalcom-ast = { path = "../phalcom-ast" }
 phalcom-common = { path = "../phalcom-common" }
 phalcom-native-meta = { path = "../phalcom-native-meta" }

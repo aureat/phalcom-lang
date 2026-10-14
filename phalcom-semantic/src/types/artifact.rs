@@ -1,0 +1,1782 @@
+//! Portable type-graph projection and relocation at the TypeStore ownership boundary.
+use super::*;
+use crate::field_key::FieldKey;
+use crate::identity::{AssociatedStaticDomainDeclarationId, CallableId, CallableOwnerId};
+use crate::metadata::stable_identity::*;
+use crate::types::family::FamilyOperationShape;
+use crate::types::id::ScopedTypeId;
+use crate::types::parameter::{GenericParameterMode, SelfRole};
+use crate::types::type_lambda::*;
+use crate::types::type_member::{ConstTerm, TypeMemberArgument};
+use phalcom_common::selector::{Selector, SelectorBase};
+use phalcom_compiler_artifact::semantic::type_store::*;
+use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
+use phalcom_type_meta::identity::*;
+use std::collections::{BTreeMap, BTreeSet};
+
+fn invalid(message: impl Into<String>) -> ArtifactError {
+    ValidationError::ReferentialIntegrity(message.into()).into()
+}
+
+struct ExportIds {
+    types: BTreeMap<TypeId, ArtifactTypeId>,
+    kinds: BTreeMap<KindId, ArtifactKindId>,
+    parameters: BTreeMap<TypeParameterId, ArtifactTypeParameterId>,
+    rows: BTreeMap<RecordRowId, ArtifactRecordRowId>,
+    families: BTreeMap<FamilyTypeId, ArtifactFamilyTypeId>,
+    variants: BTreeMap<VariantTypeId, ArtifactVariantTypeId>,
+    domains: BTreeMap<StaticDomainId, ArtifactStaticDomainId>,
+    constructors: BTreeMap<AlgebraicStaticConstructorId, ArtifactStaticConstructorId>,
+    scoped: BTreeMap<super::super::id::ScopedTypeId, ArtifactScopedTypeId>,
+    lambdas: BTreeMap<TypeLambdaId, ArtifactTypeLambdaId>,
+}
+macro_rules! export_map {
+    ($count:expr, $native:ident, $wire:ident) => {
+        (0..$count)
+            .map(|index| {
+                let index = u32::try_from(index).map_err(|_| invalid("arena extent exceeds u32"))?;
+                Ok(($native(index), $wire(index)))
+            })
+            .collect::<Result<BTreeMap<_, _>, ArtifactError>>()?
+    };
+}
+macro_rules! export_lookup {
+    ($($method:ident: $field:ident ($native:ty) -> $wire:ty),* $(,)?) => { $(
+        fn $method(&self, value: $native) -> Result<$wire, ArtifactError> { self.$field.get(&value).copied().ok_or_else(|| invalid(concat!("unregistered ", stringify!($field), " reference"))) }
+    )* };
+}
+impl ExportIds {
+    fn new(store: &TypeStore) -> Result<Self, ArtifactError> {
+        let (scoped_count, lambda_count) = store.lambda_arena.artifact_counts();
+        Ok(Self {
+            types: export_map!(store.types.len(), TypeId, ArtifactTypeId),
+            kinds: export_map!(store.kinds.len(), KindId, ArtifactKindId),
+            parameters: export_map!(store.type_parameters.len(), TypeParameterId, ArtifactTypeParameterId),
+            rows: export_map!(store.row_arena.len(), RecordRowId, ArtifactRecordRowId),
+            families: export_map!(store.family_arena.len(), FamilyTypeId, ArtifactFamilyTypeId),
+            variants: export_map!(store.variant_identities.len(), VariantTypeId, ArtifactVariantTypeId),
+            domains: export_map!(store.static_domains.len(), StaticDomainId, ArtifactStaticDomainId),
+            constructors: export_map!(store.static_constructors.len(), AlgebraicStaticConstructorId, ArtifactStaticConstructorId),
+            scoped: export_map!(scoped_count, ScopedTypeId, ArtifactScopedTypeId),
+            lambdas: export_map!(lambda_count, TypeLambdaId, ArtifactTypeLambdaId),
+        })
+    }
+    export_lookup!(ty: types(TypeId) -> ArtifactTypeId, kind: kinds(KindId) -> ArtifactKindId, parameter: parameters(TypeParameterId) -> ArtifactTypeParameterId, row: rows(RecordRowId) -> ArtifactRecordRowId, family: families(FamilyTypeId) -> ArtifactFamilyTypeId, variant: variants(VariantTypeId) -> ArtifactVariantTypeId, domain: domains(StaticDomainId) -> ArtifactStaticDomainId, constructor: constructors(AlgebraicStaticConstructorId) -> ArtifactStaticConstructorId, scoped: scoped(ScopedTypeId) -> ArtifactScopedTypeId, lambda: lambdas(TypeLambdaId) -> ArtifactTypeLambdaId);
+    fn args(&self, values: &[StaticArgument]) -> Result<Vec<StaticArgumentV1>, ArtifactError> {
+        values
+            .iter()
+            .map(|value| {
+                Ok(match value {
+                    StaticArgument::Term(ty) => StaticArgumentV1::Term { term: self.ty(*ty)? },
+                    StaticArgument::RecordRow(row) => StaticArgumentV1::RecordRow { row: self.row(*row)? },
+                    StaticArgument::DynamicType => StaticArgumentV1::DynamicType,
+                })
+            })
+            .collect()
+    }
+    fn types(&self, values: &[TypeId]) -> Result<Vec<ArtifactTypeId>, ArtifactError> {
+        values.iter().map(|ty| self.ty(*ty)).collect()
+    }
+    fn scopes(&self, values: &[ScopedTypeId]) -> Result<Vec<ArtifactScopedTypeId>, ArtifactError> {
+        values.iter().map(|ty| self.scoped(*ty)).collect()
+    }
+    fn tuple(&self, elements: &[TupleTypeElement], positionals: AnonymousTupleRemainder, labeled: AnonymousTupleRemainder) -> Result<TupleV1, ArtifactError> {
+        Ok(TupleV1 {
+            elements: elements
+                .iter()
+                .map(|element| {
+                    Ok(TupleElementV1 {
+                        label: element.label.as_ref().map(ToString::to_string),
+                        ty: self.ty(element.ty)?,
+                    })
+                })
+                .collect::<Result<_, ArtifactError>>()?,
+            positionals: self.remainder(positionals)?,
+            labeled: self.remainder(labeled)?,
+        })
+    }
+    fn remainder(&self, value: AnonymousTupleRemainder) -> Result<TupleRemainderV1, ArtifactError> {
+        Ok(match value {
+            AnonymousTupleRemainder::None => TupleRemainderV1::None,
+            AnonymousTupleRemainder::Unconstrained => TupleRemainderV1::Unconstrained,
+            AnonymousTupleRemainder::Typed(ty) => TupleRemainderV1::Typed { ty: self.ty(ty)? },
+        })
+    }
+    fn field(&self, value: &RecordRowField) -> Result<FieldV1, ArtifactError> {
+        Ok(FieldV1 {
+            key: key_out(&value.key),
+            ty: self.ty(value.ty)?,
+            presence: presence_out(value.presence),
+        })
+    }
+    fn scoped_field(&self, value: &ScopedRecordField) -> Result<ScopedFieldV1, ArtifactError> {
+        Ok(ScopedFieldV1 {
+            key: key_out(&value.key),
+            ty: self.scoped(value.ty)?,
+            presence: presence_out(value.presence),
+        })
+    }
+    fn scoped_elements(&self, values: &[ScopedTupleElement]) -> Result<Vec<ScopedElementV1>, ArtifactError> {
+        values
+            .iter()
+            .map(|value| {
+                Ok(ScopedElementV1 {
+                    label: value.label.as_ref().map(ToString::to_string),
+                    ty: self.scoped(value.ty)?,
+                })
+            })
+            .collect()
+    }
+    fn scoped_remainder(&self, value: ScopedPackRemainder) -> Result<ScopedRemainderV1, ArtifactError> {
+        Ok(match value {
+            ScopedPackRemainder::None => ScopedRemainderV1::None,
+            ScopedPackRemainder::Unconstrained => ScopedRemainderV1::Unconstrained,
+            ScopedPackRemainder::Typed(ty) => ScopedRemainderV1::Typed { ty: self.scoped(ty)? },
+        })
+    }
+    fn type_form(&self, value: &TypeData) -> Result<TypeV1, ArtifactError> {
+        Ok(match value {
+            TypeData::Never => TypeV1::Never,
+            TypeData::Unit => TypeV1::Unit,
+            TypeData::ClassObject { declaration } => TypeV1::ClassObject {
+                declaration: declaration_out(declaration)?,
+            },
+            TypeData::Nominal { declaration } => TypeV1::Nominal {
+                declaration: declaration_out(declaration)?,
+            },
+            TypeData::StaticDomainForm { domain } => TypeV1::StaticDomainForm { domain: self.domain(*domain)? },
+            TypeData::Applied { origin, arguments } => TypeV1::Applied {
+                origin: self.ty(*origin)?,
+                arguments: self.args(arguments)?,
+            },
+            TypeData::ExactCase { variant, enum_type } => TypeV1::ExactCase {
+                variant: self.variant(*variant)?,
+                enum_type: self.ty(*enum_type)?,
+            },
+            TypeData::Union(members) => TypeV1::Union { members: self.types(members)? },
+            TypeData::Tuple(value) => TypeV1::Tuple {
+                tuple: self.tuple(&value.elements, value.positional_remainder, value.labeled_remainder)?,
+            },
+            TypeData::Record(row) => TypeV1::Record { row: self.row(*row)? },
+            TypeData::TypePack(members) => TypeV1::TypePack { members: self.types(members)? },
+            TypeData::LabeledTypePack(members) => TypeV1::LabeledTypePack {
+                members: members
+                    .iter()
+                    .map(|value| {
+                        Ok(LabeledTypeV1 {
+                            label: value.label.to_string(),
+                            ty: self.ty(value.element)?,
+                        })
+                    })
+                    .collect::<Result<_, ArtifactError>>()?,
+            },
+            TypeData::CompleteTypePack { positionals, labeled } => TypeV1::CompleteTypePack {
+                positionals: self.ty(*positionals)?,
+                labeled: self.ty(*labeled)?,
+            },
+            TypeData::TypePackConcat(members) => TypeV1::TypePackConcat { members: self.types(members)? },
+            TypeData::LabeledTypePackConcat(members) => TypeV1::LabeledTypePackConcat { members: self.types(members)? },
+            TypeData::TupleFromPacks { positionals, labeled } => TypeV1::TupleFromPacks {
+                positionals: self.ty(*positionals)?,
+                labeled: self.ty(*labeled)?,
+            },
+            TypeData::Pack(value) => TypeV1::Pack {
+                pack: self.tuple(&value.elements, value.positional_remainder, value.labeled_remainder)?,
+            },
+            TypeData::PackFromPacks { positionals, labeled } => TypeV1::PackFromPacks {
+                positionals: self.ty(*positionals)?,
+                labeled: self.ty(*labeled)?,
+            },
+            TypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => TypeV1::CallableFromPacks {
+                positionals: self.ty(*positionals)?,
+                labeled: self.ty(*labeled)?,
+                result: self.ty(*return_type)?,
+            },
+            TypeData::Callable(value) => TypeV1::Callable {
+                callable: CallableV1 {
+                    parameters: value
+                        .parameters
+                        .iter()
+                        .map(|parameter| {
+                            Ok(CallableParameterV1 {
+                                label: parameter.label.as_ref().map(ToString::to_string),
+                                ty: self.ty(parameter.ty)?,
+                                rest: rest_out(parameter.rest),
+                            })
+                        })
+                        .collect::<Result<_, ArtifactError>>()?,
+                    result: self.ty(value.return_type)?,
+                },
+            },
+            TypeData::Family(family) => TypeV1::Family { family: self.family(*family)? },
+            TypeData::Parameter(parameter) => TypeV1::Parameter {
+                parameter: self.parameter(*parameter)?,
+            },
+            TypeData::Lambda(lambda) => TypeV1::Lambda { lambda: self.lambda(*lambda)? },
+            TypeData::SelfType(value) => TypeV1::SelfType {
+                self_type: SelfTypeV1 {
+                    owner: declaration_out(&value.owner)?,
+                    side: to_stable_dispatch_side(value.side),
+                    role: match value.role {
+                        SelfRole::InstanceType => SelfRoleV1::InstanceType,
+                        SelfRole::ReceiverValue => SelfRoleV1::ReceiverValue,
+                    },
+                },
+            },
+            TypeData::AssociatedProjection(value) => TypeV1::AssociatedProjection {
+                projection: AssociatedProjectionV1 {
+                    subject: self.ty(value.subject)?,
+                    trait_owner: declaration_out(&value.trait_ref.declaration)?,
+                    trait_arguments: self.types(&value.trait_ref.arguments)?,
+                    requirement_owner: declaration_out(&value.requirement.owner)?,
+                    requirement_index: value.requirement.index,
+                },
+            },
+            TypeData::TypeMemberProjection(value) => TypeV1::TypeMemberProjection {
+                projection: TypeProjectionV1 {
+                    subject: match value.subject {
+                        ProjectionSubject::Type(ty) => ProjectionSubjectV1::Type { ty: self.ty(ty)? },
+                        ProjectionSubject::RecordRow(row) => ProjectionSubjectV1::RecordRow { row: self.row(row)? },
+                    },
+                    selector: selector_out(&value.selector),
+                    arguments: value
+                        .arguments
+                        .iter()
+                        .map(|argument| {
+                            Ok(match argument {
+                                TypeMemberArgument::Type(ty) => TypeMemberArgumentV1::Type { ty: self.ty(*ty)? },
+                                TypeMemberArgument::Const(ConstTerm::Int(value)) => TypeMemberArgumentV1::ConstInt { decimal: value.to_string() },
+                                TypeMemberArgument::RecordRow(row) => TypeMemberArgumentV1::RecordRow { row: self.row(*row)? },
+                            })
+                        })
+                        .collect::<Result<_, ArtifactError>>()?,
+                    source: value
+                        .source_declaration
+                        .as_ref()
+                        .map(|source| {
+                            Ok::<_, ArtifactError>(StableTypeMemberRef {
+                                owner: declaration_out(&source.owner)?,
+                                selector: source.selector.name().into(),
+                            })
+                        })
+                        .transpose()?,
+                },
+            },
+            TypeData::ConstInt(value) => TypeV1::ConstInt { decimal: value.to_string() },
+            TypeData::StaticData(value) => TypeV1::StaticData {
+                domain: self.domain(value.domain)?,
+                constructor: self.constructor(value.constructor)?,
+                arguments: self.args(&value.arguments)?,
+            },
+        })
+    }
+    fn scoped_form(&self, value: &ScopedTypeData) -> Result<ScopedTypeV1, ArtifactError> {
+        Ok(match value {
+            ScopedTypeData::Bound { depth, index } => ScopedTypeV1::Bound { depth: *depth, index: *index },
+            ScopedTypeData::Free(ty) => ScopedTypeV1::Free { ty: self.ty(*ty)? },
+            ScopedTypeData::Applied { origin, arguments } => ScopedTypeV1::Applied {
+                origin: self.scoped(*origin)?,
+                arguments: self.scopes(arguments)?,
+            },
+            ScopedTypeData::Union(members) => ScopedTypeV1::Union {
+                members: self.scopes(members)?,
+            },
+            ScopedTypeData::Tuple(elements) => ScopedTypeV1::Tuple {
+                elements: self.scoped_elements(elements)?,
+            },
+            ScopedTypeData::Record(fields) => ScopedTypeV1::Record {
+                fields: fields.iter().map(|field| self.scoped_field(field)).collect::<Result<_, _>>()?,
+            },
+            ScopedTypeData::OpenRecord(value) => ScopedTypeV1::OpenRecord {
+                row: ScopedRowV1 {
+                    fields: value.fields.iter().map(|field| self.scoped_field(field)).collect::<Result<_, _>>()?,
+                    tail: match value.tail {
+                        ScopedRecordTail::Bound { depth, index } => ScopedRowTailV1::Bound { depth, index },
+                        ScopedRecordTail::FreeParameter(parameter) => ScopedRowTailV1::Parameter {
+                            parameter: self.parameter(parameter)?,
+                        },
+                        ScopedRecordTail::Anonymous(value) => self.scoped_anonymous(value)?,
+                    },
+                },
+            },
+            ScopedTypeData::RecordRow(value) => ScopedTypeV1::RecordRow {
+                row: ScopedRowV1 {
+                    fields: value.fields.iter().map(|field| self.scoped_field(field)).collect::<Result<_, _>>()?,
+                    tail: match value.tail {
+                        ScopedRecordRowTail::Closed => ScopedRowTailV1::Closed,
+                        ScopedRecordRowTail::Bound { depth, index } => ScopedRowTailV1::Bound { depth, index },
+                        ScopedRecordRowTail::FreeParameter(parameter) => ScopedRowTailV1::Parameter {
+                            parameter: self.parameter(parameter)?,
+                        },
+                        ScopedRecordRowTail::Anonymous(value) => self.scoped_anonymous(value)?,
+                        ScopedRecordRowTail::Projection(ty) => ScopedRowTailV1::Projection { ty: self.ty(ty)? },
+                    },
+                },
+            },
+            ScopedTypeData::Callable(value) => ScopedTypeV1::Callable {
+                callable: ScopedCallableV1 {
+                    parameters: value
+                        .parameters
+                        .iter()
+                        .map(|parameter| {
+                            Ok(ScopedParameterV1 {
+                                label: parameter.label.as_ref().map(ToString::to_string),
+                                ty: self.scoped(parameter.ty)?,
+                                rest: parameter.rest,
+                            })
+                        })
+                        .collect::<Result<_, ArtifactError>>()?,
+                    result: self.scoped(value.return_type)?,
+                },
+            },
+            ScopedTypeData::Pack(value) => ScopedTypeV1::Pack {
+                pack: ScopedPackV1 {
+                    elements: self.scoped_elements(&value.elements)?,
+                    positionals: self.scoped_remainder(value.positional_remainder)?,
+                    labeled: self.scoped_remainder(value.labeled_remainder)?,
+                },
+            },
+            ScopedTypeData::TypePack(members) => ScopedTypeV1::TypePack {
+                members: self.scopes(members)?,
+            },
+            ScopedTypeData::LabeledTypePack(members) => ScopedTypeV1::LabeledTypePack {
+                members: members
+                    .iter()
+                    .map(|value| {
+                        Ok(ScopedLabeledTypeV1 {
+                            label: value.label.to_string(),
+                            ty: self.scoped(value.element)?,
+                        })
+                    })
+                    .collect::<Result<_, ArtifactError>>()?,
+            },
+            ScopedTypeData::CompleteTypePack { positionals, labeled } => ScopedTypeV1::CompleteTypePack {
+                positionals: self.scoped(*positionals)?,
+                labeled: self.scoped(*labeled)?,
+            },
+            ScopedTypeData::TypePackConcat(members) => ScopedTypeV1::TypePackConcat {
+                members: self.scopes(members)?,
+            },
+            ScopedTypeData::LabeledTypePackConcat(members) => ScopedTypeV1::LabeledTypePackConcat {
+                members: self.scopes(members)?,
+            },
+            ScopedTypeData::TupleFromPacks { positionals, labeled } => ScopedTypeV1::TupleFromPacks {
+                positionals: self.scoped(*positionals)?,
+                labeled: self.scoped(*labeled)?,
+            },
+            ScopedTypeData::PackFromPacks { positionals, labeled } => ScopedTypeV1::PackFromPacks {
+                positionals: self.scoped(*positionals)?,
+                labeled: self.scoped(*labeled)?,
+            },
+            ScopedTypeData::CallableFromPacks {
+                positionals,
+                labeled,
+                return_type,
+            } => ScopedTypeV1::CallableFromPacks {
+                positionals: self.scoped(*positionals)?,
+                labeled: self.scoped(*labeled)?,
+                result: self.scoped(*return_type)?,
+            },
+            ScopedTypeData::PackProjection { subject, lane } => ScopedTypeV1::PackProjection {
+                subject: self.scoped(*subject)?,
+                lane: match lane {
+                    ScopedPackProjectionLane::Positionals => PackLaneV1::Positionals,
+                    ScopedPackProjectionLane::Labeled => PackLaneV1::Labeled,
+                    ScopedPackProjectionLane::Complete => PackLaneV1::Complete,
+                },
+            },
+            ScopedTypeData::Lambda(lambda) => ScopedTypeV1::Lambda { lambda: self.lambda(*lambda)? },
+        })
+    }
+    fn scoped_anonymous(&self, value: ScopedAnonymousRecordRemainder) -> Result<ScopedRowTailV1, ArtifactError> {
+        Ok(match value {
+            AnonymousRecordRemainder::Unconstrained { key_type } => ScopedRowTailV1::Unconstrained {
+                key_type: self.scoped(key_type)?,
+            },
+            AnonymousRecordRemainder::Typed { key_type, value_type } => ScopedRowTailV1::Typed {
+                key_type: self.scoped(key_type)?,
+                value_type: self.scoped(value_type)?,
+            },
+        })
+    }
+}
+fn declaration_out(value: &DeclarationId) -> Result<StableDeclarationRef, ArtifactError> {
+    if !value.module.project.is_universe() {
+        return Err(invalid("canonical type graph contains non-Universe declaration"));
+    }
+    Ok(to_stable_declaration(value))
+}
+fn owner_out(value: &TypeParameterOwner) -> Result<ParameterOwnerV1, ArtifactError> {
+    Ok(match value {
+        TypeParameterOwner::Declaration(owner) => ParameterOwnerV1::Declaration {
+            owner: declaration_out(owner)?,
+        },
+        TypeParameterOwner::Callable(owner) => {
+            if !owner.module().project.is_universe() {
+                return Err(invalid("non-Universe callable parameter owner"));
+            }
+            ParameterOwnerV1::Callable {
+                owner: to_stable_callable(owner),
+            }
+        }
+        TypeParameterOwner::Impl(owner) => {
+            if !owner.module.project.is_universe() {
+                return Err(invalid("non-Universe impl parameter owner"));
+            }
+            ParameterOwnerV1::Impl { owner: to_stable_impl(owner) }
+        }
+    })
+}
+fn key_out(value: &FieldKey) -> FieldKeyV1 {
+    match value {
+        FieldKey::Symbol(value) => FieldKeyV1::Symbol { value: value.to_string() },
+        FieldKey::String(value) => FieldKeyV1::String { value: value.to_string() },
+        FieldKey::Int(value) => FieldKeyV1::Int { decimal: value.to_string() },
+        FieldKey::Bool(value) => FieldKeyV1::Bool { value: *value },
+    }
+}
+fn presence_out(value: StructuralMemberPresence) -> PresenceV1 {
+    match value {
+        StructuralMemberPresence::Required => PresenceV1::Required,
+        StructuralMemberPresence::Optional => PresenceV1::Optional,
+    }
+}
+fn variance_out(value: Variance) -> VarianceV1 {
+    match value {
+        Variance::Covariant => VarianceV1::Covariant,
+        Variance::Contravariant => VarianceV1::Contravariant,
+        Variance::Invariant => VarianceV1::Invariant,
+    }
+}
+fn mode_out(value: GenericParameterMode) -> ParameterModeV1 {
+    match value {
+        GenericParameterMode::Single => ParameterModeV1::Single,
+        GenericParameterMode::PositionalPack => ParameterModeV1::PositionalPack,
+        GenericParameterMode::LabeledPack => ParameterModeV1::LabeledPack,
+        GenericParameterMode::CompletePack => ParameterModeV1::CompletePack,
+    }
+}
+fn rest_out(value: RestMode) -> RestModeV1 {
+    match value {
+        RestMode::None => RestModeV1::None,
+        RestMode::Positional => RestModeV1::Positional,
+        RestMode::Labeled => RestModeV1::Labeled,
+        RestMode::Complete => RestModeV1::Complete,
+    }
+}
+fn selector_out(value: &TypeMemberSelector) -> TypeMemberSelectorV1 {
+    match value {
+        TypeMemberSelector::Named(name) => TypeMemberSelectorV1::Named { name: name.to_string() },
+        TypeMemberSelector::Subscript => TypeMemberSelectorV1::Subscript,
+    }
+}
+fn operation_out(value: &FamilyOperationShape) -> OperationV1 {
+    OperationV1 {
+        kind: match value.kind {
+            SelectorKind::Getter => SelectorKindV1::Getter,
+            SelectorKind::Setter => SelectorKindV1::Setter,
+            SelectorKind::Method => SelectorKindV1::Method,
+            SelectorKind::SubscriptGet => SelectorKindV1::SubscriptGet,
+            SelectorKind::SubscriptSet => SelectorKindV1::SubscriptSet,
+        },
+        slots: value
+            .slots
+            .iter()
+            .map(|slot| match slot {
+                SelectorSlot::Positional => SelectorSlotV1::Positional,
+                SelectorSlot::Label(name) => SelectorSlotV1::Label { name: name.clone() },
+            })
+            .collect(),
+    }
+}
+
+impl TypeStore {
+    /// Projects finalized canonical arenas without storing process arena identities.
+    pub fn project_artifact(&self, limits: &ValidationLimits) -> Result<TypeGraphV1, ArtifactError> {
+        if self.types.len() > limits.max_type_nodes || self.kinds.len() > limits.max_kind_nodes || self.type_parameters.len() > limits.max_parameters {
+            return Err(invalid("canonical type graph extent exceeds budget"));
+        }
+        let ids = ExportIds::new(self)?;
+        let types = self
+            .types
+            .iter()
+            .enumerate()
+            .map(|(index, form)| {
+                Ok(TypeEntryV1 {
+                    kind: ids.kind(self.type_kinds[index])?,
+                    form: ids.type_form(form)?,
+                })
+            })
+            .collect::<Result<_, ArtifactError>>()?;
+        let kinds = self
+            .kinds
+            .iter()
+            .map(|value| {
+                Ok(match value {
+                    KindData::Type => KindV1::Type,
+                    KindData::RecordRow => KindV1::RecordRow,
+                    KindData::TypePack => KindV1::TypePack,
+                    KindData::LabeledTypePack => KindV1::LabeledTypePack,
+                    KindData::CompleteTypePack => KindV1::CompleteTypePack,
+                    KindData::Arrow { parameters, result } => KindV1::Arrow {
+                        parameters: parameters.iter().map(|kind| ids.kind(*kind)).collect::<Result<_, _>>()?,
+                        result: ids.kind(*result)?,
+                    },
+                    KindData::StaticDomain(domain) => KindV1::StaticDomain { domain: ids.domain(*domain)? },
+                })
+            })
+            .collect::<Result<_, ArtifactError>>()?;
+        let parameters = self
+            .type_parameters
+            .iter()
+            .map(|value| {
+                Ok(ParameterV1 {
+                    owner: owner_out(&value.owner)?,
+                    index: value.index,
+                    name: value.name.to_string(),
+                    kind: ids.kind(value.kind)?,
+                    variance: variance_out(value.variance),
+                    mode: mode_out(value.mode),
+                })
+            })
+            .collect::<Result<_, ArtifactError>>()?;
+        let mut current_slots = self.parameter_to_id.iter().collect::<Vec<_>>();
+        current_slots.sort_by(|a, b| a.0.cmp(b.0));
+        let current_parameters = current_slots
+            .iter()
+            .map(|(_, parameter)| ids.parameter(**parameter))
+            .collect::<Result<_, _>>()?;
+        let rows = self
+            .row_arena
+            .iter()
+            .map(|value| {
+                Ok(RowV1 {
+                    fields: value.fields.iter().map(|field| ids.field(field)).collect::<Result<_, _>>()?,
+                    tail: match value.tail {
+                        RecordRowTail::Closed => RowTailV1::Closed,
+                        RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type }) => {
+                            RowTailV1::Unconstrained { key_type: ids.ty(key_type)? }
+                        }
+                        RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }) => RowTailV1::Typed {
+                            key_type: ids.ty(key_type)?,
+                            value_type: ids.ty(value_type)?,
+                        },
+                        RecordRowTail::Parameter(parameter) => RowTailV1::Parameter {
+                            parameter: ids.parameter(parameter)?,
+                        },
+                        RecordRowTail::Projection(ty) => RowTailV1::Projection { ty: ids.ty(ty)? },
+                    },
+                })
+            })
+            .collect::<Result<_, ArtifactError>>()?;
+        let families = self
+            .family_arena
+            .iter()
+            .map(|value| {
+                Ok(FamilyV1 {
+                    members: value
+                        .members
+                        .iter()
+                        .map(|member| {
+                            Ok(FamilyMemberV1 {
+                                operation: operation_out(&member.operation),
+                                kind: match member.member_kind {
+                                    FamilyMemberTypeKind::Value => FamilyMemberKindV1::Value,
+                                    FamilyMemberTypeKind::Callable => FamilyMemberKindV1::Callable,
+                                },
+                                ty: ids.ty(member.ty)?,
+                            })
+                        })
+                        .collect::<Result<_, ArtifactError>>()?,
+                })
+            })
+            .collect::<Result<_, ArtifactError>>()?;
+        let variants = self
+            .variant_identities
+            .iter()
+            .map(|variant| {
+                Ok(StableVariantRef {
+                    owner: declaration_out(&variant.owner)?,
+                    selector: variant.selector.encode().into(),
+                })
+            })
+            .collect::<Result<_, ArtifactError>>()?;
+        let static_domains = self
+            .static_domains
+            .iter()
+            .map(|value| {
+                Ok(match value {
+                    StaticDomainData::ConstInt => StaticDomainV1::ConstInt,
+                    StaticDomainData::Nominal { declaration } => StaticDomainV1::Nominal {
+                        declaration: declaration_out(declaration)?,
+                    },
+                    StaticDomainData::Associated { declaration, owner_arguments } => StaticDomainV1::Associated {
+                        declaration: StableAssociatedStaticDomainDeclarationRef {
+                            owner: declaration_out(&declaration.owner)?,
+                            name: declaration.name.clone(),
+                        },
+                        arguments: ids.args(owner_arguments)?,
+                    },
+                })
+            })
+            .collect::<Result<_, ArtifactError>>()?;
+        let static_constructors = self
+            .static_constructors
+            .iter()
+            .map(|value| {
+                Ok(StaticConstructorV1 {
+                    domain: ids.domain(value.domain)?,
+                    declaration: declaration_out(&value.declaration)?,
+                    case_name: value.case_name.to_string(),
+                    parameter_kinds: value.parameter_kinds.iter().map(|kind| ids.kind(*kind)).collect::<Result<_, _>>()?,
+                })
+            })
+            .collect::<Result<_, ArtifactError>>()?;
+        let (scoped_count, lambda_count) = self.lambda_arena.artifact_counts();
+        let scoped = (0..scoped_count)
+            .map(|index| ids.scoped_form(self.lambda_arena.get_scoped(ScopedTypeId::from_index(index))))
+            .collect::<Result<_, _>>()?;
+        let lambdas = (0..lambda_count)
+            .map(|index| {
+                let value = self.lambda_arena.get_lambda(TypeLambdaId::from_index(index));
+                Ok(LambdaV1 {
+                    parameter_kinds: value.parameter_kinds.iter().map(|kind| ids.kind(*kind)).collect::<Result<_, _>>()?,
+                    parameter_modes: value.parameter_modes.iter().map(|mode| mode_out(*mode)).collect(),
+                    body: ids.scoped(value.body)?,
+                    result_kind: ids.kind(value.result_kind)?,
+                })
+            })
+            .collect::<Result<_, ArtifactError>>()?;
+        let mut overrides = self.parameter_variances.iter().collect::<Vec<_>>();
+        overrides.sort_by(|a, b| a.0.cmp(b.0));
+        let variance_overrides = overrides
+            .iter()
+            .map(|((owner, index), variance)| {
+                Ok(VarianceOverrideV1 {
+                    owner: declaration_out(owner)?,
+                    index: *index,
+                    variance: variance_out(**variance),
+                })
+            })
+            .collect::<Result<_, ArtifactError>>()?;
+        Ok(TypeGraphV1 {
+            types,
+            kinds,
+            parameters,
+            current_parameters,
+            rows,
+            families,
+            variants,
+            static_domains,
+            static_constructors,
+            scoped,
+            lambdas,
+            variance_overrides,
+        })
+    }
+}
+
+/// Complete relocation into one fresh receiving store. These are allocation
+/// products, not persisted identity, and are checked on every foreign read.
+#[derive(Debug)]
+pub struct TypeRelocation {
+    pub store_id: TypeStoreId,
+    pub types: Vec<TypeId>,
+    pub kinds: Vec<KindId>,
+    pub parameters: Vec<TypeParameterId>,
+    pub rows: Vec<RecordRowId>,
+    pub families: Vec<FamilyTypeId>,
+    pub variants: Vec<VariantTypeId>,
+    pub domains: Vec<StaticDomainId>,
+    pub constructors: Vec<AlgebraicStaticConstructorId>,
+    pub scoped: Vec<ScopedTypeId>,
+    pub lambdas: Vec<TypeLambdaId>,
+}
+macro_rules! relocate_lookup {
+    ($($name:ident: $field:ident ($wire:ty) -> $native:ty),* $(,)?) => { $(
+        pub fn $name(&self, id: $wire) -> Result<$native, ArtifactError> { self.$field.get(id.0 as usize).copied().ok_or_else(|| invalid(concat!("out-of-range relocated ", stringify!($field)))) }
+    )* };
+}
+impl TypeRelocation {
+    relocate_lookup!(ty: types(ArtifactTypeId) -> TypeId, kind: kinds(ArtifactKindId) -> KindId, parameter: parameters(ArtifactTypeParameterId) -> TypeParameterId, row: rows(ArtifactRecordRowId) -> RecordRowId, family: families(ArtifactFamilyTypeId) -> FamilyTypeId, variant: variants(ArtifactVariantTypeId) -> VariantTypeId, domain: domains(ArtifactStaticDomainId) -> StaticDomainId, constructor: constructors(ArtifactStaticConstructorId) -> AlgebraicStaticConstructorId, scoped: scoped(ArtifactScopedTypeId) -> ScopedTypeId, lambda: lambdas(ArtifactTypeLambdaId) -> TypeLambdaId);
+}
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum Node {
+    Type(u32),
+    Kind(u32),
+    Parameter(u32),
+    Row(u32),
+    Family(u32),
+    Variant(u32),
+    Domain(u32),
+    Constructor(u32),
+    Scoped(u32),
+    Lambda(u32),
+}
+struct Import<'a> {
+    graph: &'a TypeGraphV1,
+    limits: &'a ValidationLimits,
+    store: TypeStore,
+    active: BTreeSet<Node>,
+    types: Vec<Option<TypeId>>,
+    kinds: Vec<Option<KindId>>,
+    parameters: Vec<Option<TypeParameterId>>,
+    rows: Vec<Option<RecordRowId>>,
+    families: Vec<Option<FamilyTypeId>>,
+    variants: Vec<Option<VariantTypeId>>,
+    domains: Vec<Option<StaticDomainId>>,
+    constructors: Vec<Option<AlgebraicStaticConstructorId>>,
+    scoped: Vec<Option<ScopedTypeId>>,
+    lambdas: Vec<Option<TypeLambdaId>>,
+}
+macro_rules! resolve_node {
+    ($($method:ident : $field:ident ($wire:ty) -> $native:ty, $node:ident, $build:ident),* $(,)?) => { $(
+        fn $method(&mut self, id: $wire) -> Result<$native, ArtifactError> {
+            let previous = self.$field.get(id.0 as usize).ok_or_else(|| invalid(concat!("out-of-range ", stringify!($field), " edge")))?;
+            if let Some(value) = previous { return Ok(*value); }
+            let node = Node::$node(id.0);
+            if self.active.len() >= self.limits.max_recursion_depth { return Err(invalid("type graph dependency depth exceeds limit")); }
+            if !self.active.insert(node) { return Err(invalid("cyclic structural type graph")); }
+            let result = self.$build(id);
+            self.active.remove(&node);
+            if let Ok(value) = result { self.$field[id.0 as usize] = Some(value); }
+            result
+        }
+    )* };
+}
+impl<'a> Import<'a> {
+    fn new(graph: &'a TypeGraphV1, limits: &'a ValidationLimits) -> Self {
+        Self {
+            graph,
+            limits,
+            store: TypeStore::new(),
+            active: BTreeSet::new(),
+            types: vec![None; graph.types.len()],
+            kinds: vec![None; graph.kinds.len()],
+            parameters: vec![None; graph.parameters.len()],
+            rows: vec![None; graph.rows.len()],
+            families: vec![None; graph.families.len()],
+            variants: vec![None; graph.variants.len()],
+            domains: vec![None; graph.static_domains.len()],
+            constructors: vec![None; graph.static_constructors.len()],
+            scoped: vec![None; graph.scoped.len()],
+            lambdas: vec![None; graph.lambdas.len()],
+        }
+    }
+    resolve_node!(ty: types(ArtifactTypeId) -> TypeId, Type, build_type, kind: kinds(ArtifactKindId) -> KindId, Kind, build_kind, parameter: parameters(ArtifactTypeParameterId) -> TypeParameterId, Parameter, build_parameter, row: rows(ArtifactRecordRowId) -> RecordRowId, Row, build_row, family: families(ArtifactFamilyTypeId) -> FamilyTypeId, Family, build_family, variant: variants(ArtifactVariantTypeId) -> VariantTypeId, Variant, build_variant, domain: domains(ArtifactStaticDomainId) -> StaticDomainId, Domain, build_domain, constructor: constructors(ArtifactStaticConstructorId) -> AlgebraicStaticConstructorId, Constructor, build_constructor, scoped: scoped(ArtifactScopedTypeId) -> ScopedTypeId, Scoped, build_scoped, lambda: lambdas(ArtifactTypeLambdaId) -> TypeLambdaId, Lambda, build_lambda);
+    fn args(&mut self, values: &[StaticArgumentV1]) -> Result<Box<[StaticArgument]>, ArtifactError> {
+        values
+            .iter()
+            .map(|value| {
+                Ok(match value {
+                    StaticArgumentV1::Term { term } => StaticArgument::Term(self.ty(*term)?),
+                    StaticArgumentV1::RecordRow { row } => StaticArgument::RecordRow(self.row(*row)?),
+                    StaticArgumentV1::DynamicType => StaticArgument::DynamicType,
+                })
+            })
+            .collect()
+    }
+    fn type_list(&mut self, values: &[ArtifactTypeId]) -> Result<Box<[TypeId]>, ArtifactError> {
+        values.iter().map(|ty| self.ty(*ty)).collect()
+    }
+    fn scope_list(&mut self, values: &[ArtifactScopedTypeId]) -> Result<Box<[ScopedTypeId]>, ArtifactError> {
+        values.iter().map(|ty| self.scoped(*ty)).collect()
+    }
+    fn kind_list(&mut self, values: &[ArtifactKindId]) -> Result<Box<[KindId]>, ArtifactError> {
+        values.iter().map(|kind| self.kind(*kind)).collect()
+    }
+    fn remainder(&mut self, value: &TupleRemainderV1) -> Result<AnonymousTupleRemainder, ArtifactError> {
+        Ok(match value {
+            TupleRemainderV1::None => AnonymousTupleRemainder::None,
+            TupleRemainderV1::Unconstrained => AnonymousTupleRemainder::Unconstrained,
+            TupleRemainderV1::Typed { ty } => AnonymousTupleRemainder::Typed(self.ty(*ty)?),
+        })
+    }
+    fn tuple(&mut self, value: &TupleV1) -> Result<TupleType, ArtifactError> {
+        Ok(TupleType {
+            elements: value
+                .elements
+                .iter()
+                .map(|element| {
+                    Ok(TupleTypeElement {
+                        label: element.label.as_ref().map(|label| label.clone().into()),
+                        ty: self.ty(element.ty)?,
+                    })
+                })
+                .collect::<Result<_, ArtifactError>>()?,
+            positional_remainder: self.remainder(&value.positionals)?,
+            labeled_remainder: self.remainder(&value.labeled)?,
+        })
+    }
+    fn field(&mut self, value: &FieldV1) -> Result<RecordRowField, ArtifactError> {
+        Ok(RecordRowField {
+            key: key_in(&value.key, self.limits)?,
+            ty: self.ty(value.ty)?,
+            presence: presence_in(&value.presence),
+        })
+    }
+    fn scoped_fields(&mut self, values: &[ScopedFieldV1]) -> Result<Box<[ScopedRecordField]>, ArtifactError> {
+        values
+            .iter()
+            .map(|value| {
+                Ok(ScopedRecordField {
+                    key: key_in(&value.key, self.limits)?,
+                    ty: self.scoped(value.ty)?,
+                    presence: presence_in(&value.presence),
+                })
+            })
+            .collect()
+    }
+    fn scoped_elements(&mut self, values: &[ScopedElementV1]) -> Result<Box<[ScopedTupleElement]>, ArtifactError> {
+        values
+            .iter()
+            .map(|value| {
+                Ok(ScopedTupleElement {
+                    label: value.label.as_ref().map(|label| label.clone().into()),
+                    ty: self.scoped(value.ty)?,
+                })
+            })
+            .collect()
+    }
+    fn scoped_remainder(&mut self, value: &ScopedRemainderV1) -> Result<ScopedPackRemainder, ArtifactError> {
+        Ok(match value {
+            ScopedRemainderV1::None => ScopedPackRemainder::None,
+            ScopedRemainderV1::Unconstrained => ScopedPackRemainder::Unconstrained,
+            ScopedRemainderV1::Typed { ty } => ScopedPackRemainder::Typed(self.scoped(*ty)?),
+        })
+    }
+    fn scoped_tail(&mut self, value: &ScopedRowTailV1) -> Result<ScopedRecordRowTail, ArtifactError> {
+        Ok(match value {
+            ScopedRowTailV1::Closed => ScopedRecordRowTail::Closed,
+            ScopedRowTailV1::Bound { depth, index } => ScopedRecordRowTail::Bound { depth: *depth, index: *index },
+            ScopedRowTailV1::Parameter { parameter } => ScopedRecordRowTail::FreeParameter(self.parameter(*parameter)?),
+            ScopedRowTailV1::Projection { ty } => ScopedRecordRowTail::Projection(self.ty(*ty)?),
+            ScopedRowTailV1::Unconstrained { key_type } => ScopedRecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained {
+                key_type: self.scoped(*key_type)?,
+            }),
+            ScopedRowTailV1::Typed { key_type, value_type } => ScopedRecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+                key_type: self.scoped(*key_type)?,
+                value_type: self.scoped(*value_type)?,
+            }),
+        })
+    }
+    fn build_kind(&mut self, id: ArtifactKindId) -> Result<KindId, ArtifactError> {
+        let data = match self.graph.kinds[id.0 as usize].clone() {
+            KindV1::Type => KindData::Type,
+            KindV1::RecordRow => KindData::RecordRow,
+            KindV1::TypePack => KindData::TypePack,
+            KindV1::LabeledTypePack => KindData::LabeledTypePack,
+            KindV1::CompleteTypePack => KindData::CompleteTypePack,
+            KindV1::Arrow { parameters, result } => {
+                if parameters.is_empty() {
+                    return Err(invalid("empty kind arrow"));
+                }
+                KindData::Arrow {
+                    parameters: self.kind_list(&parameters)?,
+                    result: self.kind(result)?,
+                }
+            }
+            KindV1::StaticDomain { domain } => KindData::StaticDomain(self.domain(domain)?),
+        };
+        Ok(self.store.intern_kind(data))
+    }
+    fn build_parameter(&mut self, id: ArtifactTypeParameterId) -> Result<TypeParameterId, ArtifactError> {
+        let data = self.graph.parameters[id.0 as usize].clone();
+        let owner = owner_in(&data.owner)?;
+        let kind = self.kind(data.kind)?;
+        if !crate::types::parameter::expansion_mode_accepts_kind(mode_in(&data.mode), kind) {
+            return Err(invalid("parameter expansion mode has incompatible kind"));
+        }
+        // Parameter arena entries are historical binder versions. The current
+        // owner slot is restored separately after all references relocate.
+        let parameter = TypeParameterId(u32::try_from(self.store.type_parameters.len()).map_err(|_| invalid("parameter allocation exceeds u32"))?);
+        self.store.type_parameters.push_back(TypeParameterData {
+            owner,
+            index: data.index,
+            name: data.name.into(),
+            kind,
+            variance: variance_in(&data.variance),
+            mode: mode_in(&data.mode),
+            source: None,
+        });
+        Ok(parameter)
+    }
+    fn build_domain(&mut self, id: ArtifactStaticDomainId) -> Result<StaticDomainId, ArtifactError> {
+        let data = match self.graph.static_domains[id.0 as usize].clone() {
+            StaticDomainV1::ConstInt => StaticDomainData::ConstInt,
+            StaticDomainV1::Nominal { declaration } => StaticDomainData::Nominal {
+                declaration: declaration_in(&declaration)?,
+            },
+            StaticDomainV1::Associated { declaration, arguments } => StaticDomainData::Associated {
+                declaration: AssociatedStaticDomainDeclarationId::new(declaration_in(&declaration.owner)?, declaration.name),
+                owner_arguments: self.args(&arguments)?,
+            },
+        };
+        Ok(self.store.intern_static_domain(data))
+    }
+    fn build_constructor(&mut self, id: ArtifactStaticConstructorId) -> Result<AlgebraicStaticConstructorId, ArtifactError> {
+        let data = self.graph.static_constructors[id.0 as usize].clone();
+        let domain = self.domain(data.domain)?;
+        let declaration = declaration_in(&data.declaration)?;
+        let kinds = self.kind_list(&data.parameter_kinds)?;
+        if data.case_name.is_empty() {
+            return Err(invalid("empty static constructor name"));
+        }
+        Ok(self.store.intern_static_constructor(domain, declaration, data.case_name, kinds))
+    }
+    fn build_variant(&mut self, id: ArtifactVariantTypeId) -> Result<VariantTypeId, ArtifactError> {
+        let data = &self.graph.variants[id.0 as usize];
+        let owner = declaration_in(&data.owner)?;
+        let selector = Selector::try_decode_exact(&data.selector).map_err(|error| invalid(error.to_string()))?;
+        Ok(self.store.intern_variant_identity(VariantId::new(owner, selector)))
+    }
+    fn build_row(&mut self, id: ArtifactRecordRowId) -> Result<RecordRowId, ArtifactError> {
+        let data = self.graph.rows[id.0 as usize].clone();
+        let fields = data.fields.iter().map(|field| self.field(field)).collect::<Result<Vec<_>, _>>()?;
+        if fields
+            .windows(2)
+            .any(|pair| pair[0].key.canonical_cmp(&pair[1].key) != std::cmp::Ordering::Less)
+        {
+            return Err(invalid("record fields are not canonically unique and ordered"));
+        }
+        let tail = match data.tail {
+            RowTailV1::Closed => RecordRowTail::Closed,
+            RowTailV1::Unconstrained { key_type } => RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: self.ty(key_type)? }),
+            RowTailV1::Typed { key_type, value_type } => RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+                key_type: self.ty(key_type)?,
+                value_type: self.ty(value_type)?,
+            }),
+            RowTailV1::Parameter { parameter } => RecordRowTail::Parameter(self.parameter(parameter)?),
+            RowTailV1::Projection { ty } => RecordRowTail::Projection(self.ty(ty)?),
+        };
+        self.store.record_row_checked(fields, tail).map_err(|error| invalid(error.to_string()))
+    }
+    fn build_family(&mut self, id: ArtifactFamilyTypeId) -> Result<FamilyTypeId, ArtifactError> {
+        let data = self.graph.families[id.0 as usize].clone();
+        let members = data
+            .members
+            .iter()
+            .map(|member| {
+                Ok(FamilyMemberType {
+                    operation: operation_in(&member.operation)?,
+                    member_kind: match member.kind {
+                        FamilyMemberKindV1::Value => FamilyMemberTypeKind::Value,
+                        FamilyMemberKindV1::Callable => FamilyMemberTypeKind::Callable,
+                    },
+                    ty: self.ty(member.ty)?,
+                })
+            })
+            .collect::<Result<Vec<_>, ArtifactError>>()?;
+        if members.windows(2).any(|pair| pair[0].operation >= pair[1].operation) {
+            return Err(invalid("family operations are not unique and ordered"));
+        }
+        let ty = self.store.family_type(members).map_err(|error| invalid(format!("invalid family: {error:?}")))?;
+        match self.store.get(ty) {
+            TypeData::Family(id) => Ok(*id),
+            _ => Err(invalid("family interner returned wrong type form")),
+        }
+    }
+    fn build_type(&mut self, id: ArtifactTypeId) -> Result<TypeId, ArtifactError> {
+        let entry = self.graph.types[id.0 as usize].clone();
+        let kind = self.kind(entry.kind)?;
+        let data = match entry.form {
+            TypeV1::Never => TypeData::Never,
+            TypeV1::Unit => TypeData::Unit,
+            TypeV1::ClassObject { declaration } => TypeData::ClassObject {
+                declaration: declaration_in(&declaration)?,
+            },
+            TypeV1::Nominal { declaration } => TypeData::Nominal {
+                declaration: declaration_in(&declaration)?,
+            },
+            TypeV1::StaticDomainForm { domain } => TypeData::StaticDomainForm { domain: self.domain(domain)? },
+            TypeV1::Applied { origin, arguments } => TypeData::Applied {
+                origin: self.ty(origin)?,
+                arguments: self.args(&arguments)?,
+            },
+            TypeV1::ExactCase { variant, enum_type } => TypeData::ExactCase {
+                variant: self.variant(variant)?,
+                enum_type: self.ty(enum_type)?,
+            },
+            TypeV1::Union { members } => {
+                let mut members = self.type_list(&members)?.into_vec();
+                members.sort();
+                if members.len() < 2 || members.windows(2).any(|pair| pair[0] == pair[1]) {
+                    return Err(invalid("noncanonical union members"));
+                }
+                TypeData::Union(members.into())
+            }
+            TypeV1::Tuple { tuple } => TypeData::Tuple(self.tuple(&tuple)?),
+            TypeV1::Record { row } => TypeData::Record(self.row(row)?),
+            TypeV1::TypePack { members } => TypeData::TypePack(self.type_list(&members)?),
+            TypeV1::LabeledTypePack { members } => TypeData::LabeledTypePack(
+                members
+                    .iter()
+                    .map(|value| {
+                        Ok(LabeledTypePackElement {
+                            label: value.label.clone().into(),
+                            element: self.ty(value.ty)?,
+                        })
+                    })
+                    .collect::<Result<_, ArtifactError>>()?,
+            ),
+            TypeV1::CompleteTypePack { positionals, labeled } => TypeData::CompleteTypePack {
+                positionals: self.ty(positionals)?,
+                labeled: self.ty(labeled)?,
+            },
+            TypeV1::TypePackConcat { members } => TypeData::TypePackConcat(self.type_list(&members)?),
+            TypeV1::LabeledTypePackConcat { members } => TypeData::LabeledTypePackConcat(self.type_list(&members)?),
+            TypeV1::TupleFromPacks { positionals, labeled } => TypeData::TupleFromPacks {
+                positionals: self.ty(positionals)?,
+                labeled: self.ty(labeled)?,
+            },
+            TypeV1::Pack { pack } => {
+                let tuple = self.tuple(&pack)?;
+                TypeData::Pack(PackType {
+                    elements: tuple.elements,
+                    positional_remainder: tuple.positional_remainder,
+                    labeled_remainder: tuple.labeled_remainder,
+                })
+            }
+            TypeV1::PackFromPacks { positionals, labeled } => TypeData::PackFromPacks {
+                positionals: self.ty(positionals)?,
+                labeled: self.ty(labeled)?,
+            },
+            TypeV1::CallableFromPacks { positionals, labeled, result } => TypeData::CallableFromPacks {
+                positionals: self.ty(positionals)?,
+                labeled: self.ty(labeled)?,
+                return_type: self.ty(result)?,
+            },
+            TypeV1::Callable { callable } => TypeData::Callable(CallableType {
+                parameters: callable
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        Ok(CallableParameterType {
+                            label: parameter.label.as_ref().map(|label| label.clone().into()),
+                            ty: self.ty(parameter.ty)?,
+                            rest: rest_in(&parameter.rest),
+                        })
+                    })
+                    .collect::<Result<_, ArtifactError>>()?,
+                return_type: self.ty(callable.result)?,
+            }),
+            TypeV1::Family { family } => TypeData::Family(self.family(family)?),
+            TypeV1::Parameter { parameter } => TypeData::Parameter(self.parameter(parameter)?),
+            TypeV1::Lambda { lambda } => TypeData::Lambda(self.lambda(lambda)?),
+            TypeV1::SelfType { self_type } => TypeData::SelfType(SelfTypeTerm {
+                owner: declaration_in(&self_type.owner)?,
+                side: from_stable_dispatch_side(self_type.side),
+                role: match self_type.role {
+                    SelfRoleV1::InstanceType => SelfRole::InstanceType,
+                    SelfRoleV1::ReceiverValue => SelfRole::ReceiverValue,
+                },
+            }),
+            TypeV1::AssociatedProjection { projection } => {
+                let trait_owner = declaration_in(&projection.trait_owner)?;
+                let requirement_owner = declaration_in(&projection.requirement_owner)?;
+                if trait_owner != requirement_owner {
+                    return Err(invalid("associated requirement owner differs from its trait"));
+                }
+                TypeData::AssociatedProjection(AssociatedTypeProjection {
+                    subject: self.ty(projection.subject)?,
+                    trait_ref: TraitRef {
+                        declaration: trait_owner,
+                        arguments: self.type_list(&projection.trait_arguments)?,
+                    },
+                    requirement: AssociatedTypeRequirementId::new(requirement_owner, projection.requirement_index),
+                })
+            }
+            TypeV1::TypeMemberProjection { projection } => TypeData::TypeMemberProjection(TypeLevelProjection {
+                subject: match projection.subject {
+                    ProjectionSubjectV1::Type { ty } => ProjectionSubject::Type(self.ty(ty)?),
+                    ProjectionSubjectV1::RecordRow { row } => ProjectionSubject::RecordRow(self.row(row)?),
+                },
+                selector: selector_in(&projection.selector),
+                arguments: projection
+                    .arguments
+                    .iter()
+                    .map(|argument| {
+                        Ok(match argument {
+                            TypeMemberArgumentV1::Type { ty } => TypeMemberArgument::Type(self.ty(*ty)?),
+                            TypeMemberArgumentV1::ConstInt { decimal } => TypeMemberArgument::Const(ConstTerm::Int(integer_in(decimal, self.limits)?)),
+                            TypeMemberArgumentV1::RecordRow { row } => TypeMemberArgument::RecordRow(self.row(*row)?),
+                        })
+                    })
+                    .collect::<Result<_, ArtifactError>>()?,
+                source_declaration: projection
+                    .source
+                    .as_ref()
+                    .map(|source| {
+                        Ok::<_, ArtifactError>(TypeMemberDeclarationId::new(
+                            declaration_in(&source.owner)?,
+                            if source.selector.as_ref() == "[]" {
+                                TypeMemberSelector::Subscript
+                            } else {
+                                TypeMemberSelector::Named(source.selector.clone())
+                            },
+                        ))
+                    })
+                    .transpose()?,
+            }),
+            TypeV1::ConstInt { decimal } => TypeData::ConstInt(integer_in(&decimal, self.limits)?),
+            TypeV1::StaticData {
+                domain,
+                constructor,
+                arguments,
+            } => TypeData::StaticData(AlgebraicStaticTerm {
+                domain: self.domain(domain)?,
+                constructor: self.constructor(constructor)?,
+                arguments: self.args(&arguments)?,
+            }),
+        };
+        self.validate_type(&data, kind)?;
+        Ok(self.store.intern_with_kind(data, kind))
+    }
+    fn build_scoped(&mut self, id: ArtifactScopedTypeId) -> Result<ScopedTypeId, ArtifactError> {
+        let data = match self.graph.scoped[id.0 as usize].clone() {
+            ScopedTypeV1::Bound { depth, index } => ScopedTypeData::Bound { depth, index },
+            ScopedTypeV1::Free { ty } => ScopedTypeData::Free(self.ty(ty)?),
+            ScopedTypeV1::Applied { origin, arguments } => ScopedTypeData::Applied {
+                origin: self.scoped(origin)?,
+                arguments: self.scope_list(&arguments)?,
+            },
+            // Scoped bodies retain source order and repeated contributions;
+            // global union normalization is a separate owning operation.
+            ScopedTypeV1::Union { members } => ScopedTypeData::Union(self.scope_list(&members)?),
+            ScopedTypeV1::Tuple { elements } => ScopedTypeData::Tuple(self.scoped_elements(&elements)?),
+            ScopedTypeV1::Record { fields } => ScopedTypeData::Record(self.scoped_fields(&fields)?),
+            ScopedTypeV1::OpenRecord { row } => {
+                let fields = self.scoped_fields(&row.fields)?;
+                let tail = match self.scoped_tail(&row.tail)? {
+                    ScopedRecordRowTail::Bound { depth, index } => ScopedRecordTail::Bound { depth, index },
+                    ScopedRecordRowTail::FreeParameter(parameter) => ScopedRecordTail::FreeParameter(parameter),
+                    ScopedRecordRowTail::Anonymous(tail) => ScopedRecordTail::Anonymous(tail),
+                    _ => return Err(invalid("invalid open record tail")),
+                };
+                ScopedTypeData::OpenRecord(ScopedOpenRecord { fields, tail })
+            }
+            ScopedTypeV1::RecordRow { row } => ScopedTypeData::RecordRow(ScopedRecordRow {
+                fields: self.scoped_fields(&row.fields)?,
+                tail: self.scoped_tail(&row.tail)?,
+            }),
+            ScopedTypeV1::Callable { callable } => ScopedTypeData::Callable(ScopedCallableType {
+                parameters: callable
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        Ok(ScopedCallableParameter {
+                            label: parameter.label.as_ref().map(|label| label.clone().into()),
+                            ty: self.scoped(parameter.ty)?,
+                            rest: parameter.rest,
+                        })
+                    })
+                    .collect::<Result<_, ArtifactError>>()?,
+                return_type: self.scoped(callable.result)?,
+            }),
+            ScopedTypeV1::Pack { pack } => ScopedTypeData::Pack(ScopedPackType {
+                elements: self.scoped_elements(&pack.elements)?,
+                positional_remainder: self.scoped_remainder(&pack.positionals)?,
+                labeled_remainder: self.scoped_remainder(&pack.labeled)?,
+            }),
+            ScopedTypeV1::TypePack { members } => ScopedTypeData::TypePack(self.scope_list(&members)?),
+            ScopedTypeV1::LabeledTypePack { members } => ScopedTypeData::LabeledTypePack(
+                members
+                    .iter()
+                    .map(|member| {
+                        Ok(ScopedLabeledTypePackElement {
+                            label: member.label.clone().into(),
+                            element: self.scoped(member.ty)?,
+                        })
+                    })
+                    .collect::<Result<_, ArtifactError>>()?,
+            ),
+            ScopedTypeV1::CompleteTypePack { positionals, labeled } => ScopedTypeData::CompleteTypePack {
+                positionals: self.scoped(positionals)?,
+                labeled: self.scoped(labeled)?,
+            },
+            ScopedTypeV1::TypePackConcat { members } => ScopedTypeData::TypePackConcat(self.scope_list(&members)?),
+            ScopedTypeV1::LabeledTypePackConcat { members } => ScopedTypeData::LabeledTypePackConcat(self.scope_list(&members)?),
+            ScopedTypeV1::TupleFromPacks { positionals, labeled } => ScopedTypeData::TupleFromPacks {
+                positionals: self.scoped(positionals)?,
+                labeled: self.scoped(labeled)?,
+            },
+            ScopedTypeV1::PackFromPacks { positionals, labeled } => ScopedTypeData::PackFromPacks {
+                positionals: self.scoped(positionals)?,
+                labeled: self.scoped(labeled)?,
+            },
+            ScopedTypeV1::CallableFromPacks { positionals, labeled, result } => ScopedTypeData::CallableFromPacks {
+                positionals: self.scoped(positionals)?,
+                labeled: self.scoped(labeled)?,
+                return_type: self.scoped(result)?,
+            },
+            ScopedTypeV1::PackProjection { subject, lane } => ScopedTypeData::PackProjection {
+                subject: self.scoped(subject)?,
+                lane: match lane {
+                    PackLaneV1::Positionals => ScopedPackProjectionLane::Positionals,
+                    PackLaneV1::Labeled => ScopedPackProjectionLane::Labeled,
+                    PackLaneV1::Complete => ScopedPackProjectionLane::Complete,
+                },
+            },
+            ScopedTypeV1::Lambda { lambda } => ScopedTypeData::Lambda(self.lambda(lambda)?),
+        };
+        Ok(self.store.lambda_arena.intern_scoped(data))
+    }
+    fn build_lambda(&mut self, id: ArtifactTypeLambdaId) -> Result<TypeLambdaId, ArtifactError> {
+        let value = self.graph.lambdas[id.0 as usize].clone();
+        if value.parameter_kinds.len() != value.parameter_modes.len() {
+            return Err(invalid("lambda binder kind/mode count mismatch"));
+        }
+        let kinds = self.kind_list(&value.parameter_kinds)?;
+        let modes = value.parameter_modes.iter().map(mode_in).collect::<Box<[_]>>();
+        for (kind, mode) in kinds.iter().zip(modes.iter()) {
+            if !crate::types::parameter::expansion_mode_accepts_kind(*mode, *kind) {
+                return Err(invalid("lambda binder expansion kind mismatch"));
+            }
+        }
+        let body = self.scoped(value.body)?;
+        let result = self.kind(value.result_kind)?;
+        Ok(self.store.lambda_arena.intern_lambda_with_modes(kinds, modes, body, result, None))
+    }
+    fn validate_type(&self, data: &TypeData, kind: KindId) -> Result<(), ArtifactError> {
+        let proper = |ty| {
+            if self.store.kind_of(ty) == KindId::TYPE {
+                Ok(())
+            } else {
+                Err(invalid("structural component is not a proper type"))
+            }
+        };
+        match data {
+            TypeData::Parameter(parameter) => {
+                let parameter_kind = self.store.type_parameter(*parameter).kind;
+                if parameter_kind == KindId::RECORD_ROW {
+                    return Err(invalid("RecordRow parameter cannot enter the TypeId domain"));
+                }
+                if kind != parameter_kind {
+                    return Err(invalid("parameter type form has mismatched kind"));
+                }
+            }
+            TypeData::Never
+            | TypeData::Unit
+            | TypeData::ClassObject { .. }
+            | TypeData::SelfType(_)
+            | TypeData::AssociatedProjection(_)
+            | TypeData::Tuple(_)
+            | TypeData::Record(_)
+            | TypeData::Pack(_)
+            | TypeData::Callable(_)
+            | TypeData::Family(_)
+            | TypeData::ExactCase { .. }
+            | TypeData::TupleFromPacks { .. }
+            | TypeData::PackFromPacks { .. }
+            | TypeData::CallableFromPacks { .. }
+            | TypeData::Union(_)
+                if kind != KindId::TYPE =>
+            {
+                return Err(invalid("proper type form has non-Type kind"));
+            }
+            TypeData::TypePack(_) | TypeData::TypePackConcat(_) if kind != KindId::TYPE_PACK => return Err(invalid("positional pack form has wrong kind")),
+            TypeData::LabeledTypePack(_) | TypeData::LabeledTypePackConcat(_) if kind != KindId::LABELED_TYPE_PACK => {
+                return Err(invalid("labeled pack form has wrong kind"));
+            }
+            TypeData::CompleteTypePack { .. } if kind != KindId::COMPLETE_TYPE_PACK => return Err(invalid("complete pack form has wrong kind")),
+            _ => {}
+        }
+        match data {
+            TypeData::Tuple(value) => {
+                for element in &value.elements {
+                    proper(element.ty)?;
+                }
+                for remainder in [value.positional_remainder, value.labeled_remainder] {
+                    if let AnonymousTupleRemainder::Typed(ty) = remainder {
+                        proper(ty)?;
+                    }
+                }
+            }
+            TypeData::Pack(value) => {
+                for element in &value.elements {
+                    proper(element.ty)?;
+                }
+                for remainder in [value.positional_remainder, value.labeled_remainder] {
+                    if let AnonymousTupleRemainder::Typed(ty) = remainder {
+                        proper(ty)?;
+                    }
+                }
+            }
+            TypeData::Callable(value) => {
+                for parameter in &value.parameters {
+                    proper(parameter.ty)?;
+                }
+                proper(value.return_type)?;
+            }
+            TypeData::Union(members) => {
+                for ty in members {
+                    proper(*ty)?;
+                    if matches!(self.store.get(*ty), TypeData::Union(_) | TypeData::Never) {
+                        return Err(invalid("union is not flattened"));
+                    }
+                }
+            }
+            TypeData::TypePack(members) => {
+                for ty in members {
+                    proper(*ty)?;
+                }
+            }
+            TypeData::LabeledTypePack(members) => {
+                let mut labels = BTreeSet::new();
+                for member in members {
+                    proper(member.element)?;
+                    if !labels.insert(member.label.as_ref()) {
+                        return Err(invalid("duplicate labeled pack label"));
+                    }
+                }
+            }
+            TypeData::ConstInt(_) => {
+                if !matches!(self.store.get_kind(kind), KindData::StaticDomain(domain) if *domain == self.store.const_int_domain) {
+                    return Err(invalid("integer term has wrong static domain kind"));
+                }
+            }
+            TypeData::StaticDomainForm { domain } => {
+                if !matches!(self.store.get_kind(kind), KindData::StaticDomain(value) if value == domain) {
+                    return Err(invalid("static form has wrong domain kind"));
+                }
+            }
+            TypeData::StaticData(value) => {
+                if !matches!(self.store.get_kind(kind), KindData::StaticDomain(domain) if *domain == value.domain) {
+                    return Err(invalid("static term has wrong domain kind"));
+                }
+                let constructor = self
+                    .store
+                    .static_constructor(value.constructor)
+                    .ok_or_else(|| invalid("missing static constructor"))?;
+                if constructor.domain != value.domain || constructor.parameter_kinds.len() != value.arguments.len() {
+                    return Err(invalid("static constructor domain/arity mismatch"));
+                }
+                for (argument, expected) in value.arguments.iter().zip(constructor.parameter_kinds.iter()) {
+                    let actual = match argument {
+                        StaticArgument::Term(ty) => self.store.kind_of(*ty),
+                        StaticArgument::RecordRow(_) => KindId::RECORD_ROW,
+                        StaticArgument::DynamicType => KindId::TYPE,
+                    };
+                    if &actual != expected {
+                        return Err(invalid("static constructor argument kind mismatch"));
+                    }
+                }
+            }
+            TypeData::CompleteTypePack { positionals, labeled }
+            | TypeData::TupleFromPacks { positionals, labeled }
+            | TypeData::PackFromPacks { positionals, labeled }
+            | TypeData::CallableFromPacks { positionals, labeled, .. } => {
+                if self.store.kind_of(*positionals) != KindId::TYPE_PACK || self.store.kind_of(*labeled) != KindId::LABELED_TYPE_PACK {
+                    return Err(invalid("pack lane kind mismatch"));
+                }
+                if let TypeData::CallableFromPacks { return_type, .. } = data {
+                    proper(*return_type)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+fn declaration_in(value: &StableDeclarationRef) -> Result<DeclarationId, ArtifactError> {
+    if value.path.len() != 1 || value.path[0].is_empty() {
+        return Err(invalid("invalid canonical declaration path"));
+    }
+    module_in(&value.module)?;
+    from_stable_declaration(value).map_err(invalid)
+}
+fn module_in(value: &StableModuleRef) -> Result<ModuleId, ArtifactError> {
+    if !matches!(&value.project, StableProjectRef::Builtin { namespace, version } if namespace.as_ref() == "universe" && version.as_ref() == "0.1.0") {
+        return Err(invalid("canonical type owner has incompatible project identity"));
+    }
+    from_stable_module(value).map_err(invalid)
+}
+fn callable_in(value: &StableCallableRef) -> Result<CallableId, ArtifactError> {
+    let selector = Selector::try_decode_exact(&value.selector).map_err(|error| invalid(error.to_string()))?;
+    let owner = match &value.owner {
+        StableCallableOwnerRef::Declaration(owner) => CallableOwnerId::Declaration(declaration_in(owner)?),
+        StableCallableOwnerRef::Variant(variant) => CallableOwnerId::Variant(VariantId::new(
+            declaration_in(&variant.owner)?,
+            Selector::try_decode_exact(&variant.selector).map_err(|error| invalid(error.to_string()))?,
+        )),
+        StableCallableOwnerRef::Conformance(owner) => {
+            module_in(&owner.module)?;
+            CallableOwnerId::Conformance(from_stable_impl(owner).map_err(invalid)?)
+        }
+    };
+    Ok(CallableId {
+        owner,
+        side: from_stable_dispatch_side(value.side),
+        selector,
+    })
+}
+fn owner_in(value: &ParameterOwnerV1) -> Result<TypeParameterOwner, ArtifactError> {
+    Ok(match value {
+        ParameterOwnerV1::Declaration { owner } => TypeParameterOwner::Declaration(declaration_in(owner)?),
+        ParameterOwnerV1::Callable { owner } => TypeParameterOwner::Callable(callable_in(owner)?),
+        ParameterOwnerV1::Impl { owner } => {
+            module_in(&owner.module)?;
+            TypeParameterOwner::Impl(from_stable_impl(owner).map_err(invalid)?)
+        }
+    })
+}
+fn integer_in(decimal: &str, limits: &ValidationLimits) -> Result<StaticInt, ArtifactError> {
+    if decimal.len() > limits.max_string_bytes {
+        return Err(invalid("static integer exceeds byte budget"));
+    }
+    let value = decimal
+        .parse::<num_bigint::BigInt>()
+        .map(StaticInt::new)
+        .map_err(|_| invalid("invalid static integer"))?;
+    if value.to_string() != decimal {
+        return Err(invalid("static integer is not normalized decimal"));
+    }
+    Ok(value)
+}
+fn key_in(value: &FieldKeyV1, limits: &ValidationLimits) -> Result<FieldKey, ArtifactError> {
+    Ok(match value {
+        FieldKeyV1::Symbol { value } => FieldKey::symbol(value.as_str()),
+        FieldKeyV1::String { value } => FieldKey::string(value.as_str()),
+        FieldKeyV1::Int { decimal } => FieldKey::int(integer_in(decimal, limits)?),
+        FieldKeyV1::Bool { value } => FieldKey::bool(*value),
+    })
+}
+fn presence_in(value: &PresenceV1) -> StructuralMemberPresence {
+    match value {
+        PresenceV1::Required => StructuralMemberPresence::Required,
+        PresenceV1::Optional => StructuralMemberPresence::Optional,
+    }
+}
+fn variance_in(value: &VarianceV1) -> Variance {
+    match value {
+        VarianceV1::Covariant => Variance::Covariant,
+        VarianceV1::Contravariant => Variance::Contravariant,
+        VarianceV1::Invariant => Variance::Invariant,
+    }
+}
+fn mode_in(value: &ParameterModeV1) -> GenericParameterMode {
+    match value {
+        ParameterModeV1::Single => GenericParameterMode::Single,
+        ParameterModeV1::PositionalPack => GenericParameterMode::PositionalPack,
+        ParameterModeV1::LabeledPack => GenericParameterMode::LabeledPack,
+        ParameterModeV1::CompletePack => GenericParameterMode::CompletePack,
+    }
+}
+fn rest_in(value: &RestModeV1) -> RestMode {
+    match value {
+        RestModeV1::None => RestMode::None,
+        RestModeV1::Positional => RestMode::Positional,
+        RestModeV1::Labeled => RestMode::Labeled,
+        RestModeV1::Complete => RestMode::Complete,
+    }
+}
+fn selector_in(value: &TypeMemberSelectorV1) -> TypeMemberSelector {
+    match value {
+        TypeMemberSelectorV1::Named { name } => TypeMemberSelector::Named(name.clone().into()),
+        TypeMemberSelectorV1::Subscript => TypeMemberSelector::Subscript,
+    }
+}
+fn operation_in(value: &OperationV1) -> Result<FamilyOperationShape, ArtifactError> {
+    let kind = match value.kind {
+        SelectorKindV1::Getter => SelectorKind::Getter,
+        SelectorKindV1::Setter => SelectorKind::Setter,
+        SelectorKindV1::Method => SelectorKind::Method,
+        SelectorKindV1::SubscriptGet => SelectorKind::SubscriptGet,
+        SelectorKindV1::SubscriptSet => SelectorKind::SubscriptSet,
+    };
+    let slots = value
+        .slots
+        .iter()
+        .map(|slot| match slot {
+            SelectorSlotV1::Positional => SelectorSlot::Positional,
+            SelectorSlotV1::Label { name } => SelectorSlot::Label(name.clone()),
+        })
+        .collect::<Box<[_]>>();
+    let base = match kind {
+        SelectorKind::SubscriptGet | SelectorKind::SubscriptSet => SelectorBase::Subscript,
+        _ => SelectorBase::Named("artifact".into()),
+    };
+    Selector::new(base, kind, slots.clone()).map_err(|error| invalid(error.to_string()))?;
+    Ok(FamilyOperationShape { kind, slots })
+}
+fn complete<T: Copy>(values: Vec<Option<T>>) -> Result<Vec<T>, ArtifactError> {
+    values
+        .into_iter()
+        .map(|value| value.ok_or_else(|| invalid("incomplete type relocation")))
+        .collect()
+}
+impl TypeStore {
+    /// Decodes and relocates into a fresh store. No semantic analysis is performed.
+    pub fn decode_artifact(bytes: &[u8], limits: &ValidationLimits) -> Result<(Self, TypeRelocation), ArtifactError> {
+        let graph = TypeGraphV1::decode(bytes, limits)?;
+        let mut import = Import::new(&graph, limits);
+        for index in 0..graph.kinds.len() {
+            import.kind(ArtifactKindId(index as u32))?;
+        }
+        for index in 0..graph.parameters.len() {
+            import.parameter(ArtifactTypeParameterId(index as u32))?;
+        }
+        for index in 0..graph.types.len() {
+            import.ty(ArtifactTypeId(index as u32))?;
+        }
+        for index in 0..graph.rows.len() {
+            import.row(ArtifactRecordRowId(index as u32))?;
+        }
+        for index in 0..graph.families.len() {
+            import.family(ArtifactFamilyTypeId(index as u32))?;
+        }
+        for index in 0..graph.variants.len() {
+            import.variant(ArtifactVariantTypeId(index as u32))?;
+        }
+        for index in 0..graph.static_domains.len() {
+            import.domain(ArtifactStaticDomainId(index as u32))?;
+        }
+        for index in 0..graph.static_constructors.len() {
+            import.constructor(ArtifactStaticConstructorId(index as u32))?;
+        }
+        for index in 0..graph.scoped.len() {
+            import.scoped(ArtifactScopedTypeId(index as u32))?;
+        }
+        for index in 0..graph.lambdas.len() {
+            import.lambda(ArtifactTypeLambdaId(index as u32))?;
+        }
+        // Restore current binder selection independently of historical arena order.
+        for id in &graph.current_parameters {
+            let parameter = import.parameter(*id)?;
+            let data = import.store.type_parameter(parameter);
+            let key = (data.owner.clone(), data.index);
+            if import.store.parameter_to_id.insert(key, parameter).is_some() {
+                return Err(invalid("duplicate current parameter slot"));
+            }
+        }
+        let owner_slots = import
+            .store
+            .type_parameters
+            .iter()
+            .map(|value| (value.owner.clone(), value.index))
+            .collect::<BTreeSet<_>>();
+        if import.store.parameter_to_id.len() != owner_slots.len() {
+            return Err(invalid("missing current binder selection"));
+        }
+        for value in &graph.variance_overrides {
+            let owner = declaration_in(&value.owner)?;
+            if import
+                .store
+                .parameter_variances
+                .insert((owner, value.index), variance_in(&value.variance))
+                .is_some()
+            {
+                return Err(invalid("duplicate parameter variance override"));
+            }
+        }
+        validate_import_uniqueness(&import)?;
+        validate_scoped_roots(&import.store, limits)?;
+        let relocation = TypeRelocation {
+            store_id: import.store.id(),
+            types: complete(import.types)?,
+            kinds: complete(import.kinds)?,
+            parameters: complete(import.parameters)?,
+            rows: complete(import.rows)?,
+            families: complete(import.families)?,
+            variants: complete(import.variants)?,
+            domains: complete(import.domains)?,
+            constructors: complete(import.constructors)?,
+            scoped: complete(import.scoped)?,
+            lambdas: complete(import.lambdas)?,
+        };
+        Ok((import.store, relocation))
+    }
+}
+
+fn unique<T: Copy + Ord>(values: &[Option<T>], name: &str) -> Result<(), ArtifactError> {
+    let present = values
+        .iter()
+        .map(|value| value.ok_or_else(|| invalid("missing relocated node")))
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    if present.len() != values.len() {
+        return Err(invalid(format!("duplicate canonical {name} node")));
+    }
+    Ok(())
+}
+fn validate_import_uniqueness(import: &Import<'_>) -> Result<(), ArtifactError> {
+    unique(&import.types, "type")?;
+    unique(&import.kinds, "kind")?;
+    unique(&import.rows, "record row")?;
+    unique(&import.families, "family")?;
+    unique(&import.variants, "variant")?;
+    unique(&import.domains, "static domain")?;
+    unique(&import.constructors, "static constructor")?;
+    unique(&import.scoped, "scoped type")?;
+    unique(&import.lambdas, "lambda")?;
+    if import.store.types.len() != import.graph.types.len()
+        || import.store.kinds.len() != import.graph.kinds.len()
+        || import.store.static_domains.len() != import.graph.static_domains.len()
+    {
+        return Err(invalid("canonical type graph omits required primitive nodes or adds implicit nodes"));
+    }
+    // Historical parameter versions are intentionally not content-deduplicated.
+    // Their current owner slots are independently unique and complete.
+    Ok(())
+}
+
+/// Checks de Bruijn addressability in complete global lambda roots, retaining
+/// outer binder contexts while traversing nested lambda bodies. Arena fragments
+/// are not incorrectly treated as independently closed lambda roots.
+fn validate_scoped_roots(store: &TypeStore, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+    struct Validator<'a> {
+        arena: &'a TypeLambdaArena,
+        limits: &'a ValidationLimits,
+        seen: BTreeSet<(ScopedTypeId, Vec<usize>)>,
+        remaining_bytes: u64,
+        calls: usize,
+    }
+    impl Validator<'_> {
+        fn bound(&self, depth: u32, index: u32, context: &[usize]) -> Result<(), ArtifactError> {
+            if context.get(depth as usize).is_none_or(|width| index as usize >= *width) {
+                return Err(invalid("out-of-scope lambda binder reference"));
+            }
+            Ok(())
+        }
+        fn lambda(&mut self, id: TypeLambdaId, context: &[usize], depth: usize) -> Result<(), ArtifactError> {
+            let lambda = self.arena.get_lambda(id);
+            let mut nested = Vec::with_capacity(context.len() + 1);
+            nested.push(lambda.parameter_kinds.len());
+            nested.extend_from_slice(context);
+            self.walk(lambda.body, &nested, depth + 1)
+        }
+        fn anonymous(&mut self, value: ScopedAnonymousRecordRemainder, context: &[usize], depth: usize) -> Result<(), ArtifactError> {
+            match value {
+                AnonymousRecordRemainder::Unconstrained { key_type } => self.walk(key_type, context, depth),
+                AnonymousRecordRemainder::Typed { key_type, value_type } => {
+                    self.walk(key_type, context, depth)?;
+                    self.walk(value_type, context, depth)
+                }
+            }
+        }
+        fn walk(&mut self, id: ScopedTypeId, context: &[usize], depth: usize) -> Result<(), ArtifactError> {
+            if depth >= self.limits.max_recursion_depth || context.len() > self.limits.max_recursion_depth {
+                return Err(invalid("lambda validation depth exceeds limit"));
+            }
+            self.calls += 1;
+            if self.calls > self.limits.max_semantic_entries_per_family {
+                return Err(invalid("lambda validation work budget exceeded"));
+            }
+            let key = (id, context.to_vec());
+            if self.seen.contains(&key) {
+                return Ok(());
+            }
+            let allocation = 64_u64 + (context.len() as u64) * std::mem::size_of::<usize>() as u64;
+            self.remaining_bytes = self
+                .remaining_bytes
+                .checked_sub(allocation)
+                .ok_or_else(|| invalid("lambda validation memory budget exceeded"))?;
+            self.seen.insert(key);
+            let arena = self.arena;
+            let next = depth + 1;
+            match arena.get_scoped(id) {
+                ScopedTypeData::Bound { depth, index } => self.bound(*depth, *index, context)?,
+                ScopedTypeData::Free(_) => {}
+                ScopedTypeData::Applied { origin, arguments } => {
+                    self.walk(*origin, context, next)?;
+                    for value in arguments {
+                        self.walk(*value, context, next)?;
+                    }
+                }
+                ScopedTypeData::Union(members)
+                | ScopedTypeData::TypePack(members)
+                | ScopedTypeData::TypePackConcat(members)
+                | ScopedTypeData::LabeledTypePackConcat(members) => {
+                    for value in members {
+                        self.walk(*value, context, next)?;
+                    }
+                }
+                ScopedTypeData::Tuple(elements) => {
+                    for value in elements {
+                        self.walk(value.ty, context, next)?;
+                    }
+                }
+                ScopedTypeData::Record(fields) => {
+                    for value in fields {
+                        self.walk(value.ty, context, next)?;
+                    }
+                }
+                ScopedTypeData::OpenRecord(row) => {
+                    for value in &row.fields {
+                        self.walk(value.ty, context, next)?;
+                    }
+                    match row.tail {
+                        ScopedRecordTail::Bound { depth, index } => self.bound(depth, index, context)?,
+                        ScopedRecordTail::FreeParameter(_) => {}
+                        ScopedRecordTail::Anonymous(value) => self.anonymous(value, context, next)?,
+                    }
+                }
+                ScopedTypeData::RecordRow(row) => {
+                    for value in &row.fields {
+                        self.walk(value.ty, context, next)?;
+                    }
+                    match row.tail {
+                        ScopedRecordRowTail::Bound { depth, index } => self.bound(depth, index, context)?,
+                        ScopedRecordRowTail::Anonymous(value) => self.anonymous(value, context, next)?,
+                        ScopedRecordRowTail::Closed | ScopedRecordRowTail::FreeParameter(_) | ScopedRecordRowTail::Projection(_) => {}
+                    }
+                }
+                ScopedTypeData::Callable(value) => {
+                    for parameter in &value.parameters {
+                        self.walk(parameter.ty, context, next)?;
+                    }
+                    self.walk(value.return_type, context, next)?;
+                }
+                ScopedTypeData::Pack(value) => {
+                    for element in &value.elements {
+                        self.walk(element.ty, context, next)?;
+                    }
+                    for tail in [value.positional_remainder, value.labeled_remainder] {
+                        if let ScopedPackRemainder::Typed(ty) = tail {
+                            self.walk(ty, context, next)?;
+                        }
+                    }
+                }
+                ScopedTypeData::LabeledTypePack(members) => {
+                    for value in members {
+                        self.walk(value.element, context, next)?;
+                    }
+                }
+                ScopedTypeData::CompleteTypePack { positionals, labeled }
+                | ScopedTypeData::TupleFromPacks { positionals, labeled }
+                | ScopedTypeData::PackFromPacks { positionals, labeled } => {
+                    self.walk(*positionals, context, next)?;
+                    self.walk(*labeled, context, next)?;
+                }
+                ScopedTypeData::CallableFromPacks {
+                    positionals,
+                    labeled,
+                    return_type,
+                } => {
+                    self.walk(*positionals, context, next)?;
+                    self.walk(*labeled, context, next)?;
+                    self.walk(*return_type, context, next)?;
+                }
+                ScopedTypeData::PackProjection { subject, .. } => self.walk(*subject, context, next)?,
+                ScopedTypeData::Lambda(lambda) => self.lambda(*lambda, context, next)?,
+            }
+            Ok(())
+        }
+    }
+    let mut validator = Validator {
+        arena: &store.lambda_arena,
+        limits,
+        seen: BTreeSet::new(),
+        remaining_bytes: limits.max_decoded_section_bytes,
+        calls: 0,
+    };
+    for value in store.types.iter() {
+        if let TypeData::Lambda(lambda) = value {
+            validator.lambda(*lambda, &[], 0)?;
+        }
+    }
+    Ok(())
+}

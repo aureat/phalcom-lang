@@ -2692,3 +2692,7 @@ mod tests {
         );
     }
 }
+
+/// Portable type-graph conversion is a child of its owning store boundary.
+#[path = "artifact.rs"]
+pub mod artifact;

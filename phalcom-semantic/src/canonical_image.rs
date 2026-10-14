@@ -13,7 +13,7 @@ use crate::static_value::{StaticValueStore, StaticValueStoreId};
 use crate::types::id::TypeStoreId;
 use crate::types::store::TypeStore;
 use crate::workspace::SemanticWorkspaceInput;
-use phalcom_modules::canonical_products::CanonicalModuleProducts;
+use phalcom_modules::canonical_products::{CanonicalExternalModuleWorld, CanonicalModuleProducts};
 use phalcom_modules::{ModuleId, UniverseSourceProvider};
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -21,16 +21,71 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use thiserror::Error;
 
+/// Provenance backing an in-process semantic world.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CanonicalWorldProvenance {
+    /// Source-backed world with complete retained source text.
+    Source(Arc<BTreeMap<ModuleId, Arc<str>>>),
+    /// Artifact-backed world identified by portable digests and compatibility identity.
+    Artifact {
+        source_digest: phalcom_compiler_artifact::ArtifactDigest,
+        compatibility: phalcom_compiler_artifact::CanonicalCompatibilityIdentity,
+    },
+}
+
 /// In-process semantic world provenance. This is not a portable artifact digest.
 /// Source/interface meaning, module/semantic ABI, and native ABI are fixed by the
 /// running binary. Overridden provider source content contributes its own digest.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CanonicalSemanticWorldId {
-    source: u64,
+    pub(crate) source: u64,
     // Exact identities/text roots prevent fingerprint collisions from making
     // distinct private providers a compatible semantic world.
-    provenance: Arc<BTreeMap<ModuleId, Arc<str>>>,
-    compatibility: &'static str,
+    pub(crate) provenance: CanonicalWorldProvenance,
+    pub(crate) compatibility: &'static str,
+}
+
+impl CanonicalSemanticWorldId {
+    pub fn for_source_world(
+        source: u64,
+        provenance: Arc<BTreeMap<ModuleId, Arc<str>>>,
+    ) -> Self {
+        Self {
+            source,
+            provenance: CanonicalWorldProvenance::Source(provenance),
+            compatibility: concat!(env!("CARGO_PKG_VERSION"), "/canonical-semantic-module-native-abi-v1"),
+        }
+    }
+
+    pub fn for_artifact_world(
+        source: u64,
+        source_digest: phalcom_compiler_artifact::ArtifactDigest,
+        compatibility: phalcom_compiler_artifact::CanonicalCompatibilityIdentity,
+    ) -> Self {
+        Self {
+            source,
+            provenance: CanonicalWorldProvenance::Artifact {
+                source_digest,
+                compatibility,
+            },
+            compatibility: concat!(env!("CARGO_PKG_VERSION"), "/canonical-semantic-module-native-abi-v1"),
+        }
+    }
+
+    pub fn source_fingerprint(&self) -> u64 {
+        self.source
+    }
+
+    pub fn provenance(&self) -> &CanonicalWorldProvenance {
+        &self.provenance
+    }
+
+    pub fn portable_compatibility(&self) -> Option<&phalcom_compiler_artifact::CanonicalCompatibilityIdentity> {
+        match &self.provenance {
+            CanonicalWorldProvenance::Artifact { compatibility, .. } => Some(compatibility),
+            _ => None,
+        }
+    }
 }
 
 /// Identity and extent of the final canonical arena, not the bootstrap arena.
@@ -319,7 +374,7 @@ impl CanonicalSemanticQueryImage {
         db: &SemanticDb,
         world: CanonicalSemanticWorldId,
         snapshot: &Arc<SemanticSnapshot>,
-        modules: &CanonicalModuleProducts,
+        modules: &CanonicalExternalModuleWorld,
     ) -> Result<Self, CanonicalImageError> {
         if db.has_open_transaction() {
             return Err(CanonicalImageError::OpenTransaction);
@@ -349,7 +404,7 @@ impl CanonicalSemanticQueryImage {
                 QueryState::Ready { .. } => None,
             };
             let rejection = rejection.or_else(|| {
-                if !crate::db::query_key_module(key).is_some_and(|module| modules.sources().contains_key(module)) {
+                if !crate::db::query_key_module(key).is_some_and(|module| modules.linked().modules.contains_key(module)) {
                     return Some(QueryFreezeRejection::WorkspaceOrigin);
                 }
                 match canonical_query_persistence(key.kind()) {
@@ -580,9 +635,10 @@ pub struct CanonicalImageCapabilities {
 /// A successfully committed complete semantic publication and its immutable roots.
 #[derive(Debug)]
 pub struct CanonicalUniverseFormalImage {
-    provider: UniverseSourceProvider,
     world: CanonicalSemanticWorldId,
-    modules: Arc<CanonicalModuleProducts>,
+    modules: Arc<CanonicalExternalModuleWorld>,
+    build_sources: BTreeMap<ModuleId, Arc<phalcom_modules::ParsedModuleUnit>>,
+    presentation_provider: Option<UniverseSourceProvider>,
     snapshot: Arc<SemanticSnapshot>,
     queries: Arc<CanonicalSemanticQueryImage>,
     dependency_fingerprints: BTreeMap<QueryKey, ProductFingerprint>,
@@ -599,10 +655,8 @@ impl CanonicalUniverseFormalImage {
             .or_else(|| self.dependency_fingerprints.get(key).copied())
     }
 
-    /// Exact provider used to build this canonical world.
-    pub(crate) fn provider(&self) -> &UniverseSourceProvider {
-        &self.provider
-    }
+    /// Optional source-backed tooling capability; never used for canonical linking.
+    pub(crate) fn presentation_provider(&self) -> Option<&UniverseSourceProvider> { self.presentation_provider.as_ref() }
     /// Provenance used to validate immutable-origin reads.
     pub fn world(&self) -> &CanonicalSemanticWorldId {
         &self.world
@@ -612,12 +666,12 @@ impl CanonicalUniverseFormalImage {
         &self.snapshot
     }
     /// Module-layer P1 dependency adapter.
-    pub fn modules(&self) -> &Arc<CanonicalModuleProducts> {
+    pub fn modules(&self) -> &Arc<CanonicalExternalModuleWorld> {
         &self.modules
     }
     /// Complete parsed source set.
     pub fn sources(&self) -> &BTreeMap<ModuleId, Arc<phalcom_modules::ParsedModuleUnit>> {
-        self.modules.sources()
+        &self.build_sources
     }
     /// Provider-derived module interfaces.
     pub fn interfaces(&self) -> &BTreeMap<ModuleId, Arc<phalcom_modules::UnlinkedModuleInterface>> {
@@ -643,7 +697,7 @@ impl CanonicalUniverseFormalImage {
     /// and portable artifact validation belongs to P7.
     pub fn capabilities(&self) -> CanonicalImageCapabilities {
         CanonicalImageCapabilities {
-            module_count: self.modules.sources().len(),
+            module_count: self.modules.linked().modules.len(),
             frozen_query_count: self.queries.len(),
             canonical_type_count: self.type_prefix.types,
             runtime_metadata_composed: false,
@@ -774,11 +828,10 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
         &private
     };
     let modules = Arc::new(CanonicalModuleProducts::capture(provider, foundation.linked.clone()).map_err(CanonicalImageError::ModuleProducts)?);
-    let world = CanonicalSemanticWorldId {
-        source: modules.source_fingerprint(),
-        provenance: Arc::new(modules.sources().iter().map(|(module, unit)| (module.clone(), unit.text.clone())).collect()),
-        compatibility: concat!(env!("CARGO_PKG_VERSION"), "/canonical-semantic-module-native-abi-v1"),
-    };
+    let world = CanonicalSemanticWorldId::for_source_world(
+        modules.source_fingerprint(),
+        Arc::new(modules.sources().iter().map(|(module, unit)| (module.clone(), unit.text.clone())).collect()),
+    );
     // Explicit foundation path: never ordinary image-backed session creation.
     let mut session = SemanticWorkspaceSession::from_foundation_for_image(foundation, WorkspaceId::from_raw(1));
     let interfaces = modules
@@ -819,10 +872,10 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
     image_counter!(CanonicalImageCompleteUpdates, 1);
     let snapshot = update.snapshot;
     image_span(ImagePhase::Validate, || {
-        validate_publication(&snapshot, &modules, &crate::request::SemanticProductRequest::canonical_compiler_image())
+        validate_publication(&snapshot, modules.external(), &crate::request::SemanticProductRequest::canonical_compiler_image())
     })?;
     let queries = Arc::new(image_span(ImagePhase::QueryFreeze, || {
-        CanonicalSemanticQueryImage::freeze(session.db(), world.clone(), &snapshot, &modules)
+        CanonicalSemanticQueryImage::freeze(session.db(), world.clone(), &snapshot, modules.external())
     })?);
     let dependency_fingerprints = aggregate_dependency_fingerprints(session.db(), &snapshot, &queries)?;
     let type_prefix = CanonicalTypePrefixId {
@@ -830,9 +883,10 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
         types: snapshot.store.len(),
     };
     let image = Arc::new(CanonicalUniverseFormalImage {
-        provider: provider.clone(),
         world,
-        modules,
+        build_sources: modules.sources().clone(),
+        presentation_provider: Some(provider.clone()),
+        modules: modules.external().clone(),
         snapshot,
         queries,
         dependency_fingerprints,
@@ -932,12 +986,12 @@ fn aggregate_dependency_fingerprints(
 
 fn validate_publication(
     snapshot: &SemanticSnapshot,
-    modules: &CanonicalModuleProducts,
+    modules: &CanonicalExternalModuleWorld,
     request: &crate::request::SemanticProductRequest,
 ) -> Result<(), CanonicalImageError> {
     let missing = if !snapshot.status.is_complete() {
         Some("unblocked final snapshot")
-    } else if snapshot.sources.len() != modules.sources().len() || modules.sources().keys().any(|module| !snapshot.sources.contains_key(module)) {
+    } else if snapshot.sources.len() != modules.linked().modules.len() || modules.linked().modules.keys().any(|module| !snapshot.sources.contains_key(module)) {
         Some("complete canonical source set")
     } else if snapshot.callable_analyses.is_empty() || snapshot.callable_signatures.is_empty() || snapshot.trait_surfaces.iter().next().is_none() {
         Some("final callable/signature/trait publication")
@@ -1496,7 +1550,9 @@ mod negative_fact_tests {
         let image = canonical_universe_formal_image().unwrap();
         let mut foreign = image.world.clone();
         let module = image.sources().keys().next().unwrap().clone();
-        Arc::make_mut(&mut foreign.provenance).insert(module, Arc::from("different provider source"));
+        if let CanonicalWorldProvenance::Source(ref mut arc) = foreign.provenance {
+            Arc::make_mut(arc).insert(module, Arc::from("different provider source"));
+        }
         assert_eq!(foreign.source, image.world.source);
         assert!(matches!(
             image.queries.reader(&foreign, &image.snapshot.store, &image.snapshot.static_values),

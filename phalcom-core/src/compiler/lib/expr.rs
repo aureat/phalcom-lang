@@ -1940,7 +1940,10 @@ impl<'vm> Compiler<'vm> {
                                 self.emit(Bytecode::Constant(idx), range);
                                 return Ok(());
                             }
-                            phalcom_semantic::materialization::MaterializationDescriptor::Sequence { .. } => {
+                            phalcom_semantic::materialization::MaterializationDescriptor::Sequence { .. }
+                            | phalcom_semantic::materialization::MaterializationDescriptor::Tuple(_)
+                            | phalcom_semantic::materialization::MaterializationDescriptor::Record(_)
+                            | phalcom_semantic::materialization::MaterializationDescriptor::Pack { .. } => {
                                 let reference = self
                                     .vm
                                     .ensure_static_constant_materialized(&spec)

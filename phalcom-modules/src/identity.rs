@@ -43,6 +43,10 @@ pub struct SyntheticProjectId(u64);
 pub type SyntheticExecutionId = SyntheticProjectId;
 
 impl SyntheticProjectId {
+    pub const fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+
     pub const fn raw(self) -> u64 {
         self.0
     }

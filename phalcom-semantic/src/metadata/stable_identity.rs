@@ -152,6 +152,88 @@ pub fn to_stable_impl(r#impl: &crate::identity::ImplId) -> phalcom_type_meta::id
     }
 }
 
+pub fn from_stable_project(proj: &StableProjectRef) -> Result<ProjectIdentity, &'static str> {
+    match proj {
+        StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe" => {
+            Ok(ProjectIdentity::Universe)
+        }
+        StableProjectRef::Session { session_fingerprint } => {
+            let bytes = session_fingerprint.as_bytes();
+            let raw = u64::from_be_bytes([
+                bytes[8], bytes[9], bytes[10], bytes[11],
+                bytes[12], bytes[13], bytes[14], bytes[15],
+            ]);
+            Ok(ProjectIdentity::Synthetic(phalcom_modules::SyntheticProjectId::from_raw(raw)))
+        }
+        _ => Err("unsupported stable project ref for direct conversion"),
+    }
+}
+
+pub fn from_stable_module(stable: &StableModuleRef) -> Result<ModuleId, &'static str> {
+    let project = from_stable_project(&stable.project)?;
+    let mut components = Vec::with_capacity(stable.path.len());
+    for comp in stable.path.iter() {
+        let mc = phalcom_modules::ModuleComponent::from_identifier(comp)
+            .map_err(|_| "invalid module component")?;
+        components.push(mc);
+    }
+    Ok(ModuleId {
+        project,
+        path: phalcom_modules::ModulePath::from_components(components.into_boxed_slice()),
+    })
+}
+
+pub fn from_stable_declaration(decl: &StableDeclarationRef) -> Result<DeclarationId, &'static str> {
+    let module = from_stable_module(&decl.module)?;
+    let name = decl.path.first().ok_or("empty declaration path")?;
+    Ok(DeclarationId::new(module, name.clone()))
+}
+
+pub fn from_stable_dispatch_side(side: StableDispatchSide) -> DispatchSide {
+    match side {
+        StableDispatchSide::Instance => DispatchSide::Instance,
+        StableDispatchSide::Class => DispatchSide::Class,
+    }
+}
+
+pub fn from_stable_impl(r#impl: &phalcom_type_meta::identity::StableImplRef) -> Result<crate::identity::ImplId, &'static str> {
+    let module = from_stable_module(&r#impl.module)?;
+    Ok(crate::identity::ImplId::new(module, crate::identity::ImplLocalId(r#impl.local_id)))
+}
+
+pub fn from_stable_callable(callable: &StableCallableRef) -> Result<CallableId, &'static str> {
+    let selector = phalcom_common::selector::Selector::decode(&callable.selector);
+    let side = from_stable_dispatch_side(callable.side);
+    let owner = match &callable.owner {
+        StableCallableOwnerRef::Declaration(decl) => {
+            CallableOwnerId::Declaration(from_stable_declaration(decl)?)
+        }
+        StableCallableOwnerRef::Variant(variant) => {
+            let decl = from_stable_declaration(&variant.owner)?;
+            let v_selector = phalcom_common::selector::Selector::decode(&variant.selector);
+            CallableOwnerId::Variant(crate::identity::VariantId::new(decl, v_selector))
+        }
+        StableCallableOwnerRef::Conformance(r#impl) => {
+            CallableOwnerId::Conformance(from_stable_impl(r#impl)?)
+        }
+    };
+    Ok(CallableId {
+        owner,
+        side,
+        selector,
+    })
+}
+
+pub fn from_stable_field(field: &StableFieldRef) -> Result<FieldId, &'static str> {
+    let owner = from_stable_declaration(&field.owner)?;
+    let side = from_stable_dispatch_side(field.side);
+    Ok(FieldId {
+        owner,
+        side,
+        name: field.name.clone(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,5 +275,86 @@ mod tests {
         assert!(projected[1].owner.try_declaration().is_none());
         assert!(projected[1].owner.enclosing_declaration().is_some());
         assert!(projected[3].owner.enclosing_declaration().is_none());
+    }
+
+    #[test]
+    fn universe_module_stable_round_trip() {
+        let module = ModuleId {
+            project: ProjectIdentity::Universe,
+            path: phalcom_modules::ModulePath::from_components(vec![
+                phalcom_modules::ModuleComponent::from_identifier("core").unwrap(),
+                phalcom_modules::ModuleComponent::from_identifier("string").unwrap(),
+            ]),
+        };
+        let stable = to_stable_module(&module);
+        let back = from_stable_module(&stable).expect("module round-trip");
+        assert_eq!(module, back);
+    }
+
+    #[test]
+    fn stable_declaration_round_trip() {
+        let module = ModuleId {
+            project: ProjectIdentity::Universe,
+            path: phalcom_modules::ModulePath::from_components(vec![
+                phalcom_modules::ModuleComponent::from_identifier("collections").unwrap(),
+            ]),
+        };
+        let decl = DeclarationId::new(module, "List".into());
+        let stable = to_stable_declaration(&decl);
+        let back = from_stable_declaration(&stable).expect("decl round-trip");
+        assert_eq!(decl, back);
+    }
+
+    #[test]
+    fn stable_callable_owner_variants_round_trip() {
+        let module = ModuleId {
+            project: ProjectIdentity::Universe,
+            path: Default::default(),
+        };
+        let decl = DeclarationId::new(module.clone(), "Option".into());
+        let owners = [
+            CallableOwnerId::Declaration(decl.clone()),
+            CallableOwnerId::Variant(VariantId::new(decl.clone(), Selector::getter("Some").unwrap())),
+            CallableOwnerId::Conformance(ImplId::new(module, ImplLocalId(42))),
+        ];
+        for owner in owners {
+            let callable = CallableId {
+                owner,
+                side: DispatchSide::Instance,
+                selector: Selector::getter("unwrap").unwrap(),
+            };
+            let stable = to_stable_callable(&callable);
+            let back = from_stable_callable(&stable).expect("callable round trip");
+            assert_eq!(callable, back);
+        }
+    }
+
+    #[test]
+    fn stable_impl_round_trip() {
+        let module = ModuleId {
+            project: ProjectIdentity::Universe,
+            path: Default::default(),
+        };
+        let r#impl = ImplId::new(module, ImplLocalId(7));
+        let stable = to_stable_impl(&r#impl);
+        let back = from_stable_impl(&stable).expect("impl round trip");
+        assert_eq!(r#impl, back);
+    }
+
+    #[test]
+    fn stable_field_round_trip() {
+        let module = ModuleId {
+            project: ProjectIdentity::Universe,
+            path: Default::default(),
+        };
+        let decl = DeclarationId::new(module, "Point".into());
+        let field = FieldId {
+            owner: decl,
+            side: DispatchSide::Instance,
+            name: "x".into(),
+        };
+        let stable = to_stable_field(&field);
+        let back = from_stable_field(&stable).expect("field round trip");
+        assert_eq!(field, back);
     }
 }

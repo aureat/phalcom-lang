@@ -4,12 +4,13 @@ program: PERF003
 kind: optimization
 status: IN_PROGRESS
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: UNVERIFIED
+latest_completed_plan_verification: FOCUSED_TESTED
 active_plan: PERF003.C2.P7
 latest_completed_plan: PERF003.C2.P6
 next_plan: PERF003.C2.P8
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
-execution_tree_head: 69c618c8
+execution_tree_head: 3ca30fca
 latest_tested_revision: 69c618c8
 latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
@@ -23,16 +24,17 @@ program: PERF003
 checkpoint: PERF003.C2
 status: IN_PROGRESS
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: UNVERIFIED
+latest_completed_plan_verification: FOCUSED_TESTED
 active_plan: PERF003.C2.P7
 latest_completed_plan: PERF003.C2.P6
 next_plan: PERF003.C2.P8
 next_action: >
-  PERF003.C2.P6 is complete, implemented, and focused-tested:
-  ModuleLoweringInputView and module-indexed semantic products eliminate whole-world
-  scans from compiler lowering and projection. Reverse-target binding occurrence lookup,
-  precomputed TraitRequirementLayout, and direct inherent impl domain indexing verified.
-  Proceed to PERF003.C2.P7 (".telosc Container Schema + Persisted Semantic Compiler Image").
+  Execute P7.T0/T5 shared export-context and persistence-manifest refinement,
+  then T7.A structural primary contracts before T6 static ADT relocation.
+  Follow P7/PERF003.C2.P7-remaining-execution-plan.md through T15, then the
+  prepared P8 detailed plan after P7 compiler interfaces are implemented.
+  Compiler-only checks are authorized; behavioral acceptance remains deferred.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -124,6 +126,8 @@ After:
 | `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Explicit compiler image product contract, zero-copy parent overlays across all core tables, canonical persistence inventory/capabilities, query classification, CanonicalCompilerImageView boundary, and observability cardinality guards (CanonicalAggregateEntriesCopied == 0) implemented and certified. |
 | `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | ModuleLoweringInputView, module-indexed callable analyses/definitions/declarations/data/enums, reverse-target occurrence resolution, precomputed TraitRequirementLayout, and direct inherent impl domain indexing implemented and certified. |
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
+| `PERF003.C2.P7` (normalized) | Telosc persisted semantic compiler image | Compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | T1–T5 code present; remaining execution companion prepared; T6–T12 code and G7 acceptance remain open |
+| `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | PLANNED | NOT_STARTED | UNVERIFIED | Detailed plan prepared; BUILD depends on complete P7 compiler interfaces; deferred P7/P8 acceptance still controls closure |
 
 ---
 
@@ -342,15 +346,16 @@ After:
 
 ## 7. Next action
 
-Continue ordinary semantic sessions over the completed image and immutable external
-module catalog, then remove canonical source discovery/seeding at that boundary.
-Keep canonical snapshots separate from local `last_snapshot`/`last_known_good` and
-preserve final arena prefixes, local negative dependencies, and conformance coherence.
-The opt-in DB API is ready; no production ordinary-session cutover is claimed.
-Broader source/provider/runtime parity and the observability matrix are deferred
-at the user's request. See [walkthrough](PERF003.C2.P2-walkthrough.md),
-[handoff](PERF003.C2.P2-handoff.md), and
-[P3 increment](PERF003.C2.P3-indexed-witness-lookup-implementation-plan.md).
+The current route is [P7 remaining execution](P7/PERF003.C2.P7-remaining-execution-plan.md),
+starting with the shared guarded deterministic export context/persistence manifest,
+then structural primary contracts required by static ADT relocation. The
+[P8 detailed plan](P8/PERF003.C2.P8-portable-executable-universe-detailed-implementation-plan.md)
+follows once the P7 compiler interface is implemented. Earlier P2/P4/P5 next-action
+notes below are historical evidence, not current routing.
+
+Use compiler-driven checks only. P7/P8 behavioral acceptance and source-free proofs
+remain deferred; their statuses must not be promoted from inherited P6 evidence.
+Preserve the dirty implementation patch and documentation moves. No commit/push is requested.
 
 ### Focused successor evidence (2026-10-13)
 
@@ -624,3 +629,97 @@ unrelated unused `TypeHierarchy` import warning.
   `metadata::reachability::tests` PASS (4 selected, including nested nominal discovery).
   Canonical compiler projection is now unblocked and certified. P4.T6 canonical
   authority installation and P5 witness-plan parent-sharing can proceed.
+
+
+## P7 continuation — 2026-10-14 source-free module boundary
+
+- Active plan: PERF003.C2.P7; completion PARTIAL; verification UNVERIFIED.
+- Starting revision: 3ca30fca. Existing T1/T2 edits and documentation relocation
+  were inherited and preserved; this continuation is uncommitted.
+- CanonicalExternalModuleWorld now separates completed linked/interfaces/topology
+  authority from CanonicalModuleProducts source-build provenance.
+- Module sessions, resolvers, and linkers consume external authority without a
+  UniverseSourceProvider. Semantic image sessions use completed canonical linking
+  authority; optional source-backed presentation remains a separate capability.
+- Artifact integrity uses BLAKE3-256; stable identity schema compatibility is
+  checked. The reader rejects unsupported flags, compression, known section
+  schemas, and executable capability without its payload.
+- Container/architecture specification: docs/specs/compiler-artifacts/telosc.md.
+- User instruction: targeted compiler-driven checks only; no tests or broader
+  verification for this continuation. No behavioral acceptance gate is promoted.
+- Next action: P7.T4 MODULE_WORLD DTO/projection/load, then T5–T15 and P8.
+  No universe.telosc writer/loader, executable payload, or CLI artifact path
+  is implemented by this continuation.
+
+Final compiler-only evidence: cargo check -p phalcom-core -p phalcom-lsp --lib
+passed in 10.41 seconds with flags cleared. LSP's unchanged backend.rs reports
+an unused TypeHierarchy import. Behavioral verification remains UNVERIFIED.
+
+
+## P7 continuation — module-world transport and type-graph relocation
+
+- Active plan PERF003.C2.P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+- T4 transport/projection/materialization code implemented: ModuleWorldV1,
+  artifact-local module IDs, bounded binary codec, module-owner conversion,
+  fingerprint/namespace/topology/DAG validation, and source-free external-world
+  constructors. No ModuleLinker, parser, or interface builder is called by import.
+- T5 projection/relocation code implemented: exhaustive type/kind/scoped node
+  schemas, distinct arena ID families, stable owner codecs, fresh TypeStore,
+  normal interner reconstruction, checked graph dependencies, and explicit
+  TypeRelocation vectors for later payload consumers.
+- Durable distinction: TypeStore contains historical parameter versions and a
+  separate current `(owner,index)` selection. Persistence retains both rather
+  than collapsing versions. Parameter variance overrides are also primary state.
+- Scoped union recipes preserve order/repetition. Global unions normalize native
+  member order after relocation; scoped lowering does not perform that normalization.
+- Completed compiler-only check: flags cleared, cargo check -p phalcom-core
+  -p phalcom-lsp --lib passed in 8.31 seconds. Unchanged LSP backend reports its
+  existing unused TypeHierarchy import. No tests or behavioral verification run.
+- T4/T5 parity, malformed-input behavior, cross-process determinism, and
+  source-free acceptance remain unproved. No acceptance gate promoted.
+- Next action: P7.T6 static-value graph and relocation, then T7–T15 and P8.
+  Data/variant value interning requires canonical DataInfo/VariantInfo; preserve
+  that validation in the loader rather than constructing unchecked value nodes.
+- No complete universe.telosc writer/loader, CLI artifact commands, or executable
+  persistence exists yet. Changes remain uncommitted.
+
+Final compiler-only check after codec error classification: flags cleared,
+cargo check -p phalcom-core -p phalcom-lsp --lib passed in 5.30 seconds.
+Only the unchanged LSP unused TypeHierarchy import warning remains.
+
+
+## Review corrections — 2026-10-14
+
+The three requested review fixes are implemented in the existing worktree:
+
+- Tuple, Record, and Pack static constants again project self-contained recursive
+  descriptors and use the canonical owner-held runtime materialization path,
+  including when nested inside immutable sequences.
+- Both demand-driven and ordinary-session constant publication retain the
+  evaluator-owned residual store for symbolic outcomes. Cycle products carry no
+  residual store. Published products retain ownership through their existing Arc.
+- TypeStore artifact relocation rejects RecordRow parameters in TypeData::Parameter
+  and rejects a node kind differing from its relocated parameter definition.
+
+Compiler-only validation completed with local flags and wrapper cleared:
+`cargo check -p phalcom-core -p phalcom-lsp --lib`,
+`cargo check -p phalcom-semantic --test semantic -p phalcom-core --test core --lib`,
+and `cargo check -p phalcom-core --tests` all passed. Existing unused TypeHierarchy
+imports were reported in the LSP backend and semantic workspace integration tests.
+Regression coverage was added/updated for structural owner materialization,
+nested descriptor contents/labels, residual ownership after evaluator teardown,
+and valid/malformed parameter artifact relocation. Tests were compiled but not
+executed, honoring the existing compiler-only instruction. No behavioral gate or
+checkpoint/plan status was promoted; P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+No architectural consultation or plan amendment was needed. Continue with the
+existing P7 next action. No commit or push was requested.
+
+
+## P7/P8 execution planning — 2026-10-14
+
+- Planning artifacts: [shared research/context](Program-Architecture-and-Planning/PERF003.C2.P7-P8-execution-research.md), [P7 execution companion](P7/PERF003.C2.P7-remaining-execution-plan.md), [P8 detailed plan](P8/PERF003.C2.P8-portable-executable-universe-detailed-implementation-plan.md), and [inline plan review](Program-Architecture-and-Planning/PERF003.C2.P7-P8-plan-review.md).
+- P7 retains its original task numbers and G7.0–G7.11 gates. T4/T5 code is implemented but unaccepted. Next implementation adds shared guarded deterministic projection and an exhaustive persistence manifest; type-only DataInfo/VariantInfo contracts precede static ADT import.
+- Required compiler attachments include checked static operations: the live checked-body root still contains syntax. Required products cannot be dropped; an affected evaluator contract requiring redesign must use the consultation protocol before implementation.
+- P8 adds isolated-VM prototype capture, complete non-eager module coverage, executable validation, rooted fresh allocation, source-free native setup, exact bootstrap order, later-import prototypes and explicit CLI/API wiring. Native-floor module setup currently reads UniverseSourceProvider and is explicitly in scope.
+- GSD research/planning/review is adapted to repository-native records. No competing `.planning` state, automatic execution, independent checker claim or source changes were made. Inline self-review is planning evidence only.
+- Compiler-only feedback remains the user-authorized policy. BUILD can continue from completed P7 APIs into P8; P7/P8 COMPLETE and source-free artifact claims require deferred behavioral proof. P9 discovery/cache/distribution remains outside the execution scope.

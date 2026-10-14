@@ -17,6 +17,7 @@ phalcom-modules = { path = "../phalcom-modules" }
 phalcom-native-meta = { path = "../phalcom-native-meta" }
 phalcom-native-surface = { path = "../phalcom-native-surface" }
 phalcom-type-meta = { path = "../phalcom-type-meta" }
+phalcom-compiler-artifact = { path = "../phalcom-compiler-artifact" }
 telos-observability = { path = "../telos-observability", optional = true }
 thiserror = { workspace = true }
 im = { workspace = true }

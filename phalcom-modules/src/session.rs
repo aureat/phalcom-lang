@@ -785,8 +785,8 @@ fn compute_connected_components(
 #[derive(Debug)]
 pub struct WorkspaceModuleSession {
     universe: ProjectUniverse,
-    universe_source: crate::UniverseSourceProvider,
-    external: Option<Arc<crate::canonical_products::CanonicalModuleProducts>>,
+    universe_source: Option<crate::UniverseSourceProvider>,
+    external: Option<Arc<crate::canonical_products::CanonicalExternalModuleWorld>>,
     provider: OverlaySourceProvider<FilesystemSourceProvider>,
     project_roots: BTreeMap<ProjectSourceIdentity, crate::identity::ResolvedProjectId>,
     /// Maps protocol/display source tokens to compiler-owned canonical IDs.
@@ -834,13 +834,17 @@ impl WorkspaceModuleSession {
     }
 
     /// Creates a local source owner whose canonical imports are immutable leaves.
-    pub fn with_external_modules(universe_source: crate::UniverseSourceProvider, external: Arc<crate::canonical_products::CanonicalModuleProducts>) -> Self {
-        let mut session = Self::build_with_universe_source_provider(universe_source);
+    pub fn with_external_modules(external: Arc<crate::canonical_products::CanonicalExternalModuleWorld>) -> Self {
+        let mut session = Self::build_with_optional_universe_source_provider(None);
         session.external = Some(external);
         session
     }
 
     fn build_with_universe_source_provider(universe_source: crate::UniverseSourceProvider) -> Self {
+        Self::build_with_optional_universe_source_provider(Some(universe_source))
+    }
+
+    fn build_with_optional_universe_source_provider(universe_source: Option<crate::UniverseSourceProvider>) -> Self {
         let universe = ProjectUniverse::new();
         let topology = Arc::new(ModuleTopology::from_parts(ResolverGeneration(0), &universe, &BTreeMap::new(), &BTreeMap::new()));
         Self {
@@ -2193,7 +2197,11 @@ impl WorkspaceModuleSession {
             .map(|(id, state)| (id.clone(), state.parsed.clone()))
             .collect::<BTreeMap<_, _>>();
 
-        let mut resolver = ModuleResolver::with_universe_source_provider(universe, provider, self.universe_source.clone());
+        let mut resolver = if let Some(external) = &self.external {
+            ModuleResolver::with_external_modules(universe, provider, external.clone())
+        } else {
+            ModuleResolver::with_universe_source_provider(universe, provider, self.universe_source.clone().expect("source-backed module session owns a provider"))
+        };
         let mut queue = VecDeque::from_iter(sources_by_module.iter_states().map(|(id, _)| id.clone()));
         let mut new_discovered_sources = Vec::new();
         let mut visited_modules = BTreeSet::new();

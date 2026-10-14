@@ -168,6 +168,8 @@ pub struct SemanticSnapshot {
     /// target-owned callable identity. Backend lowering consumes this map
     /// directly and must not reconstruct acceptance from source locations.
     pub callable_definitions: Arc<crate::parent_map::ParentMap<crate::identity::CallableId, EffectiveCallableDefinition>>,
+    /// Derived lookup index; definition values remain owned by `callable_definitions`.
+    callable_definitions_by_module: Arc<BTreeMap<ModuleId, Box<[crate::identity::CallableId]>>>,
     /// Explicit conformance heads published for this exact semantic snapshot.
     /// The index contains source-head matches only, never witness evidence.
     pub conformance_index: Arc<ConformanceIndex>,
@@ -255,6 +257,7 @@ impl SemanticSnapshot {
             callable_signatures,
             constructor_initializations: Arc::new(ConstructorInitializationTable::default()),
             callable_definitions: Arc::new(crate::parent_map::ParentMap::default()),
+            callable_definitions_by_module: Arc::new(BTreeMap::new()),
             conformance_index: Arc::new(ConformanceIndex::new()),
             conformance_witness_plans: Arc::new(BTreeMap::new()),
             derived_conformance_rules: Arc::new(crate::derived_conformance::DerivedConformanceRuleIndex::new()),
@@ -321,6 +324,7 @@ impl SemanticSnapshot {
             callable_signatures,
             constructor_initializations: Arc::new(ConstructorInitializationTable::default()),
             callable_definitions: Arc::new(crate::parent_map::ParentMap::default()),
+            callable_definitions_by_module: Arc::new(BTreeMap::new()),
             conformance_index: Arc::new(ConformanceIndex::new()),
             conformance_witness_plans: Arc::new(BTreeMap::new()),
             derived_conformance_rules: Arc::new(crate::derived_conformance::DerivedConformanceRuleIndex::new()),
@@ -474,6 +478,19 @@ impl SemanticSnapshot {
         mut self,
         definitions: Arc<crate::parent_map::ParentMap<crate::identity::CallableId, EffectiveCallableDefinition>>,
     ) -> Self {
+        let mut by_module = BTreeMap::<ModuleId, Vec<crate::identity::CallableId>>::new();
+        for (callable, _) in definitions.iter() {
+            by_module
+                .entry(callable.owner.module().clone())
+                .or_default()
+                .push(callable.clone());
+        }
+        self.callable_definitions_by_module = Arc::new(
+            by_module
+                .into_iter()
+                .map(|(module, callables)| (module, callables.into_boxed_slice()))
+                .collect(),
+        );
         self.callable_definitions = definitions;
         self
     }
@@ -740,7 +757,11 @@ impl SemanticSnapshot {
         &'a self,
         module: &'a ModuleId,
     ) -> impl Iterator<Item = (&'a crate::identity::CallableId, &'a crate::impls::EffectiveCallableDefinition)> {
-        self.callable_definitions.iter().filter(move |(id, _)| id.owner.module() == module)
+        self.callable_definitions_by_module
+            .get(module)
+            .into_iter()
+            .flat_map(|callables| callables.iter())
+            .filter_map(|callable| self.callable_definitions.get(callable).map(|definition| (callable, definition)))
     }
 
     /// Returns source semantic products published with this snapshot.

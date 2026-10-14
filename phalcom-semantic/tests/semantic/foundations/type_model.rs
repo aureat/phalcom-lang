@@ -680,3 +680,55 @@ fn checked_substitution_recognizes_newly_concrete_labeled_duplicates() {
     valid_substitution.bind(positional_parameter, concrete);
     assert_eq!(valid_substitution.try_apply(&mut store, positional_concat).unwrap(), concrete);
 }
+
+fn parameter_artifact_graph() -> phalcom_compiler_artifact::semantic::type_store::TypeGraphV1 {
+    let mut store = TypeStore::new();
+    let parameter = store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(DeclarationId::new(ModuleId::universe_root(), "ArtifactParameter".into())),
+        0,
+        "T",
+        KindId::TYPE,
+    ));
+    store.parameter_form(parameter);
+    store
+        .project_artifact(&phalcom_compiler_artifact::ValidationLimits::default())
+        .expect("parameter graph")
+}
+
+#[test]
+fn artifact_parameter_type_preserves_kind() {
+    let limits = phalcom_compiler_artifact::ValidationLimits::default();
+    let bytes = parameter_artifact_graph().encode().unwrap();
+    let (store, relocation) = TypeStore::decode_artifact(&bytes, &limits).expect("valid parameter graph");
+    let parameter = relocation.parameters[0];
+    assert_eq!(store.type_parameter(parameter).kind, KindId::TYPE);
+    assert!(
+        relocation
+            .types
+            .iter()
+            .any(|ty| matches!(store.get(*ty), phalcom_semantic::TypeData::Parameter(id) if *id == parameter))
+    );
+}
+
+#[test]
+fn artifact_parameter_type_rejects_mismatched_kind() {
+    use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, KindV1, TypeV1};
+    let mut graph = parameter_artifact_graph();
+    let wrong_kind = ArtifactKindId(graph.kinds.iter().position(|kind| matches!(kind, KindV1::TypePack)).unwrap() as u32);
+    let node = graph.types.iter_mut().find(|node| matches!(node.form, TypeV1::Parameter { .. })).unwrap();
+    node.kind = wrong_kind;
+    let error = TypeStore::decode_artifact(&graph.encode().unwrap(), &phalcom_compiler_artifact::ValidationLimits::default()).unwrap_err();
+    assert!(error.to_string().contains("parameter type form has mismatched kind"), "{error}");
+}
+
+#[test]
+fn artifact_parameter_type_rejects_record_row_domain() {
+    use phalcom_compiler_artifact::semantic::type_store::{ArtifactKindId, KindV1, TypeV1};
+    let mut graph = parameter_artifact_graph();
+    let row_kind = ArtifactKindId(graph.kinds.iter().position(|kind| matches!(kind, KindV1::RecordRow)).unwrap() as u32);
+    graph.parameters[0].kind = row_kind;
+    let node = graph.types.iter_mut().find(|node| matches!(node.form, TypeV1::Parameter { .. })).unwrap();
+    node.kind = row_kind;
+    let error = TypeStore::decode_artifact(&graph.encode().unwrap(), &phalcom_compiler_artifact::ValidationLimits::default()).unwrap_err();
+    assert!(error.to_string().contains("RecordRow parameter cannot enter the TypeId domain"), "{error}");
+}

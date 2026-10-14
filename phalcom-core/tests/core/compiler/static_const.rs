@@ -105,17 +105,14 @@ fn structural_const_without_runtime_use_compiles_cleanly() {
 }
 
 #[test]
-fn structural_const_runtime_use_fails_with_deferred_error() {
+fn structural_const_runtime_use_materializes_owner_value() {
     let source: Arc<str> = "const Pair = (1, 2)\nlet mut p = Pair\n".into();
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source)).expect("program should analyze cleanly");
     let mut vm = VM::new_kernel();
-    let err = vm
-        .run_compiled(&program)
-        .expect_err("structural const at runtime must fail closed with deferred error");
-    match err {
-        PhError::Compile(CompilerError::StaticConstStructuralDeferred(name)) => {
-            assert_eq!(name, "Pair");
-        }
-        other => panic!("expected StaticConstStructuralDeferred, got: {:?}", other),
-    }
+    vm.run_compiled(&program).expect("structural const runtime read should succeed");
+    let entry = program.initialization_order.last().expect("entry module");
+    let module = vm.heap.module(vm.module_registry.get(entry).unwrap().object);
+    let pair = vm.interner.find("Pair").unwrap();
+    let read = vm.interner.find("p").unwrap();
+    assert_eq!(module.globals[module.name_to_slot[&read]], module.static_constants[&pair]);
 }

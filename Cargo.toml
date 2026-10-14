@@ -16,6 +16,7 @@ members = [
     "phalcom-test-support",
     "phalcom-diagnostics",
     "phalcom-type-meta",
+    "phalcom-compiler-artifact",
     "telos-observability",
 ]
 resolver = "2"
@@ -33,6 +34,7 @@ default-members = [
     "phalcom-semantic",
     "phalcom-diagnostics",
     "phalcom-type-meta",
+    "phalcom-compiler-artifact",
     "telos-observability",
 ]
 
@@ -67,6 +69,8 @@ codegen-units = 1      # Reduce parallel code generation units for better optimi
 panic = "abort"
 
 [workspace.dependencies]
+bitflags = "2.9"
+blake3 = "1"
 thiserror = "2.0.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
