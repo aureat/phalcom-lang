@@ -6,9 +6,10 @@
 //! canonical `ModuleImportPhaseProduct`s consumed by executable finalization.
 
 use crate::checker::analysis::CallableAnalysis;
-use crate::identity::{CallableId, ModuleId};
+use crate::identity::{CallableId, DeclarationId, ModuleId};
 use crate::prelude::PreludeTypeMap;
 use crate::source::ParsedModuleUnit;
+use crate::source_index::{OccurrenceHint, OccurrenceRole, SourceDeclarationKind, SourceNameResolution, SourceSemanticIndex};
 use crate::static_constant::StaticConstantTable;
 use crate::types::store::TypeStore;
 use phalcom_ast::ast::{
@@ -21,7 +22,10 @@ use phalcom_modules::linker::{
     ImportPhaseSummary, LinkedReadSpec, ModuleImportPhaseProduct, PhaseEvidenceCoverage, RuntimeDependencyRequirement, SemanticLinkedProgram, SymbolId,
     SymbolicImportTarget,
 };
-use std::collections::{BTreeMap, HashMap};
+use phalcom_modules::{
+    RuntimeRequirementProducer, RuntimeRequirementProduct, RuntimeRequirementProvenance, RuntimeRequirementTarget, RuntimeRequirementTiming,
+};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 /// Collects root symbol names referenced by a [`TypeAnnotation`].
@@ -168,17 +172,34 @@ fn push_runtime_requirement(
     dependency: &ModuleId,
     range: phalcom_common::range::SourceRange,
     read_target: Option<LinkedReadSpec>,
+    producer: phalcom_modules::RuntimeRequirementProducer,
     requirements: &mut Vec<RuntimeDependencyRequirement>,
 ) {
     if importer == dependency {
         return;
     }
+    let target = match read_target.as_ref() {
+        Some(LinkedReadSpec::Module(module)) => phalcom_modules::RuntimeRequirementTarget::Module(module.clone()),
+        Some(LinkedReadSpec::Binding(symbol)) => phalcom_modules::RuntimeRequirementTarget::Binding {
+            module: symbol.module.clone(),
+            name: symbol.name.clone(),
+        },
+        None => phalcom_modules::RuntimeRequirementTarget::Module(dependency.clone()),
+    };
+    let product = target.conservative_product();
     requirements.push(RuntimeDependencyRequirement {
         importer: importer.clone(),
         dependency: dependency.clone(),
         range,
         reason: RuntimeDependencyReason::RuntimeDeclarationReference,
         read_target,
+        provenance: phalcom_modules::RuntimeRequirementProvenance {
+            consumer: importer.clone(),
+            producer,
+            target,
+            product,
+            timing: phalcom_modules::RuntimeRequirementTiming::DuringModuleInitializer,
+        },
     });
 }
 
@@ -196,6 +217,7 @@ fn push_declaration_read_requirement(
             module: declaration.module.clone(),
             name: declaration.name.clone(),
         })),
+        phalcom_modules::RuntimeRequirementProducer::DeclarationRead,
         requirements,
     );
 }
@@ -204,13 +226,102 @@ fn push_import_read_requirement(
     importer: &ModuleId,
     target: &SymbolicImportTarget,
     range: phalcom_common::range::SourceRange,
+    source_index: &SourceSemanticIndex,
     requirements: &mut Vec<RuntimeDependencyRequirement>,
 ) {
     let (dependency, read_target) = match target {
         SymbolicImportTarget::Module(module) => (module.clone(), LinkedReadSpec::Module(module.clone())),
         SymbolicImportTarget::Binding(symbol) => (symbol.module.clone(), LinkedReadSpec::Binding(symbol.clone())),
     };
-    push_runtime_requirement(importer, &dependency, range, Some(read_target), requirements);
+    let start_len = requirements.len();
+    push_runtime_requirement(
+        importer,
+        &dependency,
+        range,
+        Some(read_target),
+        phalcom_modules::RuntimeRequirementProducer::ImportRead,
+        requirements,
+    );
+    if requirements.len() == start_len {
+        return;
+    }
+    if let SymbolicImportTarget::Binding(symbol) = target {
+        let declaration = DeclarationId::new(symbol.module.clone(), symbol.name.clone());
+        if source_index
+            .declaration_source(&declaration)
+            .is_some_and(|source| matches!(source.kind, SourceDeclarationKind::Trait | SourceDeclarationKind::TypeAlias))
+        {
+            let provenance = &mut requirements.last_mut().expect("runtime import requirement was appended").provenance;
+            provenance.product = phalcom_modules::RuntimeRequirementProduct::CanonicalIdentity;
+            provenance.timing = phalcom_modules::RuntimeRequirementTiming::BeforeSourceExecution;
+        }
+    }
+}
+
+/// Projects source-visible references that the compiler resolves directly
+/// through the canonical native binding catalog (for example `None`). The
+/// spelling hint only selects a catalog row; lexical resolution must also say
+/// the name is unresolved, matching the compiler's fallback order exactly.
+fn add_native_prelude_read_requirements(importer: &ModuleId, source_index: &SourceSemanticIndex, requirements: &mut Vec<RuntimeDependencyRequirement>) {
+    let Some(source) = source_index.module(importer) else {
+        return;
+    };
+    let mut seen = BTreeSet::new();
+    for occurrence in source.occurrences.all() {
+        if matches!(occurrence.role, OccurrenceRole::Declaration | OccurrenceRole::Write) {
+            continue;
+        }
+        let Some(OccurrenceHint::Name(name)) = occurrence.hint.as_ref() else {
+            continue;
+        };
+        if source_index.target_for(&occurrence.site).is_some()
+            || !matches!(
+                source
+                    .structure
+                    .resolve_name(source.structure.scope_at(occurrence.range.start), name, occurrence.range.start),
+                SourceNameResolution::Unresolved
+            )
+        {
+            continue;
+        }
+        let Some(binding) = phalcom_native_meta::UNIVERSE_BINDINGS.iter().find(|binding| binding.name == name.as_ref()) else {
+            continue;
+        };
+        let components = binding
+            .key
+            .source_path()
+            .iter()
+            .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).ok())
+            .collect::<Option<Vec<_>>>();
+        let Some(components) = components else {
+            continue;
+        };
+        let dependency = ModuleId::universe(phalcom_modules::ModulePath::from_components(components));
+        let target = RuntimeRequirementTarget::Binding {
+            module: dependency.clone(),
+            name: binding.name.into(),
+        };
+        if !seen.insert((target.clone(), occurrence.range)) {
+            continue;
+        }
+        requirements.push(RuntimeDependencyRequirement {
+            importer: importer.clone(),
+            dependency: dependency.clone(),
+            range: occurrence.range,
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            read_target: Some(LinkedReadSpec::Binding(SymbolId {
+                module: dependency.clone(),
+                name: binding.name.into(),
+            })),
+            provenance: RuntimeRequirementProvenance {
+                consumer: importer.clone(),
+                producer: RuntimeRequirementProducer::CompilerGeneratedRead,
+                target,
+                product: RuntimeRequirementProduct::RuntimeObject,
+                timing: RuntimeRequirementTiming::DuringModuleInitializer,
+            },
+        });
+    }
 }
 
 fn push_compiler_generated_read_requirement(
@@ -242,7 +353,53 @@ fn push_callable_owner_requirement(
     range: phalcom_common::range::SourceRange,
     requirements: &mut Vec<RuntimeDependencyRequirement>,
 ) {
-    push_runtime_requirement(importer, dependency, range, None, requirements);
+    if importer == dependency {
+        return;
+    }
+    requirements.push(RuntimeDependencyRequirement {
+        importer: importer.clone(),
+        dependency: dependency.clone(),
+        range,
+        reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+        read_target: None,
+        provenance: RuntimeRequirementProvenance {
+            consumer: importer.clone(),
+            producer: phalcom_modules::RuntimeRequirementProducer::CallableOwner,
+            target: RuntimeRequirementTarget::Module(dependency.clone()),
+            product: phalcom_modules::RuntimeRequirementProduct::CanonicalIdentity,
+            timing: phalcom_modules::RuntimeRequirementTiming::BeforeSourceExecution,
+        },
+    });
+}
+
+fn push_binding_owner_requirement(
+    importer: &ModuleId,
+    declaration: &DeclarationId,
+    range: phalcom_common::range::SourceRange,
+    producer: phalcom_modules::RuntimeRequirementProducer,
+    requirements: &mut Vec<RuntimeDependencyRequirement>,
+) {
+    if importer == &declaration.module {
+        return;
+    }
+    let target = RuntimeRequirementTarget::Binding {
+        module: declaration.module.clone(),
+        name: declaration.name.clone(),
+    };
+    requirements.push(RuntimeDependencyRequirement {
+        importer: importer.clone(),
+        dependency: declaration.module.clone(),
+        range,
+        reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+        read_target: None,
+        provenance: RuntimeRequirementProvenance {
+            consumer: importer.clone(),
+            producer,
+            product: target.conservative_product(),
+            target,
+            timing: phalcom_modules::RuntimeRequirementTiming::DuringModuleInitializer,
+        },
+    });
 }
 
 fn add_conformance_type_owner_requirements(
@@ -259,7 +416,13 @@ fn add_conformance_type_owner_requirements(
     };
     for ty in bindings {
         if let Some(declaration) = type_store.nominal_origin_declaration(ty) {
-            push_callable_owner_requirement(importer, &declaration.module, range, requirements);
+            push_binding_owner_requirement(
+                importer,
+                &declaration,
+                range,
+                phalcom_modules::RuntimeRequirementProducer::ConformanceTypeOwner,
+                requirements,
+            );
         }
     }
 }
@@ -277,10 +440,16 @@ fn add_pattern_requirements(
     match pattern {
         PatternResolution::Variant(resolved) => {
             for owner in resolved.owner_candidates.iter() {
-                push_runtime_requirement(importer, &owner.module, range, None, requirements);
+                push_binding_owner_requirement(importer, owner, range, phalcom_modules::RuntimeRequirementProducer::PatternOwner, requirements);
             }
             for candidate in resolved.candidates.iter() {
-                push_runtime_requirement(importer, &candidate.variant.owner.module, range, None, requirements);
+                push_binding_owner_requirement(
+                    importer,
+                    &candidate.variant.owner,
+                    range,
+                    phalcom_modules::RuntimeRequirementProducer::PatternOwner,
+                    requirements,
+                );
                 for field in candidate.fields.iter() {
                     add_pattern_requirements(importer, range, &field.child, prelude, requirements, complete);
                 }
@@ -833,6 +1002,7 @@ fn statement_attributes(statement: &Statement) -> Vec<&Attribute> {
 pub fn compute_module_import_phase_products(
     semantic_linked: &SemanticLinkedProgram,
     sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    source_index: &SourceSemanticIndex,
     callable_analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
     type_store: Option<&TypeStore>,
     static_constants: Option<&StaticConstantTable>,
@@ -845,6 +1015,8 @@ pub fn compute_module_import_phase_products(
     for (module_id, sem_mod) in &semantic_linked.modules {
         let mut observed_uses: BTreeMap<SourceImportBindingId, DependencyPhase> = BTreeMap::new();
         let mut module_complete = is_complete;
+
+        add_native_prelude_read_requirements(module_id, source_index, &mut generated_requirements);
 
         // 1. Whole-module imports and direct re-exports are always Runtime (§9.2).
         for binding in sem_mod.imports.bindings.values() {
@@ -1077,7 +1249,7 @@ pub fn compute_module_import_phase_products(
                                 .entry(binding.id.clone())
                                 .and_modify(|phase| *phase = phase.join(DependencyPhase::Runtime))
                                 .or_insert(DependencyPhase::Runtime);
-                            push_import_read_requirement(module_id, &binding.target, attribute.range, &mut generated_requirements);
+                            push_import_read_requirement(module_id, &binding.target, attribute.range, source_index, &mut generated_requirements);
                         } else if let Some(declaration) = prelude.get(&attribute.name) {
                             push_declaration_read_requirement(module_id, declaration, attribute.range, &mut generated_requirements);
                         } else if !sem_mod.local_globals.contains_key(attribute.name.as_str()) {
@@ -1109,7 +1281,7 @@ pub fn compute_module_import_phase_products(
                                     .entry(binding.id.clone())
                                     .and_modify(|phase| *phase = phase.join(DependencyPhase::Runtime))
                                     .or_insert(DependencyPhase::Runtime);
-                                push_import_read_requirement(module_id, &binding.target, attribute.range, &mut generated_requirements);
+                                push_import_read_requirement(module_id, &binding.target, attribute.range, source_index, &mut generated_requirements);
                             } else if let Some(declaration) = prelude.get(&root) {
                                 push_declaration_read_requirement(module_id, declaration, attribute.range, &mut generated_requirements);
                             } else if root == "ZipLengthMismatchError" {
@@ -1128,7 +1300,7 @@ pub fn compute_module_import_phase_products(
                                     .and_modify(|p| *p = p.join(DependencyPhase::Runtime))
                                     .or_insert(DependencyPhase::Runtime);
 
-                                push_import_read_requirement(module_id, &binding.target, super_ref.range, &mut generated_requirements);
+                                push_import_read_requirement(module_id, &binding.target, super_ref.range, source_index, &mut generated_requirements);
                             } else if let Some(declaration) = prelude.get(&super_ref.root) {
                                 push_declaration_read_requirement(module_id, declaration, super_ref.range, &mut generated_requirements);
                             }
@@ -1281,7 +1453,10 @@ pub fn compute_module_import_phase_products(
 
         // 4. Construct final ImportPhaseSummary for each binding.
         let mut binding_summaries = BTreeMap::new();
-        for (id, _binding) in &sem_mod.imports.bindings {
+        for (id, binding) in &sem_mod.imports.bindings {
+            if observed_uses.get(id).is_some_and(|phase| *phase == DependencyPhase::Runtime) {
+                push_import_read_requirement(module_id, &binding.target, binding.range, source_index, &mut generated_requirements);
+            }
             let summary = if let Some(phase) = observed_uses.get(id) {
                 ImportPhaseSummary { phase: *phase, observed: true }
             } else {
@@ -1344,6 +1519,7 @@ pub fn compute_module_import_phase_products(
                     &symbol.module,
                     product.initializer_range,
                     Some(LinkedReadSpec::Binding(symbol.clone())),
+                    phalcom_modules::RuntimeRequirementProducer::StaticConstantRead,
                     &mut generated_requirements,
                 );
             }

@@ -185,7 +185,9 @@ impl VM {
                     };
                     if symbol.module.project.is_universe() {
                         let declaration = phalcom_modules::DeclarationId::new(symbol.module.clone(), symbol.name.clone());
-                        if let Some(class_id) = self.resolve_universe_declaration_class(&declaration) {
+                        if !self.is_canonical_none_singleton_binding(&declaration)
+                            && let Some(class_id) = self.resolve_universe_declaration_class(&declaration)
+                        {
                             self.heap.module_mut(target_mod_obj).set_global(slot, crate::value::Value::obj(class_id))?;
                         }
                     }
@@ -256,7 +258,9 @@ impl VM {
                         };
                         if symbol_id.module.project.is_universe() {
                             let declaration = phalcom_modules::DeclarationId::new(symbol_id.module.clone(), symbol_id.name.clone());
-                            if let Some(class_id) = self.resolve_universe_declaration_class(&declaration) {
+                            if !self.is_canonical_none_singleton_binding(&declaration)
+                                && let Some(class_id) = self.resolve_universe_declaration_class(&declaration)
+                            {
                                 self.heap.module_mut(target_obj).set_global(slot, crate::value::Value::obj(class_id))?;
                             }
                         }

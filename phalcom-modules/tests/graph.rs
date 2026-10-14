@@ -17,6 +17,7 @@ fn runtime(importer: &ModuleId, dependency: &ModuleId) -> RuntimeDependencyEdge 
         dependency: dependency.clone(),
         range: SourceRange::default(),
         reason: RuntimeDependencyReason::SelectiveValueImport,
+        provenance: None,
     }
 }
 
@@ -52,6 +53,27 @@ fn runtime_self_and_multi_node_cycles_are_rejected() {
     two_cycle.add(runtime(&a, &b));
     two_cycle.add(runtime(&b, &a));
     assert!(two_cycle.initialization_order().is_err());
+}
+
+#[test]
+fn runtime_cycle_reports_sorted_components_and_a_deterministic_edge_path() {
+    let a = module("a");
+    let b = module("b");
+    let c = module("c");
+    let d = module("d");
+    let mut graph = RuntimeDependencyGraph::default();
+    graph.add(runtime(&a, &c));
+    graph.add(runtime(&a, &b));
+    graph.add(runtime(&b, &a));
+    graph.add(runtime(&c, &a));
+    graph.add(runtime(&d, &d));
+
+    let error = graph.initialization_order().expect_err("runtime cycles remain strict");
+    let phalcom_modules::ModuleGraphError::RuntimeCycle { components, path, .. } = error;
+    assert_eq!(components, vec![vec![a.clone(), b.clone(), c.clone()], vec![d.clone()]]);
+    assert_eq!(path.len(), 2);
+    assert_eq!((path[0].importer.clone(), path[0].dependency.clone()), (a.clone(), b.clone()));
+    assert_eq!((path[1].importer.clone(), path[1].dependency.clone()), (b, a));
 }
 
 #[test]

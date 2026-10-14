@@ -24,6 +24,13 @@ impl VM {
         Some(self.universe.classes.resolve(binding.key))
     }
 
+    /// Returns whether `decl` names the hidden Option::None class whose source
+    /// binding is the immediate absence value. Runtime export/read projection
+    /// must preserve that value instead of replacing it with the class handle.
+    pub(crate) fn is_canonical_none_singleton_binding(&self, decl: &DeclarationId) -> bool {
+        self.resolve_universe_declaration_class(decl) == Some(self.universe.classes.none_class)
+    }
+
     /// Resolves a DeclarationId to its runtime ClassId.
     pub fn resolve_declaration_class(&self, decl: &DeclarationId) -> Result<ClassId, RuntimeError> {
         // 1. Check canonical product/ADT registries whose behavior classes do
