@@ -120,9 +120,36 @@ cross-stage acceptance gaps above remain open. PERF and the production source
 cutover are excluded from this consolidation work.
 
 
-Canonical Universe runtime acceptance remains blocked after staged-linking
-integration exposed strict generated-requirement cycles across collections,
-scalars, option, and errors. The failed exact runtime discriminator and decision
-packet are in the [canonical bootstrap incident](../../consolidation/canonical-universe-runtime-cycle-incident.md).
-Do not close P4 or weaken runtime DAG validation. The canonical staging candidate
-requires an architectural decision on native-floor versus source-init ownership.
+The staged-linking integration exposed generated-requirement cycles during
+canonical Universe finalization. The approved 2026-10-14 availability amendment
+closed that bootstrap blocker while retaining strict DAG validation. Evidence
+and the runtime `None` binding correction are in the
+[canonical bootstrap incident](../../consolidation/canonical-universe-runtime-cycle-incident.md).
+
+### Canonical runtime-availability closure — active P4 amendment (2026-10-14)
+
+The user approved the architectural direction in the canonical bootstrap audit.
+P4 remains active; this amendment closes the canonical bootstrap blocker only.
+Strict DAG rejection, immutable finalized reads, and fail-closed behavior remain
+fixed. Requirement availability is classified by exact target, consumed
+product, and use stage. Native-floor proofs are immutable and contain no VM
+handles; exact catalog bindings prove installed runtime objects, while semantic
+identity proofs do not claim source values are populated. Reserved source slots
+have no floor value proof. Read-slot allocation remains independent from
+initialization ordering. Other P4 T4/T7/T8 coverage gaps remain open.
+
+- Starting revision: `d203e71a` on `feat/consolidation-universe`.
+- Baselines: module linker 18/18; semantic phase-evidence integration 12/12.
+- Active continuation: P4 T9 provenance/SCC evidence, T10 availability-aware
+  finalization, and T11 native-floor verification are implemented and
+  focused-tested. No residual source-initialization cycle was established; the
+  exact native `None` binding is preserved through materialization.
+- Focused evidence: modules linker 24/24; modules graph 5/5; semantic phase
+  evidence 12/12; fresh native-floor inventory 1/1; canonical bootstrap
+  discriminator 1/1; class-membership identity regression 1/1. See the
+  [walkthrough](MODL001.C2.P4-walkthrough.md) and updated
+  [handoff](MODL001.C2.P4-handoff.md) for exact commands and outcomes.
+- Remaining scope: other P4 T4 producer families and T7/T8 cross-stage CVs are
+  still open. No workspace/release certification was run.
+- Certification boundary: exact canonical bootstrap and selected focused
+  cross-layer regressions; no workspace/release certification.

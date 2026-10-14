@@ -15,6 +15,7 @@ use phalcom_semantic::phase_evidence::compute_module_import_phase_products;
 use phalcom_semantic::resolver::LinkedTypeResolver;
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit as SemanticParsedModuleUnit;
+use phalcom_semantic::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index};
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
 use phalcom_semantic::workspace::SemanticWorkspaceInput;
@@ -31,6 +32,7 @@ fn module(name: &str) -> ModuleId {
 struct PhaseFixture {
     semantic: Arc<SemanticLinkedProgram>,
     sources: BTreeMap<ModuleId, Arc<SemanticParsedModuleUnit>>,
+    source_index: SourceSemanticIndex,
     provider: ModuleId,
     consumer: ModuleId,
     unrelated: ModuleId,
@@ -70,9 +72,20 @@ fn phase_fixture(provider_source: &str, consumer_source: &str, unrelated_source:
             )
             .expect("symbolic link succeeds"),
     );
+    let scopes = sources
+        .iter()
+        .map(|(id, source)| {
+            (
+                id.clone(),
+                build_source_scope_index(id.clone(), &source.program, &SourceIndexContext::default()),
+            )
+        })
+        .collect();
+    let source_index = SourceSemanticIndex::from_scope_indices_with_programs(scopes, &sources);
     PhaseFixture {
         semantic,
         sources,
+        source_index,
         provider,
         consumer,
         unrelated,
@@ -152,7 +165,7 @@ fn aggregate(
     BTreeMap<ModuleId, phalcom_modules::linker::ModuleImportPhaseProduct>,
     Vec<RuntimeDependencyRequirement>,
 ) {
-    compute_module_import_phase_products(&fixture.semantic, &fixture.sources, analyses, None, None, true)
+    compute_module_import_phase_products(&fixture.semantic, &fixture.sources, &fixture.source_index, analyses, None, None, true)
 }
 
 fn session_with_private_numbers_child_exposed(workspace: phalcom_semantic::identity::WorkspaceId) -> SemanticWorkspaceSession {
@@ -253,7 +266,8 @@ fn type_form_nominal_and_applied_roots_emit_canonical_class_read() {
     expression.denotation = Some(phalcom_semantic::types::denotation::SemanticDenotation::TypeForm(applied));
     analysis.expressions = expressions;
     let analyses = HashMap::from([(analysis.callable.clone(), Arc::new(analysis))]);
-    let (products, requirements) = compute_module_import_phase_products(&fixture.semantic, &fixture.sources, &analyses, Some(&store), None, true);
+    let (products, requirements) =
+        compute_module_import_phase_products(&fixture.semantic, &fixture.sources, &fixture.source_index, &analyses, Some(&store), None, true);
 
     assert!(requirements.iter().any(|requirement| {
         requirement.importer == fixture.consumer
@@ -539,7 +553,15 @@ fn missing_checked_static_initializer_keeps_import_projection_conservative() {
         diagnostics: Arc::new([]),
         imported: None,
     }));
-    let (products, requirements) = compute_module_import_phase_products(&fixture.semantic, &fixture.sources, &HashMap::new(), None, Some(&constants), true);
+    let (products, requirements) = compute_module_import_phase_products(
+        &fixture.semantic,
+        &fixture.sources,
+        &fixture.source_index,
+        &HashMap::new(),
+        None,
+        Some(&constants),
+        true,
+    );
     assert_eq!(products[&fixture.consumer].coverage, PhaseEvidenceCoverage::Incomplete);
     let linker = ModuleLinker::new(
         Arc::new(ProjectUniverse::new()),

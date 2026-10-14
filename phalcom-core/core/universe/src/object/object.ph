@@ -52,8 +52,8 @@ native primitive class Object {
   /// @returns `true` if `cls` is found in the ancestor chain; otherwise `false`.
   is(_ cls) {
     let mut c = self.class
-    while c != None {
-      if c == cls {
+    while not (c === None) {
+      if c === cls {
         return true
       }
       c = c.superclass
@@ -65,7 +65,7 @@ native primitive class Object {
   ///
   /// @param cls The class to test against.
   /// @returns `true` if direct class equals `cls`; otherwise `false`.
-  is!(_ cls) { self.class == cls }
+  is!(_ cls) { self.class === cls }
 
   /// Less-than comparison derived from `<=>`.
   <(_ other) { (self <=> other) === Ordering::Less }

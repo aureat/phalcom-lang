@@ -7,7 +7,10 @@
 use crate::modules::{AnalyzedProgram, CompiledProgram, ProgramCompiler};
 use crate::native::{NativeSourceIndex, PRIMITIVES, verify_native_contracts};
 use phalcom_common::range::SourceRange;
-use phalcom_modules::{FilesystemSourceProvider, ImportSurface, ModuleId, ModuleLinker, ModuleResolver, ProjectUniverse};
+use phalcom_modules::{
+    AvailabilityAuthority, AvailabilityContract, AvailabilityProof, FilesystemSourceProvider, ImportSurface, ModuleComponent, ModuleId, ModuleLinker,
+    ModulePath, ModuleResolver, ProjectUniverse, RuntimeRequirementProduct, RuntimeRequirementTarget, RuntimeRequirementTiming,
+};
 use phalcom_semantic::identity::{CallableId, ExpressionId};
 use phalcom_semantic::match_semantics::ExhaustivenessResult;
 use phalcom_semantic::snapshot::SemanticSnapshot;
@@ -32,6 +35,11 @@ pub(crate) struct CanonicalUniverseProgram {
     root_reachable: Arc<[ModuleId]>,
     /// Existing eager source-bootstrap order, retained without recomputation.
     bootstrap_order: Arc<[ModuleId]>,
+    /// Availability guaranteed after the native installation floor.
+    #[cfg(test)]
+    native_floor_availability: AvailabilityContract,
+    /// Exact products guaranteed after canonical Universe bootstrap.
+    availability_after_bootstrap: AvailabilityContract,
 }
 
 impl CanonicalUniverseProgram {
@@ -49,6 +57,10 @@ impl CanonicalUniverseProgram {
 
     pub(crate) fn bootstrap_order(&self) -> &[ModuleId] {
         &self.bootstrap_order
+    }
+
+    pub(crate) fn availability_after_bootstrap(&self) -> &AvailabilityContract {
+        &self.availability_after_bootstrap
     }
 }
 
@@ -70,6 +82,9 @@ pub(crate) enum CanonicalUniverseBuildError {
     /// Canonical source linking failed.
     #[error("canonical Universe linking failed: {0}")]
     Linking(String),
+    /// Exact availability proof disagreed with the canonical installation path.
+    #[error("canonical availability contract failed: {0}")]
+    AvailabilityContract(String),
     /// Canonical semantic analysis panicked at its existing boundary.
     #[error("canonical Universe semantic analysis panicked")]
     SemanticAnalysisPanicked,
@@ -185,7 +200,8 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     CANONICAL_LINKS.fetch_add(1, Ordering::Relaxed);
     let linker = ModuleLinker::new(project_universe.clone(), interfaces);
     let symbolic = Arc::new(
-        linker.link_semantic(ModuleId::universe_root(), &resolved)
+        linker
+            .link_semantic(ModuleId::universe_root(), &resolved)
             .map_err(|error| CanonicalUniverseBuildError::Linking(error.to_string()))?,
     );
     let linked_for_semantics = symbolic.to_unfinalized_program();
@@ -195,8 +211,7 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     CANONICAL_SEMANTIC_ANALYSES.fetch_add(1, Ordering::Relaxed);
     let semantic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         phalcom_semantic::try_analyze_workspace(
-            phalcom_semantic::SemanticWorkspaceInput::new(linked_for_semantics.clone(), sources.clone(), 0)
-                .with_semantic_linked(symbolic.clone()),
+            phalcom_semantic::SemanticWorkspaceInput::new(linked_for_semantics.clone(), sources.clone(), 0).with_semantic_linked(symbolic.clone()),
         )
     }))
     .map_err(|_| CanonicalUniverseBuildError::SemanticAnalysisPanicked)?;
@@ -215,26 +230,21 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
 
     let runtime_modules = symbolic.modules.keys().cloned().collect();
     let mut requirements = semantic.snapshot.generated_runtime_requirements.to_vec();
-    let semantic_requirement_count = requirements.len();
-    requirements.extend(crate::modules::compile::runtime_metadata_type_requirements(&semantic.snapshot, &sources, &runtime_modules));
+    requirements.extend(crate::modules::compile::runtime_metadata_type_requirements(
+        &semantic.snapshot,
+        &sources,
+        &runtime_modules,
+    ));
+    let native_floor_availability = native_floor_availability(&symbolic)?;
     let linked = Arc::new(
-        linker.finalize_executable_with_requirements((*symbolic).clone(), &semantic.snapshot.import_phase_products, &requirements)
-            .map_err(|error| {
-                let detail = canonical_runtime_cycle_requirements(
-                    &error,
-                    &requirements[..semantic_requirement_count],
-                    &requirements[semantic_requirement_count..],
-                );
-                let differential = canonical_runtime_cycle_differential(
-                    &error,
-                    &linker,
-                    symbolic.as_ref(),
-                    &semantic.snapshot.import_phase_products,
-                    &requirements[..semantic_requirement_count],
-                    &requirements[semantic_requirement_count..],
-                );
-                CanonicalUniverseBuildError::Linking(format!("{error}{detail}{differential}"))
-            })?,
+        linker
+            .finalize_executable_with_availability(
+                (*symbolic).clone(),
+                &semantic.snapshot.import_phase_products,
+                &requirements,
+                &native_floor_availability,
+            )
+            .map_err(|error| CanonicalUniverseBuildError::Linking(error.to_string()))?,
     );
 
     let analyzed = AnalyzedProgram {
@@ -249,6 +259,8 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     CANONICAL_PROGRAM_PROJECTIONS.fetch_add(1, Ordering::Relaxed);
     let program =
         ProgramCompiler::compile_analyzed_for_canonical_bootstrap(&analyzed).map_err(|error| CanonicalUniverseBuildError::Compilation(error.to_string()))?;
+
+    let availability_after_bootstrap = fully_initialized_universe_availability(&native_floor_availability, &program);
 
     let root = ModuleId::universe_root();
     let root_reachable = source_index
@@ -269,110 +281,126 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
         source_index,
         root_reachable: Arc::from(root_reachable.into_boxed_slice()),
         bootstrap_order: Arc::from(bootstrap_order.into_boxed_slice()),
+        #[cfg(test)]
+        native_floor_availability,
+        availability_after_bootstrap,
     })
 }
 
-/// Reports generated requirements within a rejected runtime SCC, grouped by
-/// the producing stage. The linker still owns edge inclusion and DAG rejection;
-/// this diagnostic neither modifies the edge set nor guesses native-floor
-/// availability. Authored imports are represented by the original cycle error
-/// but their individual ranges are not available here.
-fn canonical_runtime_cycle_requirements(
-    error: &phalcom_modules::LinkError,
-    semantic_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
-    metadata_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
-) -> String {
-    let phalcom_modules::LinkError::RuntimeCycle(
-        phalcom_modules::ModuleGraphError::RuntimeCycle { cycle },
-    ) = error else {
-        return String::new();
-    };
-    let members = cycle.iter().collect::<std::collections::BTreeSet<_>>();
-    let cycle_members = &members;
-    let mut edges = [
-        ("semantic-generated", semantic_requirements),
-        ("metadata-type-owner", metadata_requirements),
-    ]
-    .into_iter()
-    .flat_map(|(origin, requirements)| {
-        requirements
-            .iter()
-            .filter(move |requirement| {
-                cycle_members.contains(&requirement.importer) && cycle_members.contains(&requirement.dependency)
-            })
-            .map(move |requirement| {
-                format!(
-                    "  [{origin}] {} -> {} at {:?} ({:?}, linked read: {:?})",
-                    requirement.importer,
-                    requirement.dependency,
-                    requirement.range,
-                    requirement.reason,
-                    requirement.read_target
-                )
-            })
-    })
-    .collect::<Vec<_>>();
-    edges.sort();
-    edges.dedup();
-    if edges.is_empty() {
-        return "\nno generated requirement edges inside the reported cycle; inspect authored imports".into();
+/// The native materializer creates every canonical Universe module before any
+/// source initializer. Only bindings listed by `UNIVERSE_BINDINGS` receive a
+/// native-floor runtime-value proof; semantic declaration identities are
+/// recorded separately and do not assert that reserved source-only slots are
+/// populated.
+fn native_floor_availability(symbolic: &phalcom_modules::SemanticLinkedProgram) -> Result<AvailabilityContract, CanonicalUniverseBuildError> {
+    let before_source = RuntimeRequirementTiming::BeforeSourceExecution;
+    let mut proofs = Vec::new();
+    for (module, linked) in &symbolic.modules {
+        proofs.push(AvailabilityProof {
+            target: RuntimeRequirementTarget::Module(module.clone()),
+            product: RuntimeRequirementProduct::RuntimeObject,
+            authority: AvailabilityAuthority::NativeModuleMaterialization,
+            available_at: before_source,
+        });
+        proofs.push(AvailabilityProof {
+            target: RuntimeRequirementTarget::Module(module.clone()),
+            product: RuntimeRequirementProduct::CanonicalIdentity,
+            authority: AvailabilityAuthority::SemanticIdentityCatalog,
+            available_at: before_source,
+        });
+        for name in linked.local_globals.keys() {
+            proofs.push(AvailabilityProof {
+                target: RuntimeRequirementTarget::Binding {
+                    module: module.clone(),
+                    name: name.clone(),
+                },
+                product: RuntimeRequirementProduct::CanonicalIdentity,
+                authority: AvailabilityAuthority::SemanticIdentityCatalog,
+                available_at: before_source,
+            });
+        }
     }
-    const MAX_DISPLAY_EDGES: usize = 128;
-    let omitted = edges.len().saturating_sub(MAX_DISPLAY_EDGES);
-    edges.truncate(MAX_DISPLAY_EDGES);
-    let omitted_note = if omitted == 0 {
-        String::new()
-    } else {
-        format!("\n  ... {omitted} additional generated requirement edges omitted")
-    };
-    format!(
-        "\ngenerated requirements inside rejected runtime SCC:\n{}{}",
-        edges.join("\n"),
-        omitted_note
-    )
+    for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
+        let module = universe_module_id(binding.key)?;
+        proofs.push(AvailabilityProof {
+            target: RuntimeRequirementTarget::Binding {
+                module,
+                name: binding.name.into(),
+            },
+            product: RuntimeRequirementProduct::RuntimeObject,
+            authority: AvailabilityAuthority::NativeBindingCatalog,
+            available_at: before_source,
+        });
+    }
+    Ok(AvailabilityContract::from_proofs(proofs))
 }
 
-/// Re-run only the immutable linker finalization after a strict cycle error,
-/// to identify which producer family introduced the initialization cycle.
-///
-/// This is *failure-only* diagnostics; it does not publish any of these
-/// candidate executable programs or relax the required complete finalization.
-fn canonical_runtime_cycle_differential(
-    error: &phalcom_modules::LinkError,
-    linker: &ModuleLinker,
-    symbolic: &phalcom_modules::SemanticLinkedProgram,
-    phase_products: &BTreeMap<ModuleId, phalcom_modules::ModuleImportPhaseProduct>,
-    semantic_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
-    metadata_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
-) -> String {
-    if !matches!(error, phalcom_modules::LinkError::RuntimeCycle(_)) {
-        return String::new();
+fn fully_initialized_universe_availability(native_floor: &AvailabilityContract, program: &crate::modules::CompiledProgram) -> AvailabilityContract {
+    let mut proofs = native_floor.proofs().cloned().collect::<Vec<_>>();
+    for (module, linked) in &program.linked.modules {
+        if !module.project.is_universe() {
+            continue;
+        }
+        proofs.push(AvailabilityProof {
+            target: RuntimeRequirementTarget::Module(module.clone()),
+            product: RuntimeRequirementProduct::RuntimeObject,
+            authority: AvailabilityAuthority::FullyInitializedUniverse,
+            available_at: RuntimeRequirementTiming::AfterBootstrap,
+        });
+        proofs.push(AvailabilityProof {
+            target: RuntimeRequirementTarget::Module(module.clone()),
+            product: RuntimeRequirementProduct::SourceInitializedValue,
+            authority: AvailabilityAuthority::FullyInitializedUniverse,
+            available_at: RuntimeRequirementTiming::AfterBootstrap,
+        });
+        for name in linked.bindings.local_globals.keys() {
+            proofs.push(AvailabilityProof {
+                target: RuntimeRequirementTarget::Binding {
+                    module: module.clone(),
+                    name: name.clone(),
+                },
+                product: RuntimeRequirementProduct::SourceInitializedValue,
+                authority: AvailabilityAuthority::FullyInitializedUniverse,
+                available_at: RuntimeRequirementTiming::AfterBootstrap,
+            });
+        }
     }
-
-    let mut results = Vec::with_capacity(3);
-    for (description, requirements) in [
-        ("authored imports only", &[][..]),
-        ("authored + semantic-generated", semantic_requirements),
-        ("authored + metadata-type-owner", metadata_requirements),
-    ] {
-        let status = match linker.finalize_executable_with_requirements(
-            symbolic.clone(),
-            phase_products,
-            requirements,
-        ) {
-            Ok(_) => "acyclic".to_owned(),
-            Err(phalcom_modules::LinkError::RuntimeCycle(
-                phalcom_modules::ModuleGraphError::RuntimeCycle { cycle },
-            )) => format!("cyclic ({} modules)", cycle.len()),
-            Err(other) => format!("other linker failure: {other}"),
-        };
-        results.push(format!("  {description}: {status}"));
+    if let Some(bundle) = &program.semantic_metadata {
+        for root in bundle.module_roots.iter() {
+            if let Some(module) = runtime_module_from_stable_ref(&root.module) {
+                proofs.push(AvailabilityProof {
+                    target: RuntimeRequirementTarget::Module(module),
+                    product: RuntimeRequirementProduct::MetadataDescriptor,
+                    authority: AvailabilityAuthority::FullyInitializedUniverse,
+                    available_at: RuntimeRequirementTiming::AfterBootstrap,
+                });
+            }
+        }
     }
+    AvailabilityContract::from_proofs(proofs)
+}
 
-    format!(
-        "\nrejected-runtime-cycle producer isolation (diagnostic-only):\n{}",
-        results.join("\n")
-    )
+fn universe_module_id(key: phalcom_native_meta::UniverseKey) -> Result<ModuleId, CanonicalUniverseBuildError> {
+    let components = key
+        .source_path()
+        .iter()
+        .map(|component| ModuleComponent::from_identifier(component).map_err(|error| CanonicalUniverseBuildError::AvailabilityContract(error.to_string())))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ModuleId::universe(ModulePath::from_components(components)))
+}
+
+fn runtime_module_from_stable_ref(reference: &phalcom_type_meta::identity::StableModuleRef) -> Option<ModuleId> {
+    match &reference.project {
+        phalcom_type_meta::identity::StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe" => {
+            let components = reference
+                .path
+                .iter()
+                .map(|component| ModuleComponent::from_identifier(component).ok())
+                .collect::<Option<Vec<_>>>()?;
+            Some(ModuleId::universe(ModulePath::from_components(components)))
+        }
+        _ => None,
+    }
 }
 
 /// Ensures the canonical product never asks executable lowering to interpret a
@@ -457,16 +485,17 @@ fn validate_canonical_product(
         }
     }
 
-    // Only actual initializers participate in this order check: dependency
-    // targets outside this bootstrap closure are validated by the appropriate
-    // materialization or native-floor owner, not by this execution schedule.
+    // Only executed source initializers participate in this schedule check.
+    // Dependencies satisfied by prior native-floor availability are absent
+    // from the finalized graph, and nonexecuted targets have separate owners.
     validate_bootstrap_runtime_order(&program.linked.as_program().graphs.runtime, bootstrap_order)?;
 
     Ok(())
 }
 
-/// Confirms the source-index schedule respects all finalized runtime edges
-/// between source modules whose initializers this VM will execute.
+/// Validate actual runtime edges against the VM's source-execution schedule.
+/// Linker acyclicity alone does not prove that the source-index order honors
+/// a generated, unsatisfied runtime requirement.
 fn validate_bootstrap_runtime_order(
     graph: &phalcom_modules::RuntimeDependencyGraph,
     bootstrap_order: &[ModuleId],
@@ -488,14 +517,15 @@ fn validate_bootstrap_runtime_order(
             }
         }
     }
-
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::{CanonicalUniverseBuildError, canonical_universe_program};
-    use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
+    use phalcom_modules::{
+        AvailabilityAuthority, ModuleComponent, ModuleId, ModulePath, RuntimeRequirementProduct, RuntimeRequirementTarget, RuntimeRequirementTiming,
+    };
     use phalcom_native_meta::UniverseKey;
 
     #[test]
@@ -512,6 +542,7 @@ mod tests {
             dependency: dependency.clone(),
             range: Default::default(),
             reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            provenance: None,
         });
 
         assert!(matches!(
@@ -529,156 +560,20 @@ mod tests {
         use phalcom_modules::{RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason};
 
         let importer = ModuleId::universe_root();
-        let external = ModuleId::universe(ModulePath::from_components(vec![
+        let dependency = ModuleId::universe(ModulePath::from_components(vec![
             ModuleComponent::from_identifier("errors").expect("module component"),
         ]));
         let mut graph = RuntimeDependencyGraph::default();
         graph.add(RuntimeDependencyEdge {
             importer: importer.clone(),
-            dependency: external,
+            dependency,
             range: Default::default(),
             reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            provenance: None,
         });
+
         super::validate_bootstrap_runtime_order(&graph, &[importer])
-            .expect("this check covers only the executed source initializer schedule");
-    }
-
-    #[test]
-    fn canonical_cycle_diagnostic_preserves_generated_requirement_provenance() {
-        use phalcom_modules::{LinkError, LinkedReadSpec, ModuleGraphError, RuntimeDependencyReason, RuntimeDependencyRequirement, SymbolId};
-
-        let a = ModuleId::universe_root();
-        let b = ModuleId::universe(ModulePath::from_components(vec![
-            ModuleComponent::from_identifier("errors").expect("module component"),
-        ]));
-        let requirement = RuntimeDependencyRequirement {
-            importer: a.clone(),
-            dependency: b.clone(),
-            range: Default::default(),
-            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
-            read_target: Some(LinkedReadSpec::Binding(SymbolId {
-                module: b.clone(),
-                name: "Error".into(),
-            })),
-        };
-        let error = LinkError::RuntimeCycle(ModuleGraphError::RuntimeCycle {
-            cycle: vec![a, b],
-        });
-        let detail = super::canonical_runtime_cycle_requirements(&error, &[requirement], &[]);
-        assert!(detail.contains("generated requirements inside rejected runtime SCC"));
-        assert!(detail.contains("Error"));
-        assert!(detail.contains("RuntimeDeclarationReference"));
-        assert!(detail.contains("[semantic-generated]"));
-        assert!(detail.contains("linked read: Some("));
-        assert!(super::canonical_runtime_cycle_requirements(
-            &LinkError::RuntimeCycle(ModuleGraphError::RuntimeCycle { cycle: vec![] }),
-            &[],
-            &[]
-        ).contains("no generated requirement edges"));
-    }
-
-    #[test]
-    fn canonical_cycle_diagnostic_distinguishes_metadata_owner_requirements() {
-        use phalcom_modules::{LinkError, ModuleGraphError, RuntimeDependencyReason, RuntimeDependencyRequirement};
-
-        let importer = ModuleId::universe_root();
-        let dependency = ModuleId::universe(ModulePath::from_components(vec![
-            ModuleComponent::from_identifier("errors").expect("module component"),
-        ]));
-        let requirement = RuntimeDependencyRequirement {
-            importer: importer.clone(),
-            dependency: dependency.clone(),
-            range: Default::default(),
-            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
-            read_target: None,
-        };
-        let error = LinkError::RuntimeCycle(ModuleGraphError::RuntimeCycle {
-            cycle: vec![importer, dependency],
-        });
-        let detail = super::canonical_runtime_cycle_requirements(&error, &[], &[requirement]);
-        assert!(detail.contains("[metadata-type-owner]"));
-        assert!(detail.contains("linked read: None"));
-    }
-
-    #[test]
-    fn canonical_cycle_differential_identifies_combined_requirement_cycle() {
-        use phalcom_modules::{
-            DependencyPhase, ImportPhaseSummary, InterfaceBuilder, LinkError, ModuleImportPhaseProduct, ModuleKind,
-            ModuleLinker, PhaseEvidenceCoverage, ProjectUniverse, RuntimeDependencyReason, RuntimeDependencyRequirement,
-        };
-        use std::collections::BTreeMap;
-        use std::sync::Arc;
-
-        let a = ModuleId::universe(ModulePath::from_components(vec![
-            ModuleComponent::from_identifier("a").expect("valid module name"),
-        ]));
-        let b = ModuleId::universe(ModulePath::from_components(vec![
-            ModuleComponent::from_identifier("b").expect("valid module name"),
-        ]));
-        let sources = [
-            (a.clone(), "from .b import B\nclass A {}\nexport A\n"),
-            (b.clone(), "from .a import A\nclass B {}\nexport B\n"),
-        ];
-        let interfaces = sources
-            .into_iter()
-            .map(|(module, source)| {
-                let parsed = phalcom_ast::parser::parse(source, 0).program;
-                let interface = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &parsed)
-                    .expect("test interface");
-                (module, interface)
-            })
-            .collect();
-        let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), interfaces);
-        let resolved = BTreeMap::from([
-            ((a.clone(), ".b".to_string()), b.clone()),
-            ((b.clone(), ".a".to_string()), a.clone()),
-        ]);
-        let symbolic = linker.link_semantic(a.clone(), &resolved).expect("symbolic type cycle");
-        let phases = symbolic
-            .modules
-            .iter()
-            .map(|(module, symbolic_module)| {
-                let bindings = symbolic_module.imports.bindings.keys().map(|id| {
-                    (id.clone(), ImportPhaseSummary {
-                        phase: DependencyPhase::InterfaceOnly,
-                        observed: true,
-                    })
-                }).collect();
-                (module.clone(), ModuleImportPhaseProduct {
-                    module: module.clone(),
-                    bindings,
-                    coverage: PhaseEvidenceCoverage::Complete,
-                })
-            })
-            .collect::<BTreeMap<_, _>>();
-        let semantic_requirement = RuntimeDependencyRequirement {
-            importer: a.clone(),
-            dependency: b.clone(),
-            range: Default::default(),
-            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
-            read_target: None,
-        };
-        let metadata_requirement = RuntimeDependencyRequirement {
-            importer: b,
-            dependency: a,
-            range: Default::default(),
-            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
-            read_target: None,
-        };
-        let failure = linker.finalize_executable_with_requirements(
-            symbolic.clone(),
-            &phases,
-            &[semantic_requirement.clone(), metadata_requirement.clone()],
-        ).expect_err("combined generated requirements produce a genuine runtime cycle");
-        assert!(matches!(failure, LinkError::RuntimeCycle(_)));
-
-        let isolation = super::canonical_runtime_cycle_differential(
-            &failure, &linker, &symbolic, &phases,
-            &[semantic_requirement], &[metadata_requirement],
-        );
-        assert!(isolation.contains("authored imports only: acyclic"));
-        assert!(isolation.contains("authored + semantic-generated: acyclic"));
-        assert!(isolation.contains("authored + metadata-type-owner: acyclic"));
+            .expect("nonexecuted target is not part of this source execution schedule");
     }
 
     #[test]
@@ -722,6 +617,65 @@ mod tests {
                 canonical.program().linked.modules.contains_key(id),
                 "bootstrap module {id} must exist in linked program"
             );
+        }
+    }
+
+    #[test]
+    fn native_floor_contract_matches_fresh_vm_values_and_excludes_source_only_slots() {
+        let canonical = canonical_universe_program().expect("canonical Universe compiler product");
+        let mut vm = crate::vm::VM::new_native();
+
+        for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
+            let module = super::universe_module_id(binding.key).expect("catalog module path");
+            let module_object = vm.module_registry.get(&module).expect("native floor module materialized").object;
+            let name = vm.interner.intern(binding.name);
+            let value = vm
+                .heap
+                .module(module_object)
+                .get(name)
+                .expect("catalog binding populated before source execution");
+            if binding.key == UniverseKey::None {
+                assert_eq!(value, crate::value::Value::none());
+            } else {
+                let expected = crate::value::Value::obj(vm.universe.classes.resolve(binding.key));
+                assert!(value.same_as(&expected), "{} must retain its canonical class identity", binding.name);
+            }
+            assert!(canonical.native_floor_availability.proofs().any(|proof| {
+                proof.target
+                    == RuntimeRequirementTarget::Binding {
+                        module: module.clone(),
+                        name: binding.name.into(),
+                    }
+                    && proof.product == RuntimeRequirementProduct::RuntimeObject
+                    && proof.authority == AvailabilityAuthority::NativeBindingCatalog
+                    && proof.available_at == RuntimeRequirementTiming::BeforeSourceExecution
+            }));
+        }
+
+        for class in canonical.source_index().census.classes.iter().filter(|class| class.universe_key.is_none()) {
+            let module_object = vm
+                .module_registry
+                .get(&class.module)
+                .expect("source-only module object exists at native floor")
+                .object;
+            let name = vm.interner.intern(&class.name);
+            assert!(
+                vm.heap.module(module_object).get(name).is_none(),
+                "reserved source-only binding {}::{} is not an initialized native-floor value",
+                class.module,
+                class.name
+            );
+            assert!(!canonical.native_floor_availability.proofs().any(|proof| {
+                proof.target
+                    == RuntimeRequirementTarget::Binding {
+                        module: class.module.clone(),
+                        name: class.name.clone().into_boxed_str(),
+                    }
+                    && matches!(
+                        proof.product,
+                        RuntimeRequirementProduct::RuntimeObject | RuntimeRequirementProduct::SourceInitializedValue
+                    )
+            }));
         }
     }
 

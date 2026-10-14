@@ -36,23 +36,23 @@ pub use fingerprint::{
 };
 pub use graph::{
     DependencyPhase, ModuleGraphs, ReferenceEdge, ReferenceGraph, ReferenceKind, RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason,
-    SemanticEdge, SemanticEdgeKind, SemanticGraph, SemanticNodeId, strongly_connected_components,
+    RuntimeRequirementProducer, RuntimeRequirementProduct, RuntimeRequirementProvenance, RuntimeRequirementTarget, RuntimeRequirementTiming, SemanticEdge,
+    SemanticEdgeKind, SemanticGraph, SemanticNodeId, strongly_connected_components,
 };
 pub use identity::{
-    ImportBindingLocalId, SourceImportBindingId,
-    ImportRootTarget, ImportSiteId, ImportSiteLocalId, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectRevisionFingerprint,
-    ProjectSourceIdentity, ResolvedProjectId, SourceId, SourceLocation, StableModuleKey, StableProjectKey, SyntheticProjectId, SyntheticProjectIdAllocator,
-    universe_module_from_uri, universe_module_uri,
+    ImportBindingLocalId, ImportRootTarget, ImportSiteId, ImportSiteLocalId, ModuleComponent, ModuleId, ModulePath, ProjectIdentity,
+    ProjectRevisionFingerprint, ProjectSourceIdentity, ResolvedProjectId, SourceId, SourceImportBindingId, SourceLocation, StableModuleKey, StableProjectKey,
+    SyntheticProjectId, SyntheticProjectIdAllocator, universe_module_from_uri, universe_module_uri,
 };
 pub use interface::{
     DeclarationSurface, ExportSurface, ImportSurface, InterfaceBuilder, LinkedExport, LinkedExportTarget, LinkedModuleInterface, PackagePathSurface,
     UnlinkedExportTarget, UnlinkedModuleInterface,
 };
 pub use linker::{
-    ExecutableLinkedProgram, ImportPhaseSummary, ModuleImportPhaseProduct, PhaseEvidenceCoverage, RuntimeDependencyRequirement, SemanticLinkedModule, SemanticLinkedProgram,
-    SymbolicImportBinding, SymbolicImportTable, SymbolicImportTarget,
-    GlobalBindingId, ImportBindingId, LinkError, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, ModuleLinker, SymbolId, dependency_phase,
-    module_path, resolution_key,
+    AvailabilityAuthority, AvailabilityContract, AvailabilityProof, ExecutableLinkedProgram, GlobalBindingId, ImportBindingId, ImportPhaseSummary, LinkError,
+    LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, ModuleImportPhaseProduct, ModuleLinker, PhaseEvidenceCoverage,
+    RuntimeDependencyRequirement, SemanticLinkedModule, SemanticLinkedProgram, SymbolId, SymbolicImportBinding, SymbolicImportTable, SymbolicImportTarget,
+    dependency_phase, module_path, resolution_key,
 };
 pub use manifest::{DependencyProvider, DependencySpec, NullDependencyProvider, ProjectManifest, ValidatedProjectManifest};
 pub use metadata::{MetadataTarget, ModuleMetadata, ModuleMetadataAttribute};

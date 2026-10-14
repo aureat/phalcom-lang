@@ -2,7 +2,8 @@
 
 use crate::error::ModuleGraphError;
 use crate::graph::{
-    DependencyPhase, ModuleGraphs, ReferenceEdge, ReferenceKind, RuntimeDependencyEdge, RuntimeDependencyReason, SemanticEdge, SemanticEdgeKind, SemanticNodeId,
+    DependencyPhase, ModuleGraphs, ReferenceEdge, ReferenceKind, RuntimeDependencyEdge, RuntimeDependencyReason, RuntimeRequirementProduct,
+    RuntimeRequirementProvenance, RuntimeRequirementTarget, RuntimeRequirementTiming, SemanticEdge, SemanticEdgeKind, SemanticNodeId,
 };
 use crate::identity::{ImportBindingLocalId, ModuleId, ModulePath, SourceImportBindingId};
 use crate::interface::{ImportSurface, LinkedExport, LinkedModuleInterface, UnlinkedExportTarget, UnlinkedModuleInterface};
@@ -43,6 +44,8 @@ pub struct RuntimeDependencyRequirement {
     pub range: SourceRange,
     pub reason: RuntimeDependencyReason,
     pub read_target: Option<LinkedReadSpec>,
+    /// Exact producer, target, product, and timing for this edge.
+    pub provenance: RuntimeRequirementProvenance,
 }
 
 impl RuntimeDependencyRequirement {
@@ -52,7 +55,67 @@ impl RuntimeDependencyRequirement {
             dependency: self.dependency.clone(),
             range: self.range,
             reason: self.reason,
+            provenance: Some(self.provenance.clone()),
         }
+    }
+}
+
+/// Authority that guarantees an exact product is installed by a given stage.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum AvailabilityAuthority {
+    /// Exact module identity was established by semantic linking.
+    SemanticIdentityCatalog,
+    /// Native binding was written by the Universe binding installation catalog.
+    NativeBindingCatalog,
+    /// Canonical module object was created by native Universe materialization.
+    NativeModuleMaterialization,
+    /// Descriptor was installed from the immutable semantic metadata bundle.
+    SemanticMetadataBundle,
+    /// The canonical source module initializer produced this value.
+    CanonicalSourceInitializer,
+    /// The full canonical Universe bootstrap completed before user execution.
+    FullyInitializedUniverse,
+}
+
+/// One exact availability proof. It contains no VM or heap handles.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct AvailabilityProof {
+    /// Exact module or binding whose product is guaranteed.
+    pub target: RuntimeRequirementTarget,
+    /// Product guaranteed for the target.
+    pub product: RuntimeRequirementProduct,
+    /// Installation or initialization authority.
+    pub authority: AvailabilityAuthority,
+    /// Latest stage at which the product is guaranteed available.
+    pub available_at: RuntimeRequirementTiming,
+}
+
+/// Immutable exact availability facts accepted during executable finalization.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AvailabilityContract {
+    proofs: BTreeSet<AvailabilityProof>,
+}
+
+impl AvailabilityContract {
+    /// Builds a contract from immutable exact proofs.
+    pub fn from_proofs(proofs: impl IntoIterator<Item = AvailabilityProof>) -> Self {
+        Self {
+            proofs: proofs.into_iter().collect(),
+        }
+    }
+
+    /// Returns the exact proofs carried by this contract.
+    pub fn proofs(&self) -> impl Iterator<Item = &AvailabilityProof> {
+        self.proofs.iter()
+    }
+
+    fn satisfies(&self, provenance: &RuntimeRequirementProvenance) -> bool {
+        self.proofs.iter().any(|proof| {
+            let available_for_consumer = proof.available_at <= provenance.timing
+                || (proof.authority == AvailabilityAuthority::FullyInitializedUniverse
+                    && provenance.timing == RuntimeRequirementTiming::DuringModuleInitializer);
+            proof.target == provenance.target && proof.product == provenance.product && available_for_consumer
+        })
     }
 }
 
@@ -139,6 +202,7 @@ impl SemanticLinkedProgram {
                     dependency: target_module,
                     range: import.range,
                     reason: runtime_reason(import.kind),
+                    provenance: None,
                 });
             }
 
@@ -186,6 +250,24 @@ fn linked_read_module(target: &LinkedReadSpec) -> &ModuleId {
     }
 }
 
+fn requirement_target_matches(read: &LinkedReadSpec, target: &RuntimeRequirementTarget) -> bool {
+    match (read, target) {
+        (LinkedReadSpec::Module(read), RuntimeRequirementTarget::Module(target)) => read == target,
+        (LinkedReadSpec::Binding(read), RuntimeRequirementTarget::Binding { module, name }) => read.module == *module && read.name == *name,
+        _ => false,
+    }
+}
+
+fn requirement_target_from_read(read: &LinkedReadSpec) -> RuntimeRequirementTarget {
+    match read {
+        LinkedReadSpec::Module(module) => RuntimeRequirementTarget::Module(module.clone()),
+        LinkedReadSpec::Binding(symbol) => RuntimeRequirementTarget::Binding {
+            module: symbol.module.clone(),
+            name: symbol.name.clone(),
+        },
+    }
+}
+
 fn runtime_reason(kind: ReferenceKind) -> RuntimeDependencyReason {
     match kind {
         ReferenceKind::WholeModuleImport => RuntimeDependencyReason::WholeModuleImport,
@@ -221,6 +303,7 @@ pub struct ModuleImportPhaseProduct {
 pub struct ExecutableLinkedProgram {
     program: LinkedProgram,
     canonical_runtime_reads: BTreeMap<(ModuleId, LinkedReadSpec), ImportBindingId>,
+    runtime_requirements: Vec<RuntimeDependencyRequirement>,
 }
 
 impl ExecutableLinkedProgram {
@@ -255,13 +338,7 @@ impl ExecutableLinkedProgram {
         for (module_id, module) in &program.modules {
             for (slot, read) in module.linked_reads.iter().enumerate().map(|(slot, read)| (slot as u32, read)) {
                 let dependency = linked_read_module(read);
-                if !program
-                    .graphs
-                    .runtime
-                    .edges_from(module_id)
-                    .iter()
-                    .any(|edge| &edge.dependency == dependency)
-                {
+                if !program.graphs.runtime.edges_from(module_id).iter().any(|edge| &edge.dependency == dependency) {
                     return Err(LinkError::UncoveredRuntimeRead {
                         importer: module_id.clone(),
                         dependency: dependency.clone(),
@@ -289,7 +366,13 @@ impl ExecutableLinkedProgram {
         Ok(Self {
             program,
             canonical_runtime_reads,
+            runtime_requirements: Vec::new(),
         })
+    }
+
+    /// Returns the exact generated requirements retained during finalization.
+    pub fn runtime_requirements(&self) -> &[RuntimeDependencyRequirement] {
+        &self.runtime_requirements
     }
 }
 
@@ -386,6 +469,9 @@ pub enum LinkError {
         dependency: ModuleId,
         target_module: ModuleId,
     },
+    /// Generated requirement provenance does not describe its actual canonical target.
+    #[error("runtime requirement from {importer} has provenance inconsistent with dependency {dependency}")]
+    RuntimeRequirementProvenanceMismatch { importer: ModuleId, dependency: ModuleId },
     /// A re-export loop cannot produce a canonical symbol.
     #[error("cyclic re-export involving module {module} and '{name}'")]
     CyclicReExport { module: ModuleId, name: String },
@@ -404,8 +490,10 @@ impl LinkError {
             | Self::MissingModule { module }
             | Self::InvalidImportSlot { module, .. }
             | Self::CyclicReExport { module, .. } => Some(module),
-            Self::UncoveredRuntimeRead { importer, .. } | Self::RuntimeReadTargetMismatch { importer, .. } => Some(importer),
-            Self::RuntimeCycle(ModuleGraphError::RuntimeCycle { cycle }) => cycle.first(),
+            Self::UncoveredRuntimeRead { importer, .. }
+            | Self::RuntimeReadTargetMismatch { importer, .. }
+            | Self::RuntimeRequirementProvenanceMismatch { importer, .. } => Some(importer),
+            Self::RuntimeCycle(ModuleGraphError::RuntimeCycle { cycle, .. }) => cycle.first(),
         }
     }
 
@@ -586,37 +674,75 @@ impl ModuleLinker {
                 let provider = context.target(module, import.path(), import.range())?;
                 let items: Vec<(String, SourceRange, ReferenceKind)> = match import {
                     ImportSurface::Module(decl) => vec![(
-                        decl.alias.as_ref().map(|alias| alias.name.clone())
+                        decl.alias
+                            .as_ref()
+                            .map(|alias| alias.name.clone())
                             .or_else(|| default_module_binding(&decl.path).map(str::to_owned))
                             .unwrap_or_else(|| provider.path.to_string()),
-                        decl.range, ReferenceKind::WholeModuleImport,
+                        decl.range,
+                        ReferenceKind::WholeModuleImport,
                     )],
-                    ImportSurface::Selective(decl) => decl.items.iter().map(|item| (
-                        item.alias.as_ref().map(|alias| alias.name.clone()).unwrap_or_else(|| item.name.clone()),
-                        item.range, ReferenceKind::SelectiveImport,
-                    )).collect(),
-                    ImportSurface::ReExport(decl) => decl.items.iter().map(|item| (
-                        item.local_or_remote_name.clone(), item.range, ReferenceKind::ReExport,
-                    )).collect(),
+                    ImportSurface::Selective(decl) => decl
+                        .items
+                        .iter()
+                        .map(|item| {
+                            (
+                                item.alias.as_ref().map(|alias| alias.name.clone()).unwrap_or_else(|| item.name.clone()),
+                                item.range,
+                                ReferenceKind::SelectiveImport,
+                            )
+                        })
+                        .collect(),
+                    ImportSurface::ReExport(decl) => decl
+                        .items
+                        .iter()
+                        .map(|item| (item.local_or_remote_name.clone(), item.range, ReferenceKind::ReExport))
+                        .collect(),
                 };
                 for (ordinal, (local, range, kind)) in items.into_iter().enumerate() {
                     let target = match &context.import_targets[&(module.clone(), local.clone())] {
                         LinkedReadSpec::Module(target) => SymbolicImportTarget::Module(target.clone()),
                         LinkedReadSpec::Binding(target) => SymbolicImportTarget::Binding(target.clone()),
                     };
-                    let id = SourceImportBindingId { site: site.clone(), local: ImportBindingLocalId(ordinal as u32) };
+                    let id = SourceImportBindingId {
+                        site: site.clone(),
+                        local: ImportBindingLocalId(ordinal as u32),
+                    };
                     imports.by_local_name.insert(local.clone().into_boxed_str(), id.clone());
-                    imports.bindings.insert(id.clone(), SymbolicImportBinding {
-                        id, local_name: local.into_boxed_str(), target, provider: provider.clone(), kind, range,
-                    });
+                    imports.bindings.insert(
+                        id.clone(),
+                        SymbolicImportBinding {
+                            id,
+                            local_name: local.into_boxed_str(),
+                            target,
+                            provider: provider.clone(),
+                            kind,
+                            range,
+                        },
+                    );
                 }
             }
-            let local_globals = interface.declarations.keys().enumerate()
-                .map(|(index, name)| (name.clone().into_boxed_str(), GlobalBindingId(index as u32))).collect();
-            modules.insert(module.clone(), SemanticLinkedModule { interface: context.linked_interface(module)?, local_globals, imports });
+            let local_globals = interface
+                .declarations
+                .keys()
+                .enumerate()
+                .map(|(index, name)| (name.clone().into_boxed_str(), GlobalBindingId(index as u32)))
+                .collect();
+            modules.insert(
+                module.clone(),
+                SemanticLinkedModule {
+                    interface: context.linked_interface(module)?,
+                    local_globals,
+                    imports,
+                },
+            );
         }
         Ok(SemanticLinkedProgram {
-            universe: self.universe.clone(), modules, references: context.graphs.references, semantics: context.graphs.semantics, entry,
+            universe: self.universe.clone(),
+            modules,
+            references: context.graphs.references,
+            semantics: context.graphs.semantics,
+            entry,
         })
     }
 
@@ -640,6 +766,19 @@ impl ModuleLinker {
         semantic: SemanticLinkedProgram,
         phase_products: &BTreeMap<ModuleId, ModuleImportPhaseProduct>,
         requirements: &[RuntimeDependencyRequirement],
+    ) -> Result<ExecutableLinkedProgram, LinkError> {
+        self.finalize_executable_with_availability(semantic, phase_products, requirements, &AvailabilityContract::default())
+    }
+
+    /// Finalizes executable reads and strict runtime ordering using exact
+    /// availability proofs. Read slots are allocated even when a proof removes
+    /// the corresponding eager initialization edge.
+    pub fn finalize_executable_with_availability(
+        &self,
+        semantic: SemanticLinkedProgram,
+        phase_products: &BTreeMap<ModuleId, ModuleImportPhaseProduct>,
+        requirements: &[RuntimeDependencyRequirement],
+        availability: &AvailabilityContract,
     ) -> Result<ExecutableLinkedProgram, LinkError> {
         let SemanticLinkedProgram {
             universe,
@@ -688,12 +827,39 @@ impl ModuleLinker {
                     .entry((module.clone(), linked_reads[slot.0 as usize].clone()))
                     .or_insert(slot);
                 bindings.imports.insert(import.local_name.clone(), slot);
-                graphs.runtime.add(RuntimeDependencyEdge {
-                    importer: module.clone(),
-                    dependency: target_module,
-                    range: import.range,
-                    reason: runtime_reason(import.kind),
-                });
+                let read = &linked_reads[slot.0 as usize];
+                let target = requirement_target_from_read(read);
+                let default_provenance = RuntimeRequirementProvenance {
+                    consumer: module.clone(),
+                    producer: crate::graph::RuntimeRequirementProducer::ImportRead,
+                    product: target.conservative_product(),
+                    target,
+                    timing: RuntimeRequirementTiming::DuringModuleInitializer,
+                };
+                let mut import_provenances = requirements
+                    .iter()
+                    .filter(|requirement| {
+                        requirement.importer == module
+                            && requirement.provenance.producer == crate::graph::RuntimeRequirementProducer::ImportRead
+                            && requirement.read_target.as_ref() == Some(read)
+                    })
+                    .map(|requirement| requirement.provenance.clone())
+                    .collect::<Vec<_>>();
+                import_provenances.sort();
+                import_provenances.dedup();
+                let unsatisfied_provenance = import_provenances.iter().find(|provenance| !availability.satisfies(provenance)).cloned();
+                let unsatisfied_default = import_provenances
+                    .is_empty()
+                    .then(|| (!availability.satisfies(&default_provenance)).then_some(default_provenance));
+                if let Some(provenance) = unsatisfied_provenance.or_else(|| unsatisfied_default.flatten()) {
+                    graphs.runtime.add(RuntimeDependencyEdge {
+                        importer: module.clone(),
+                        dependency: target_module,
+                        range: import.range,
+                        reason: runtime_reason(import.kind),
+                        provenance: Some(provenance),
+                    });
+                }
             }
             modules.insert(
                 module,
@@ -707,7 +873,11 @@ impl ModuleLinker {
         }
 
         let known_modules = modules.keys().cloned().collect::<BTreeSet<_>>();
-        for requirement in requirements {
+        let mut ordered_requirements = requirements.to_vec();
+        ordered_requirements.sort_by(|left, right| {
+            (&left.importer, &left.dependency, left.range, &left.provenance).cmp(&(&right.importer, &right.dependency, right.range, &right.provenance))
+        });
+        for requirement in &ordered_requirements {
             if !known_modules.contains(&requirement.importer) {
                 return Err(LinkError::MissingModule {
                     module: requirement.importer.clone(),
@@ -741,7 +911,21 @@ impl ModuleLinker {
                     canonical_runtime_reads.insert((requirement.importer.clone(), target.clone()), slot);
                 }
             }
-            graphs.runtime.add(requirement.edge());
+            if requirement.provenance.consumer != requirement.importer
+                || requirement.provenance.target.module() != &requirement.dependency
+                || requirement
+                    .read_target
+                    .as_ref()
+                    .is_some_and(|target| !requirement_target_matches(target, &requirement.provenance.target))
+            {
+                return Err(LinkError::RuntimeRequirementProvenanceMismatch {
+                    importer: requirement.importer.clone(),
+                    dependency: requirement.dependency.clone(),
+                });
+            }
+            if !availability.satisfies(&requirement.provenance) {
+                graphs.runtime.add(requirement.edge());
+            }
         }
 
         for (module, linked) in &mut modules {
@@ -757,6 +941,7 @@ impl ModuleLinker {
                 initialization_order,
             },
             canonical_runtime_reads,
+            runtime_requirements: ordered_requirements,
         })
     }
 
@@ -1055,24 +1240,14 @@ impl<'a> LinkContext<'a> {
             Ok(order) => order,
             Err(err) => {
                 if self.tolerant {
-                    let mut found_any_cycle = false;
-                    for component in self.graphs.runtime.components() {
-                        if component.len() > 1 || self.graphs.runtime.has_self_edge(&component[0]) {
-                            found_any_cycle = true;
-                            for m in &component {
-                                self.blocked_modules.insert(m.clone());
-                            }
-                            self.diagnostics
-                                .push(LinkError::RuntimeCycle(crate::error::ModuleGraphError::RuntimeCycle { cycle: component }));
-                        }
+                    let crate::error::ModuleGraphError::RuntimeCycle { ref cycle, ref components, .. } = err;
+                    for component in components {
+                        self.blocked_modules.extend(component.iter().cloned());
                     }
-                    if !found_any_cycle {
-                        let crate::error::ModuleGraphError::RuntimeCycle { ref cycle } = err;
-                        for m in cycle {
-                            self.blocked_modules.insert(m.clone());
-                        }
-                        self.diagnostics.push(LinkError::RuntimeCycle(err));
+                    if components.is_empty() {
+                        self.blocked_modules.extend(cycle.iter().cloned());
                     }
+                    self.diagnostics.push(LinkError::RuntimeCycle(err));
 
                     // Cascade blocked: if module depends on a blocked module at runtime
                     let mut changed = true;
@@ -1193,6 +1368,7 @@ impl<'a> LinkContext<'a> {
                             dependency: target.clone(),
                             range: decl.range,
                             reason: RuntimeDependencyReason::WholeModuleImport,
+                            provenance: None,
                         });
                         let local = decl
                             .alias
@@ -1224,6 +1400,7 @@ impl<'a> LinkContext<'a> {
                                 dependency: target.clone(),
                                 range: item.range,
                                 reason: RuntimeDependencyReason::SelectiveValueImport,
+                                provenance: None,
                             });
                             let local = item.alias.as_ref().map(|alias| alias.name.clone()).unwrap_or_else(|| item.name.clone());
                             let provisional = SymbolId {
@@ -1255,6 +1432,7 @@ impl<'a> LinkContext<'a> {
                                 dependency: target.clone(),
                                 range: item.range,
                                 reason: RuntimeDependencyReason::ReExport,
+                                provenance: None,
                             });
                             let local = item.local_or_remote_name.clone();
                             let provisional = SymbolId {
@@ -1304,6 +1482,7 @@ impl<'a> LinkContext<'a> {
                                 dependency: owner,
                                 range: item.range,
                                 reason: RuntimeDependencyReason::SelectiveValueImport,
+                                provenance: None,
                             });
                             match &linked_exp.target {
                                 crate::interface::LinkedExportTarget::Binding(symbol) => {
@@ -1349,6 +1528,7 @@ impl<'a> LinkContext<'a> {
                                 dependency: owner,
                                 range: item.range,
                                 reason: RuntimeDependencyReason::ReExport,
+                                provenance: None,
                             });
                             match &linked_exp.target {
                                 crate::interface::LinkedExportTarget::Binding(symbol) => {

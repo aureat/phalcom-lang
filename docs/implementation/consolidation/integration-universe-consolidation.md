@@ -200,3 +200,48 @@ an immutable read target, (2) actual availability of the runtime value, and
 (3) dependency-first execution of a source initializer, without treating
 preallocated-but-uninitialized slots as available values. Do not simply erase
 owner-only requirements or relax the DAG.
+
+### Integration candidate — native-floor bootstrap closure (2026-10-14)
+
+This record preserves the historical failed-bootstrap investigation above.
+The separate preservation branch `feat/consolidation-bootstrap-repair` at
+`3d61f2b4` implements the approved MODL001.C2.P4 native-floor availability
+contract and reports the exact canonical bootstrap discriminator passing.
+It also fixes the immediate `None` binding overwrite and class identity
+comparison, adds deterministic cycle-provenance reporting, and retains immutable
+finalized read slots while satisfying eager-edge obligations by exact proofs.
+
+The isolated integration candidate merges the preservation history with the
+latest diagnostic/cleanup consolidation baseline. Where the two histories
+changed `canonical_universe.rs` independently, the candidate retains the
+repair's availability-aware construction and restores the bootstrap execution
+order check with provenance-compatible regression fixtures. The old ad hoc
+cycle-detail and diagnostic-only differential helpers are superseded by the
+typed cycle path in `phalcom-modules`; their combined-family regression now
+lives in the modules linker suite. The independent list-pattern scratch
+layout correction is preserved.
+
+**Validation status: PENDING on the combined merge tree.** The repair branch
+walkthrough records focused green tests (linker 24/24, graph 5/5, semantic
+12/12, canonical bootstrap 1/1, native floor 1/1, object-model identity 1/1),
+but those tests were executed against `3d61f2b4`, not the integrated tree.
+The merge candidate adds bootstrap-order tests and a combined-producer cycle
+test, which also require running. No workspace/release certification is
+claimed. MODL001.C2.P4 remains IN_PROGRESS / PARTIAL.
+
+Required combined verification:
+
+```sh
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-modules --test linker
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-modules --test graph
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic integration::phase_evidence
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib finalized_bootstrap_order_ -- --nocapture
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib pattern_temp_depth_tests -- --nocapture
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_linking::mat_01_export_slots_populated -- --exact --nocapture
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core object_model_invariants::isa_is_reflexive_and_superclass_closed -- --exact --nocapture
+```
+
+Review the actual native-floor target/product proofs, reserved-slot negative
+cases, user-import read retention, source bootstrap order, and strict cycle
+rejection before marking this candidate merge-ready.

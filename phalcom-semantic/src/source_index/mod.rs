@@ -952,6 +952,11 @@ impl SourceSemanticIndex {
         self.module(module)
     }
 
+    /// Returns the deterministic source occurrences owned by one module.
+    pub fn module_occurrences(&self, module: &ModuleId) -> Option<&[SemanticOccurrence]> {
+        self.modules.get(module).map(|source| source.occurrences.all())
+    }
+
     /// Returns exact canonical target attached to one source site.
     pub fn target_for(&self, site: &SourceSiteId) -> Option<&SemanticTargetId> {
         let module = self.module_for_site(site)?;
