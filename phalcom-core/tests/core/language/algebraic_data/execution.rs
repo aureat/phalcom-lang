@@ -248,3 +248,21 @@ let union_payload = match union { some(item) => item _ => 0 }
         assert_eq!(vm.heap.module(main_mod).get(symbol), Some(expected), "{name}");
     }
 }
+
+#[test]
+fn contextual_enum_completion_mutable_while_let_executes() {
+    let src = r#"
+data Envelope<T> { some(_ value: T) none }
+let mut state: Envelope<Int> = some(9)
+let mut result: Int = 0
+while let some(value) = state {
+  result = result + value
+  state = none
+}
+let once = result
+let stopped: Envelope<Int> = state
+"#;
+    let (vm, module) = run_inline(src).expect("mutable contextual enum loop should compile and execute");
+    let result = vm.interner.find("once").expect("exported result");
+    assert_eq!(vm.heap.module(module).get(result), Some(Value::int(9)));
+}
