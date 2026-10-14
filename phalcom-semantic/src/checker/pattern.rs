@@ -505,25 +505,23 @@ fn try_resolve_contextual_singleton(
     // A union scrutinee has no single nominal origin. Keep each member's
     // declaration-backed type while looking up its variant; never construct an
     // owner from the contextual leaf spelling.
-    let owner_types = nominal_owner_types(ctx.store, subject.canonical);
+    let owners = super::contextual_variant::expected_owners(
+        ctx,
+        &super::expected::ExpectedType::proper(subject.canonical),
+    );
+    let (discovered, _) = super::contextual_variant::discover(ctx, &owners, |info| {
+        info.id.selector == target_selector && info.shape == VariantShape::Singleton
+    });
     let mut matches = Vec::new();
     let mut blocked = None;
     let mut blocked_owners = Vec::new();
-    for (owner, owner_ty) in owner_types {
-        let Some(enum_info) = enum_table.enums.get(&owner) else {
+    for candidate in discovered {
+        let owner = candidate.owner.owner;
+        let owner_ty = candidate.owner.owner_type;
+        let variant_id = candidate.variant;
+        let Some(variant_info) = enum_table.variants.get(&variant_id).cloned() else {
             continue;
         };
-        let Some(variant_id) = enum_info.variants.iter().find(|variant| variant.selector == target_selector) else {
-            continue;
-        };
-        let Some(variant_info) = enum_table.variants.get(variant_id).cloned() else {
-            continue;
-        };
-        if variant_info.shape != VariantShape::Singleton {
-            continue;
-        }
-
-        ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
         let owner_subject = contextual_owner_subject(ctx.store, subject, &owner, owner_ty);
         let opened = match crate::checker::coverage::open_variant_case(
             ctx.declarations,
@@ -643,31 +641,7 @@ fn local_nominal_owner(store: &crate::types::store::TypeStore, local: &LocalType
 
 /// Returns nominal owners and the corresponding expected type for each union
 /// member. The type is retained so GADT proof solving stays member-specific.
-pub(crate) fn nominal_owner_types(store: &crate::types::store::TypeStore, ty: TypeId) -> Vec<(DeclarationId, TypeId)> {
-    fn collect(store: &crate::types::store::TypeStore, ty: TypeId, seen: &mut BTreeSet<TypeId>, owners: &mut Vec<(DeclarationId, TypeId)>) {
-        if !seen.insert(ty) {
-            return;
-        }
-        match store.get(ty) {
-            TypeData::Union(members) => {
-                for member in members.iter().copied() {
-                    collect(store, member, seen, owners);
-                }
-            }
-            _ => {
-                if let Some(owner) = store.nominal_origin_declaration(ty).cloned() {
-                    if !owners.iter().any(|(known, known_ty)| known == &owner && known_ty == &ty) {
-                        owners.push((owner, ty));
-                    }
-                }
-            }
-        }
-    }
-
-    let mut owners = Vec::new();
-    collect(store, ty, &mut BTreeSet::new(), &mut owners);
-    owners
-}
+pub(crate) use super::contextual_variant::nominal_owner_types;
 
 pub(crate) fn pattern_is_variant_of_scrutinee_family(
     store: &crate::types::store::TypeStore,
@@ -787,23 +761,17 @@ fn resolve_variant_pattern(
         }
         decl
     } else if let Some(decl) = {
-        let table = ctx.enum_table;
-        let mut candidates = BTreeSet::new();
-        for (owner, owner_type) in &expected_owners {
-            let Some((table, info)) = table.and_then(|table| table.enums.get(owner).map(|info| (table, info))) else {
-                continue;
-            };
-            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
-            if info.variants.iter().any(|variant| {
-                table
-                    .variants
-                    .get(variant)
-                    .is_some_and(|info| matches_variant_info(info, &variant_pat.base, &constraint, variant_pat))
-                    && !super::associated::contextual_variant_is_refuted(ctx, variant, *owner_type)
-            }) {
-                candidates.insert(owner.clone());
-            }
-        }
+        let owners = super::contextual_variant::expected_owners(
+            ctx,
+            &super::expected::ExpectedType::proper(subject.canonical),
+        );
+        let (discovered, _) = super::contextual_variant::discover(ctx, &owners, |info| {
+            matches_variant_info(info, &variant_pat.base, &constraint, variant_pat)
+        });
+        let candidates = discovered
+            .into_iter()
+            .map(|candidate| candidate.owner.owner)
+            .collect::<BTreeSet<_>>();
         if candidates.len() > 1 {
             ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
                 ctx.current_module.clone(),

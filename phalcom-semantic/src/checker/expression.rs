@@ -2638,6 +2638,11 @@ fn synthesize_associated_invoke_with_receiver(
             let Some(variant_info) = ctx.variant_info(variant).cloned() else {
                 return TypedExpression::unknown(UnknownReason::UncheckedExpression);
             };
+            if super::associated::authorize_variant_construction(ctx, &variant_info, invoke.range)
+                .is_err()
+            {
+                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+            }
             let Some(constructor) = variant_info.constructor else {
                 return TypedExpression::unknown(UnknownReason::UncheckedExpression);
             };
@@ -4535,79 +4540,98 @@ fn synthesize_contextual_variant(
     expected: &ExpectedType,
     range: SourceRange,
 ) -> Option<TypedExpression> {
-    use super::inference::InferenceTerm;
-    use crate::types::store::TypeStore;
-
-    let table = ctx.enum_table?;
-    let materialized_expected = expected.ty().or_else(|| {
-        if let ExpectedType::Inference { context, term, .. } = expected {
-            let session = ctx.inference_session(*context)?;
-            session.borrow().materialize(term, ctx.store).ok()
-        } else {
-            None
-        }
+    let mut owners = super::contextual_variant::expected_owners(ctx, expected);
+    owners.retain(|owner| {
+        ctx.enum_table
+            .is_some_and(|table| table.enums.contains_key(&owner.owner))
     });
-    // An applied inference shell independently identifies its declaration even
-    // before its arguments solve. Keep the original expectation for ordinary
-    // constructor application; do not publish solver terms as canonical types.
-    fn symbolic_owners(store: &TypeStore, term: &InferenceTerm) -> Vec<(DeclarationId, TypeId)> {
-        match term {
-            InferenceTerm::Canonical(ty) => super::pattern::nominal_owner_types(store, *ty),
-            InferenceTerm::Applied { origin, .. } => match origin.as_ref() {
-                InferenceTerm::Canonical(ty) => super::pattern::nominal_owner_types(store, *ty),
-                _ => Vec::new(),
-            },
-            InferenceTerm::ExactCase { enum_type, .. } => symbolic_owners(store, enum_type),
-            InferenceTerm::Union(members) => members.iter().flat_map(|member| symbolic_owners(store, member)).collect(),
-            _ => Vec::new(),
-        }
-    }
-    let owners = if let Some(expected_ty) = materialized_expected {
-        super::pattern::nominal_owner_types(ctx.store, expected_ty)
-    } else if let ExpectedType::Inference { term, .. } = expected {
-        symbolic_owners(ctx.store, term)
-    } else {
-        Vec::new()
-    };
-    let owners = owners.into_iter().filter(|(owner, _)| table.enums.contains_key(owner)).collect::<Vec<_>>();
     if owners.is_empty() {
         return None;
     }
-    for (owner, _) in &owners {
-        ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
-    }
-    let mut candidates = Vec::new();
-    let mut refuted = false;
-    for (owner, owner_type) in &owners {
-        let Some(variant) = table
-            .enums
-            .get(owner)
-            .and_then(|info| info.variants.iter().find(|variant| variant.selector == *selector))
-        else {
-            continue;
-        };
-        if super::associated::contextual_variant_is_refuted(ctx, variant, *owner_type) {
-            refuted = true;
-            continue;
-        }
-        candidates.push((owner.clone(), *owner_type));
+    let (mut candidates, refuted) =
+        super::contextual_variant::discover(ctx, &owners, |info| info.id.selector == *selector);
+    let discovered = candidates.len();
+    if candidates.len() > 1 {
+        candidates.retain(|candidate| {
+            let contradicted = ctx.run_candidate_probe(|probe| {
+                let inherited = probe
+                    .expressions
+                    .keys()
+                    .copied()
+                    .collect::<std::collections::BTreeSet<_>>();
+                let result = apply_contextual_variant(
+                    probe,
+                    name,
+                    args,
+                    &candidate.owner.expected,
+                    candidate.owner.owner_type,
+                    range,
+                );
+                // Only an established contradiction eliminates an interpretation.
+                // Failed/blocked analysis is not negative evidence.
+                let unresolved = |status: &AnalysisStatus| {
+                    matches!(
+                        status,
+                        AnalysisStatus::Blocked(_)
+                            | AnalysisStatus::Suppressed(_)
+                            | AnalysisStatus::DynamicBoundary(_)
+                            | AnalysisStatus::Cancelled
+                            | AnalysisStatus::BudgetExceeded(_)
+                            | AnalysisStatus::InternalFailure(_)
+                    )
+                };
+                let blocked = probe.terminal_status.is_some()
+                    || unresolved(&result.status)
+                    || probe.expressions.iter().any(|(id, expression)| {
+                        !inherited.contains(id) && unresolved(&expression.status)
+                    })
+                    || probe.diagnostics.iter().any(|diagnostic| {
+                        matches!(
+                            diagnostic.code,
+                            DiagnosticCode::AnalysisBlocked
+                                | DiagnosticCode::AnalysisBudgetExceeded
+                                | DiagnosticCode::AnalysisInternalFailure
+                        )
+                    });
+                let contradiction = probe.diagnostics.iter().any(|diagnostic| {
+                    matches!(
+                        diagnostic.code,
+                        DiagnosticCode::ArgumentMismatch
+                            | DiagnosticCode::TypeMismatch
+                            | DiagnosticCode::GenericInferenceConflict
+                            | DiagnosticCode::GenericConstraintUnsatisfied
+                            | DiagnosticCode::AssociatedGenericOwnerConflict
+                            | DiagnosticCode::AssociatedGadtOwnerConflict
+                            | DiagnosticCode::AssociatedFamilyInaccessible
+                            | DiagnosticCode::AssociatedMemberInaccessible
+                            | DiagnosticCode::MemberInaccessible
+                    )
+                });
+                !blocked && contradiction
+            });
+            !contradicted
+        });
     }
     if candidates.is_empty() {
         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
-            if refuted {
+            if discovered > 0 {
+                DiagnosticCode::ArgumentMismatch
+            } else if refuted {
                 DiagnosticCode::AssociatedGadtOwnerConflict
             } else if args.is_some() {
                 DiagnosticCode::AssociatedCallShapeMissing
             } else {
                 DiagnosticCode::AssociatedMemberMissing
             },
-            if refuted {
+            if discovered > 0 {
+                format!("no contextual specialization of `{selector}` accepts these arguments; qualify the intended owner to inspect its requirements")
+            } else if refuted {
                 format!("variant `{selector}` cannot inhabit the expected owner specialization; its case constraints conflict")
             } else {
                 format!(
                     "no variant matching `{selector}` in expected owner(s) {}; check the case name, arguments and labels",
-                    owners.iter().map(|(owner, _)| owner.name.to_string()).collect::<Vec<_>>().join(", ")
+                    owners.iter().map(|owner| owner.owner.name.to_string()).collect::<Vec<_>>().join(", ")
                 )
             },
             range,
@@ -4622,7 +4646,7 @@ fn synthesize_contextual_variant(
                 "contextual variant `{name}` is ambiguous between {}; qualify the variant with its owner",
                 candidates
                     .iter()
-                    .map(|(owner, _)| format!("{}::{name}", owner.name))
+                    .map(|candidate| format!("{}::{name}", ctx.store.format_type(candidate.owner.owner_type)))
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
@@ -4630,16 +4654,40 @@ fn synthesize_contextual_variant(
         ));
         return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
     }
-    let (owner, owner_type) = candidates.into_iter().next()?;
-    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
-    let descriptor = type_form_descriptor_type(ctx, owner_type)?;
+    let candidate = candidates.into_iter().next()?;
+    debug_assert_eq!(candidate.variant.selector, *selector);
+    Some(apply_contextual_variant(
+        ctx,
+        name,
+        args,
+        &candidate.owner.expected,
+        candidate.owner.owner_type,
+        range,
+    ))
+}
+
+fn apply_contextual_variant(
+    ctx: &mut CheckingContext<'_>,
+    name: &str,
+    args: Option<&Vec<PackItem>>,
+    expected: &ExpectedType,
+    owner_type: TypeId,
+    range: SourceRange,
+) -> TypedExpression {
+    let Some(descriptor) = type_form_descriptor_type(ctx, owner_type) else {
+        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+    };
     let receiver =
         TypedExpression::established(descriptor, EvidenceOrigin::DeclarationSemantics, range).with_denotation(SemanticDenotation::TypeForm(owner_type));
     let syntax_receiver = Expr::Var {
-        value: owner.name.to_string(),
+        value: ctx
+            .store
+            .nominal_origin_declaration(owner_type)
+            .map(|owner| owner.name.to_string())
+            .unwrap_or_default(),
         range,
     };
-    Some(if let Some(args) = args {
+    if let Some(args) = args {
         let invoke = AssociatedInvokeExpr {
             receiver: syntax_receiver,
             first_separator_range: range,
@@ -4662,7 +4710,7 @@ fn synthesize_contextual_variant(
             range,
         };
         synthesize_associated_lookup_with_receiver(ctx, &lookup, expected, receiver)
-    })
+    }
 }
 
 fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &UnqualifiedCallExpr, expected: &ExpectedType) -> TypedExpression {

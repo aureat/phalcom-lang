@@ -5471,6 +5471,20 @@ pub(crate) struct InferenceCoordinator {
 }
 
 impl InferenceCoordinator {
+    /// Forks solver state for speculative checking, preserving local identities
+    /// while detaching type and row constraints from the live session.
+    pub(crate) fn fork(&self) -> Self {
+        let rows = Rc::new(RefCell::new(self.rows.borrow().clone()));
+        let mut types = self.types.clone();
+        types.row_solver = Rc::downgrade(&rows);
+        Self {
+            types,
+            rows,
+            row_variable_frames: self.row_variable_frames.clone(),
+            row_parameter_bindings: self.row_parameter_bindings.clone(),
+        }
+    }
+
     pub(crate) fn new() -> Self {
         let rows = Rc::new(RefCell::new(RecordRowSolver::new()));
         let types = InferenceSession {
@@ -6229,6 +6243,55 @@ mod coordinated_row_completion_tests {
 
     fn nominal(store: &mut TypeStore, name: &str) -> TypeId {
         store.nominal(DeclarationId::new(ModuleId::universe_root(), name.into()))
+    }
+
+    #[test]
+    fn candidate_fork_detaches_inherited_type_and_row_constraints() {
+        let mut live = InferenceCoordinator::new();
+        let frame = live.root_frame();
+        let variable = live.fresh_variable_in_frame(frame, KindId::TYPE);
+        let row_variable = live.fresh_record_row_variable_in_frame(frame);
+        let mut store = TypeStore::new();
+        let int = nominal(&mut store, "Int");
+        let string = nominal(&mut store, "String");
+        let mut rejected = live.fork();
+        rejected.bind(variable, string, &store).unwrap();
+        solve_shape_equations(
+            &mut rejected,
+            &[(
+                RecordRowTerm::new(Vec::new(), RecordRowTermTail::Var(row_variable)).unwrap(),
+                row(vec![("payload", string)], RecordRowTermTail::Closed),
+            )],
+        );
+        assert_eq!(
+            rejected.term_for_expected(&InferenceTerm::Var(variable)),
+            InferenceTerm::Canonical(string)
+        );
+        assert_eq!(
+            live.term_for_expected(&InferenceTerm::Var(variable)),
+            InferenceTerm::Var(variable)
+        );
+        assert!(!std::rc::Rc::ptr_eq(&live.rows, &rejected.rows));
+        assert!(std::rc::Rc::ptr_eq(
+            &rejected.types.row_solver.upgrade().unwrap(),
+            &rejected.rows
+        ));
+        live.bind(variable, int, &store).unwrap();
+        solve_shape_equations(
+            &mut live,
+            &[(
+                RecordRowTerm::new(Vec::new(), RecordRowTermTail::Var(row_variable)).unwrap(),
+                row(vec![("payload", int)], RecordRowTermTail::Closed),
+            )],
+        );
+        assert_eq!(
+            live.term_for_expected(&InferenceTerm::Var(variable)),
+            InferenceTerm::Canonical(int)
+        );
+        assert_ne!(
+            solved_row_for(&live, frame, row_variable),
+            solved_row_for(&rejected, frame, row_variable)
+        );
     }
 
     fn symbol(name: &str) -> FieldKey {

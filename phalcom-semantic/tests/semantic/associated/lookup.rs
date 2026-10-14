@@ -571,6 +571,269 @@ class Probe {
 }
 
 #[test]
+fn contextual_enum_expression_candidates_check_specialized_payloads() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Boxed<T> { some(_ value: T) none }
+data Text { some(_ value: String) }
+data Restricted<T> { take(_ value: Bool) -> Restricted<Bool> other }
+class Probe {
+  @class
+  forward() -> Boxed<Int> | Boxed<String> { some(1) }
+  @class
+  reverse() -> Boxed<String> | Boxed<Int> { some(1) }
+  @class
+  distinct() -> Text | Boxed<Int> { some(1) }
+  @class
+  gadt() -> Restricted<Int> | Restricted<Bool> { take(true) }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+    let probe = DeclarationId::new(case.module.clone(), "Probe".into());
+    for name in ["forward", "reverse", "distinct", "gadt"] {
+        let body = &case.analysis.snapshot.callable_analyses[&CallableId::new(
+            probe.clone(),
+            Selector::method(name, []).unwrap(),
+            DispatchSide::Class,
+        )];
+        assert_eq!(
+            body.associated_resolutions
+                .values()
+                .filter(|resolution| matches!(
+                    resolution.kind,
+                    AssociatedResolutionKind::StaticInvoke { .. }
+                ))
+                .count(),
+            1,
+            "only the selected constructor may publish: {name}"
+        );
+    }
+}
+
+#[test]
+fn contextual_enum_repeated_specialization_singleton_remains_ambiguous() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Boxed<T> { some(_ value: T) none }
+class Probe {
+  @class
+  run() -> Boxed<Int> | Boxed<String> { none }
+}
+"#,
+    );
+    let diagnostics = case
+        .analysis
+        .snapshot
+        .diagnostics
+        .values()
+        .flat_map(|items| items.iter())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedCallAmbiguous)
+            .count(),
+        1
+    );
+    let message = &diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedCallAmbiguous)
+        .unwrap()
+        .message;
+    assert!(
+        message.contains("Boxed<Int>") && message.contains("Boxed<String>"),
+        "specializations must be visible: {message}"
+    );
+}
+
+#[test]
+fn contextual_enum_candidate_probes_preserve_nested_payloads_and_flow() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Boxed<T> { some(_ value: T) none }
+class Probe {
+  @class
+  nested() -> Boxed<Boxed<Int>> | Boxed<Boxed<String>> { some(some(1)) }
+  @class
+  mutable() -> Boxed<Int> | Boxed<String> {
+    let mut value: Boxed<Int> | Boxed<String> = some(0)
+    value = some(1)
+    value
+  }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+}
+
+#[test]
+fn contextual_enum_unknown_payload_does_not_refute_an_alternative() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Boxed<T> { some(_ value: T) none }
+class Probe {
+  @class
+  run() -> Boxed<Int> | Boxed<String> { some(missing) }
+}
+"#,
+    );
+    let diagnostics = case
+        .analysis
+        .snapshot
+        .diagnostics
+        .values()
+        .flat_map(|items| items.iter())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedCallAmbiguous)
+            .count(),
+        1,
+        "unknown arguments must not select a specialization: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn contextual_enum_symbolic_candidate_keeps_its_inference_context() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Boxed<T> { some(_ value: T) none }
+data Text { some(_ value: String) }
+class Probe {
+  @class
+  run() -> Boxed<Int> {
+    let value: Boxed<_> | Text = some(1)
+    match value { Boxed::some(item) => Boxed<Int>::some(item) }
+  }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+    let callable = CallableId::new(
+        DeclarationId::new(case.module.clone(), "Probe".into()),
+        Selector::method("run", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let body = &case.analysis.snapshot.callable_analyses[&callable];
+    let item = body
+        .bindings
+        .values()
+        .find(|binding| binding.name == "item")
+        .unwrap();
+    assert_eq!(
+        case.analysis
+            .snapshot
+            .store
+            .format_type(item.current.ty().unwrap()),
+        "Int"
+    );
+    let construction = body
+        .expressions
+        .values()
+        .find(|expression| {
+            case.source
+                .get(expression.range.start..expression.range.end)
+                == Some("some(1)")
+        })
+        .unwrap();
+    assert!(matches!(
+        body.associated_resolutions[&construction.id].kind,
+        AssociatedResolutionKind::StaticInvoke { .. }
+    ));
+}
+
+#[test]
+fn contextual_enum_all_payload_candidates_refuted_report_argument_mismatch() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Text { make(_ value: String) }
+data Boolean { make(_ value: Bool) }
+class Probe { @class run() -> Text | Boolean { make(1) } }
+"#,
+    );
+    let diagnostics = case
+        .analysis
+        .snapshot
+        .diagnostics
+        .values()
+        .flat_map(|items| items.iter())
+        .collect::<Vec<_>>();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::ArgumentMismatch),
+        "{diagnostics:?}"
+    );
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedGadtOwnerConflict),
+        "payload mismatch must not be mislabeled as GADT conflict: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn contextual_enum_symbolic_union_rejects_nonproper_members() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Boxed<T> { some(_ value: T) none }
+class Probe { @class run() { let value: Boxed<_> | Boxed = some(1) } }
+"#,
+    );
+    assert!(
+        case.diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnsaturatedConstructor),
+        "a union member must be a proper type: {:?}",
+        case.diagnostics().collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn contextual_enum_candidates_respect_private_construction() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Secret { @private make(_ value: Int) @private none }
+data Public { make(_ value: Int) none }
+impl Secret { @class factory() -> Secret { make(1) } }
+class Probe {
+  @class
+  constructor() -> Secret | Public { make(1) }
+  @class
+  singleton() -> Secret | Public { none }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+}
+
+#[test]
+fn contextual_enum_private_variants_reject_qualified_acquisition() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Secret { @private make(_ value: Int) @private none }
+class Probe {
+  @class
+  constructor() { Secret::make(1) }
+  @class
+  singleton() { Secret::none }
+  @class
+  reference() { &Secret::make(_) }
+}
+"#,
+    );
+    assert_eq!(
+        case.diagnostics()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedMemberInaccessible)
+            .count(),
+        3,
+        "all acquisition paths must enforce access: {:?}",
+        case.diagnostics().collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn contextual_enum_canonical_contexts_preserve_qualified_identity() {
     let source = r#"
 data Boxed<T> { some(_ value: T) none }

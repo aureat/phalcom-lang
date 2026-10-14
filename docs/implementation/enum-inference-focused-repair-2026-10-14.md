@@ -1,10 +1,15 @@
 # Contextual enum inference focused repair
 
 Date: 2026-10-14. Branch: `feat/integration-universe`.
-Starting HEAD: `52838aa5`; HEAD at handoff: `41181e0b` (advanced concurrently).
-All task edits remain uncommitted. No commit or push performed by this agent.
+Original starting HEAD: `52838aa5`. Earlier repairs were delivered in
+`c3119df5` and `9b283a03`; historical results below describe their tested
+working-tree states. Audit follow-up starts at `9b283a03`.
 
-## Stop and role transition
+Current completion: **PARTIAL** for full enum-inference requirements.
+Canonical expression candidate selection is implemented and focused-tested; linked execution
+remains **BLOCKED / UNVERIFIED**. Broad validation has not been run.
+
+## Historical stop and role transition
 
 The user requested: finish diagnosing the small linker reproducer, record the
 result and a clear handoff, then stop; future work is delegated to another
@@ -90,13 +95,14 @@ Evidence:
 - Speculative overload isolation, complete visibility/GADT/local-proof candidate
   selection, generic mutable/projection-flow preservation, and incremental
   invalidation certification are not complete.
-- No broad workspace/release gates, Universe de-qualification, required
-  declaration-pattern semantics, commits, or pushes.
+- No broad workspace/release gates, Universe de-qualification or required
+  declaration-pattern semantics were completed. The earlier source work was
+  subsequently committed in `c3119df5` and `9b283a03`.
 
 ## Continuation results (2026-10-14, later session)
 
-Starting state: predecessor work had been committed by the user as
-`c3119df5`; this session's edits remain unstaged on top of it.
+Historical continuation started at `c3119df5`; its repeated-owner pattern
+repair was subsequently committed as `9b283a03`.
 
 ### Final contextual expression discriminators
 
@@ -183,11 +189,110 @@ Post-recovery: `contextual_enum` filter re-run, **12 passed**.
 
 ### Updated completion state
 
-Completion: semantic surface **COMPLETE**, linked executable **BLOCKED
-(baseline Universe bootstrap failure, classified D)**. Verification:
-**FOCUSED_TESTED** (semantic + linker). Linked execution remains
-**UNVERIFIED**, now with a named baseline blocker for the next authorized
-work unit.
+Corrected completion: contextual enum core **SUBSTANTIALLY IMPLEMENTED**;
+repeated-owner pattern correctness **IMPLEMENTED**; full semantic requirements
+**PARTIAL**. Historical focused semantic/linker evidence is retained above.
+Linked execution is **BLOCKED / UNVERIFIED** by the named Universe bootstrap
+failure. These results do not constitute current-HEAD or release certification.
 
 See [the continuation handoff](enum-inference-focused-repair-2026-10-14-handoff.md)
 for exact file ownership and the bounded next action.
+
+## Audit follow-up: candidate isolation clarification
+
+Starting revision: `9b283a03`, clean `feat/integration-universe`. Full
+requirements remain PARTIAL; this audit follow-up is the active work unit.
+
+INC-ENUM-001 (Level 1 clarification): flow probes share inference coordinators
+and propagate rigids. Adviser ruling: implementation bug only; resume with
+a complete-context candidate probe. Fork type and row solvers together, rewire
+row weak references, retain specialization-specific expectations and local IDs,
+discard flow/diagnostics/publication/rigids and replay the unique winner. Retain
+dependency reads from all candidates and share budgets/cancellation. Only proven
+payload/constraint/access contradictions refute; blocked/unknown alternatives
+prevent unique selection. Distinct singleton specializations remain ambiguous.
+
+INC-ENUM-002 — symbolic union annotations: hole detection recognized unions,
+but annotation elaboration handled only applications and silently returned an
+empty error for `Boxed<_> | Text`. Snapshot evidence: initializer unresolved,
+binding had no contract, payload projected as unspecialized `T`. Adviser approved
+recursively elaborating union members using the existing context/frame/hole list
+and canonical proper-type checking for hole-free members. No pattern or flow
+workaround; no representation redesign. Regression oracle remains unchanged.
+
+INC-ENUM-003 — construction access: variant analysis publishes
+`visibility.construct`, but associated variant specialization/invocation did
+not enforce it. Adviser approved using the existing declaration access relation
+at these canonical acquisition paths, including constructor references and
+singletons. Pattern and payload visibility remain independent.
+
+The symbolic-union fixture's wildcard became unreachable after correction;
+adviser approved removing that arm while strengthening the payload-Int and
+declaration-backed constructor assertions. The original generic-conflict
+oracle was preserved.
+
+## Audit-follow-up delivery and verification
+
+The corrective slice is **IMPLEMENTED / FOCUSED_TESTED** on
+`feat/integration-universe`, based on `9b283a03`. Changes are not yet committed
+or pushed. Full enum-inference requirements remain **PARTIAL**, not COMPLETE.
+
+Implemented:
+
+- Shared contextual owner/case discovery retains canonical specializations,
+  symbolic branch expectations, context IDs, and exact declaration-backed cases.
+  Pattern singleton/constructor paths consume the same discovery service and
+  retain their existing local field-opening/coverage authority.
+- Expression candidates undergo isolated specialization-specific application
+  before ambiguity. A unique survivor is checked live; losing diagnostics,
+  flow, rigid and publication state are discarded. Dependency reads survive.
+  Repeated-owner ambiguity displays specialization types.
+- Symbolic union annotations preserve their inference context and hole list;
+  invalid nonproper union members retain canonical annotation diagnostics.
+- Variant construction visibility is enforced through existing associated
+  specialization/invocation paths, including singleton and constructor-reference
+  acquisition. Owner-context access remains allowed; patterns remain independent.
+
+Completed working-tree checks (serial Cargo validation):
+
+| Gate | Result |
+| --- | --- |
+| `phalcom-semantic --test semantic contextual_enum` | **22 passed** |
+| `phalcom-semantic --test semantic associated::lookup` | **25 passed** |
+| `phalcom-semantic --test semantic adts::matching` | **163 passed, 16 existing ignored** |
+| `phalcom-semantic --lib candidate_fork_detaches_inherited_type_and_row_constraints` | **1 passed** |
+| `phalcom-modules --test linker` | **19 passed** |
+| `git diff --check` | **passed** |
+
+The matching suite ran after the shared-discovery migration, before the later
+union annotation and expression construction-access corrections. The final
+contextual suite includes pattern, symbolic, visibility and incremental cases.
+The fork test predates only formatting and the independent annotation/access
+corrections. Associated lookup ran after all behavioral corrections.
+
+The core executable discriminator compiled and ran, but failed before fixture
+execution in canonical Universe bootstrap: `universe:callable.function` has
+no finalized executable runtime read for `Error` (91.51 seconds). This reproduces
+the previously recorded blocker. No runtime DAG/read invariant was weakened and
+no module-system repair was attempted. Execution remains **BLOCKED / UNVERIFIED**.
+
+Deliberately deferred: broad workspace/release gates, generalized overload
+candidate expectation contracts, complete local-rigid/projection viability,
+generic mutable/projection-flow companion work and comprehensive incremental
+certification. One rejected-owner edit is now certified against cold analysis;
+that does not establish all incremental contracts. No required `let` variant
+destructuring or Universe de-qualification was introduced.
+
+An external process reverted several task edits during execution. At the user's
+explicit instruction, those task-owned edits were restored and validation resumed.
+An unrelated concurrent `packages/universe/src/object/object.ph` edit was left
+untouched and is outside this work unit.
+
+Next action: review/deliver this bounded correction; full semantic closure
+requires bounded companion acceptance plans for the residual surfaces above,
+and executable closure requires the separate Universe runtime-read repair.
+
+Final independent source review: no actionable important correctness findings.
+Review covered solver/row detachment, dependency retention, winner replay,
+shared discovery, symbolic union handling and construction access. It did not
+run additional tests and does not certify the broader residual requirements.

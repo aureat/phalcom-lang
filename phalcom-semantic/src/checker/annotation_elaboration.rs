@@ -145,6 +145,19 @@ fn elaborate_annotation_inner(
     holes: &mut Vec<InferenceHoleOrigin>,
 ) -> Result<InferenceTerm, Vec<SemanticDiagnostic>> {
     match &annotation.expr {
+        TypeAnnotationExpr::Union { members, .. } => {
+            let mut terms = Vec::with_capacity(members.len());
+            for member in members {
+                let term = if annotation_contains_inference_hole(member) {
+                    elaborate_annotation_inner(ctx, resolver, member, context, frame, holes)?
+                } else {
+                    let (knowledge, _) = ctx.resolve_type_annotation(resolver, member);
+                    InferenceTerm::Canonical(knowledge.ty().ok_or_else(Vec::new)?)
+                };
+                terms.push(term);
+            }
+            Ok(InferenceTerm::Union(terms.into_boxed_slice()))
+        }
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
             let origin_term = if annotation_contains_inference_hole(origin) {
                 elaborate_annotation_inner(ctx, resolver, origin, context, frame, holes)?
