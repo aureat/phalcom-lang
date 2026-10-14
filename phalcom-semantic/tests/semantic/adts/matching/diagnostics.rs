@@ -308,16 +308,13 @@ fn match_diag_12_impossible_gadt_pattern_explains_contradiction_code() {
 
 #[test]
 fn match_diag_13_redundant_arm_has_structured_primary_range() {
-    let case = super::super::support::analyze_adt(
-        "data Choice { A B }\nclass Test { run(_ value: Choice) { match value { _ => 1 Choice::A => 2 } } }\n",
-    );
+    let case = super::super::support::analyze_adt("data Choice { A B }\nclass Test { run(_ value: Choice) { match value { _ => 1 Choice::A => 2 } } }\n");
     assert_eq!(case.diagnostics_for(DiagnosticCode::MatchArmRedundant).len(), 1);
 }
 
 #[test]
 fn match_diag_14_non_exhaustive_has_witness_and_machine_code() {
-    let case =
-        super::super::support::analyze_adt("data Choice { A B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 } } }\n");
+    let case = super::super::support::analyze_adt("data Choice { A B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 } } }\n");
     case.assert_diagnostic_primary_contains(DiagnosticCode::MatchNonExhaustive, "match");
     assert!(matches!(
         case.only_match().resolution().exhaustiveness,
@@ -333,9 +330,7 @@ fn match_diag_15_blocked_analysis_is_not_reported_as_non_exhaustive_proof() {
 
 #[test]
 fn review_m4_01_missing_singleton_presentation_keeps_machine_code_and_source_range() {
-    let case = super::super::support::analyze_adt(
-        "data Maybe { Some None }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 1 } } }\n",
-    );
+    let case = super::super::support::analyze_adt("data Maybe { Some None }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 1 } } }\n");
     let diagnostic = case.diagnostic(DiagnosticCode::MatchNonExhaustive);
     let presented = phalcom_semantic::DiagnosticPresenter::new(&case.analysis.snapshot).present(diagnostic, phalcom_semantic::DiagnosticDetail::Explain);
     assert_eq!(presented.code, DiagnosticCode::MatchNonExhaustive);
@@ -344,9 +339,8 @@ fn review_m4_01_missing_singleton_presentation_keeps_machine_code_and_source_ran
 
 #[test]
 fn review_m4_02_missing_payload_presentation_has_structured_witness() {
-    let case = super::super::support::analyze_adt(
-        "data Maybe { Some(_ value: Int) None }\nclass Test { run(_ value: Maybe) { match value { Maybe::None => 0 } } }\n",
-    );
+    let case =
+        super::super::support::analyze_adt("data Maybe { Some(_ value: Int) None }\nclass Test { run(_ value: Maybe) { match value { Maybe::None => 0 } } }\n");
     let handle = case.only_match();
     let phalcom_semantic::match_semantics::ExhaustivenessResult::Missing(witnesses) = &handle.resolution().exhaustiveness else {
         panic!("expected witness")
@@ -370,9 +364,7 @@ fn review_m4_03_missing_labeled_payload_presentation_uses_external_label() {
 
 #[test]
 fn review_m4_04_missing_singleton_and_nullary_render_differently() {
-    let case = super::super::support::analyze_adt(
-        "data Maybe { Some Some() }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 0 } } }\n",
-    );
+    let case = super::super::support::analyze_adt("data Maybe { Some Some() }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 0 } } }\n");
     let diagnostic = case.diagnostic(DiagnosticCode::MatchNonExhaustive);
     let presented = phalcom_semantic::DiagnosticPresenter::new(&case.analysis.snapshot).present(diagnostic, phalcom_semantic::DiagnosticDetail::Explain);
     assert_eq!(presented.code, DiagnosticCode::MatchNonExhaustive);
@@ -380,9 +372,7 @@ fn review_m4_04_missing_singleton_and_nullary_render_differently() {
 
 #[test]
 fn review_m4_05_diagnostic_presentation_has_no_debug_format_leakage() {
-    let case = super::super::support::analyze_adt(
-        "data Maybe { Some None }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 1 } } }\n",
-    );
+    let case = super::super::support::analyze_adt("data Maybe { Some None }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 1 } } }\n");
     let diagnostic = case.diagnostic(DiagnosticCode::MatchNonExhaustive);
     let presented = phalcom_semantic::DiagnosticPresenter::new(&case.analysis.snapshot).present(diagnostic, phalcom_semantic::DiagnosticDetail::Explain);
     let text = format!("{} {:?} {:?}", presented.headline, presented.explanation, presented.guidance);

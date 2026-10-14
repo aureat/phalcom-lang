@@ -1167,8 +1167,7 @@ pub(crate) fn project_inferred_trait_default_signature(
                 ))
             }
         },
-        crate::generic_evidence::GenericConformanceEvidence::Assumed(_)
-        | crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(_) => None,
+        crate::generic_evidence::GenericConformanceEvidence::Assumed(_) | crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(_) => None,
     }
 }
 
@@ -2401,9 +2400,7 @@ fn normalize_exact_contract_term(
         return Ok(term);
     };
     match crate::types::normalize_type(store, ty, normalization) {
-        crate::types::ProjectionNormalizationResult::Normalized(ty) | crate::types::ProjectionNormalizationResult::Symbolic(ty) => {
-            Ok(TypeTerm::Canonical(ty))
-        }
+        crate::types::ProjectionNormalizationResult::Normalized(ty) | crate::types::ProjectionNormalizationResult::Symbolic(ty) => Ok(TypeTerm::Canonical(ty)),
         other => Err(other),
     }
 }
@@ -3450,7 +3447,10 @@ pub fn resolve_conformance_head(
         diagnostics.push(SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
             DiagnosticCode::ConformanceCompilerDerivedTrait,
-            format!("`{}` is a compiler-derived structural capability and cannot be implemented explicitly", trait_declaration.name),
+            format!(
+                "`{}` is a compiler-derived structural capability and cannot be implemented explicitly",
+                trait_declaration.name
+            ),
             trait_syntax.range,
         ));
         return Err(diagnostics);
@@ -5861,13 +5861,9 @@ fn abi_erased_native_anchor_error(
         && callable.params.positional.iter().all(object_type)
         && callable.params.labeled.iter().all(|parameter| object_type(parameter.ty));
     let source_slots_are_typed = signature.parameters.iter().all(|parameter| {
-        parameter.rest == phalcom_ast::ast::RestMode::None
-            && parameter.declared_type.canonical_type().is_some_and(|ty| store.kind_of(ty) == KindId::TYPE)
+        parameter.rest == phalcom_ast::ast::RestMode::None && parameter.declared_type.canonical_type().is_some_and(|ty| store.kind_of(ty) == KindId::TYPE)
     });
-    let source_return_is_typed = signature
-        .declared_return
-        .canonical_type()
-        .is_some_and(|ty| store.kind_of(ty) == KindId::TYPE);
+    let source_return_is_typed = signature.declared_return.canonical_type().is_some_and(|ty| store.kind_of(ty) == KindId::TYPE);
     let record_owner = universe_declaration(record.owner());
     let record_side = match record.side() {
         phalcom_native_meta::NativeDispatch::Instance => DispatchSide::Instance,
@@ -6113,7 +6109,11 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
                             phalcom_native_meta::NativeDispatch::Class => side == DispatchSide::Class,
                         }
                 })
-                .filter_map(|record| phalcom_common::selector::Selector::try_decode_exact(record.selector()).ok().map(|selector| (record, selector)))
+                .filter_map(|record| {
+                    phalcom_common::selector::Selector::try_decode_exact(record.selector())
+                        .ok()
+                        .map(|selector| (record, selector))
+                })
                 .collect::<Vec<_>>();
             let base_candidates = source_callable.as_ref().map_or_else(Vec::new, |source_callable| {
                 candidates
@@ -6126,7 +6126,9 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
             } else if base_candidates.len() == 1 && source_callable.as_ref().is_some_and(|callable| base_candidates[0].1 == callable.selector) {
                 Some(base_candidates[0].0)
             } else {
-                let selector_text = source_callable.as_ref().map_or_else(|| "<invalid selector>".to_string(), |callable| callable.selector.encode());
+                let selector_text = source_callable
+                    .as_ref()
+                    .map_or_else(|| "<invalid selector>".to_string(), |callable| callable.selector.encode());
                 diagnostics.push(SemanticDiagnostic::error_in(
                     ctx.current_module.clone(),
                     DiagnosticCode::NativeSignatureMismatch,
@@ -6205,13 +6207,13 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
         };
 
         let diagnostic_start = ctx.diagnostics.len();
-        let projected_resolver = projected_record_keys.get(&source_member_idx).map(|projections| crate::types::annotation::ProjectedRecordKeyResolver {
-            parent: &impl_resolver,
-            projections,
-        });
-        let signature_resolver: &dyn TypeResolver = projected_resolver
-            .as_ref()
-            .map_or(&impl_resolver, |resolver| resolver as &dyn TypeResolver);
+        let projected_resolver = projected_record_keys
+            .get(&source_member_idx)
+            .map(|projections| crate::types::annotation::ProjectedRecordKeyResolver {
+                parent: &impl_resolver,
+                projections,
+            });
+        let signature_resolver: &dyn TypeResolver = projected_resolver.as_ref().map_or(&impl_resolver, |resolver| resolver as &dyn TypeResolver);
         let raw_sig = semantic_signature_for_syntax_with_resolver(ctx, &target_owner, signature_resolver, syntax, side);
         // Signature formation owns annotation errors even when the body never
         // reads the invalid parameter. Publish them with the contribution.
@@ -6251,7 +6253,11 @@ pub fn build_inherent_impl_contribution_with_prepared_target_and_record_keys(
                 diagnostics.push(SemanticDiagnostic::error_in(
                     ctx.current_module.clone(),
                     DiagnosticCode::NativeSignatureMismatch,
-                    format!("native.signature_mismatch: {}::{} ({reason})", target_owner.declaration().name, final_sig.selector.encode()),
+                    format!(
+                        "native.signature_mismatch: {}::{} ({reason})",
+                        target_owner.declaration().name,
+                        final_sig.selector.encode()
+                    ),
                     syntax.range(),
                 ));
                 continue;

@@ -1718,9 +1718,7 @@ impl VM {
         // past the module export gateway so validation happens against the
         // selected Family member, not Function.call(***) itself.
         if let Some(recipe) = call_environment
-            && target_val
-                .as_obj()
-                .is_some_and(|id| matches!(self.heap.get(id), Object::Family(_)))
+            && target_val.as_obj().is_some_and(|id| matches!(self.heap.get(id), Object::Family(_)))
         {
             let view = ArgumentView::from_layout(receiver_idx, layout, caller_authority.0, caller_authority.1);
             self.activate_family_with_kind_and_recipe(view, FamilyInvocationKind::Method, source_range, Some(recipe))?;
@@ -1957,14 +1955,7 @@ mod tests {
         );
 
         let outcome = vm
-            .dispatch_conditional_family_entry(
-                0,
-                receiver,
-                &entry,
-                view,
-                phalcom_common::range::SourceRange::default(),
-                None,
-            )
+            .dispatch_conditional_family_entry(0, receiver, &entry, view, phalcom_common::range::SourceRange::default(), None)
             .expect("strict subclass override should activate");
 
         assert_eq!(outcome, CallOutcome::EnteredFrame);

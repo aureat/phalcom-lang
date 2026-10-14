@@ -579,10 +579,27 @@ let passed = bagCollision and dictCollision and duplicateErrorPreserved and inde
     let passed = vm.heap.module(module).get(passed_symbol).expect("P6 source publishes its result");
     if !as_bool(passed) {
         for name in [
-            "bagCollision", "dictCollision", "duplicateErrorPreserved", "indexErrorPreserved", "orderedCollision",
-            "mutableKeyPolicy", "bagRejected", "bagErrorRecovered", "bagUnlocked", "dictRejected", "dictErrorRecovered",
-            "dictUnlocked", "orderedRejected", "orderedErrorRecovered", "orderedUnlocked", "bagSnapshot", "dictSnapshot",
-            "orderedSnapshot", "bagGc", "dictGc", "orderedGc",
+            "bagCollision",
+            "dictCollision",
+            "duplicateErrorPreserved",
+            "indexErrorPreserved",
+            "orderedCollision",
+            "mutableKeyPolicy",
+            "bagRejected",
+            "bagErrorRecovered",
+            "bagUnlocked",
+            "dictRejected",
+            "dictErrorRecovered",
+            "dictUnlocked",
+            "orderedRejected",
+            "orderedErrorRecovered",
+            "orderedUnlocked",
+            "bagSnapshot",
+            "dictSnapshot",
+            "orderedSnapshot",
+            "bagGc",
+            "dictGc",
+            "orderedGc",
         ] {
             if let Some(symbol) = vm.interner.find(name)
                 && let Some(value) = vm.heap.module(module).get(symbol)
@@ -905,11 +922,7 @@ fn p7_numeric_same_value_zero_observed_behavior() {
     let one_int = Value::int(1);
     let one_float = Value::float(1.0);
     assert!(phalcom_core::value::same_value_zero(one_int, one_float, &vm.heap));
-    assert_eq!(
-        hash_of(&mut vm, one_int),
-        hash_of(&mut vm, one_float),
-        "1 and 1.0 must have identical hash"
-    );
+    assert_eq!(hash_of(&mut vm, one_int), hash_of(&mut vm, one_float), "1 and 1.0 must have identical hash");
 
     // 2. 0 and -0.0 (passes SameValueZero and hash equality)
     let zero_int = Value::int(0);

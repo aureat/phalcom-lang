@@ -1,5 +1,10 @@
 use crate::method::{MemberVisibility, MethodKind, MethodObject, RestLayout, RestMode, SignatureKind};
+use crate::primitive::array::{array_raw_at, array_raw_length, array_raw_set, array_to_string};
 use crate::primitive::attribute::{attribute_attach, attribute_attributes, attribute_freeze};
+use crate::primitive::bag::{bag_class_new, bag_raw_adding, bag_raw_count, bag_raw_distinct_count, bag_raw_keys, bag_raw_removing, bag_raw_size};
+use crate::primitive::bijection::{
+    bijection_class_new, bijection_raw_associate, bijection_raw_get, bijection_raw_inverse, bijection_raw_keys, bijection_raw_remove_key, bijection_raw_size,
+};
 use crate::primitive::block::{block_arity, block_call_shape, block_call_with_shape, block_ensure_shape, block_name, block_on_shape, block_while_true_shape};
 use crate::primitive::boolean::{
     bool_and_shape, bool_class_new, bool_hash, bool_if_false_shape, bool_if_true_if_false_shape, bool_if_true_shape, bool_not, bool_or_shape,
@@ -28,40 +33,28 @@ use crate::primitive::float::{
     float_is_negative_zero, float_is_normal, float_is_positive_zero, float_is_subnormal, float_max_finite, float_min_normal, float_min_positive_subnormal,
     float_next_down, float_next_up, float_rounded, float_sign, float_to_int_exact, float_total_compare, float_truncated, float_ulp,
 };
+use crate::primitive::indexed_dict::{
+    indexed_dict_class_new, indexed_dict_raw_clear, indexed_dict_raw_index_of_key, indexed_dict_raw_insert_at, indexed_dict_raw_key_at, indexed_dict_raw_move,
+    indexed_dict_raw_put, indexed_dict_raw_remove_at, indexed_dict_raw_size, indexed_dict_raw_value_at,
+};
 use crate::primitive::int::{
     int_and, int_bit_at, int_bit_count, int_bit_length, int_class_new, int_class_raw_parse, int_not, int_or, int_raw_to_string_radix, int_shl, int_shr,
     int_trailing_zeros, int_xor,
 };
-use crate::primitive::indexed_dict::{
-    indexed_dict_class_new, indexed_dict_raw_clear, indexed_dict_raw_index_of_key, indexed_dict_raw_insert_at, indexed_dict_raw_key_at,
-    indexed_dict_raw_move, indexed_dict_raw_put, indexed_dict_raw_remove_at, indexed_dict_raw_size, indexed_dict_raw_value_at,
-};
-use crate::primitive::array::{array_raw_at, array_raw_length, array_raw_set, array_to_string};
 use crate::primitive::list::{
     list_class_new, list_class_with_capacity, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_replace_slice, list_to_string,
 };
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
-use crate::primitive::mutable_bag::{
-    mutable_bag_class_new, mutable_bag_raw_add, mutable_bag_raw_at, mutable_bag_raw_clear, mutable_bag_raw_count,
-    mutable_bag_raw_count_at, mutable_bag_raw_distinct_count, mutable_bag_raw_remove, mutable_bag_raw_size,
-};
-use crate::primitive::bag::{
-    bag_class_new, bag_raw_adding, bag_raw_count, bag_raw_distinct_count, bag_raw_keys, bag_raw_removing, bag_raw_size,
-};
-use crate::primitive::bijection::{
-    bijection_class_new, bijection_raw_associate, bijection_raw_get, bijection_raw_inverse, bijection_raw_keys,
-    bijection_raw_remove_key, bijection_raw_size,
-};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on_shape, method_selector};
 use crate::primitive::method_family::{method_family_bind, method_family_method_for_shape, method_family_selectors, method_family_size};
 use crate::primitive::module::{module_class_new, module_does_not_understand};
+use crate::primitive::mutable_bag::{
+    mutable_bag_class_new, mutable_bag_raw_add, mutable_bag_raw_at, mutable_bag_raw_clear, mutable_bag_raw_count, mutable_bag_raw_count_at,
+    mutable_bag_raw_distinct_count, mutable_bag_raw_remove, mutable_bag_raw_size,
+};
 use crate::primitive::number::{
     float_class_raw_parse, number_add, number_class_new, number_compare, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt,
     number_mod, number_mul, number_negate, number_pow, number_sub, number_to_string, number_unary_plus,
-};
-use crate::primitive::ordered_set::{
-    ordered_set_class_new, ordered_set_raw_add, ordered_set_raw_at, ordered_set_raw_clear, ordered_set_raw_index_of,
-    ordered_set_raw_insert_at, ordered_set_raw_move, ordered_set_raw_remove_at, ordered_set_raw_replace_at, ordered_set_raw_size,
 };
 use crate::primitive::object::{
     message_args, message_labels, message_name, message_selector, object_class, object_does_not_understand, object_eq, object_hash, object_invariant_enter,
@@ -69,6 +62,10 @@ use crate::primitive::object::{
     object_to_string, object_understands,
 };
 use crate::primitive::option::{option_match_shape, some_call, some_new};
+use crate::primitive::ordered_set::{
+    ordered_set_class_new, ordered_set_raw_add, ordered_set_raw_at, ordered_set_raw_clear, ordered_set_raw_index_of, ordered_set_raw_insert_at,
+    ordered_set_raw_move, ordered_set_raw_remove_at, ordered_set_raw_replace_at, ordered_set_raw_size,
+};
 use crate::primitive::pack::{
     pack_raw_label_at, pack_raw_labeled_rest_slice, pack_raw_labeled_size, pack_raw_labeled_value_at, pack_raw_positional_at, pack_raw_positional_rest_slice,
     pack_raw_positional_size,

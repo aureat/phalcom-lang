@@ -846,9 +846,9 @@ fn map_conformance_resolution_to_proof(res: ConformanceResolution) -> GenericCon
         // A raw exact witness is not a complete generic proof until its
         // instantiated trait-header obligations have been discharged by the
         // active proof session.
-        ConformanceResolution::Proven(_) => GenericConformanceProof::InternalFailure(
-            "raw exact conformance witness bypassed trait-header proof publication".into(),
-        ),
+        ConformanceResolution::Proven(_) => {
+            GenericConformanceProof::InternalFailure("raw exact conformance witness bypassed trait-header proof publication".into())
+        }
         ConformanceResolution::NotDeclared => GenericConformanceProof::Missing,
         ConformanceResolution::InvalidSource(impl_id) | ConformanceResolution::Incomplete(impl_id) => GenericConformanceProof::Incomplete(impl_id),
         ConformanceResolution::CoherenceConflict(impls) => GenericConformanceProof::CoherenceConflict(impls),
@@ -892,10 +892,7 @@ fn prove_exact_trait_header_contract(
     result
 }
 
-fn complete_exact_conformance_evidence(
-    evidence: Arc<ConformanceEvidence>,
-    context: &mut ConformanceProofContext<'_>,
-) -> GenericConformanceProof {
+fn complete_exact_conformance_evidence(evidence: Arc<ConformanceEvidence>, context: &mut ConformanceProofContext<'_>) -> GenericConformanceProof {
     let trait_header_conformance_proofs = match prove_exact_trait_header_contract(&evidence, context) {
         Ok(proofs) => proofs,
         Err(proof) => return proof,

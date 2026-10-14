@@ -109,11 +109,7 @@ fn validate_rest_usage(member: &ClassMember) -> Result<(), CompilerError> {
                 return Err(CompilerError::RestModeUnsupportedForMember(rest.range));
             }
         }
-        ClassMember::Getter(_)
-        | ClassMember::Setter(_)
-        | ClassMember::Delegation(_)
-        | ClassMember::Field(_)
-        | ClassMember::TypeMember(_) => {}
+        ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Delegation(_) | ClassMember::Field(_) | ClassMember::TypeMember(_) => {}
     }
     Ok(())
 }
@@ -315,8 +311,7 @@ impl<'vm> Compiler<'vm> {
             constructor_products_by_range: Default::default(),
         };
         let registry = AttributeRegistry::new();
-        let (mut class_def, mut constructor_projections) =
-            expand_class_attributes(class_def, &mut ctx, &registry, is_attribute_class)?;
+        let (mut class_def, mut constructor_projections) = expand_class_attributes(class_def, &mut ctx, &registry, is_attribute_class)?;
         drop(ctx);
         // Native source members are declaration anchors for the descriptor
         // installer, not bytecode bodies. Their implementation kind is the
@@ -365,11 +360,7 @@ impl<'vm> Compiler<'vm> {
             match member {
                 ClassMember::Method(method) => validate_declaration_labels(&method.params)?,
                 ClassMember::Index(index) => validate_declaration_labels(&index.params)?,
-                ClassMember::Getter(_)
-                | ClassMember::Setter(_)
-                | ClassMember::Delegation(_)
-                | ClassMember::Field(_)
-                | ClassMember::TypeMember(_) => {}
+                ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Delegation(_) | ClassMember::Field(_) | ClassMember::TypeMember(_) => {}
             }
         }
         // Retained class-level attributes (M-ATTR-ROOT): needed after

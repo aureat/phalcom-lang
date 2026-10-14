@@ -1,7 +1,7 @@
 use crate::identity::ModuleId;
+use crate::session::SemanticUpdateFailure;
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
-use crate::session::SemanticUpdateFailure;
 use phalcom_ast::ast::Program;
 use phalcom_modules::interface::InterfaceBuilder;
 use phalcom_modules::linker::{LinkedProgram, SemanticLinkedProgram};
@@ -142,11 +142,7 @@ pub fn try_analyze_workspace(input: SemanticWorkspaceInput) -> Result<SemanticAn
 }
 
 /// Convenience helper to analyze a single module as a standalone workspace.
-pub fn analyze_single_module(
-    module: ModuleId,
-    source: Arc<str>,
-    program: Arc<Program>,
-) -> Result<SemanticAnalysis, SemanticUpdateFailure> {
+pub fn analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Program>) -> Result<SemanticAnalysis, SemanticUpdateFailure> {
     try_analyze_single_module(module, source, program)
 }
 

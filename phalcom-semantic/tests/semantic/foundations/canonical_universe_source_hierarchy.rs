@@ -2,12 +2,12 @@
 //! ordinary subtype checks and contextual generic variant construction.
 
 use crate::semantic::support::{Fixture, applied};
+use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
+use phalcom_semantic::TypeId;
 use phalcom_semantic::diagnostic::DiagnosticSeverity;
 use phalcom_semantic::identity::{DeclarationId, DispatchSide};
 use phalcom_semantic::is_subtype;
-use phalcom_semantic::TypeId;
 use phalcom_semantic::types::store::TypeData;
-use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
 
 fn nominal_name(fixture: &Fixture, ty: phalcom_semantic::TypeId) -> &str {
     fixture
@@ -141,7 +141,6 @@ class Probe {
         nominal_name(&fixture, fixture.expression(duplicate, "DuplicateKeyError.new(1)").knowledge.ty().unwrap()),
         "DuplicateKeyError",
     );
-
 }
 
 #[test]
@@ -163,7 +162,12 @@ class Probe {
     );
 
     let mut store = (*fixture.analysis.snapshot.store).clone();
-    let error_type = fixture.binding(fixture.callable("Probe", "run", DispatchSide::Class), "invalid").contract.as_ref().unwrap().ty;
+    let error_type = fixture
+        .binding(fixture.callable("Probe", "run", DispatchSide::Class), "invalid")
+        .contract
+        .as_ref()
+        .unwrap()
+        .ty;
     let not_error_type = fixture.ty("NotAnError");
     assert!(
         !is_subtype(&mut store, fixture.analysis.snapshot.hierarchy.as_ref(), not_error_type, error_type),

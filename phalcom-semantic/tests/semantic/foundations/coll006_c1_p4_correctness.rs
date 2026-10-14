@@ -21,7 +21,14 @@ const copied: Vector<_, _> = [*source]
         accepted.analysis.snapshot.static_values().get(copied_value),
         Ok(StaticValueData::Sequence(_))
     ));
-    let resolution = copied.checked.as_ref().unwrap().sequence_literals.values().next().expect("committed spread resolution");
+    let resolution = copied
+        .checked
+        .as_ref()
+        .unwrap()
+        .sequence_literals
+        .values()
+        .next()
+        .expect("committed spread resolution");
     assert_eq!(resolution.family, SequenceLiteralFamily::Vector);
     assert_eq!(accepted.analysis.snapshot.store.format_type(resolution.result_type), "Vector<Int, 2#const>");
 
@@ -37,7 +44,10 @@ const mismatch: Vector<String, 2> = [*source]
     let mismatch = rejected.analysis.snapshot.static_constant(&mismatch_id).expect("failed constant product");
     assert!(mismatch.value().is_none(), "a rejected spread has no static value");
     assert!(mismatch.materialization_descriptor(rejected.analysis.snapshot.static_values()).is_none());
-    assert!(mismatch.checked.as_ref().unwrap().sequence_literals.is_empty(), "a rejected spread has no committed construction");
+    assert!(
+        mismatch.checked.as_ref().unwrap().sequence_literals.is_empty(),
+        "a rejected spread has no committed construction"
+    );
 }
 
 #[test]

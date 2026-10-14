@@ -22,7 +22,11 @@ impl VM {
         self.materialize_descriptor(&spec.descriptor, &spec.id)
     }
 
-    fn materialize_descriptor(&mut self, descriptor: &MaterializationDescriptor, owner: &phalcom_semantic::static_constant::StaticConstantId) -> PhResult<Value> {
+    fn materialize_descriptor(
+        &mut self,
+        descriptor: &MaterializationDescriptor,
+        owner: &phalcom_semantic::static_constant::StaticConstantId,
+    ) -> PhResult<Value> {
         let value = match descriptor {
             MaterializationDescriptor::Unit => Value::unit(),
             MaterializationDescriptor::Bool(value) => Value::bool(*value),
@@ -32,18 +36,14 @@ impl VM {
             MaterializationDescriptor::Float(value) => Value::float(value.to_f64()),
             MaterializationDescriptor::String(value) => {
                 let mut string = String::new();
-                string
-                    .try_reserve_exact(value.len())
-                    .map_err(|_| RuntimeError::ResourceLimit)?;
+                string.try_reserve_exact(value.len()).map_err(|_| RuntimeError::ResourceLimit)?;
                 string.push_str(value);
                 self.alloc_string_value(string)
             }
             MaterializationDescriptor::Symbol(value) => Value::symbol(self.interner.intern(value.as_ref())),
             MaterializationDescriptor::Sequence { kind, elements } => {
                 let mut values = Vec::new();
-                values
-                    .try_reserve_exact(elements.len())
-                    .map_err(|_| RuntimeError::ResourceLimit)?;
+                values.try_reserve_exact(elements.len()).map_err(|_| RuntimeError::ResourceLimit)?;
                 for element in elements.iter() {
                     values.push(self.materialize_descriptor(element, owner)?);
                 }
@@ -58,8 +58,7 @@ impl VM {
                 for element in elements.iter() {
                     values.push(self.materialize_descriptor(element, owner)?);
                 }
-                crate::product::finish_tuple(self, values, Vec::new())
-                    .map_err(|e| RuntimeError::Internal(format!("{e:?}")))?
+                crate::product::finish_tuple(self, values, Vec::new()).map_err(|e| RuntimeError::Internal(format!("{e:?}")))?
             }
             MaterializationDescriptor::Record(fields) => {
                 let mut rec_fields = Vec::with_capacity(fields.len());
@@ -67,8 +66,7 @@ impl VM {
                     let val = self.materialize_descriptor(element, owner)?;
                     rec_fields.push((key.clone(), val));
                 }
-                crate::product::finish_record(self, rec_fields)
-                    .map_err(|e| RuntimeError::Internal(format!("{e:?}")))?
+                crate::product::finish_record(self, rec_fields).map_err(|e| RuntimeError::Internal(format!("{e:?}")))?
             }
             MaterializationDescriptor::Pack { positionals, labeled } => {
                 let mut pos = Vec::with_capacity(positionals.len());
@@ -81,8 +79,7 @@ impl VM {
                     let val = self.materialize_descriptor(element, owner)?;
                     lab.push((sym, val));
                 }
-                crate::product::finish_pack(self, pos, lab)
-                    .map_err(|e| RuntimeError::Internal(format!("{e:?}")))?
+                crate::product::finish_pack(self, pos, lab).map_err(|e| RuntimeError::Internal(format!("{e:?}")))?
             }
             MaterializationDescriptor::DeferredStructural(_) | MaterializationDescriptor::Unsupported(_) => {
                 return Err(RuntimeError::Internal(format!("static constant {owner} has no supported runtime materialization")).into());
@@ -297,7 +294,10 @@ mod tests {
             .expect_err("unsupported nested child fails the complete owner materialization");
         assert!(error.to_string().contains(&spec.id.to_string()));
         let owner = vm.module_registry.get(&owner_id).expect("owner module").object;
-        assert!(!vm.heap.module(owner).static_constants.contains_key(&name), "partial roots never enter the owner cache");
+        assert!(
+            !vm.heap.module(owner).static_constants.contains_key(&name),
+            "partial roots never enter the owner cache"
+        );
         assert_eq!(vm.temp_root_depth(), 0, "failed materialization restores its temporary-root depth");
 
         let valid = StaticConstantLoweringSpec {

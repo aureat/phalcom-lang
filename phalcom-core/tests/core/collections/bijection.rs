@@ -45,7 +45,10 @@ let passed = keyConflict == true and valConflict == true and idempotentOk
     let (vm, module) = vm_support::run_inline(source).expect("Bijection conflict detection test compiles and runs");
     let passed_symbol = vm.interner.find("passed").expect("result is interned");
     let passed = vm.heap.module(module).get(passed_symbol).expect("source publishes its result");
-    assert!(as_bool(passed), "Bijection detects key/value mapping conflicts and permits idempotent association");
+    assert!(
+        as_bool(passed),
+        "Bijection detects key/value mapping conflicts and permits idempotent association"
+    );
 }
 
 #[test]
@@ -65,7 +68,10 @@ let passed = invSize and invForward and invReverse and roundTrip
     let (vm, module) = vm_support::run_inline(source).expect("Bijection inverse symmetry test compiles and runs");
     let passed_symbol = vm.interner.find("passed").expect("result is interned");
     let passed = vm.heap.module(module).get(passed_symbol).expect("source publishes its result");
-    assert!(as_bool(passed), "Bijection inverse provides O(1) symmetric dual mapping and round-trip equality");
+    assert!(
+        as_bool(passed),
+        "Bijection inverse provides O(1) symmetric dual mapping and round-trip equality"
+    );
 }
 
 #[test]

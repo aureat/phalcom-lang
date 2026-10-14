@@ -210,9 +210,7 @@ fn review_c1_06_joined_binding_source_ranges_cover_each_alternative() {
 
 #[test]
 fn review_m6_01_pattern_binding_is_not_available_after_match() {
-    let case = analyze_adt(
-        "data Choice { A(_ value: Int) B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n",
-    );
+    let case = analyze_adt("data Choice { A(_ value: Int) B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n");
     let handle = case.only_match();
     handle.arm(0).assert_binding_names(&["x"]);
     handle.arm(1).assert_no_binding("x");
@@ -220,17 +218,13 @@ fn review_m6_01_pattern_binding_is_not_available_after_match() {
 
 #[test]
 fn review_m6_02_pattern_binding_is_absent_from_joined_flow_state() {
-    let case = analyze_adt(
-        "data Choice { A(_ value: Int) B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n",
-    );
+    let case = analyze_adt("data Choice { A(_ value: Int) B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n");
     case.only_match().arm(1).assert_no_binding("x");
 }
 
 #[test]
 fn review_m6_03_branch_local_facts_are_removed_with_binding() {
-    let case = analyze_adt(
-        "data Choice { A(_ value: Int) B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n",
-    );
+    let case = analyze_adt("data Choice { A(_ value: Int) B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n");
     assert!(case.only_match().arm(0).find_binding("x").is_some());
     assert!(case.only_match().arm(1).find_binding("x").is_none());
 }
@@ -238,17 +232,14 @@ fn review_m6_03_branch_local_facts_are_removed_with_binding() {
 #[test]
 #[ignore = "GATED: shadowed outer binding fixture is required"]
 fn review_m6_04_outer_same_name_binding_is_restored_after_match() {
-    let case = analyze_adt(
-        "data Choice { A(_ value: Int) B }\nclass Test { run(_ value: Choice) { let x = 7 match value { Choice::A(x) => x Choice::B => x } } }\n",
-    );
+    let case =
+        analyze_adt("data Choice { A(_ value: Int) B }\nclass Test { run(_ value: Choice) { let x = 7 match value { Choice::A(x) => x Choice::B => x } } }\n");
     assert_eq!(case.only_match().arm(0).resolution().bindings.len(), 1);
 }
 
 #[test]
 fn review_m6_05_pattern_binding_does_not_leak_between_arms() {
-    let case = analyze_adt(
-        "data Choice { A(_ value: Int) B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n",
-    );
+    let case = analyze_adt("data Choice { A(_ value: Int) B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n");
     let handle = case.only_match();
     handle.arm(0).assert_binding_names(&["x"]);
     handle.arm(1).assert_no_binding("x");
@@ -264,9 +255,7 @@ fn review_m6_06_or_joined_binding_exists_only_for_arm_body() {
 
 #[test]
 fn review_m6_07_scope_cleanup_is_owned_by_one_authority() {
-    let case = analyze_adt(
-        "data Choice { A(_ value: Int) B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n",
-    );
+    let case = analyze_adt("data Choice { A(_ value: Int) B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n");
     assert_eq!(
         case.only_match()
             .resolution()

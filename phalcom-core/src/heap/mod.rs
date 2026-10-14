@@ -41,12 +41,12 @@ mod class;
 mod closure;
 pub mod data;
 mod fiber;
-mod instance;
 mod indexed_dict;
+mod instance;
 mod list;
 mod map;
-mod mutable_bag;
 mod module;
+mod mutable_bag;
 mod object;
 mod ordered_set;
 pub mod pack;
@@ -78,12 +78,12 @@ pub use class::{ClassObject, is_strict_subclass, lookup_method_in_hierarchy, loo
 pub use closure::ClosureObject;
 pub use data::DataObject;
 pub use fiber::{FiberConsumer, FiberConsumerMode, FiberObject, FiberStatus};
-pub use instance::InstanceObject;
 pub use indexed_dict::IndexedDictObject;
+pub use instance::InstanceObject;
 pub use list::{ListCapacityError, ListObject, MAX_LIST_CAPACITY, MAX_LIST_CAPACITY_BYTES};
 pub use map::MapObject;
-pub use mutable_bag::MutableBagObject;
 pub use module::{MAIN_MODULE_NAME, MAX_GLOBALS, ModuleId, ModuleKind, ModuleObject, RuntimeExportRef};
+pub use mutable_bag::MutableBagObject;
 pub use object::{BoundMethodFamilyObject, BoundMethodObject, ConditionalFamilyDispatchEntry, FamilyObject, FamilySpec, MethodFamilyObject, Object};
 pub use ordered_set::OrderedSetObject;
 pub use pack::{PackObject, PackStorage};
@@ -401,17 +401,8 @@ impl Heap {
     }
 
     /// Allocates a persistent Bijection with forward and reverse roots and length.
-    pub fn alloc_bijection_with(
-        &mut self,
-        forward_root: Option<ObjRef>,
-        reverse_root: Option<ObjRef>,
-        len: usize,
-    ) -> ObjRef {
-        self.insert(Object::Bijection(Box::new(BijectionObject::with_roots(
-            forward_root,
-            reverse_root,
-            len,
-        ))))
+    pub fn alloc_bijection_with(&mut self, forward_root: Option<ObjRef>, reverse_root: Option<ObjRef>, len: usize) -> ObjRef {
+        self.insert(Object::Bijection(Box::new(BijectionObject::with_roots(forward_root, reverse_root, len))))
     }
 
     /// Allocates an [`Object::Bytes`] and returns its [`ObjRef`]

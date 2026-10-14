@@ -1,5 +1,5 @@
-use crate::checker::typed_expr::TypedExpression;
 use crate::checker::context::CheckingContext;
+use crate::checker::typed_expr::TypedExpression;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::identity::ExpressionId;
 use crate::structural::{OrderedProductOrigin, StructuralClassification, StructuralClassifier};
@@ -16,12 +16,8 @@ use std::collections::{BTreeMap, BTreeSet};
 pub enum StaticIterationMode {
     PackValues,
     TypePackTerms,
-    OrderedProductValues {
-        origin: OrderedProductOrigin,
-    },
-    OrderedProductTypes {
-        origin: OrderedProductOrigin,
-    },
+    OrderedProductValues { origin: OrderedProductOrigin },
+    OrderedProductTypes { origin: OrderedProductOrigin },
     UnorderedProductValues,
     UnorderedProductFields,
     ReflectedPack,
@@ -114,8 +110,7 @@ pub fn resolve_static_iteration_lane(
                     let mut items = Vec::new();
                     for entry in struct_info.positional_entries.iter().chain(struct_info.labeled_entries.iter()) {
                         if let Some(entry_ty) = entry.ty {
-                            let desc = crate::checker::expression::type_form_descriptor_type(ctx, entry_ty)
-                                .unwrap_or_else(|| ctx.store.unit());
+                            let desc = crate::checker::expression::type_form_descriptor_type(ctx, entry_ty).unwrap_or_else(|| ctx.store.unit());
                             items.push(TypeKnowledge::established(desc, EvidenceOrigin::DeclarationSemantics));
                         }
                     }
@@ -149,8 +144,7 @@ pub fn resolve_static_iteration_lane(
                     let mut items = Vec::new();
                     for field in struct_info.fields.iter() {
                         if let Some(field_ty) = field.ty {
-                            let desc = crate::checker::expression::type_form_descriptor_type(ctx, field_ty)
-                                .unwrap_or_else(|| ctx.store.unit());
+                            let desc = crate::checker::expression::type_form_descriptor_type(ctx, field_ty).unwrap_or_else(|| ctx.store.unit());
                             items.push(TypeKnowledge::established(desc, EvidenceOrigin::DeclarationSemantics));
                         }
                     }
@@ -189,16 +183,23 @@ pub fn resolve_static_iteration_lane(
     // Check if the type is explicitly a Pack in TypeData:
     if let TypeData::Pack(items) = ctx.store.get(source_ty).clone() {
         let item_domain = if items.is_closed() {
-            StaticIterationItemDomain::FiniteExact(items.elements.iter()
-                .map(|elem| TypeKnowledge::established(elem.ty, EvidenceOrigin::DeclarationSemantics))
-                .collect::<Vec<_>>().into_boxed_slice())
+            StaticIterationItemDomain::FiniteExact(
+                items
+                    .elements
+                    .iter()
+                    .map(|elem| TypeKnowledge::established(elem.ty, EvidenceOrigin::DeclarationSemantics))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            )
         } else {
             use crate::types::store::AnonymousTupleRemainder;
             let mut known = items.elements.iter().map(|elem| elem.ty).collect::<BTreeSet<_>>();
             let mut has_unconstrained = false;
             for remainder in [items.positional_remainder, items.labeled_remainder] {
                 match remainder {
-                    AnonymousTupleRemainder::Typed(ty) => { known.insert(ty); }
+                    AnonymousTupleRemainder::Typed(ty) => {
+                        known.insert(ty);
+                    }
                     AnonymousTupleRemainder::Unconstrained => has_unconstrained = true,
                     AnonymousTupleRemainder::None => {}
                 }
@@ -206,7 +207,11 @@ pub fn resolve_static_iteration_lane(
             if has_unconstrained || known.is_empty() {
                 StaticIterationItemDomain::Unknown(TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence))
             } else {
-                let ty = if known.len() == 1 { *known.iter().next().unwrap() } else { ctx.store.union(&known.into_iter().collect::<Vec<_>>()) };
+                let ty = if known.len() == 1 {
+                    *known.iter().next().unwrap()
+                } else {
+                    ctx.store.union(&known.into_iter().collect::<Vec<_>>())
+                };
                 StaticIterationItemDomain::Uniform(TypeKnowledge::established(ty, EvidenceOrigin::DeclarationSemantics))
             }
         };
@@ -267,7 +272,10 @@ pub fn resolve_static_iteration_lane(
                 ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                     ctx.current_module.clone(),
                     DiagnosticCode::StaticIterationNotStructural,
-                    format!("static for requires structural product or pack, but found `{}`", ctx.store.format_type(source_ty)),
+                    format!(
+                        "static for requires structural product or pack, but found `{}`",
+                        ctx.store.format_type(source_ty)
+                    ),
                     source_range,
                 ));
                 None
@@ -304,7 +312,10 @@ pub fn resolve_static_iteration_lane(
                 ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                     ctx.current_module.clone(),
                     DiagnosticCode::StaticIterationNotStructural,
-                    format!("static for requires structural product or pack, but found `{}`", ctx.store.format_type(source_ty)),
+                    format!(
+                        "static for requires structural product or pack, but found `{}`",
+                        ctx.store.format_type(source_ty)
+                    ),
                     source_range,
                 ));
                 None
@@ -314,7 +325,10 @@ pub fn resolve_static_iteration_lane(
             ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                 ctx.current_module.clone(),
                 DiagnosticCode::StaticIterationNotStructural,
-                format!("static for requires structural product or pack, but found `{}`", ctx.store.format_type(source_ty)),
+                format!(
+                    "static for requires structural product or pack, but found `{}`",
+                    ctx.store.format_type(source_ty)
+                ),
                 source_range,
             ));
             None

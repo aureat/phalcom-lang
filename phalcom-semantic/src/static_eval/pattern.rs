@@ -167,11 +167,14 @@ pub(crate) fn match_pattern_against_value(
                 };
                 let mut all_bindings = BTreeMap::new();
                 for field_pat in fields.iter() {
-                    let field_val = record_fields.iter().find(|f| match &f.key {
-                        crate::field_key::FieldKey::Symbol(s) => s.as_ref() == &*field_pat.label,
-                        crate::field_key::FieldKey::String(s) => s.as_ref() == &*field_pat.label,
-                        _ => false,
-                    }).map(|f| f.value);
+                    let field_val = record_fields
+                        .iter()
+                        .find(|f| match &f.key {
+                            crate::field_key::FieldKey::Symbol(s) => s.as_ref() == &*field_pat.label,
+                            crate::field_key::FieldKey::String(s) => s.as_ref() == &*field_pat.label,
+                            _ => false,
+                        })
+                        .map(|f| f.value);
                     let Some(field_val) = field_val else {
                         return StaticPatternMatchOutcome::NoMatch;
                     };

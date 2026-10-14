@@ -262,12 +262,21 @@ fn intrinsic_type_member_source_products_match_the_evaluator_catalog() {
         match operation {
             IntrinsicTypeOperation::UnorderedShapeLookup => {
                 assert_eq!(selected.signature.parameters.len(), 1);
-                assert!(matches!(selected.signature.parameters[0].domain, phalcom_semantic::types::type_member::TypeMemberDomain::ValueType(_)));
-                assert!(matches!(selected.signature.result_domain, phalcom_semantic::types::type_member::TypeMemberDomain::ValueType(_)));
+                assert!(matches!(
+                    selected.signature.parameters[0].domain,
+                    phalcom_semantic::types::type_member::TypeMemberDomain::ValueType(_)
+                ));
+                assert!(matches!(
+                    selected.signature.result_domain,
+                    phalcom_semantic::types::type_member::TypeMemberDomain::ValueType(_)
+                ));
             }
             IntrinsicTypeOperation::UnorderedShapeView | IntrinsicTypeOperation::UnorderedShapeTail => {
                 assert_eq!(selected.signature.parameters.len(), 0);
-                assert!(matches!(selected.signature.result_domain, phalcom_semantic::types::type_member::TypeMemberDomain::ValueType(_)));
+                assert!(matches!(
+                    selected.signature.result_domain,
+                    phalcom_semantic::types::type_member::TypeMemberDomain::ValueType(_)
+                ));
             }
             _ => {
                 let (expected_parameters, expected_result) = operation.signature_kinds(&mut env.store);
@@ -592,10 +601,7 @@ fn install_intrinsic_source_members(store: &mut TypeStore, resolver: &mut Simple
                 selector,
                 parameters: parameters
                     .into_iter()
-                    .map(|(name, domain)| TypeMemberParameter {
-                        name: name.into(),
-                        domain,
-                    })
+                    .map(|(name, domain)| TypeMemberParameter { name: name.into(), domain })
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
                 result_domain,
@@ -1100,27 +1106,21 @@ fn type_member_value_type_parameters_and_results_publish_static_value_domains() 
     assert!(diags.is_empty(), "unexpected diagnostics: {diags:?}");
     let product = product.expect("type member declaration product");
     assert_eq!(product.signature.parameters.len(), 1);
-    assert_eq!(
-        product.signature.parameters[0].domain,
-        TypeMemberDomain::ValueType(field_key_ty)
-    );
-    assert_eq!(
-        product.signature.result_domain,
-        TypeMemberDomain::ValueType(field_lookup_ty)
-    );
+    assert_eq!(product.signature.parameters[0].domain, TypeMemberDomain::ValueType(field_key_ty));
+    assert_eq!(product.signature.result_domain, TypeMemberDomain::ValueType(field_lookup_ty));
 }
 
 #[test]
 fn domain_neutral_member_projections_validate_values_and_keep_type_store_clean() {
     use phalcom_common::modifier::ImplementationKind;
     use phalcom_semantic::member_projection::{
-        validate_member_projection_arguments, MemberDeclarationIdentity, MemberProjection, MemberProjectionArgument,
-        MemberProjectionSubject, StaticMemberProjectionOutcome,
+        MemberDeclarationIdentity, MemberProjection, MemberProjectionArgument, MemberProjectionSubject, StaticMemberProjectionOutcome,
+        validate_member_projection_arguments,
     };
     use phalcom_semantic::static_value::StaticValueStore;
     use phalcom_semantic::types::type_member::{
-        ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberDeclarationId, TypeMemberDomain,
-        TypeMemberParameter, TypeMemberSelector, TypeMemberSignature,
+        ProjectionSubject, TypeLevelProjection, TypeMemberArgument, TypeMemberDeclarationId, TypeMemberDomain, TypeMemberParameter, TypeMemberSelector,
+        TypeMemberSignature,
     };
     use phalcom_semantic::{KindId, StaticValueDomain};
 
@@ -1151,46 +1151,61 @@ fn domain_neutral_member_projections_validate_values_and_keep_type_store_clean()
     let unit_val = values.intern_unit();
 
     // 1. Closed FieldKey arguments validate
-    assert!(validate_member_projection_arguments(
-        &mut env.store,
-        &values,
-        &signature,
-        &[MemberProjectionArgument::Value(sym_val)],
-        Some(field_key_ty),
-    ).is_ok());
+    assert!(
+        validate_member_projection_arguments(
+            &mut env.store,
+            &values,
+            &signature,
+            &[MemberProjectionArgument::Value(sym_val)],
+            Some(field_key_ty),
+        )
+        .is_ok()
+    );
 
-    assert!(validate_member_projection_arguments(
-        &mut env.store,
-        &values,
-        &signature,
-        &[MemberProjectionArgument::Value(str_val)],
-        Some(field_key_ty),
-    ).is_ok());
+    assert!(
+        validate_member_projection_arguments(
+            &mut env.store,
+            &values,
+            &signature,
+            &[MemberProjectionArgument::Value(str_val)],
+            Some(field_key_ty),
+        )
+        .is_ok()
+    );
 
-    assert!(validate_member_projection_arguments(
-        &mut env.store,
-        &values,
-        &signature,
-        &[MemberProjectionArgument::Value(int_val)],
-        Some(field_key_ty),
-    ).is_ok());
+    assert!(
+        validate_member_projection_arguments(
+            &mut env.store,
+            &values,
+            &signature,
+            &[MemberProjectionArgument::Value(int_val)],
+            Some(field_key_ty),
+        )
+        .is_ok()
+    );
 
-    assert!(validate_member_projection_arguments(
-        &mut env.store,
-        &values,
-        &signature,
-        &[MemberProjectionArgument::Value(bool_val)],
-        Some(field_key_ty),
-    ).is_ok());
+    assert!(
+        validate_member_projection_arguments(
+            &mut env.store,
+            &values,
+            &signature,
+            &[MemberProjectionArgument::Value(bool_val)],
+            Some(field_key_ty),
+        )
+        .is_ok()
+    );
 
     // 2. Wrong ordinary value type (Unit) is rejected
-    assert!(validate_member_projection_arguments(
-        &mut env.store,
-        &values,
-        &signature,
-        &[MemberProjectionArgument::Value(unit_val)],
-        Some(field_key_ty),
-    ).is_err());
+    assert!(
+        validate_member_projection_arguments(
+            &mut env.store,
+            &values,
+            &signature,
+            &[MemberProjectionArgument::Value(unit_val)],
+            Some(field_key_ty),
+        )
+        .is_err()
+    );
 
     // 3. String/Int/Bool/Symbol remain distinct
     assert_ne!(sym_val, str_val);
@@ -1202,10 +1217,7 @@ fn domain_neutral_member_projections_validate_values_and_keep_type_store_clean()
     let shape_ty = env.store.nominal_type(shape_decl);
     let stuck_proj = MemberProjection {
         subject: MemberProjectionSubject::Type(env.store.unit()),
-        member: MemberDeclarationIdentity::TypeMember(TypeMemberDeclarationId::new(
-            owner,
-            TypeMemberSelector::named("Shape"),
-        )),
+        member: MemberDeclarationIdentity::TypeMember(TypeMemberDeclarationId::new(owner, TypeMemberSelector::named("Shape"))),
         arguments: Box::new([]),
         evidence: None,
         result_domain: StaticValueDomain::ValueType(shape_ty),

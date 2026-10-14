@@ -783,7 +783,10 @@ pub fn query_hierarchy_edge(
     let (super_decl, captured_dependencies) = if let Some(class_def) = class_def {
         crate::checker::context::resolve_source_class_superclass(&class_decl, class_def, resolver)
     } else {
-        (Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object)), BTreeSet::new())
+        (
+            Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object)),
+            BTreeSet::new(),
+        )
     };
     let input_fingerprint = if let Some(class_def) = class_def {
         crate::db::fingerprint::hierarchy_edge_input_fingerprint(&class_decl, superclass_source(&unit, class_def), &super_decl)
@@ -1346,10 +1349,7 @@ pub fn query_static_constant(
         _ => {}
     }
     let key = QueryKey::StaticConstant(product.id.clone());
-    let input_fingerprint = product.checked.as_ref().map_or(
-        crate::db::key::InputFingerprint(0),
-        |c| c.input_fingerprint,
-    );
+    let input_fingerprint = product.checked.as_ref().map_or(crate::db::key::InputFingerprint(0), |c| c.input_fingerprint);
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(cached) = db.product(&key).and_then(|value| value.as_static_constant()) {
             db.metrics().record_hit();
@@ -1405,12 +1405,7 @@ pub fn query_static_constant(
         }
     }
     let dependencies = recorder.finish();
-    let product_fingerprint = match crate::db::fingerprint::static_constant_product_fingerprint(
-        &product,
-        value_store,
-        type_store,
-        &inputs.linked.universe,
-    ) {
+    let product_fingerprint = match crate::db::fingerprint::static_constant_product_fingerprint(&product, value_store, type_store, &inputs.linked.universe) {
         Ok(fingerprint) => fingerprint,
         Err(error) => return query_failure(db, key, error),
     };
@@ -2407,9 +2402,7 @@ pub(crate) fn refresh_generic_conformance_root(
     let proof = crate::generic_evidence::prove_conformance_with_context(key, &mut proof_context);
     let proof_fingerprint = generic_conformance_proof_fingerprint(key, &proof);
 
-    if db.validate_reuse(&query_key, input_fingerprint)
-        && db.ready_product_fingerprint(&query_key) == Some(proof_fingerprint)
-    {
+    if db.validate_reuse(&query_key, input_fingerprint) && db.ready_product_fingerprint(&query_key) == Some(proof_fingerprint) {
         return QueryOutcome::Ready(());
     }
 

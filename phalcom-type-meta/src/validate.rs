@@ -704,9 +704,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
         _ => unreachable!("version range checked above"),
     }
 
-    if bundle.header.schema_version < 13
-        && (!bundle.static_values.is_empty() || !bundle.static_constants.is_empty() || !bundle.static_definitions.is_empty())
-    {
+    if bundle.header.schema_version < 13 && (!bundle.static_values.is_empty() || !bundle.static_constants.is_empty() || !bundle.static_definitions.is_empty()) {
         return Err(MetadataValidationError::Malformed(
             "schema before v13 cannot contain static values, constants, or definitions".to_string(),
         ));
@@ -2281,9 +2279,7 @@ fn validate_static_values(bundle: &SemanticMetadataBundle) -> Result<(), Metadat
                     }
                 }
             }
-            crate::static_value::StaticValueNode::Type(ty) | crate::static_value::StaticValueNode::StaticTerm(ty)
-                if ty.0 as usize >= bundle.types.len() =>
-            {
+            crate::static_value::StaticValueNode::Type(ty) | crate::static_value::StaticValueNode::StaticTerm(ty) if ty.0 as usize >= bundle.types.len() => {
                 return Err(MetadataValidationError::InvalidTypeIndex {
                     index: ty.0,
                     total: bundle.types.len(),
@@ -2316,9 +2312,7 @@ fn validate_static_constants(bundle: &SemanticMetadataBundle) -> Result<(), Meta
         }
         let value_fp = bundle.static_values[constant.value.0 as usize].structural_fingerprint;
         if constant.value_fingerprint != value_fp {
-            return Err(MetadataValidationError::Malformed(format!(
-                "static constant {i} value fingerprint mismatch"
-            )));
+            return Err(MetadataValidationError::Malformed(format!("static constant {i} value fingerprint mismatch")));
         }
         match constant.domain {
             crate::static_value::StaticValueDomainRef::Kind(k) => {

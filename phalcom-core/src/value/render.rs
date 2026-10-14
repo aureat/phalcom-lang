@@ -92,10 +92,7 @@ impl Value {
                     format!("Set({})", parts.join(", "))
                 }
                 Object::MutableBag(bag) => {
-                    let parts: Vec<String> = bag
-                        .entries()
-                        .map(|(value, count)| format!("{}: {}", value.to_string(vm), count))
-                        .collect();
+                    let parts: Vec<String> = bag.entries().map(|(value, count)| format!("{}: {}", value.to_string(vm), count)).collect();
                     format!("MutableBag({})", parts.join(", "))
                 }
                 Object::IndexedDict(dict) => {

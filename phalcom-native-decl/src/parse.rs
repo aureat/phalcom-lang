@@ -5,9 +5,7 @@ use syn::{Attribute, Expr, Ident, LitStr, Token};
 
 use crate::normalized::{NormalizedPrimitiveDecl, PrimitiveDeclField, PrimitiveDeclKey};
 use crate::{DeclError, validate};
-use phalcom_native_meta::{
-    NativeAnchorPolicy, NativeDispatch, NativeSignatureMode, NativeStability, NativeTrust, NativeVisibility, PrimitiveAbi, UniverseKey,
-};
+use phalcom_native_meta::{NativeAnchorPolicy, NativeDispatch, NativeSignatureMode, NativeStability, NativeTrust, NativeVisibility, PrimitiveAbi, UniverseKey};
 
 struct RawPrimitiveDecl {
     owner: Ident,
@@ -173,7 +171,9 @@ fn parse_signature_mode(tokens: &TokenStream) -> Result<NativeSignatureMode, Dec
     match parse_ident_string(tokens)?.as_str() {
         "exact" => Ok(NativeSignatureMode::Exact),
         "abi_erased" => Ok(NativeSignatureMode::AbiErased),
-        other => Err(DeclError::InvalidMetadata(format!("unknown native signature mode `{other}`; expected exact or abi_erased"))),
+        other => Err(DeclError::InvalidMetadata(format!(
+            "unknown native signature mode `{other}`; expected exact or abi_erased"
+        ))),
     }
 }
 

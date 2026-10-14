@@ -109,7 +109,9 @@ impl<'a> StaticSemanticFingerprinter<'a> {
         }
         arguments.sort_unstable();
         hash.write_u32(arguments.len() as u32);
-        for argument in arguments { hash.write_fingerprint(argument); }
+        for argument in arguments {
+            hash.write_fingerprint(argument);
+        }
 
         let mut bindings = Vec::with_capacity(env.type_bindings().len());
         for (param, ty) in env.type_bindings() {
@@ -120,7 +122,9 @@ impl<'a> StaticSemanticFingerprinter<'a> {
         }
         bindings.sort_unstable();
         hash.write_u32(bindings.len() as u32);
-        for binding in bindings { hash.write_fingerprint(binding); }
+        for binding in bindings {
+            hash.write_fingerprint(binding);
+        }
         self.facts(env.constraints(), hash)
     }
 
@@ -166,7 +170,9 @@ impl<'a> StaticSemanticFingerprinter<'a> {
         }
         bindings.sort_unstable();
         hash.write_u32(bindings.len() as u32);
-        for binding in bindings { hash.write_fingerprint(binding); }
+        for binding in bindings {
+            hash.write_fingerprint(binding);
+        }
         self.facts(context.constraints(), hash)
     }
 
@@ -309,14 +315,23 @@ impl<'a> StaticSemanticFingerprinter<'a> {
             };
             match node {
                 StaticResidualData::Apply { application, .. } => application.arguments.iter().copied().for_each(&mut push_term),
-                StaticResidualData::If { condition, then_term, else_term, .. } => {
-                    for term in [condition, then_term, else_term] { push_term(*term); }
+                StaticResidualData::If {
+                    condition,
+                    then_term,
+                    else_term,
+                    ..
+                } => {
+                    for term in [condition, then_term, else_term] {
+                        push_term(*term);
+                    }
                 }
                 StaticResidualData::Match { semantics, .. } => {
                     push_term(semantics.scrutinee);
                     semantics.arms.iter().for_each(|arm| push_term(arm.body));
                 }
-                StaticResidualData::Pack { positionals, labeled_values, .. } => {
+                StaticResidualData::Pack {
+                    positionals, labeled_values, ..
+                } => {
                     positionals.iter().chain(labeled_values.iter()).copied().for_each(&mut push_term);
                 }
                 StaticResidualData::Tuple { elements, .. } => elements.iter().copied().for_each(&mut push_term),
@@ -351,7 +366,11 @@ impl<'a> StaticSemanticFingerprinter<'a> {
                     self.term(*argument, &mut hash)?;
                 }
             }
-            StaticResidualData::Proof { goal, result_type, environment } => {
+            StaticResidualData::Proof {
+                goal,
+                result_type,
+                environment,
+            } => {
                 hash.write_u8(2);
                 hash.write_fingerprint(self.ty(result_type)?);
                 self.environment(&environment, &mut hash)?;
@@ -373,7 +392,11 @@ impl<'a> StaticSemanticFingerprinter<'a> {
                     }
                 }
             }
-            StaticResidualData::MemberProjection { projection, result_domain, environment } => {
+            StaticResidualData::MemberProjection {
+                projection,
+                result_domain,
+                environment,
+            } => {
                 hash.write_u8(3);
                 self.domain(result_domain, &mut hash)?;
                 self.environment(&environment, &mut hash)?;
@@ -383,14 +406,21 @@ impl<'a> StaticSemanticFingerprinter<'a> {
             StaticResidualData::Match { .. } => {
                 return Err("Match residual lacks standalone checked pattern identity for stable publication".into());
             }
-            StaticResidualData::Pack { positionals, labels, labeled_values, result_type } => {
+            StaticResidualData::Pack {
+                positionals,
+                labels,
+                labeled_values,
+                result_type,
+            } => {
                 if labels.len() != labeled_values.len() {
                     return Err("Pack residual has mismatched labeled lanes".into());
                 }
                 hash.write_u8(6);
                 hash.write_fingerprint(self.ty(result_type)?);
                 hash.write_u32(positionals.len() as u32);
-                for term in positionals.iter() { self.term(*term, &mut hash)?; }
+                for term in positionals.iter() {
+                    self.term(*term, &mut hash)?;
+                }
                 hash.write_u32(labels.len() as u32);
                 for (label, term) in labels.iter().zip(labeled_values.iter()) {
                     hash.write_str(label);
@@ -400,7 +430,9 @@ impl<'a> StaticSemanticFingerprinter<'a> {
             StaticResidualData::Tuple { elements, result_type } => {
                 hash.write_u8(7);
                 hash.write_fingerprint(self.ty(result_type)?);
-                for term in elements.iter() { self.term(*term, &mut hash)?; }
+                for term in elements.iter() {
+                    self.term(*term, &mut hash)?;
+                }
             }
             StaticResidualData::Record { fields, result_type } => {
                 hash.write_u8(8);
@@ -410,7 +442,12 @@ impl<'a> StaticSemanticFingerprinter<'a> {
                     self.term(*term, &mut hash)?;
                 }
             }
-            StaticResidualData::Data { owner, constructor, result_type, components } => {
+            StaticResidualData::Data {
+                owner,
+                constructor,
+                result_type,
+                components,
+            } => {
                 hash.write_u8(9);
                 hash.write_fingerprint(self.declaration(&owner));
                 hash.write_fingerprint(self.declaration(&constructor.owner));
@@ -454,23 +491,37 @@ impl<'a> StaticSemanticFingerprinter<'a> {
             let data = self.values.get(current).map_err(|error| error.to_string())?;
             match data {
                 StaticValueData::Tuple(id) => {
-                    for child in self.values.get_tuple(*id).map_err(|error| error.to_string())? { work.push((*child, false)); }
+                    for child in self.values.get_tuple(*id).map_err(|error| error.to_string())? {
+                        work.push((*child, false));
+                    }
                 }
                 StaticValueData::Sequence(id) => {
-                    for child in self.values.get_sequence(*id).map_err(|error| error.to_string())?.elements() { work.push((*child, false)); }
+                    for child in self.values.get_sequence(*id).map_err(|error| error.to_string())?.elements() {
+                        work.push((*child, false));
+                    }
                 }
                 StaticValueData::Record(id) => {
-                    for field in self.values.get_record(*id).map_err(|error| error.to_string())? { work.push((field.value, false)); }
+                    for field in self.values.get_record(*id).map_err(|error| error.to_string())? {
+                        work.push((field.value, false));
+                    }
                 }
                 StaticValueData::Data(id) => {
-                    for (_, child) in self.values.get_data(*id).map_err(|error| error.to_string())?.components.iter() { work.push((*child, false)); }
+                    for (_, child) in self.values.get_data(*id).map_err(|error| error.to_string())?.components.iter() {
+                        work.push((*child, false));
+                    }
                 }
                 StaticValueData::Variant(id) => {
-                    for (_, child) in self.values.get_variant(*id).map_err(|error| error.to_string())?.fields.iter() { work.push((*child, false)); }
+                    for (_, child) in self.values.get_variant(*id).map_err(|error| error.to_string())?.fields.iter() {
+                        work.push((*child, false));
+                    }
                 }
                 StaticValueData::Pack(id) => {
-                    for child in self.values.pack_positionals(*id).map_err(|error| error.to_string())? { work.push((*child, false)); }
-                    for (_, child) in self.values.pack_labeled(*id).map_err(|error| error.to_string())? { work.push((child, false)); }
+                    for child in self.values.pack_positionals(*id).map_err(|error| error.to_string())? {
+                        work.push((*child, false));
+                    }
+                    for (_, child) in self.values.pack_labeled(*id).map_err(|error| error.to_string())? {
+                        work.push((child, false));
+                    }
                 }
                 _ => {}
             }
@@ -483,10 +534,22 @@ impl<'a> StaticSemanticFingerprinter<'a> {
         let mut hash = FingerprintBuilder::new();
         match data {
             StaticValueData::Unit => hash.write_u8(0),
-            StaticValueData::Bool(value) => { hash.write_u8(1); hash.write_u8(u8::from(value)); }
-            StaticValueData::Char(value) => { hash.write_u8(2); hash.write_u32(value as u32); }
-            StaticValueData::Int(value) => { hash.write_u8(3); hash.write_bytes(&value.to_bigint().to_signed_bytes_le()); }
-            StaticValueData::Float(value) => { hash.write_u8(4); hash.write_u64(value.bits()); }
+            StaticValueData::Bool(value) => {
+                hash.write_u8(1);
+                hash.write_u8(u8::from(value));
+            }
+            StaticValueData::Char(value) => {
+                hash.write_u8(2);
+                hash.write_u32(value as u32);
+            }
+            StaticValueData::Int(value) => {
+                hash.write_u8(3);
+                hash.write_bytes(&value.to_bigint().to_signed_bytes_le());
+            }
+            StaticValueData::Float(value) => {
+                hash.write_u8(4);
+                hash.write_u64(value.bits());
+            }
             StaticValueData::String(id) => {
                 hash.write_u8(5);
                 hash.write_str(self.values.get_string(id).ok_or("missing static String")?);
@@ -495,21 +558,34 @@ impl<'a> StaticSemanticFingerprinter<'a> {
                 hash.write_u8(6);
                 hash.write_str(self.values.get_symbol(id).ok_or("missing static Symbol")?);
             }
-            StaticValueData::Type(ty) => { hash.write_u8(7); hash.write_fingerprint(self.ty(ty)?); }
-            StaticValueData::StaticTerm(ty) => { hash.write_u8(8); hash.write_fingerprint(self.ty(ty)?); }
+            StaticValueData::Type(ty) => {
+                hash.write_u8(7);
+                hash.write_fingerprint(self.ty(ty)?);
+            }
+            StaticValueData::StaticTerm(ty) => {
+                hash.write_u8(8);
+                hash.write_fingerprint(self.ty(ty)?);
+            }
             StaticValueData::Tuple(id) => {
                 hash.write_u8(9);
                 let children = self.values.get_tuple(id).map_err(|error| error.to_string())?.to_vec();
                 hash.write_u32(children.len() as u32);
-                for child in children { hash.write_fingerprint(self.value(child)?); }
+                for child in children {
+                    hash.write_fingerprint(self.value(child)?);
+                }
             }
             StaticValueData::Sequence(id) => {
                 hash.write_u8(10);
                 let sequence = self.values.get_sequence(id).map_err(|error| error.to_string())?;
                 let (family, result_type, children) = (sequence.family(), sequence.result_type(), sequence.elements().to_vec());
-                hash.write_u8(match family { crate::static_value::StaticSequenceFamily::Array => 0, crate::static_value::StaticSequenceFamily::Vector => 1 });
+                hash.write_u8(match family {
+                    crate::static_value::StaticSequenceFamily::Array => 0,
+                    crate::static_value::StaticSequenceFamily::Vector => 1,
+                });
                 hash.write_fingerprint(self.ty(result_type)?);
-                for child in children { hash.write_fingerprint(self.value(child)?); }
+                for child in children {
+                    hash.write_fingerprint(self.value(child)?);
+                }
             }
             StaticValueData::Record(id) => {
                 hash.write_u8(11);
@@ -548,7 +624,9 @@ impl<'a> StaticSemanticFingerprinter<'a> {
                 let positionals = self.values.pack_positionals(id).map_err(|error| error.to_string())?.to_vec();
                 let labeled = self.values.pack_labeled(id).map_err(|error| error.to_string())?.to_vec();
                 hash.write_u32(positionals.len() as u32);
-                for value in positionals { hash.write_fingerprint(self.value(value)?); }
+                for value in positionals {
+                    hash.write_fingerprint(self.value(value)?);
+                }
                 hash.write_u32(labeled.len() as u32);
                 for (symbol, value) in labeled {
                     hash.write_str(self.values.get_symbol(symbol).ok_or("missing Pack label")?);

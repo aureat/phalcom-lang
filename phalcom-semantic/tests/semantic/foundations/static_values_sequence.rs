@@ -2,9 +2,7 @@ use num_bigint::BigInt;
 use phalcom_semantic::core_surface::universe_declaration;
 use phalcom_semantic::data_semantics::DataSemanticTable;
 use phalcom_semantic::enum_semantics::EnumSemanticTable;
-use phalcom_semantic::materialization::{
-    DeferredStructuralKind, MaterializationCapability, MaterializationDescriptor, SequenceMaterializationKind,
-};
+use phalcom_semantic::materialization::{DeferredStructuralKind, MaterializationCapability, MaterializationDescriptor, SequenceMaterializationKind};
 use phalcom_semantic::static_value::{StaticFloat, StaticInt, StaticSequenceFamily, StaticValueData, StaticValueStore, StaticValueStoreError};
 use phalcom_semantic::types::store::{StaticArgument, TupleTypeElement, TypeData};
 use phalcom_semantic::types::{KindId, TypeId, TypeStore};
@@ -34,10 +32,7 @@ fn vector_type(types: &mut TypeStore, element: TypeId, extent: BigInt) -> TypeId
     );
     let extent = types.const_int(extent);
     types
-        .apply_static_form(
-            origin,
-            &[StaticArgument::Term(element), StaticArgument::Term(extent)],
-        )
+        .apply_static_form(origin, &[StaticArgument::Term(element), StaticArgument::Term(extent)])
         .expect("Vector type application")
 }
 
@@ -70,7 +65,10 @@ fn static_sequence_storage_validates_family_extent_and_ownership() {
     let vector_value = values.intern_sequence(vector_two, vec![one, two], &types).expect("Vector value");
     assert_ne!(array_value, vector_value, "Array and Vector retain distinct result identity");
     assert!(matches!(values.get(vector_value), Ok(StaticValueData::Sequence(_))));
-    assert!(values.intern_sequence(vector_two, vec![one], &types).is_err(), "exact Vector extent must match contents");
+    assert!(
+        values.intern_sequence(vector_two, vec![one], &types).is_err(),
+        "exact Vector extent must match contents"
+    );
     let empty_vector = values.intern_sequence(vector_zero, Vec::new(), &types).expect("zero extent Vector");
     assert!(matches!(values.get(empty_vector), Ok(StaticValueData::Sequence(_))));
     assert!(matches!(
@@ -190,16 +188,17 @@ fn static_sequence_materialization_is_recursive_and_truthfully_deferred() {
         .intern_sequence(array_of_arrays, vec![nested_child], &types)
         .expect("nested sequence descriptor source");
     let tuple = values.intern_tuple(vec![one]).expect("deferred Tuple child");
-    let deferred_outer = values
-        .intern_sequence(array_of_tuples, vec![tuple], &types)
-        .expect("deferred outer sequence");
+    let deferred_outer = values.intern_sequence(array_of_tuples, vec![tuple], &types).expect("deferred outer sequence");
 
     let array_descriptor = MaterializationDescriptor::from_static_value(&values, array_value).expect("Array descriptor");
     assert_eq!(
         array_descriptor,
         MaterializationDescriptor::Sequence {
             kind: SequenceMaterializationKind::FrozenArray,
-            elements: Arc::from([MaterializationDescriptor::Int(StaticInt::Small(1)), MaterializationDescriptor::Int(StaticInt::Small(2))]),
+            elements: Arc::from([
+                MaterializationDescriptor::Int(StaticInt::Small(1)),
+                MaterializationDescriptor::Int(StaticInt::Small(2))
+            ]),
         }
     );
     assert_eq!(array_descriptor.capability(), MaterializationCapability::Sequence);
@@ -210,7 +209,10 @@ fn static_sequence_materialization_is_recursive_and_truthfully_deferred() {
         vector_descriptor,
         MaterializationDescriptor::Sequence {
             kind: SequenceMaterializationKind::Vector,
-            elements: Arc::from([MaterializationDescriptor::Int(StaticInt::Small(1)), MaterializationDescriptor::Int(StaticInt::Small(2))]),
+            elements: Arc::from([
+                MaterializationDescriptor::Int(StaticInt::Small(1)),
+                MaterializationDescriptor::Int(StaticInt::Small(2))
+            ]),
         }
     );
 
@@ -235,7 +237,10 @@ fn static_sequence_materialization_is_recursive_and_truthfully_deferred() {
 
     let clone = nested_descriptor.clone();
     drop(values);
-    assert_eq!(clone, nested_descriptor, "descriptor clones own their recursive payload without arena references");
+    assert_eq!(
+        clone, nested_descriptor,
+        "descriptor clones own their recursive payload without arena references"
+    );
 }
 
 #[test]
@@ -256,7 +261,10 @@ fn descriptor_materialization_handles_reasonably_deep_nested_sequences() {
     let mut current = &descriptor;
     loop {
         match current {
-            MaterializationDescriptor::Sequence { kind: SequenceMaterializationKind::FrozenArray, elements } => {
+            MaterializationDescriptor::Sequence {
+                kind: SequenceMaterializationKind::FrozenArray,
+                elements,
+            } => {
                 depth += 1;
                 current = elements.first().expect("nested element");
             }

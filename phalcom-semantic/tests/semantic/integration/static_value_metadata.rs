@@ -43,10 +43,7 @@ fn vector_type(types: &mut TypeStore, element: TypeId, extent: BigInt) -> TypeId
     );
     let extent = types.const_int(extent);
     types
-        .apply_static_form(
-            origin,
-            &[StaticArgument::Term(element), StaticArgument::Term(extent)],
-        )
+        .apply_static_form(origin, &[StaticArgument::Term(element), StaticArgument::Term(extent)])
         .expect("Vector type application")
 }
 
@@ -97,8 +94,7 @@ fn static_value_metadata_primitives_scalars_and_floats() {
     assert_eq!(entries[fpz_id.0 as usize].node, StaticValueNode::FloatBits(0.0f64.to_bits()));
     assert_eq!(entries[fnz_id.0 as usize].node, StaticValueNode::FloatBits((-0.0f64).to_bits()));
     assert_ne!(
-        entries[fpz_id.0 as usize].structural_fingerprint,
-        entries[fnz_id.0 as usize].structural_fingerprint,
+        entries[fpz_id.0 as usize].structural_fingerprint, entries[fnz_id.0 as usize].structural_fingerprint,
         "+0.0 and -0.0 must have distinct structural fingerprints"
     );
 
@@ -154,8 +150,7 @@ fn static_value_metadata_string_and_symbol_distinction() {
     assert_eq!(entries[s_id.0 as usize].node, StaticValueNode::String("tag".into()));
     assert_eq!(entries[sym_id.0 as usize].node, StaticValueNode::Symbol("tag".into()));
     assert_ne!(
-        entries[s_id.0 as usize].structural_fingerprint,
-        entries[sym_id.0 as usize].structural_fingerprint,
+        entries[s_id.0 as usize].structural_fingerprint, entries[sym_id.0 as usize].structural_fingerprint,
         "String and Symbol with same spelling must have distinct fingerprints"
     );
 }
@@ -196,8 +191,7 @@ fn static_value_metadata_tuples_and_sequences() {
         StaticValueNode::Sequence { family: StaticSequenceFamilyRef::Vector, ref elements, .. } if elements.len() == 2
     ));
     assert_ne!(
-        entries[arr_id.0 as usize].structural_fingerprint,
-        entries[vec_id.0 as usize].structural_fingerprint,
+        entries[arr_id.0 as usize].structural_fingerprint, entries[vec_id.0 as usize].structural_fingerprint,
         "Array and Vector with identical elements must have distinct fingerprints"
     );
 }
@@ -213,12 +207,14 @@ fn static_value_metadata_record_all_four_key_kinds() {
     let v3 = store.intern_int(30);
     let v4 = store.intern_int(40);
 
-    let rec_ref = store.intern_record(vec![
-        (FieldKey::symbol("sym"), v1),
-        (FieldKey::string("str"), v2),
-        (FieldKey::int(StaticInt::Small(42)), v3),
-        (FieldKey::bool(false), v4),
-    ]).unwrap();
+    let rec_ref = store
+        .intern_record(vec![
+            (FieldKey::symbol("sym"), v1),
+            (FieldKey::string("str"), v2),
+            (FieldKey::int(StaticInt::Small(42)), v3),
+            (FieldKey::bool(false), v4),
+        ])
+        .unwrap();
 
     let mut export_type = dummy_type_exporter();
     let mut exporter = StaticValueTableExporter::new(&store, context);
@@ -259,7 +255,11 @@ fn static_value_metadata_pack_root_and_slice() {
     let slice_id = exporter.export_value(pack_slice, &mut export_type).unwrap();
     let entries = exporter.finish();
 
-    let StaticValueNode::Pack { positionals: ref r_pos, labeled: ref r_lab } = entries[root_id.0 as usize].node else {
+    let StaticValueNode::Pack {
+        positionals: ref r_pos,
+        labeled: ref r_lab,
+    } = entries[root_id.0 as usize].node
+    else {
         panic!("expected Pack node");
     };
     assert_eq!(r_pos.len(), 3);
@@ -267,7 +267,11 @@ fn static_value_metadata_pack_root_and_slice() {
     assert_eq!(r_lab[0].0.as_ref(), "a");
     assert_eq!(r_lab[1].0.as_ref(), "b");
 
-    let StaticValueNode::Pack { positionals: ref s_pos, labeled: ref s_lab } = entries[slice_id.0 as usize].node else {
+    let StaticValueNode::Pack {
+        positionals: ref s_pos,
+        labeled: ref s_lab,
+    } = entries[slice_id.0 as usize].node
+    else {
         panic!("expected Pack node");
     };
     assert_eq!(s_pos.len(), 2, "slice must reflect logical positional length");
@@ -336,25 +340,21 @@ fn static_value_metadata_independent_store_lineage_equivalence() {
     let entries_b = exporter_b.finish();
 
     assert_eq!(
-        entries_a[id_a.0 as usize].structural_fingerprint,
-        entries_b[id_b.0 as usize].structural_fingerprint,
+        entries_a[id_a.0 as usize].structural_fingerprint, entries_b[id_b.0 as usize].structural_fingerprint,
         "identical structural values across different store lineages must yield identical durable fingerprints"
     );
 }
 
 #[test]
 fn static_value_metadata_data_and_variant() {
-    use phalcom_common::selector::Selector;
     use phalcom_common::Visibility;
+    use phalcom_common::selector::Selector;
     use phalcom_modules::identity::{ModuleId, ProjectIdentity};
     use phalcom_semantic::data_semantics::{
-        DataComponentSemantic, DataConstructorParameter, DataConstructorSignature, DataInfo, DataProductContribution,
-        DataProductShapeTemplate, DataShape,
+        DataComponentSemantic, DataConstructorParameter, DataConstructorSignature, DataInfo, DataProductContribution, DataProductShapeTemplate, DataShape,
     };
     use phalcom_semantic::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
-    use phalcom_semantic::enum_semantics::{
-        AlgebraicCasePayloadKind, VariantInfo, VariantShape, VariantVisibility,
-    };
+    use phalcom_semantic::enum_semantics::{AlgebraicCasePayloadKind, VariantInfo, VariantShape, VariantVisibility};
     use phalcom_semantic::identity::{DataComponentId, DataConstructorId, DeclarationId, VariantId};
     use phalcom_semantic::types::evidence::{EvidenceOrigin, TypeKnowledge};
 
@@ -430,7 +430,9 @@ fn static_value_metadata_data_and_variant() {
 
     let ten = store.intern_int(10);
     let twenty = store.intern_int(20);
-    let data_ref = store.intern_data(&data_info, point_ty, vec![(comp_x.id, ten), (comp_y.id, twenty)], &types).unwrap();
+    let data_ref = store
+        .intern_data(&data_info, point_ty, vec![(comp_x.id, ten), (comp_y.id, twenty)], &types)
+        .unwrap();
 
     // Variant:
     let enum_decl = DeclarationId::new(module, "Option".into());
@@ -467,16 +469,16 @@ fn static_value_metadata_data_and_variant() {
 
 #[test]
 fn static_constant_metadata_export_and_import_round_trip() {
-    use std::sync::Arc;
     use phalcom_modules::identity::ModuleId;
-    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
-    use phalcom_type_meta::header::MetadataProfile;
-    use phalcom_type_meta::validate::{validate_metadata_bundle, ValidationLimits};
-    use phalcom_semantic::metadata::export::MetadataExporter;
+    use phalcom_semantic::analyze_single_module;
     use phalcom_semantic::metadata::SemanticMetadataImporter;
+    use phalcom_semantic::metadata::export::MetadataExporter;
     use phalcom_semantic::static_constant::{StaticConstantId, StaticConstantTable};
     use phalcom_semantic::static_value::StaticValueData;
-    use phalcom_semantic::analyze_single_module;
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+    use phalcom_type_meta::header::MetadataProfile;
+    use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
+    use std::sync::Arc;
 
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
@@ -510,10 +512,7 @@ fn static_constant_metadata_export_and_import_round_trip() {
         MetadataProfile::RuntimePublic,
     )
     .with_project_universe(&projects)
-    .with_static_constant_table(
-        &analysis.snapshot.static_constants,
-        analysis.snapshot.static_values(),
-    );
+    .with_static_constant_table(&analysis.snapshot.static_constants, analysis.snapshot.static_values());
 
     let bundle = exporter.build_bundle(&[]).expect("build bundle with static constants");
     validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("exported bundle should validate");
@@ -547,11 +546,15 @@ fn static_constant_metadata_export_and_import_round_trip() {
     assert_eq!(ans_val, &StaticValueData::Int(StaticInt::Small(42)));
 
     let greet_val = store_b.get(greet_b.value().unwrap()).unwrap();
-    let StaticValueData::String(str_id) = greet_val else { panic!("expected String value"); };
+    let StaticValueData::String(str_id) = greet_val else {
+        panic!("expected String value");
+    };
     assert_eq!(store_b.get_string(*str_id), Some("hello"));
 
     let pack_val = store_b.get(pack_b.value().unwrap()).unwrap();
-    let StaticValueData::Pack(p_id) = pack_val else { panic!("expected Pack value"); };
+    let StaticValueData::Pack(p_id) = pack_val else {
+        panic!("expected Pack value");
+    };
     let pos = store_b.pack_positionals(*p_id).unwrap();
     assert_eq!(pos.len(), 2);
 }

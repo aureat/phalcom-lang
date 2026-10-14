@@ -3,8 +3,7 @@
 use crate::field_key::FieldKeyRef;
 use crate::fingerprint::{Fingerprint128, FingerprintBuilder};
 use crate::identity::{
-    StableDataComponentRef, StableDeclarationRef, StableModuleRef, StableProjectRef, StableStaticConstantRef,
-    StableVariantFieldRef, StableVariantRef,
+    StableDataComponentRef, StableDeclarationRef, StableModuleRef, StableProjectRef, StableStaticConstantRef, StableVariantFieldRef, StableVariantRef,
 };
 use crate::kind::KindNodeId;
 use crate::scalar::StaticInt;
@@ -96,13 +95,20 @@ fn write_stable_project(fp: &mut FingerprintBuilder, proj: &StableProjectRef) {
             fp.write_str(namespace);
             fp.write_str(version);
         }
-        StableProjectRef::Package { package, version, artifact_fingerprint } => {
+        StableProjectRef::Package {
+            package,
+            version,
+            artifact_fingerprint,
+        } => {
             fp.write_u8(1);
             fp.write_str(package);
             fp.write_str(version);
             fp.write_fingerprint(*artifact_fingerprint);
         }
-        StableProjectRef::SourceArtifact { logical_uri, source_fingerprint } => {
+        StableProjectRef::SourceArtifact {
+            logical_uri,
+            source_fingerprint,
+        } => {
             fp.write_u8(2);
             fp.write_str(logical_uri);
             fp.write_fingerprint(*source_fingerprint);
@@ -157,11 +163,7 @@ fn write_field_key(fp: &mut FingerprintBuilder, key: &FieldKeyRef) {
 }
 
 /// Computes the content-based structural fingerprint for a static value node.
-pub fn compute_static_value_fingerprint<FNode, FType>(
-    node: &StaticValueNode,
-    child_fingerprint: FNode,
-    type_fingerprint: FType,
-) -> Fingerprint128
+pub fn compute_static_value_fingerprint<FNode, FType>(node: &StaticValueNode, child_fingerprint: FNode, type_fingerprint: FType) -> Fingerprint128
 where
     FNode: Fn(StaticValueNodeId) -> Fingerprint128,
     FType: Fn(TypeNodeId) -> Fingerprint128,
@@ -242,7 +244,11 @@ where
                 fp.write_fingerprint(child_fingerprint(*val));
             }
         }
-        StaticValueNode::Data { owner, result_type, components } => {
+        StaticValueNode::Data {
+            owner,
+            result_type,
+            components,
+        } => {
             fp.write_u8(13);
             write_stable_declaration(&mut fp, owner);
             fp.write_fingerprint(type_fingerprint(*result_type));

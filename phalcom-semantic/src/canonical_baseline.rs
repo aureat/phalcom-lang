@@ -322,9 +322,7 @@ impl CanonicalUniverseSemanticBaseline {
                 let Statement::Class(class_def) = stmt else { continue };
                 let declaration = base_declarations
                     .iter()
-                    .find_map(|(declaration, _)| {
-                        (declaration.module == module_id && declaration.name.as_ref() == class_def.name).then(|| declaration.clone())
-                    })
+                    .find_map(|(declaration, _)| (declaration.module == module_id && declaration.name.as_ref() == class_def.name).then(|| declaration.clone()))
                     .unwrap_or_else(|| panic!("canonical Universe class declaration is missing: {module_id}::{}", class_def.name));
                 let (resolved_super_decl, _) = crate::checker::context::resolve_source_class_superclass(&declaration, class_def, &resolver);
                 let source_super_decl = resolved_super_decl.or_else(|| {
@@ -340,7 +338,10 @@ impl CanonicalUniverseSemanticBaseline {
                     (base_hierarchy.superclasses.get(&declaration) == Some(&expected)).then_some(expected)
                 });
                 if class_def.superclass.is_some() && source_super_decl.is_none() {
-                    panic!("could not resolve canonical Universe superclass for {declaration:?}: {:?}", class_def.superclass);
+                    panic!(
+                        "could not resolve canonical Universe superclass for {declaration:?}: {:?}",
+                        class_def.superclass
+                    );
                 }
                 if let Some(super_decl) = source_super_decl.as_ref() {
                     base_hierarchy.insert(declaration.clone(), super_decl.clone());

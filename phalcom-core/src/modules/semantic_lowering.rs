@@ -1378,14 +1378,12 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                         .find(|r| &r.impl_id == impl_id)
                         .map(|r| &r.generic_signature)
                 }),
-            _ if callable_id.side == phalcom_semantic::identity::DispatchSide::Instance => callable_id
-                .try_declaration_owner()
-                .and_then(|owner| {
-                    snapshot
-                        .declarations
-                        .generic_signature(owner)
-                        .or_else(|| snapshot.trait_headers.get(owner).and_then(|h| h.generic_signature.as_ref()))
-                }),
+            _ if callable_id.side == phalcom_semantic::identity::DispatchSide::Instance => callable_id.try_declaration_owner().and_then(|owner| {
+                snapshot
+                    .declarations
+                    .generic_signature(owner)
+                    .or_else(|| snapshot.trait_headers.get(owner).and_then(|h| h.generic_signature.as_ref()))
+            }),
             _ => None,
         };
         let mut generic_evidence = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::empty();
@@ -1499,16 +1497,20 @@ pub fn build_module_lowering_semantics_with_runtime_types_calls_and_conditional_
                         TypeData::ConstInt(value) => u32::try_from(value.to_bigint()).ok(),
                         _ => None,
                     }),
-                    exact_expansion_counts: literal.exact_expansions.iter().filter_map(|(range, expansion)| {
-                        let extent = match expansion {
-                            phalcom_semantic::checker::SequenceExpansionResolution::TuplePositionals { extent }
-                            | phalcom_semantic::checker::SequenceExpansionResolution::VectorStorage { extent } => *extent,
-                        };
-                        match snapshot.store.get(extent) {
-                            TypeData::ConstInt(value) => u32::try_from(value.to_bigint()).ok().map(|count| (*range, count)),
-                            _ => None,
-                        }
-                    }).collect(),
+                    exact_expansion_counts: literal
+                        .exact_expansions
+                        .iter()
+                        .filter_map(|(range, expansion)| {
+                            let extent = match expansion {
+                                phalcom_semantic::checker::SequenceExpansionResolution::TuplePositionals { extent }
+                                | phalcom_semantic::checker::SequenceExpansionResolution::VectorStorage { extent } => *extent,
+                            };
+                            match snapshot.store.get(extent) {
+                                TypeData::ConstInt(value) => u32::try_from(value.to_bigint()).ok().map(|count| (*range, count)),
+                                _ => None,
+                            }
+                        })
+                        .collect(),
                 },
             );
         }
@@ -3133,9 +3135,9 @@ fn project_antecedent_slots(
                 .trait_header_contract
                 .iter()
                 .filter_map(|constraint| match constraint {
-                    phalcom_semantic::types::parameter::GenericConstraint::Conforms { subject, trait_ref } => {
-                        Some(phalcom_semantic::generic_evidence::GenericConformanceKey::new(subject.clone(), trait_ref.clone()))
-                    }
+                    phalcom_semantic::types::parameter::GenericConstraint::Conforms { subject, trait_ref } => Some(
+                        phalcom_semantic::generic_evidence::GenericConformanceKey::new(subject.clone(), trait_ref.clone()),
+                    ),
                     _ => None,
                 })
                 .collect::<std::collections::BTreeSet<_>>();
@@ -3157,13 +3159,11 @@ fn project_antecedent_slots(
                         },
                     ) => {
                         let layout_key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(subject.clone(), trait_ref.clone());
-                        let proof_key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
-                            normalized_subject.clone(),
-                            normalized_trait_ref.clone(),
-                        );
-                        let prerequisite = prerequisite_proofs.get(&proof_key).ok_or_else(|| {
-                            ProjectionError::GenericEvidenceLayout(format!("missing published exact proof for {proof_key:?}"))
-                        })?;
+                        let proof_key =
+                            phalcom_semantic::generic_evidence::GenericConformanceKey::new(normalized_subject.clone(), normalized_trait_ref.clone());
+                        let prerequisite = prerequisite_proofs
+                            .get(&proof_key)
+                            .ok_or_else(|| ProjectionError::GenericEvidenceLayout(format!("missing published exact proof for {proof_key:?}")))?;
                         let phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(prerequisite) = prerequisite else {
                             return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
                                 "exact trait-header projection requires direct exact prerequisite proofs",
@@ -3175,9 +3175,11 @@ fn project_antecedent_slots(
                             ));
                         }
                         for (slot_key, target_slot) in nested_layout.layout().slots.iter().filter(|(slot_key, _)| slot_key.conformance == layout_key) {
-                            let selection = prerequisite.requirements.get(&slot_key.requirement).cloned().ok_or_else(|| {
-                                ProjectionError::MissingTraitRequirementSlot(slot_key.requirement.clone())
-                            })?;
+                            let selection = prerequisite
+                                .requirements
+                                .get(&slot_key.requirement)
+                                .cloned()
+                                .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(slot_key.requirement.clone()))?;
                             antecedent_slots.push((*target_slot, selection, slot_key.requirement.selector.clone()));
                         }
                     }
@@ -3257,9 +3259,7 @@ fn project_contextual_realization(
     snapshot: &SemanticSnapshot,
     projects: &phalcom_modules::ProjectUniverse,
 ) -> Result<ContextualRealizationLoweringSpec, ProjectionError> {
-    use phalcom_semantic::checker::analysis::{
-        ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource,
-    };
+    use phalcom_semantic::checker::analysis::{ContextualRealizationOperation, RealizationCapabilitySelection, RealizationCoefficientSource};
 
     fn project_capability(
         expression: ExpressionId,
@@ -3342,18 +3342,11 @@ fn project_contextual_realization(
                 .nominal_origin_declaration(*basis_type)
                 .cloned()
                 .ok_or(ProjectionError::MissingContextualRealizationClass(realization.source_expression))?;
-            let basis_construction = build_data_construction_spec(
-                snapshot,
-                projects,
-                &DataConstructorId::new(basis_class),
-                *basis_type,
-                0,
-                Some(Box::new([])),
-            )?;
+            let basis_construction =
+                build_data_construction_spec(snapshot, projects, &DataConstructorId::new(basis_class), *basis_type, 0, Some(Box::new([])))?;
             let (coefficient_receiver, coefficient_one) = match coefficient {
                 RealizationCoefficientSource::One { scalar_type, one } => {
-                    let (receiver, invocation) =
-                        project_capability(realization.source_expression, *scalar_type, one, generic_evidence, snapshot, projects)?;
+                    let (receiver, invocation) = project_capability(realization.source_expression, *scalar_type, one, generic_evidence, snapshot, projects)?;
                     (Some(receiver), Some(invocation))
                 }
                 RealizationCoefficientSource::IntegerLiteral { .. }
@@ -3368,12 +3361,10 @@ fn project_contextual_realization(
                 coefficient_one,
             }
         }
-        ContextualRealizationOperation::RealEmbedding { value, scalar_type } => {
-            ContextualRealizationOperationLowering::RealEmbedding {
-                value: *value,
-                scalar_type: *scalar_type,
-            }
-        }
+        ContextualRealizationOperation::RealEmbedding { value, scalar_type } => ContextualRealizationOperationLowering::RealEmbedding {
+            value: *value,
+            scalar_type: *scalar_type,
+        },
     };
 
     Ok(ContextualRealizationLoweringSpec {
@@ -3450,9 +3441,7 @@ fn classify_realization_prerequisite_projection(
                         has_assumed_prerequisite = true;
                     }
                     NestedGenericEvidence::Conformance(
-                        GenericConformanceEvidence::Exact(_)
-                        | GenericConformanceEvidence::Derived(_)
-                        | GenericConformanceEvidence::CompilerDerived(_),
+                        GenericConformanceEvidence::Exact(_) | GenericConformanceEvidence::Derived(_) | GenericConformanceEvidence::CompilerDerived(_),
                     ) => {
                         return Err(ProjectionError::UnsupportedContextualRealizationEvidence(
                             "only caller-assumed prerequisites can be forwarded safely",

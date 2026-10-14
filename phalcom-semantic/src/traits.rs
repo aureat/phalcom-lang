@@ -381,11 +381,8 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
             continue;
         }
         let domain = if let Some(result_domain) = &declaration.result_domain {
-            let formation_site = crate::types::annotation::TypeFormationSite::member(
-                ctx.current_module.clone(),
-                header.declaration.clone(),
-                DispatchSide::Instance,
-            );
+            let formation_site =
+                crate::types::annotation::TypeFormationSite::member(ctx.current_module.clone(), header.declaration.clone(), DispatchSide::Instance);
             match crate::static_domain::resolve_static_domain(
                 ctx.store,
                 ctx.declarations,

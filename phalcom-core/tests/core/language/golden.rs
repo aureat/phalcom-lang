@@ -67,12 +67,8 @@ fn fixture_blocks_escaping_counter() {
 
 #[test]
 fn fixture_control_flow_if_let_while_let() {
-    let expected = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/language/control-flow/control_flow_if_let_while_let.expected"),
-    )
-    .expect("read expected");
-    assert_golden(
-        "tests/fixtures/language/control-flow/control_flow_if_let_while_let.ph",
-        &expected,
-    );
+    let expected =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/language/control-flow/control_flow_if_let_while_let.expected"))
+            .expect("read expected");
+    assert_golden("tests/fixtures/language/control-flow/control_flow_if_let_while_let.ph", &expected);
 }

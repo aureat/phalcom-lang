@@ -1,7 +1,7 @@
 use crate::DeclError;
 use crate::normalized::NormalizedPrimitiveDecl;
-use phalcom_native_meta::{NativeSignatureMode, PrimitiveAbi};
 use phalcom_common::selector::Selector;
+use phalcom_native_meta::{NativeSignatureMode, PrimitiveAbi};
 
 pub fn validate_decl(decl: &NormalizedPrimitiveDecl) -> Result<(), DeclError> {
     let selector = Selector::try_decode_exact(&decl.key.selector).map_err(|error| DeclError::InvalidSelector(error.to_string()))?;

@@ -88,6 +88,7 @@ pub use advisory::{
 };
 pub use associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedFamilyTable, AssociatedMemberId, AssociatedSurface};
 pub use canonical_baseline::*;
+pub use checker::static_iteration::{StaticIterationItemDomain, StaticIterationLaneResolution, StaticIterationLaneResolutionIndex, StaticIterationMode};
 pub use checker::{
     AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CallableReferenceResolution, CallableReferenceResolutionIndex,
     CallableReferenceResolutionKind, CheckingContext, FamilyApplicationCandidate, FamilyApplicationResolution, FamilyApplicationResolutionIndex,
@@ -155,8 +156,8 @@ pub use resolver::LinkedTypeResolver;
 pub use scope::ScopeTable;
 pub use semantic_shard::ModuleSemanticStructureShard;
 pub use session::{
-    SemanticPublicationEffects, SemanticUpdateFailure, SemanticUpdateStats, SemanticWorkspacePublication, SemanticWorkspaceSession,
-    SemanticWorkspaceUpdate, SemanticWorkspaceUpdateError,
+    SemanticPublicationEffects, SemanticUpdateFailure, SemanticUpdateStats, SemanticWorkspacePublication, SemanticWorkspaceSession, SemanticWorkspaceUpdate,
+    SemanticWorkspaceUpdateError,
 };
 pub use signature::{
     CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, ConstructorInitializationProduct, ConstructorInitializationTable,
@@ -171,9 +172,6 @@ pub use static_constant::{CheckedStaticConstantInitializer, CheckedStaticExpress
 pub use static_definition::{
     CheckedStaticBody, StaticBodyId, StaticDefinition, StaticDefinitionBodyRepr, StaticDefinitionProduct, StaticDefinitionSignature, StaticDefinitionTable,
     StaticParameter, resolve_static_definition,
-};
-pub use checker::static_iteration::{
-    StaticIterationItemDomain, StaticIterationLaneResolution, StaticIterationLaneResolutionIndex, StaticIterationMode,
 };
 pub use static_domain::{StaticDomainResolution, StaticValueDomain, is_proper_type, resolve_static_domain, validate_proper_type};
 pub use static_intrinsic::{
@@ -224,6 +222,4 @@ pub use types::{
     is_subtype, normalize_native_type, register_native_surfaces, register_native_surfaces_from_records, resolve_native_type_form, resolve_type_annotation,
     resolve_type_form, substitution_for_applied,
 };
-pub use workspace::{
-    SemanticAnalysis, SemanticWorkspaceInput, analyze_single_module, analyze_workspace, try_analyze_single_module, try_analyze_workspace,
-};
+pub use workspace::{SemanticAnalysis, SemanticWorkspaceInput, analyze_single_module, analyze_workspace, try_analyze_single_module, try_analyze_workspace};

@@ -440,8 +440,7 @@ fn map_type_children(form: &mut TypeNode, mut map: impl FnMut(&mut TypeNodeId)) 
                     map(key_type);
                     map(value_type);
                 }
-                phalcom_type_meta::type_node::GeneralRecordTailRef::Closed
-                | phalcom_type_meta::type_node::GeneralRecordTailRef::Parameter(_) => {}
+                phalcom_type_meta::type_node::GeneralRecordTailRef::Closed | phalcom_type_meta::type_node::GeneralRecordTailRef::Parameter(_) => {}
             }
         }
         TypeNode::Callable(callable) => {
@@ -544,8 +543,7 @@ fn map_static_arguments(arguments: &mut [StaticArgumentRef], map: &mut impl FnMu
                         map(key_type);
                         map(value_type);
                     }
-                    phalcom_type_meta::type_node::GeneralRecordTailRef::Closed
-                    | phalcom_type_meta::type_node::GeneralRecordTailRef::Parameter(_) => {}
+                    phalcom_type_meta::type_node::GeneralRecordTailRef::Closed | phalcom_type_meta::type_node::GeneralRecordTailRef::Parameter(_) => {}
                 }
             }
             StaticArgumentRef::DynamicType => {}

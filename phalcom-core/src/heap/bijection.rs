@@ -22,11 +22,7 @@ impl BijectionObject {
         }
     }
 
-    pub fn with_roots(
-        forward_root: Option<ObjRef>,
-        reverse_root: Option<ObjRef>,
-        len: usize,
-    ) -> Self {
+    pub fn with_roots(forward_root: Option<ObjRef>, reverse_root: Option<ObjRef>, len: usize) -> Self {
         Self {
             forward_root,
             reverse_root,
