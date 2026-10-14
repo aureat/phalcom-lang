@@ -317,6 +317,11 @@ fn link_05_reexport_chains_to_original_symbol() {
         name: "Foo".into(),
     };
     assert_eq!(linked.modules[&mod_c].linked_reads, vec![LinkedReadSpec::Binding(original_symbol)]);
+    let executable =
+        phalcom_modules::ExecutableLinkedProgram::from_conservative_link(linked).expect("canonical re-export reads must be covered by the runtime DAG");
+    assert!(executable.graphs.runtime.edges_from(&mod_c).iter().any(|edge| edge.dependency == mod_a));
+    let order = &executable.initialization_order;
+    assert!(order.iter().position(|id| id == &mod_a).unwrap() < order.iter().position(|id| id == &mod_c).unwrap());
 }
 
 /// LINK-06 — Cyclic re-export produces LinkError::CyclicReExport

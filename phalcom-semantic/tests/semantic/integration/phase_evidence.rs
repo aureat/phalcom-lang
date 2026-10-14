@@ -509,3 +509,53 @@ fn cv_07_incremental_phase_change_matches_cold_analysis() {
         "incremental diagnostics must match cold analysis"
     );
 }
+
+#[test]
+fn missing_checked_static_initializer_keeps_import_projection_conservative() {
+    use phalcom_modules::linker::PhaseEvidenceCoverage;
+    use phalcom_semantic::static_constant::{StaticConstantId, StaticConstantProduct, StaticConstantTable};
+    use phalcom_semantic::static_eval::StaticEvalOutcome;
+    use phalcom_semantic::static_value::StaticValueStore;
+
+    let fixture = phase_fixture(
+        "class Imported {}\nexport Imported\n",
+        "from .provider import Imported\nclass Consumer { _value: Imported }\n",
+        "class Unchanged {}\n",
+    );
+    let (baseline, _) = aggregate(&fixture, &HashMap::new());
+    assert_eq!(baseline[&fixture.consumer].coverage, PhaseEvidenceCoverage::Complete);
+    let mut values = StaticValueStore::new();
+    let value = values.intern_unit();
+    let mut constants = StaticConstantTable::new();
+    constants.insert(Arc::new(StaticConstantProduct {
+        id: StaticConstantId::new(fixture.consumer.clone(), "Unchecked"),
+        declaration_range: Default::default(),
+        initializer_range: Default::default(),
+        checked: None,
+        outcome: StaticEvalOutcome::Reduced(value),
+        residuals: None,
+        value: Some(value),
+        lkg_value: Some(value),
+        diagnostics: Arc::new([]),
+        imported: None,
+    }));
+    let (products, requirements) = compute_module_import_phase_products(&fixture.semantic, &fixture.sources, &HashMap::new(), None, Some(&constants), true);
+    assert_eq!(products[&fixture.consumer].coverage, PhaseEvidenceCoverage::Incomplete);
+    let linker = ModuleLinker::new(
+        Arc::new(ProjectUniverse::new()),
+        fixture
+            .sources
+            .iter()
+            .map(|(id, source)| {
+                (
+                    id.clone(),
+                    InterfaceBuilder::build(id.clone(), ModuleKind::Module, &source.program).expect("fixture interface"),
+                )
+            })
+            .collect(),
+    );
+    let executable = linker
+        .finalize_executable_with_requirements((*fixture.semantic).clone(), &products, &requirements)
+        .expect("conservative runtime projection remains valid");
+    assert!(executable.modules[&fixture.consumer].bindings.imports.contains_key("Imported"));
+}

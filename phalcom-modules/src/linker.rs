@@ -1292,6 +1292,19 @@ impl<'a> LinkContext<'a> {
                                     }
                                 }
                             };
+                            // Reads address the canonical export owner, which can differ
+                            // from the authored import target after a re-export chain.
+                            // Project that owner before validating initialization order.
+                            let owner = match &linked_exp.target {
+                                crate::interface::LinkedExportTarget::Binding(symbol) => symbol.module.clone(),
+                                crate::interface::LinkedExportTarget::Module(module) => module.clone(),
+                            };
+                            self.graphs.runtime.add(RuntimeDependencyEdge {
+                                importer: module.clone(),
+                                dependency: owner,
+                                range: item.range,
+                                reason: RuntimeDependencyReason::SelectiveValueImport,
+                            });
                             match &linked_exp.target {
                                 crate::interface::LinkedExportTarget::Binding(symbol) => {
                                     self.import_targets
@@ -1324,6 +1337,19 @@ impl<'a> LinkContext<'a> {
                                     }
                                 }
                             };
+                            // Reads address the canonical export owner, which can differ
+                            // from the authored import target after a re-export chain.
+                            // Project that owner before validating initialization order.
+                            let owner = match &linked_exp.target {
+                                crate::interface::LinkedExportTarget::Binding(symbol) => symbol.module.clone(),
+                                crate::interface::LinkedExportTarget::Module(module) => module.clone(),
+                            };
+                            self.graphs.runtime.add(RuntimeDependencyEdge {
+                                importer: module.clone(),
+                                dependency: owner,
+                                range: item.range,
+                                reason: RuntimeDependencyReason::ReExport,
+                            });
                             match &linked_exp.target {
                                 crate::interface::LinkedExportTarget::Binding(symbol) => {
                                     self.import_targets

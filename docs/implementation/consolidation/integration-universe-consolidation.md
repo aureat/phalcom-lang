@@ -26,7 +26,7 @@ modules-owned generated requirements and finalized executable products.
 
 - Core, semantic, and LSP crate checks passed after conflict resolution.
 - Module linker integration tests: 18 passed, zero failures.
-- Semantic phase-evidence tests: pending.
+- Semantic phase-evidence tests: 12 passed, including the optional-initializer regression.
 - Functional bootstrap and runtime acceptance: pending.
 
 The compiler's staged helper preserves fallible semantic updates, followed by
@@ -35,16 +35,43 @@ require conservative incomplete phase coverage when checked authority is absent.
 
 ## Concurrent work and remaining seam
 
-Enum-inference repairs are active in the integration checkout. Reserve enum/type
-inference, parser syntax, and ADT tests pending exact ownership coordination.
-Preserve the untracked enum-inference requirements audit.
+User-directed isolation: snapshot merge commit `41181e0b` was saved on
+integration. Stabilization now proceeds on `feat/consolidation-universe` in
+`/Users/altunhasanli/.codex/worktrees/universe-consolidation/phalcom`.
+Concurrent enum-inference edits and the untracked audit remain in the original
+integration checkout and are excluded from this stabilization branch.
 
-Collections' normative enums specification retires `@variant`; integration's
-interval additions still contain those markers. This must be reconciled before
-claiming canonical Universe bootstrap acceptance. Do not undo the enum repair
-or independently redesign the source grammar.
+Collections' normative enums specification retires `@variant`. Integration's
+interval additions were mechanically migrated to direct case declarations in
+both source trees; the interval twins compare byte-for-byte equal. A missed
+fallible-update test call was also corrected. Canonical Universe bootstrap
+acceptance still depends on completed compiler/runtime evidence.
 
 MODL001.C2.P4 remains partial. Its existing checkpoint owns producer coverage,
 cross-stage CV gaps, and executable S4 acceptance. This merge does not close
 those gates or certify the workspace. The legacy Universe remains production
 source authority; PERF consolidation and production cutover remain downstream.
+
+## Bootstrap correction: canonical re-export runtime owners
+
+Observed: the first compiler/runtime linking run passed 12 tests and failed six
+materialization tests at canonical Universe bootstrap. The common error was
+`UncoveredRuntimeRead` from the Universe root to `errors.argument`.
+
+Cause: conservative linking canonicalizes a selected/re-exported read to the
+original owner, but its runtime graph only retained the authored intermediary
+edge. The newly integrated executable validator requires the actual read owner
+to have a direct runtime edge. Phase-aware finalization already projects that
+canonical owner.
+
+Correction: the modules-owned conservative linker now projects canonical export
+owners while resolving imports, before strict runtime DAG validation and
+initialization scheduling. No compiler mutation, validation bypass, or semantic
+ownership transfer was introduced. The original authored edges remain. A
+three-module re-export regression proves the executable wrapper accepts the
+finalized reads and schedules the owner before its consumer. All 18 linker tests
+passed after this correction. Compiler/runtime retest is pending.
+
+The inherited `functional/chain.ph` twins differ only in their import owner:
+legacy `collections.iterator_laws` versus shadow `collections.iteration`. This
+is the intentional shadow migration, not behavioral drift to erase by copying.

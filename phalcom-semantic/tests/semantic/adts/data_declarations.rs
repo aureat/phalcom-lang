@@ -1290,7 +1290,7 @@ class Consumer {
     let provider = UniverseSourceProvider::with_test_source_override(numbers, Arc::from(exposed)).expect("test-only Universe fixture");
     let mut session = SemanticWorkspaceSession::with_universe_source_provider(WorkspaceId::from_raw(73_001), provider);
     let module = test_module();
-    let update = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source, 1));
+    let update = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source, 1)).expect("semantic test update should succeed");
     let diagnostics = update.snapshot.diagnostics_for(&module).unwrap_or_default();
     assert_eq!(
         diagnostics

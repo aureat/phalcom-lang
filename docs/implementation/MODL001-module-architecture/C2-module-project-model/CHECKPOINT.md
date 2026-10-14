@@ -97,3 +97,24 @@ not yet established as a clean-checkout baseline and is not claimed as one.
 Preserve concurrent Universe, nanoid, and modernization edits. Do not close P4
 or mark T8 complete until the executable acceptance gap and remaining CVs are
 resolved.
+
+### Integration consolidation boundary (2026-10-14)
+
+The collections snapshot `60e6a3db` was merged with integration `52838aa5` as
+`41181e0b`; follow-up stabilization is isolated on `feat/consolidation-universe`.
+The integrated pipeline retains transactional, fallible semantic publication and
+modules-owned executable finalization. Optional checked static initializers
+now conservatively mark phase coverage incomplete when absent. A focused
+phase-evidence regression checks that executable imports remain Runtime.
+
+Consolidation exposed `UncoveredRuntimeRead` at canonical Universe bootstrap:
+conservative re-export resolution canonicalized read owners without adding the
+corresponding direct runtime edge. The modules linker now projects canonical
+owners before strict DAG validation. The three-module re-export regression and
+all 18 linker tests passed. This retains the finalized-read invariant and does
+not authorize late compiler read insertion. Runtime retest is recorded in the
+[consolidation record](../../consolidation/integration-universe-consolidation.md).
+
+P4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED`; producer-family and
+cross-stage acceptance gaps above remain open. PERF and the production source
+cutover are excluded from this consolidation work.
