@@ -1,6 +1,6 @@
 use phalcom_type_meta::bundle::SemanticMetadataBundle;
 use phalcom_type_meta::declaration::{StaticDomainCaseRecord, StaticDomainDeclarationRecord, StaticDomainParameterRecord};
-use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+use phalcom_type_meta::encode::{MetadataDecodeError, decode_metadata_json, decode_metadata_json_with_symbol, encode_metadata_json};
 use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::generic::{GenericParameterModeRef, StableTypeParameterOwnerRef, StableTypeParameterRef, TypeParameterRecord, VarianceRef};
 use phalcom_type_meta::header::{
@@ -14,14 +14,15 @@ use phalcom_type_meta::scoped_type::{
     ScopedTypeNodeId,
 };
 use phalcom_type_meta::type_node::{
-    OpenRecordTypeRef, RecordFieldRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef, StructuralMemberPresenceRef, TypeMemberProjectionRef,
-    TypeMemberSelectorRef, TypeNode, TypeNodeEntry, TypeNodeId,
+    OpenRecordTypeRef, RecordFieldRef, RecordKeyRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef, StructuralMemberPresenceRef,
+    TypeMemberProjectionRef, TypeMemberSelectorRef, TypeNode, TypeNodeEntry, TypeNodeId,
 };
 use phalcom_type_meta::validate::{MetadataValidationError, ValidationLimits, validate_metadata_bundle};
 
 fn sample_header(version: u32, record_rows: bool) -> SemanticMetadataHeader {
     SemanticMetadataHeader {
         schema_version: version,
+        legacy_fingerprint_schema_version: None,
         semantic_model_version: SEMANTIC_MODEL_VERSION,
         producer: ProducerIdentity("phalcom-test".into()),
         producer_version: "0.1.0".into(),
@@ -154,6 +155,181 @@ fn sample_bundle(version: u32, record_rows: bool) -> SemanticMetadataBundle {
     }
 }
 
+#[test]
+fn legacy_record_remainder_needs_canonical_symbol_context() {
+    let mut value = serde_json::to_value(sample_bundle(12, true)).unwrap();
+    value["types"].as_array_mut().unwrap().push(serde_json::json!({
+        "kind": 0,
+        "form": {"AnonymousRecord": {"fields": [{"name": "x", "ty": 0}], "remainder": "Unconstrained"}},
+        "structural_fingerprint": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    }));
+    assert!(matches!(
+        decode_metadata_json(&value.to_string(), &ValidationLimits::default()),
+        Err(MetadataDecodeError::CanonicalSymbolContextRequired)
+    ));
+}
+
+#[test]
+fn legacy_record_graph_relocates_global_scoped_and_roots_without_rehashing() {
+    use phalcom_type_meta::scoped_type::ScopedAnonymousRecordRemainderRef;
+    use phalcom_type_meta::type_node::{AnonymousRecordRemainderRef, RecordKeyRef};
+
+    let mut legacy = serde_json::to_value(sample_bundle(12, true)).unwrap();
+    legacy["kinds"].as_array_mut().unwrap().push(serde_json::json!({
+        "node": "RecordRow", "structural_fingerprint": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    }));
+    let fingerprint = serde_json::json!([7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    legacy["types"].as_array_mut().unwrap().extend([
+        serde_json::json!({"kind": 0, "form": {"AnonymousRecord": {
+            "fields": [{"name": "key", "ty": 0}], "remainder": {"Typed": 0}
+        }}, "structural_fingerprint": fingerprint}),
+        serde_json::json!({"kind": 0, "form": {"Tuple": [{"label": null, "ty": 1}]}, "structural_fingerprint": fingerprint}),
+        serde_json::json!({"kind": 0, "form": {"TypeLambda": {
+            "parameter_kinds": [], "body": 1
+        }}, "structural_fingerprint": fingerprint}),
+    ]);
+    legacy["scoped_types"] = serde_json::json!([
+        {"kind": 0, "form": {"Free": 0}, "structural_fingerprint": fingerprint},
+        {"kind": 0, "form": {"AnonymousRecord": {
+            "fields": [{"name": "key", "ty": 0}], "remainder": {"Typed": 0}
+        }}, "structural_fingerprint": fingerprint},
+        {"kind": 1, "form": {"RecordRow": {
+            "fields": [{"name": "key", "ty": 0}], "tail": {"Anonymous": "Unconstrained"}
+        }}, "structural_fingerprint": fingerprint}
+    ]);
+    legacy["runtime_roots"] = serde_json::json!([{
+        "module": {"project": {"Builtin": {"namespace": "universe", "version": "stable"}}, "path": []},
+        "local_key": "root", "form": 2
+    }]);
+    let symbol = StableDeclarationRef {
+        module: StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "stable".into(),
+            },
+            path: Box::new(["scalar".into(), "symbol".into()]),
+        },
+        path: Box::new(["Symbol".into()]),
+    };
+    let limits = ValidationLimits::default();
+    let json = legacy.to_string();
+    assert!(matches!(
+        decode_metadata_json(&json, &limits),
+        Err(MetadataDecodeError::CanonicalSymbolContextRequired)
+    ));
+    let mut wrong_symbol = symbol.clone();
+    wrong_symbol.module.path = Box::new(["other".into()]);
+    assert!(matches!(
+        decode_metadata_json_with_symbol(&json, &limits, Some(&wrong_symbol)),
+        Err(MetadataDecodeError::InvalidCanonicalSymbolContext)
+    ));
+    let decoded = decode_metadata_json_with_symbol(&json, &limits, Some(&symbol)).unwrap();
+    assert_eq!(decoded.header.schema_version, 13, "normalized graph uses current schema");
+    assert_eq!(
+        decoded.header.fingerprint_schema_version(),
+        12,
+        "legacy digests remain tagged as v12 provenance"
+    );
+    assert_eq!(decoded.types[2].structural_fingerprint, Fingerprint128::from_u128(7 << 120));
+    assert_eq!(
+        decoded.types[2].form,
+        TypeNode::AnonymousRecord(phalcom_type_meta::type_node::AnonymousRecordTypeRef {
+            fields: Box::new([RecordFieldRef {
+                key: RecordKeyRef::Symbol("key".into()),
+                ty: TypeNodeId(1),
+                presence: StructuralMemberPresenceRef::Required
+            }]),
+            remainder: AnonymousRecordRemainderRef::Typed {
+                key_type: TypeNodeId(0),
+                value_type: TypeNodeId(1)
+            },
+        })
+    );
+    assert!(matches!(&decoded.types[3].form, TypeNode::Tuple(elements) if elements[0].ty == TypeNodeId(2)));
+    assert_eq!(decoded.runtime_roots[0].form, TypeNodeId(3));
+    assert_eq!(decoded.scoped_types[0].form, ScopedTypeNode::Free(TypeNodeId(0)));
+    assert_eq!(decoded.scoped_types[1].form, ScopedTypeNode::Free(TypeNodeId(1)));
+    assert!(matches!(&decoded.scoped_types[2].form, ScopedTypeNode::AnonymousRecord(record)
+        if record.fields[0].ty == ScopedTypeNodeId(1)
+        && record.remainder == ScopedAnonymousRecordRemainderRef::Typed { key_type: ScopedTypeNodeId(0), value_type: ScopedTypeNodeId(1) }));
+    assert!(matches!(&decoded.scoped_types[3].form, ScopedTypeNode::RecordRow(row)
+        if row.fields[0].ty == ScopedTypeNodeId(1)
+        && row.tail == ScopedRecordRowTailRef::Anonymous(ScopedAnonymousRecordRemainderRef::Unconstrained { key_type: ScopedTypeNodeId(0) })));
+    assert!(matches!(&decoded.types[4].form, TypeNode::TypeLambda(lambda) if lambda.body == ScopedTypeNodeId(2)));
+    let reencoded = encode_metadata_json(&decoded).unwrap();
+    assert_eq!(
+        decode_metadata_json(&reencoded, &limits).unwrap(),
+        decoded,
+        "normalized legacy graphs round-trip without relocating twice"
+    );
+    let mut invalid = decoded.clone();
+    if let TypeNode::AnonymousRecord(record) = &mut invalid.types[2].form {
+        record.remainder = AnonymousRecordRemainderRef::Typed {
+            key_type: TypeNodeId(2),
+            value_type: TypeNodeId(1),
+        };
+    }
+    assert!(matches!(
+        validate_metadata_bundle(&invalid, &limits),
+        Err(MetadataValidationError::TopologicalOrderViolation { index: 2, target: 2 })
+    ));
+    let mut invalid = decoded;
+    if let ScopedTypeNode::RecordRow(row) = &mut invalid.scoped_types[3].form {
+        row.tail = ScopedRecordRowTailRef::Anonymous(ScopedAnonymousRecordRemainderRef::Unconstrained { key_type: ScopedTypeNodeId(3) });
+    }
+    assert!(matches!(
+        validate_metadata_bundle(&invalid, &limits),
+        Err(MetadataValidationError::TopologicalOrderViolation { index: 3, target: 3 })
+    ));
+}
+
+#[test]
+fn legacy_static_row_remainder_relocates_nested_type_arguments() {
+    use phalcom_type_meta::type_node::AnonymousRecordRemainderRef;
+    let mut legacy = serde_json::to_value(sample_bundle(12, true)).unwrap();
+    legacy["kinds"] = serde_json::json!([
+        {"node": "Type", "structural_fingerprint": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},
+        {"node": "RecordRow", "structural_fingerprint": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},
+        {"node": {"Arrow": {"parameters": [1], "result": 0}}, "structural_fingerprint": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
+    ]);
+    legacy["types"].as_array_mut().unwrap().push(serde_json::json!({
+        "kind": 2, "form": {"Nominal": {"declaration": {
+            "module": {"project": {"Builtin": {"namespace": "universe", "version": "stable"}}, "path": ["test"]},
+            "path": ["Template"]
+        }}}, "structural_fingerprint": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    }));
+    legacy["types"].as_array_mut().unwrap().push(serde_json::json!({
+        "kind": 0,
+        "form": {"Applied": {"origin": 1, "arguments": [{"RecordRow": {
+            "fields": [{"name": "x", "ty": 0}], "tail": null, "remainder": "Unconstrained"
+        }}]}},
+        "structural_fingerprint": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    }));
+    let symbol = StableDeclarationRef {
+        module: StableModuleRef {
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "stable".into(),
+            },
+            path: Box::new(["scalar".into(), "symbol".into()]),
+        },
+        path: Box::new(["Symbol".into()]),
+    };
+    let limits = ValidationLimits::default();
+    let decoded = decode_metadata_json_with_symbol(&legacy.to_string(), &limits, Some(&symbol)).unwrap();
+    let TypeNode::Applied { origin, arguments } = &decoded.types[3].form else {
+        panic!("applied")
+    };
+    assert_eq!(*origin, TypeNodeId(2));
+    let [StaticArgumentRef::RecordRow(row)] = arguments.as_ref() else {
+        panic!("row argument")
+    };
+    assert_eq!(row.fields[0].key, RecordKeyRef::Symbol("x".into()));
+    assert_eq!(row.fields[0].ty, TypeNodeId(1));
+    assert_eq!(row.remainder, Some(AnonymousRecordRemainderRef::Unconstrained { key_type: TypeNodeId(0) }));
+    assert_eq!(decode_metadata_json(&encode_metadata_json(&decoded).unwrap(), &limits).unwrap(), decoded);
+}
+
 fn scoped_record_row_bundle(version: u32) -> SemanticMetadataBundle {
     let declaration = schema_v8_static_declaration("RowOwner");
     let row_parameter = StableTypeParameterRef {
@@ -220,7 +396,7 @@ fn scoped_record_row_bundle(version: u32) -> SemanticMetadataBundle {
             kind: KindNodeId(1),
             form: ScopedTypeNode::RecordRow(ScopedRecordRowTypeRef {
                 fields: Box::new([ScopedRecordFieldRef {
-                    name: "payload".into(),
+                    key: RecordKeyRef::Symbol("payload".into()),
                     ty: ScopedTypeNodeId(0),
                     presence: StructuralMemberPresenceRef::Required,
                 }]),
@@ -340,7 +516,7 @@ fn schema_v9_scoped_record_rows_round_trip_all_tail_forms_and_v8_remains_compati
     wrong_field_kind.scoped_types[0].kind = KindNodeId(1);
     assert!(matches!(
         validate_metadata_bundle(&wrong_field_kind, &limits),
-        Err(MetadataValidationError::Malformed(message)) if message.contains("field 'payload'") && message.contains("must have kind Type")
+        Err(MetadataValidationError::Malformed(message)) if message.contains("payload") && message.contains("must have kind Type")
     ));
 
     let mut duplicate = bundle.clone();
@@ -349,12 +525,12 @@ fn schema_v9_scoped_record_rows_round_trip_all_tail_forms_and_v8_remains_compati
     };
     row.fields = Box::new([
         ScopedRecordFieldRef {
-            name: "payload".into(),
+            key: RecordKeyRef::Symbol("payload".into()),
             ty: ScopedTypeNodeId(0),
             presence: StructuralMemberPresenceRef::Required,
         },
         ScopedRecordFieldRef {
-            name: "payload".into(),
+            key: RecordKeyRef::Symbol("payload".into()),
             ty: ScopedTypeNodeId(0),
             presence: StructuralMemberPresenceRef::Required,
         },
@@ -834,12 +1010,12 @@ fn test_schema_v2_open_record_validation() {
             form: TypeNode::OpenRecord(OpenRecordTypeRef {
                 fields: Box::new([
                     RecordFieldRef {
-                        name: "a".into(),
+                        key: RecordKeyRef::Symbol("a".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
                     RecordFieldRef {
-                        name: "b".into(),
+                        key: RecordKeyRef::Symbol("b".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
@@ -865,12 +1041,12 @@ fn test_schema_v2_open_record_validation() {
             form: TypeNode::OpenRecord(OpenRecordTypeRef {
                 fields: Box::new([
                     RecordFieldRef {
-                        name: "z".into(),
+                        key: RecordKeyRef::Symbol("z".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
                     RecordFieldRef {
-                        name: "a".into(),
+                        key: RecordKeyRef::Symbol("a".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
@@ -898,12 +1074,12 @@ fn test_schema_v2_open_record_validation() {
             form: TypeNode::OpenRecord(OpenRecordTypeRef {
                 fields: Box::new([
                     RecordFieldRef {
-                        name: "a".into(),
+                        key: RecordKeyRef::Symbol("a".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
                     RecordFieldRef {
-                        name: "a".into(),
+                        key: RecordKeyRef::Symbol("a".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
@@ -1234,14 +1410,14 @@ fn p3_schema_v4_rejects_malformed_lambda_modes() {
 }
 
 #[test]
-fn schema_v10_structural_presence_and_remainders_roundtrip_and_validate() {
+fn schema_v13_structural_presence_and_remainders_roundtrip_and_validate() {
     use phalcom_type_meta::scoped_type::{
         ScopedAnonymousRecordRemainderRef, ScopedAnonymousRecordTypeRef, ScopedAnonymousTupleRemainderRef, ScopedOpenTupleTypeRef, ScopedTupleElementRef,
     };
     use phalcom_type_meta::type_node::{AnonymousRecordRemainderRef, AnonymousRecordTypeRef, AnonymousTupleRemainderRef, OpenTupleTypeRef, TupleElementRef};
 
     let limits = ValidationLimits::default();
-    let mut bundle = sample_bundle(10, true);
+    let mut bundle = sample_bundle(TYPE_METADATA_SCHEMA_VERSION, true);
     bundle.kinds = Box::new([
         KindNodeEntry {
             node: KindNode::Type,
@@ -1283,17 +1459,20 @@ fn schema_v10_structural_presence_and_remainders_roundtrip_and_validate() {
             form: TypeNode::AnonymousRecord(AnonymousRecordTypeRef {
                 fields: Box::new([
                     RecordFieldRef {
-                        name: "a".into(),
+                        key: RecordKeyRef::Symbol("a".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
                     RecordFieldRef {
-                        name: "b".into(),
+                        key: RecordKeyRef::Symbol("b".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Optional,
                     },
                 ]),
-                remainder: AnonymousRecordRemainderRef::Typed(TypeNodeId(0)),
+                remainder: AnonymousRecordRemainderRef::Typed {
+                    key_type: TypeNodeId(0),
+                    value_type: TypeNodeId(0),
+                },
             }),
             structural_fingerprint: Fingerprint128::ZERO,
         },
@@ -1329,23 +1508,26 @@ fn schema_v10_structural_presence_and_remainders_roundtrip_and_validate() {
             form: ScopedTypeNode::AnonymousRecord(ScopedAnonymousRecordTypeRef {
                 fields: Box::new([
                     ScopedRecordFieldRef {
-                        name: "a".into(),
+                        key: RecordKeyRef::Symbol("a".into()),
                         ty: ScopedTypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
                     ScopedRecordFieldRef {
-                        name: "b".into(),
+                        key: RecordKeyRef::Symbol("b".into()),
                         ty: ScopedTypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Optional,
                     },
                 ]),
-                remainder: ScopedAnonymousRecordRemainderRef::Typed(ScopedTypeNodeId(0)),
+                remainder: ScopedAnonymousRecordRemainderRef::Typed {
+                    key_type: ScopedTypeNodeId(0),
+                    value_type: ScopedTypeNodeId(0),
+                },
             }),
             structural_fingerprint: Fingerprint128::ZERO,
         },
     ]);
 
-    validate_metadata_bundle(&bundle, &limits).expect("schema v10 bundle should validate");
+    validate_metadata_bundle(&bundle, &limits).expect("schema v13 bundle should validate");
 
     let encoded = encode_metadata_json(&bundle).expect("encode should succeed");
     let decoded = decode_metadata_json(&encoded, &limits).expect("decode should succeed");

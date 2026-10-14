@@ -27,7 +27,17 @@ pub fn children(context: &TypingContextData, registry: &RuntimeTypingRegistry, h
                 for argument in arguments.iter() {
                     match argument {
                         RuntimeStaticArgument::Term(ty) => children.push(*ty),
-                        RuntimeStaticArgument::RecordRow(row) => children.extend(row.fields.iter().map(|field| field.ty)),
+                        RuntimeStaticArgument::RecordRow(row) => {
+                            children.extend(row.fields.iter().map(|field| field.ty));
+                            match &row.remainder {
+                                Some(crate::typing::overlay::RuntimeAnonymousRecordRemainder::Unconstrained { key_type }) => children.push(*key_type),
+                                Some(crate::typing::overlay::RuntimeAnonymousRecordRemainder::Typed { key_type, value_type }) => {
+                                    children.push(*key_type);
+                                    children.push(*value_type);
+                                }
+                                None => {}
+                            }
+                        }
                         RuntimeStaticArgument::DynamicType => {}
                     }
                 }
@@ -57,6 +67,17 @@ pub fn children(context: &TypingContextData, registry: &RuntimeTypingRegistry, h
                             }
                             phalcom_type_meta::type_node::StaticArgumentRef::RecordRow(row) => {
                                 children.extend(row.fields.iter().map(|field| RuntimeTypeRef::Base { pool, node: field.ty }));
+                                if let Some(remainder) = &row.remainder {
+                                    match remainder {
+                                        phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Unconstrained { key_type } => {
+                                            children.push(RuntimeTypeRef::Base { pool, node: *key_type });
+                                        }
+                                        phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Typed { key_type, value_type } => {
+                                            children.push(RuntimeTypeRef::Base { pool, node: *key_type });
+                                            children.push(RuntimeTypeRef::Base { pool, node: *value_type });
+                                        }
+                                    }
+                                }
                             }
                             phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => {}
                         }
@@ -96,11 +117,24 @@ pub fn static_arguments(context: &TypingContextData, registry: &RuntimeTypingReg
                                 .fields
                                 .iter()
                                 .map(|field| crate::typing::overlay::RuntimeRecordField {
-                                    key: phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()),
+                                    key: (&field.key).into(),
                                     ty: RuntimeTypeRef::Base { pool, node: field.ty },
                                 })
                                 .collect(),
                             tail: row.tail.clone(),
+                            remainder: row.remainder.map(|rem| match rem {
+                                phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Unconstrained { key_type } => {
+                                    crate::typing::overlay::RuntimeAnonymousRecordRemainder::Unconstrained {
+                                        key_type: RuntimeTypeRef::Base { pool, node: key_type },
+                                    }
+                                }
+                                phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Typed { key_type, value_type } => {
+                                    crate::typing::overlay::RuntimeAnonymousRecordRemainder::Typed {
+                                        key_type: RuntimeTypeRef::Base { pool, node: key_type },
+                                        value_type: RuntimeTypeRef::Base { pool, node: value_type },
+                                    }
+                                }
+                            }),
                         }))
                     }
                     phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => Some(RuntimeStaticArgument::DynamicType),
@@ -157,14 +191,25 @@ fn base_constructor_arity(
     let Some(loaded) = registry.get_pool(pool) else { return 0 };
     let Some(entry) = loaded.bundle.types.get(node.0 as usize) else { return 0 };
     match &entry.form {
-        TypeNode::Nominal { declaration } => loaded
-            .bundle
-            .declarations
-            .iter()
-            .find(|record| record.declaration == *declaration)
-            .and_then(|record| record.generic_signature)
-            .and_then(|id| loaded.bundle.generic_signatures.get(id.0 as usize))
-            .map_or(0, |signature| signature.parameters.len()),
+        TypeNode::Nominal { declaration } => {
+            if let Some(meta_ref) = registry.lookup_declaration_metadata(declaration) {
+                registry
+                    .get_pool(meta_ref.pool)
+                    .and_then(|p| p.bundle.declarations.get(meta_ref.record.0 as usize))
+                    .and_then(|record| record.generic_signature)
+                    .and_then(|id| registry.get_pool(meta_ref.pool)?.bundle.generic_signatures.get(id.0 as usize))
+                    .map_or(0, |signature| signature.parameters.len())
+            } else {
+                loaded
+                    .bundle
+                    .declarations
+                    .iter()
+                    .find(|record| record.declaration == *declaration)
+                    .and_then(|record| record.generic_signature)
+                    .and_then(|id| loaded.bundle.generic_signatures.get(id.0 as usize))
+                    .map_or(0, |signature| signature.parameters.len())
+            }
+        }
         TypeNode::Applied { origin, .. } => base_constructor_arity(registry, pool, *origin),
         _ => 0,
     }
@@ -221,19 +266,32 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                     .iter()
                     .map(|arg| match arg {
                         RuntimeStaticArgument::Term(ty) => display_inner(context, registry, heap, *ty, depth + 1),
-                        RuntimeStaticArgument::RecordRow(row) => format!(
-                            "{{{}{}}}",
-                            row.fields
+                        RuntimeStaticArgument::RecordRow(row) => {
+                            let mut parts = row
+                                .fields
                                 .iter()
                                 .map(|field| format!("{}: {}", field.key, display_inner(context, registry, heap, field.ty, depth + 1)))
-                                .collect::<Vec<_>>()
-                                .join(", "),
-                            row.tail.as_ref().map_or(String::new(), |tail| format!(
-                                "{}**R{}",
-                                if row.fields.is_empty() { "" } else { ", " },
-                                tail.index
-                            ))
-                        ),
+                                .collect::<Vec<_>>();
+                            if let Some(tail) = &row.tail {
+                                parts.push(format!("**R{}", tail.index));
+                            }
+                            if let Some(remainder) = &row.remainder {
+                                let part = match remainder {
+                                    crate::typing::overlay::RuntimeAnonymousRecordRemainder::Unconstrained { key_type } => {
+                                        format!("**[{}]", display_inner(context, registry, heap, *key_type, depth + 1))
+                                    }
+                                    crate::typing::overlay::RuntimeAnonymousRecordRemainder::Typed { key_type, value_type } => {
+                                        format!(
+                                            "**[{}]: {}",
+                                            display_inner(context, registry, heap, *key_type, depth + 1),
+                                            display_inner(context, registry, heap, *value_type, depth + 1)
+                                        )
+                                    }
+                                };
+                                parts.push(part);
+                            }
+                            format!("{{{}}}", parts.join(", "))
+                        }
                         RuntimeStaticArgument::DynamicType => "Dynamic".to_string(),
                     })
                     .collect::<Vec<_>>()
@@ -300,17 +358,33 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                                     .map(|field| {
                                         format!(
                                             "{}: {}",
-                                            field.name,
+                                            phalcom_semantic::field_key::FieldKey::from(&field.key),
                                             display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: field.ty }, depth + 1)
                                         )
                                     })
                                     .collect::<Vec<_>>()
                                     .join(", ");
-                                let tail = row
-                                    .tail
-                                    .as_ref()
-                                    .map_or(String::new(), |tail| format!("{}**R{}", if fields.is_empty() { "" } else { ", " }, tail.index));
-                                format!("{{{fields}{tail}}}")
+                                let tail = row.tail.as_ref().map(|tail| format!("**R{}", tail.index));
+                                let remainder = row.remainder.map(|rem| match rem {
+                                    phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Unconstrained { key_type } => {
+                                        format!(
+                                            "**[{}]",
+                                            display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: key_type }, depth + 1)
+                                        )
+                                    }
+                                    phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Typed { key_type, value_type } => {
+                                        format!(
+                                            "**[{}]: {}",
+                                            display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: key_type }, depth + 1),
+                                            display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: value_type }, depth + 1)
+                                        )
+                                    }
+                                });
+                                let parts = [Some(fields).filter(|fields| !fields.is_empty()), tail, remainder]
+                                    .into_iter()
+                                    .flatten()
+                                    .collect::<Vec<_>>();
+                                format!("{{{}}}", parts.join(", "))
                             }
                             phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => "Dynamic".to_string(),
                         })
@@ -386,7 +460,7 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                         .iter()
                         .map(|field| format!(
                             "{}: {}",
-                            field.name,
+                            phalcom_semantic::field_key::FieldKey::from(&field.key),
                             display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: field.ty }, depth + 1)
                         ))
                         .collect::<Vec<_>>()
@@ -404,20 +478,24 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                             };
                             format!(
                                 "{}{}: {}",
-                                field.name,
+                                phalcom_semantic::field_key::FieldKey::from(&field.key),
                                 opt,
                                 display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: field.ty }, depth + 1)
                             )
                         })
                         .collect::<Vec<_>>();
                     match &anon_rec.remainder {
-                        phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Unconstrained => {
-                            parts.push("**...".to_string());
-                        }
-                        phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Typed(ty) => {
+                        phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Unconstrained { key_type } => {
                             parts.push(format!(
-                                "**...{}",
-                                display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *ty }, depth + 1)
+                                "**[{}]",
+                                display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *key_type }, depth + 1)
+                            ));
+                        }
+                        phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Typed { key_type, value_type } => {
+                            parts.push(format!(
+                                "**[{}]: {}",
+                                display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *key_type }, depth + 1),
+                                display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *value_type }, depth + 1)
                             ));
                         }
                     }
@@ -430,7 +508,7 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                         .iter()
                         .map(|field| format!(
                             "{}: {}",
-                            field.name,
+                            phalcom_semantic::field_key::FieldKey::from(&field.key),
                             display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: field.ty }, depth + 1)
                         ))
                         .collect::<Vec<_>>()
@@ -759,8 +837,13 @@ pub fn kind_equivalent(_context: &TypingContextData, registry: &RuntimeTypingReg
         ) => {
             let Some(left_pool) = registry.get_pool(left_pool) else { return false };
             let Some(right_pool) = registry.get_pool(right_pool) else { return false };
-            left_pool.bundle.kinds.get(left_node.0 as usize).map(|entry| entry.structural_fingerprint)
-                == right_pool.bundle.kinds.get(right_node.0 as usize).map(|entry| entry.structural_fingerprint)
+            let left = left_pool.bundle.kinds.get(left_node.0 as usize).map(|entry| {
+                phalcom_type_meta::fingerprint::VersionedFingerprint::new(left_pool.bundle.header.fingerprint_schema_version(), entry.structural_fingerprint)
+            });
+            let right = right_pool.bundle.kinds.get(right_node.0 as usize).map(|entry| {
+                phalcom_type_meta::fingerprint::VersionedFingerprint::new(right_pool.bundle.header.fingerprint_schema_version(), entry.structural_fingerprint)
+            });
+            left.is_some() && left == right
         }
         _ => false,
     }
@@ -1181,6 +1264,13 @@ pub fn declaration_record_for_class(
     class_id: ClassId,
 ) -> Option<(crate::typing::handle::MetadataPoolId, &phalcom_type_meta::declaration::DeclarationTypeRecord)> {
     let declaration = registry.declaration_for_nominal(class_id)?;
+    if let Some(meta_ref) = registry.lookup_declaration_metadata(declaration) {
+        if let Some(loaded) = registry.get_pool(meta_ref.pool) {
+            if let Some(decl) = loaded.bundle.declarations.get(meta_ref.record.0 as usize) {
+                return Some((meta_ref.pool, decl));
+            }
+        }
+    }
     for (pool_idx, loaded) in registry.pools().iter().enumerate() {
         for decl in loaded.bundle.declarations.iter() {
             if decl.declaration == *declaration {
@@ -1260,6 +1350,15 @@ pub fn lookup_member(
 
     let (pool, decl) = declaration_record_for_class(registry, nominal_class)?;
     let callables = if is_class_side { &decl.class_callables } else { &decl.instance_callables };
+
+    for callable_ref in callables.iter() {
+        if callable_ref.selector.as_ref() == selector {
+            if let Some(mut sig_ref) = registry.lookup_callable_metadata(callable_ref) {
+                sig_ref.specialization_receiver = specialization_receiver;
+                return Some(sig_ref);
+            }
+        }
+    }
 
     let loaded = registry.get_pool(pool)?;
     for (rec_idx, callable_rec) in loaded.bundle.callables.iter().enumerate() {

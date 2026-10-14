@@ -68,6 +68,7 @@ fn test_module() -> StableModuleRef {
 fn build_test_bundle() -> SemanticMetadataBundle {
     let header = SemanticMetadataHeader {
         schema_version: TYPE_METADATA_SCHEMA_VERSION,
+        legacy_fingerprint_schema_version: None,
         semantic_model_version: SEMANTIC_MODEL_VERSION,
         producer: ProducerIdentity("test".into()),
         producer_version: "1.0".into(),
@@ -165,7 +166,7 @@ fn build_test_bundle() -> SemanticMetadataBundle {
                 origin: TypeNodeId(4),
                 arguments: vec![StaticArgumentRef::RecordRow(RecordRowRef {
                     fields: vec![RecordFieldRef {
-                        name: "payload".into(),
+                        key: phalcom_type_meta::type_node::RecordKeyRef::Symbol("payload".into()),
                         ty: TypeNodeId(5),
                         presence: StructuralMemberPresenceRef::Required,
                     }]
@@ -184,7 +185,7 @@ fn build_test_bundle() -> SemanticMetadataBundle {
                 origin: TypeNodeId(4),
                 arguments: vec![StaticArgumentRef::RecordRow(RecordRowRef {
                     fields: vec![RecordFieldRef {
-                        name: "payload".into(),
+                        key: phalcom_type_meta::type_node::RecordKeyRef::Symbol("payload".into()),
                         ty: TypeNodeId(1),
                         presence: StructuralMemberPresenceRef::Required,
                     }]
@@ -543,7 +544,7 @@ fn spec03_reifies_applied_type_forms_and_returns_bounded_results() {
 
 #[test]
 fn applied_record_row_metadata_display_preserves_field_types_and_tail() {
-    let mut vm = VM::new();
+    let mut vm = VM::new_kernel();
     let pool = vm
         .typing_registry
         .register_pool(LoadedSemanticMetadata::new(MetadataPoolId(0), Arc::new(build_test_bundle())));
@@ -552,8 +553,8 @@ fn applied_record_row_metadata_display_preserves_field_types_and_tail() {
     let int_row = inspect::display(&context, &vm.typing_registry, &vm.heap, RuntimeTypeRef::Base { pool, node: TypeNodeId(6) });
     let string_row = inspect::display(&context, &vm.typing_registry, &vm.heap, RuntimeTypeRef::Base { pool, node: TypeNodeId(7) });
 
-    assert_eq!(int_row, "RowBox<{payload: Int}>");
-    assert_eq!(string_row, "RowBox<{payload: String, **R0}>");
+    assert_eq!(int_row, "RowBox<{#payload: Int}>");
+    assert_eq!(string_row, "RowBox<{#payload: String, **R0}>");
     assert_ne!(int_row, string_row);
 }
 

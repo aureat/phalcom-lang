@@ -36,13 +36,10 @@ fn dummy_module() -> ModuleId {
 
 #[test]
 fn retained_alias_error_keeps_root_and_unreachable_alias_is_not_exported() {
-    use phalcom_semantic::field_key::FieldKey;
     use phalcom_semantic::metadata::MetadataReachabilityClosure;
-    use phalcom_semantic::types::row::RecordRowField;
 
     let mut store = TypeStore::new();
-    let unit = store.unit();
-    let record = store.record(vec![RecordRowField::required(FieldKey::string("key"), unit)].into_boxed_slice());
+    let record = store.class_object_type(dummy_decl("UnexportableClassObject"));
     let declaration = DeclarationId::new(dummy_module(), "PublicRecord".into());
     let mut aliases = TypeAliasTable::new();
     aliases.insert(TypeAliasInfo {
@@ -62,7 +59,51 @@ fn retained_alias_error_keeps_root_and_unreachable_alias_is_not_exported() {
     closure.aliases.insert(declaration.clone());
     let error = exporter().build_bundle_from_closure(&closure, &[]).unwrap_err();
     assert!(error.to_string().contains("PublicRecord"), "{error}");
-    assert!(error.to_string().contains("Record"), "{error}");
+    assert!(matches!(error, MetadataExportError::Projection { source, type_id: Some(id), .. }
+        if id == record && *source == MetadataExportError::NonExportableForm(record)));
+}
+
+#[test]
+fn retained_public_fixed_fields_alias_keeps_heterogeneous_remainder() {
+    use phalcom_semantic::metadata::MetadataReachabilityClosure;
+    use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowTail};
+    use phalcom_semantic::types::store::TypeData;
+    use phalcom_type_meta::type_node::AnonymousRecordRemainderRef;
+
+    let mut store = TypeStore::new();
+    let key_type = store.field_key_type_from_core();
+    let value_type = store.nominal(dummy_decl("FieldInfo"));
+    let row = store
+        .record_row_checked(Vec::new(), RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }))
+        .unwrap();
+    let record = store.intern_with_kind(TypeData::Record(row), KindId::TYPE);
+    let declaration = dummy_decl("FixedFields");
+    let mut aliases = TypeAliasTable::new();
+    aliases.insert(TypeAliasInfo {
+        declaration: declaration.clone(),
+        kind: KindId::TYPE,
+        kind_shape: "Type".into(),
+        generic_signature: None,
+        form: record,
+        structural_form: "Record".into(),
+        dependencies: Box::new([]),
+        source: SemanticSourceSpan::new(declaration.module.clone(), SourceRange::new(0, 1)),
+    });
+    let mut closure = MetadataReachabilityClosure::default();
+    closure.aliases.insert(declaration);
+    let bundle = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic)
+        .with_aliases(&aliases)
+        .build_bundle_from_closure(&closure, &[])
+        .unwrap();
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+    let TypeNode::AnonymousRecord(exported) = &bundle.types[bundle.aliases[0].target.0 as usize].form else {
+        panic!("fixed-fields alias target")
+    };
+    let AnonymousRecordRemainderRef::Typed { key_type, value_type } = exported.remainder else {
+        panic!("typed remainder")
+    };
+    assert!(matches!(bundle.types[key_type.0 as usize].form, TypeNode::Union(_)));
+    assert!(matches!(bundle.types[value_type.0 as usize].form, TypeNode::Nominal { .. }));
 }
 
 fn dummy_decl(name: &str) -> DeclarationId {
@@ -463,7 +504,7 @@ fn metadata_round_trip_preserves_heterogeneous_application_and_scoped_static_dom
 
     assert!(matches!(&bundle.types[applied_id.0 as usize].form, TypeNode::Applied { arguments, .. }
         if matches!(arguments.as_ref(), [StaticArgumentRef::Term(_), StaticArgumentRef::RecordRow(row)]
-            if row.fields.len() == 1 && row.fields[0].name.as_ref() == "value")));
+            if row.fields.len() == 1 && row.fields[0].key == phalcom_type_meta::type_node::RecordKeyRef::Symbol("value".into()))));
     let TypeNode::TypeLambda(lambda) = &bundle.types[lambda_id.0 as usize].form else {
         panic!("expected type lambda metadata");
     };
@@ -1087,7 +1128,9 @@ fn metadata_exports_associated_projection_with_stable_identity() {
     let first_fingerprint = entry.structural_fingerprint;
     let mut second_exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
     let second_node = second_exporter.export_type_form(projection).expect("associated projection remains exportable");
-    let second_bundle = second_exporter.build_complete_test_bundle(&[]).expect("second associated projection metadata bundle");
+    let second_bundle = second_exporter
+        .build_complete_test_bundle(&[])
+        .expect("second associated projection metadata bundle");
     assert_eq!(first_fingerprint, second_bundle.types[second_node.0 as usize].structural_fingerprint);
 }
 
@@ -1385,7 +1428,7 @@ fn p3_lambda_mode_only_changes_structural_and_interface_fingerprints() {
 }
 
 #[test]
-fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainders() {
+fn schema_v13_exports_open_tuple_and_anonymous_record_with_presence_and_remainders() {
     use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail};
     use phalcom_semantic::types::store::{AnonymousTupleRemainder, TupleTypeElement};
     use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
@@ -1408,7 +1451,7 @@ fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainde
         AnonymousTupleRemainder::None,
     );
 
-    // The v10 name-only Record remainder is valid only for a Symbol key domain.
+    // A Symbol-keyed remainder retains its explicit key domain in v13.
     let symbol_key_ty = store.nominal(phalcom_semantic::core_surface::CoreDeclarationIds::default().symbol);
 
     // 2. Anonymous record with unconstrained remainder: { a: Int, b?: String, **... }
@@ -1452,21 +1495,36 @@ fn schema_v10_exports_open_tuple_and_anonymous_record_with_presence_and_remainde
     assert_eq!(anon_r.fields.len(), 2);
     assert_eq!(anon_r.fields[0].presence, StructuralMemberPresenceRef::Required);
     assert_eq!(anon_r.fields[1].presence, StructuralMemberPresenceRef::Optional);
-    assert_eq!(anon_r.remainder, AnonymousRecordRemainderRef::Unconstrained);
+    assert_eq!(
+        anon_r.remainder,
+        AnonymousRecordRemainderRef::Unconstrained {
+            key_type: decoded
+                .types
+                .iter()
+                .position(
+                    |entry| matches!(&entry.form, TypeNode::Nominal { declaration } if declaration.path.last().is_some_and(|name| name.as_ref() == "Symbol"))
+                )
+                .map(|index| phalcom_type_meta::type_node::TypeNodeId(index as u32))
+                .unwrap(),
+        }
+    );
 }
 
 #[test]
-fn legacy_record_metadata_fails_closed_for_non_symbol_keys_and_domains() {
+fn record_metadata_preserves_non_symbol_keys_and_domains() {
     use num_bigint::BigInt;
-    use phalcom_semantic::field_key::{FieldKey, FieldKeyKind};
-    use phalcom_semantic::metadata::MetadataExportError;
+    use phalcom_semantic::field_key::FieldKey;
     use phalcom_semantic::scalar::StaticInt;
     use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail};
     use phalcom_semantic::types::store::TypeData;
 
     let mut store = TypeStore::new();
     let value_type = store.nominal(dummy_decl("Int"));
-    let non_symbol_keys = [FieldKey::string("text"), FieldKey::int(StaticInt::new(BigInt::from(42))), FieldKey::bool(true)];
+    let non_symbol_keys = [
+        FieldKey::string("text"),
+        FieldKey::int(StaticInt::new("1234567890123456789012345678901234567890".parse::<BigInt>().unwrap())),
+        FieldKey::bool(true),
+    ];
 
     for key in non_symbol_keys {
         let row = store
@@ -1474,10 +1532,15 @@ fn legacy_record_metadata_fails_closed_for_non_symbol_keys_and_domains() {
             .expect("unique FieldKey row");
         let record = store.intern_with_kind(TypeData::Record(row), KindId::TYPE);
         let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
-        assert!(matches!(
-            exporter.export_type_form(record),
-            Err(MetadataExportError::NonExportableRecordKey(kind)) if kind != FieldKeyKind::Symbol
-        ));
+        let id = exporter.export_type_form(record).unwrap();
+        let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
+        validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+        assert!(matches!(&bundle.types[id.0 as usize].form, TypeNode::Record(fields) if fields[0].key == (&store.record_row(row).fields[0].key).into()));
+        let encoded = phalcom_type_meta::encode::encode_metadata_json(&bundle).unwrap();
+        assert_eq!(
+            phalcom_type_meta::encode::decode_metadata_json(&encoded, &ValidationLimits::default()).unwrap(),
+            bundle
+        );
     }
 
     let field_key_type = store.field_key_type_from_core();
@@ -1493,7 +1556,10 @@ fn legacy_record_metadata_fails_closed_for_non_symbol_keys_and_domains() {
             .expect("proper key/value types");
         let record = store.intern_with_kind(TypeData::Record(row), KindId::TYPE);
         let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
-        assert_eq!(exporter.export_type_form(record), Err(MetadataExportError::NonExportableRecordKeyDomain));
+        let id = exporter.export_type_form(record).unwrap();
+        let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
+        validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+        assert!(matches!(&bundle.types[id.0 as usize].form, TypeNode::AnonymousRecord(_)));
     }
 
     let symbol_key_type = store.nominal(phalcom_semantic::core_surface::CoreDeclarationIds::default().symbol);
@@ -1508,7 +1574,8 @@ fn legacy_record_metadata_fails_closed_for_non_symbol_keys_and_domains() {
         .expect("Symbol key and typed value domains");
     let typed_symbol_record = store.intern_with_kind(TypeData::Record(typed_symbol_row), KindId::TYPE);
     let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
-    let record_id = exporter.export_type_form(typed_symbol_record).expect("legacy typed Symbol remainder");
+    let record_id = exporter.export_type_form(typed_symbol_record).expect("typed Symbol remainder");
+    let key_id = exporter.export_type_form(symbol_key_type).expect("typed remainder key type");
     let value_id = exporter.export_type_form(value_type).expect("typed remainder value type");
     let bundle = exporter.build_complete_test_bundle(&[]).expect("metadata bundle");
     let TypeNode::AnonymousRecord(record) = &bundle.types[record_id.0 as usize].form else {
@@ -1516,9 +1583,84 @@ fn legacy_record_metadata_fails_closed_for_non_symbol_keys_and_domains() {
     };
     assert_eq!(
         record.remainder,
-        phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Typed(value_id),
-        "legacy export must preserve the typed remainder value type"
+        phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Typed {
+            key_type: key_id,
+            value_type: value_id
+        },
+        "export must preserve both remainder domains"
     );
+}
+
+#[test]
+fn heterogeneous_record_metadata_exports_fixed_keys_and_remainder_domain() {
+    use phalcom_semantic::field_key::FieldKey;
+    use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail};
+    use phalcom_semantic::types::store::TypeData;
+    use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+    use phalcom_type_meta::type_node::{AnonymousRecordRemainderRef, RecordKeyRef};
+
+    let mut store = TypeStore::new();
+    let value_type = store.nominal(dummy_decl("Int"));
+    let field_key_type = store.field_key_type_from_core();
+    let row = store
+        .record_row_checked(
+            vec![RecordRowField::required(FieldKey::string("text"), value_type)],
+            RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type: field_key_type }),
+        )
+        .expect("heterogeneous key and tail domain");
+    let record = store.intern_with_kind(TypeData::Record(row), KindId::TYPE);
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let record_id = exporter.export_type_form(record).expect("valid heterogeneous Record metadata must be retained");
+    let domain_id = exporter.export_type_form(field_key_type).unwrap();
+    let bundle = exporter.build_complete_test_bundle(&[]).expect("metadata bundle");
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("faithful Record metadata validates");
+    let TypeNode::AnonymousRecord(exported) = &bundle.types[record_id.0 as usize].form else {
+        panic!("expected Record")
+    };
+    assert_eq!(exported.fields[0].key, RecordKeyRef::String("text".into()));
+    assert_eq!(exported.remainder, AnonymousRecordRemainderRef::Unconstrained { key_type: domain_id });
+    let decoded = decode_metadata_json(&encode_metadata_json(&bundle).unwrap(), &ValidationLimits::default()).unwrap();
+    assert_eq!(decoded, bundle);
+}
+
+#[test]
+fn record_metadata_fingerprints_distinguish_key_kinds_and_remainder_domains() {
+    use phalcom_semantic::field_key::FieldKey;
+    use phalcom_semantic::types::row::{AnonymousRecordRemainder, RecordRowField, RecordRowTail};
+    use phalcom_semantic::types::store::TypeData;
+
+    let mut store = TypeStore::new();
+    let value = store.unit();
+    let symbol = store.nominal(phalcom_semantic::core_surface::CoreDeclarationIds::default().symbol);
+    let field_key = store.field_key_type_from_core();
+    let mut forms = Vec::new();
+    for key in [FieldKey::symbol("x"), FieldKey::string("x"), FieldKey::int(1.into()), FieldKey::bool(true)] {
+        let row = store
+            .record_row_checked(vec![RecordRowField::required(key, value)], RecordRowTail::Closed)
+            .unwrap();
+        forms.push(store.intern_with_kind(TypeData::Record(row), KindId::TYPE));
+    }
+    for domain in [symbol, field_key] {
+        let row = store
+            .record_row_checked(
+                Vec::new(),
+                RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed {
+                    key_type: domain,
+                    value_type: value,
+                }),
+            )
+            .unwrap();
+        forms.push(store.intern_with_kind(TypeData::Record(row), KindId::TYPE));
+    }
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let ids = forms.into_iter().map(|form| exporter.export_type_form(form).unwrap()).collect::<Vec<_>>();
+    let bundle = exporter.build_complete_test_bundle(&[]).unwrap();
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+    let fingerprints = ids
+        .iter()
+        .map(|id| bundle.types[id.0 as usize].structural_fingerprint)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(fingerprints.len(), ids.len(), "key kind and remainder key domain are identity-bearing");
 }
 
 #[test]

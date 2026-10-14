@@ -1379,7 +1379,7 @@ fn descriptor_field_name_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> Ph
                 _ => unreachable!(),
             };
             match context_data.overlay.type_node(id) {
-                Some(RuntimeOverlayTypeNode::Record(fields)) => fields.get(index).and_then(|field| field.key.as_symbol().map(str::to_owned)),
+                Some(RuntimeOverlayTypeNode::Record(fields)) => fields.get(index).map(|field| field.key.as_symbol().map(str::to_owned)),
                 _ => None,
             }
         }
@@ -1394,13 +1394,20 @@ fn descriptor_field_name_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> Ph
                 .get(node.0 as usize)
                 .ok_or_else(|| RuntimeError::Internal("node not found".into()))?;
             match &entry.form {
-                phalcom_type_meta::type_node::TypeNode::Record(f) => f.get(index).map(|f| f.name.to_string()),
-                phalcom_type_meta::type_node::TypeNode::OpenRecord(o) => o.fields.get(index).map(|f| f.name.to_string()),
+                phalcom_type_meta::type_node::TypeNode::Record(f) => f.get(index).map(|f| match &f.key {
+                    phalcom_type_meta::type_node::RecordKeyRef::Symbol(name) => Some(name.to_string()),
+                    _ => None,
+                }),
+                phalcom_type_meta::type_node::TypeNode::OpenRecord(o) => o.fields.get(index).map(|f| match &f.key {
+                    phalcom_type_meta::type_node::RecordKeyRef::Symbol(name) => Some(name.to_string()),
+                    _ => None,
+                }),
                 _ => None,
             }
         }
     }
-    .ok_or_else(|| RuntimeError::Message("field index out of range".into()))?;
+    .ok_or_else(|| RuntimeError::Message("field index out of range".into()))?
+    .ok_or_else(|| RuntimeError::Message("field key is not a Symbol".into()))?;
 
     let sym = vm.get_or_intern(&name);
     Ok(Value::symbol(sym))
@@ -1434,13 +1441,8 @@ fn descriptor_field_key_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
                 .get(node.0 as usize)
                 .ok_or_else(|| RuntimeError::Internal("node not found".into()))?;
             match &entry.form {
-                phalcom_type_meta::type_node::TypeNode::Record(fields) => {
-                    fields.get(index).map(|field| phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()))
-                }
-                phalcom_type_meta::type_node::TypeNode::OpenRecord(record) => record
-                    .fields
-                    .get(index)
-                    .map(|field| phalcom_semantic::field_key::FieldKey::symbol(field.name.clone())),
+                phalcom_type_meta::type_node::TypeNode::Record(fields) => fields.get(index).map(|field| (&field.key).into()),
+                phalcom_type_meta::type_node::TypeNode::OpenRecord(record) => record.fields.get(index).map(|field| (&field.key).into()),
                 _ => None,
             }
         }
@@ -1516,22 +1518,12 @@ fn descriptor_fields(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
             match &entry.form {
                 phalcom_type_meta::type_node::TypeNode::Record(f) => f
                     .iter()
-                    .map(|field| {
-                        (
-                            phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()),
-                            RuntimeTypeRef::Base { pool, node: field.ty },
-                        )
-                    })
+                    .map(|field| ((&field.key).into(), RuntimeTypeRef::Base { pool, node: field.ty }))
                     .collect(),
                 phalcom_type_meta::type_node::TypeNode::OpenRecord(o) => o
                     .fields
                     .iter()
-                    .map(|field| {
-                        (
-                            phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()),
-                            RuntimeTypeRef::Base { pool, node: field.ty },
-                        )
-                    })
+                    .map(|field| ((&field.key).into(), RuntimeTypeRef::Base { pool, node: field.ty }))
                     .collect(),
                 _ => Vec::new(),
             }

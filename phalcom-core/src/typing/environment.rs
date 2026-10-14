@@ -262,13 +262,34 @@ fn instantiate_type_ref(
                                 let mut fields = Vec::with_capacity(row.fields.len());
                                 for field in row.fields.iter() {
                                     fields.push(crate::typing::overlay::RuntimeRecordField {
-                                        key: phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()),
+                                        key: (&field.key).into(),
                                         ty: instantiate_type_ref(RuntimeTypeRef::Base { pool, node: field.ty }, env, context, registry, depth + 1)?,
                                     });
                                 }
+                                let remainder = match row.remainder {
+                                    Some(phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Unconstrained { key_type }) => {
+                                        Some(crate::typing::overlay::RuntimeAnonymousRecordRemainder::Unconstrained {
+                                            key_type: instantiate_type_ref(RuntimeTypeRef::Base { pool, node: key_type }, env, context, registry, depth + 1)?,
+                                        })
+                                    }
+                                    Some(phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Typed { key_type, value_type }) => {
+                                        Some(crate::typing::overlay::RuntimeAnonymousRecordRemainder::Typed {
+                                            key_type: instantiate_type_ref(RuntimeTypeRef::Base { pool, node: key_type }, env, context, registry, depth + 1)?,
+                                            value_type: instantiate_type_ref(
+                                                RuntimeTypeRef::Base { pool, node: value_type },
+                                                env,
+                                                context,
+                                                registry,
+                                                depth + 1,
+                                            )?,
+                                        })
+                                    }
+                                    None => None,
+                                };
                                 crate::typing::overlay::RuntimeStaticArgument::RecordRow(crate::typing::overlay::RuntimeRecordRow {
                                     fields: fields.into_boxed_slice(),
                                     tail: row.tail.clone(),
+                                    remainder,
                                 })
                             }
                             phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => crate::typing::overlay::RuntimeStaticArgument::DynamicType,
@@ -316,7 +337,7 @@ fn instantiate_type_ref(
                     for f in fields.iter() {
                         let new_ty = instantiate_type_ref(RuntimeTypeRef::Base { pool, node: f.ty }, env, context, registry, depth + 1)?;
                         new_fields.push(crate::typing::overlay::RuntimeRecordField {
-                            key: phalcom_semantic::field_key::FieldKey::symbol(f.name.clone()),
+                            key: (&f.key).into(),
                             ty: new_ty,
                         });
                     }
@@ -374,9 +395,24 @@ fn instantiate_record_row(
             ty: instantiate_type_ref(field.ty, env, context, registry, depth + 1)?,
         });
     }
+    let remainder = match &row.remainder {
+        Some(crate::typing::overlay::RuntimeAnonymousRecordRemainder::Unconstrained { key_type }) => {
+            Some(crate::typing::overlay::RuntimeAnonymousRecordRemainder::Unconstrained {
+                key_type: instantiate_type_ref(*key_type, env, context, registry, depth + 1)?,
+            })
+        }
+        Some(crate::typing::overlay::RuntimeAnonymousRecordRemainder::Typed { key_type, value_type }) => {
+            Some(crate::typing::overlay::RuntimeAnonymousRecordRemainder::Typed {
+                key_type: instantiate_type_ref(*key_type, env, context, registry, depth + 1)?,
+                value_type: instantiate_type_ref(*value_type, env, context, registry, depth + 1)?,
+            })
+        }
+        None => None,
+    };
     Some(crate::typing::overlay::RuntimeRecordRow {
         fields: fields.into_boxed_slice(),
         tail: None,
+        remainder,
     })
 }
 
@@ -446,7 +482,7 @@ mod tests {
                 origin: TypeNodeId(3),
                 arguments: vec![StaticArgumentRef::RecordRow(phalcom_type_meta::type_node::RecordRowRef {
                     fields: vec![RecordFieldRef {
-                        name: "payload".into(),
+                        key: phalcom_type_meta::type_node::RecordKeyRef::Symbol("payload".into()),
                         ty: TypeNodeId(2),
                         presence: StructuralMemberPresenceRef::Required,
                     }]
@@ -460,7 +496,7 @@ mod tests {
                 origin: TypeNodeId(3),
                 arguments: vec![StaticArgumentRef::RecordRow(phalcom_type_meta::type_node::RecordRowRef {
                     fields: vec![RecordFieldRef {
-                        name: "payload".into(),
+                        key: phalcom_type_meta::type_node::RecordKeyRef::Symbol("payload".into()),
                         ty: TypeNodeId(2),
                         presence: StructuralMemberPresenceRef::Required,
                     }]
@@ -478,6 +514,7 @@ mod tests {
         let bundle = SemanticMetadataBundle {
             header: phalcom_type_meta::header::SemanticMetadataHeader {
                 schema_version: TYPE_METADATA_SCHEMA_VERSION,
+                legacy_fingerprint_schema_version: None,
                 semantic_model_version: SEMANTIC_MODEL_VERSION,
                 producer: ProducerIdentity("typing-test".into()),
                 producer_version: "1".into(),
@@ -670,6 +707,7 @@ mod tests {
                     },
                 }]),
                 tail: None,
+                remainder: None,
             })]
             .into_boxed_slice(),
         });
@@ -701,6 +739,7 @@ mod tests {
                     ty: int_ty,
                 }]),
                 tail: None,
+                remainder: None,
             })]
             .into_boxed_slice(),
         });

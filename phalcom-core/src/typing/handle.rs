@@ -47,6 +47,12 @@ pub struct RuntimeGenericConstraintRef {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuntimeDeclarationMetadataRef {
+    pub pool: MetadataPoolId,
+    pub record: phalcom_type_meta::declaration::DeclarationRecordId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RuntimeCallableSignatureRef {
     pub pool: MetadataPoolId,
     pub record: phalcom_type_meta::declaration::CallableRecordId,

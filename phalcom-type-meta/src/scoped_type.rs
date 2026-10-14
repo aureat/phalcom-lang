@@ -6,7 +6,7 @@ use crate::type_node::TypeNodeId;
 use serde::{Deserialize, Serialize};
 
 use crate::generic::{GenericParameterModeRef, StableTypeParameterRef};
-use crate::type_node::StructuralMemberPresenceRef;
+use crate::type_node::{RecordKeyRef, StructuralMemberPresenceRef};
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
@@ -22,8 +22,8 @@ pub enum ScopedAnonymousTupleRemainderRef {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub enum ScopedAnonymousRecordRemainderRef {
-    Unconstrained,
-    Typed(ScopedTypeNodeId),
+    Unconstrained { key_type: ScopedTypeNodeId },
+    Typed { key_type: ScopedTypeNodeId, value_type: ScopedTypeNodeId },
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -73,7 +73,7 @@ pub enum ScopedPackProjectionLaneRef {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct ScopedRecordFieldRef {
-    pub name: Box<str>,
+    pub key: RecordKeyRef,
     pub ty: ScopedTypeNodeId,
     #[serde(default)]
     pub presence: StructuralMemberPresenceRef,

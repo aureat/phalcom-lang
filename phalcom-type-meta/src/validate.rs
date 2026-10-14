@@ -5,7 +5,7 @@ use crate::header::{MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION, SEMANTIC_MODEL_V
 use crate::identity::StableStaticDomainDeclarationRef;
 use crate::kind::{KindNode, KindNodeId, StaticDomainRef};
 use crate::scoped_type::{ScopedAnonymousRecordRemainderRef, ScopedAnonymousTupleRemainderRef, ScopedRecordRowTailRef, ScopedRecordTailRef, ScopedTypeNode};
-use crate::type_node::{AnonymousRecordRemainderRef, AnonymousTupleRemainderRef, StaticArgumentRef, StructuralMemberPresenceRef, TypeNode};
+use crate::type_node::{AnonymousRecordRemainderRef, AnonymousTupleRemainderRef, RecordKeyRef, StaticArgumentRef, StructuralMemberPresenceRef, TypeNode};
 use std::collections::HashSet;
 use thiserror::Error;
 
@@ -362,7 +362,7 @@ fn validate_static_argument_row(
     let StaticArgumentRef::RecordRow(row) = argument else {
         return Ok(());
     };
-    let mut previous_name: Option<&str> = None;
+    let mut previous_name: Option<&RecordKeyRef> = None;
     for field in row.fields.iter() {
         let index = field.ty.0 as usize;
         if index >= bundle.types.len() {
@@ -381,19 +381,19 @@ fn validate_static_argument_row(
             return Err(MetadataValidationError::Malformed("record-row field values must have kind Type".to_string()));
         }
         if let Some(previous) = previous_name {
-            if field.name.as_ref() < previous {
+            if &field.key < previous {
                 return Err(MetadataValidationError::RecordFieldOrderInvalid {
                     node: before_type_node.unwrap_or(u32::MAX),
                 });
             }
-            if field.name.as_ref() == previous {
+            if &field.key == previous {
                 return Err(MetadataValidationError::RecordDuplicateField {
                     node: before_type_node.unwrap_or(u32::MAX),
-                    field: field.name.clone(),
+                    field: format!("{:?}", field.key).into_boxed_str(),
                 });
             }
         }
-        previous_name = Some(&field.name);
+        previous_name = Some(&field.key);
     }
     if let Some(tail) = &row.tail {
         let owner_key = format!("{:?}", tail.owner);
@@ -407,25 +407,98 @@ fn validate_static_argument_row(
             return Err(MetadataValidationError::RecordTailKindMismatch { actual_kind: parameter.kind.0 });
         }
     }
-    if let Some(AnonymousRecordRemainderRef::Typed(ty)) = &row.remainder {
-        let index = ty.0 as usize;
-        if index >= bundle.types.len() {
+    if let Some(remainder) = &row.remainder {
+        validate_record_remainder(remainder, before_type_node, bundle)?;
+    }
+    Ok(())
+}
+
+fn validate_record_remainder(
+    remainder: &AnonymousRecordRemainderRef,
+    before_type_node: Option<u32>,
+    bundle: &SemanticMetadataBundle,
+) -> Result<(), MetadataValidationError> {
+    let (key_type, value_type) = match remainder {
+        AnonymousRecordRemainderRef::Unconstrained { key_type } => (key_type, None),
+        AnonymousRecordRemainderRef::Typed { key_type, value_type } => (key_type, Some(value_type)),
+    };
+    for ty in std::iter::once(key_type).chain(value_type) {
+        let Some(entry) = bundle.types.get(ty.0 as usize) else {
             return Err(MetadataValidationError::InvalidTypeIndex {
                 index: ty.0,
                 total: bundle.types.len(),
             });
-        }
+        };
         if before_type_node.is_some_and(|before| ty.0 >= before) {
             return Err(MetadataValidationError::TopologicalOrderViolation {
                 index: before_type_node.unwrap_or_default(),
                 target: ty.0,
             });
         }
-        if !matches!(bundle.kinds[bundle.types[index].kind.0 as usize].node, KindNode::Type) {
-            return Err(MetadataValidationError::Malformed("record-row remainder type must have kind Type".to_string()));
+        if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::Type) {
+            return Err(MetadataValidationError::Malformed("record remainder domain must have kind Type".to_string()));
         }
     }
     Ok(())
+}
+
+fn validate_scoped_record_remainder(
+    remainder: &ScopedAnonymousRecordRemainderRef,
+    before_node: u32,
+    bundle: &SemanticMetadataBundle,
+) -> Result<(), MetadataValidationError> {
+    let (key_type, value_type) = match remainder {
+        ScopedAnonymousRecordRemainderRef::Unconstrained { key_type } => (key_type, None),
+        ScopedAnonymousRecordRemainderRef::Typed { key_type, value_type } => (key_type, Some(value_type)),
+    };
+    for ty in std::iter::once(key_type).chain(value_type) {
+        if ty.0 >= before_node {
+            return Err(MetadataValidationError::TopologicalOrderViolation {
+                index: before_node,
+                target: ty.0,
+            });
+        }
+        let Some(entry) = bundle.scoped_types.get(ty.0 as usize) else {
+            return Err(MetadataValidationError::InvalidTypeIndex {
+                index: ty.0,
+                total: bundle.scoped_types.len(),
+            });
+        };
+        if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::Type) {
+            return Err(MetadataValidationError::Malformed(
+                "scoped record remainder domain must have kind Type".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn pre_v13_has_heterogeneous_record_key(bundle: &SemanticMetadataBundle) -> bool {
+    let global_fields = |fields: &[crate::type_node::RecordFieldRef]| fields.iter().any(|field| !matches!(field.key, RecordKeyRef::Symbol(_)));
+    let scoped_fields = |fields: &[crate::scoped_type::ScopedRecordFieldRef]| fields.iter().any(|field| !matches!(field.key, RecordKeyRef::Symbol(_)));
+    let arguments = |args: &[StaticArgumentRef]| {
+        args.iter()
+            .any(|arg| matches!(arg, StaticArgumentRef::RecordRow(row) if global_fields(&row.fields)))
+    };
+    bundle.types.iter().any(|entry| match &entry.form {
+        TypeNode::Record(fields) => global_fields(fields),
+        TypeNode::OpenRecord(record) => global_fields(&record.fields),
+        TypeNode::AnonymousRecord(record) => global_fields(&record.fields),
+        TypeNode::Applied { arguments: args, .. } => arguments(args),
+        TypeNode::StaticData(data) => {
+            arguments(&data.arguments) || matches!(&data.domain, StaticDomainRef::Associated { owner_environment, .. } if arguments(owner_environment))
+        }
+        _ => false,
+    }) || bundle.scoped_types.iter().any(|entry| match &entry.form {
+        ScopedTypeNode::Record(fields) => scoped_fields(fields),
+        ScopedTypeNode::OpenRecord(record) => scoped_fields(&record.fields),
+        ScopedTypeNode::AnonymousRecord(record) => scoped_fields(&record.fields),
+        ScopedTypeNode::RecordRow(row) => scoped_fields(&row.fields),
+        _ => false,
+    }) || bundle.kinds.iter().any(|entry| {
+        matches!(&entry.node,
+        KindNode::StaticDomain(StaticDomainRef::Associated { owner_environment, .. }) if arguments(owner_environment))
+    })
 }
 
 fn validate_schema_v1_feature_floor(bundle: &SemanticMetadataBundle) -> Result<(), MetadataValidationError> {
@@ -660,6 +733,19 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
     if bundle.header.semantic_model_version != SEMANTIC_MODEL_VERSION {
         return Err(MetadataValidationError::UnsupportedSemanticModelVersion(bundle.header.semantic_model_version));
     }
+    if bundle
+        .header
+        .legacy_fingerprint_schema_version
+        .is_some_and(|version| version < MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION || version >= 13 || bundle.header.schema_version != 13)
+    {
+        return Err(MetadataValidationError::Malformed("invalid legacy fingerprint provenance".into()));
+    }
+
+    if bundle.header.schema_version < 13 && pre_v13_has_heterogeneous_record_key(bundle) {
+        return Err(MetadataValidationError::Malformed(
+            "schema before v13 cannot contain heterogeneous Record field keys".into(),
+        ));
+    }
 
     match bundle.header.schema_version {
         1 => {
@@ -686,7 +772,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
             validate_schema_v5_feature_floor(bundle)?;
             validate_pre_v8_catalog_floor(bundle)?;
         }
-        8..=12 => validate_schema_v5_feature_floor(bundle)?,
+        8..=13 => validate_schema_v5_feature_floor(bundle)?,
         _ => unreachable!("version range checked above"),
     }
 
@@ -1000,7 +1086,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                 }
             }
             TypeNode::Record(fields) => {
-                let mut prev_name: Option<&str> = None;
+                let mut prev_name: Option<&RecordKeyRef> = None;
                 for f in fields.iter() {
                     if f.ty.0 as usize >= i {
                         return Err(MetadataValidationError::TopologicalOrderViolation {
@@ -1009,20 +1095,20 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         });
                     }
                     if let Some(prev) = prev_name {
-                        if &*f.name < prev {
+                        if &f.key < prev {
                             return Err(MetadataValidationError::RecordFieldOrderInvalid { node: i as u32 });
-                        } else if &*f.name == prev {
+                        } else if &f.key == prev {
                             return Err(MetadataValidationError::RecordDuplicateField {
                                 node: i as u32,
-                                field: f.name.clone(),
+                                field: format!("{:?}", f.key).into_boxed_str(),
                             });
                         }
                     }
-                    prev_name = Some(&f.name);
+                    prev_name = Some(&f.key);
                 }
             }
             TypeNode::OpenRecord(open_rec) => {
-                let mut prev_name: Option<&str> = None;
+                let mut prev_name: Option<&RecordKeyRef> = None;
                 for f in open_rec.fields.iter() {
                     if f.ty.0 as usize >= i {
                         return Err(MetadataValidationError::TopologicalOrderViolation {
@@ -1031,16 +1117,16 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         });
                     }
                     if let Some(prev) = prev_name {
-                        if &*f.name < prev {
+                        if &f.key < prev {
                             return Err(MetadataValidationError::RecordFieldOrderInvalid { node: i as u32 });
-                        } else if &*f.name == prev {
+                        } else if &f.key == prev {
                             return Err(MetadataValidationError::RecordDuplicateField {
                                 node: i as u32,
-                                field: f.name.clone(),
+                                field: format!("{:?}", f.key).into_boxed_str(),
                             });
                         }
                     }
-                    prev_name = Some(&f.name);
+                    prev_name = Some(&f.key);
                 }
                 let owner_key = format!("{:?}", open_rec.tail.owner);
                 let tail_param = param_map
@@ -1269,7 +1355,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                 if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::Type) {
                     return Err(MetadataValidationError::Malformed("AnonymousRecord node must have kind Type".to_string()));
                 }
-                let mut prev_name: Option<&str> = None;
+                let mut prev_name: Option<&RecordKeyRef> = None;
                 for f in anon_rec.fields.iter() {
                     if f.ty.0 as usize >= i {
                         return Err(MetadataValidationError::TopologicalOrderViolation {
@@ -1281,25 +1367,18 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         return Err(MetadataValidationError::Malformed("record field values must have kind Type".to_string()));
                     }
                     if let Some(prev) = prev_name {
-                        if &*f.name < prev {
+                        if &f.key < prev {
                             return Err(MetadataValidationError::RecordFieldOrderInvalid { node: i as u32 });
-                        } else if &*f.name == prev {
+                        } else if &f.key == prev {
                             return Err(MetadataValidationError::RecordDuplicateField {
                                 node: i as u32,
-                                field: f.name.clone(),
+                                field: format!("{:?}", f.key).into_boxed_str(),
                             });
                         }
                     }
-                    prev_name = Some(&f.name);
+                    prev_name = Some(&f.key);
                 }
-                if let AnonymousRecordRemainderRef::Typed(ty) = anon_rec.remainder {
-                    if ty.0 as usize >= i {
-                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
-                    }
-                    if !matches!(bundle.kinds[bundle.types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
-                        return Err(MetadataValidationError::Malformed("record remainder must have kind Type".to_string()));
-                    }
-                }
+                validate_record_remainder(&anon_rec.remainder, Some(i as u32), bundle)?;
             }
             TypeNode::Pack(pack) => {
                 if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::Type) {
@@ -1437,7 +1516,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                 }
             }
             ScopedTypeNode::Record(fields) => {
-                let mut prev_name: Option<&str> = None;
+                let mut prev_name: Option<&RecordKeyRef> = None;
                 for f in fields.iter() {
                     if f.ty.0 as usize >= i {
                         return Err(MetadataValidationError::TopologicalOrderViolation {
@@ -1446,20 +1525,20 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         });
                     }
                     if let Some(prev) = prev_name {
-                        if &*f.name < prev {
+                        if &f.key < prev {
                             return Err(MetadataValidationError::RecordFieldOrderInvalid { node: i as u32 });
-                        } else if &*f.name == prev {
+                        } else if &f.key == prev {
                             return Err(MetadataValidationError::RecordDuplicateField {
                                 node: i as u32,
-                                field: f.name.clone(),
+                                field: format!("{:?}", f.key).into_boxed_str(),
                             });
                         }
                     }
-                    prev_name = Some(&f.name);
+                    prev_name = Some(&f.key);
                 }
             }
             ScopedTypeNode::OpenRecord(open_rec) => {
-                let mut prev_name: Option<&str> = None;
+                let mut prev_name: Option<&RecordKeyRef> = None;
                 for f in open_rec.fields.iter() {
                     if f.ty.0 as usize >= i {
                         return Err(MetadataValidationError::TopologicalOrderViolation {
@@ -1468,16 +1547,16 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         });
                     }
                     if let Some(prev) = prev_name {
-                        if &*f.name < prev {
+                        if &f.key < prev {
                             return Err(MetadataValidationError::RecordFieldOrderInvalid { node: i as u32 });
-                        } else if &*f.name == prev {
+                        } else if &f.key == prev {
                             return Err(MetadataValidationError::RecordDuplicateField {
                                 node: i as u32,
-                                field: f.name.clone(),
+                                field: format!("{:?}", f.key).into_boxed_str(),
                             });
                         }
                     }
-                    prev_name = Some(&f.name);
+                    prev_name = Some(&f.key);
                 }
                 match &open_rec.tail {
                     ScopedRecordTailRef::Bound { depth, index } => {
@@ -1522,14 +1601,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         }
                     }
                     ScopedRecordTailRef::Anonymous(remainder) => {
-                        if let ScopedAnonymousRecordRemainderRef::Typed(ty) = remainder {
-                            if ty.0 as usize >= i {
-                                return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
-                            }
-                            if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
-                                return Err(MetadataValidationError::Malformed("scoped record remainder must have kind Type".to_string()));
-                            }
-                        }
+                        validate_scoped_record_remainder(remainder, i as u32, bundle)?;
                     }
                 }
             }
@@ -1539,7 +1611,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         "scoped RecordRow node {i} must have kind RecordRow"
                     )));
                 }
-                let mut previous_name: Option<&str> = None;
+                let mut previous_name: Option<&RecordKeyRef> = None;
                 for field in row.fields.iter() {
                     if field.ty.0 as usize >= i {
                         return Err(MetadataValidationError::TopologicalOrderViolation {
@@ -1550,21 +1622,21 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     if !matches!(bundle.kinds[bundle.scoped_types[field.ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
                         return Err(MetadataValidationError::Malformed(format!(
                             "scoped RecordRow field '{}' at node {i} must have kind Type",
-                            field.name
+                            format!("{:?}", field.key)
                         )));
                     }
                     if let Some(previous) = previous_name {
-                        if field.name.as_ref() < previous {
+                        if &field.key < previous {
                             return Err(MetadataValidationError::RecordFieldOrderInvalid { node: i as u32 });
                         }
-                        if field.name.as_ref() == previous {
+                        if &field.key == previous {
                             return Err(MetadataValidationError::RecordDuplicateField {
                                 node: i as u32,
-                                field: field.name.clone(),
+                                field: format!("{:?}", field.key).into_boxed_str(),
                             });
                         }
                     }
-                    previous_name = Some(&field.name);
+                    previous_name = Some(&field.key);
                 }
                 match &row.tail {
                     ScopedRecordRowTailRef::Closed => {}
@@ -1621,16 +1693,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         }
                     }
                     ScopedRecordRowTailRef::Anonymous(remainder) => {
-                        if let ScopedAnonymousRecordRemainderRef::Typed(ty) = remainder {
-                            if ty.0 as usize >= i {
-                                return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
-                            }
-                            if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
-                                return Err(MetadataValidationError::Malformed(
-                                    "scoped record row remainder must have kind Type".to_string(),
-                                ));
-                            }
-                        }
+                        validate_scoped_record_remainder(remainder, i as u32, bundle)?;
                     }
                 }
             }
@@ -1902,7 +1965,7 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         "scoped AnonymousRecord node must have kind Type".to_string(),
                     ));
                 }
-                let mut prev_name: Option<&str> = None;
+                let mut prev_name: Option<&RecordKeyRef> = None;
                 for f in anon_rec.fields.iter() {
                     if f.ty.0 as usize >= i {
                         return Err(MetadataValidationError::TopologicalOrderViolation {
@@ -1914,25 +1977,18 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         return Err(MetadataValidationError::Malformed("scoped record field values must have kind Type".to_string()));
                     }
                     if let Some(prev) = prev_name {
-                        if &*f.name < prev {
+                        if &f.key < prev {
                             return Err(MetadataValidationError::RecordFieldOrderInvalid { node: i as u32 });
-                        } else if &*f.name == prev {
+                        } else if &f.key == prev {
                             return Err(MetadataValidationError::RecordDuplicateField {
                                 node: i as u32,
-                                field: f.name.clone(),
+                                field: format!("{:?}", f.key).into_boxed_str(),
                             });
                         }
                     }
-                    prev_name = Some(&f.name);
+                    prev_name = Some(&f.key);
                 }
-                if let ScopedAnonymousRecordRemainderRef::Typed(ty) = anon_rec.remainder {
-                    if ty.0 as usize >= i {
-                        return Err(MetadataValidationError::TopologicalOrderViolation { index: i as u32, target: ty.0 });
-                    }
-                    if !matches!(bundle.kinds[bundle.scoped_types[ty.0 as usize].kind.0 as usize].node, KindNode::Type) {
-                        return Err(MetadataValidationError::Malformed("scoped record remainder must have kind Type".to_string()));
-                    }
-                }
+                validate_scoped_record_remainder(&anon_rec.remainder, i as u32, bundle)?;
             }
             ScopedTypeNode::Pack(pack) => {
                 if !matches!(bundle.kinds[entry.kind.0 as usize].node, KindNode::Type) {

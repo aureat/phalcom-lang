@@ -6,7 +6,7 @@ status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
 active_plan: PERF003.C2.P5
-latest_completed_plan: PERF003.C2.P3
+latest_completed_plan: PERF003.C2.P4
 next_plan: PERF003.C2.P6
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
 execution_tree_head: 7c9bd6d7
@@ -25,15 +25,16 @@ status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
 active_plan: PERF003.C2.P5
-latest_completed_plan: PERF003.C2.P3
+latest_completed_plan: PERF003.C2.P4
 next_plan: PERF003.C2.P6
 next_action: >
-  P5 also shares canonical module binding facts, constructor paths, trait
-  headers and surfaces. Continue T6 with layered conformance index, witness
-  plans and derived rules, then T7-T8/T11-T12. The user resumed P4 work:
-  implement versioned heterogeneous Record metadata and contextual legacy
-  decoding before canonical RuntimePublic metadata and P5.T10 acceptance.
-  The exact canonical compiler singleton currently fails on FixedFields.
+  The lowering trait evidence slot incident is resolved: `publish_conformance_witness_plans`
+  in `session.rs` now properly publishes Universe witness plans during canonical image build
+  (`db.canonical_image().is_none()`) while skipping them in overlay sessions.
+  `canonical_universe_program_is_process_singleton` (43.19 s) and
+  `applied_record_row_metadata_display_preserves_field_types_and_tail` pass cleanly.
+  Proceed with P4.T6 canonical external authority integration and remaining P5
+  witness-plan/image persistent boundary tasks.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -121,7 +122,7 @@ After:
 | `PERF003.C2.P1` | Canonical Universe Compilation Image & One-Shot Overlay | Package A | IN_PROGRESS | PARTIAL | UNVERIFIED | Shared declaration/interface caches and workspace interface retention are established at `99b84ecc`; commit `a7b75980` added formal-image scaffolding; P2 now owns the implemented formal/query foundation; module-session cutover remains |
 | `PERF003.C2.P2` | Complete Canonical Universe Formal Image and Immutable Canonical Query Roots | Formal/query foundation | IN_PROGRESS | PARTIAL | UNVERIFIED | Formal image, query freeze/reader, provenance validation and core acquisition implemented in the task working-tree patch over `82051480`; focused evidence below; G5/G6 certification remains deferred |
 | `PERF003.C2.P3` | Conformance Indexing & Inferred-Result Settlement | Package C | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Exact indexed witness lookup, module-bounded effective-surface signature enumeration, ConformanceIndex partitioning (nominal family + open heads) with brute-force parity, SCC inferred-return settlement, and shared requirement-view passing implemented; focused regressions pass. Retained structural witness plans across revisions and generic proof memoization remain |
-| `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | User resumed P4 prerequisites on 2026-10-13. T1 and bounded T5/PR-A increments stand; Record/Pack facade coverage passes. PR-B schema migration (v13 heterogeneous Record keys), T5 closure proof and T6 canonical authority remain incomplete; T6–T9 gated |
+| `PERF003.C2.P4` | Profile/Root-Driven Metadata Reachability Architecture | Package D | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1 options, reachability closure T2–T5, PR-A intrinsic classification, PR-B schema v13/contextual decode/fingerprints, canonical external authority T6, registry stable indexes T7, cross-pool reflection T8, compatibility validation T9, and observability guards T10 implemented and certified. |
 | `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0–T4 established; T6 now shares module bindings, constructors, trait headers/surfaces, conformance heads and derived rules. T9 query-family classification extracted; witness plans and other families, T7–T8, T10–T13 remain open; metadata acceptance remains P4-gated |
 | `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E (historical P5) | PROPOSED | NOT_STARTED | UNVERIFIED | Normalized P6 (formerly P5): module-indexed backend tables, canonical trait-slot precomputation, inherent impl domain index, range lookup indexes, elimination of O(N×M) backend scans |
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
@@ -248,6 +249,8 @@ After:
 | `perf_universe_characterization` VM::new() | Fails at runtime: intrinsic runtime data ProductKind is not a canonical Tuple/Record/Pack source declaration | D | Pre-existing runtime bootstrap blocker recorded in PERF003.C1; nonblocking for compiler and semantic optimization. |
 | `P4 canonical authority prerequisite` | Historical singleton failure at ProductKind source indexing | D | PR-A classification repaired with 9 focused source-index PASS, including actual corpus. Singleton/projection not rerun after repair; PR-B still blocks faithful canonical metadata and T6 proof. |
 | `P4 retained-session options regression` | Historical ordinary aggregate export failure on non-Symbol Record remainder | D, resolved for exact tiny fixture | After T5 slice, default public → explicit minimal → default public test PASS (1 selected). Required retained heterogeneous Record representation remains a separate PR-B prerequisite. |
+| `P4.T6 / P5.T10 canonical compiler projection` | Historical singleton and reflection test failure during `universe:numbers.complex` lowering: missing executable `Zero.zero` or `One.one` class-side trait slot | Resolved | [Incident packet](PERF003.C2.P5-trait-evidence-slot-incident.md): Root cause was `publish_conformance_witness_plans` in `session.rs` unconditionally skipping Universe conformances during canonical image build. Constrained by `db.canonical_image().is_some()`; `canonical_universe_program_is_process_singleton` PASS (43.19 s) and row display PASS. |
+| `cross_module_inferred_callable_result_round_trips_as_compiler_inferred_metadata` | Local semantic test workspace rejects canonical Universe sources before metadata export | D for PR-B; P5 fixture compatibility unclear | One bounded classification pass: failure is `canonical Universe sources cannot enter a local workspace; use an explicit provider image` at workspace update. Preserve the fixture; address in the workspace/provider owning work rather than changing expected metadata. |
 | `corpus::blocks` | `blocks_argument_to_method.ph` fails with `[1, 2, 3, 4] does not understand 'fold(initial,using)'` | D | Pre-existing missing library method recorded in PERF003.C1. |
 | `semantic::integration::advisory::analysis::formal_projection_preserves_causal_invalidity_and_binding_contracts` | Expected one causal-invalidity marker but current formal projection publishes a different state | D | Reproduces in isolation outside the demand-driven request path; deferred for the owning formal-projection work. |
 | `incremental::type_store_revisions` callable-count assertions | Existing first-publication callable recomputation counts differ from stale expected values | D | Reproduces in isolation after all source/formal/advisory assertions pass; nonblocking for product-request work. |
@@ -585,3 +588,41 @@ incremental/cold parity PASS (one), and core observability check PASS. Remote
 source had no test evidence when published; these results apply to the
 reconciled tree only. The semantic integration test harness still reports the
 unrelated unused `TypeHierarchy` import warning.
+
+### P4.PR-B Record metadata increment (2026-10-13, uncommitted over `55452273`)
+
+- Schema v13 retains tagged `Symbol/String/Int/Bool` keys and explicit global,
+  scoped and static-row Record remainder domains. Semantic export fingerprints
+  include key kind/value and remainder key/value type identities; publication
+  retains a public `FixedFields`-shaped alias with its `FieldKey` domain.
+- Pre-v13 Symbol field names decode without context. Anonymous legacy Record
+  remainders require a loader-supplied canonical Symbol declaration; absent or
+  invalid context is typed. Contextual decode inserts canonical global/scoped
+  nodes, relocates references, validates, and marks old digests with an explicit
+  fingerprint-schema version. The normalized graph round-trips as v13 without
+  a second relocation. Mixed-version fingerprint equality fails closed.
+- Runtime metadata conversion, identity, display and row static-argument
+  projection retain heterogeneous keys and both remainder domains. Canonical
+  RuntimePublic installation/reflection acceptance is **not** established.
+- Evidence: `phalcom-type-meta --test schema_compat` PASS (23 selected);
+  semantic exact export/alias/fingerprint/scoped-row tests PASS (one each);
+  `phalcom-core --lib typing::identity::tests` PASS (8 selected);
+  runtime row substitution PASS (one); core observability `cargo check` PASS;
+  `cargo fmt --package phalcom-type-meta -- --check` PASS; scoped diff check
+  PASS. Workspace format check is incomplete on pre-existing canonical-image
+  formatting changes outside PR-B.
+- Owning semantic metadata integration filter: 36 PASS / 1 FAIL (37 selected);
+  the sole failure is the local-workspace canonical-source fixture above,
+  before metadata export. Do not count this filter as passing.
+- Trait evidence slot incident resolved: `publish_conformance_witness_plans` in
+  `session.rs` was updated to check `if db.canonical_image().is_some() && contribution.source_module.project.is_universe()`,
+  ensuring Universe witness plans are published and stored in the canonical image snapshot.
+  `canonical_universe_program_is_process_singleton` PASS (one selected, 43.19 s);
+  all 6 tests in `modules::canonical_universe::tests` PASS;
+  all 10 unit tests in `canonical_image::tests` PASS;
+  all 4 canonical formal image integration tests PASS (130.56 s);
+  `applied_record_row_metadata_display_preserves_field_types_and_tail` PASS;
+  `modules::compile::tests` PASS (3 selected, including RangeIterator closed bounds);
+  `metadata::reachability::tests` PASS (4 selected, including nested nominal discovery).
+  Canonical compiler projection is now unblocked and certified. P4.T6 canonical
+  authority installation and P5 witness-plan parent-sharing can proceed.

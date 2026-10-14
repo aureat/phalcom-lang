@@ -141,6 +141,22 @@ impl VM {
         metadata_bundle: Arc<phalcom_type_meta::SemanticMetadataBundle>,
     ) -> PhResult<crate::typing::handle::MetadataPoolId> {
         let pool_id = crate::typing::handle::MetadataPoolId(self.typing_registry.pool_count() as u32);
+        if pool_id.0 > 0 {
+            if let Some(canonical) = self.typing_registry.get_pool(crate::typing::handle::MetadataPoolId(0)) {
+                if metadata_bundle.header.semantic_model_version != canonical.bundle.header.semantic_model_version {
+                    return Err(RuntimeError::Internal(format!(
+                        "incompatible metadata bundle: semantic model version {} does not match canonical environment {}",
+                        metadata_bundle.header.semantic_model_version, canonical.bundle.header.semantic_model_version,
+                    )).into());
+                }
+                if metadata_bundle.header.native_surface_schema_version != canonical.bundle.header.native_surface_schema_version {
+                    return Err(RuntimeError::Internal(format!(
+                        "incompatible metadata bundle: native surface schema version {} does not match canonical environment {}",
+                        metadata_bundle.header.native_surface_schema_version, canonical.bundle.header.native_surface_schema_version,
+                    )).into());
+                }
+            }
+        }
         let pool = crate::typing::loader::load_metadata_bundle(pool_id, metadata_bundle, &phalcom_type_meta::validate::ValidationLimits::default())?;
         let registered = self.typing_registry.register_pool(pool);
         debug_assert_eq!(registered, pool_id);
@@ -708,5 +724,58 @@ impl VM {
             })?;
         self.heap.module_mut(obj_ref).closure = Some(closure);
         Ok(closure)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use phalcom_type_meta::bundle::SemanticMetadataBundle;
+    use phalcom_type_meta::fingerprint::Fingerprint128;
+    use phalcom_type_meta::header::*;
+
+    fn test_bundle(semantic_model_version: u32) -> Arc<SemanticMetadataBundle> {
+        Arc::new(SemanticMetadataBundle {
+            header: SemanticMetadataHeader {
+                schema_version: TYPE_METADATA_SCHEMA_VERSION,
+                legacy_fingerprint_schema_version: None,
+                semantic_model_version,
+                producer: ProducerIdentity("test".into()),
+                producer_version: "1".into(),
+                native_surface_schema_version: NATIVE_SURFACE_SCHEMA_VERSION,
+                profile: MetadataProfile::RuntimePublic,
+                features: MetadataFeatures::default(),
+                identity_scheme: ArtifactIdentityScheme::V1Standard,
+                source_fingerprint: Fingerprint128::ZERO,
+                interface_fingerprint: Fingerprint128::ZERO,
+            },
+            kinds: Box::new([]),
+            types: Box::new([]),
+            scoped_types: Box::new([]),
+            parameters: Box::new([]),
+            generic_signatures: Box::new([]),
+            declarations: Box::new([]),
+            static_domains: Box::new([]),
+            aliases: Box::new([]),
+            callables: Box::new([]),
+            fields: Box::new([]),
+            module_roots: Box::new([]),
+            runtime_roots: Box::new([]),
+            occurrences: Box::new([]),
+            extensions: Box::new([]),
+        })
+    }
+
+    #[test]
+    fn metadata_bundle_installation_validates_canonical_compatibility() {
+        let mut vm = VM::new_kernel();
+        let pool0 = vm.install_semantic_metadata_bundle(test_bundle(SEMANTIC_MODEL_VERSION)).expect("pool 0 installs");
+        assert_eq!(pool0.0, 0);
+
+        let pool1 = vm.install_semantic_metadata_bundle(test_bundle(SEMANTIC_MODEL_VERSION)).expect("compatible pool installs");
+        assert_eq!(pool1.0, 1);
+
+        let err = vm.install_semantic_metadata_bundle(test_bundle(SEMANTIC_MODEL_VERSION + 1)).expect_err("incompatible pool must fail");
+        assert!(err.to_string().contains("semantic model version"));
     }
 }

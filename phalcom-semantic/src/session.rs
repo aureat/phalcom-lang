@@ -13139,7 +13139,7 @@ fn publish_conformance_witness_plans(
         // The completed image owns universe conformances immutably. A local
         // conformance may still augment the same trait/target search space, so
         // image membership alone is not sufficient grounds to skip it.
-        if contribution.source_module.project.is_universe() {
+        if db.canonical_image().is_some() && contribution.source_module.project.is_universe() {
             continue;
         }
         if !contribution.is_lookup_eligible() {

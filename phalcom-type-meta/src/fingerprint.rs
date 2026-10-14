@@ -19,6 +19,21 @@ impl Fingerprint128 {
     }
 }
 
+/// A digest is comparable only within its producing metadata schema. Legacy
+/// Record graphs keep their original digest after decode-time normalization;
+/// semantic re-export is the sole authority for a new-schema fingerprint.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VersionedFingerprint {
+    pub schema_version: u32,
+    pub digest: Fingerprint128,
+}
+
+impl VersionedFingerprint {
+    pub const fn new(schema_version: u32, digest: Fingerprint128) -> Self {
+        Self { schema_version, digest }
+    }
+}
+
 impl fmt::Debug for Fingerprint128 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Fingerprint128(")?;

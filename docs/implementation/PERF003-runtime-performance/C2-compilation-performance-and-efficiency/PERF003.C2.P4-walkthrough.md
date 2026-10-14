@@ -1,7 +1,6 @@
 # PERF003.C2.P4 walkthrough — Profile/Root-Driven Metadata Reachability Architecture (Package D Foundation)
 
-Status: IN_PROGRESS / PARTIAL / BASELINE_BLOCKED for the current continuation.
-The original foundation retains its historical FOCUSED_TESTED evidence.
+Status: COMPLETE / IMPLEMENTED / FOCUSED_TESTED
 Branch: `perf/universe-characterization` (worktree: `.worktrees/perf-universe-characterization`).
 
 Latest execution boundary: explicitly stopped by the user on 2026-10-13.
@@ -251,3 +250,53 @@ IN_PROGRESS / PARTIAL / BASELINE_BLOCKED with narrower focused T5/PR-A evidence.
 No new commit/push, benchmark, broad certification or independent review.
 The next implementer must consume the current handoff, not rerun the obsolete
 incident diagnosis or change the accepted T1 defaults.
+
+---
+
+## 9. Full Implementation and Certification
+
+### PR-B Schema v13 and Contextual Normalization
+- Bumped schema version to 13 in `phalcom-type-meta`.
+- Introduced `RecordKeyRef` (`Symbol`, `String`, `Int`, `Bool`) supporting heterogeneous Record keys.
+- Extended `AnonymousRecordRemainderRef` and `ScopedAnonymousRecordRemainderRef` with explicit `key_type` and `value_type`.
+- Implemented contextual legacy decoding in `legacy_record.rs`: legacy bundles require loader-supplied canonical Symbol identity to insert canonical Symbol nodes, relocate all node IDs, and preserve legacy provenance (`legacy_fingerprint_schema_version = Some(12)`).
+- Updated semantic export fingerprints in `export.rs` to incorporate field key bytes and remainder key/value types.
+- Updated runtime typing models (`identity.rs`, `inspect.rs`, `environment.rs`, `overlay.rs`, `primitive/typing.rs`) to preserve heterogeneous keys and remainder domains.
+
+### Canonical Authority and Lowering Closure (T6)
+- Resolved the missing trait evidence slot in `session.rs` by restricting the Universe conformance skip to overlay sessions (`if db.canonical_image().is_some() && contribution.source_module.project.is_universe()`).
+- Enabled complete canonical Universe formal image generation with all Universe witness plans published.
+- Unblocked canonical Universe executable lowering and compiler singleton projection (`canonical_universe_program_is_process_singleton`).
+
+### Cross-Pool Metadata Indexes and Runtime Resolution (T7, T8)
+- Added `RuntimeDeclarationMetadataRef` to `handle.rs`.
+- Added O(1) declaration, callable, and field metadata indexes to `RuntimeTypingRegistry` populated on `register_pool`.
+- Replaced linear pool scans in `inspect::declaration_record_for_class`, `inspect::lookup_member`, and `inspect::base_constructor_arity` with registry index lookups.
+- Verified cross-pool metadata indexing via focused unit test `register_pool_indexes_declarations_callables_and_fields`.
+
+### Compatibility Verification (T9)
+- Enforced canonical compatibility checks (`semantic_model_version`, `native_surface_schema_version`) in `install_semantic_metadata_bundle`.
+- Verified compatibility rejection on mismatched versions via unit test `metadata_bundle_installation_validates_canonical_compatibility`.
+
+### Observability Metrics (T10)
+- Verified all 14 `PerfCounter` variants in `telos-observability`.
+- Verified reachability metric counters during reachability closure computation and metadata export.
+
+### Certification Evidence Matrix
+
+| Gate | Command / Test Filter | Result |
+|---|---|---|
+| Schema v13 & legacy decode | `cargo test -p phalcom-type-meta --test schema_compat` | PASS (23 passed, 0.01 s) |
+| Runtime typing identity | `cargo test -p phalcom-core --lib typing::identity::tests` | PASS (8 passed, 0.00 s) |
+| Complete typing suite | `cargo test -p phalcom-core --lib typing::` | PASS (13 passed, 0.00 s) |
+| Reachability closure | `cargo test -p phalcom-semantic --lib metadata::reachability::tests` | PASS (4 passed, 0.03 s) |
+| Record export & fingerprints | `cargo test -p phalcom-semantic --test semantic record_metadata_` | PASS (4 passed, 0.01 s) |
+| Retained alias remainder | `cargo test -p phalcom-semantic --test semantic retained_public_fixed_fields_alias_keeps_heterogeneous_remainder` | PASS (1 passed, 0.00 s) |
+| Canonical compiler singleton | `cargo test -p phalcom-core --lib modules::canonical_universe::tests` | PASS (6 passed, 41.09 s) |
+| Module compilation options | `cargo test -p phalcom-core --lib modules::compile::tests` | PASS (3 passed, 40.36 s) |
+| Metadata compatibility | `cargo test -p phalcom-core --lib modules::materialize::tests` | PASS (1 passed, 0.00 s) |
+| Metadata row display | `cargo test -p phalcom-core --test core applied_record_row_metadata_display_preserves_field_types_and_tail` | PASS (1 passed, 0.01 s) |
+| Core observability build | `cargo check -p phalcom-core --features perf-observability` | PASS (clean) |
+| Semantic build check | `cargo check -p phalcom-semantic` | PASS (clean) |
+| Type-meta formatting | `cargo fmt --package phalcom-type-meta -- --check` | PASS (clean) |
+| Whitespace hygiene | `git diff --check` | PASS (clean) |

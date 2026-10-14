@@ -42,8 +42,17 @@ pub enum AnonymousTupleRemainderRef {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub enum AnonymousRecordRemainderRef {
-    Unconstrained,
-    Typed(TypeNodeId),
+    Unconstrained { key_type: TypeNodeId },
+    Typed { key_type: TypeNodeId, value_type: TypeNodeId },
+}
+
+/// Stable, tagged identity for unordered Record field keys.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub enum RecordKeyRef {
+    Symbol(Box<str>),
+    String(Box<str>),
+    Int(StaticInt),
+    Bool(bool),
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -56,7 +65,7 @@ pub struct TupleElementRef {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub struct RecordFieldRef {
-    pub name: Box<str>,
+    pub key: RecordKeyRef,
     pub ty: TypeNodeId,
     #[serde(default)]
     pub presence: StructuralMemberPresenceRef,

@@ -1351,6 +1351,22 @@ mod tests {
             Err(CanonicalImageError::IncompletePublication(msg)) if msg.contains("canonical declaration products")
         ));
     }
+
+    #[test]
+    fn canonical_compiler_image_retains_executable_numeric_trait_requirements() {
+        let image = canonical_universe_formal_image().unwrap();
+        let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(vec![
+            phalcom_modules::ModuleComponent::from_identifier("numbers").unwrap(),
+            phalcom_modules::ModuleComponent::from_identifier("capabilities").unwrap(),
+        ]));
+        for trait_name in ["Zero", "One"] {
+            let declaration = crate::identity::DeclarationId::new(module.clone(), trait_name.into());
+            let surface = image.snapshot().trait_surfaces.get(&declaration).expect("canonical numeric trait surface");
+            let selector = phalcom_common::selector::Selector::getter(trait_name.to_ascii_lowercase()).unwrap();
+            let requirement = crate::traits::TraitRequirementId::new(declaration, selector, crate::identity::DispatchSide::Class);
+            assert!(surface.get(&requirement).is_some(), "missing executable class requirement for {trait_name}");
+        }
+    }
 }
 
 #[cfg(test)]

@@ -187,14 +187,24 @@ impl Comparison<'_> {
                                         .iter()
                                         .map(|field| {
                                             Some(RecordFieldRef {
-                                                name: field.key.as_symbol()?.into(),
+                                                key: (&field.key).into(),
                                                 ty: child(field.ty),
                                                 presence: Default::default(),
                                             })
                                         })
                                         .collect::<Option<_>>()?,
                                     tail: row.tail.clone(),
-                                    remainder: None,
+                                    remainder: row.remainder.as_ref().map(|rem| match rem {
+                                        crate::typing::overlay::RuntimeAnonymousRecordRemainder::Unconstrained { key_type } => {
+                                            phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Unconstrained { key_type: child(*key_type) }
+                                        }
+                                        crate::typing::overlay::RuntimeAnonymousRecordRemainder::Typed { key_type, value_type } => {
+                                            phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Typed {
+                                                key_type: child(*key_type),
+                                                value_type: child(*value_type),
+                                            }
+                                        }
+                                    }),
                                 })),
                                 crate::typing::overlay::RuntimeStaticArgument::DynamicType => Some(StaticArgumentRef::DynamicType),
                             })
@@ -216,7 +226,7 @@ impl Comparison<'_> {
                             .iter()
                             .map(|field| {
                                 Some(RecordFieldRef {
-                                    name: field.key.as_symbol()?.into(),
+                                    key: (&field.key).into(),
                                     ty: child(field.ty),
                                     presence: Default::default(),
                                 })
@@ -396,7 +406,7 @@ impl Comparison<'_> {
 
 /// Replaces only graph edges; all scalar and stable identity fields survive.
 fn map_type_children(form: &mut TypeNode, mut map: impl FnMut(&mut TypeNodeId)) {
-    use phalcom_type_meta::type_node::{AnonymousRecordRemainderRef as RecordRest, AnonymousTupleRemainderRef as TupleRest};
+    use phalcom_type_meta::type_node::AnonymousTupleRemainderRef as TupleRest;
     match form {
         TypeNode::Never
         | TypeNode::Unit
@@ -491,9 +501,7 @@ fn map_type_children(form: &mut TypeNode, mut map: impl FnMut(&mut TypeNodeId)) 
             for field in &mut record.fields {
                 map(&mut field.ty);
             }
-            if let RecordRest::Typed(node) = &mut record.remainder {
-                map(node);
-            }
+            map_record_remainder(&mut record.remainder, &mut map);
         }
         TypeNode::Pack(pack) => {
             for element in &mut pack.elements {
@@ -516,8 +524,8 @@ fn map_static_arguments(arguments: &mut [StaticArgumentRef], map: &mut impl FnMu
                 for field in &mut row.fields {
                     map(&mut field.ty);
                 }
-                if let Some(phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Typed(node)) = &mut row.remainder {
-                    map(node);
+                if let Some(remainder) = &mut row.remainder {
+                    map_record_remainder(remainder, map);
                 }
             }
             StaticArgumentRef::DynamicType => {}
@@ -531,7 +539,7 @@ fn map_scoped_children(
     mut free: impl FnMut(&mut TypeNodeId),
     mut kind: impl FnMut(&mut KindNodeId),
 ) {
-    use phalcom_type_meta::scoped_type::{ScopedAnonymousRecordRemainderRef as RecordRest, ScopedAnonymousTupleRemainderRef as TupleRest};
+    use phalcom_type_meta::scoped_type::ScopedAnonymousTupleRemainderRef as TupleRest;
     match form {
         ScopedTypeNode::Bound { .. } => {}
         ScopedTypeNode::Free(node) => free(node),
@@ -575,8 +583,8 @@ fn map_scoped_children(
             for field in &mut record.fields {
                 map(&mut field.ty);
             }
-            if let phalcom_type_meta::scoped_type::ScopedRecordTailRef::Anonymous(RecordRest::Typed(node)) = &mut record.tail {
-                map(node);
+            if let phalcom_type_meta::scoped_type::ScopedRecordTailRef::Anonymous(remainder) = &mut record.tail {
+                map_scoped_record_remainder(remainder, &mut map);
             }
         }
         ScopedTypeNode::RecordRow(row) => {
@@ -585,7 +593,7 @@ fn map_scoped_children(
             }
             match &mut row.tail {
                 phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Projection(node) => free(node),
-                phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Anonymous(RecordRest::Typed(node)) => map(node),
+                phalcom_type_meta::scoped_type::ScopedRecordRowTailRef::Anonymous(remainder) => map_scoped_record_remainder(remainder, &mut map),
                 _ => {}
             }
         }
@@ -624,9 +632,7 @@ fn map_scoped_children(
             for field in &mut record.fields {
                 map(&mut field.ty);
             }
-            if let RecordRest::Typed(node) = &mut record.remainder {
-                map(node);
-            }
+            map_scoped_record_remainder(&mut record.remainder, &mut map);
         }
         ScopedTypeNode::Pack(pack) => {
             for element in &mut pack.elements {
@@ -637,6 +643,28 @@ fn map_scoped_children(
                     map(node);
                 }
             }
+        }
+    }
+}
+
+fn map_record_remainder(remainder: &mut phalcom_type_meta::type_node::AnonymousRecordRemainderRef, map: &mut impl FnMut(&mut TypeNodeId)) {
+    use phalcom_type_meta::type_node::AnonymousRecordRemainderRef;
+    match remainder {
+        AnonymousRecordRemainderRef::Unconstrained { key_type } => map(key_type),
+        AnonymousRecordRemainderRef::Typed { key_type, value_type } => {
+            map(key_type);
+            map(value_type);
+        }
+    }
+}
+
+fn map_scoped_record_remainder(remainder: &mut phalcom_type_meta::scoped_type::ScopedAnonymousRecordRemainderRef, map: &mut impl FnMut(&mut ScopedTypeNodeId)) {
+    use phalcom_type_meta::scoped_type::ScopedAnonymousRecordRemainderRef;
+    match remainder {
+        ScopedAnonymousRecordRemainderRef::Unconstrained { key_type } => map(key_type),
+        ScopedAnonymousRecordRemainderRef::Typed { key_type, value_type } => {
+            map(key_type);
+            map(value_type);
         }
     }
 }
@@ -674,6 +702,7 @@ mod tests {
         let bundle = SemanticMetadataBundle {
             header: SemanticMetadataHeader {
                 schema_version: TYPE_METADATA_SCHEMA_VERSION,
+                legacy_fingerprint_schema_version: None,
                 semantic_model_version: SEMANTIC_MODEL_VERSION,
                 producer: ProducerIdentity("identity-test".into()),
                 producer_version: "1".into(),
@@ -812,6 +841,137 @@ mod tests {
         assert!(equivalent(&context, &registry, function, base(pool, 5)));
         assert!(!equivalent(&context, &registry, function, base(pool, 6)));
         assert!(!equivalent(&context, &registry, function, base(pool, 7)));
+    }
+
+    #[test]
+    fn record_identity_preserves_heterogeneous_keys_and_anonymous_domains() {
+        use phalcom_type_meta::type_node::{AnonymousRecordRemainderRef, AnonymousRecordTypeRef, RecordKeyRef};
+        let mut registry = RuntimeTypingRegistry::new();
+        let field = |key| RecordFieldRef {
+            key,
+            ty: TypeNodeId(0),
+            presence: StructuralMemberPresenceRef::Required,
+        };
+        let pool = pool(
+            &mut registry,
+            vec![
+                nominal("scalar", "Int"),
+                nominal("scalar", "Symbol"),
+                nominal("scalar", "FieldKey"),
+                TypeNode::Record(Box::new([field(RecordKeyRef::Symbol("x".into()))])),
+                TypeNode::Record(Box::new([field(RecordKeyRef::String("x".into()))])),
+                TypeNode::AnonymousRecord(AnonymousRecordTypeRef {
+                    fields: Box::new([]),
+                    remainder: AnonymousRecordRemainderRef::Typed {
+                        key_type: TypeNodeId(1),
+                        value_type: TypeNodeId(0),
+                    },
+                }),
+                TypeNode::AnonymousRecord(AnonymousRecordTypeRef {
+                    fields: Box::new([]),
+                    remainder: AnonymousRecordRemainderRef::Typed {
+                        key_type: TypeNodeId(2),
+                        value_type: TypeNodeId(0),
+                    },
+                }),
+            ],
+        );
+        let mut context = TypingContextData::new(Box::new([]));
+        let overlay = context
+            .overlay
+            .type_ref(RuntimeOverlayTypeNode::Record(Box::new([crate::typing::overlay::RuntimeRecordField {
+                key: phalcom_semantic::field_key::FieldKey::string("x"),
+                ty: base(pool, 0),
+            }])));
+        assert!(!equivalent(&context, &registry, base(pool, 3), base(pool, 4)));
+        assert!(equivalent(&context, &registry, overlay, base(pool, 4)));
+        assert!(!equivalent(&context, &registry, overlay, base(pool, 3)));
+        assert!(!equivalent(&context, &registry, base(pool, 5), base(pool, 6)));
+    }
+
+    #[test]
+    fn mixed_version_fingerprints_do_not_prove_kind_identity() {
+        let mut registry = RuntimeTypingRegistry::new();
+        let current = pool(&mut registry, vec![TypeNode::Unit]);
+        let mut legacy = (*registry.get_pool(current).unwrap().bundle).clone();
+        legacy.header.legacy_fingerprint_schema_version = Some(12);
+        let legacy = registry.register_pool(LoadedSemanticMetadata::new(MetadataPoolId(registry.pool_count() as u32), Arc::new(legacy)));
+        let context = TypingContextData::new(Box::new([]));
+        assert!(!crate::typing::inspect::kind_equivalent(
+            &context,
+            &registry,
+            RuntimeKindRef::Base {
+                pool: current,
+                node: KindNodeId(0)
+            },
+            RuntimeKindRef::Base {
+                pool: legacy,
+                node: KindNodeId(0)
+            },
+        ));
+    }
+
+    #[test]
+    fn runtime_row_projection_keeps_fixed_keys_and_anonymous_domains() {
+        use crate::typing::overlay::{RuntimeAnonymousRecordRemainder, RuntimeRecordField, RuntimeRecordRow};
+        use phalcom_type_meta::type_node::{AnonymousRecordRemainderRef, RecordKeyRef};
+        let mut registry = RuntimeTypingRegistry::new();
+        let application = |key_type| TypeNode::Applied {
+            origin: TypeNodeId(0),
+            arguments: Box::new([StaticArgumentRef::RecordRow(RecordRowRef {
+                fields: Box::new([RecordFieldRef {
+                    key: RecordKeyRef::String("x".into()),
+                    ty: TypeNodeId(1),
+                    presence: StructuralMemberPresenceRef::Required,
+                }]),
+                tail: None,
+                remainder: Some(AnonymousRecordRemainderRef::Typed {
+                    key_type: TypeNodeId(key_type),
+                    value_type: TypeNodeId(1),
+                }),
+            })]),
+        };
+        let pool = pool(
+            &mut registry,
+            vec![
+                nominal("owner", "Box"),
+                nominal("scalar", "Int"),
+                nominal("scalar", "Symbol"),
+                nominal("scalar", "FieldKey"),
+                application(3),
+                application(2),
+            ],
+        );
+        let mut context = TypingContextData::new(Box::new([]));
+        let overlay = context.overlay.type_ref(RuntimeOverlayTypeNode::Applied {
+            origin: base(pool, 0),
+            arguments: Box::new([RuntimeStaticArgument::RecordRow(RuntimeRecordRow {
+                fields: Box::new([RuntimeRecordField {
+                    key: phalcom_semantic::field_key::FieldKey::string("x"),
+                    ty: base(pool, 1),
+                }]),
+                tail: None,
+                remainder: Some(RuntimeAnonymousRecordRemainder::Typed {
+                    key_type: base(pool, 3),
+                    value_type: base(pool, 1),
+                }),
+            })]),
+        });
+        let arguments = crate::typing::inspect::static_arguments(&context, &registry, base(pool, 4)).unwrap();
+        let [RuntimeStaticArgument::RecordRow(row)] = arguments.as_slice() else {
+            panic!("row")
+        };
+        assert_eq!(row.fields[0].key, phalcom_semantic::field_key::FieldKey::string("x"));
+        assert_eq!(
+            row.remainder,
+            Some(RuntimeAnonymousRecordRemainder::Typed {
+                key_type: base(pool, 3),
+                value_type: base(pool, 1)
+            })
+        );
+        assert_eq!(crate::typing::inspect::children(&context, &registry, base(pool, 4)).unwrap().len(), 4);
+        assert!(equivalent(&context, &registry, base(pool, 4), overlay));
+        assert!(!equivalent(&context, &registry, base(pool, 4), base(pool, 5)));
     }
 
     #[test]

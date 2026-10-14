@@ -8,6 +8,7 @@ pub mod generic;
 pub mod header;
 pub mod identity;
 pub mod kind;
+mod legacy_record;
 pub mod scalar;
 pub mod scoped_type;
 pub mod type_node;

@@ -559,7 +559,6 @@ mod tests {
 
     #[test]
     fn reachability_closure_discovers_nested_nominal_dependencies() {
-        use crate::field_key::FieldKey;
         use crate::traits::{AssociatedTypeRequirementId, TraitRef};
         use crate::types::row::RecordRowField;
         use crate::types::store::{CallableParameterType, CallableType};
@@ -619,10 +618,11 @@ mod tests {
             AssociatedTypeRequirementId::new(trait_decl, 0),
         );
 
-        // 5. Unexportable form: Record with non-symbol field key that should roll back its dependencies
+        // 5. Unexportable form: Record with ClassObject field that should roll back its dependencies
+        let unexportable_ty = store.class_object_type(decl_record.clone());
         let failing_record_ty = store.record(Box::new([
             RecordRowField::symbol_required("valid_field", ty_rolled_back),
-            RecordRowField::required(FieldKey::string("invalid_non_symbol_key"), store.unit()),
+            RecordRowField::symbol_required("unexportable_class_obj", unexportable_ty),
         ]));
 
         // Root set contains only these composite type forms

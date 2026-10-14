@@ -52,6 +52,13 @@ pub struct RuntimeRecordField {
 pub struct RuntimeRecordRow {
     pub fields: Box<[RuntimeRecordField]>,
     pub tail: Option<phalcom_type_meta::StableTypeParameterRef>,
+    pub remainder: Option<RuntimeAnonymousRecordRemainder>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum RuntimeAnonymousRecordRemainder {
+    Unconstrained { key_type: RuntimeTypeRef },
+    Typed { key_type: RuntimeTypeRef, value_type: RuntimeTypeRef },
 }
 
 /// Heterogeneous static argument retained by a runtime applied type.

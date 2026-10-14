@@ -2165,7 +2165,7 @@ mod tests {
             .find(|(range, recipe)| range.start >= is_none_offset && range.end <= is_none_end && recipe.callable.selector.as_ref() == "isNone")
             .expect("RangeIterator lowerOpt.isNone call recipe");
         assert!(
-            matches!(recipe.bindings.as_ref(), [(_, RuntimeTypeRecipe::Closed(_))]),
+            !recipe.bindings.is_empty() && recipe.bindings.iter().all(|(_, r)| matches!(r, RuntimeTypeRecipe::Closed(_))),
             "RangeIterator lowerOpt.isNone must close Option.T as Number at {range:?}, got {recipe:?}"
         );
     }

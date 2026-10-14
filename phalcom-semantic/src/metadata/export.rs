@@ -1,12 +1,13 @@
 //! Canonical exporter: projects compiler-owned semantic types, signatures, and declarations
 //! into a stable, deduplicated, versioned `SemanticMetadataBundle`.
 
+use super::reachability::MetadataReachabilityClosure;
 use super::stable_identity::*;
 use crate::data_semantics::DataSemanticTable;
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::declarations::DeclarationTypeTable;
 use crate::enum_semantics::EnumSemanticTable;
-use crate::field_key::{FieldKey, FieldKeyKind};
+use crate::field_key::FieldKey;
 use crate::identity::{AssociatedStaticDomainDeclarationId, CallableOwnerId, DispatchSide};
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::type_alias::TypeAliasTable;
@@ -22,8 +23,7 @@ use crate::types::variance::Variance;
 use phalcom_type_meta::bundle::{RuntimeTypeFormKey, RuntimeTypeFormRoot, SemanticMetadataBundle};
 use phalcom_type_meta::declaration::{
     AlgebraicDeclarationRecord, AlgebraicPhaseRef, AlgebraicShapeRef, CallableParameterRecord, CallableSemanticRecord, DeclarationTypeFlags,
-    DeclarationTypeRecord, DynamicReasonRef, FieldMutabilityRef, FieldSemanticRecord, PublishedTypeAuthority, PublishedTypeSlot,
-    RestModeRef, UnknownReasonRef,
+    DeclarationTypeRecord, DynamicReasonRef, FieldMutabilityRef, FieldSemanticRecord, PublishedTypeAuthority, PublishedTypeSlot, RestModeRef, UnknownReasonRef,
 };
 use phalcom_type_meta::fingerprint::{Fingerprint128, FingerprintBuilder};
 use phalcom_type_meta::generic::{
@@ -44,11 +44,10 @@ use phalcom_type_meta::scoped_type::{
 };
 use phalcom_type_meta::type_node::{
     AnonymousRecordRemainderRef, AnonymousRecordTypeRef, AnonymousTupleRemainderRef, CallableParamRef, CallableTypeRef, OpenRecordTypeRef, OpenTupleTypeRef,
-    PackTypeRef, RecordFieldRef, RecordRowRef, SelfRoleRef, SelfTypeRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef, StructuralMemberPresenceRef,
-    TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
+    PackTypeRef, RecordFieldRef, RecordKeyRef, RecordRowRef, SelfRoleRef, SelfTypeRef, StaticArgumentRef, StaticConstructorRef, StaticDataRef,
+    StructuralMemberPresenceRef, TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use super::reachability::MetadataReachabilityClosure;
 
 macro_rules! metadata_perf_counter {
     ($counter:expr, $amount:expr $(,)?) => {{
@@ -64,17 +63,18 @@ pub enum MetadataExportError {
     #[error("cannot export inference variable in durable metadata")]
     InferenceVariable,
     #[error("metadata projection for {entity:?} (profile {profile:?}, type {type_id:?}): {source}")]
-    Projection { profile: MetadataProfile, entity: Box<MetadataEntityIdentity>, type_id: Option<TypeId>, source: Box<MetadataExportError> },
+    Projection {
+        profile: MetadataProfile,
+        entity: Box<MetadataEntityIdentity>,
+        type_id: Option<TypeId>,
+        source: Box<MetadataExportError>,
+    },
     #[error("cannot export scoped local type containing rigid variables")]
     ScopedLocalType,
     #[error("cannot export invalid generic signature: {0:?}")]
     InvalidGenericSignature(GenericSignaturePublicationError),
     #[error("non-exportable internal form: {0:?}")]
     NonExportableForm(TypeId),
-    #[error("legacy metadata cannot represent a {0:?} Record field key")]
-    NonExportableRecordKey(FieldKeyKind),
-    #[error("legacy metadata cannot represent a Record remainder outside the Symbol key domain")]
-    NonExportableRecordKeyDomain,
     #[error("cannot export scoped pack form before stable P2 metadata lowering")]
     ScopedPackForm,
     #[error("resolved-project metadata requires ProjectUniverse identity context")]
@@ -275,22 +275,46 @@ pub struct MetadataExporter<'a> {
 }
 
 impl<'a> MetadataExporter<'a> {
-    fn legacy_record_field_name(key: &FieldKey) -> Result<Box<str>, MetadataExportError> {
-        match key {
-            FieldKey::Symbol(name) => Ok(name.as_ref().into()),
-            other => Err(MetadataExportError::NonExportableRecordKey(other.kind())),
+    fn record_key_ref(key: &FieldKey) -> RecordKeyRef {
+        key.into()
+    }
+
+    fn write_record_key_fingerprint(builder: &mut FingerprintBuilder, key: &RecordKeyRef) {
+        let semantic_key = FieldKey::from(key);
+        builder.write_bytes(&semantic_key.stable_fingerprint_bytes());
+    }
+
+    fn write_record_remainder_fingerprint(&self, builder: &mut FingerprintBuilder, rem: &AnonymousRecordRemainderRef) {
+        let (key_type, value_type) = match rem {
+            AnonymousRecordRemainderRef::Unconstrained { key_type } => {
+                builder.write_u8(0);
+                (key_type, None)
+            }
+            AnonymousRecordRemainderRef::Typed { key_type, value_type } => {
+                builder.write_u8(1);
+                (key_type, Some(value_type))
+            }
+        };
+        builder.write_fingerprint(self.types[key_type.0 as usize].structural_fingerprint);
+        if let Some(value_type) = value_type {
+            builder.write_fingerprint(self.types[value_type.0 as usize].structural_fingerprint);
         }
     }
 
-    fn is_legacy_symbol_key_domain(&self, key_type: TypeId) -> bool {
-        let symbol = crate::core_surface::CoreDeclarationIds::default().symbol;
-        matches!(self.store.get(key_type), TypeData::Nominal { declaration } if declaration == &symbol)
-    }
-
-    fn is_scoped_legacy_symbol_key_domain(&self, key_type: ScopedTypeId) -> bool {
-        match self.store.arena().get_scoped(key_type) {
-            ScopedTypeData::Free(ty) => self.is_legacy_symbol_key_domain(*ty),
-            _ => false,
+    fn write_scoped_record_remainder_fingerprint(&self, builder: &mut FingerprintBuilder, rem: &ScopedAnonymousRecordRemainderRef) {
+        let (key_type, value_type) = match rem {
+            ScopedAnonymousRecordRemainderRef::Unconstrained { key_type } => {
+                builder.write_u8(0);
+                (key_type, None)
+            }
+            ScopedAnonymousRecordRemainderRef::Typed { key_type, value_type } => {
+                builder.write_u8(1);
+                (key_type, Some(value_type))
+            }
+        };
+        builder.write_fingerprint(self.scoped_types[key_type.0 as usize].structural_fingerprint);
+        if let Some(value_type) = value_type {
+            builder.write_fingerprint(self.scoped_types[value_type.0 as usize].structural_fingerprint);
         }
     }
 
@@ -472,7 +496,10 @@ impl<'a> MetadataExporter<'a> {
         }
     }
 
-    fn export_static_domain_catalog(&mut self, closure: Option<&MetadataReachabilityClosure>) -> Result<Box<[phalcom_type_meta::declaration::StaticDomainDeclarationRecord]>, MetadataExportError> {
+    fn export_static_domain_catalog(
+        &mut self,
+        closure: Option<&MetadataReachabilityClosure>,
+    ) -> Result<Box<[phalcom_type_meta::declaration::StaticDomainDeclarationRecord]>, MetadataExportError> {
         type CaseMap = BTreeMap<Box<str>, Box<[phalcom_type_meta::kind::KindNodeId]>>;
         type DomainMap = BTreeMap<StableStaticDomainDeclarationRef, (Vec<phalcom_type_meta::declaration::StaticDomainParameterRecord>, CaseMap)>;
 
@@ -480,30 +507,64 @@ impl<'a> MetadataExporter<'a> {
         if let Some(closure) = closure {
             let mut pending = self.exported_static_domains.clone();
             for declaration in &closure.declarations {
-                if let Some(data) = self.algebraic_data.and_then(|table| table.data_info(declaration)).and_then(|info| info.static_data.as_ref()) {
+                if let Some(data) = self
+                    .algebraic_data
+                    .and_then(|table| table.data_info(declaration))
+                    .and_then(|info| info.static_data.as_ref())
+                {
                     pending.insert(data.domain);
                 }
-                if let Some(data) = self.algebraic_enums.and_then(|table| table.enum_info(declaration)).and_then(|info| info.static_data.as_ref()) {
+                if let Some(data) = self
+                    .algebraic_enums
+                    .and_then(|table| table.enum_info(declaration))
+                    .and_then(|info| info.static_data.as_ref())
+                {
                     pending.insert(data.domain);
                 }
             }
             let mut visited = BTreeSet::new();
             while let Some(domain) = pending.pop_first() {
-                if !visited.insert(domain) { continue; }
+                if !visited.insert(domain) {
+                    continue;
+                }
                 match self.store.static_domain(domain).cloned() {
                     Some(StaticDomainData::Nominal { declaration }) => {
-                        let constructors = self.algebraic_data.and_then(|table| table.data_info(&declaration)).and_then(|info| info.static_data.as_ref())
+                        let constructors = self
+                            .algebraic_data
+                            .and_then(|table| table.data_info(&declaration))
+                            .and_then(|info| info.static_data.as_ref())
                             .map(|data| data.constructors.to_vec())
-                            .or_else(|| self.algebraic_enums.and_then(|table| table.enum_info(&declaration)).and_then(|info| info.static_data.as_ref()).map(|data| data.constructors.to_vec()))
+                            .or_else(|| {
+                                self.algebraic_enums
+                                    .and_then(|table| table.enum_info(&declaration))
+                                    .and_then(|info| info.static_data.as_ref())
+                                    .map(|data| data.constructors.to_vec())
+                            })
                             .unwrap_or_else(|| self.store.static_constructor_ids_for_domain(domain));
-                        sources.push((domain, declaration.clone(), StableStaticDomainDeclarationRef::Nominal(self.stable_declaration(&declaration)), None, constructors));
+                        sources.push((
+                            domain,
+                            declaration.clone(),
+                            StableStaticDomainDeclarationRef::Nominal(self.stable_declaration(&declaration)),
+                            None,
+                            constructors,
+                        ));
                     }
                     Some(StaticDomainData::Associated { declaration, .. }) => {
-                        let constructors = self.associated_static_domains.and_then(|table| table.get(&declaration)).map(|product| product.constructors.to_vec())
+                        let constructors = self
+                            .associated_static_domains
+                            .and_then(|table| table.get(&declaration))
+                            .map(|product| product.constructors.to_vec())
                             .unwrap_or_else(|| self.store.static_constructor_ids_for_domain(domain));
-                        sources.push((domain, declaration.owner.clone(), StableStaticDomainDeclarationRef::Associated(phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef {
-                            owner: self.stable_declaration(&declaration.owner), name: declaration.name.clone(),
-                        }), Some(declaration), constructors));
+                        sources.push((
+                            domain,
+                            declaration.owner.clone(),
+                            StableStaticDomainDeclarationRef::Associated(phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef {
+                                owner: self.stable_declaration(&declaration.owner),
+                                name: declaration.name.clone(),
+                            }),
+                            Some(declaration),
+                            constructors,
+                        ));
                     }
                     Some(StaticDomainData::ConstInt) => {}
                     None => return Err(MetadataExportError::InvalidStaticDomain(domain)),
@@ -512,82 +573,89 @@ impl<'a> MetadataExporter<'a> {
                 // those dependencies through the canonical kind exporter.
                 if let Some((_, _, _, _, constructors)) = sources.last().filter(|source| source.0 == domain).cloned() {
                     for constructor in constructors {
-                        let kinds = self.store.static_constructor(constructor).ok_or(MetadataExportError::InvalidStaticConstructor(constructor))?.parameter_kinds.clone();
-                        for kind in kinds.iter() { self.export_kind(*kind)?; }
+                        let kinds = self
+                            .store
+                            .static_constructor(constructor)
+                            .ok_or(MetadataExportError::InvalidStaticConstructor(constructor))?
+                            .parameter_kinds
+                            .clone();
+                        for kind in kinds.iter() {
+                            self.export_kind(*kind)?;
+                        }
                     }
                 }
                 pending.extend(self.exported_static_domains.iter().filter(|domain| !visited.contains(domain)).copied());
             }
         } else {
-        if let Some(data) = self.algebraic_data {
-            for info in data.data_decls.values() {
-                if let Some(static_data) = &info.static_data {
-                    sources.push((
-                        static_data.domain,
-                        info.owner.clone(),
-                        StableStaticDomainDeclarationRef::Nominal(self.stable_declaration(&info.owner)),
-                        None,
-                        static_data.constructors.to_vec(),
-                    ));
+            if let Some(data) = self.algebraic_data {
+                for info in data.data_decls.values() {
+                    if let Some(static_data) = &info.static_data {
+                        sources.push((
+                            static_data.domain,
+                            info.owner.clone(),
+                            StableStaticDomainDeclarationRef::Nominal(self.stable_declaration(&info.owner)),
+                            None,
+                            static_data.constructors.to_vec(),
+                        ));
+                    }
                 }
             }
-        }
-        if let Some(enums) = self.algebraic_enums {
-            for info in enums.enums.values() {
-                if let Some(static_data) = &info.static_data {
-                    sources.push((
-                        static_data.domain,
-                        info.owner.clone(),
-                        StableStaticDomainDeclarationRef::Nominal(self.stable_declaration(&info.owner)),
-                        None,
-                        static_data.constructors.to_vec(),
-                    ));
+            if let Some(enums) = self.algebraic_enums {
+                for info in enums.enums.values() {
+                    if let Some(static_data) = &info.static_data {
+                        sources.push((
+                            static_data.domain,
+                            info.owner.clone(),
+                            StableStaticDomainDeclarationRef::Nominal(self.stable_declaration(&info.owner)),
+                            None,
+                            static_data.constructors.to_vec(),
+                        ));
+                    }
                 }
             }
-        }
-        if let Some(associated) = self.associated_static_domains {
-            for product in associated.values() {
-                sources.push((
-                    product.domain,
-                    product.id.owner.clone(),
-                    StableStaticDomainDeclarationRef::Associated(phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef {
-                        owner: self.stable_declaration(&product.id.owner),
-                        name: product.id.name.clone(),
-                    }),
-                    Some(product.id.clone()),
-                    product.constructors.to_vec(),
-                ));
-            }
-        }
-        if self.algebraic_data.is_none() && self.algebraic_enums.is_none() && self.associated_static_domains.is_none() {
-            // A detached TypeStore-only exporter has no workspace snapshot or
-            // declaration products to consult. In that standalone mode the
-            // store is the complete semantic universe. Snapshot-backed export
-            // always attaches canonical products above and never enters this
-            // history-enumeration path.
-            for domain_id in self.store.static_domain_ids() {
-                match self.store.static_domain(domain_id).cloned() {
-                    Some(StaticDomainData::Nominal { declaration }) => sources.push((
-                        domain_id,
-                        declaration.clone(),
-                        StableStaticDomainDeclarationRef::Nominal(self.stable_declaration(&declaration)),
-                        None,
-                        self.store.static_constructor_ids_for_domain(domain_id),
-                    )),
-                    Some(StaticDomainData::Associated { declaration, .. }) => sources.push((
-                        domain_id,
-                        declaration.owner.clone(),
+            if let Some(associated) = self.associated_static_domains {
+                for product in associated.values() {
+                    sources.push((
+                        product.domain,
+                        product.id.owner.clone(),
                         StableStaticDomainDeclarationRef::Associated(phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef {
-                            owner: self.stable_declaration(&declaration.owner),
-                            name: declaration.name.clone(),
+                            owner: self.stable_declaration(&product.id.owner),
+                            name: product.id.name.clone(),
                         }),
-                        Some(declaration),
-                        self.store.static_constructor_ids_for_domain(domain_id),
-                    )),
-                    Some(StaticDomainData::ConstInt) | None => {}
+                        Some(product.id.clone()),
+                        product.constructors.to_vec(),
+                    ));
                 }
             }
-        }
+            if self.algebraic_data.is_none() && self.algebraic_enums.is_none() && self.associated_static_domains.is_none() {
+                // A detached TypeStore-only exporter has no workspace snapshot or
+                // declaration products to consult. In that standalone mode the
+                // store is the complete semantic universe. Snapshot-backed export
+                // always attaches canonical products above and never enters this
+                // history-enumeration path.
+                for domain_id in self.store.static_domain_ids() {
+                    match self.store.static_domain(domain_id).cloned() {
+                        Some(StaticDomainData::Nominal { declaration }) => sources.push((
+                            domain_id,
+                            declaration.clone(),
+                            StableStaticDomainDeclarationRef::Nominal(self.stable_declaration(&declaration)),
+                            None,
+                            self.store.static_constructor_ids_for_domain(domain_id),
+                        )),
+                        Some(StaticDomainData::Associated { declaration, .. }) => sources.push((
+                            domain_id,
+                            declaration.owner.clone(),
+                            StableStaticDomainDeclarationRef::Associated(phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef {
+                                owner: self.stable_declaration(&declaration.owner),
+                                name: declaration.name.clone(),
+                            }),
+                            Some(declaration),
+                            self.store.static_constructor_ids_for_domain(domain_id),
+                        )),
+                        Some(StaticDomainData::ConstInt) | None => {}
+                    }
+                }
+            }
         }
         sources.sort_by(|left, right| left.2.cmp(&right.2));
 
@@ -744,7 +812,7 @@ impl<'a> MetadataExporter<'a> {
                         crate::types::store::StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
                     };
                     fields.push(RecordFieldRef {
-                        name: Self::legacy_record_field_name(&field.key)?,
+                        key: Self::record_key_ref(&field.key),
                         ty: self.export_type_form(field.ty)?,
                         presence,
                     });
@@ -754,19 +822,13 @@ impl<'a> MetadataExporter<'a> {
                     crate::types::row::RecordRowTail::Parameter(parameter) => (Some(self.export_type_parameter(parameter)?), None),
                     crate::types::row::RecordRowTail::Anonymous(rem) => {
                         let rem_ref = match rem {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type } => {
-                                if !self.is_legacy_symbol_key_domain(key_type) {
-                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
-                                }
-                                AnonymousRecordRemainderRef::Unconstrained
-                            }
-                            crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type } => {
-                                if !self.is_legacy_symbol_key_domain(key_type) {
-                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
-                                }
-                                let id = self.export_type_form(value_type)?;
-                                AnonymousRecordRemainderRef::Typed(id)
-                            }
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type } => AnonymousRecordRemainderRef::Unconstrained {
+                                key_type: self.export_type_form(key_type)?,
+                            },
+                            crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type } => AnonymousRecordRemainderRef::Typed {
+                                key_type: self.export_type_form(key_type)?,
+                                value_type: self.export_type_form(value_type)?,
+                            },
                         };
                         (None, Some(rem_ref))
                     }
@@ -792,7 +854,7 @@ impl<'a> MetadataExporter<'a> {
                 builder.write_u8(2);
                 builder.write_u32(row.fields.len() as u32);
                 for field in row.fields.iter() {
-                    builder.write_str(&field.name);
+                    Self::write_record_key_fingerprint(builder, &field.key);
                     builder.write_u8(match field.presence {
                         StructuralMemberPresenceRef::Required => 0,
                         StructuralMemberPresenceRef::Optional => 1,
@@ -807,13 +869,7 @@ impl<'a> MetadataExporter<'a> {
                 }
                 if let Some(rem) = &row.remainder {
                     builder.write_u8(1);
-                    match rem {
-                        AnonymousRecordRemainderRef::Unconstrained => builder.write_u8(0),
-                        AnonymousRecordRemainderRef::Typed(ty) => {
-                            builder.write_u8(1);
-                            builder.write_fingerprint(self.types[ty.0 as usize].structural_fingerprint);
-                        }
-                    }
+                    self.write_record_remainder_fingerprint(builder, rem);
                 } else {
                     builder.write_u8(0);
                 }
@@ -1062,7 +1118,7 @@ impl<'a> MetadataExporter<'a> {
                         crate::types::store::StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
                     };
                     f_nodes.push(ScopedRecordFieldRef {
-                        name: Self::legacy_record_field_name(&f.key)?,
+                        key: Self::record_key_ref(&f.key),
                         ty,
                         presence,
                     });
@@ -1080,7 +1136,7 @@ impl<'a> MetadataExporter<'a> {
                             crate::types::store::StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
                         };
                         Ok(ScopedRecordFieldRef {
-                            name: Self::legacy_record_field_name(&field.key)?,
+                            key: Self::record_key_ref(&field.key),
                             ty,
                             presence,
                         })
@@ -1093,19 +1149,13 @@ impl<'a> MetadataExporter<'a> {
                     }
                     crate::types::type_lambda::ScopedRecordTail::Anonymous(remainder) => {
                         let rem = match remainder {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type } => {
-                                if !self.is_scoped_legacy_symbol_key_domain(key_type) {
-                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
-                                }
-                                ScopedAnonymousRecordRemainderRef::Unconstrained
-                            }
-                            crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type } => {
-                                if !self.is_scoped_legacy_symbol_key_domain(key_type) {
-                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
-                                }
-                                let node_id = self.export_scoped_type_with_binders(value_type, binder_kinds)?;
-                                ScopedAnonymousRecordRemainderRef::Typed(node_id)
-                            }
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type } => ScopedAnonymousRecordRemainderRef::Unconstrained {
+                                key_type: self.export_scoped_type_with_binders(key_type, binder_kinds)?,
+                            },
+                            crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type } => ScopedAnonymousRecordRemainderRef::Typed {
+                                key_type: self.export_scoped_type_with_binders(key_type, binder_kinds)?,
+                                value_type: self.export_scoped_type_with_binders(value_type, binder_kinds)?,
+                            },
                         };
                         ScopedRecordTailRef::Anonymous(rem)
                     }
@@ -1126,7 +1176,7 @@ impl<'a> MetadataExporter<'a> {
                             crate::types::store::StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
                         };
                         Ok(ScopedRecordFieldRef {
-                            name: Self::legacy_record_field_name(&field.key)?,
+                            key: Self::record_key_ref(&field.key),
                             ty,
                             presence,
                         })
@@ -1143,19 +1193,13 @@ impl<'a> MetadataExporter<'a> {
                     }
                     crate::types::type_lambda::ScopedRecordRowTail::Anonymous(remainder) => {
                         let rem = match remainder {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type } => {
-                                if !self.is_scoped_legacy_symbol_key_domain(key_type) {
-                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
-                                }
-                                ScopedAnonymousRecordRemainderRef::Unconstrained
-                            }
-                            crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type } => {
-                                if !self.is_scoped_legacy_symbol_key_domain(key_type) {
-                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
-                                }
-                                let node_id = self.export_scoped_type_with_binders(value_type, binder_kinds)?;
-                                ScopedAnonymousRecordRemainderRef::Typed(node_id)
-                            }
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type } => ScopedAnonymousRecordRemainderRef::Unconstrained {
+                                key_type: self.export_scoped_type_with_binders(key_type, binder_kinds)?,
+                            },
+                            crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type } => ScopedAnonymousRecordRemainderRef::Typed {
+                                key_type: self.export_scoped_type_with_binders(key_type, binder_kinds)?,
+                                value_type: self.export_scoped_type_with_binders(value_type, binder_kinds)?,
+                            },
                         };
                         ScopedRecordRowTailRef::Anonymous(rem)
                     }
@@ -1343,7 +1387,7 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u8(6);
                 fp_b.write_u32(fields.len() as u32);
                 for f in fields.iter() {
-                    fp_b.write_str(&f.name);
+                    Self::write_record_key_fingerprint(&mut fp_b, &f.key);
                     fp_b.write_u8(match f.presence {
                         StructuralMemberPresenceRef::Required => 0,
                         StructuralMemberPresenceRef::Optional => 1,
@@ -1448,7 +1492,7 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u8(9);
                 fp_b.write_u32(open_rec.fields.len() as u32);
                 for f in open_rec.fields.iter() {
-                    fp_b.write_str(&f.name);
+                    Self::write_record_key_fingerprint(&mut fp_b, &f.key);
                     fp_b.write_u8(match f.presence {
                         StructuralMemberPresenceRef::Required => 0,
                         StructuralMemberPresenceRef::Optional => 1,
@@ -1467,13 +1511,7 @@ impl<'a> MetadataExporter<'a> {
                     }
                     ScopedRecordTailRef::Anonymous(rem) => {
                         fp_b.write_u8(3);
-                        match rem {
-                            ScopedAnonymousRecordRemainderRef::Unconstrained => fp_b.write_u8(0),
-                            ScopedAnonymousRecordRemainderRef::Typed(ty) => {
-                                fp_b.write_u8(1);
-                                fp_b.write_fingerprint(self.scoped_types[ty.0 as usize].structural_fingerprint);
-                            }
-                        }
+                        self.write_scoped_record_remainder_fingerprint(&mut fp_b, rem);
                     }
                 }
             }
@@ -1481,7 +1519,7 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u8(22);
                 fp_b.write_u32(row.fields.len() as u32);
                 for field in row.fields.iter() {
-                    fp_b.write_str(&field.name);
+                    Self::write_record_key_fingerprint(&mut fp_b, &field.key);
                     fp_b.write_u8(match field.presence {
                         StructuralMemberPresenceRef::Required => 0,
                         StructuralMemberPresenceRef::Optional => 1,
@@ -1505,13 +1543,7 @@ impl<'a> MetadataExporter<'a> {
                     }
                     ScopedRecordRowTailRef::Anonymous(rem) => {
                         fp_b.write_u8(4);
-                        match rem {
-                            ScopedAnonymousRecordRemainderRef::Unconstrained => fp_b.write_u8(0),
-                            ScopedAnonymousRecordRemainderRef::Typed(ty) => {
-                                fp_b.write_u8(1);
-                                fp_b.write_fingerprint(self.scoped_types[ty.0 as usize].structural_fingerprint);
-                            }
-                        }
+                        self.write_scoped_record_remainder_fingerprint(&mut fp_b, rem);
                     }
                 }
             }
@@ -1552,20 +1584,14 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u8(25);
                 fp_b.write_u32(anon_rec.fields.len() as u32);
                 for f in anon_rec.fields.iter() {
-                    fp_b.write_str(&f.name);
+                    Self::write_record_key_fingerprint(&mut fp_b, &f.key);
                     fp_b.write_u8(match f.presence {
                         StructuralMemberPresenceRef::Required => 0,
                         StructuralMemberPresenceRef::Optional => 1,
                     });
                     fp_b.write_fingerprint(self.scoped_types[f.ty.0 as usize].structural_fingerprint);
                 }
-                match &anon_rec.remainder {
-                    ScopedAnonymousRecordRemainderRef::Unconstrained => fp_b.write_u8(0),
-                    ScopedAnonymousRecordRemainderRef::Typed(ty) => {
-                        fp_b.write_u8(1);
-                        fp_b.write_fingerprint(self.scoped_types[ty.0 as usize].structural_fingerprint);
-                    }
-                }
+                self.write_scoped_record_remainder_fingerprint(&mut fp_b, &anon_rec.remainder);
             }
             ScopedTypeNode::Pack(pack) => {
                 fp_b.write_u8(26);
@@ -1644,7 +1670,9 @@ impl<'a> MetadataExporter<'a> {
 
     pub fn export_type_form(&mut self, ty: TypeId) -> Result<TypeNodeId, MetadataExportError> {
         let result = self.export_type_form_inner(ty);
-        if result.is_err() && self.failed_type.is_none() { self.failed_type = Some(ty); }
+        if result.is_err() && self.failed_type.is_none() {
+            self.failed_type = Some(ty);
+        }
         result
     }
 
@@ -1654,10 +1682,7 @@ impl<'a> MetadataExporter<'a> {
     /// A form that cannot be exported contributes no partial dependencies here;
     /// the selected-bundle pass retries it under its retained entity context so
     /// failures retain their normal provenance.
-    pub fn discover_nominal_declaration_dependencies(
-        &mut self,
-        roots: &BTreeSet<TypeId>,
-    ) -> BTreeSet<crate::identity::DeclarationId> {
+    pub fn discover_nominal_declaration_dependencies(&mut self, roots: &BTreeSet<TypeId>) -> BTreeSet<crate::identity::DeclarationId> {
         for &ty in roots {
             let dependency_checkpoint = self.nominal_dependency_log.len();
             if self.export_type_form(ty).is_err() {
@@ -1754,7 +1779,7 @@ impl<'a> MetadataExporter<'a> {
                         StructuralMemberPresence::Optional => StructuralMemberPresenceRef::Optional,
                     };
                     field_refs.push(RecordFieldRef {
-                        name: Self::legacy_record_field_name(&f.key)?,
+                        key: Self::record_key_ref(&f.key),
                         ty: ty_id,
                         presence,
                     });
@@ -1767,18 +1792,13 @@ impl<'a> MetadataExporter<'a> {
                     }),
                     crate::types::row::RecordRowTail::Anonymous(remainder) => {
                         let rem_ref = match remainder {
-                            crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type } => {
-                                if !self.is_legacy_symbol_key_domain(key_type) {
-                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
-                                }
-                                AnonymousRecordRemainderRef::Unconstrained
-                            }
-                            crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type } => {
-                                if !self.is_legacy_symbol_key_domain(key_type) {
-                                    return Err(MetadataExportError::NonExportableRecordKeyDomain);
-                                }
-                                AnonymousRecordRemainderRef::Typed(self.export_type_form(value_type)?)
-                            }
+                            crate::types::row::AnonymousRecordRemainder::Unconstrained { key_type } => AnonymousRecordRemainderRef::Unconstrained {
+                                key_type: self.export_type_form(key_type)?,
+                            },
+                            crate::types::row::AnonymousRecordRemainder::Typed { key_type, value_type } => AnonymousRecordRemainderRef::Typed {
+                                key_type: self.export_type_form(key_type)?,
+                                value_type: self.export_type_form(value_type)?,
+                            },
                         };
                         TypeNode::AnonymousRecord(AnonymousRecordTypeRef {
                             fields: field_refs.into_boxed_slice(),
@@ -2066,7 +2086,7 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u8(7);
                 fp_b.write_u32(fields.len() as u32);
                 for f in fields.iter() {
-                    fp_b.write_str(&f.name);
+                    Self::write_record_key_fingerprint(&mut fp_b, &f.key);
                     fp_b.write_u8(match f.presence {
                         StructuralMemberPresenceRef::Required => 0,
                         StructuralMemberPresenceRef::Optional => 1,
@@ -2078,7 +2098,7 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u8(12);
                 fp_b.write_u32(open_rec.fields.len() as u32);
                 for f in open_rec.fields.iter() {
-                    fp_b.write_str(&f.name);
+                    Self::write_record_key_fingerprint(&mut fp_b, &f.key);
                     fp_b.write_u8(match f.presence {
                         StructuralMemberPresenceRef::Required => 0,
                         StructuralMemberPresenceRef::Optional => 1,
@@ -2124,20 +2144,14 @@ impl<'a> MetadataExporter<'a> {
                 fp_b.write_u8(25);
                 fp_b.write_u32(anon_rec.fields.len() as u32);
                 for f in anon_rec.fields.iter() {
-                    fp_b.write_str(&f.name);
+                    Self::write_record_key_fingerprint(&mut fp_b, &f.key);
                     fp_b.write_u8(match f.presence {
                         StructuralMemberPresenceRef::Required => 0,
                         StructuralMemberPresenceRef::Optional => 1,
                     });
                     fp_b.write_fingerprint(self.types[f.ty.0 as usize].structural_fingerprint);
                 }
-                match &anon_rec.remainder {
-                    AnonymousRecordRemainderRef::Unconstrained => fp_b.write_u8(0),
-                    AnonymousRecordRemainderRef::Typed(ty) => {
-                        fp_b.write_u8(1);
-                        fp_b.write_fingerprint(self.types[ty.0 as usize].structural_fingerprint);
-                    }
-                }
+                self.write_record_remainder_fingerprint(&mut fp_b, &anon_rec.remainder);
             }
             TypeNode::Callable(call) => {
                 fp_b.write_u8(8);
@@ -2494,9 +2508,15 @@ impl<'a> MetadataExporter<'a> {
 
     /// Explicit complete-table helper for detached metadata fixtures. Production
     /// compilation must supply its retained closure instead.
-    pub fn build_complete_test_bundle(mut self, runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)]) -> Result<SemanticMetadataBundle, MetadataExportError> {
+    pub fn build_complete_test_bundle(
+        mut self,
+        runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)],
+    ) -> Result<SemanticMetadataBundle, MetadataExportError> {
         let closure = MetadataReachabilityClosure {
-            declarations: self.declarations.map(|table| table.iter().map(|(id, _)| id.clone()).collect()).unwrap_or_default(),
+            declarations: self
+                .declarations
+                .map(|table| table.iter().map(|(id, _)| id.clone()).collect())
+                .unwrap_or_default(),
             aliases: self.aliases.map(|table| table.iter().map(|(id, _)| id.clone()).collect()).unwrap_or_default(),
             callables: self.callables.map(|table| table.iter().map(|(id, _)| id.clone()).collect()).unwrap_or_default(),
             fields: self.fields.map(|table| table.iter().map(|(id, _)| id.clone()).collect()).unwrap_or_default(),
@@ -2506,17 +2526,35 @@ impl<'a> MetadataExporter<'a> {
     }
 
     /// Projects only explicitly retained semantic entities and recursive type roots.
-    pub fn build_bundle_from_closure(self, closure: &MetadataReachabilityClosure, runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)]) -> Result<SemanticMetadataBundle, MetadataExportError> {
+    pub fn build_bundle_from_closure(
+        self,
+        closure: &MetadataReachabilityClosure,
+        runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)],
+    ) -> Result<SemanticMetadataBundle, MetadataExportError> {
         self.build_selected_bundle(closure, runtime_roots, false)
     }
 
-    fn build_selected_bundle(mut self, closure: &MetadataReachabilityClosure, runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)], complete_catalog: bool) -> Result<SemanticMetadataBundle, MetadataExportError> {
-        self.build_bundle_inner(closure, complete_catalog, runtime_roots).map_err(|source| MetadataExportError::Projection {
-            profile: self.profile, entity: Box::new(self.current_entity.clone()), type_id: self.failed_type, source: Box::new(source),
-        })
+    fn build_selected_bundle(
+        mut self,
+        closure: &MetadataReachabilityClosure,
+        runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)],
+        complete_catalog: bool,
+    ) -> Result<SemanticMetadataBundle, MetadataExportError> {
+        self.build_bundle_inner(closure, complete_catalog, runtime_roots)
+            .map_err(|source| MetadataExportError::Projection {
+                profile: self.profile,
+                entity: Box::new(self.current_entity.clone()),
+                type_id: self.failed_type,
+                source: Box::new(source),
+            })
     }
 
-    fn build_bundle_inner(&mut self, closure: &MetadataReachabilityClosure, complete_catalog: bool, runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)]) -> Result<SemanticMetadataBundle, MetadataExportError> {
+    fn build_bundle_inner(
+        &mut self,
+        closure: &MetadataReachabilityClosure,
+        complete_catalog: bool,
+        runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)],
+    ) -> Result<SemanticMetadataBundle, MetadataExportError> {
         #[cfg(feature = "perf-observability")]
         let metadata_total_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExport);
         let mut out_declarations = Vec::new();
@@ -2540,8 +2578,8 @@ impl<'a> MetadataExporter<'a> {
             Ok(())
         };
         #[cfg(feature = "perf-observability")]
-        let identity_validation_span = telos_observability::PerfContext::current_thread()
-            .span(telos_observability::PerfPhase::MetadataExportProjectIdentityValidation);
+        let identity_validation_span =
+            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportProjectIdentityValidation);
         if self.declarations.is_some() {
             for declaration in closure.declarations.iter() {
                 require_project(&declaration.module.project)?;
@@ -2569,8 +2607,7 @@ impl<'a> MetadataExporter<'a> {
         identity_validation_span.finish(telos_observability::PerfOutcome::Success);
 
         #[cfg(feature = "perf-observability")]
-        let declarations_span =
-            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportDeclarations);
+        let declarations_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportDeclarations);
         let mut callable_owner_comparisons = 0u64;
         if let Some(decls) = self.declarations {
             for decl_id in &closure.declarations {
@@ -2666,8 +2703,7 @@ impl<'a> MetadataExporter<'a> {
         aliases_span.finish(telos_observability::PerfOutcome::Success);
 
         #[cfg(feature = "perf-observability")]
-        let callables_span =
-            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportCallables);
+        let callables_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportCallables);
         if let Some(call_table) = self.callables {
             for call_id in &closure.callables {
                 let Some(sig) = call_table.get(call_id) else { continue };
@@ -2740,10 +2776,12 @@ impl<'a> MetadataExporter<'a> {
         fields_span.finish(telos_observability::PerfOutcome::Success);
 
         #[cfg(feature = "perf-observability")]
-        let runtime_roots_span =
-            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportRuntimeRoots);
+        let runtime_roots_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportRuntimeRoots);
         for &(mod_id, key, ty) in runtime_roots {
-            self.current_entity = MetadataEntityIdentity::RuntimeType { module: mod_id.clone(), key: key.into() };
+            self.current_entity = MetadataEntityIdentity::RuntimeType {
+                module: mod_id.clone(),
+                key: key.into(),
+            };
             let form_id = self.export_type_form(ty)?;
             out_roots.push(RuntimeTypeFormRoot {
                 module: self.stable_module(mod_id),
@@ -2756,16 +2794,14 @@ impl<'a> MetadataExporter<'a> {
         runtime_roots_span.finish(telos_observability::PerfOutcome::Success);
 
         #[cfg(feature = "perf-observability")]
-        let static_domains_span =
-            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportStaticDomains);
+        let static_domains_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportStaticDomains);
         self.current_entity = MetadataEntityIdentity::StaticDomainCatalog;
         let static_domain_catalog = self.export_static_domain_catalog(if complete_catalog { None } else { Some(closure) })?;
         #[cfg(feature = "perf-observability")]
         static_domains_span.finish(telos_observability::PerfOutcome::Success);
 
         #[cfg(feature = "perf-observability")]
-        let fingerprints_span =
-            telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportFingerprints);
+        let fingerprints_span = telos_observability::PerfContext::current_thread().span(telos_observability::PerfPhase::MetadataExportFingerprints);
         self.parameters.sort_by(|left, right| left.id.cmp(&right.id));
         let mut algebraic_declarations = out_declarations.iter().filter(|record| record.algebraic.is_some()).collect::<Vec<_>>();
         algebraic_declarations.sort_by(|left, right| left.declaration.cmp(&right.declaration));
@@ -2864,6 +2900,7 @@ impl<'a> MetadataExporter<'a> {
         fingerprints_span.finish(telos_observability::PerfOutcome::Success);
         let header = SemanticMetadataHeader {
             schema_version: TYPE_METADATA_SCHEMA_VERSION,
+            legacy_fingerprint_schema_version: None,
             semantic_model_version: SEMANTIC_MODEL_VERSION,
             producer: ProducerIdentity("phalcom-semantic".into()),
             producer_version: "0.1.0".into(),
