@@ -601,6 +601,85 @@ mod tests {
     }
 
     #[test]
+    fn canonical_cycle_differential_identifies_combined_requirement_cycle() {
+        use phalcom_modules::{
+            DependencyPhase, ImportPhaseSummary, InterfaceBuilder, LinkError, ModuleImportPhaseProduct, ModuleKind,
+            PhaseEvidenceCoverage, RuntimeDependencyReason, RuntimeDependencyRequirement,
+        };
+
+        let a = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("a").expect("valid module name"),
+        ]));
+        let b = ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("b").expect("valid module name"),
+        ]));
+        let sources = [
+            (a.clone(), "from .b import B\nclass A {}\nexport A\n"),
+            (b.clone(), "from .a import A\nclass B {}\nexport B\n"),
+        ];
+        let interfaces = sources
+            .into_iter()
+            .map(|(module, source)| {
+                let parsed = phalcom_ast::parser::parse(source, 0).program;
+                let interface = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &parsed)
+                    .expect("test interface");
+                (module, interface)
+            })
+            .collect();
+        let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), interfaces);
+        let resolved = BTreeMap::from([
+            ((a.clone(), ".b".to_string()), b.clone()),
+            ((b.clone(), ".a".to_string()), a.clone()),
+        ]);
+        let symbolic = linker.link_semantic(a.clone(), &resolved).expect("symbolic type cycle");
+        let phases = symbolic
+            .modules
+            .iter()
+            .map(|(module, symbolic_module)| {
+                let bindings = symbolic_module.imports.bindings.keys().map(|id| {
+                    (id.clone(), ImportPhaseSummary {
+                        phase: DependencyPhase::InterfaceOnly,
+                        observed: true,
+                    })
+                }).collect();
+                (module.clone(), ModuleImportPhaseProduct {
+                    module: module.clone(),
+                    bindings,
+                    coverage: PhaseEvidenceCoverage::Complete,
+                })
+            })
+            .collect::<BTreeMap<_, _>>();
+        let semantic_requirement = RuntimeDependencyRequirement {
+            importer: a.clone(),
+            dependency: b.clone(),
+            range: Default::default(),
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            read_target: None,
+        };
+        let metadata_requirement = RuntimeDependencyRequirement {
+            importer: b,
+            dependency: a,
+            range: Default::default(),
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            read_target: None,
+        };
+        let failure = linker.finalize_executable_with_requirements(
+            symbolic.clone(),
+            &phases,
+            &[semantic_requirement.clone(), metadata_requirement.clone()],
+        ).expect_err("combined generated requirements produce a genuine runtime cycle");
+        assert!(matches!(failure, LinkError::RuntimeCycle(_)));
+
+        let isolation = super::canonical_runtime_cycle_differential(
+            &failure, &linker, &symbolic, &phases,
+            &[semantic_requirement], &[metadata_requirement],
+        );
+        assert!(isolation.contains("authored imports only: acyclic"));
+        assert!(isolation.contains("authored + semantic-generated: acyclic"));
+        assert!(isolation.contains("authored + metadata-type-owner: acyclic"));
+    }
+
+    #[test]
     fn canonical_semantic_failure_is_distinct_from_panic() {
         let error: CanonicalUniverseBuildError = phalcom_semantic::SemanticUpdateFailure::Failed("injected update failure".into()).into();
         assert!(
