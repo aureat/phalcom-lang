@@ -539,6 +539,202 @@ impl<T> Interval<T> {
     }
     "\(leftBracket)\(leftVal), \(rightVal)\(rightBracket)"
   }
+
+  /// Structural view of this interval.
+  view -> IntervalView<T> {
+    if not self.isValid or self.isEmpty {
+      IntervalView::Empty
+    } else {
+      IntervalView::Span(self.lower, self.upper)
+    }
+  }
+
+  /// Computes the convex hull enclosing both intervals.
+  hull(_ other: Interval<T>) -> Interval<T> {
+    if not self.isValid or self.isEmpty { return other }
+    if not other.isValid or other.isEmpty { return self }
+    let minLower = if Interval.compareLower(self.lower, other.lower) == Ordering::Less {
+      self.lower
+    } else {
+      other.lower
+    }
+    let maxUpper = if Interval.compareUpper(self.upper, other.upper) == Ordering::Greater {
+      self.upper
+    } else {
+      other.upper
+    }
+    Interval(minLower, maxUpper)
+  }
+
+  /// Subtracts another interval from self, returning zero, one, or two remaining pieces.
+  subtract(_ other: Interval<T>) -> IntervalPieces<T> {
+    let rems = self.remaindersAfterRemoval(other)
+    if rems.size == 0 {
+      IntervalPieces::Zero
+    } else if rems.size == 1 {
+      IntervalPieces::One(rems.at(0))
+    } else {
+      IntervalPieces::Two(rems.at(0), rems.at(1))
+    }
+  }
+
+  /// Computes the relational categorization between self and another interval.
+  relate(_ other: Interval<T>) -> IntervalRelation<T> {
+    let selfEmpty = not self.isValid or self.isEmpty
+    let otherEmpty = not other.isValid or other.isEmpty
+    if selfEmpty and otherEmpty {
+      return IntervalRelation::BothEmpty
+    }
+    if selfEmpty {
+      return IntervalRelation::LeftEmpty(other)
+    }
+    if otherEmpty {
+      return IntervalRelation::RightEmpty(self)
+    }
+    if self.overlaps(other) {
+      let shared = self.intersection(other).unwrap()
+      let leftOnly = self.subtract(other)
+      let rightOnly = other.subtract(self)
+      return IntervalRelation::Intersects(shared, leftOnly, rightOnly)
+    }
+    if self.touchesWithoutGap(other) {
+      if Interval.compareLower(self.lower, other.lower) == Ordering::Less {
+        let b = self.upper.value.unwrap()
+        let gap = Interval(self.upper, other.lower)
+        return IntervalRelation::TouchesBefore(b, gap)
+      } else {
+        let b = other.upper.value.unwrap()
+        let gap = Interval(other.upper, self.lower)
+        return IntervalRelation::TouchesAfter(b, gap)
+      }
+    }
+    if Interval.compareUpper(self.upper, other.lower) == Ordering::Less {
+      let gap = Interval(self.upper, other.lower)
+      IntervalRelation::Before(gap)
+    } else {
+      let gap = Interval(other.upper, self.lower)
+      IntervalRelation::After(gap)
+    }
+  }
+
+  /// Computes qualitative temporal Allen relation for finite nonempty spans.
+  allenRelation(_ other: Interval<T>) -> Option<AllenRelation> {
+    if not self.isValid or self.isEmpty or not other.isValid or other.isEmpty {
+      return None
+    }
+    let a0Opt = self.lower.value
+    let a1Opt = self.upper.value
+    let b0Opt = other.lower.value
+    let b1Opt = other.upper.value
+    match a0Opt {
+      Option::Some(a0) => {
+        match a1Opt {
+          Option::Some(a1) => {
+            match b0Opt {
+              Option::Some(b0) => {
+                match b1Opt {
+                  Option::Some(b1) => {
+                    if a0 == a1 or b0 == b1 {
+                      return None
+                    }
+                    if a1 < b0 {
+                      return Option::Some(AllenRelation::Before)
+                    }
+                    if a1 == b0 {
+                      return Option::Some(AllenRelation::Meets)
+                    }
+                    if a0 < b0 and b0 < a1 and a1 < b1 {
+                      return Option::Some(AllenRelation::Overlaps)
+                    }
+                    if a0 == b0 and a1 < b1 {
+                      return Option::Some(AllenRelation::Starts)
+                    }
+                    if b0 < a0 and a1 < b1 {
+                      return Option::Some(AllenRelation::During)
+                    }
+                    if b0 < a0 and a1 == b1 {
+                      return Option::Some(AllenRelation::Finishes)
+                    }
+                    if a0 == b0 and a1 == b1 {
+                      return Option::Some(AllenRelation::Equal)
+                    }
+                    if a0 < b0 and a1 == b1 {
+                      return Option::Some(AllenRelation::FinishedBy)
+                    }
+                    if a0 < b0 and b1 < a1 {
+                      return Option::Some(AllenRelation::Contains)
+                    }
+                    if a0 == b0 and b1 < a1 {
+                      return Option::Some(AllenRelation::StartedBy)
+                    }
+                    if b0 < a0 and a0 < b1 and b1 < a1 {
+                      return Option::Some(AllenRelation::OverlappedBy)
+                    }
+                    if b1 == a0 {
+                      return Option::Some(AllenRelation::MetBy)
+                    }
+                    if b1 < a0 {
+                      return Option::Some(AllenRelation::After)
+                    }
+                    None
+                  }
+                  _ => None
+                }
+              }
+              _ => None
+            }
+          }
+          _ => None
+        }
+      }
+      _ => None
+    }
+  }
 }
 
-export Bound, Interval
+type LowerBound<T> = Bound<T>
+type UpperBound<T> = Bound<T>
+
+/// Structural decomposition view of an interval.
+data IntervalView<T> {
+  @variant Empty
+  @variant Span(_ lower: Bound<T>, _ upper: Bound<T>)
+}
+
+/// Zero, one, or two remaining pieces produced by interval subtraction.
+data IntervalPieces<T> {
+  @variant Zero
+  @variant One(_ piece: Interval<T>)
+  @variant Two(_ first: Interval<T>, _ second: Interval<T>)
+}
+
+/// Eight-case total relational partition between two intervals.
+data IntervalRelation<T> {
+  @variant BothEmpty
+  @variant LeftEmpty(_ right: Interval<T>)
+  @variant RightEmpty(_ left: Interval<T>)
+  @variant Before(_ gap: Interval<T>)
+  @variant After(_ gap: Interval<T>)
+  @variant TouchesBefore(_ boundary: T, _ gap: Interval<T>)
+  @variant TouchesAfter(_ boundary: T, _ gap: Interval<T>)
+  @variant Intersects(_ shared: Interval<T>, _ leftOnly: IntervalPieces<T>, _ rightOnly: IntervalPieces<T>)
+}
+
+/// Qualitative temporal Allen relation across thirteen geometric cases.
+data AllenRelation {
+  @variant Before
+  @variant Meets
+  @variant Overlaps
+  @variant Starts
+  @variant During
+  @variant Finishes
+  @variant Equal
+  @variant FinishedBy
+  @variant Contains
+  @variant StartedBy
+  @variant OverlappedBy
+  @variant MetBy
+  @variant After
+}
+
+export Bound, LowerBound, UpperBound, Interval, IntervalView, IntervalPieces, IntervalRelation, AllenRelation

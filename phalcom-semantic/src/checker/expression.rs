@@ -3994,13 +3994,15 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
         return typed;
     }
 
-    if call.method == "call" && call.method_range.is_none() {
+    if call.method == "call" {
         // `Type<Args>(...)` is primary data-constructor syntax when the
         // receiver is a statically resolved declaration-backed data type
         // form. Keep the ordinary callable protocol below as the fallback for
         // all other type-form values and runtime expressions.
-        if let Some(typed) = synthesize_applied_data_constructor_call(ctx, &recv_typed, call, expected) {
-            return typed;
+        if call.method_range.is_none() {
+            if let Some(typed) = synthesize_applied_data_constructor_call(ctx, &recv_typed, call, expected) {
+                return typed;
+            }
         }
         if let Some(receiver_ty) = recv_typed.knowledge.ty() {
             if matches!(ctx.store.get(receiver_ty), TypeData::Family(_)) {

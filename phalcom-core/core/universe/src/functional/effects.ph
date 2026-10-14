@@ -35,10 +35,9 @@ class Effects {
   {
     let snapshot = Chain<A>.fromIterable(source)
     let mut accumulated = D.pure(Chain<B>::Empty)
-    let mut remaining = snapshot
+    let mut remaining: Chain<A> = snapshot
     while not remaining.isEmpty {
       match remaining {
-        Chain::Empty => {}
         Chain::Link(value, rest) => {
           // Capture this immutable value binding, never the mutable cursor.
           accumulated = D.flatMap(accumulated, using: |prefix| {
@@ -46,6 +45,7 @@ class Effects {
           })
           remaining = rest
         }
+        _ => {}
       }
     }
     D.map(accumulated, using: |reversed| { reversed.reverse })

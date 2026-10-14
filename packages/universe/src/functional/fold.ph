@@ -1,6 +1,6 @@
 //! Composable one-pass folds with fresh per-run state and typed projections.
 from .chain import Chain
-from universe.collections.iteration import Iterable
+from universe.collections.iterator_laws import Iterable
 from universe.numbers.capabilities import Addable, Zero
 
 /// A fold with private accumulator S, input A, and output B.
@@ -21,13 +21,8 @@ impl<S, A, B> Fold<S, A, B> {
   run<I>(_ source: I) -> B where I |= Iterable, <I as Iterable>::Item == A {
     let mut state = self.initialize.call()
     let iterator = source.iterator
-    let mut next = iterator.next
-    while next.isSome {
-      match next {
-        Option::Some(value) => { state = self.step.call(state, value) }
-        Option::None => {}
-      }
-      next = iterator.next
+    while let Option::Some(value) = iterator.next {
+      state = self.step.call(state, value)
     }
     self.finish.call(state)
   }

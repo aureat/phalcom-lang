@@ -21,13 +21,8 @@ impl<S, A, B> Fold<S, A, B> {
   run<I>(_ source: I) -> B where I |= Iterable, <I as Iterable>::Item == A {
     let mut state = self.initialize.call()
     let iterator = source.iterator
-    let mut next = iterator.next
-    while next.isSome {
-      match next {
-        Option::Some(value) => { state = self.step.call(state, value) }
-        Option::None => {}
-      }
-      next = iterator.next
+    while let Option::Some(value) = iterator.next {
+      state = self.step.call(state, value)
     }
     self.finish.call(state)
   }

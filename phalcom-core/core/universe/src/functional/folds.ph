@@ -11,13 +11,8 @@ class Folds {
   {
     let mut result = M.empty
     let iterator = source.iterator
-    let mut step = iterator.next
-    while step.isSome {
-      match step {
-        Option::Some(value) => { result = result.combine(f.call(value)) }
-        Option::None => {}
-      }
-      step = iterator.next
+    while let Option::Some(value) = iterator.next {
+      result = result.combine(f.call(value))
     }
     result
   }
@@ -35,7 +30,7 @@ class Folds {
   {
     let mut result = Chain<T>::Empty
     let iterator = source.iterator
-    let mut step = iterator.next
+    let mut step: Option<<I as Iterable>::Item> = iterator.next
     while step.isSome {
       match step {
         Option::Some(value) => {
@@ -57,7 +52,7 @@ class Folds {
   {
     let mut result = Chain<T>::Empty
     let iterator = source.iterator
-    let mut step = iterator.next
+    let mut step: Option<<I as Iterable>::Item> = iterator.next
     while step.isSome {
       match step {
         Option::Some(value) => {
@@ -82,7 +77,7 @@ class Folds {
     let mut values = Chain<T>::Empty
     let mut errors = Chain<E>::Empty
     let iterator = source.iterator
-    let mut step = iterator.next
+    let mut step: Option<<I as Iterable>::Item> = iterator.next
     while step.isSome {
       match step {
         Option::Some(value) => {
