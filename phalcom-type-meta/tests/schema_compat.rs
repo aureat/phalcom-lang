@@ -100,7 +100,8 @@ fn callable_owner_v11_roundtrips_and_v10_declaration_owner_decodes() {
             assert_eq!(decoded.callables[0].callable, callable);
         }
     }
-    assert!(TYPE_METADATA_SCHEMA_VERSION >= 11);
+    // The schema floor is a compile-time invariant, not a runtime assertion.
+    const { assert!(TYPE_METADATA_SCHEMA_VERSION >= 11) };
 }
 
 #[test]
