@@ -219,3 +219,30 @@ let eq = r == b
     let b = get(&vm, "b");
     assert_ne!(vm.runtime_variant_of(r), vm.runtime_variant_of(b));
 }
+
+#[test]
+fn contextual_enum_construction_and_union_payload_patterns_execute() {
+    let src = r#"
+data Boxed<T> {
+  some(_ value: T)
+  none
+}
+data Other { other }
+let singleton: Boxed<Int> = none
+let qualified = Boxed<Int>::none
+let same_singleton = singleton === qualified
+let value: Boxed<Int> = some(42)
+let extracted = match value { some(item) => item none => 0 }
+let union: Boxed<Int> | Other = Boxed<Int>::some(7)
+let union_payload = match union { some(item) => item _ => 0 }
+"#;
+    let (vm, main_mod) = run_inline(src).expect("contextual enum program should compile and run");
+    for (name, expected) in [
+        ("same_singleton", Value::bool(true)),
+        ("extracted", Value::int(42)),
+        ("union_payload", Value::int(7)),
+    ] {
+        let symbol = vm.interner.find(name).expect("binding symbol");
+        assert_eq!(vm.heap.module(main_mod).get(symbol), Some(expected), "{name}");
+    }
+}

@@ -743,7 +743,6 @@ fn resolve_variant_pattern(
     bindings: &mut Vec<PatternBindingResolution>,
     binding_mode: BindingMode,
 ) -> ResolvedVariantPattern {
-    let expected_nominal_decl = ctx.store.nominal_origin_declaration(subject.canonical).cloned();
     let expected_owners = nominal_owner_types(ctx.store, subject.canonical);
     let constraint = variant_selector_constraint(variant_pat);
 
@@ -775,7 +774,49 @@ fn resolve_variant_pattern(
             ));
         }
         decl
-    } else if let Some(decl) = expected_nominal_decl {
+    } else if let Some(decl) = {
+        let table = ctx.enum_table;
+        let mut candidates = BTreeSet::new();
+        for (owner, owner_type) in &expected_owners {
+            let Some((table, info)) = table.and_then(|table| table.enums.get(owner).map(|info| (table, info))) else {
+                continue;
+            };
+            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
+            if info.variants.iter().any(|variant| {
+                table
+                    .variants
+                    .get(variant)
+                    .is_some_and(|info| matches_variant_info(info, &variant_pat.base, &constraint, variant_pat))
+                    && !super::associated::contextual_variant_is_refuted(ctx, variant, *owner_type)
+            }) {
+                candidates.insert(owner.clone());
+            }
+        }
+        if candidates.len() > 1 {
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::MatchPatternUnresolved,
+                format!(
+                    "variant pattern `{}` is ambiguous between {}; qualify it with its owner",
+                    variant_pat.base,
+                    candidates.iter().map(|owner| owner.name.to_string()).collect::<Vec<_>>().join(", ")
+                ),
+                variant_pat.range,
+            ));
+            return ResolvedVariantPattern {
+                owner: None,
+                family: None,
+                owner_candidates: candidates.into_iter().collect(),
+                selector: constraint,
+                candidates: Box::new([]),
+                blocked: None,
+            };
+        }
+        candidates
+            .into_iter()
+            .next()
+            .or_else(|| (expected_owners.len() == 1).then(|| expected_owners[0].0.clone()))
+    } {
         decl
     } else {
         ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
@@ -798,6 +839,11 @@ fn resolve_variant_pattern(
     };
 
     ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner_decl.clone()));
+    let owner_subject = expected_owners
+        .iter()
+        .find(|(owner, _)| owner == &owner_decl)
+        .map(|(_, owner_ty)| contextual_owner_subject(ctx.store, subject, &owner_decl, *owner_ty))
+        .unwrap_or_else(|| subject.clone());
 
     let enum_table = ctx.enum_table.cloned();
     let enum_info = enum_table.as_ref().and_then(|table| table.enums.get(&owner_decl).cloned());
@@ -865,7 +911,7 @@ fn resolve_variant_pattern(
                 ctx.store,
                 &ctx.hierarchy,
                 &mut ctx.rigids,
-                subject,
+                &owner_subject,
                 v_info,
                 &ctx.control,
             ) {

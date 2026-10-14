@@ -732,44 +732,44 @@ type UpperBound<T> = Bound<T>
 
 /// Structural decomposition view of an interval.
 data IntervalView<T> {
-  @variant Empty
-  @variant Span(_ lower: Bound<T>, _ upper: Bound<T>)
+  Empty
+  Span(_ lower: Bound<T>, _ upper: Bound<T>)
 }
 
 /// Zero, one, or two remaining pieces produced by interval subtraction.
 data IntervalPieces<T> {
-  @variant Zero
-  @variant One(_ piece: Interval<T>)
-  @variant Two(_ first: Interval<T>, _ second: Interval<T>)
+  Zero
+  One(_ piece: Interval<T>)
+  Two(_ first: Interval<T>, _ second: Interval<T>)
 }
 
 /// Eight-case total relational partition between two intervals.
 data IntervalRelation<T> {
-  @variant BothEmpty
-  @variant LeftEmpty(_ right: Interval<T>)
-  @variant RightEmpty(_ left: Interval<T>)
-  @variant Before(_ gap: Interval<T>)
-  @variant After(_ gap: Interval<T>)
-  @variant TouchesBefore(_ boundary: T, _ gap: Interval<T>)
-  @variant TouchesAfter(_ boundary: T, _ gap: Interval<T>)
-  @variant Intersects(_ shared: Interval<T>, _ leftOnly: IntervalPieces<T>, _ rightOnly: IntervalPieces<T>)
+  BothEmpty
+  LeftEmpty(_ right: Interval<T>)
+  RightEmpty(_ left: Interval<T>)
+  Before(_ gap: Interval<T>)
+  After(_ gap: Interval<T>)
+  TouchesBefore(_ boundary: T, _ gap: Interval<T>)
+  TouchesAfter(_ boundary: T, _ gap: Interval<T>)
+  Intersects(_ shared: Interval<T>, _ leftOnly: IntervalPieces<T>, _ rightOnly: IntervalPieces<T>)
 }
 
 /// Qualitative temporal Allen relation across thirteen geometric cases.
 data AllenRelation {
-  @variant Before
-  @variant Meets
-  @variant Overlaps
-  @variant Starts
-  @variant During
-  @variant Finishes
-  @variant Equal
-  @variant FinishedBy
-  @variant Contains
-  @variant StartedBy
-  @variant OverlappedBy
-  @variant MetBy
-  @variant After
+  Before
+  Meets
+  Overlaps
+  Starts
+  During
+  Finishes
+  Equal
+  FinishedBy
+  Contains
+  StartedBy
+  OverlappedBy
+  MetBy
+  After
 }
 
 export Bound, LowerBound, UpperBound, Interval, IntervalView, IntervalPieces, IntervalRelation, AllenRelation

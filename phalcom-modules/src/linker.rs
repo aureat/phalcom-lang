@@ -1292,6 +1292,21 @@ impl<'a> LinkContext<'a> {
                                     }
                                 }
                             };
+                            // Selected reads are canonicalized through reexports.
+                            // Preserve the provider edge and also cover the module
+                            // that actually supplies the finalized runtime read.
+                            let canonical_owner = match &linked_exp.target {
+                                crate::interface::LinkedExportTarget::Binding(symbol) => &symbol.module,
+                                crate::interface::LinkedExportTarget::Module(module) => module,
+                            };
+                            if canonical_owner != &target {
+                                self.graphs.runtime.add(RuntimeDependencyEdge {
+                                    importer: module.clone(),
+                                    dependency: canonical_owner.clone(),
+                                    range: item.range,
+                                    reason: RuntimeDependencyReason::SelectiveValueImport,
+                                });
+                            }
                             match &linked_exp.target {
                                 crate::interface::LinkedExportTarget::Binding(symbol) => {
                                     self.import_targets
@@ -1324,6 +1339,21 @@ impl<'a> LinkContext<'a> {
                                     }
                                 }
                             };
+                            // Selected reads are canonicalized through reexports.
+                            // Preserve the provider edge and also cover the module
+                            // that actually supplies the finalized runtime read.
+                            let canonical_owner = match &linked_exp.target {
+                                crate::interface::LinkedExportTarget::Binding(symbol) => &symbol.module,
+                                crate::interface::LinkedExportTarget::Module(module) => module,
+                            };
+                            if canonical_owner != &target {
+                                self.graphs.runtime.add(RuntimeDependencyEdge {
+                                    importer: module.clone(),
+                                    dependency: canonical_owner.clone(),
+                                    range: item.range,
+                                    reason: RuntimeDependencyReason::ReExport,
+                                });
+                            }
                             match &linked_exp.target {
                                 crate::interface::LinkedExportTarget::Binding(symbol) => {
                                     self.import_targets

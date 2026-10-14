@@ -499,3 +499,25 @@ fn tolerant_runtime_cycle_preserves_independent_survivor_order() {
     // X/Y cycle is blocked in res_x, diagnostic reported
     assert!(!res_x.diagnostics.is_empty() || !res_x.blocked_modules.is_empty());
 }
+
+#[test]
+fn conservative_reexport_reads_are_covered_by_canonical_owner_edges() {
+    let leaf = module("leaf");
+    let bridge = module("bridge");
+    let entry = module("entry");
+    let iface_map = interfaces(&[
+        (leaf.clone(), "class Thing {}\nexport Thing\n"),
+        (bridge.clone(), "from .leaf import Thing\nexport Thing\n"),
+        (entry.clone(), "from .bridge import Thing\n"),
+    ]);
+    let resolved = BTreeMap::from([
+        ((bridge.clone(), ".leaf".to_string()), leaf.clone()),
+        ((entry.clone(), ".bridge".to_string()), bridge.clone()),
+    ]);
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map);
+    let linked = linker.link(entry.clone(), &resolved).expect("conservative link");
+    let executable = phalcom_modules::ExecutableLinkedProgram::from_conservative_link(linked)
+        .expect("canonical reexport read must be covered by the runtime graph");
+    let read = LinkedReadSpec::Binding(SymbolId { module: leaf, name: "Thing".into() });
+    assert!(executable.runtime_read(&entry, &read).is_some());
+}

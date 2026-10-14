@@ -407,7 +407,14 @@ fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, exp
             } else if let Some(param_ty) = ctx.resolve_type_parameter(value) {
                 TypedExpression::established(param_ty, EvidenceOrigin::DeclarationSemantics, *range).with_denotation(SemanticDenotation::TypeForm(param_ty))
             } else {
-                TypedExpression::unknown(UnknownReason::UnresolvedName(value.as_str().into()))
+                let selector = Selector::getter(value).ok();
+                if let Some(selector) = selector
+                    && let Some(result) = synthesize_contextual_variant(ctx, value, &selector, None, expected, *range)
+                {
+                    result
+                } else {
+                    TypedExpression::unknown(UnknownReason::UnresolvedName(value.as_str().into()))
+                }
             }
         }
         Expr::SelfVar { range } => {
@@ -1918,6 +1925,15 @@ pub(crate) fn type_form_descriptor_type(ctx: &mut CheckingContext<'_>, form: Typ
 
 fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &AssociatedLookupExpr, expected: &ExpectedType) -> TypedExpression {
     let receiver = analyze_expression(ctx, &lookup.receiver, &ExpectedType::None);
+    synthesize_associated_lookup_with_receiver(ctx, lookup, expected, receiver)
+}
+
+fn synthesize_associated_lookup_with_receiver(
+    ctx: &mut CheckingContext<'_>,
+    lookup: &AssociatedLookupExpr,
+    expected: &ExpectedType,
+    receiver: TypedExpression,
+) -> TypedExpression {
     if let Some(SemanticDenotation::StaticDomain(domain)) = receiver.denotation.as_ref() {
         let Some(result) = resolve_static_domain_case(ctx, *domain, &lookup.member, TypeId::DUMMY, None, lookup.range) else {
             return TypedExpression::unknown(UnknownReason::UncheckedExpression);
@@ -2565,7 +2581,15 @@ fn constructor_parameter_knowledge(
 /// Resolves a concrete variant constructor or behavioral method selected by an exact static call shape.
 fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &AssociatedInvokeExpr, expected: &ExpectedType) -> TypedExpression {
     let receiver = analyze_expression(ctx, &invoke.receiver, &ExpectedType::None);
+    synthesize_associated_invoke_with_receiver(ctx, invoke, expected, receiver)
+}
 
+fn synthesize_associated_invoke_with_receiver(
+    ctx: &mut CheckingContext<'_>,
+    invoke: &AssociatedInvokeExpr,
+    expected: &ExpectedType,
+    receiver: TypedExpression,
+) -> TypedExpression {
     let arguments = application_arguments(&invoke.args);
     let StaticCallShape::Exact(slots) = static_call_shape(&arguments) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
@@ -4501,6 +4525,146 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
     typed
 }
 
+/// Context supplies owners; spelling only selects members within those owners.
+/// Reuse qualified elaboration so shorthand publishes identical semantic targets.
+fn synthesize_contextual_variant(
+    ctx: &mut CheckingContext<'_>,
+    name: &str,
+    selector: &Selector,
+    args: Option<&Vec<PackItem>>,
+    expected: &ExpectedType,
+    range: SourceRange,
+) -> Option<TypedExpression> {
+    use super::inference::InferenceTerm;
+    use crate::types::store::TypeStore;
+
+    let table = ctx.enum_table?;
+    let materialized_expected = expected.ty().or_else(|| {
+        if let ExpectedType::Inference { context, term, .. } = expected {
+            let session = ctx.inference_session(*context)?;
+            session.borrow().materialize(term, ctx.store).ok()
+        } else {
+            None
+        }
+    });
+    // An applied inference shell independently identifies its declaration even
+    // before its arguments solve. Keep the original expectation for ordinary
+    // constructor application; do not publish solver terms as canonical types.
+    fn symbolic_owners(store: &TypeStore, term: &InferenceTerm) -> Vec<(DeclarationId, TypeId)> {
+        match term {
+            InferenceTerm::Canonical(ty) => super::pattern::nominal_owner_types(store, *ty),
+            InferenceTerm::Applied { origin, .. } => match origin.as_ref() {
+                InferenceTerm::Canonical(ty) => super::pattern::nominal_owner_types(store, *ty),
+                _ => Vec::new(),
+            },
+            InferenceTerm::ExactCase { enum_type, .. } => symbolic_owners(store, enum_type),
+            InferenceTerm::Union(members) => members.iter().flat_map(|member| symbolic_owners(store, member)).collect(),
+            _ => Vec::new(),
+        }
+    }
+    let owners = if let Some(expected_ty) = materialized_expected {
+        super::pattern::nominal_owner_types(ctx.store, expected_ty)
+    } else if let ExpectedType::Inference { term, .. } = expected {
+        symbolic_owners(ctx.store, term)
+    } else {
+        Vec::new()
+    };
+    let owners = owners.into_iter().filter(|(owner, _)| table.enums.contains_key(owner)).collect::<Vec<_>>();
+    if owners.is_empty() {
+        return None;
+    }
+    for (owner, _) in &owners {
+        ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
+    }
+    let mut candidates = Vec::new();
+    let mut refuted = false;
+    for (owner, owner_type) in &owners {
+        let Some(variant) = table
+            .enums
+            .get(owner)
+            .and_then(|info| info.variants.iter().find(|variant| variant.selector == *selector))
+        else {
+            continue;
+        };
+        if super::associated::contextual_variant_is_refuted(ctx, variant, *owner_type) {
+            refuted = true;
+            continue;
+        }
+        candidates.push((owner.clone(), *owner_type));
+    }
+    if candidates.is_empty() {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            if refuted {
+                DiagnosticCode::AssociatedGadtOwnerConflict
+            } else if args.is_some() {
+                DiagnosticCode::AssociatedCallShapeMissing
+            } else {
+                DiagnosticCode::AssociatedMemberMissing
+            },
+            if refuted {
+                format!("variant `{selector}` cannot inhabit the expected owner specialization; its case constraints conflict")
+            } else {
+                format!(
+                    "no variant matching `{selector}` in expected owner(s) {}; check the case name, arguments and labels",
+                    owners.iter().map(|(owner, _)| owner.name.to_string()).collect::<Vec<_>>().join(", ")
+                )
+            },
+            range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    }
+    if candidates.len() > 1 {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AssociatedCallAmbiguous,
+            format!(
+                "contextual variant `{name}` is ambiguous between {}; qualify the variant with its owner",
+                candidates
+                    .iter()
+                    .map(|(owner, _)| format!("{}::{name}", owner.name))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    }
+    let (owner, owner_type) = candidates.into_iter().next()?;
+    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
+    let descriptor = type_form_descriptor_type(ctx, owner_type)?;
+    let receiver =
+        TypedExpression::established(descriptor, EvidenceOrigin::DeclarationSemantics, range).with_denotation(SemanticDenotation::TypeForm(owner_type));
+    let syntax_receiver = Expr::Var {
+        value: owner.name.to_string(),
+        range,
+    };
+    Some(if let Some(args) = args {
+        let invoke = AssociatedInvokeExpr {
+            receiver: syntax_receiver,
+            first_separator_range: range,
+            base: name.to_string(),
+            base_range: range,
+            args: args.clone(),
+            range,
+        };
+        synthesize_associated_invoke_with_receiver(ctx, &invoke, expected, receiver)
+    } else {
+        let lookup = AssociatedLookupExpr {
+            receiver: syntax_receiver,
+            first_separator_range: range,
+            member: AssociatedMemberSyntax::Named(phalcom_ast::ast::AssociatedNamedMemberSyntax {
+                base: name.to_string(),
+                base_range: range,
+                mode: AssociatedNamedMode::Getter,
+                range,
+            }),
+            range,
+        };
+        synthesize_associated_lookup_with_receiver(ctx, &lookup, expected, receiver)
+    })
+}
+
 fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &UnqualifiedCallExpr, expected: &ExpectedType) -> TypedExpression {
     // 1. Local callable variable lookup
     if let Some(fact) = ctx.lookup_local(&call.name) {
@@ -4763,6 +4927,13 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
         return TypedExpression::established(ty, EvidenceOrigin::DeclarationSemantics, call.range);
     }
 
+    let arguments = application_arguments(&call.args);
+    if let StaticCallShape::Exact(slots) = static_call_shape(&arguments)
+        && let Ok(selector) = Selector::method(&call.name, slots)
+        && let Some(result) = synthesize_contextual_variant(ctx, &call.name, &selector, Some(&call.args), expected, call.range)
+    {
+        return result;
+    }
     TypedExpression::unknown(UnknownReason::UnresolvedName(call.name.as_str().into()))
 }
 

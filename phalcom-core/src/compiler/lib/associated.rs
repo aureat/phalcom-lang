@@ -223,10 +223,16 @@ impl<'vm> Compiler<'vm> {
 
     /// Lowers an associated value expression such as `Option::None`.
     pub fn compile_associated_lookup(&mut self, expr: &AssociatedLookupExpr) -> Result<(), CompilerError> {
+        self.compile_associated_lookup_at(expr.range)
+    }
+
+    /// Consumes the canonical associated value product for either qualified or
+    /// contextually resolved syntax. The source spelling supplies no identity.
+    pub(super) fn compile_associated_lookup_at(&mut self, range: SourceRange) -> Result<(), CompilerError> {
         let spec = self.lowering().and_then(|l| {
             l.associated
                 .iter()
-                .find(|(site, _)| site.range == expr.range && site.kind == LoweringSiteKind::AssociatedLookup)
+                .find(|(site, _)| site.range == range && site.kind == LoweringSiteKind::AssociatedLookup)
                 .map(|(_, spec)| spec.clone())
         });
 
@@ -239,19 +245,19 @@ impl<'vm> Compiler<'vm> {
                         .unwrap()
                         .chunk
                         .executable_semantics
-                        .add_variant_target(&variant, expr.range)?;
-                    self.emit(Bytecode::LoadVariantSingleton(var_idx), expr.range);
+                        .add_variant_target(&variant, range)?;
+                    self.emit(Bytecode::LoadVariantSingleton(var_idx), range);
                     return Ok(());
                 }
                 AssociatedLoweringSpec::MakeVariantConstructorThunk { variant, .. } => {
-                    return self.compile_variant_constructor_thunk(&variant, expr.range);
+                    return self.compile_variant_constructor_thunk(&variant, range);
                 }
                 AssociatedLoweringSpec::MakeDataConstructorThunk {
                     constructor,
                     operation,
                     construction,
                 } => {
-                    return self.compile_data_constructor_thunk(&constructor, &operation, &construction, expr.range);
+                    return self.compile_data_constructor_thunk(&constructor, &operation, &construction, range);
                 }
                 AssociatedLoweringSpec::MakeResolvedBoundMethod { target } => {
                     let target_idx = self
@@ -260,8 +266,8 @@ impl<'vm> Compiler<'vm> {
                         .unwrap()
                         .chunk
                         .executable_semantics
-                        .add_associated_target(target, expr.range)?;
-                    self.emit(Bytecode::MakeResolvedBoundMethod(target_idx), expr.range);
+                        .add_associated_target(target, range)?;
+                    self.emit(Bytecode::MakeResolvedBoundMethod(target_idx), range);
                     return Ok(());
                 }
                 AssociatedLoweringSpec::MakeAssociatedFamily { descriptor } => {
@@ -271,15 +277,15 @@ impl<'vm> Compiler<'vm> {
                         .unwrap()
                         .chunk
                         .executable_semantics
-                        .add_family_descriptor(descriptor, expr.range)?;
-                    self.emit(Bytecode::MakeAssociatedFamily(desc_idx), expr.range);
+                        .add_family_descriptor(descriptor, range)?;
+                    self.emit(Bytecode::MakeAssociatedFamily(desc_idx), range);
                     return Ok(());
                 }
                 _ => {}
             }
         }
 
-        Err(CompilerError::AssociatedLookupNotLoweredYet(expr.range))
+        Err(CompilerError::AssociatedLookupNotLoweredYet(range))
     }
 
     /// Lowers an AssociatedInvoke expression (e.g. `Option::Some(42)`, `Type::method(a, b)`).

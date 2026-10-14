@@ -447,6 +447,18 @@ fn callable_type_from_signature(ctx: &mut CheckingContext<'_>, signature: &crate
     }))
 }
 
+/// Candidate discovery may exclude only cases refuted by canonical case proof.
+/// Unknown/blocked evidence remains a candidate and never becomes a mismatch.
+pub(crate) fn contextual_variant_is_refuted(ctx: &mut CheckingContext<'_>, variant: &crate::identity::VariantId, owner_type: TypeId) -> bool {
+    let Some(info) = ctx.variant_info(variant).cloned() else {
+        return false;
+    };
+    matches!(
+        crate::checker::gadt_proof::solve_gadt_branch_proof(ctx.store, &ctx.hierarchy, &variant.owner, &info, owner_type),
+        crate::checker::gadt_proof::GadtProofResult::Refuted
+    )
+}
+
 /// Specializes an associated member against the owner's supplied type arguments,
 /// verifying GADT owner compatibility and producing specialized types/signatures.
 pub fn specialize_associated_member(

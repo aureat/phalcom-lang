@@ -518,3 +518,255 @@ class Test {
         analysis.snapshot.diagnostics
     );
 }
+
+#[test]
+fn contextual_enum_expressions_use_expected_owner_and_reject_union_ambiguity() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+data Choice<T> { Some(_ value: T) None }
+data Other { None }
+class Probe {
+  @class
+  singleton() -> Choice<Int> { None }
+  @class
+  payload() -> Choice<Int> { Some(42) }
+  @class
+  ambiguous() -> Choice<Int> | Other { None }
+  @class
+  no_context() { let x = None }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program)).expect("analysis");
+    let probe = DeclarationId::new(module, "Probe".into());
+    for name in ["singleton", "payload"] {
+        let callable = CallableId::new(probe.clone(), Selector::method(name, []).unwrap(), DispatchSide::Class);
+        let body = analysis.snapshot.callable_analyses.get(&callable).expect("callable body");
+        assert!(
+            body.associated_resolutions.values().any(|resolution| matches!(
+                resolution.kind,
+                AssociatedResolutionKind::ExactValue { .. } | AssociatedResolutionKind::StaticInvoke { .. }
+            )),
+            "contextual variant must publish canonical resolution: {:?}",
+            analysis.snapshot.diagnostics
+        );
+    }
+    let diagnostics = analysis
+        .snapshot
+        .diagnostics
+        .values()
+        .flat_map(|diagnostics| diagnostics.iter())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedCallAmbiguous)
+            .count(),
+        1,
+        "only the union context is ambiguous: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn contextual_enum_canonical_contexts_preserve_qualified_identity() {
+    let source = r#"
+data Boxed<T> { some(_ value: T) none }
+class Probe {
+  @class
+  accept(_ value: Boxed<Int>) -> Boxed<Int> { value }
+  @class
+  contextual() -> Boxed<Int> {
+    let mut value: Boxed<Int> = none
+    value = some(1)
+    Probe.accept(some(2))
+    some(3)
+  }
+  @class
+  qualified() -> Boxed<Int> { Boxed<Int>::some(3) }
+  @class
+  nested() -> Boxed<Boxed<Int>> { some(some(4)) }
+  @class
+  shadow() -> Boxed<Int> {
+    let some = |value: Int| { Boxed<Int>::some(value) }
+    some(5)
+  }
+}
+"#;
+    let case = crate::semantic::adts::support::analyze_adt(source);
+    case.assert_no_diagnostics();
+    let probe = DeclarationId::new(case.module.clone(), "Probe".into());
+    let body = |name| {
+        case.analysis
+            .snapshot
+            .callable_analyses
+            .get(&CallableId::new(probe.clone(), Selector::method(name, []).unwrap(), DispatchSide::Class))
+            .expect("body")
+    };
+    let target = |name| {
+        body(name)
+            .associated_resolutions
+            .values()
+            .find_map(|resolution| match &resolution.kind {
+                AssociatedResolutionKind::StaticInvoke { target, .. } => Some(target.clone()),
+                _ => None,
+            })
+            .expect("constructor target")
+    };
+    assert_eq!(target("contextual"), target("qualified"));
+    let shadow = body("shadow");
+    let lexical_call = shadow
+        .expressions
+        .values()
+        .find(|expression| case.source.get(expression.range.start..expression.range.end) == Some("some(5)"))
+        .expect("lexical call expression");
+    assert!(
+        !shadow.associated_resolutions.contains_key(&lexical_call.id),
+        "lexical callable must take precedence"
+    );
+}
+
+#[test]
+fn contextual_enum_reports_missing_shapes_payload_conflicts_and_no_context() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Boxed<T> { some(_ value: T) none }
+class Probe {
+  @class
+  missing() -> Boxed<Int> { absent }
+  @class
+  wrong_shape() -> Boxed<Int> { some(1, 2) }
+  @class
+  wrong_payload() -> Boxed<Int> { some("wrong") }
+  @class
+  no_context() { let x = none; let y = some(1) }
+}
+"#,
+    );
+    case.assert_diagnostic_primary_contains(DiagnosticCode::AssociatedMemberMissing, "absent");
+    case.assert_diagnostic_primary_contains(DiagnosticCode::AssociatedCallShapeMissing, "some(1, 2)");
+    case.assert_diagnostic_primary_contains(DiagnosticCode::GenericInferenceConflict, "\"wrong\"");
+    let callable = CallableId::new(
+        DeclarationId::new(case.module.clone(), "Probe".into()),
+        Selector::method("no_context", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let body = case.analysis.snapshot.callable_analyses.get(&callable).expect("body");
+    assert!(body.associated_resolutions.is_empty(), "absent context must not guess an enum");
+    for text in ["none", "some(1)"] {
+        let expression = body
+            .expressions
+            .values()
+            .find(|expression| case.source.get(expression.range.start..expression.range.end) == Some(text))
+            .expect("unresolved expression");
+        assert!(
+            matches!(
+                &expression.knowledge,
+                phalcom_semantic::types::evidence::TypeKnowledge::Unknown(phalcom_semantic::types::evidence::UnknownReason::UnresolvedName(_))
+            ),
+            "{expression:?}"
+        );
+    }
+}
+
+#[test]
+fn contextual_enum_symbolic_owner_infers_payload_and_rejects_empty_evidence() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Boxed<T> { some(_ value: T) none }
+class Probe {
+  @class
+  payload() -> Boxed<Int> { let x: Boxed<_> = some(1); x }
+  @class
+  singleton() { let x: Boxed<_> = none }
+}
+"#,
+    );
+    let callable = CallableId::new(
+        DeclarationId::new(case.module.clone(), "Probe".into()),
+        Selector::method("payload", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let body = case.analysis.snapshot.callable_analyses.get(&callable).expect("body");
+    let expression = body
+        .expressions
+        .values()
+        .find(|expression| case.source.get(expression.range.start..expression.range.end) == Some("some(1)"))
+        .expect("payload expression");
+    assert!(
+        body.associated_resolutions.contains_key(&expression.id),
+        "symbolic owner must resolve: {:?}",
+        case.analysis.snapshot.diagnostics
+    );
+    let TypeData::ExactCase { enum_type, .. } = case.analysis.snapshot.store.get(expression.knowledge.ty().expect("inferred payload")) else {
+        panic!("constructor result must retain its exact-case type");
+    };
+    assert_eq!(case.analysis.snapshot.store.format_type(*enum_type), "Boxed<Int>");
+    case.assert_diagnostic_primary_contains(DiagnosticCode::AssociatedGenericUnderconstrained, "none");
+}
+
+#[test]
+fn contextual_enum_gadt_union_excludes_refuted_owners() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Restricted<T> { take(_ value: Bool) -> Restricted<Bool> }
+data Plain { take(_ value: Int) }
+class Probe {
+  @class
+  run() -> Restricted<Int> | Plain { take(42) }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+    let callable = CallableId::new(
+        DeclarationId::new(case.module.clone(), "Probe".into()),
+        Selector::method("run", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let body = case.analysis.snapshot.callable_analyses.get(&callable).expect("body");
+    assert!(
+        body.associated_resolutions
+            .values()
+            .any(|resolution| resolution.lookup_owner.name.as_ref() == "Plain")
+    );
+}
+
+#[test]
+fn contextual_enum_if_and_while_patterns_preserve_annotations_and_assignments() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Boxed<T> { some(_ value: T) none }
+class Probe {
+  @class
+  conditional(_ value: Boxed<Int>) -> Int {
+    if let some(item) = value { item } else { 0 }
+  }
+  @class
+  loop(_ value: Boxed<Int>) -> Int {
+    let mut remaining: Boxed<Int> = value
+    let mut result: Int = 0
+    while let some(item) = remaining {
+      result = item
+      remaining = none
+    }
+    result
+  }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+}
+
+#[test]
+fn contextual_enum_impossible_gadt_case_reports_conflicting_specialization() {
+    let case = crate::semantic::adts::support::analyze_adt(
+        r#"
+data Expr<T> { boolean(_ value: Bool) -> Expr<Bool> integer(_ value: Int) -> Expr<Int> }
+class Probe { @class run() -> Expr<Int> { boolean(true) } }
+"#,
+    );
+    case.assert_diagnostic_primary_contains(DiagnosticCode::AssociatedGadtOwnerConflict, "boolean(true)");
+    assert!(case.diagnostics_for(DiagnosticCode::AssociatedCallAmbiguous).is_empty());
+}

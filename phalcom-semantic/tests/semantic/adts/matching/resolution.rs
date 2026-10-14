@@ -288,3 +288,66 @@ fn match_res_15_candidate_order_is_stable_across_repeated_analysis() {
     };
     assert_eq!(first_ids, second_ids);
 }
+
+#[test]
+fn contextual_enum_union_constructor_uses_member_specialization() {
+    let case = analyze_adt(
+        r#"
+data Left<T> { Take(_ value: T) Empty }
+data Right { Other }
+class Test {
+  run(_ value: Left<Int> | Right) -> Int {
+    match value { Take(item) => item _ => 0 }
+  }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+    let arm = case.only_match().arm(0);
+    arm.assert_binding_names(&["item"]);
+    let binding = &arm.resolution().bindings[0];
+    let ty = binding.knowledge.ty().expect("payload type");
+    assert_eq!(case.analysis.snapshot.store.format_type(ty), "Int");
+    case.only_match().assert_arm_candidate_variants(
+        0,
+        &[case.variant_id("Left", Selector::method("Take", [phalcom_common::selector::SelectorSlot::Positional]).unwrap())],
+    );
+}
+
+#[test]
+fn contextual_enum_union_constructor_ambiguity_requires_qualification() {
+    let case = analyze_adt(
+        r#"
+data Left { Take(_ value: Int) }
+data Right { Take(_ value: Int) }
+class Test {
+  run(_ value: Left | Right) -> Int {
+    match value { Take(item) => item _ => 0 }
+  }
+}
+"#,
+    );
+    let diagnostic = case.diagnostic(phalcom_semantic::diagnostic::DiagnosticCode::MatchPatternUnresolved);
+    assert!(diagnostic.message.contains("ambiguous"), "{diagnostic:?}");
+    assert!(diagnostic.message.contains("qualify"), "{diagnostic:?}");
+}
+
+#[test]
+fn contextual_enum_gadt_union_pattern_excludes_refuted_owners() {
+    let case = analyze_adt(
+        r#"
+data Restricted<T> { Take(_ value: Bool) -> Restricted<Bool> }
+data Plain { Take(_ value: Int) Other }
+class Test {
+  run(_ value: Restricted<Int> | Plain) -> Int {
+    match value { Take(item) => item _ => 0 }
+  }
+}
+"#,
+    );
+    case.assert_no_diagnostics();
+    case.only_match().assert_arm_candidate_variants(
+        0,
+        &[case.variant_id("Plain", Selector::method("Take", [phalcom_common::selector::SelectorSlot::Positional]).unwrap())],
+    );
+}
