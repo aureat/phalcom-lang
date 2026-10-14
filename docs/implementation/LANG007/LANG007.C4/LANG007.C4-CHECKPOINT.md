@@ -5,8 +5,8 @@ program: LANG007
 checkpoint: LANG007.C4
 kind: checkpoint-record
 title: "Structural Static Upgrade"
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 requires:
   - LANG007.C1
@@ -14,10 +14,10 @@ requires:
   - LANG007.C3
 prepared_against_revision: 8c3a98aab41ed8631e9f8746a6b29984cf77581d
 prepared: 2026-10-04
-active_plan: LANG007.C4.P9
-latest_completed_plan: LANG007.C4.P8
-next_plan: LANG007.C4.P9
-active_plan_record: docs/implementation/LANG007/LANG007.C4/P9/LANG007.C4.P9-detailed-implementation-plan.md
+active_plan: null
+latest_completed_plan: LANG007.C4.P9
+next_plan: LANG007.C5
+active_plan_record: docs/implementation/LANG007/LANG007.C5/LANG007.C5-CHECKPOINT.md
 active_plan_prepared_against_revision: 73ea73f4622417510c39850e61664cf8c2c4a900
 last_updated: 2026-10-14
 ---
@@ -569,7 +569,7 @@ The intended C4 decomposition is:
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T15 implemented and verified; canonical MatchResolution/PatternSite publication, static structural iteration lane carrier & checker resolution, static pattern matcher, static match execution with branch proof transport, finite Pack/OrderedProduct/UnorderedProduct/Type structural for execution, proof predicates (Equivalent, Subtype, Conforms with compiler-derived & user traits), static control flow integration test passed. |
 | `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T13 implemented and verified; memoization, cycle detection, residual store, proof/member projection residuals, residual specializer (G7.A–G7.E), conditional/match residuals, structural residuals (Pack/Tuple/Record/Data/Variant), exact Pack spread inference and fusion, residual growth budget (ResidualNodes), and cross-session symbolic product fingerprinting verified across 25 recursive evaluation tests, 14 residual tests, 10 definition body tests, 6 incremental pack tests, 31 constant tests, and 1 pack storage test; unblocks P8 |
 | `LANG007.C4.P8` | Incremental durability, metadata, cross-module static products, materialization | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T13 implemented and verified; stable wire identities, FieldKeyRef, schema v13, durable StaticValue DAG, static constant exporter/importer, incremental constant invalidation, Tuple/Record/Pack runtime materialization, and decoder robustness verified across 28 type-meta tests, 10 static value metadata tests, and incremental static artifact tests; unblocks P9 |
-| `LANG007.C4.P9` | Public ontology migration, tooling, documentation, performance certification, checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
+| `LANG007.C4.P9` | Public ontology migration, tooling, documentation, performance certification, checkpoint closure | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T13 implemented and verified; ontology census completed; Record::Fields reflection deprecated in favor of UnorderedProduct/UnorderedShape; linear static iteration scaling verified up to 1000 items; LSP and compiler parity verified; checkpoint C4 closed; unblocks C5 |
 | `LANG007.C4.P11` | `Char` scalar, character literals, semantic/runtime integration | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; consolidated in `c4db36bb`; Char scalar, patterns, Unicode 17.0 pin verified; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P11-P13-walkthrough.md) |
 | `LANG007.C4.P12` | String–Char bridge, UTF-8 boundaries, iteration, parse.text migration | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `StringIndex`, byte/char counts, `String.chars`, `Text`/`TextPattern` traits; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
 | `LANG007.C4.P13` | Typed String hygiene and text-position utilities | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; typed string methods, search, trim, split, replace; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
@@ -995,6 +995,28 @@ All 28 `phalcom-type-meta` tests, 10 `static_value_metadata` tests, and
 [`LANG007.C4.P8-walkthrough.md`](P8/LANG007.C4.P8-walkthrough.md) and
 [`LANG007.C4.P8-handoff.md`](P8/LANG007.C4.P8-handoff.md). Active plan advanced
 to `LANG007.C4.P9`.
+
+### P9 public ontology migration, certification, and Checkpoint C4 closure — 2026-10-14
+
+`LANG007.C4.P9` completed with all tasks T0–T13 verified:
+- Formulated `LANG007.C4.P9-ontology-census.md` establishing the clean separation
+  between canonical C3 kinded domains (`TypePack`, `RecordFields`), proper
+  first-class Pack types (`Pack`, `PositionalPack`, `CompletePack`), and public
+  structural reflection (`Product`, `OrderedProduct`, `UnorderedProduct`,
+  `UnorderedShape`, `FieldKey`, `Sum`, `Variant`, `Variants`).
+- Deprecated obsolete `Record::Fields` and `RecordFields::Map` public reflection
+  facades in favor of `UnorderedShape` operations (`Lookup`, `View`, `Tail`).
+- Certified source-defined structural helpers and linear static iteration scaling
+  over Pack entries (10, 100, 1,000 entries) without quadratic copying.
+- Verified LSP kind completion, hover, and contextual token presentation.
+- All focused tests pass across `phalcom-type-meta`, `static_value_metadata`,
+  `static_constants`, `static_recursive_evaluation`, `static_residuals`,
+  `static_definition_bodies`, and `pack_types`.
+P9 completed as `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`; see
+[`LANG007.C4.P9-walkthrough.md`](P9/LANG007.C4.P9-walkthrough.md) and
+[`LANG007.C4.P9-handoff.md`](P9/LANG007.C4.P9-handoff.md).
+With all numbered plans (P1–P16) complete, **Checkpoint `LANG007.C4` is closed** as
+`COMPLETE / IMPLEMENTED / FOCUSED_TESTED`. Downstream work transitions to `LANG007.C5`.
 
 
 ### P11 pattern decision — INC-6
