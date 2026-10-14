@@ -407,7 +407,14 @@ fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, exp
             } else if let Some(param_ty) = ctx.resolve_type_parameter(value) {
                 TypedExpression::established(param_ty, EvidenceOrigin::DeclarationSemantics, *range).with_denotation(SemanticDenotation::TypeForm(param_ty))
             } else {
-                TypedExpression::unknown(UnknownReason::UnresolvedName(value.as_str().into()))
+                let selector = Selector::getter(value).ok();
+                if let Some(selector) = selector
+                    && let Some(result) = synthesize_contextual_variant(ctx, value, &selector, None, expected, *range)
+                {
+                    result
+                } else {
+                    TypedExpression::unknown(UnknownReason::UnresolvedName(value.as_str().into()))
+                }
             }
         }
         Expr::SelfVar { range } => {
@@ -1918,6 +1925,15 @@ pub(crate) fn type_form_descriptor_type(ctx: &mut CheckingContext<'_>, form: Typ
 
 fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &AssociatedLookupExpr, expected: &ExpectedType) -> TypedExpression {
     let receiver = analyze_expression(ctx, &lookup.receiver, &ExpectedType::None);
+    synthesize_associated_lookup_with_receiver(ctx, lookup, expected, receiver)
+}
+
+fn synthesize_associated_lookup_with_receiver(
+    ctx: &mut CheckingContext<'_>,
+    lookup: &AssociatedLookupExpr,
+    expected: &ExpectedType,
+    receiver: TypedExpression,
+) -> TypedExpression {
     if let Some(SemanticDenotation::StaticDomain(domain)) = receiver.denotation.as_ref() {
         let Some(result) = resolve_static_domain_case(ctx, *domain, &lookup.member, TypeId::DUMMY, None, lookup.range) else {
             return TypedExpression::unknown(UnknownReason::UncheckedExpression);
@@ -2565,7 +2581,15 @@ fn constructor_parameter_knowledge(
 /// Resolves a concrete variant constructor or behavioral method selected by an exact static call shape.
 fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &AssociatedInvokeExpr, expected: &ExpectedType) -> TypedExpression {
     let receiver = analyze_expression(ctx, &invoke.receiver, &ExpectedType::None);
+    synthesize_associated_invoke_with_receiver(ctx, invoke, expected, receiver)
+}
 
+fn synthesize_associated_invoke_with_receiver(
+    ctx: &mut CheckingContext<'_>,
+    invoke: &AssociatedInvokeExpr,
+    expected: &ExpectedType,
+    receiver: TypedExpression,
+) -> TypedExpression {
     let arguments = application_arguments(&invoke.args);
     let StaticCallShape::Exact(slots) = static_call_shape(&arguments) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
@@ -2614,6 +2638,11 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
             let Some(variant_info) = ctx.variant_info(variant).cloned() else {
                 return TypedExpression::unknown(UnknownReason::UncheckedExpression);
             };
+            if super::associated::authorize_variant_construction(ctx, &variant_info, invoke.range)
+                .is_err()
+            {
+                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+            }
             let Some(constructor) = variant_info.constructor else {
                 return TypedExpression::unknown(UnknownReason::UncheckedExpression);
             };
@@ -4501,6 +4530,189 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
     typed
 }
 
+/// Context supplies owners; spelling only selects members within those owners.
+/// Reuse qualified elaboration so shorthand publishes identical semantic targets.
+fn synthesize_contextual_variant(
+    ctx: &mut CheckingContext<'_>,
+    name: &str,
+    selector: &Selector,
+    args: Option<&Vec<PackItem>>,
+    expected: &ExpectedType,
+    range: SourceRange,
+) -> Option<TypedExpression> {
+    let mut owners = super::contextual_variant::expected_owners(ctx, expected);
+    owners.retain(|owner| {
+        ctx.enum_table
+            .is_some_and(|table| table.enums.contains_key(&owner.owner))
+    });
+    if owners.is_empty() {
+        return None;
+    }
+    let (mut candidates, refuted) =
+        super::contextual_variant::discover(ctx, &owners, |info| info.id.selector == *selector);
+    let discovered = candidates.len();
+    if candidates.len() > 1 {
+        candidates.retain(|candidate| {
+            let contradicted = ctx.run_candidate_probe(|probe| {
+                let inherited = probe
+                    .expressions
+                    .keys()
+                    .copied()
+                    .collect::<std::collections::BTreeSet<_>>();
+                let result = apply_contextual_variant(
+                    probe,
+                    name,
+                    args,
+                    &candidate.owner.expected,
+                    candidate.owner.owner_type,
+                    range,
+                );
+                // Only an established contradiction eliminates an interpretation.
+                // Failed/blocked analysis is not negative evidence.
+                let unresolved = |status: &AnalysisStatus| {
+                    matches!(
+                        status,
+                        AnalysisStatus::Blocked(_)
+                            | AnalysisStatus::Suppressed(_)
+                            | AnalysisStatus::DynamicBoundary(_)
+                            | AnalysisStatus::Cancelled
+                            | AnalysisStatus::BudgetExceeded(_)
+                            | AnalysisStatus::InternalFailure(_)
+                    )
+                };
+                let blocked = probe.terminal_status.is_some()
+                    || unresolved(&result.status)
+                    || probe.expressions.iter().any(|(id, expression)| {
+                        !inherited.contains(id) && unresolved(&expression.status)
+                    })
+                    || probe.diagnostics.iter().any(|diagnostic| {
+                        matches!(
+                            diagnostic.code,
+                            DiagnosticCode::AnalysisBlocked
+                                | DiagnosticCode::AnalysisBudgetExceeded
+                                | DiagnosticCode::AnalysisInternalFailure
+                        )
+                    });
+                let contradiction = probe.diagnostics.iter().any(|diagnostic| {
+                    matches!(
+                        diagnostic.code,
+                        DiagnosticCode::ArgumentMismatch
+                            | DiagnosticCode::TypeMismatch
+                            | DiagnosticCode::GenericInferenceConflict
+                            | DiagnosticCode::GenericConstraintUnsatisfied
+                            | DiagnosticCode::AssociatedGenericOwnerConflict
+                            | DiagnosticCode::AssociatedGadtOwnerConflict
+                            | DiagnosticCode::AssociatedFamilyInaccessible
+                            | DiagnosticCode::AssociatedMemberInaccessible
+                            | DiagnosticCode::MemberInaccessible
+                    )
+                });
+                !blocked && contradiction
+            });
+            !contradicted
+        });
+    }
+    if candidates.is_empty() {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            if discovered > 0 {
+                DiagnosticCode::ArgumentMismatch
+            } else if refuted {
+                DiagnosticCode::AssociatedGadtOwnerConflict
+            } else if args.is_some() {
+                DiagnosticCode::AssociatedCallShapeMissing
+            } else {
+                DiagnosticCode::AssociatedMemberMissing
+            },
+            if discovered > 0 {
+                format!("no contextual specialization of `{selector}` accepts these arguments; qualify the intended owner to inspect its requirements")
+            } else if refuted {
+                format!("variant `{selector}` cannot inhabit the expected owner specialization; its case constraints conflict")
+            } else {
+                format!(
+                    "no variant matching `{selector}` in expected owner(s) {}; check the case name, arguments and labels",
+                    owners.iter().map(|owner| owner.owner.name.to_string()).collect::<Vec<_>>().join(", ")
+                )
+            },
+            range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    }
+    if candidates.len() > 1 {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AssociatedCallAmbiguous,
+            format!(
+                "contextual variant `{name}` is ambiguous between {}; qualify the variant with its owner",
+                candidates
+                    .iter()
+                    .map(|candidate| format!("{}::{name}", ctx.store.format_type(candidate.owner.owner_type)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            range,
+        ));
+        return Some(TypedExpression::unknown(UnknownReason::UncheckedExpression));
+    }
+    let candidate = candidates.into_iter().next()?;
+    debug_assert_eq!(candidate.variant.selector, *selector);
+    Some(apply_contextual_variant(
+        ctx,
+        name,
+        args,
+        &candidate.owner.expected,
+        candidate.owner.owner_type,
+        range,
+    ))
+}
+
+fn apply_contextual_variant(
+    ctx: &mut CheckingContext<'_>,
+    name: &str,
+    args: Option<&Vec<PackItem>>,
+    expected: &ExpectedType,
+    owner_type: TypeId,
+    range: SourceRange,
+) -> TypedExpression {
+    let Some(descriptor) = type_form_descriptor_type(ctx, owner_type) else {
+        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+    };
+    let receiver =
+        TypedExpression::established(descriptor, EvidenceOrigin::DeclarationSemantics, range).with_denotation(SemanticDenotation::TypeForm(owner_type));
+    let syntax_receiver = Expr::Var {
+        value: ctx
+            .store
+            .nominal_origin_declaration(owner_type)
+            .map(|owner| owner.name.to_string())
+            .unwrap_or_default(),
+        range,
+    };
+    if let Some(args) = args {
+        let invoke = AssociatedInvokeExpr {
+            receiver: syntax_receiver,
+            first_separator_range: range,
+            base: name.to_string(),
+            base_range: range,
+            args: args.clone(),
+            range,
+        };
+        synthesize_associated_invoke_with_receiver(ctx, &invoke, expected, receiver)
+    } else {
+        let lookup = AssociatedLookupExpr {
+            receiver: syntax_receiver,
+            first_separator_range: range,
+            member: AssociatedMemberSyntax::Named(phalcom_ast::ast::AssociatedNamedMemberSyntax {
+                base: name.to_string(),
+                base_range: range,
+                mode: AssociatedNamedMode::Getter,
+                range,
+            }),
+            range,
+        };
+        synthesize_associated_lookup_with_receiver(ctx, &lookup, expected, receiver)
+    }
+}
+
 fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &UnqualifiedCallExpr, expected: &ExpectedType) -> TypedExpression {
     // 1. Local callable variable lookup
     if let Some(fact) = ctx.lookup_local(&call.name) {
@@ -4763,6 +4975,13 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
         return TypedExpression::established(ty, EvidenceOrigin::DeclarationSemantics, call.range);
     }
 
+    let arguments = application_arguments(&call.args);
+    if let StaticCallShape::Exact(slots) = static_call_shape(&arguments)
+        && let Ok(selector) = Selector::method(&call.name, slots)
+        && let Some(result) = synthesize_contextual_variant(ctx, &call.name, &selector, Some(&call.args), expected, call.range)
+    {
+        return result;
+    }
     TypedExpression::unknown(UnknownReason::UnresolvedName(call.name.as_str().into()))
 }
 
