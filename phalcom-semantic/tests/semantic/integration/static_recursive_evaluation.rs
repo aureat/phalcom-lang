@@ -48,6 +48,19 @@ fn fixture() -> WorkspaceAnalysisFixture {
              type Reuse: Int { let a = Heavy<1>\n let b = Heavy<1>\n a + b }\n\
              type Distinct: Int { let a = Heavy<1>\n let b = Heavy<2>\n a + b }\n\
              type RecursiveValue: Int { RecursiveValue<> }\n\
+             type Choose<B: Bool>: Int { if B { 11 } else { 22 } }\n\
+             type ChooseTrue: Int = Choose<true>\n\
+             type ChooseFalse: Int = Choose<false>\n\
+             type ChooseSafe<B: Bool>: Int { if B { 11 } else { RecursiveValue<> } }\n\
+             type MutatingChoice<B: Bool>: Int { let mut result = 0\n if B { result = 1 } else { result = 2 }\n result }\n\
+             type MatchChar<C: Char>: Int { match C { 'x' => 3\n _ => 4 } }\n\
+             type CountTypes<*P: TypePack>: Int { let mut count = 0\n for _ in P { count = count + 1 }\n count }\n\
+             type PairValue<N: Int>: (Int, Int) { (N, 7) }\n\
+             type PartialRecord<N: Int>: { [#same]: Int, [42]: Int } { { [#same]: N, [42]: 7 } }\n\
+              type PartialVariant<N: Int>: Option<Int> { Option::Some(N) }\n\
+              type PartialData<N: Int>: Boxed<Int> { Boxed(value: N) }\n\
+              type OptionValue: Option<Int> = Option::Some(9)\n\
+             type MatchOption<O: Option<Int>>: Int { match O { Option::Some(x) => x\n Option::None => 0 } }\n\
              type SelectedCycle: Int { let opt: Option<Int> = Option::Some(0)\n match opt {\n Option::Some(x) => RecursiveValue<>\n Option::None => 0\n } }\n\
              type UntakenCycle: Int { let opt: Option<Int> = Option::Some(0)\n match opt {\n Option::Some(x) => 0\n Option::None => RecursiveValue<>\n } }\n",
         )
@@ -736,6 +749,956 @@ fn specialize_helper(
         )
         .with_residuals(residuals);
     specialize_residual(&mut evaluator, residual, supplied)
+}
+
+#[test]
+fn open_value_condition_defers_to_the_enclosing_application() {
+    let fixture = fixture();
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let mut values = StaticValueStore::new();
+    let mut residuals = StaticResidualStore::new();
+    let choose = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "Choose")).expect("Choose definition");
+    let body = choose.checked_body.as_ref().expect("Choose checked body");
+    assert!(body.diagnostics.is_empty(), "Choose must check: {:?}", body.diagnostics);
+    let parameter = StaticResidualParameter {
+        owner: fixture.decl("main", "Choose"),
+        index: 0,
+        domain: choose.definition.signature.parameters[0].domain,
+    };
+    let open_parameter = residuals.parameter(parameter.clone(), &mut QueryBudget::default()).expect("open Bool parameter");
+    let open = StaticEvaluator::new(
+        body,
+        &mut values,
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+        &[StaticArgument::Residual(open_parameter)],
+    )
+    .with_semantic_tables_mut(
+        Arc::make_mut(&mut types),
+        &fixture.analysis.snapshot.data_semantics,
+        &fixture.analysis.snapshot.enum_semantics,
+    )
+    .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+    .with_residuals(&mut residuals)
+    .evaluate();
+    let StaticEvalOutcome::Symbolic(residual) = open else {
+        panic!("open conditional must remain a semantic residual: {open:?}");
+    };
+    assert!(matches!(
+        residuals.get(residual).expect("conditional residual"),
+        phalcom_semantic::static_eval::StaticResidualData::Apply { application, result_domain }
+            if application.definition == parameter.owner && *result_domain == body.result
+    ));
+
+    for (value, exact_name, expected) in [(true, "ChooseTrue", 11), (false, "ChooseFalse", 22)] {
+        let bool_value = values.intern_bool(value);
+        let supplied = StaticSpecializationEnvironmentKey::normalized(
+            [(parameter.clone(), StaticSpecializationArgument::Value(bool_value))],
+            [],
+            [],
+        ).expect("specialization");
+        let specialized = specialize_helper(
+            &fixture,
+            body,
+            residual,
+            &supplied,
+            &mut values,
+            &mut QueryBudget::default(),
+            &CancellationToken::new(),
+            Arc::make_mut(&mut types),
+            &mut residuals,
+        );
+        let StaticEvalOutcome::Reduced(actual) = specialized else {
+            panic!("open conditional must specialize to the selected branch: {specialized:?}");
+        };
+        let cold = evaluate(&fixture, exact_name, &mut QueryBudget::default(), &mut values, Arc::make_mut(&mut types));
+        let StaticEvalOutcome::Reduced(cold_value) = cold else {
+            panic!("cold conditional must reduce: {cold:?}");
+        };
+        assert_eq!(values.get(actual).unwrap(), values.get(cold_value).unwrap());
+        assert_eq!(values.get(actual).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(expected)));
+    }
+
+    let safe = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "ChooseSafe")).expect("ChooseSafe definition");
+    let safe_body = safe.checked_body.as_ref().expect("ChooseSafe checked body");
+    assert!(safe_body.diagnostics.is_empty(), "ChooseSafe must check: {:?}", safe_body.diagnostics);
+    let safe_parameter = StaticResidualParameter {
+        owner: fixture.decl("main", "ChooseSafe"),
+        index: 0,
+        domain: safe.definition.signature.parameters[0].domain,
+    };
+    let open_safe = residuals.parameter(safe_parameter.clone(), &mut QueryBudget::default()).unwrap();
+    let open = StaticEvaluator::new(
+        safe_body,
+        &mut values,
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+        &[StaticArgument::Residual(open_safe)],
+    )
+    .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+    .with_semantic_tables_mut(
+        Arc::make_mut(&mut types),
+        &fixture.analysis.snapshot.data_semantics,
+        &fixture.analysis.snapshot.enum_semantics,
+    )
+    .with_residuals(&mut residuals)
+    .evaluate();
+    let StaticEvalOutcome::Symbolic(safe_residual) = open else {
+        panic!("the unselected recursive branch must not execute for an open condition: {open:?}");
+    };
+    let true_value = values.intern_bool(true);
+    let supplied = StaticSpecializationEnvironmentKey::normalized(
+        [(safe_parameter, StaticSpecializationArgument::Value(true_value))],
+        [],
+        [],
+    ).unwrap();
+    let selected = specialize_helper(
+        &fixture,
+        safe_body,
+        safe_residual,
+        &supplied,
+        &mut values,
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+        Arc::make_mut(&mut types),
+        &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(selected) = selected else {
+        panic!("the recursive untaken branch must remain unobserved: {selected:?}");
+    };
+    assert_eq!(values.get(selected).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(11)));
+
+    let mutating = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "MutatingChoice")).expect("MutatingChoice definition");
+    let mutating_body = mutating.checked_body.as_ref().expect("MutatingChoice checked body");
+    assert!(mutating_body.diagnostics.is_empty(), "MutatingChoice must check: {:?}", mutating_body.diagnostics);
+    let mutating_parameter = StaticResidualParameter {
+        owner: fixture.decl("main", "MutatingChoice"),
+        index: 0,
+        domain: mutating.definition.signature.parameters[0].domain,
+    };
+    let open_parameter = residuals.parameter(mutating_parameter.clone(), &mut QueryBudget::default()).unwrap();
+    let open = StaticEvaluator::new(
+        mutating_body,
+        &mut values,
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+        &[StaticArgument::Residual(open_parameter)],
+    )
+    .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+    .with_semantic_tables_mut(
+        Arc::make_mut(&mut types),
+        &fixture.analysis.snapshot.data_semantics,
+        &fixture.analysis.snapshot.enum_semantics,
+    )
+    .with_residuals(&mut residuals)
+    .evaluate();
+    let StaticEvalOutcome::Symbolic(mutation_residual) = open else {
+        panic!("open conditional must not commit either branch's local assignment: {open:?}");
+    };
+    for (value, expected) in [(true, 1), (false, 2)] {
+        let argument = values.intern_bool(value);
+        let supplied = StaticSpecializationEnvironmentKey::normalized(
+            [(mutating_parameter.clone(), StaticSpecializationArgument::Value(argument))],
+            [],
+            [],
+        ).unwrap();
+        let specialized = specialize_helper(
+            &fixture,
+            mutating_body,
+            mutation_residual,
+            &supplied,
+            &mut values,
+            &mut QueryBudget::default(),
+            &CancellationToken::new(),
+            Arc::make_mut(&mut types),
+            &mut residuals,
+        );
+        let StaticEvalOutcome::Reduced(actual) = specialized else {
+            panic!("exactly one branch must update the local: {specialized:?}");
+        };
+        assert_eq!(values.get(actual).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(expected)));
+    }
+}
+
+#[test]
+fn open_match_scrutinee_defers_without_losing_arm_order() {
+    let fixture = fixture();
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let mut values = StaticValueStore::new();
+    let mut residuals = StaticResidualStore::new();
+    let match_char = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "MatchChar")).expect("MatchChar definition");
+    let body = match_char.checked_body.as_ref().expect("MatchChar checked body");
+    assert!(body.diagnostics.is_empty(), "MatchChar must check: {:?}", body.diagnostics);
+    let parameter = StaticResidualParameter {
+        owner: fixture.decl("main", "MatchChar"),
+        index: 0,
+        domain: match_char.definition.signature.parameters[0].domain,
+    };
+    let open_parameter = residuals.parameter(parameter.clone(), &mut QueryBudget::default()).unwrap();
+    let open = StaticEvaluator::new(
+        body,
+        &mut values,
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+        &[StaticArgument::Residual(open_parameter)],
+    )
+    .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+    .with_semantic_tables_mut(
+        Arc::make_mut(&mut types),
+        &fixture.analysis.snapshot.data_semantics,
+        &fixture.analysis.snapshot.enum_semantics,
+    )
+    .with_residuals(&mut residuals)
+    .evaluate();
+    let StaticEvalOutcome::Symbolic(residual) = open else {
+        panic!("open scrutinee must preserve the enclosing checked match: {open:?}");
+    };
+    assert!(matches!(
+        residuals.get(residual).expect("open match residual"),
+        phalcom_semantic::static_eval::StaticResidualData::Apply { application, result_domain }
+            if application.definition == parameter.owner && *result_domain == body.result
+    ));
+    for (character, expected) in [('x', 3), ('z', 4)] {
+        let argument = values.intern_char(character);
+        let cold = StaticEvaluator::new(
+            body,
+            &mut values,
+            &mut QueryBudget::default(),
+            &CancellationToken::new(),
+            &[StaticArgument::Value(argument)],
+        )
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .with_semantic_tables_mut(
+            Arc::make_mut(&mut types),
+            &fixture.analysis.snapshot.data_semantics,
+            &fixture.analysis.snapshot.enum_semantics,
+        )
+        .evaluate();
+        let StaticEvalOutcome::Reduced(cold_result) = cold else {
+            panic!("exact match must select its first matching arm: {cold:?}");
+        };
+        let supplied = StaticSpecializationEnvironmentKey::normalized(
+            [(parameter.clone(), StaticSpecializationArgument::Value(argument))],
+            [],
+            [],
+        ).unwrap();
+        let specialized = specialize_helper(
+            &fixture,
+            body,
+            residual,
+            &supplied,
+            &mut values,
+            &mut QueryBudget::default(),
+            &CancellationToken::new(),
+            Arc::make_mut(&mut types),
+            &mut residuals,
+        );
+        let StaticEvalOutcome::Reduced(specialized_result) = specialized else {
+            panic!("specialized match must select its first matching arm: {specialized:?}");
+        };
+        assert_eq!(values.get(cold_result).unwrap(), values.get(specialized_result).unwrap());
+        assert_eq!(values.get(specialized_result).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(expected)));
+    }
+
+    let option = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "MatchOption")).expect("MatchOption definition");
+    let option_body = option.checked_body.as_ref().expect("MatchOption checked body");
+    assert!(option_body.diagnostics.is_empty(), "MatchOption must check: {:?}", option_body.diagnostics);
+    let parameter = StaticResidualParameter {
+        owner: fixture.decl("main", "MatchOption"),
+        index: 0,
+        domain: option.definition.signature.parameters[0].domain,
+    };
+    let open_parameter = residuals.parameter(parameter.clone(), &mut QueryBudget::default()).unwrap();
+    let open = StaticEvaluator::new(
+        option_body,
+        &mut values,
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+        &[StaticArgument::Residual(open_parameter)],
+    )
+    .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+    .with_semantic_tables_mut(
+        Arc::make_mut(&mut types),
+        &fixture.analysis.snapshot.data_semantics,
+        &fixture.analysis.snapshot.enum_semantics,
+    )
+    .with_residuals(&mut residuals)
+    .evaluate();
+    let StaticEvalOutcome::Symbolic(option_residual) = open else {
+        panic!("an open variant match must retain the checked application: {open:?}");
+    };
+    let option_value = evaluate(&fixture, "OptionValue", &mut QueryBudget::default(), &mut values, Arc::make_mut(&mut types));
+    let StaticEvalOutcome::Reduced(argument) = option_value else {
+        panic!("canonical Option::Some value must reduce: {option_value:?}");
+    };
+    let cold = StaticEvaluator::new(
+        option_body,
+        &mut values,
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+        &[StaticArgument::Value(argument)],
+    )
+    .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+    .with_semantic_tables_mut(
+        Arc::make_mut(&mut types),
+        &fixture.analysis.snapshot.data_semantics,
+        &fixture.analysis.snapshot.enum_semantics,
+    )
+    .evaluate();
+    let StaticEvalOutcome::Reduced(cold_result) = cold else {
+        panic!("exact canonical variant match must reduce: {cold:?}");
+    };
+    let supplied = StaticSpecializationEnvironmentKey::normalized(
+        [(parameter, StaticSpecializationArgument::Value(argument))],
+        [],
+        [],
+    ).unwrap();
+    let specialized = specialize_helper(
+        &fixture,
+        option_body,
+        option_residual,
+        &supplied,
+        &mut values,
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+        Arc::make_mut(&mut types),
+        &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(specialized_result) = specialized else {
+        panic!("specializing the canonical variant match must select Some: {specialized:?}");
+    };
+    assert_eq!(values.get(specialized_result).unwrap(), values.get(cold_result).unwrap());
+    assert_eq!(values.get(specialized_result).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(9)));
+}
+
+#[test]
+fn iterative_static_type_pack_algorithm_uses_checked_mode_and_finite_arguments() {
+    let fixture = fixture();
+    let product = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "CountTypes")).expect("CountTypes definition");
+    let body = product.checked_body.as_ref().expect("checked Pack counter");
+    assert!(body.diagnostics.is_empty(), "Pack counter must check: {:?}", body.diagnostics);
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let int = fixture.analysis.snapshot.declarations.form(&CoreDeclarationIds::default().int).unwrap();
+    let pack = Arc::make_mut(&mut types).type_pack(Box::new([int, int, int])).unwrap();
+    let mut values = StaticValueStore::new();
+    let outcome = StaticEvaluator::new(body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Kinded(pack)])
+        .with_semantic_tables_mut(
+            Arc::make_mut(&mut types),
+            &fixture.analysis.snapshot.data_semantics,
+            &fixture.analysis.snapshot.enum_semantics,
+        )
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .evaluate();
+    let StaticEvalOutcome::Reduced(value) = outcome else {
+        panic!("finite TypePack iteration must count its exact entries: {outcome:?}");
+    };
+    assert_eq!(values.get(value).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(3)));
+
+    let parameter_id = product.definition.signature.parameters[0].type_parameter_id.expect("kinded pack parameter");
+    let open_form = Arc::make_mut(&mut types).parameter_form(parameter_id);
+    let mut residuals = StaticResidualStore::new();
+    let open = StaticEvaluator::new(body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Kinded(open_form)])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .with_semantic_tables_mut(
+            Arc::make_mut(&mut types),
+            &fixture.analysis.snapshot.data_semantics,
+            &fixture.analysis.snapshot.enum_semantics,
+        )
+        .with_residuals(&mut residuals)
+        .evaluate();
+    let StaticEvalOutcome::Symbolic(open) = open else {
+        panic!("unknown pack contents must preserve the checked application: {open:?}");
+    };
+    assert!(matches!(residuals.get(open).unwrap(), phalcom_semantic::static_eval::StaticResidualData::Apply { application, .. } if application.definition == fixture.decl("main", "CountTypes")));
+    let supplied = StaticSpecializationEnvironmentKey::normalized(
+        [(
+            StaticResidualParameter { owner: fixture.decl("main", "CountTypes"), index: 0, domain: product.definition.signature.parameters[0].domain },
+            StaticSpecializationArgument::Kinded(pack),
+        )],
+        [],
+        [],
+    ).unwrap();
+    let specialized = specialize_helper(
+        &fixture,
+        body,
+        open,
+        &supplied,
+        &mut values,
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+        Arc::make_mut(&mut types),
+        &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(actual) = specialized else {
+        panic!("specializing the finite TypePack must match cold evaluation: {specialized:?}");
+    };
+    assert_eq!(values.get(actual).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(3)));
+}
+
+#[test]
+fn iterative_static_type_pack_count_scales_with_entry_count() {
+    let fixture = fixture();
+    let body = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "CountTypes"))
+        .and_then(|product| product.checked_body.as_ref())
+        .expect("checked TypePack counter");
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let int = fixture.analysis.snapshot.declarations.form(&CoreDeclarationIds::default().int).unwrap();
+    let mut prior_steps = None;
+    for count in [10usize, 100, 1_000] {
+        let pack = Arc::make_mut(&mut types).type_pack(vec![int; count].into_boxed_slice()).unwrap();
+        let mut values = StaticValueStore::new();
+        let mut budget = QueryBudget::new(100_000);
+        let outcome = StaticEvaluator::new(body, &mut values, &mut budget, &CancellationToken::new(), &[StaticArgument::Kinded(pack)])
+            .with_semantic_tables_mut(
+                Arc::make_mut(&mut types),
+                &fixture.analysis.snapshot.data_semantics,
+                &fixture.analysis.snapshot.enum_semantics,
+            )
+            .evaluate();
+        let StaticEvalOutcome::Reduced(value) = outcome else {
+            panic!("{count} exact TypePack entries must reduce: {outcome:?}");
+        };
+        assert_eq!(values.get(value).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(count as i64)));
+        if let Some((previous_count, previous_steps)) = prior_steps {
+            assert!(
+                budget.steps_taken.saturating_sub(previous_steps) <= (count - previous_count) as u64 * 30,
+                "Count work should grow linearly: {previous_count}/{previous_steps} versus {count}/{} steps",
+                budget.steps_taken
+            );
+        }
+        prior_steps = Some((count, budget.steps_taken));
+    }
+}
+
+#[test]
+fn partially_known_tuple_construction_specializes_to_the_cold_value() {
+    let fixture = fixture();
+    let pair = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "PairValue")).expect("PairValue definition");
+    let body = pair.checked_body.as_ref().expect("checked tuple construction");
+    assert!(body.diagnostics.is_empty(), "PairValue must check: {:?}", body.diagnostics);
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let mut values = StaticValueStore::new();
+    let mut residuals = StaticResidualStore::new();
+    let formal = StaticResidualParameter {
+        owner: fixture.decl("main", "PairValue"), index: 0,
+        domain: pair.definition.signature.parameters[0].domain,
+    };
+    let open_parameter = residuals.parameter(formal.clone(), &mut QueryBudget::default()).unwrap();
+    let open = StaticEvaluator::new(body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Residual(open_parameter)])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .with_semantic_tables_mut(
+            Arc::make_mut(&mut types),
+            &fixture.analysis.snapshot.data_semantics,
+            &fixture.analysis.snapshot.enum_semantics,
+        )
+        .with_residuals(&mut residuals)
+        .evaluate();
+    let StaticEvalOutcome::Symbolic(tuple) = open else {
+        panic!("partially known tuple must retain its exact second element: {open:?}");
+    };
+    assert!(matches!(
+        residuals.get(tuple).unwrap(),
+        phalcom_semantic::static_eval::StaticResidualData::Tuple { elements, result_type: _ }
+            if elements.len() == 2 && elements[0] == phalcom_semantic::static_eval::StaticEvalTerm::Residual(open_parameter)
+                && matches!(elements[1], phalcom_semantic::static_eval::StaticEvalTerm::Value(_))
+    ));
+    assert_eq!(
+        specialize_helper(
+            &fixture,
+            body,
+            tuple,
+            &StaticSpecializationEnvironmentKey::default(),
+            &mut values,
+            &mut QueryBudget::default(),
+            &CancellationToken::new(),
+            Arc::make_mut(&mut types),
+            &mut residuals,
+        ),
+        StaticEvalOutcome::Symbolic(tuple),
+        "specializing without new facts must reuse the canonical tuple"
+    );
+
+    let three = values.intern_int(3);
+    let cold = StaticEvaluator::new(body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Value(three)])
+        .with_semantic_tables_mut(
+            Arc::make_mut(&mut types),
+            &fixture.analysis.snapshot.data_semantics,
+            &fixture.analysis.snapshot.enum_semantics,
+        )
+        .evaluate();
+    let StaticEvalOutcome::Reduced(cold_value) = cold else { panic!("exact tuple must reduce: {cold:?}"); };
+    let supplied = StaticSpecializationEnvironmentKey::normalized([(formal, StaticSpecializationArgument::Value(three))], [], []).unwrap();
+    let specialized = specialize_helper(
+        &fixture,
+        body,
+        tuple,
+        &supplied,
+        &mut values,
+        &mut QueryBudget::default(),
+        &CancellationToken::new(),
+        Arc::make_mut(&mut types),
+        &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(actual) = specialized else { panic!("specialized tuple must reduce: {specialized:?}"); };
+    assert_eq!(values.get(actual).unwrap(), values.get(cold_value).unwrap());
+}
+
+#[test]
+fn partially_known_record_preserves_canonical_keys_and_specializes() {
+    let fixture = fixture();
+    let product = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "PartialRecord")).expect("PartialRecord definition");
+    let body = product.checked_body.as_ref().expect("checked Record construction");
+    assert!(body.diagnostics.is_empty(), "PartialRecord must check: {:?}", body.diagnostics);
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let mut values = StaticValueStore::new();
+    let mut residuals = StaticResidualStore::new();
+    let formal = StaticResidualParameter {
+        owner: fixture.decl("main", "PartialRecord"), index: 0,
+        domain: product.definition.signature.parameters[0].domain,
+    };
+    let unknown = residuals.parameter(formal.clone(), &mut QueryBudget::default()).unwrap();
+    let open = StaticEvaluator::new(body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Residual(unknown)])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .with_semantic_tables_mut(
+            Arc::make_mut(&mut types),
+            &fixture.analysis.snapshot.data_semantics,
+            &fixture.analysis.snapshot.enum_semantics,
+        )
+        .with_residuals(&mut residuals)
+        .evaluate();
+    let StaticEvalOutcome::Symbolic(record) = open else { panic!("open Record must remain symbolic: {open:?}"); };
+    let phalcom_semantic::static_eval::StaticResidualData::Record { fields, .. } = residuals.get(record).unwrap() else {
+        panic!("direct Record construction must retain its canonical fields: {:?}", residuals.get(record));
+    };
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].0, phalcom_semantic::field_key::FieldKey::symbol("same"));
+    assert_eq!(fields[1].0, phalcom_semantic::field_key::FieldKey::int(42.into()));
+    assert_eq!(fields[0].1, phalcom_semantic::static_eval::StaticEvalTerm::Residual(unknown));
+    assert!(matches!(fields[1].1, phalcom_semantic::static_eval::StaticEvalTerm::Value(_)));
+    assert_eq!(
+        specialize_helper(
+            &fixture, body, record, &StaticSpecializationEnvironmentKey::default(),
+            &mut values, &mut QueryBudget::default(), &CancellationToken::new(), Arc::make_mut(&mut types), &mut residuals,
+        ),
+        StaticEvalOutcome::Symbolic(record),
+        "no-new-facts specialization must preserve the Record's canonical identity"
+    );
+
+    let exact = values.intern_int(3);
+    let cold = StaticEvaluator::new(body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Value(exact)])
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .evaluate();
+    let StaticEvalOutcome::Reduced(cold_value) = cold else { panic!("cold Record must reduce: {cold:?}"); };
+    let supplied = StaticSpecializationEnvironmentKey::normalized([(formal.clone(), StaticSpecializationArgument::Value(exact))], [], []).unwrap();
+    let specialized = specialize_helper(
+        &fixture, body, record, &supplied, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), Arc::make_mut(&mut types), &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(actual) = specialized else { panic!("specialized Record must reduce: {specialized:?}"); };
+    assert_eq!(values.get(actual).unwrap(), values.get(cold_value).unwrap());
+}
+
+#[test]
+fn partially_known_variant_preserves_constructor_and_specializes() {
+    let fixture = fixture();
+    let product = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "PartialVariant")).expect("PartialVariant definition");
+    let body = product.checked_body.as_ref().expect("checked Variant construction");
+    assert!(body.diagnostics.is_empty(), "PartialVariant must check: {:?}", body.diagnostics);
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let mut values = StaticValueStore::new();
+    let mut residuals = StaticResidualStore::new();
+    let formal = StaticResidualParameter {
+        owner: fixture.decl("main", "PartialVariant"), index: 0,
+        domain: product.definition.signature.parameters[0].domain,
+    };
+    let unknown = residuals.parameter(formal.clone(), &mut QueryBudget::default()).unwrap();
+    let open = StaticEvaluator::new(body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Residual(unknown)])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+        .with_residuals(&mut residuals)
+        .evaluate();
+    let StaticEvalOutcome::Symbolic(variant) = open else { panic!("open Variant must remain symbolic: {open:?}"); };
+    assert!(matches!(
+        residuals.get(variant).unwrap(),
+        phalcom_semantic::static_eval::StaticResidualData::Variant { variant, fields, .. }
+            if variant.owner == fixture.decl("main", "Option")
+                && fields.len() == 1 && fields[0].1 == phalcom_semantic::static_eval::StaticEvalTerm::Residual(unknown)
+    ));
+    assert_eq!(
+        specialize_helper(
+            &fixture, body, variant, &StaticSpecializationEnvironmentKey::default(),
+            &mut values, &mut QueryBudget::default(), &CancellationToken::new(), Arc::make_mut(&mut types), &mut residuals,
+        ),
+        StaticEvalOutcome::Symbolic(variant),
+        "no-new-facts specialization must retain canonical Variant identity"
+    );
+    let exact = values.intern_int(3);
+    let cold = StaticEvaluator::new(body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Value(exact)])
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+        .evaluate();
+    let StaticEvalOutcome::Reduced(cold_value) = cold else { panic!("cold Variant must reduce: {cold:?}"); };
+    let supplied = StaticSpecializationEnvironmentKey::normalized([(formal, StaticSpecializationArgument::Value(exact))], [], []).unwrap();
+    let specialized = specialize_helper(
+        &fixture, body, variant, &supplied, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), Arc::make_mut(&mut types), &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(actual) = specialized else { panic!("specialized Variant must reduce: {specialized:?}"); };
+    assert_eq!(values.get(actual).unwrap(), values.get(cold_value).unwrap());
+}
+
+#[test]
+fn partially_known_data_preserves_components_and_specializes() {
+    let fixture = fixture();
+    let product = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "PartialData")).expect("PartialData definition");
+    let body = product.checked_body.as_ref().expect("checked Data construction");
+    assert!(body.diagnostics.is_empty(), "PartialData must check: {:?}", body.diagnostics);
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let mut values = StaticValueStore::new();
+    let mut residuals = StaticResidualStore::new();
+    let formal = StaticResidualParameter {
+        owner: fixture.decl("main", "PartialData"), index: 0,
+        domain: product.definition.signature.parameters[0].domain,
+    };
+    let unknown = residuals.parameter(formal.clone(), &mut QueryBudget::default()).unwrap();
+    let open = StaticEvaluator::new(body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Residual(unknown)])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .with_residuals(&mut residuals)
+        .evaluate();
+    let StaticEvalOutcome::Symbolic(data) = open else { panic!("open Data must remain symbolic: {open:?}; root: {:?}; construction: {:?}", body.root, body.static_constructions); };
+    assert!(matches!(
+        residuals.get(data).unwrap(),
+        phalcom_semantic::static_eval::StaticResidualData::Data { owner, components, .. }
+            if owner == &fixture.decl("main", "Boxed") && components.len() == 1
+                && components[0].1 == phalcom_semantic::static_eval::StaticEvalTerm::Residual(unknown)
+    ));
+    assert_eq!(
+        specialize_helper(
+            &fixture, body, data, &StaticSpecializationEnvironmentKey::default(),
+            &mut values, &mut QueryBudget::default(), &CancellationToken::new(), Arc::make_mut(&mut types), &mut residuals,
+        ),
+        StaticEvalOutcome::Symbolic(data),
+        "no-new-facts specialization must retain canonical Data identity"
+    );
+    let exact = values.intern_int(3);
+    let cold = StaticEvaluator::new(body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Value(exact)])
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .evaluate();
+    let StaticEvalOutcome::Reduced(cold_value) = cold else { panic!("cold Data must reduce: {cold:?}"); };
+    let supplied = StaticSpecializationEnvironmentKey::normalized([(formal, StaticSpecializationArgument::Value(exact))], [], []).unwrap();
+    let specialized = specialize_helper(
+        &fixture, body, data, &supplied, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), Arc::make_mut(&mut types), &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(actual) = specialized else { panic!("specialized Data must reduce: {specialized:?}"); };
+    assert_eq!(values.get(actual).unwrap(), values.get(cold_value).unwrap());
+}
+
+#[test]
+fn partially_known_pack_preserves_ordered_lanes_and_specializes() {
+    let fixture = fixture();
+    let product = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "PairValue")).expect("PairValue definition");
+    let body = product.checked_body.as_ref().expect("checked static definition");
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let mut values = StaticValueStore::new();
+    let mut residuals = StaticResidualStore::new();
+    let formal = StaticResidualParameter {
+        owner: fixture.decl("main", "PairValue"), index: 0,
+        domain: product.definition.signature.parameters[0].domain,
+    };
+    let unknown = residuals.parameter(formal.clone(), &mut QueryBudget::default()).unwrap();
+    let exact = values.intern_int(3);
+    let seven = values.intern_int(7);
+    let named = values.intern_symbol_id("named");
+    let other = values.intern_symbol_id("other");
+    let cold_value = values.intern_pack(vec![exact, seven], vec![(named, seven), (other, exact)]).expect("canonical Pack");
+    let result_type = values.static_value_type(
+        cold_value, Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics,
+    ).expect("canonical proper Pack type");
+    assert_eq!(types.kind_of(result_type), KindId::TYPE);
+    let pack = residuals.pack(
+        Box::new([phalcom_semantic::static_eval::StaticEvalTerm::Residual(unknown), phalcom_semantic::static_eval::StaticEvalTerm::Value(seven)]),
+        Box::new([Box::<str>::from("named"), Box::<str>::from("other")]),
+        Box::new([phalcom_semantic::static_eval::StaticEvalTerm::Value(seven), phalcom_semantic::static_eval::StaticEvalTerm::Residual(unknown)]),
+        result_type, &mut QueryBudget::default(),
+    ).expect("partially known Pack");
+    let phalcom_semantic::static_eval::StaticResidualData::Pack { positionals, labels, labeled_values, result_type } = residuals.get(pack).unwrap() else {
+        panic!("Pack residual must retain its ordered lanes: {:?}", residuals.get(pack));
+    };
+    assert_eq!(types.kind_of(*result_type), KindId::TYPE);
+    assert_eq!(positionals[0], phalcom_semantic::static_eval::StaticEvalTerm::Residual(unknown));
+    assert_eq!(labels.as_ref(), &[Box::<str>::from("named"), Box::<str>::from("other")]);
+    assert_eq!(labeled_values[1], phalcom_semantic::static_eval::StaticEvalTerm::Residual(unknown));
+    assert_eq!(
+        specialize_helper(
+            &fixture, body, pack, &StaticSpecializationEnvironmentKey::default(),
+            &mut values, &mut QueryBudget::default(), &CancellationToken::new(), Arc::make_mut(&mut types), &mut residuals,
+        ),
+        StaticEvalOutcome::Symbolic(pack),
+        "no-new-facts specialization must preserve the Pack's canonical identity"
+    );
+
+    let supplied = StaticSpecializationEnvironmentKey::normalized([(formal, StaticSpecializationArgument::Value(exact))], [], []).unwrap();
+    let specialized = specialize_helper(
+        &fixture, body, pack, &supplied, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), Arc::make_mut(&mut types), &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(actual) = specialized else { panic!("specialized Pack must reduce: {specialized:?}"); };
+    let StaticValueData::Pack(actual_id) = values.get(actual).unwrap() else { panic!("Pack value expected"); };
+    assert_eq!(values.pack_positionals(*actual_id).unwrap(), &[exact, seven]);
+    let labeled = values.pack_labeled(*actual_id).unwrap();
+    assert_eq!(labeled.len(), 2);
+    assert_eq!(values.get_symbol(labeled[0].0), Some("named"));
+    assert_eq!(values.get_symbol(labeled[1].0), Some("other"));
+    assert_eq!(labeled[0].1, seven);
+    assert_eq!(labeled[1].1, exact);
+    assert_eq!(values.get(actual).unwrap(), values.get(cold_value).unwrap());
+}
+
+#[test]
+fn checked_pack_construction_preserves_both_lanes_from_source() {
+    let fixture = WorkspaceFixture::new()
+        .module("main", "type MakePack<N: Int>: Pack<***: Int> { Pack(N, 4, other: 9, named: 7) }\n")
+        .analyze();
+    let product = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "MakePack")).expect("MakePack definition");
+    let body = product.checked_body.as_ref().expect("checked Pack body");
+    assert!(body.diagnostics.is_empty(), "Pack construction must check: {:?}", body.diagnostics);
+    assert_eq!(body.static_constructions.len(), 1, "the ordinary checker must publish the Pack constructor lanes");
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let mut values = StaticValueStore::new();
+    let mut residuals = StaticResidualStore::new();
+    let formal = StaticResidualParameter {
+        owner: fixture.decl("main", "MakePack"), index: 0,
+        domain: product.definition.signature.parameters[0].domain,
+    };
+    let unknown = residuals.parameter(formal.clone(), &mut QueryBudget::default()).unwrap();
+    let open = StaticEvaluator::new(body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Residual(unknown)])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+        .with_residuals(&mut residuals)
+        .evaluate();
+    let StaticEvalOutcome::Symbolic(pack) = open else { panic!("open source Pack must be symbolic: {open:?}"); };
+    let phalcom_semantic::static_eval::StaticResidualData::Pack { positionals, labels, labeled_values, result_type } = residuals.get(pack).unwrap() else {
+        panic!("checked source Pack must preserve its lanes: {:?}", residuals.get(pack));
+    };
+    assert_eq!(types.kind_of(*result_type), KindId::TYPE);
+    assert_eq!(positionals[0], phalcom_semantic::static_eval::StaticEvalTerm::Residual(unknown));
+    assert!(matches!(positionals[1], phalcom_semantic::static_eval::StaticEvalTerm::Value(_)));
+    assert_eq!(labels.as_ref(), &[Box::<str>::from("other"), Box::<str>::from("named")]);
+    assert!(labeled_values.iter().all(|entry| matches!(entry, phalcom_semantic::static_eval::StaticEvalTerm::Value(_))));
+    assert_eq!(
+        specialize_helper(
+            &fixture, body, pack, &StaticSpecializationEnvironmentKey::default(),
+            &mut values, &mut QueryBudget::default(), &CancellationToken::new(), Arc::make_mut(&mut types), &mut residuals,
+        ),
+        StaticEvalOutcome::Symbolic(pack),
+        "the checked source Pack must retain its identity without new facts"
+    );
+    let exact = values.intern_int(3);
+    let cold = StaticEvaluator::new(body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Value(exact)])
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+        .evaluate();
+    let StaticEvalOutcome::Reduced(cold_value) = cold else { panic!("cold Pack must reduce: {cold:?}"); };
+    let supplied = StaticSpecializationEnvironmentKey::normalized([(formal.clone(), StaticSpecializationArgument::Value(exact))], [], []).unwrap();
+    let specialized = specialize_helper(
+        &fixture, body, pack, &supplied, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), Arc::make_mut(&mut types), &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(actual) = specialized else { panic!("specialized Pack must reduce: {specialized:?}"); };
+    let StaticValueData::Pack(id) = values.get(actual).unwrap() else { panic!("Pack value expected"); };
+    let id = *id;
+    let four = values.intern_int(4);
+    assert_eq!(values.pack_positionals(id).unwrap(), &[exact, four]);
+    let labeled = values.pack_labeled(id).unwrap();
+    assert_eq!(labeled.len(), 2);
+    assert_eq!(values.get_symbol(labeled[0].0), Some("other"));
+    assert_eq!(values.get_symbol(labeled[1].0), Some("named"));
+    assert_eq!(values.get(actual).unwrap(), values.get(cold_value).unwrap());
+
+    let mut fresh_residuals = StaticResidualStore::new();
+    let fresh_unknown = fresh_residuals.parameter(formal, &mut QueryBudget::default()).unwrap();
+    let mut exhausted = QueryBudget::default();
+    exhausted.max_residual_nodes = 0;
+    let stopped = StaticEvaluator::new(body, &mut values, &mut exhausted, &CancellationToken::new(), &[StaticArgument::Residual(fresh_unknown)])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+        .with_residuals(&mut fresh_residuals)
+        .evaluate();
+    assert!(matches!(&stopped, StaticEvalOutcome::BudgetExceeded(report)
+        if report.kind() == phalcom_semantic::types::outcome::BudgetKind::ResidualNodes),
+        "source Pack residual construction must respect the residual-node budget: {stopped:?}");
+}
+
+#[test]
+fn contextual_pack_construction_rejects_mismatched_element_types() {
+    let fixture = WorkspaceFixture::new()
+        .module("main", "type WrongPack: Pack<***: String> { Pack(1, named: 2) }\n")
+        .analyze();
+    let body = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "WrongPack"))
+        .and_then(|product| product.checked_body.as_ref()).expect("checked wrong Pack body");
+    assert!(body.diagnostics.iter().any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeMismatch),
+        "the completed Pack must be checked against its declared element type: {:?}", body.diagnostics);
+    assert!(body.static_constructions.is_empty(), "an invalid Pack must not publish a checked static constructor");
+}
+
+#[test]
+fn source_pack_spread_uses_checked_constructor_lanes() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            "type WrapPack: Pack<***: Int> { Pack(*Pack(1, 2)) }\n\
+             type CombinedPack<N: Int>: Pack<***: Int> { Pack(0, *Pack(1, 2), N, a: 3, **Pack(b: 4)) }\n",
+        )
+        .analyze();
+    let wrap = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "WrapPack")).expect("WrapPack definition");
+    let wrap_body = wrap.checked_body.as_ref().expect("checked WrapPack body");
+    assert!(wrap_body.diagnostics.is_empty(), "WrapPack must check: {:?}", wrap_body.diagnostics);
+    assert_eq!(wrap_body.static_constructions.len(), 2, "both inner and outer Pack constructions must be published");
+
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let mut values = StaticValueStore::new();
+    let cold_wrap = StaticEvaluator::new(wrap_body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[])
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+        .evaluate();
+    let StaticEvalOutcome::Reduced(wrap_val) = cold_wrap else { panic!("cold WrapPack must reduce: {cold_wrap:?}"); };
+    let StaticValueData::Pack(wrap_id) = values.get(wrap_val).unwrap() else { panic!("Pack value expected"); };
+    let pos = values.pack_positionals(*wrap_id).unwrap().to_vec();
+    assert_eq!(pos.len(), 2);
+    let one = values.intern_int(1);
+    let two = values.intern_int(2);
+    assert_eq!(pos.as_slice(), &[one, two]);
+
+    let combined = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "CombinedPack")).expect("CombinedPack definition");
+    let combined_body = combined.checked_body.as_ref().expect("checked CombinedPack body");
+    assert!(combined_body.diagnostics.is_empty(), "CombinedPack must check: {:?}", combined_body.diagnostics);
+    let mut residuals = StaticResidualStore::new();
+    let formal = StaticResidualParameter {
+        owner: fixture.decl("main", "CombinedPack"),
+        index: 0,
+        domain: combined.definition.signature.parameters[0].domain,
+    };
+    let unknown = residuals.parameter(formal.clone(), &mut QueryBudget::default()).unwrap();
+    let open = StaticEvaluator::new(combined_body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Residual(unknown)])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+        .with_residuals(&mut residuals)
+        .evaluate();
+    let StaticEvalOutcome::Symbolic(pack_res) = open else { panic!("open CombinedPack must be symbolic: {open:?}"); };
+    let phalcom_semantic::static_eval::StaticResidualData::Pack { positionals, labels, labeled_values, .. } = residuals.get(pack_res).unwrap() else {
+        panic!("expected Pack residual: {:?}", residuals.get(pack_res));
+    };
+    assert_eq!(positionals.len(), 4);
+    assert_eq!(positionals[3], phalcom_semantic::static_eval::StaticEvalTerm::Residual(unknown));
+    assert_eq!(labels.as_ref(), &[Box::<str>::from("a"), Box::<str>::from("b")]);
+    assert_eq!(labeled_values.len(), 2);
+
+    let ninety_nine = values.intern_int(99);
+    let supplied = StaticSpecializationEnvironmentKey::normalized([(formal, StaticSpecializationArgument::Value(ninety_nine))], [], []).unwrap();
+    let specialized = specialize_helper(
+        &fixture, combined_body, pack_res, &supplied, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), Arc::make_mut(&mut types), &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(actual) = specialized else { panic!("specialized CombinedPack must reduce: {specialized:?}"); };
+    let cold_combined = StaticEvaluator::new(combined_body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Value(ninety_nine)])
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+        .evaluate();
+    let StaticEvalOutcome::Reduced(cold_val) = cold_combined else { panic!("cold CombinedPack must reduce: {cold_combined:?}"); };
+    assert_eq!(values.get(actual).unwrap(), values.get(cold_val).unwrap());
+    let StaticValueData::Pack(comb_id) = values.get(actual).unwrap() else { panic!("Pack value expected"); };
+    let comb_pos = values.pack_positionals(*comb_id).unwrap().to_vec();
+    let zero = values.intern_int(0);
+    assert_eq!(comb_pos.as_slice(), &[zero, one, two, ninety_nine]);
+}
+
+#[test]
+fn source_pack_spread_concat_and_prepend() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            "type PrependCold: Pack<***: Int> { Pack(0, *Pack(1, 2)) }\n\
+             type ConcatCold: Pack<***: Int> { Pack(*Pack(1, 2), *Pack(3, 4)) }\n",
+        )
+        .analyze();
+    let test_cold = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "ConcatCold")).expect("ConcatCold definition");
+    let test_body = test_cold.checked_body.as_ref().expect("checked ConcatCold body");
+    assert!(test_body.diagnostics.is_empty(), "ConcatCold must check: {:?}", test_body.diagnostics);
+
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let mut values = StaticValueStore::new();
+    let cold = StaticEvaluator::new(test_body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+        .evaluate();
+    let StaticEvalOutcome::Reduced(res_val) = cold else { panic!("cold ConcatCold must reduce: {cold:?}"); };
+    let StaticValueData::Pack(res_id) = values.get(res_val).unwrap() else { panic!("Pack value expected"); };
+    let res_pos = values.pack_positionals(*res_id).unwrap().to_vec();
+    let one = values.intern_int(1);
+    let two = values.intern_int(2);
+    let three = values.intern_int(3);
+    let four = values.intern_int(4);
+    assert_eq!(res_pos.as_slice(), &[one, two, three, four]);
+
+    let prepend_def = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "PrependCold")).expect("PrependCold definition");
+    let prepend_body = prepend_def.checked_body.as_ref().expect("checked PrependCold body");
+    assert!(prepend_body.diagnostics.is_empty(), "PrependCold must check: {:?}", prepend_body.diagnostics);
+    let prepend_cold = StaticEvaluator::new(prepend_body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .with_hierarchy(fixture.analysis.snapshot.hierarchy().as_ref())
+        .evaluate();
+    let StaticEvalOutcome::Reduced(prep_val) = prepend_cold else { panic!("cold PrependCold must reduce: {prepend_cold:?}"); };
+    let StaticValueData::Pack(prep_id) = values.get(prep_val).unwrap() else { panic!("Pack value expected"); };
+    let prep_pos = values.pack_positionals(*prep_id).unwrap().to_vec();
+    let zero = values.intern_int(0);
+    assert_eq!(prep_pos.as_slice(), &[zero, one, two]);
+}
+
+#[test]
+fn iterative_source_pack_count_specializes_open_value_to_cold_result() {
+    let fixture = WorkspaceFixture::new()
+        .module("main", "type CountPack<P: Pack<***: Int>>: Int { let mut count = 0\n for _ in P { count = count + 1 }\n count }\n")
+        .analyze();
+    let product = fixture.analysis.snapshot.static_definition(&fixture.decl("main", "CountPack")).expect("CountPack definition");
+    let body = product.checked_body.as_ref().expect("checked Pack counter");
+    assert!(body.diagnostics.is_empty(), "Pack counter must check: {:?}", body.diagnostics);
+    assert!(body.static_iteration_lanes.values().any(|lane| matches!(
+        lane.item_domain,
+        phalcom_semantic::checker::static_iteration::StaticIterationItemDomain::Uniform(_)
+    )), "an open Pack remainder must not publish a finite empty item domain");
+    assert!(!body.pattern_site_resolutions.is_empty(), "the loop must retain the ordinary checked pattern site");
+    let mut types = Arc::clone(&fixture.analysis.snapshot.store);
+    let mut values = StaticValueStore::new();
+    let one = values.intern_int(1);
+    let two = values.intern_int(2);
+    let named = values.intern_symbol_id("named");
+    let pack = values.intern_pack(vec![one, two], vec![(named, one)]).unwrap();
+    let cold = StaticEvaluator::new(body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Value(pack)])
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .evaluate();
+    let StaticEvalOutcome::Reduced(exact) = cold else { panic!("finite Pack iteration must reduce: {cold:?}"); };
+    assert_eq!(values.get(exact).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(3)));
+    let mut residuals = StaticResidualStore::new();
+    let formal = StaticResidualParameter {
+        owner: fixture.decl("main", "CountPack"), index: 0,
+        domain: product.definition.signature.parameters[0].domain,
+    };
+    let unknown = residuals.parameter(formal.clone(), &mut QueryBudget::default()).unwrap();
+    let open = StaticEvaluator::new(body, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[StaticArgument::Residual(unknown)])
+        .with_static_definitions(fixture.analysis.snapshot.static_definitions())
+        .with_semantic_tables_mut(Arc::make_mut(&mut types), &fixture.analysis.snapshot.data_semantics, &fixture.analysis.snapshot.enum_semantics)
+        .with_residuals(&mut residuals)
+        .evaluate();
+    let StaticEvalOutcome::Symbolic(deferred) = open else { panic!("open Pack loop must defer as an application: {open:?}"); };
+    assert!(matches!(residuals.get(deferred).unwrap(), phalcom_semantic::static_eval::StaticResidualData::Apply { .. }));
+    let supplied = StaticSpecializationEnvironmentKey::normalized([(formal, StaticSpecializationArgument::Value(pack))], [], []).unwrap();
+    let specialized = specialize_helper(
+        &fixture, body, deferred, &supplied, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), Arc::make_mut(&mut types), &mut residuals,
+    );
+    let StaticEvalOutcome::Reduced(actual) = specialized else { panic!("specialized Pack counter must reduce: {specialized:?}"); };
+    assert_eq!(values.get(actual).unwrap(), values.get(exact).unwrap());
 }
 
 #[test]

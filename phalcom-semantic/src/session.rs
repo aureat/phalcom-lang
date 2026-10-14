@@ -7920,7 +7920,14 @@ impl SemanticWorkspaceSession {
                         .product(&key)
                         .and_then(|product| product.as_static_constant())
                         .into_iter()
-                        .flat_map(|product| product.checked.record_key_static_constant_reads.iter())
+                        .flat_map(|product| {
+                            product
+                                .checked
+                                .as_ref()
+                                .map(|c| c.record_key_static_constant_reads.as_ref())
+                                .unwrap_or(&[])
+                                .iter()
+                        })
                         .cloned()
                         .map(crate::static_constant::StaticConstantId)
                         .collect();
@@ -8142,14 +8149,16 @@ impl SemanticWorkspaceSession {
                         id: id.clone(),
                         declaration_range: decl.declaration_range,
                         initializer_range: decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
-                        checked,
+                        checked: Some(checked),
                         outcome: crate::static_eval::StaticEvalOutcome::Recursive(crate::static_eval::StaticCycle::empty()),
+                        residuals: None,
                         value: None,
                         lkg_value: previous_snapshot
                             .as_ref()
                             .and_then(|prev| prev.static_constant(&id))
                             .and_then(|p| p.value.or(p.lkg_value)),
                         diagnostics: Arc::from(diags.into_boxed_slice()),
+                        imported: None,
                     });
 
                     let published = match crate::db::query::query_static_constant(
@@ -8358,6 +8367,11 @@ impl SemanticWorkspaceSession {
                             .with_semantic_tables_mut(type_store, &data_semantics, &enum_semantics);
 
                     let outcome = evaluator.evaluate();
+                    let residuals = if matches!(outcome, crate::static_eval::StaticEvalOutcome::Symbolic(_)) {
+                        evaluator.take_residuals().map(Arc::new)
+                    } else {
+                        None
+                    };
                     drop(evaluator);
                     #[cfg(test)]
                     self.fail_at_test_publication_point(SemanticPublicationFailpoint::AfterStaticValueMutation)?;
@@ -8378,11 +8392,13 @@ impl SemanticWorkspaceSession {
                         id: id.clone(),
                         declaration_range: decl.declaration_range,
                         initializer_range: decl.initializer_range.unwrap_or_else(|| decl.initializer.range()),
-                        checked: checked.clone(),
+                        checked: Some(checked.clone()),
                         outcome,
+                        residuals,
                         value,
                         lkg_value,
                         diagnostics: checked.diagnostics.clone(),
+                        imported: None,
                     });
 
                     let published = match crate::db::query::query_static_constant(
@@ -10621,7 +10637,7 @@ pub(crate) fn static_constant_binding_states(
 
         let result_type = constants
             .and_then(|constants| constants.get(&crate::static_constant::StaticConstantId(binding.symbol.clone())))
-            .and_then(|product| product.checked.result_type);
+            .and_then(|product| product.checked.as_ref().and_then(|c| c.result_type));
         let current = result_type.map_or_else(
             || crate::types::evidence::TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
             |ty| crate::types::evidence::TypeKnowledge::established(ty, crate::types::evidence::EvidenceOrigin::Flow),

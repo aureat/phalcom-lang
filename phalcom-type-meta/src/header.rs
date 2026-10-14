@@ -4,6 +4,8 @@ use crate::fingerprint::Fingerprint128;
 use serde::{Deserialize, Serialize};
 
 pub const MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION: u32 = 1;
+/// Schema v13 adds FieldKey heterogeneous Record keys, durable StaticValue DAGs, and static constants.
+/// Legacy v12 string Record field names remain readable as Symbol FieldKeys.
 /// Schema v12 encodes exact static integers as normalized decimal strings.
 /// Legacy numeric integer terms remain readable.
 /// Schema v11 preserves declaration, variant, and conformance callable ownership.
@@ -11,7 +13,7 @@ pub const MIN_SUPPORTED_TYPE_METADATA_SCHEMA_VERSION: u32 = 1;
 /// Schema v10 adds structural member presence and anonymous Tuple/Record remainders;
 /// v9 adds scoped heterogeneous `RecordFields` arguments; v8 adds a
 /// typed static-domain catalog and v7 retains selected source member identity.
-pub const TYPE_METADATA_SCHEMA_VERSION: u32 = 12;
+pub const TYPE_METADATA_SCHEMA_VERSION: u32 = 13;
 pub const SEMANTIC_MODEL_VERSION: u32 = 1;
 pub const NATIVE_SURFACE_SCHEMA_VERSION: u32 = 2;
 
@@ -42,6 +44,12 @@ pub struct MetadataFeatures {
     pub static_domains: bool,
     pub runtime_type_constants: bool,
     pub source_occurrences: bool,
+    #[serde(default)]
+    pub static_values: bool,
+    #[serde(default)]
+    pub static_constants: bool,
+    #[serde(default)]
+    pub static_definitions: bool,
     pub advanced_sections: Box<[FeatureSectionId]>,
 }
 

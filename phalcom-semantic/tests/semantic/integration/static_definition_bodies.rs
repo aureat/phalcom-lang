@@ -608,7 +608,7 @@ fn symbolic_vector_identity_spread_stays_unreduced_before_reading_its_source() {
         .snapshot
         .static_constant(&phalcom_semantic::static_constant::StaticConstantId::new(fixture.module.clone(), "copied"))
         .expect("checked constant identity spread");
-    let mut checked = copied.checked.expression.clone();
+    let mut checked = copied.checked.as_ref().unwrap().expression.clone();
     let mut resolutions = (*checked.sequence_literals).clone();
     let resolution = resolutions.values_mut().next().expect("checked constant literal");
     let source_range = *resolution.exact_expansions.keys().next().expect("checked Vector spread source range");
@@ -1129,6 +1129,118 @@ fn imported_static_body_alias_retains_canonical_const_identity() {
     );
 }
 
+fn imported_const_expr_input(provider_source: &str, consumer_source: &str, generation: u64) -> (SemanticWorkspaceInput, ModuleIdPair) {
+    let project = ResolvedProjectId::from_raw(42);
+    let module_id =
+        |name: &str| phalcom_modules::identity::ModuleId::resolved(project, ModulePath::from_components(vec![ModuleComponent::from_identifier(name).unwrap()]));
+    let provider = module_id("provider");
+    let consumer = module_id("consumer");
+    let provider_source: Arc<str> = Arc::from(provider_source);
+    let consumer_source: Arc<str> = Arc::from(consumer_source);
+    let provider_program = Arc::new(phalcom_ast::parse(&provider_source, 0).program);
+    let consumer_program = Arc::new(phalcom_ast::parse(&consumer_source, 0).program);
+    let sources = BTreeMap::from([
+        (
+            provider.clone(),
+            Arc::new(ParsedModuleUnit::new(
+                provider.clone(),
+                ModuleKind::Module,
+                None,
+                provider_source,
+                provider_program,
+            )),
+        ),
+        (
+            consumer.clone(),
+            Arc::new(ParsedModuleUnit::new(
+                consumer.clone(),
+                ModuleKind::Module,
+                None,
+                consumer_source,
+                consumer_program,
+            )),
+        ),
+    ]);
+    let symbol = SymbolId {
+        module: provider.clone(),
+        name: "base".into(),
+    };
+    let export = LinkedExport {
+        public_name: "base".into(),
+        target: LinkedExportTarget::Binding(symbol.clone()),
+        range: Default::default(),
+    };
+    let provider_linked = LinkedModule {
+        interface: LinkedModuleInterface {
+            module: provider.clone(),
+            kind: ModuleKind::Module,
+            exports: BTreeMap::from([("base".into(), export)]),
+            metadata: ModuleMetadata::default(),
+        },
+        bindings: ModuleBindingLayout {
+            local_globals: BTreeMap::from([("base".into(), GlobalBindingId(0))]),
+            imports: BTreeMap::new(),
+        },
+        linked_reads: Vec::new(),
+        runtime_dependencies: Vec::new(),
+    };
+    let consumer_linked = LinkedModule {
+        interface: LinkedModuleInterface {
+            module: consumer.clone(),
+            kind: ModuleKind::Module,
+            exports: BTreeMap::new(),
+            metadata: ModuleMetadata::default(),
+        },
+        bindings: ModuleBindingLayout {
+            local_globals: BTreeMap::new(),
+            imports: BTreeMap::from([("imported".into(), ImportBindingId(0))]),
+        },
+        linked_reads: vec![LinkedReadSpec::Binding(symbol)],
+        runtime_dependencies: vec![provider.clone()],
+    };
+    let linked = Arc::new(LinkedProgram {
+        universe: Arc::new(ProjectUniverse::new()),
+        modules: BTreeMap::from([(provider.clone(), provider_linked), (consumer.clone(), consumer_linked)]),
+        graphs: Default::default(),
+        entry: consumer.clone(),
+        initialization_order: vec![provider.clone(), consumer.clone()],
+    });
+    (SemanticWorkspaceInput::new(linked, sources, generation), ModuleIdPair { provider, consumer })
+}
+
+#[test]
+fn provider_const_value_change_invalidates_importing_constant() {
+    use phalcom_semantic::static_constant::StaticConstantId;
+    use phalcom_semantic::static_value::StaticInt;
+    let mut session = SemanticWorkspaceSession::new();
+    let consumer_src = "from provider import base as imported\nconst ConsumerValue: Int = imported + 1\n";
+    let (first_input, modules) = imported_const_expr_input("const base: Int = 10\nexport base\n", consumer_src, 1);
+    let first = session.update(first_input).expect("first update should succeed").snapshot;
+    let const_id = StaticConstantId::new(modules.consumer.clone(), "ConsumerValue");
+    let first_prod = first.static_constant(&const_id).cloned().expect("first ConsumerValue");
+    assert!(first_prod.is_successful());
+    let val1 = first.static_values().get(first_prod.value().unwrap()).unwrap();
+    assert_eq!(val1, &StaticValueData::Int(StaticInt::Small(11)));
+
+    // Gen 2: Edit provider base -> 20. Same type, value changed:
+    let (second_input, _) = imported_const_expr_input("const base: Int = 20\nexport base\n", consumer_src, 2);
+    let second = session.update(second_input).expect("second update should succeed").snapshot;
+    let second_prod = second.static_constant(&const_id).cloned().expect("second ConsumerValue");
+    assert!(second_prod.is_successful());
+    assert!(!Arc::ptr_eq(&first_prod, &second_prod), "ConsumerValue must be invalidated when provider base value changes");
+    let val2 = second.static_values().get(second_prod.value().unwrap()).unwrap();
+    assert_eq!(val2, &StaticValueData::Int(StaticInt::Small(21)));
+
+    // Gen 3: Change initializer in provider from 20 to 10 + 10 (same reduced value 20):
+    let (third_input, _) = imported_const_expr_input("const base: Int = 10 + 10\nexport base\n", consumer_src, 3);
+    let third = session.update(third_input).expect("third update should succeed").snapshot;
+    let third_prod = third.static_constant(&const_id).cloned().expect("third ConsumerValue");
+    assert!(third_prod.is_successful());
+    let val3 = third.static_values().get(third_prod.value().unwrap()).unwrap();
+    assert_eq!(val3, &StaticValueData::Int(StaticInt::Small(21)));
+    assert_eq!(second_prod.value().unwrap(), third_prod.value().unwrap(), "same canonical value retains value identity");
+}
+
 #[test]
 fn provider_const_type_change_invalidates_importing_checked_body() {
     let mut session = SemanticWorkspaceSession::new();
@@ -1204,6 +1316,41 @@ fn static_for_requires_its_checked_iteration_mode() {
         matches!(outcome, StaticEvalOutcome::Invalid(phalcom_semantic::static_eval::StaticEvalError::UnsupportedExpression)),
         "evaluator must reject a value incompatible with the checked lane mode: {outcome:?}"
     );
+}
+
+#[test]
+fn static_for_visits_fixed_record_fields_without_enumerating_an_open_tail() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            "type Open = { first: Int, second: Bool, ... }\n\
+             type FixedCount: Int { let mut count = 0\n for _ in Open { count = count + 1 }\n count }\n",
+        )
+        .analyze();
+    let checked = fixture
+        .analysis
+        .snapshot
+        .static_definition(&fixture.decl("main", "FixedCount"))
+        .and_then(|definition| definition.checked_body.as_ref())
+        .expect("checked static for body");
+    assert!(checked.diagnostics.is_empty(), "static fixed-field iteration should check: {:?}", checked.diagnostics);
+    assert!(
+        checked.static_iteration_lanes.values().any(|lane| matches!(lane.mode, phalcom_semantic::checker::static_iteration::StaticIterationMode::UnorderedProductFields)),
+        "checked static iteration must retain unordered fixed-field authority: {:?}",
+        checked.static_iteration_lanes
+    );
+    let mut values = StaticValueStore::new();
+    let outcome = StaticEvaluator::new(checked, &mut values, &mut QueryBudget::default(), &CancellationToken::new(), &[])
+        .with_semantic_tables(
+            fixture.analysis.snapshot.store(),
+            &fixture.analysis.snapshot.data_semantics,
+            &fixture.analysis.snapshot.enum_semantics,
+        )
+        .evaluate();
+    let StaticEvalOutcome::Reduced(value) = outcome else {
+        panic!("fixed fields must remain iterable despite the anonymous tail: {outcome:?}");
+    };
+    assert_eq!(values.get(value).unwrap(), &StaticValueData::Int(phalcom_semantic::static_value::StaticInt::Small(2)));
 }
 
 #[test]

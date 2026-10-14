@@ -220,6 +220,35 @@ fn test_residual_node_growth_budget_exhaustion() {
 }
 
 #[test]
+fn residual_payload_work_is_charged_before_interning_a_large_node() {
+    let mut store = StaticResidualStore::new();
+    let leaf = store
+        .parameter(
+            StaticResidualParameter {
+                owner: DeclarationId::new(ModuleId::universe_root(), "Input".into()),
+                index: 0,
+                domain: StaticValueDomain::Kind(KindId::TYPE),
+            },
+            &mut QueryBudget::default(),
+        )
+        .unwrap();
+    let mut budget = QueryBudget::new(0);
+    let result = store.pack(
+        vec![StaticEvalTerm::Residual(leaf); 2048].into_boxed_slice(),
+        Box::new([]),
+        Box::new([]),
+        TypeId(42),
+        &mut budget,
+    );
+    let report = match result {
+        Err(StaticResidualStoreError::BudgetExceeded(report)) => report,
+        other => panic!("a large residual payload must exhaust the work budget: {other:?}"),
+    };
+    assert_eq!(report.kind(), BudgetKind::Steps);
+    assert_eq!(budget.residual_nodes_created, 0, "the rejected payload must not allocate a residual node");
+}
+
+#[test]
 fn test_residual_result_domains() {
     let decl = DeclarationId::new(ModuleId::universe_root(), "Foo".into());
     let param = StaticResidualParameter {
@@ -239,6 +268,28 @@ fn test_residual_result_domains() {
         result_domain: StaticValueDomain::ValueType(TypeId(42)),
     };
     assert_eq!(apply.result_domain(), StaticValueDomain::ValueType(TypeId(42)));
+
+    let pack = StaticResidualData::Pack {
+        positionals: Box::new([]),
+        labels: Box::new([]),
+        labeled_values: Box::new([]),
+        result_type: TypeId(43),
+    };
+    assert_eq!(pack.result_domain(), StaticValueDomain::ValueType(TypeId(43)));
+}
+
+#[test]
+fn pack_residual_rejects_mismatched_or_duplicate_symbol_lanes() {
+    let mut store = StaticResidualStore::new();
+    let mut budget = QueryBudget::default();
+    let malformed = store.pack(Box::new([]), Box::new([Box::<str>::from("x")]), Box::new([]), TypeId(42), &mut budget);
+    assert_eq!(malformed, Err(StaticResidualStoreError::InvalidPackLanes));
+    let duplicate = store.pack(
+        Box::new([]), Box::new([Box::<str>::from("x"), Box::<str>::from("x")]),
+        Box::new([StaticEvalTerm::Kinded(TypeId(1)), StaticEvalTerm::Kinded(TypeId(2))]), TypeId(42), &mut budget,
+    );
+    assert_eq!(duplicate, Err(StaticResidualStoreError::DuplicatePackLabel("x".into())));
+    assert_eq!(budget.residual_nodes_created, 0);
 }
 
 #[test]

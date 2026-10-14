@@ -10,7 +10,7 @@ use crate::static_definition::StaticBodyId;
 use crate::static_domain::StaticValueDomain;
 use crate::static_eval::application::{StaticSpecializationEnvironmentKey, StaticTrustedBranchContext};
 use crate::static_value::StaticValueRef;
-use crate::types::id::{KindId, TypeId};
+use crate::types::id::TypeId;
 use crate::types::outcome::{BudgetReport, QueryBudget};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -137,6 +137,7 @@ pub enum StaticResidualData {
         positionals: Box<[StaticEvalTerm]>,
         labels: Box<[Box<str>]>,
         labeled_values: Box<[StaticEvalTerm]>,
+        result_type: TypeId,
     },
     Tuple {
         elements: Box<[StaticEvalTerm]>,
@@ -160,6 +161,33 @@ pub enum StaticResidualData {
 }
 
 impl StaticResidualData {
+    fn payload_work_units(&self) -> usize {
+        fn environment_units(environment: &StaticSpecializationEnvironmentKey) -> usize {
+            environment.argument_bindings().len()
+                .saturating_add(environment.type_bindings().len())
+                .saturating_add(environment.constraints().len())
+        }
+
+        match self {
+            Self::Parameter { .. } => 0,
+            Self::Apply { application, .. } => application.arguments.len().saturating_add(environment_units(&application.environment)),
+            Self::Proof { environment, .. } => environment_units(environment),
+            Self::MemberProjection { projection, environment, .. } =>
+                projection.arguments.len().saturating_add(environment_units(environment)),
+            Self::If { .. } => 3,
+            Self::Match { semantics, .. } => semantics.arms.len().saturating_add(1),
+            Self::Pack { positionals, labels, labeled_values, .. } => positionals
+                .len()
+                .saturating_add(labeled_values.len())
+                .saturating_add(labels.len())
+                .saturating_add(labels.iter().map(|label| label.len()).fold(0usize, usize::saturating_add)),
+            Self::Tuple { elements, .. } => elements.len(),
+            Self::Record { fields, .. } => fields.len(),
+            Self::Data { components, .. } => components.len(),
+            Self::Variant { fields, .. } => fields.len(),
+        }
+    }
+
     /// Returns the semantic domain produced by evaluating or specializing this residual.
     pub fn result_domain(&self) -> StaticValueDomain {
         match self {
@@ -169,7 +197,7 @@ impl StaticResidualData {
             Self::MemberProjection { result_domain, .. } => *result_domain,
             Self::If { result_domain, .. } => *result_domain,
             Self::Match { result_domain, .. } => *result_domain,
-            Self::Pack { .. } => StaticValueDomain::Kind(KindId::TYPE_PACK),
+            Self::Pack { result_type, .. } => StaticValueDomain::ValueType(*result_type),
             Self::Tuple { result_type, .. } => StaticValueDomain::ValueType(*result_type),
             Self::Record { result_type, .. } => StaticValueDomain::ValueType(*result_type),
             Self::Data { result_type, .. } => StaticValueDomain::ValueType(*result_type),
@@ -185,6 +213,10 @@ pub enum StaticResidualStoreError {
     UnknownResidual(u32),
     #[error("residual reference belongs to another store lineage")]
     ForeignStore,
+    #[error("Pack residual has mismatched labeled lanes")]
+    InvalidPackLanes,
+    #[error("Pack residual has duplicate Symbol label `{0}`")]
+    DuplicatePackLabel(Box<str>),
     #[error("static residual node budget exceeded: {0:?}")]
     BudgetExceeded(BudgetReport),
 }
@@ -258,6 +290,14 @@ impl StaticResidualStore {
         trusted_context: StaticTrustedBranchContext,
         budget: &mut QueryBudget,
     ) -> Result<StaticResidualRef, StaticResidualStoreError> {
+        // Charge for variable-size payloads before traversing or cloning an
+        // interning key. Repeated attempts may be free in nodes, but not in work.
+        let payload_units = data.payload_work_units()
+            .saturating_add(trusted_context.type_bindings().len())
+            .saturating_add(trusted_context.constraints().len());
+        for _ in 0..payload_units.div_ceil(1024) {
+            budget.charge_step().map_err(StaticResidualStoreError::from)?;
+        }
         self.validate_data(&data)?;
         let key = (data.clone(), trusted_context.clone());
         if let Some(&existing) = self.interner.get(&key) {
@@ -345,9 +385,10 @@ impl StaticResidualStore {
         positionals: Box<[StaticEvalTerm]>,
         labels: Box<[Box<str>]>,
         labeled_values: Box<[StaticEvalTerm]>,
+        result_type: TypeId,
         budget: &mut QueryBudget,
     ) -> Result<StaticResidualRef, StaticResidualStoreError> {
-        self.intern(StaticResidualData::Pack { positionals, labels, labeled_values }, budget)
+        self.intern(StaticResidualData::Pack { positionals, labels, labeled_values, result_type }, budget)
     }
 
     pub fn tuple(
@@ -454,7 +495,16 @@ impl StaticResidualStore {
                     validate(&arm.body)?;
                 }
             }
-            StaticResidualData::Pack { positionals, labeled_values, .. } => {
+            StaticResidualData::Pack { positionals, labels, labeled_values, .. } => {
+                if labels.len() != labeled_values.len() {
+                    return Err(StaticResidualStoreError::InvalidPackLanes);
+                }
+                let mut seen = std::collections::HashSet::with_capacity(labels.len());
+                for label in labels.iter() {
+                    if !seen.insert(label.as_ref()) {
+                        return Err(StaticResidualStoreError::DuplicatePackLabel(label.clone()));
+                    }
+                }
                 for term in positionals.iter().chain(labeled_values.iter()) {
                     validate(term)?;
                 }
@@ -565,8 +615,9 @@ impl StaticResidualStore {
                     self.fingerprint_term(&arm.body, hasher)?;
                 }
             }
-            StaticResidualData::Pack { positionals, labels, labeled_values } => {
+            StaticResidualData::Pack { positionals, labels, labeled_values, result_type } => {
                 16u8.hash(hasher);
+                result_type.hash(hasher);
                 positionals.len().hash(hasher);
                 for p in positionals.iter() {
                     self.fingerprint_term(p, hasher)?;

@@ -9,6 +9,7 @@ use phalcom_semantic::identity::{DeclarationId, DispatchSide, FieldId};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::static_constant::StaticConstantId;
 use phalcom_semantic::static_eval::{StaticEvalError, StaticEvalOutcome, StaticEvaluator};
+use phalcom_semantic::static_eval::residual::{StaticResidualParameter, StaticResidualStore};
 use phalcom_semantic::static_value::{StaticInt, StaticSequenceFamily, StaticValueData};
 use phalcom_semantic::types::store::TypeData;
 use std::sync::Arc;
@@ -18,6 +19,15 @@ fn test_module() -> ModuleId {
         ResolvedProjectId::from_raw(1),
         ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
     )
+}
+
+fn registered_query_projects() -> (tempfile::TempDir, phalcom_modules::ProjectUniverse) {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("main.ph"), "const A: Int = 1\n").unwrap();
+    let mut projects = phalcom_modules::ProjectUniverse::new();
+    let id = projects.load_synthetic_root("test", root.path(), "main").unwrap();
+    assert_eq!(id, ResolvedProjectId::from_raw(1));
+    (root, projects)
 }
 
 #[test]
@@ -33,6 +43,282 @@ fn test_literal_const() {
     let val_ref = product.value().expect("value");
     let val = update.snapshot.static_values().get(val_ref).expect("value data");
     assert_eq!(val, &StaticValueData::Int(StaticInt::Small(42)));
+}
+
+#[test]
+fn symbolic_constant_fingerprint_does_not_depend_on_residual_allocation() {
+    let module = test_module();
+    let mut session = SemanticWorkspaceSession::new();
+    let snapshot = session.update(single_module_input(module.clone(), "const A: Int = 1\n", 1)).unwrap().snapshot;
+    let original = snapshot.static_constant(&StaticConstantId::new(module, "A")).expect("static constant product");
+    let parameter = StaticResidualParameter {
+        owner: DeclarationId::new(ModuleId::universe_root(), "Input".into()),
+        index: 0,
+        domain: phalcom_semantic::static_domain::StaticValueDomain::Kind(phalcom_semantic::types::id::KindId::TYPE),
+    };
+    let mut first_store = StaticResidualStore::new();
+    let first_ref = first_store.parameter(parameter.clone(), &mut QueryBudget::default()).unwrap();
+    let mut second_store = StaticResidualStore::new();
+    let decoy = StaticResidualParameter { index: 1, ..parameter.clone() };
+    second_store.parameter(decoy, &mut QueryBudget::default()).unwrap();
+    let second_ref = second_store.parameter(parameter, &mut QueryBudget::default()).unwrap();
+
+    let mut first = original.as_ref().clone();
+    first.outcome = StaticEvalOutcome::Symbolic(first_ref);
+    first.residuals = Some(Arc::new(first_store));
+    first.value = None;
+    let mut second = first.clone();
+    second.outcome = StaticEvalOutcome::Symbolic(second_ref);
+    second.residuals = Some(Arc::new(second_store));
+    let (_root, projects) = registered_query_projects();
+    let left = phalcom_semantic::db::fingerprint::static_constant_product_fingerprint(&first, snapshot.static_values(), snapshot.store(), &projects).unwrap();
+    let right = phalcom_semantic::db::fingerprint::static_constant_product_fingerprint(&second, snapshot.static_values(), snapshot.store(), &projects).unwrap();
+    assert_eq!(left, right, "equivalent residual DAGs must publish the same product fingerprint");
+    first.residuals = None;
+    assert!(
+        phalcom_semantic::db::fingerprint::static_constant_product_fingerprint(&first, snapshot.static_values(), snapshot.store(), &projects).is_err(),
+        "publication must fail closed when a symbolic product loses its residual store"
+    );
+}
+
+#[test]
+fn symbolic_constant_fingerprint_uses_logical_project_identity() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("main.ph"), "const A: Int = 1\n").unwrap();
+    let other_root = tempfile::tempdir().unwrap();
+    let mut first_projects = phalcom_modules::ProjectUniverse::new();
+    let first_id = first_projects.load_synthetic_root("same", root.path(), "main").unwrap();
+    let mut second_projects = phalcom_modules::ProjectUniverse::new();
+    second_projects.load_synthetic_root("decoy", other_root.path(), "main").unwrap();
+    let second_id = second_projects.load_synthetic_root("same", root.path(), "main").unwrap();
+    assert_ne!(first_id, second_id);
+
+    let mut session = SemanticWorkspaceSession::new();
+    let snapshot = session.update(single_module_input(test_module(), "const A: Int = 1\n", 1)).unwrap().snapshot;
+    let original = snapshot.static_constant(&StaticConstantId::new(test_module(), "A")).unwrap();
+    let mut residuals = StaticResidualStore::new();
+    let reference = residuals.parameter(
+        StaticResidualParameter {
+            owner: DeclarationId::new(ModuleId::universe_root(), "Input".into()),
+            index: 0,
+            domain: phalcom_semantic::static_domain::StaticValueDomain::Kind(phalcom_semantic::types::id::KindId::TYPE),
+        },
+        &mut QueryBudget::default(),
+    ).unwrap();
+    let mut first = original.as_ref().clone();
+    first.id = StaticConstantId::new(ModuleId::resolved(first_id, ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()])), "A");
+    first.outcome = StaticEvalOutcome::Symbolic(reference);
+    first.residuals = Some(Arc::new(residuals));
+    first.value = None;
+    let mut second = first.clone();
+    second.id = StaticConstantId::new(ModuleId::resolved(second_id, ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()])), "A");
+    let fingerprint = phalcom_semantic::db::fingerprint::static_constant_product_fingerprint;
+    assert_eq!(
+        fingerprint(&first, snapshot.static_values(), snapshot.store(), &first_projects).unwrap(),
+        fingerprint(&second, snapshot.static_values(), snapshot.store(), &second_projects).unwrap(),
+        "allocation order of ProjectUniverse IDs cannot change a symbolic root product"
+    );
+}
+
+#[test]
+fn symbolic_constant_fingerprint_projects_value_meaning_across_value_stores() {
+    use phalcom_semantic::static_eval::residual::{StaticEvalTerm, StaticResidualApplication};
+
+    let mut session = SemanticWorkspaceSession::new();
+    let snapshot = session.update(single_module_input(test_module(), "const A: Int = 1\n", 1)).unwrap().snapshot;
+    let original = snapshot.static_constant(&StaticConstantId::new(test_module(), "A")).unwrap();
+    let (_root, projects) = registered_query_projects();
+    let owner = DeclarationId::new(ModuleId::universe_root(), "Application".into());
+
+    let mut first_values = phalcom_semantic::static_value::StaticValueStore::new();
+    let first_true = first_values.intern_bool(true);
+    let mut second_values = phalcom_semantic::static_value::StaticValueStore::new();
+    second_values.intern_int(500);
+    let second_true = second_values.intern_bool(true);
+    let second_false = second_values.intern_bool(false);
+
+    let make = |value, owner: DeclarationId| {
+        let mut store = StaticResidualStore::new();
+        let residual = store.apply(
+            StaticResidualApplication {
+                definition: owner,
+                arguments: Box::new([StaticEvalTerm::Value(value)]),
+                environment: Default::default(),
+            },
+            phalcom_semantic::static_domain::StaticValueDomain::Kind(phalcom_semantic::types::id::KindId::TYPE),
+            &mut QueryBudget::default(),
+        ).unwrap();
+        let mut product = original.as_ref().clone();
+        product.outcome = StaticEvalOutcome::Symbolic(residual);
+        product.residuals = Some(Arc::new(store));
+        product.value = None;
+        product
+    };
+    let first = make(first_true, owner.clone());
+    let second = make(second_true, owner.clone());
+    let different = make(second_false, owner);
+    let fingerprint = phalcom_semantic::db::fingerprint::static_constant_product_fingerprint;
+    let left = fingerprint(&first, &first_values, snapshot.store(), &projects).unwrap();
+    assert_eq!(left, fingerprint(&second, &second_values, snapshot.store(), &projects).unwrap());
+    assert_ne!(left, fingerprint(&different, &second_values, snapshot.store(), &projects).unwrap());
+}
+
+#[test]
+fn symbolic_constant_fingerprint_projects_type_meaning_across_type_stores() {
+    let module = test_module();
+    let mut session = SemanticWorkspaceSession::new();
+    let snapshot = session.update(single_module_input(module.clone(), "const A: Int = 1\n", 1)).unwrap().snapshot;
+    let original = snapshot.static_constant(&StaticConstantId::new(module, "A")).unwrap();
+    let int_decl = phalcom_semantic::core_surface::identity::CoreDeclarationIds::default().int;
+    let original_int = snapshot.declarations.form(&int_decl).expect("canonical Int type");
+    let mut independent = phalcom_semantic::types::store::TypeStore::new();
+    independent.nominal_type(DeclarationId::new(ModuleId::universe_root(), "AllocationDecoy".into()));
+    let independent_int = independent.nominal_type(int_decl);
+    assert_ne!(original_int, independent_int, "two stores must use different arena IDs for the discriminator");
+
+    let owner = DeclarationId::new(ModuleId::universe_root(), "Open".into());
+    let mut first_store = StaticResidualStore::new();
+    let first_ref = first_store.parameter(
+        StaticResidualParameter {
+            owner: owner.clone(), index: 0,
+            domain: phalcom_semantic::static_domain::StaticValueDomain::ValueType(original_int),
+        },
+        &mut QueryBudget::default(),
+    ).unwrap();
+    let mut second_store = StaticResidualStore::new();
+    let second_ref = second_store.parameter(
+        StaticResidualParameter {
+            owner, index: 0,
+            domain: phalcom_semantic::static_domain::StaticValueDomain::ValueType(independent_int),
+        },
+        &mut QueryBudget::default(),
+    ).unwrap();
+    let mut first = original.as_ref().clone();
+    first.outcome = StaticEvalOutcome::Symbolic(first_ref);
+    first.residuals = Some(Arc::new(first_store));
+    first.value = None;
+    let mut second = first.clone();
+    second.outcome = StaticEvalOutcome::Symbolic(second_ref);
+    second.residuals = Some(Arc::new(second_store));
+    let (_root, projects) = registered_query_projects();
+    let values = snapshot.static_values();
+    let fingerprint = phalcom_semantic::db::fingerprint::static_constant_product_fingerprint;
+    assert_eq!(
+        fingerprint(&first, values, snapshot.store(), &projects).unwrap(),
+        fingerprint(&second, values, &independent, &projects).unwrap(),
+        "equal nominal meanings must not inherit different TypeId allocations"
+    );
+}
+
+#[test]
+fn symbolic_constant_fingerprint_projects_pack_result_type_and_ordered_lanes() {
+    use phalcom_semantic::static_eval::residual::StaticEvalTerm;
+    use phalcom_semantic::types::store::PackTypeElement;
+
+    let mut session = SemanticWorkspaceSession::new();
+    let snapshot = session.update(single_module_input(test_module(), "const A: Int = 1\n", 1)).unwrap().snapshot;
+    let original = snapshot.static_constant(&StaticConstantId::new(test_module(), "A")).unwrap();
+    let (_root, projects) = registered_query_projects();
+    let int_decl = phalcom_semantic::core_surface::identity::CoreDeclarationIds::default().int;
+    let mut left_types = snapshot.store().clone();
+    let left_int = Arc::make_mut(&mut left_types).nominal_type(int_decl.clone());
+    let left_pack_type = Arc::make_mut(&mut left_types).pack(Box::new([
+        PackTypeElement::unlabeled(left_int), PackTypeElement::labeled("first".into(), left_int),
+        PackTypeElement::labeled("second".into(), left_int),
+    ])).unwrap();
+    let mut right_types = phalcom_semantic::types::store::TypeStore::new();
+    right_types.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Decoy".into()));
+    let right_int = right_types.nominal_type(int_decl);
+    let right_pack_type = right_types.pack(Box::new([
+        PackTypeElement::unlabeled(right_int), PackTypeElement::labeled("first".into(), right_int),
+        PackTypeElement::labeled("second".into(), right_int),
+    ])).unwrap();
+    assert_ne!(left_pack_type, right_pack_type);
+
+    let make = |int_type, pack_type, decoy| {
+        let mut values = phalcom_semantic::static_value::StaticValueStore::new();
+        if decoy { values.intern_int(999); }
+        let one = values.intern_int(1);
+        let two = values.intern_int(2);
+        let mut residuals = StaticResidualStore::new();
+        if decoy {
+            residuals.parameter(StaticResidualParameter {
+                owner: DeclarationId::new(ModuleId::universe_root(), "Decoy".into()), index: 0,
+                domain: phalcom_semantic::static_domain::StaticValueDomain::ValueType(int_type),
+            }, &mut QueryBudget::default()).unwrap();
+        }
+        let input = residuals.parameter(StaticResidualParameter {
+            owner: DeclarationId::new(ModuleId::universe_root(), "Input".into()), index: 0,
+            domain: phalcom_semantic::static_domain::StaticValueDomain::ValueType(int_type),
+        }, &mut QueryBudget::default()).unwrap();
+        let pack = residuals.pack(
+            Box::new([StaticEvalTerm::Residual(input)]),
+            Box::new([Box::<str>::from("first"), Box::<str>::from("second")]),
+            Box::new([StaticEvalTerm::Value(one), StaticEvalTerm::Value(two)]),
+            pack_type, &mut QueryBudget::default(),
+        ).unwrap();
+        let mut product = original.as_ref().clone();
+        product.outcome = StaticEvalOutcome::Symbolic(pack);
+        product.residuals = Some(Arc::new(residuals));
+        product.value = None;
+        (product, values)
+    };
+    let (left, left_values) = make(left_int, left_pack_type, false);
+    let (right, right_values) = make(right_int, right_pack_type, true);
+    let fingerprint = phalcom_semantic::db::fingerprint::static_constant_product_fingerprint;
+    let expected = fingerprint(&left, &left_values, &left_types, &projects).unwrap();
+    assert_eq!(expected, fingerprint(&right, &right_values, &right_types, &projects).unwrap(),
+        "Pack result type, symbolic input and ordered Symbol lanes must fingerprint by meaning");
+    let mut different_types = right_types.clone();
+    let swapped_type = different_types.pack(Box::new([
+        PackTypeElement::unlabeled(right_int), PackTypeElement::labeled("second".into(), right_int),
+        PackTypeElement::labeled("first".into(), right_int),
+    ])).unwrap();
+    let (different, different_values) = make(right_int, swapped_type, false);
+    assert_ne!(expected, fingerprint(&different, &different_values, &different_types, &projects).unwrap(),
+        "a distinct checked Pack result type must change the symbolic product fingerprint");
+}
+
+#[test]
+fn symbolic_constant_fingerprint_walks_deep_residual_dag_without_host_recursion() {
+    use phalcom_semantic::static_eval::residual::{StaticEvalTerm, StaticResidualApplication};
+
+    let module = test_module();
+    let mut session = SemanticWorkspaceSession::new();
+    let snapshot = session.update(single_module_input(module.clone(), "const A: Int = 1\n", 1)).unwrap().snapshot;
+    let original = snapshot.static_constant(&StaticConstantId::new(module, "A")).unwrap();
+    let owner = DeclarationId::new(ModuleId::universe_root(), "Deep".into());
+    let mut store = StaticResidualStore::new();
+    let mut budget = QueryBudget::default();
+    let mut current = store.parameter(
+        StaticResidualParameter {
+            owner: owner.clone(), index: 0,
+            domain: phalcom_semantic::static_domain::StaticValueDomain::Kind(phalcom_semantic::types::id::KindId::TYPE),
+        },
+        &mut budget,
+    ).unwrap();
+    for _ in 0..4096 {
+        current = store.apply(
+            StaticResidualApplication {
+                definition: owner.clone(),
+                arguments: Box::new([StaticEvalTerm::Residual(current)]),
+                environment: Default::default(),
+            },
+            phalcom_semantic::static_domain::StaticValueDomain::Kind(phalcom_semantic::types::id::KindId::TYPE),
+            &mut budget,
+        ).unwrap();
+    }
+    let mut product = original.as_ref().clone();
+    product.outcome = StaticEvalOutcome::Symbolic(current);
+    product.residuals = Some(Arc::new(store));
+    product.value = None;
+    let (_root, projects) = registered_query_projects();
+    phalcom_semantic::db::fingerprint::static_constant_product_fingerprint(
+        &product,
+        snapshot.static_values(),
+        snapshot.store(),
+        &projects,
+    ).expect("deep but bounded residual must fingerprint without host recursion");
 }
 
 #[test]
@@ -143,7 +429,7 @@ fn test_static_sequence_list_and_missing_proof_fail_closed() {
         .expect("Array constant product");
     assert!(product.is_successful(), "setup constant should reduce: {:?}", product.outcome);
 
-    let mut missing_proof = product.checked.as_ref().clone();
+    let mut missing_proof = product.checked.as_ref().unwrap().as_ref().clone();
     let mut checked_expression = missing_proof.expression.clone();
     checked_expression.sequence_literals = Arc::new(Default::default());
     missing_proof.expression = checked_expression;
@@ -176,7 +462,7 @@ fn test_static_sequence_budget_and_cancellation_do_not_publish_roots() {
 
     let mut values = phalcom_semantic::static_value::StaticValueStore::new();
     let mut budget = QueryBudget::new(0);
-    let bounded = StaticEvaluator::for_constant(product.checked.as_ref(), &mut values, &mut budget, &CancellationToken::new())
+    let bounded = StaticEvaluator::for_constant(product.checked.as_deref().unwrap(), &mut values, &mut budget, &CancellationToken::new())
         .with_type_store(update.snapshot.store())
         .evaluate();
     assert!(matches!(bounded, StaticEvalOutcome::BudgetExceeded(_)));
@@ -186,7 +472,7 @@ fn test_static_sequence_budget_and_cancellation_do_not_publish_roots() {
     cancellation.cancel();
     let mut cancelled_values = phalcom_semantic::static_value::StaticValueStore::new();
     let cancelled = StaticEvaluator::for_constant(
-        product.checked.as_ref(),
+        product.checked.as_deref().unwrap(),
         &mut cancelled_values,
         &mut QueryBudget::default(),
         &cancellation,
@@ -280,6 +566,8 @@ fn test_constant_annotation_projects_a_reduced_constant_record_key() {
     assert!(
         value
             .checked
+            .as_ref()
+            .unwrap()
             .dependencies
             .contains(&SemanticDependency::StaticConstant(StaticConstantId::new(test_module(), "Key"))),
         "the published Value product must retain its exact computed-key dependency"
@@ -635,6 +923,8 @@ fn test_imported_constant_projects_a_computed_record_key_with_remote_identity() 
     assert!(
         value
             .checked
+            .as_ref()
+            .unwrap()
             .dependencies
             .contains(&SemanticDependency::StaticConstant(StaticConstantId::new(provider, "Key")))
     );
@@ -659,7 +949,7 @@ fn test_constant_key_edit_republishes_only_its_annotation_consumer() {
     assert!(!Arc::ptr_eq(&value1, value2), "Value must be republished after its selected key changes");
     assert!(Arc::ptr_eq(&other1, other2), "unrelated constant must remain reusable");
 
-    let expected = value2.checked.result_type.expect("Value declared type");
+    let expected = value2.checked.as_ref().unwrap().result_type.expect("Value declared type");
     let TypeData::Record(row_id) = update2.snapshot.store.get(expected) else {
         panic!("Value annotation must remain a Record type")
     };
@@ -693,6 +983,8 @@ fn test_same_result_key_source_edit_revalidates_its_annotation_consumer() {
     assert!(
         value2
             .checked
+            .as_ref()
+            .unwrap()
             .dependencies
             .contains(&SemanticDependency::StaticConstant(StaticConstantId::new(module.clone(), "Key")))
     );
@@ -710,8 +1002,8 @@ fn test_same_result_key_source_edit_revalidates_its_annotation_consumer() {
         update2.snapshot.static_values().get(value2.value().expect("incremental value")),
         cold.snapshot.static_values().get(cold_value.value().expect("cold value"))
     );
-    let incremental_type = value2.checked.result_type.expect("incremental Value type");
-    let cold_type = cold_value.checked.result_type.expect("cold Value type");
+    let incremental_type = value2.checked.as_ref().unwrap().result_type.expect("incremental Value type");
+    let cold_type = cold_value.checked.as_ref().unwrap().result_type.expect("cold Value type");
     let (TypeData::Record(incremental_row), TypeData::Record(cold_row)) = (update2.snapshot.store.get(incremental_type), cold.snapshot.store.get(cold_type))
     else {
         panic!("both Value annotations must form Record types")
@@ -735,7 +1027,7 @@ fn test_const_to_const_dependency() {
 
     let prod_b = update.snapshot.static_constant(&id_b).expect("static constant B");
     assert!(prod_b.is_successful());
-    assert!(prod_b.checked.static_constant_reads.contains(id_a.symbol()), "B should record dependency on A");
+    assert!(prod_b.checked.as_ref().unwrap().static_constant_reads.contains(id_a.symbol()), "B should record dependency on A");
 
     let val_b = update.snapshot.static_values().get(prod_b.value().unwrap()).unwrap();
     assert_eq!(val_b, &StaticValueData::Int(StaticInt::Small(15)));

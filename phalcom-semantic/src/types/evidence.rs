@@ -168,6 +168,9 @@ pub fn join_type_knowledge(store: &mut super::store::TypeStore, inputs: impl Int
     }
 
     let types = known.iter().map(|evidence| evidence.ty).collect::<Vec<_>>();
+    if !types.iter().all(|&ty| store.is_proper_type(ty)) {
+        return TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence);
+    }
     let joined_type = store.union(&types);
     let status = known
         .iter()

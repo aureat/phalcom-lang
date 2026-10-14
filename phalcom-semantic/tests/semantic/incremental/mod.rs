@@ -16,6 +16,7 @@ mod product_stability;
 mod query_ownership;
 mod recomputation_metrics;
 mod record_rows;
+mod static_artifacts;
 pub(crate) mod support;
 mod t12_6;
 mod traits;

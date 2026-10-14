@@ -44,6 +44,8 @@ fn static_pack_storage_slicing_and_equality() {
     assert_eq!(slice1_data.positional_len, 2);
     assert_eq!(slice1_data.labeled_start, 0);
     assert_eq!(slice1_data.labeled_len, 1);
+    assert_eq!(values.pack_labeled_value_at(*slice1_id, 0).unwrap(), str_a);
+    assert_eq!(values.pack_labeled_value_at(*slice1_id, 1), Err(StaticValueStoreError::InvalidPackSliceRange));
 
     // Slice-of-slice (rest chain) also shares backing
     let slice2 = values.intern_pack_slice(slice1, 1, 1, 0, 0).expect("valid sub-slice");
@@ -90,6 +92,7 @@ fn static_pack_storage_slicing_and_equality() {
         assert_eq!(current_data.backing, large_backing, "step {step} must retain root backing");
         assert_eq!(current_data.positional_start, positional_start, "step {step} positional offset");
         assert_eq!(current_data.labeled_start, labeled_start, "step {step} labeled offset");
+        assert_eq!(values.pack_labeled_value_at(*current_id, 0).unwrap(), int_two);
     }
 
     // 3. Invalid slice bounds rejected

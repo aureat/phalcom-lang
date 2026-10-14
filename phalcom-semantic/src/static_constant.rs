@@ -97,20 +97,75 @@ impl std::ops::Deref for CheckedStaticConstantInitializer {
     }
 }
 
+/// Origin metadata for a static constant reconstructed from imported artifact bundles.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportedStaticConstantOrigin {
+    pub provider: phalcom_type_meta::identity::StableStaticConstantRef,
+    pub value_fingerprint: phalcom_type_meta::fingerprint::Fingerprint128,
+    pub dependency_fingerprint: phalcom_type_meta::fingerprint::Fingerprint128,
+}
+
 /// Product published by static constant queries in the incremental DB and snapshots.
 #[derive(Clone, Debug)]
 pub struct StaticConstantProduct {
     pub id: StaticConstantId,
     pub declaration_range: SourceRange,
     pub initializer_range: SourceRange,
-    pub checked: Arc<CheckedStaticConstantInitializer>,
+    pub checked: Option<Arc<CheckedStaticConstantInitializer>>,
     pub outcome: StaticEvalOutcome,
+    /// Owns every node referenced by a published symbolic outcome.
+    pub residuals: Option<Arc<crate::static_eval::StaticResidualStore>>,
     pub value: Option<StaticValueRef>,
     pub lkg_value: Option<StaticValueRef>,
     pub diagnostics: Arc<[SemanticDiagnostic]>,
+    pub imported: Option<ImportedStaticConstantOrigin>,
 }
 
 impl StaticConstantProduct {
+    pub fn for_source(
+        id: StaticConstantId,
+        declaration_range: SourceRange,
+        initializer_range: SourceRange,
+        checked: Arc<CheckedStaticConstantInitializer>,
+        outcome: StaticEvalOutcome,
+        residuals: Option<Arc<crate::static_eval::StaticResidualStore>>,
+        value: Option<StaticValueRef>,
+        lkg_value: Option<StaticValueRef>,
+        diagnostics: Arc<[SemanticDiagnostic]>,
+    ) -> Self {
+        Self {
+            id,
+            declaration_range,
+            initializer_range,
+            checked: Some(checked),
+            outcome,
+            residuals,
+            value,
+            lkg_value,
+            diagnostics,
+            imported: None,
+        }
+    }
+
+    pub fn for_imported(
+        id: StaticConstantId,
+        value: StaticValueRef,
+        origin: ImportedStaticConstantOrigin,
+    ) -> Self {
+        Self {
+            id,
+            declaration_range: SourceRange::default(),
+            initializer_range: SourceRange::default(),
+            checked: None,
+            outcome: StaticEvalOutcome::Reduced(value),
+            residuals: None,
+            value: Some(value),
+            lkg_value: Some(value),
+            diagnostics: Arc::new([]),
+            imported: Some(origin),
+        }
+    }
+
     pub fn id(&self) -> &StaticConstantId {
         &self.id
     }

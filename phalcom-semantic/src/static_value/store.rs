@@ -3,7 +3,7 @@
 use crate::data_semantics::DataInfo;
 use crate::enum_semantics::VariantInfo;
 use crate::field_key::FieldKey;
-use crate::identity::{DataComponentId, DataConstructorId, VariantId};
+use crate::identity::{DataComponentId, DataConstructorId, DeclarationId, VariantId};
 pub use crate::scalar::StaticInt;
 use crate::static_domain::StaticValueDomain;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge};
@@ -739,6 +739,16 @@ impl StaticValueStore {
         Ok(labels.iter().copied().zip(values.iter().copied()).collect())
     }
 
+    /// Reads one visible labeled value without materializing the Pack's labeled lane.
+    pub fn pack_labeled_value_at(&self, id: StaticPackId, index: usize) -> Result<StaticValueRef, StaticValueStoreError> {
+        let (data, backing) = self.get_pack(id)?;
+        if index >= data.labeled_len as usize {
+            return Err(StaticValueStoreError::InvalidPackSliceRange);
+        }
+        let absolute = (data.labeled_start as usize).checked_add(index).ok_or(StaticValueStoreError::InvalidPackSliceRange)?;
+        backing.labeled_values.get(absolute).copied().ok_or(StaticValueStoreError::InvalidPackSliceRange)
+    }
+
     /// Interns a declared data value using canonical component/constructor products.
     /// `result_type` is the already-resolved ordinary type from semantic checking.
     pub fn intern_data(
@@ -837,12 +847,62 @@ impl StaticValueStore {
             *id
         } else {
             let id = StaticVariantValueId(self.variant_values.len() as u32);
-            self.variant_values.push_back(node.clone());
-            self.variant_value_ids.insert(node, id);
-            id
-        };
-        Ok(self.intern(StaticValueData::Variant(id)))
-    }
+        self.variant_values.push_back(node.clone());
+        self.variant_value_ids.insert(node, id);
+        id
+    };
+    Ok(self.intern(StaticValueData::Variant(id)))
+}
+
+/// Interns a data value reconstructed from durable metadata without re-checking declaration tables.
+pub fn intern_data_reconstructed(
+    &mut self,
+    owner: DeclarationId,
+    constructor: crate::identity::DataConstructorId,
+    result_type: TypeId,
+    components: Vec<(crate::identity::DataComponentId, StaticValueRef)>,
+) -> Result<StaticValueRef, StaticValueStoreError> {
+    self.check_children(components.iter().map(|(_, value)| *value))?;
+    let node = StaticDataValue {
+        owner,
+        constructor,
+        result_type,
+        components: components.into_boxed_slice(),
+    };
+    let id = if let Some(id) = self.data_value_ids.get(&node) {
+        *id
+    } else {
+        let id = StaticDataValueId(self.data_values.len() as u32);
+        self.data_values.push_back(node.clone());
+        self.data_value_ids.insert(node, id);
+        id
+    };
+    Ok(self.intern(StaticValueData::Data(id)))
+}
+
+/// Interns a variant value reconstructed from durable metadata without re-checking declaration tables.
+pub fn intern_variant_reconstructed(
+    &mut self,
+    variant: crate::identity::VariantId,
+    result_type: TypeId,
+    fields: Vec<(crate::identity::VariantFieldId, StaticValueRef)>,
+) -> Result<StaticValueRef, StaticValueStoreError> {
+    self.check_children(fields.iter().map(|(_, value)| *value))?;
+    let node = StaticVariantValue {
+        variant,
+        result_type,
+        fields: fields.into_boxed_slice(),
+    };
+    let id = if let Some(id) = self.variant_value_ids.get(&node) {
+        *id
+    } else {
+        let id = StaticVariantValueId(self.variant_values.len() as u32);
+        self.variant_values.push_back(node.clone());
+        self.variant_value_ids.insert(node, id);
+        id
+    };
+    Ok(self.intern(StaticValueData::Variant(id)))
+}
 
     /// Derives the ordinary Telos type for a static value through `TypeStore`
     /// and the supplied canonical declaration products.

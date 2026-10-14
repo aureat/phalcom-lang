@@ -51,6 +51,12 @@ pub enum MaterializationDescriptor {
         kind: SequenceMaterializationKind,
         elements: Arc<[MaterializationDescriptor]>,
     },
+    Tuple(Arc<[MaterializationDescriptor]>),
+    Record(Arc<[(crate::field_key::FieldKey, MaterializationDescriptor)]>),
+    Pack {
+        positionals: Arc<[MaterializationDescriptor]>,
+        labeled: Arc<[(Arc<str>, MaterializationDescriptor)]>,
+    },
     DeferredStructural(DeferredStructuralKind),
     Unsupported(String),
 }
@@ -61,7 +67,7 @@ impl MaterializationDescriptor {
             Self::Unit | Self::Bool(_) | Self::Char(_) | Self::Int(_) | Self::Float(_) | Self::String(_) | Self::Symbol(_) => {
                 MaterializationCapability::P2Primitive
             }
-            Self::Sequence { .. } => MaterializationCapability::Sequence,
+            Self::Sequence { .. } | Self::Tuple(_) | Self::Record(_) | Self::Pack { .. } => MaterializationCapability::Sequence,
             Self::DeferredStructural(_) => MaterializationCapability::DeferredStructural,
             Self::Unsupported(_) => MaterializationCapability::Unsupported,
         }
@@ -88,7 +94,14 @@ impl MaterializationDescriptor {
                 let s = store.get_symbol(*sym_id)?;
                 Self::Symbol(Arc::from(s))
             }
-            StaticValueData::Tuple(_) => Self::DeferredStructural(DeferredStructuralKind::Tuple),
+            StaticValueData::Tuple(id) => {
+                let elements = store.get_tuple(*id).ok()?;
+                let mut descs = Vec::with_capacity(elements.len());
+                for elem in elements {
+                    descs.push(Self::from_static_value(store, *elem)?);
+                }
+                Self::Tuple(Arc::from(descs))
+            }
             StaticValueData::Sequence(sequence_id) => {
                 let sequence = store.get_sequence(*sequence_id).ok()?;
                 let kind = match sequence.family() {
@@ -111,10 +124,35 @@ impl MaterializationDescriptor {
                     elements: Arc::from(elements),
                 }
             }
-            StaticValueData::Record(_) => Self::DeferredStructural(DeferredStructuralKind::Record),
+            StaticValueData::Record(id) => {
+                let fields = store.get_record(*id).ok()?;
+                let mut descs = Vec::with_capacity(fields.len());
+                for f in fields {
+                    let val = Self::from_static_value(store, f.value)?;
+                    descs.push((f.key.clone(), val));
+                }
+                Self::Record(Arc::from(descs))
+            }
             StaticValueData::Data(_) => Self::DeferredStructural(DeferredStructuralKind::Data),
             StaticValueData::Variant(_) => Self::DeferredStructural(DeferredStructuralKind::Variant),
-            StaticValueData::Pack(_) => Self::DeferredStructural(DeferredStructuralKind::Pack),
+            StaticValueData::Pack(id) => {
+                let pos_slice = store.pack_positionals(*id).ok()?;
+                let lab_slice = store.pack_labeled(*id).ok()?;
+                let mut pos = Vec::with_capacity(pos_slice.len());
+                for p in pos_slice {
+                    pos.push(Self::from_static_value(store, *p)?);
+                }
+                let mut lab = Vec::with_capacity(lab_slice.len());
+                for (sym, v) in lab_slice {
+                    let s = store.get_symbol(sym)?;
+                    let val = Self::from_static_value(store, v)?;
+                    lab.push((Arc::from(s), val));
+                }
+                Self::Pack {
+                    positionals: Arc::from(pos),
+                    labeled: Arc::from(lab),
+                }
+            }
             StaticValueData::Type(ty) => Self::Unsupported(format!("type value {ty:?} cannot be materialized at runtime in P2")),
             StaticValueData::StaticTerm(ty) => Self::Unsupported(format!("static term {ty:?} cannot be materialized at runtime in P2")),
         };

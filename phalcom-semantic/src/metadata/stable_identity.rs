@@ -2,19 +2,27 @@
 
 use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, FieldId};
 use phalcom_modules::{ModuleId, ProjectIdentity, ProjectUniverse};
-use phalcom_type_meta::fingerprint::Fingerprint128;
+use phalcom_type_meta::fingerprint::{Fingerprint128, FingerprintBuilder};
 use phalcom_type_meta::identity::{
     StableCallableOwnerRef, StableCallableRef, StableDeclarationRef, StableDispatchSide, StableFieldRef, StableImplRef, StableModuleRef, StableProjectRef,
     StableVariantRef,
 };
 
+#[derive(Clone, Copy)]
 pub struct StableIdentityContext<'a> {
     pub projects: &'a ProjectUniverse,
+    query_fingerprint: bool,
 }
 
 impl<'a> StableIdentityContext<'a> {
     pub fn new(projects: &'a ProjectUniverse) -> Self {
-        Self { projects }
+        Self { projects, query_fingerprint: false }
+    }
+
+    /// Uses logical project identity for in-process query fingerprints. Unlike
+    /// artifact identities, it does not change for an unrelated source edit.
+    pub fn for_query(projects: &'a ProjectUniverse) -> Self {
+        Self { projects, query_fingerprint: true }
     }
 }
 
@@ -37,7 +45,13 @@ pub fn to_stable_project_with_context(proj: &ProjectIdentity, context: &StableId
             || to_stable_project(proj),
             |project| StableProjectRef::SourceArtifact {
                 logical_uri: project.source_identity.0.to_string_lossy().into_owned().into_boxed_str(),
-                source_fingerprint: Fingerprint128(project.revision_fingerprint().0),
+                source_fingerprint: if context.query_fingerprint {
+                    let mut builder = FingerprintBuilder::new();
+                    builder.write_str(&project.source_identity.0.to_string_lossy());
+                    builder.finish()
+                } else {
+                    Fingerprint128(project.revision_fingerprint().0)
+                },
             },
         ),
         _ => to_stable_project(proj),
@@ -152,6 +166,100 @@ pub fn to_stable_impl(r#impl: &crate::identity::ImplId) -> phalcom_type_meta::id
     }
 }
 
+pub fn to_stable_static_constant_with_context(
+    id: &crate::static_constant::StaticConstantId,
+    context: &StableIdentityContext<'_>,
+) -> phalcom_type_meta::identity::StableStaticConstantRef {
+    phalcom_type_meta::identity::StableStaticConstantRef {
+        module: to_stable_module_with_context(&id.0.module, context),
+        name: id.0.name.to_string().into_boxed_str(),
+    }
+}
+
+pub fn to_stable_static_constant(
+    id: &crate::static_constant::StaticConstantId,
+) -> phalcom_type_meta::identity::StableStaticConstantRef {
+    phalcom_type_meta::identity::StableStaticConstantRef {
+        module: to_stable_module(&id.0.module),
+        name: id.0.name.to_string().into_boxed_str(),
+    }
+}
+
+pub fn to_stable_variant_with_context(
+    variant: &crate::identity::VariantId,
+    context: &StableIdentityContext<'_>,
+) -> phalcom_type_meta::identity::StableVariantRef {
+    phalcom_type_meta::identity::StableVariantRef {
+        owner: to_stable_declaration_with_context(&variant.owner, context),
+        selector: variant.selector.encode().into_boxed_str(),
+    }
+}
+
+pub fn to_stable_variant(
+    variant: &crate::identity::VariantId,
+) -> phalcom_type_meta::identity::StableVariantRef {
+    phalcom_type_meta::identity::StableVariantRef {
+        owner: to_stable_declaration(&variant.owner),
+        selector: variant.selector.encode().into_boxed_str(),
+    }
+}
+
+pub fn to_stable_variant_field_with_context(
+    field: &crate::identity::VariantFieldId,
+    context: &StableIdentityContext<'_>,
+) -> phalcom_type_meta::identity::StableVariantFieldRef {
+    phalcom_type_meta::identity::StableVariantFieldRef {
+        variant: to_stable_variant_with_context(&field.variant, context),
+        index: field.index,
+    }
+}
+
+pub fn to_stable_variant_field(
+    field: &crate::identity::VariantFieldId,
+) -> phalcom_type_meta::identity::StableVariantFieldRef {
+    phalcom_type_meta::identity::StableVariantFieldRef {
+        variant: to_stable_variant(&field.variant),
+        index: field.index,
+    }
+}
+
+pub fn to_stable_data_component_with_context(
+    comp: &crate::identity::DataComponentId,
+    context: &StableIdentityContext<'_>,
+) -> phalcom_type_meta::identity::StableDataComponentRef {
+    phalcom_type_meta::identity::StableDataComponentRef {
+        owner: to_stable_declaration_with_context(&comp.owner, context),
+        index: comp.index,
+    }
+}
+
+pub fn to_stable_data_component(
+    comp: &crate::identity::DataComponentId,
+) -> phalcom_type_meta::identity::StableDataComponentRef {
+    phalcom_type_meta::identity::StableDataComponentRef {
+        owner: to_stable_declaration(&comp.owner),
+        index: comp.index,
+    }
+}
+
+pub fn to_field_key_ref(key: &crate::field_key::FieldKey) -> phalcom_type_meta::field_key::FieldKeyRef {
+    match key {
+        crate::field_key::FieldKey::Symbol(s) => phalcom_type_meta::field_key::FieldKeyRef::Symbol(s.as_ref().into()),
+        crate::field_key::FieldKey::String(s) => phalcom_type_meta::field_key::FieldKeyRef::String(s.as_ref().into()),
+        crate::field_key::FieldKey::Int(i) => phalcom_type_meta::field_key::FieldKeyRef::Int(i.clone()),
+        crate::field_key::FieldKey::Bool(b) => phalcom_type_meta::field_key::FieldKeyRef::Bool(*b),
+    }
+}
+
+pub fn from_field_key_ref(key: &phalcom_type_meta::field_key::FieldKeyRef) -> crate::field_key::FieldKey {
+    match key {
+        phalcom_type_meta::field_key::FieldKeyRef::Symbol(s) => crate::field_key::FieldKey::symbol(s.as_ref()),
+        phalcom_type_meta::field_key::FieldKeyRef::String(s) => crate::field_key::FieldKey::string(s.as_ref()),
+        phalcom_type_meta::field_key::FieldKeyRef::Int(i) => crate::field_key::FieldKey::Int(i.clone()),
+        phalcom_type_meta::field_key::FieldKeyRef::Bool(b) => crate::field_key::FieldKey::Bool(*b),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,5 +301,86 @@ mod tests {
         assert!(projected[1].owner.try_declaration().is_none());
         assert!(projected[1].owner.enclosing_declaration().is_some());
         assert!(projected[3].owner.enclosing_declaration().is_none());
+    }
+
+    #[test]
+    fn p8_t1_stable_identities_and_field_keys() {
+        use crate::identity::{DataComponentId, VariantFieldId};
+        use crate::scalar::StaticInt;
+        use crate::static_constant::StaticConstantId;
+        use phalcom_common::selector::SelectorSlot;
+        use phalcom_modules::identity::ModuleComponent;
+        use phalcom_type_meta::field_key::FieldKeyRef;
+
+        let mod1 = ModuleId {
+            project: ProjectIdentity::Universe,
+            path: Default::default(),
+        };
+        let mod2 = ModuleId {
+            project: ProjectIdentity::Universe,
+            path: phalcom_modules::ModulePath::from_components(vec![ModuleComponent::from_identifier("sub").unwrap()]),
+        };
+
+        // Same static constant name in two modules does not collide:
+        let sc1 = StaticConstantId::new(mod1.clone(), "C");
+        let sc2 = StaticConstantId::new(mod2.clone(), "C");
+        let stable_sc1 = to_stable_static_constant(&sc1);
+        let stable_sc2 = to_stable_static_constant(&sc2);
+        assert_ne!(stable_sc1, stable_sc2);
+        assert_eq!(stable_sc1.name.as_ref(), "C");
+        assert_eq!(stable_sc2.name.as_ref(), "C");
+
+        // Data components with same index but different owner do not collide:
+        let decl1 = DeclarationId::new(mod1.clone(), "Point".into());
+        let decl2 = DeclarationId::new(mod1.clone(), "Line".into());
+        let comp1 = DataComponentId::new(decl1, 0);
+        let comp2 = DataComponentId::new(decl2, 0);
+        let stable_comp1 = to_stable_data_component(&comp1);
+        let stable_comp2 = to_stable_data_component(&comp2);
+        assert_ne!(stable_comp1, stable_comp2);
+        assert_eq!(stable_comp1.index, 0);
+        assert_eq!(stable_comp2.index, 0);
+
+        // Variant fields with same index but different variant do not collide:
+        let var_decl = DeclarationId::new(mod1.clone(), "Result".into());
+        let var1 = VariantId::new(var_decl.clone(), Selector::method("Ok", [SelectorSlot::Positional]).unwrap());
+        let var2 = VariantId::new(var_decl, Selector::method("Err", [SelectorSlot::Positional]).unwrap());
+        let field1 = VariantFieldId::new(var1, 0);
+        let field2 = VariantFieldId::new(var2, 0);
+        let stable_field1 = to_stable_variant_field(&field1);
+        let stable_field2 = to_stable_variant_field(&field2);
+        assert_ne!(stable_field1, stable_field2);
+        assert_eq!(stable_field1.index, 0);
+        assert_eq!(stable_field2.index, 0);
+
+        // FieldKeyRef distinctions and round-trip:
+        let fk_sym = crate::field_key::FieldKey::symbol("x");
+        let fk_str = crate::field_key::FieldKey::string("x");
+        let ref_sym = to_field_key_ref(&fk_sym);
+        let ref_str = to_field_key_ref(&fk_str);
+        assert_ne!(ref_sym, ref_str);
+        assert_eq!(ref_sym, FieldKeyRef::Symbol("x".into()));
+        assert_eq!(ref_str, FieldKeyRef::String("x".into()));
+        assert_eq!(from_field_key_ref(&ref_sym), fk_sym);
+        assert_eq!(from_field_key_ref(&ref_str), fk_str);
+
+        // Large / negative exact Int round-trip:
+        let bigint = num_bigint::BigInt::parse_bytes(b"-999999999999999999999999999999999999999", 10).unwrap();
+        let large_neg = StaticInt::new(bigint);
+        let fk_int = crate::field_key::FieldKey::int(large_neg.clone());
+        let ref_int = to_field_key_ref(&fk_int);
+        assert_eq!(ref_int, FieldKeyRef::Int(large_neg));
+        assert_eq!(from_field_key_ref(&ref_int), fk_int);
+
+        // Bool round-trip:
+        let fk_bool = crate::field_key::FieldKey::bool(true);
+        let ref_bool = to_field_key_ref(&fk_bool);
+        assert_eq!(ref_bool, FieldKeyRef::Bool(true));
+        assert_eq!(from_field_key_ref(&ref_bool), fk_bool);
+
+        // Ordering equals P4 ordering: Symbol < String < Int < Bool:
+        assert!(ref_sym < ref_str);
+        assert!(ref_str < ref_int);
+        assert!(ref_int < ref_bool);
     }
 }

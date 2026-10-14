@@ -8,12 +8,50 @@ use phalcom_semantic::db::fingerprint::{callable_signature_product_fingerprint, 
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::snapshot::SemanticSnapshot;
+use phalcom_semantic::static_constant::StaticConstantId;
+use phalcom_semantic::static_eval::StaticEvalOutcome;
+use phalcom_semantic::static_value::StaticValueData;
 
 fn module(raw: u32) -> ModuleId {
     ModuleId::resolved(
         ResolvedProjectId::from_raw(raw),
         ModulePath::from_components(vec![ModuleComponent::from_identifier("pack_incr").expect("valid module component")]),
     )
+}
+
+#[test]
+fn checked_static_pack_edit_recomputes_constant_and_matches_cold_analysis() {
+    let module = module(407);
+    let before = "type MakePack<N: Int>: Pack<***: Int> { Pack(N, other: 9, named: 7) }\n\
+                  const Result: Pack<***: Int> = MakePack<3>\n";
+    let after = "type MakePack<N: Int>: Pack<***: Int> { Pack(N, other: 9, named: 8) }\n\
+                 const Result: Pack<***: Int> = MakePack<3>\n";
+    let mut warm = SemanticWorkspaceSession::new();
+    let initial = warm.update(single_module_input(module.clone(), before, 1)).expect("initial analysis");
+    assert!(!initial.snapshot.has_errors(), "initial Pack must check: {:?}", initial.snapshot.diagnostics);
+    let edited = warm.update(single_module_input(module.clone(), after, 2)).expect("incremental analysis");
+    assert!(!edited.snapshot.has_errors(), "edited Pack must check: {:?}", edited.snapshot.diagnostics);
+    let mut cold = SemanticWorkspaceSession::new();
+    let rebuilt = cold.update(single_module_input(module.clone(), after, 1)).expect("cold analysis");
+    assert_eq!(edited.snapshot.diagnostics, rebuilt.snapshot.diagnostics, "warm and cold Pack diagnostics must agree");
+
+    let id = StaticConstantId::new(module, "Result");
+    let pack = |snapshot: &SemanticSnapshot| {
+        let product = snapshot.static_constant(&id).expect("dependent Pack constant");
+        let StaticEvalOutcome::Reduced(value) = product.outcome else { panic!("Pack constant must reduce: {:?}", product.outcome); };
+        let StaticValueData::Pack(pack) = snapshot.static_values().get(value).expect("Pack value") else { panic!("Pack value expected"); };
+        let positionals = snapshot.static_values().pack_positionals(*pack).unwrap();
+        let labeled = snapshot.static_values().pack_labeled(*pack).unwrap();
+        assert_eq!(positionals.len(), 1);
+        labeled.iter().map(|(label, value)| {
+            (snapshot.static_values().get_symbol(*label).unwrap().to_owned(), snapshot.static_values().get(*value).unwrap().clone())
+        }).collect::<Vec<_>>()
+    };
+    let first = pack(&initial.snapshot);
+    let current = pack(&edited.snapshot);
+    assert_ne!(first, current, "editing an exact Pack component must refresh the dependent constant");
+    assert_eq!(current, pack(&rebuilt.snapshot), "incremental Pack value must agree with cold analysis");
+    assert_eq!(current.iter().map(|(label, _)| label.as_str()).collect::<Vec<_>>(), vec!["other", "named"]);
 }
 
 fn callable_id(snapshot: &SemanticSnapshot, module: &ModuleId, owner: &str, name: &str, side: DispatchSide) -> CallableId {

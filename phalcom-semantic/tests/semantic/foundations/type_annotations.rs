@@ -2377,7 +2377,7 @@ fn scoped_record_row_type_fields_substitute_and_alpha_normalize() {
         KindNode::RecordRow
     ));
     assert_eq!(row.fields.len(), 1);
-    assert_eq!(row.fields[0].name.as_ref(), "payload");
+    assert_eq!(row.fields[0].key.as_symbol().unwrap(), "payload");
     assert!(matches!(
         bundle.scoped_types[row.fields[0].ty.0 as usize].form,
         ScopedTypeNode::Bound { depth: 0, index: 0 }

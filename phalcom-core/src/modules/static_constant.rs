@@ -53,6 +53,37 @@ impl VM {
                 };
                 Value::obj(self.heap.alloc(object))
             }
+            MaterializationDescriptor::Tuple(elements) => {
+                let mut values = Vec::with_capacity(elements.len());
+                for element in elements.iter() {
+                    values.push(self.materialize_descriptor(element, owner)?);
+                }
+                crate::product::finish_tuple(self, values, Vec::new())
+                    .map_err(|e| RuntimeError::Internal(format!("{e:?}")))?
+            }
+            MaterializationDescriptor::Record(fields) => {
+                let mut rec_fields = Vec::with_capacity(fields.len());
+                for (key, element) in fields.iter() {
+                    let val = self.materialize_descriptor(element, owner)?;
+                    rec_fields.push((key.clone(), val));
+                }
+                crate::product::finish_record(self, rec_fields)
+                    .map_err(|e| RuntimeError::Internal(format!("{e:?}")))?
+            }
+            MaterializationDescriptor::Pack { positionals, labeled } => {
+                let mut pos = Vec::with_capacity(positionals.len());
+                for element in positionals.iter() {
+                    pos.push(self.materialize_descriptor(element, owner)?);
+                }
+                let mut lab = Vec::with_capacity(labeled.len());
+                for (sym_name, element) in labeled.iter() {
+                    let sym = self.interner.intern(sym_name);
+                    let val = self.materialize_descriptor(element, owner)?;
+                    lab.push((sym, val));
+                }
+                crate::product::finish_pack(self, pos, lab)
+                    .map_err(|e| RuntimeError::Internal(format!("{e:?}")))?
+            }
             MaterializationDescriptor::DeferredStructural(_) | MaterializationDescriptor::Unsupported(_) => {
                 return Err(RuntimeError::Internal(format!("static constant {owner} has no supported runtime materialization")).into());
             }

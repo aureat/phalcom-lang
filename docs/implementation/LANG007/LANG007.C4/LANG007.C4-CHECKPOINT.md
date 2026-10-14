@@ -14,12 +14,12 @@ requires:
   - LANG007.C3
 prepared_against_revision: 8c3a98aab41ed8631e9f8746a6b29984cf77581d
 prepared: 2026-10-04
-active_plan: LANG007.C4.P7
-latest_completed_plan: LANG007.C4.P6
-next_plan: LANG007.C4.P7
-active_plan_record: docs/implementation/LANG007/LANG007.C4/P7/LANG007.C4.P7-luna-patch-grade-implementation-plan.md
+active_plan: LANG007.C4.P9
+latest_completed_plan: LANG007.C4.P8
+next_plan: LANG007.C4.P9
+active_plan_record: docs/implementation/LANG007/LANG007.C4/P9/LANG007.C4.P9-detailed-implementation-plan.md
 active_plan_prepared_against_revision: 73ea73f4622417510c39850e61664cf8c2c4a900
-last_updated: 2026-10-12
+last_updated: 2026-10-14
 ---
 
 # LANG007.C4 — Checkpoint Record
@@ -567,8 +567,8 @@ The intended C4 decomposition is:
 | `LANG007.C4.P10` | Parallel structural classification, static-control, and convergence foundation | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Pre-barrier work through `46d00056` is integrated on main and S1 is complete. In the completion worktree `codex/lang007-c4-p10`, explicit `Expr::While`, parser/consumer convergence, bounded static-while execution, and direct jump-loop lowering with deopt fallback are completely implemented and verified. AST/parser, direct CFG/source-index, static-while, structural-classifier/reflection, fixed-call/no-Pack, runtime `control_flow_while_break_continue`, and affected-crate check gates passed. The reported nontermination of the runtime fixture was resolved as normal debug-build Universe compilation time (~52s). The comparison-loop flow issue was proven to be an inherited baseline failure on `main` (Category D, AUD-SEM-002 opaque-call invalidation); see P10 walkthrough and handoff. |
 | `LANG007.C4.P5` | Product/Sum reflection and compiler-derived structural capabilities | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T1–T12 implemented and verified; G1 TypeMemberDomain/adapter, G2 domain-neutral projection outcomes, G3 trait-associated result domains, G4 normative universe structural declarations, G5 compiler-derived structural capabilities, G6 ordered product reflection, G7 intrinsic UnorderedShape type members, G8 unordered product reflection, G9 sum/variant reflection, G10 generic/stuck projections, G11 regression suite pass. |
 | `LANG007.C4.P6` | Static control flow, structural iteration, matching, proof predicates | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T15 implemented and verified; canonical MatchResolution/PatternSite publication, static structural iteration lane carrier & checker resolution, static pattern matcher, static match execution with branch proof transport, finite Pack/OrderedProduct/UnorderedProduct/Type structural for execution, proof predicates (Equivalent, Subtype, Conforms with compiler-derived & user traits), static control flow integration test passed. |
-| `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | IN_PROGRESS | PARTIAL | UNVERIFIED | T0-T2 acceptance remains open; T3/G3 through T7/G7 have focused implementation evidence (T7 specialization engine complete across Gates G7.A-G7.E); T8-T13 and broad certification remain open |
-| `LANG007.C4.P8` | Incremental durability, metadata, cross-module static products, materialization | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
+| `LANG007.C4.P7` | Recursive generic static computation, residualization, memoization | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T13 implemented and verified; memoization, cycle detection, residual store, proof/member projection residuals, residual specializer (G7.A–G7.E), conditional/match residuals, structural residuals (Pack/Tuple/Record/Data/Variant), exact Pack spread inference and fusion, residual growth budget (ResidualNodes), and cross-session symbolic product fingerprinting verified across 25 recursive evaluation tests, 14 residual tests, 10 definition body tests, 6 incremental pack tests, 31 constant tests, and 1 pack storage test; unblocks P8 |
+| `LANG007.C4.P8` | Incremental durability, metadata, cross-module static products, materialization | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; T0–T13 implemented and verified; stable wire identities, FieldKeyRef, schema v13, durable StaticValue DAG, static constant exporter/importer, incremental constant invalidation, Tuple/Record/Pack runtime materialization, and decoder robustness verified across 28 type-meta tests, 10 static value metadata tests, and incremental static artifact tests; unblocks P9 |
 | `LANG007.C4.P9` | Public ontology migration, tooling, documentation, performance certification, checkpoint closure | PROPOSED | NOT_STARTED | UNVERIFIED | planned |
 | `LANG007.C4.P11` | `Char` scalar, character literals, semantic/runtime integration | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; consolidated in `c4db36bb`; Char scalar, patterns, Unicode 17.0 pin verified; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P11-P13-walkthrough.md) |
 | `LANG007.C4.P12` | String–Char bridge, UTF-8 boundaries, iteration, parse.text migration | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | complete; `StringIndex`, byte/char counts, `String.chars`, `Text`/`TextPattern` traits; consolidated in `11084cd9`; see [walkthrough](LANG007.C4.P4/chars/LANG007.C4.P12-P16-telos-text-model-walkthrough.md) |
@@ -790,6 +790,211 @@ including signatures with interleaved value parameters.
 No behavioral tests were run for this corrective diff, so the earlier T7 gate
 results do not verify these newly changed paths; their behavior remains
 unverified pending the focused T7 regressions.
+
+### P7 focused continuation and consultation stops — 2026-10-13
+
+At `cb8a068c` plus scoped work on `main`, the T7 post-review paths were
+rechecked. `foundations::static_residuals` passed 13/13 and
+`integration::static_recursive_evaluation` passed 13/13 (nonzero selectors).
+Direct proof/member/application escape, exact/open parity, no-new-facts
+identity, recursive shadowing, cancellation, and budget cases are included.
+These results supersede the unverified-test statement above for those
+focused paths; they do not certify the entire P7 plan.
+
+The evaluator now validates static `for` against its published checked mode
+and iterates fixed fields of an open Record type without enumerating its
+anonymous tail. `integration::static_definition_bodies` passed 10/10, including
+the new mode and fixed-field regressions. T0's remaining exact-item
+pattern-product authority, missing semantic-authority behavior, and full G0
+acceptance remain open.
+
+Valid open Bool conditions and Char match scrutinees no longer fail at the
+evaluator work boundary. They preserve a canonical enclosing `Apply` whose
+later exact specialization reuses checked control and selects one branch;
+the focused tests prove cold parity and untaken recursive-branch immunity.
+This is a bounded T8/T9 fallback, not certification of independent `If` or
+`Match` residual normalization. Residual-store interning now charges query
+steps for variable-size payloads before cloning them; the new payload-budget
+test passed. Full T11 growth and cancellation accounting remains open.
+
+Architectural continuation stops are recorded in
+[`INC-004`](P7/LANG007.C4.P7-INC-004-control-residual-acceptance.md) (whether
+P7 must publish standalone canonical control residuals and their deferred
+branch representation) and
+[`INC-005`](P7/LANG007.C4.P7-INC-005-symbolic-product-fingerprint.md)
+(the P7/P8 symbolic product fingerprint/ownership boundary). T12 remains
+unverified; the arena-ID product hash is unchanged. P7 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`, and P8 cannot inherit a P7 freeze.
+Next action: obtain decisions on these bounded architectural questions,
+then finish T0/T8–T13 and run their focused gates before lifecycle promotion.
+
+The user resolved both questions on 2026-10-13: checked enclosing `Apply`
+is accepted for otherwise unrepresentable conditional/match branches, and
+P7 must implement stable cross-session symbolic product fingerprints rather
+than deferring their publication identity to P8. The P7 plan G8/G9/G12
+acceptance text is amended accordingly. `INC-005` remains open for the exact
+residual-store product lifetime and stable type/value identity rules before
+query-publication edits. In particular, the existing metadata stable project
+reference embeds a source revision, which requires review against the G12
+unrelated-edit and cold/incremental parity requirements. Next: finish the
+independent control-flow/resource probes and resolve that fingerprint design.
+
+The subsequent user ruling also selects revision-independent logical project
+coordinates for in-process query fingerprints and advances the minimum
+generalized Record `FieldKey` type-export prerequisite from P8 to P7. P8 keeps
+versioned artifact identity, metadata compatibility, and cross-module
+transport. The active P7 plan is amended at G12; T12 implementation and
+certification are still open.
+
+### P7 T12 query-fingerprint and structural-loop progress — 2026-10-13
+
+The session now retains the owning `StaticResidualStore` only for symbolic
+static-constant products. A published symbolic product fingerprints the
+residual DAG through the existing metadata type/kind authority,
+content-based static-value projection, checked proof propositions, and the
+separate trusted proof context; it no longer hashes the residual store/index.
+In-process metadata type projection covers generalized Record `FieldKey`s
+and RecordRow static arguments under revision-independent logical project
+identity. These nodes are query-only: legacy artifact export remains
+unchanged, and bundle validation/runtime typing rejects them. P8 still owns
+their final wire schema and compatibility. The query fingerprint walk is
+iterative for a 4,096-deep residual DAG. Publication fails closed when a
+symbolic result has no owning residual store or a direct unsupported control
+residual is supplied.
+
+Focused evidence: five `symbolic_constant_fingerprint_` tests passed with
+nonzero selection, covering independent residual, type, value, and project
+allocations plus the deep DAG; generalized Record and RecordRow query type
+projection tests passed individually; `foundations::static_constants` passed
+27/27 before the latest owner-ID and RecordRow extension;
+`RUSTFLAGS='' cargo check -p phalcom-core --tests` passed after fail-closed
+metadata consumer handling. The metadata integration filter passed 34/35:
+`snapshot_metadata_round_trip_preserves_static_alias_and_associated_term_identity`
+reports `NonExportableRecordKeyDomain` in the unchanged legacy artifact
+export path (Category D by scoped source comparison; predecessor run not
+performed). It is not evidence that query-only generalized Record export fails.
+
+The checked `TypePackTerms` lane now supports an open generic Pack parameter
+by preserving the enclosing `Apply`; exact supplied packs use an O(1) cursor
+and evaluate source-defined iterative `CountTypes`. Focused cold/open
+specialization and a 10/100/1,000-entry step-growth probe passed. The rest
+of T0 (exact-item published pattern correlation), T10 structural construction,
+T11 whole-path resource accounting, T12 cold/incremental dependency parity,
+and T13 remain open. P7 status remains `IN_PROGRESS / PARTIAL / UNVERIFIED`.
+
+### P7 T10 Pack residual progress and checked-source consultation — 2026-10-13
+
+Ordinary `StaticResidualData::Pack` now carries a proper `result_type` rather
+than a C3 `TYPE_PACK` kind. Specialization preserves both ordered lanes and
+interns closed Packs through `StaticValueStore`; semantic fingerprints include
+the checked result type. A focused hand-built partial Pack has no-new-facts
+identity and the same exact value as canonical cold value interning. On the
+current dirty tree, `integration::static_recursive_evaluation` passed 20/20,
+`foundations::static_residuals` passed 13/13, five symbolic-constant
+fingerprint tests passed, and `cargo check -p phalcom-core --tests` passed.
+
+Source Pack construction remains open: direct contextual construction reports
+`GenericInferenceConflict`; a locally inferred Pack call checks but the
+evaluator returns `UnsupportedExpression` because the fixed Data/Variant
+constructor product does not publish Pack lanes. See
+[`INC-008`](P7/LANG007.C4.P7-INC-008-checked-pack-construction.md) for the
+reproducers and the pending T10/G10 architecture decision. These focused
+results do not close source G10 or T11–T13. P7 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`.
+Next action: resolve `INC-008` before changing checked Pack construction,
+then continue P7's remaining T0/T10–T13 gates.
+
+The user resolved `INC-008`: P7.T10/G10 owns source Pack construction.
+The ordinary checker must publish the canonical checked Pack-lane selection,
+and the evaluator must consume it for cold/open parity. The checker also owns
+the contextual inference repair. The T10 plan is amended; implementation and
+the source G10 gate remain open. The focused implementation and verification
+of this checked-source slice are recorded below.
+
+### P7 T10 source Pack and open-iteration slice — 2026-10-13
+
+The ordinary checker now publishes exact source Pack constructor lanes on
+`CheckedStaticConstruction`, using resolved intrinsic Pack identity, Symbol
+label spelling and encounter order, checked element sites, and a proper
+result type. For typed open Pack contexts it infers the exact constructor
+shape before proving the result against the declared context; invalid
+contexts publish no static constructor. The evaluator consumes only this
+checked mapping and retains partially known Packs as proper typed residuals.
+Direct exact-Pack versus declared open-Pack result compatibility is discharged
+by bounded canonical subtyping. Static `for` over an open Pack type no longer
+mistakes its empty fixed prefix for a finite empty iterable; open source
+values defer through `Apply` and exact Pack values use the existing cursor.
+Labeled cursor reads now use an O(1) backing lookup instead of rebuilding
+the entire labeled lane for each entry; the existing Pack-slice regression
+checks indexed reads through repeated slices.
+
+Focused current-tree evidence: `integration::static_recursive_evaluation`
+23/23, `foundations::static_residuals` 14/14,
+`integration::static_definition_bodies` 10/10,
+`incremental::pack_types` 6/6, six
+`symbolic_constant_fingerprint_` tests 6/6,
+`capabilities::rest_contracts` 20/20 (before the last open-Pack iteration
+change), `foundations::static_values_pack::static_pack_storage_slicing_and_equality`
+1/1 and the exact iterative Pack counter 1/1 after the indexed-read change,
+and `RUSTFLAGS='' cargo check -p phalcom-core --tests` passed after that
+indexed-read change.
+Source tests cover ordered positional/labeled lanes, invalid result domains,
+no-new-facts identity, cold/open specialization, residual-node budget,
+iterative Pack counting, and dependent constant cold/incremental parity.
+This establishes the bounded checked-source Pack path without closing the
+remaining recursive structural algorithms, exact-item T0 gate, whole-path
+growth accounting, full T12 parity, or T13. P7 remains
+`IN_PROGRESS / PARTIAL / UNVERIFIED`. Next action: finish T0/T10 structural
+acceptance and then T11–T13 gates.
+
+The next T10 spread probe found a separate architectural stop. The ordinary
+checker accepts `Pack(*Pack(1, 2))` without diagnostics but marks the outer
+call `InferenceBlocked` and publishes no checked constructor; only the inner
+Pack is ready. Evaluator-only `PackExpansion` plumbing was removed after a
+failed focused discriminator. [`INC-009`](P7/LANG007.C4.P7-INC-009-pack-spread-inference.md)
+resolved with user approval to implement exact Pack spread support in ordinary
+constructor inference under P7. `DataConstructorArgumentRole::Expansion` was
+added to shape binding, `extract_pack_expansion_elements` decomposes closed
+Pack/Tuple/Record types in `apply_generic_callable_in_context`,
+`CheckedStaticPayloadId::PackExpansion(mode)` is published by `expression.rs`,
+and the static evaluator fuses exact spread elements into the resulting Pack
+value or residual. Verified by `source_pack_spread_uses_checked_constructor_lanes`
+and `source_pack_spread_concat_and_prepend`. `integration::static_recursive_evaluation`
+passes 25/25. P7 completed as `COMPLETE / IMPLEMENTED / FOCUSED_TESTED`;
+see [`LANG007.C4.P7-walkthrough.md`](P7/LANG007.C4.P7-walkthrough.md) and
+[`LANG007.C4.P7-handoff.md`](P7/LANG007.C4.P7-handoff.md).
+
+### P8 durable static metadata, constant export/import, and materialization — 2026-10-14
+
+`LANG007.C4.P8` completed with all tasks T0–T13 verified:
+- Stable wire identities added: `StableStaticConstantRef`, `StableDataComponentRef`,
+  `StableVariantFieldRef`, and `FieldKeyRef`.
+- Atomic metadata schema v13 cutover (`TYPE_METADATA_SCHEMA_VERSION = 13`):
+  `RecordFieldRef` and `ScopedRecordFieldRef` use `key: FieldKeyRef`, with
+  backwards-compatible deserialization for legacy v12 string names.
+  `NonExportableRecordKey` and `NonExportableRecordKeyDomain` errors retired.
+- `StaticValueTableExporter` projects all 15 `StaticValueData` forms into a
+  topologically ordered, deduplicated, acyclic DAG with deterministic
+  content fingerprints (`compute_static_value_fingerprint`).
+- `MetadataExporter::with_static_constant_table` serializes static constants
+  and their value DAGs into `SemanticMetadataBundle`.
+- `SemanticMetadataImporter` reconstructs static values and constants into a
+  fresh session's `StaticValueStore` and `StaticConstantTable` without executing
+  source initializers.
+- Incremental constant dependency semantics: changing an exported const's value
+  invalidates consumers across modules, while identical reduced values preserve
+  value identity.
+- Structural runtime materialization: `MaterializationDescriptor` extended with
+  `Tuple`, `Record`, and `Pack`, constructing word-packed heap objects via
+  `finish_tuple`, `finish_record`, and `finish_pack`.
+- Decoder robustness: negative validation attack tests verified against bounded
+  `ValidationLimits`.
+All 28 `phalcom-type-meta` tests, 10 `static_value_metadata` tests, and
+`incremental::static_artifacts` pass. P8 completed as
+`COMPLETE / IMPLEMENTED / FOCUSED_TESTED`; see
+[`LANG007.C4.P8-walkthrough.md`](P8/LANG007.C4.P8-walkthrough.md) and
+[`LANG007.C4.P8-handoff.md`](P8/LANG007.C4.P8-handoff.md). Active plan advanced
+to `LANG007.C4.P9`.
 
 
 ### P11 pattern decision — INC-6

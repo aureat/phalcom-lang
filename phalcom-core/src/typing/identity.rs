@@ -187,7 +187,7 @@ impl Comparison<'_> {
                                         .iter()
                                         .map(|field| {
                                             Some(RecordFieldRef {
-                                                name: field.key.as_symbol()?.into(),
+                                                key: phalcom_semantic::metadata::stable_identity::to_field_key_ref(&field.key),
                                                 ty: child(field.ty),
                                                 presence: Default::default(),
                                             })
@@ -216,7 +216,7 @@ impl Comparison<'_> {
                             .iter()
                             .map(|field| {
                                 Some(RecordFieldRef {
-                                    name: field.key.as_symbol()?.into(),
+                                    key: phalcom_semantic::metadata::stable_identity::to_field_key_ref(&field.key),
                                     ty: child(field.ty),
                                     presence: Default::default(),
                                 })
@@ -430,6 +430,20 @@ fn map_type_children(form: &mut TypeNode, mut map: impl FnMut(&mut TypeNodeId)) 
                 map(&mut field.ty);
             }
         }
+        TypeNode::GeneralRecord(record) => {
+            for field in &mut record.fields {
+                map(&mut field.ty);
+            }
+            match &mut record.tail {
+                phalcom_type_meta::type_node::GeneralRecordTailRef::AnonymousUnconstrained { key_type } => map(key_type),
+                phalcom_type_meta::type_node::GeneralRecordTailRef::AnonymousTyped { key_type, value_type } => {
+                    map(key_type);
+                    map(value_type);
+                }
+                phalcom_type_meta::type_node::GeneralRecordTailRef::Closed
+                | phalcom_type_meta::type_node::GeneralRecordTailRef::Parameter(_) => {}
+            }
+        }
         TypeNode::Callable(callable) => {
             for parameter in &mut callable.parameters {
                 map(&mut parameter.ty);
@@ -518,6 +532,20 @@ fn map_static_arguments(arguments: &mut [StaticArgumentRef], map: &mut impl FnMu
                 }
                 if let Some(phalcom_type_meta::type_node::AnonymousRecordRemainderRef::Typed(node)) = &mut row.remainder {
                     map(node);
+                }
+            }
+            StaticArgumentRef::GeneralRecordRow(row) => {
+                for field in &mut row.fields {
+                    map(&mut field.ty);
+                }
+                match &mut row.tail {
+                    phalcom_type_meta::type_node::GeneralRecordTailRef::AnonymousUnconstrained { key_type } => map(key_type),
+                    phalcom_type_meta::type_node::GeneralRecordTailRef::AnonymousTyped { key_type, value_type } => {
+                        map(key_type);
+                        map(value_type);
+                    }
+                    phalcom_type_meta::type_node::GeneralRecordTailRef::Closed
+                    | phalcom_type_meta::type_node::GeneralRecordTailRef::Parameter(_) => {}
                 }
             }
             StaticArgumentRef::DynamicType => {}
@@ -709,6 +737,9 @@ mod tests {
             module_roots: Box::new([]),
             runtime_roots: Box::new([]),
             occurrences: Box::new([]),
+            static_values: Box::new([]),
+            static_constants: Box::new([]),
+            static_definitions: Box::new([]),
             extensions: Box::new([]),
         };
         registry.register_pool(LoadedSemanticMetadata::new(id, Arc::new(bundle)))

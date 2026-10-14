@@ -262,7 +262,7 @@ fn instantiate_type_ref(
                                 let mut fields = Vec::with_capacity(row.fields.len());
                                 for field in row.fields.iter() {
                                     fields.push(crate::typing::overlay::RuntimeRecordField {
-                                        key: phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()),
+                                        key: phalcom_semantic::metadata::stable_identity::from_field_key_ref(&field.key),
                                         ty: instantiate_type_ref(RuntimeTypeRef::Base { pool, node: field.ty }, env, context, registry, depth + 1)?,
                                     });
                                 }
@@ -271,6 +271,7 @@ fn instantiate_type_ref(
                                     tail: row.tail.clone(),
                                 })
                             }
+                            phalcom_type_meta::type_node::StaticArgumentRef::GeneralRecordRow(_) => return None,
                             phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => crate::typing::overlay::RuntimeStaticArgument::DynamicType,
                         });
                     }
@@ -316,7 +317,7 @@ fn instantiate_type_ref(
                     for f in fields.iter() {
                         let new_ty = instantiate_type_ref(RuntimeTypeRef::Base { pool, node: f.ty }, env, context, registry, depth + 1)?;
                         new_fields.push(crate::typing::overlay::RuntimeRecordField {
-                            key: phalcom_semantic::field_key::FieldKey::symbol(f.name.clone()),
+                            key: phalcom_semantic::metadata::stable_identity::from_field_key_ref(&f.key),
                             ty: new_ty,
                         });
                     }
@@ -446,7 +447,7 @@ mod tests {
                 origin: TypeNodeId(3),
                 arguments: vec![StaticArgumentRef::RecordRow(phalcom_type_meta::type_node::RecordRowRef {
                     fields: vec![RecordFieldRef {
-                        name: "payload".into(),
+                        key: phalcom_type_meta::field_key::FieldKeyRef::Symbol("payload".into()),
                         ty: TypeNodeId(2),
                         presence: StructuralMemberPresenceRef::Required,
                     }]
@@ -460,7 +461,7 @@ mod tests {
                 origin: TypeNodeId(3),
                 arguments: vec![StaticArgumentRef::RecordRow(phalcom_type_meta::type_node::RecordRowRef {
                     fields: vec![RecordFieldRef {
-                        name: "payload".into(),
+                        key: phalcom_type_meta::field_key::FieldKeyRef::Symbol("payload".into()),
                         ty: TypeNodeId(2),
                         presence: StructuralMemberPresenceRef::Required,
                     }]
@@ -505,6 +506,9 @@ mod tests {
             module_roots: Box::new([]),
             runtime_roots: Box::new([]),
             occurrences: Box::new([]),
+            static_values: Box::new([]),
+            static_constants: Box::new([]),
+            static_definitions: Box::new([]),
             extensions: Box::new([]),
         };
         (bundle, parameter, open_tail)

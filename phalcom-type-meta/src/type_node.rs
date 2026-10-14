@@ -54,12 +54,63 @@ pub struct TupleElementRef {
     pub presence: StructuralMemberPresenceRef,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct RecordFieldRef {
-    pub name: Box<str>,
+    pub key: FieldKeyRef,
     pub ty: TypeNodeId,
     #[serde(default)]
     pub presence: StructuralMemberPresenceRef,
+}
+
+impl<'de> Deserialize<'de> for RecordFieldRef {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct RawField {
+            key: Option<FieldKeyRef>,
+            name: Option<Box<str>>,
+            ty: TypeNodeId,
+            #[serde(default)]
+            presence: StructuralMemberPresenceRef,
+        }
+        let raw = RawField::deserialize(deserializer)?;
+        let key = match (raw.key, raw.name) {
+            (Some(k), _) => k,
+            (None, Some(name)) => FieldKeyRef::Symbol(name),
+            (None, None) => return Err(serde::de::Error::missing_field("key")),
+        };
+        Ok(Self {
+            key,
+            ty: raw.ty,
+            presence: raw.presence,
+        })
+    }
+}
+
+pub use crate::field_key::FieldKeyRef;
+
+/// One field of a generalized Record type.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct GeneralRecordFieldRef {
+    pub key: FieldKeyRef,
+    pub ty: TypeNodeId,
+    pub presence: StructuralMemberPresenceRef,
+}
+
+/// Canonical Record tail, retaining its key domain when anonymous.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub enum GeneralRecordTailRef {
+    Closed,
+    Parameter(StableTypeParameterRef),
+    AnonymousUnconstrained { key_type: TypeNodeId },
+    AnonymousTyped { key_type: TypeNodeId, value_type: TypeNodeId },
+}
+
+/// Generalized Record projection used for semantic fingerprints before the
+/// metadata schema adopts the new wire form.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+pub struct GeneralRecordTypeRef {
+    pub fields: Box<[GeneralRecordFieldRef]>,
+    pub tail: GeneralRecordTailRef,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -136,6 +187,8 @@ pub struct StaticConstructorRef {
 pub enum StaticArgumentRef {
     Term(TypeNodeId),
     RecordRow(RecordRowRef),
+    /// In-process query projection; versioned metadata bundles reject it.
+    GeneralRecordRow(GeneralRecordTypeRef),
     DynamicType,
 }
 
@@ -180,6 +233,7 @@ pub enum TypeNode {
     Union(Box<[TypeNodeId]>),
     Tuple(Box<[TupleElementRef]>),
     Record(Box<[RecordFieldRef]>),
+    GeneralRecord(GeneralRecordTypeRef),
     Callable(CallableTypeRef),
     Parameter(StableTypeParameterRef),
     SelfType(SelfTypeRef),

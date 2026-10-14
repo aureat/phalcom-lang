@@ -186,9 +186,10 @@ fn static_partial_annotation_extracts_committed_sequence_after_solving() {
     let f = Fixture::new("const values: List<_> = [1]\n");
     f.assert_no_error_diagnostics();
     let constant = f.analysis.snapshot.static_constants.iter().find(|(id, _)| id.name() == "values").expect("checked constant").1;
-    assert_eq!(constant.checked.expression.sequence_literals.len(), 1);
-    let resolution = constant.checked.expression.sequence_literals.values().next().unwrap();
-    assert_eq!(constant.checked.expression.result_type, Some(resolution.result_type));
+    let checked = constant.checked.as_ref().unwrap();
+    assert_eq!(checked.expression.sequence_literals.len(), 1);
+    let resolution = checked.expression.sequence_literals.values().next().unwrap();
+    assert_eq!(checked.expression.result_type, Some(resolution.result_type));
 }
 
 #[test]
@@ -196,10 +197,11 @@ fn static_partial_vector_annotation_extracts_committed_sequence_after_solving() 
     let f = Fixture::new("const values: Vector<_, _> = [1]\n");
     f.assert_no_error_diagnostics();
     let constant = f.analysis.snapshot.static_constants.iter().find(|(id, _)| id.name() == "values").expect("checked constant").1;
-    assert_eq!(constant.checked.expression.sequence_literals.len(), 1);
-    let resolution = constant.checked.expression.sequence_literals.values().next().unwrap();
+    let checked = constant.checked.as_ref().unwrap();
+    assert_eq!(checked.expression.sequence_literals.len(), 1);
+    let resolution = checked.expression.sequence_literals.values().next().unwrap();
     assert_eq!(resolution.family, phalcom_semantic::checker::SequenceLiteralFamily::Vector);
-    assert_eq!(constant.checked.expression.result_type, Some(resolution.result_type));
+    assert_eq!(checked.expression.result_type, Some(resolution.result_type));
 }
 
 #[test]
@@ -207,7 +209,7 @@ fn static_incompatible_vector_annotation_publishes_no_sequence() {
     let f = Fixture::new_allowing_internal_incidents("const values: Vector<Int, 2> = [1]\n");
     assert!(f.analysis.snapshot.has_errors());
     let constant = f.analysis.snapshot.static_constants.iter().find(|(id, _)| id.name() == "values").expect("checked constant").1;
-    assert!(constant.checked.expression.sequence_literals.is_empty());
+    assert!(constant.checked.as_ref().unwrap().expression.sequence_literals.is_empty());
 }
 
 #[test]
@@ -215,15 +217,16 @@ fn static_empty_partial_vector_annotation_stays_unresolved() {
     let f = Fixture::new_allowing_internal_incidents("const values: Vector<_, _> = []\n");
     assert!(f.analysis.snapshot.has_errors());
     let constant = f.analysis.snapshot.static_constants.iter().find(|(id, _)| id.name() == "values").expect("checked constant").1;
-    assert!(constant.checked.expression.sequence_literals.is_empty());
+    assert!(constant.checked.as_ref().unwrap().expression.sequence_literals.is_empty());
 }
 
 #[test]
 fn static_partial_annotation_diagnostics_survive_initializer_checking() {
     let f = Fixture::new_allowing_internal_incidents("const values: Vector<Missing, _> = [1]\n");
     let constant = f.analysis.snapshot.static_constants.iter().find(|(id, _)| id.name() == "values").expect("checked constant").1;
-    assert!(constant.checked.expression.diagnostics.iter().any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnresolved));
-    assert!(constant.checked.expression.sequence_literals.is_empty());
+    let checked = constant.checked.as_ref().unwrap();
+    assert!(checked.expression.diagnostics.iter().any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnresolved));
+    assert!(checked.expression.sequence_literals.is_empty());
 }
 
 #[test]

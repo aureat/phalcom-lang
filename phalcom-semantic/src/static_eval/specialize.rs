@@ -1,4 +1,6 @@
 use crate::checker::proof_predicate::ProofPredicateGoal;
+use crate::field_key::FieldKey;
+use crate::identity::{DataComponentId, DataConstructorId, DeclarationId, VariantFieldId, VariantId};
 use crate::member_projection::{MemberProjection, MemberProjectionArgument, MemberProjectionSubject, StaticMemberProjectionOutcome};
 use crate::static_domain::StaticValueDomain;
 use crate::static_eval::application::{
@@ -22,6 +24,7 @@ use crate::types::substitution::TypeSubstitution;
 /// - `StaticResidualData::Apply`
 /// - `StaticResidualData::Proof`
 /// - `StaticResidualData::MemberProjection`
+/// - `StaticResidualData::{Pack, Tuple, Record, Data, Variant}`
 ///
 /// Enforces:
 /// - Substitution closure before conflict checking
@@ -71,6 +74,21 @@ pub(crate) fn specialize_residual_term(
         }
         StaticResidualData::MemberProjection { projection, result_domain, environment } => {
             specialize_member_projection(evaluator, residual, &projection, result_domain, &environment, supplied)
+        }
+        StaticResidualData::Pack { positionals, labels, labeled_values, result_type } => {
+            specialize_pack(evaluator, residual, &positionals, &labels, &labeled_values, result_type, supplied)
+        }
+        StaticResidualData::Tuple { elements, result_type } => {
+            specialize_tuple(evaluator, residual, &elements, result_type, supplied)
+        }
+        StaticResidualData::Record { fields, result_type } => {
+            specialize_record(evaluator, residual, &fields, result_type, supplied)
+        }
+        StaticResidualData::Data { owner, constructor, result_type, components } => {
+            specialize_data(evaluator, residual, &owner, &constructor, result_type, &components, supplied)
+        }
+        StaticResidualData::Variant { variant, result_type, fields } => {
+            specialize_variant(evaluator, residual, &variant, result_type, &fields, supplied)
         }
         _ => Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
     };
@@ -329,6 +347,271 @@ fn specialize_member_projection(
         StaticMemberProjectionOutcome::BudgetExceeded(report) => Err(Stop::Budget(report)),
         StaticMemberProjectionOutcome::InternalFailure(msg) => Err(Stop::invalid(StaticEvalError::MemberProjection(msg))),
     }
+}
+
+fn specialize_pack(
+    evaluator: &mut StaticEvaluator<'_>,
+    original: StaticResidualRef,
+    positionals: &[StaticEvalTerm],
+    labels: &[Box<str>],
+    labeled_values: &[StaticEvalTerm],
+    result_type: TypeId,
+    supplied: &StaticSpecializationEnvironmentKey,
+) -> Result<StaticEvalTerm, Stop> {
+    if labels.len() != labeled_values.len() {
+        return Err(Stop::invalid(StaticEvalError::InvalidResultDomain));
+    }
+    let inherited = evaluator.inherited_specialization_environment().clone();
+    let composed = evaluator.compose_specialization_environment(&inherited, supplied)?;
+    let (domain, type_changed) = evaluator.substitute_specialization_domain(StaticValueDomain::ValueType(result_type), &composed)?;
+    let StaticValueDomain::ValueType(result_type) = domain else {
+        return Err(Stop::invalid(StaticEvalError::InvalidResultDomain));
+    };
+    let mut changed = type_changed;
+    let mut symbolic = false;
+    let mut specialize_lane_term = |element: StaticEvalTerm| -> Result<StaticEvalTerm, Stop> {
+        if evaluator.is_cancelled() {
+            return Err(Stop::Cancelled);
+        }
+        evaluator.charge_step()?;
+        let term = match element {
+            StaticEvalTerm::Value(value) => {
+                evaluator.validate_static_value_reference(value)?;
+                StaticEvalTerm::Value(value)
+            }
+            StaticEvalTerm::Kinded(ty) => {
+                let ty = evaluator.substitute_specialization_type(ty, &composed)?;
+                StaticEvalTerm::Value(evaluator.intern_kinded_static_value(ty)?)
+            }
+            StaticEvalTerm::Residual(reference) => specialize_residual_term(evaluator, reference, &composed)?,
+        };
+        changed |= term != element;
+        symbolic |= matches!(term, StaticEvalTerm::Residual(_));
+        Ok(term)
+    };
+    let positionals = positionals.iter().copied().map(&mut specialize_lane_term).collect::<Result<Vec<_>, _>>()?;
+    let labeled_values = labeled_values.iter().copied().map(&mut specialize_lane_term).collect::<Result<Vec<_>, _>>()?;
+    if symbolic {
+        if !changed {
+            return Ok(StaticEvalTerm::Residual(original));
+        }
+        let residual = evaluator.intern_structural_residual_node(StaticResidualData::Pack {
+            positionals: positionals.into_boxed_slice(), labels: labels.into(),
+            labeled_values: labeled_values.into_boxed_slice(), result_type,
+        })?;
+        return Ok(StaticEvalTerm::Residual(residual));
+    }
+    let positionals = positionals.into_iter().map(|term| match term {
+        StaticEvalTerm::Value(value) => Ok(value),
+        _ => Err(Stop::invalid(StaticEvalError::InvalidResultDomain)),
+    }).collect::<Result<Vec<_>, Stop>>()?;
+    let labeled = labels.iter().cloned().zip(labeled_values).map(|(label, term)| match term {
+        StaticEvalTerm::Value(value) => Ok((label, value)),
+        _ => Err(Stop::invalid(StaticEvalError::InvalidResultDomain)),
+    }).collect::<Result<Vec<_>, Stop>>()?;
+    let value = evaluator.intern_pack_static_values(positionals, labeled)?;
+    evaluator.validate_specialized_result(StaticEvalTerm::Value(value), domain)
+}
+
+fn specialize_tuple(
+    evaluator: &mut StaticEvaluator<'_>,
+    original: StaticResidualRef,
+    elements: &[StaticEvalTerm],
+    result_type: TypeId,
+    supplied: &StaticSpecializationEnvironmentKey,
+) -> Result<StaticEvalTerm, Stop> {
+    let inherited = evaluator.inherited_specialization_environment().clone();
+    let composed = evaluator.compose_specialization_environment(&inherited, supplied)?;
+    let (domain, type_changed) = evaluator.substitute_specialization_domain(StaticValueDomain::ValueType(result_type), &composed)?;
+    let StaticValueDomain::ValueType(result_type) = domain else {
+        return Err(Stop::invalid(StaticEvalError::InvalidResultDomain));
+    };
+    let mut changed = type_changed;
+    let mut symbolic = false;
+    let mut specialized = Vec::with_capacity(elements.len());
+    for &element in elements {
+        if evaluator.is_cancelled() {
+            return Err(Stop::Cancelled);
+        }
+        evaluator.charge_step()?;
+        let term = match element {
+            StaticEvalTerm::Value(value) => {
+                evaluator.validate_static_value_reference(value)?;
+                StaticEvalTerm::Value(value)
+            }
+            StaticEvalTerm::Kinded(ty) => {
+                let ty = evaluator.substitute_specialization_type(ty, &composed)?;
+                StaticEvalTerm::Value(evaluator.intern_kinded_static_value(ty)?)
+            }
+            StaticEvalTerm::Residual(reference) => specialize_residual_term(evaluator, reference, &composed)?,
+        };
+        changed |= term != element;
+        symbolic |= matches!(term, StaticEvalTerm::Residual(_));
+        specialized.push(term);
+    }
+    if symbolic {
+        if !changed {
+            return Ok(StaticEvalTerm::Residual(original));
+        }
+        let residual = evaluator.intern_tuple_residual_node(specialized.into_boxed_slice(), result_type)?;
+        return Ok(StaticEvalTerm::Residual(residual));
+    }
+    let values = specialized.into_iter().map(|term| match term {
+        StaticEvalTerm::Value(value) => value,
+        _ => unreachable!("all tuple elements were reduced"),
+    }).collect();
+    let value = evaluator.intern_tuple_static_values(values)?;
+    evaluator.validate_specialized_result(StaticEvalTerm::Value(value), domain)
+}
+
+fn specialize_record(
+    evaluator: &mut StaticEvaluator<'_>,
+    original: StaticResidualRef,
+    fields: &[(FieldKey, StaticEvalTerm)],
+    result_type: TypeId,
+    supplied: &StaticSpecializationEnvironmentKey,
+) -> Result<StaticEvalTerm, Stop> {
+    let inherited = evaluator.inherited_specialization_environment().clone();
+    let composed = evaluator.compose_specialization_environment(&inherited, supplied)?;
+    let (domain, type_changed) = evaluator.substitute_specialization_domain(StaticValueDomain::ValueType(result_type), &composed)?;
+    let StaticValueDomain::ValueType(result_type) = domain else {
+        return Err(Stop::invalid(StaticEvalError::InvalidResultDomain));
+    };
+    let mut changed = type_changed;
+    let mut symbolic = false;
+    let mut specialized = Vec::with_capacity(fields.len());
+    for (key, element) in fields {
+        let element = *element;
+        if evaluator.is_cancelled() {
+            return Err(Stop::Cancelled);
+        }
+        evaluator.charge_step()?;
+        let term = match element {
+            StaticEvalTerm::Value(value) => {
+                evaluator.validate_static_value_reference(value)?;
+                StaticEvalTerm::Value(value)
+            }
+            StaticEvalTerm::Kinded(ty) => {
+                let ty = evaluator.substitute_specialization_type(ty, &composed)?;
+                StaticEvalTerm::Value(evaluator.intern_kinded_static_value(ty)?)
+            }
+            StaticEvalTerm::Residual(reference) => specialize_residual_term(evaluator, reference, &composed)?,
+        };
+        changed |= term != element;
+        symbolic |= matches!(term, StaticEvalTerm::Residual(_));
+        specialized.push((key.clone(), term));
+    }
+    if symbolic {
+        if !changed {
+            return Ok(StaticEvalTerm::Residual(original));
+        }
+        let residual = evaluator.intern_record_residual_node(specialized, result_type)?;
+        return Ok(StaticEvalTerm::Residual(residual));
+    }
+    let values = specialized.into_iter().map(|(key, term)| match term {
+        StaticEvalTerm::Value(value) => (key, value),
+        _ => unreachable!("all Record fields were reduced"),
+    }).collect();
+    let value = evaluator.intern_record_static_values(values)?;
+    evaluator.validate_specialized_result(StaticEvalTerm::Value(value), domain)
+}
+
+fn specialize_structural_fields<T: Clone>(
+    evaluator: &mut StaticEvaluator<'_>,
+    fields: &[(T, StaticEvalTerm)],
+    environment: &StaticSpecializationEnvironmentKey,
+) -> Result<(Vec<(T, StaticEvalTerm)>, bool, bool), Stop> {
+    let mut changed = false;
+    let mut symbolic = false;
+    let mut result = Vec::with_capacity(fields.len());
+    for (id, element) in fields {
+        let element = *element;
+        if evaluator.is_cancelled() {
+            return Err(Stop::Cancelled);
+        }
+        evaluator.charge_step()?;
+        let term = match element {
+            StaticEvalTerm::Value(value) => {
+                evaluator.validate_static_value_reference(value)?;
+                StaticEvalTerm::Value(value)
+            }
+            StaticEvalTerm::Kinded(ty) => {
+                let ty = evaluator.substitute_specialization_type(ty, environment)?;
+                StaticEvalTerm::Value(evaluator.intern_kinded_static_value(ty)?)
+            }
+            StaticEvalTerm::Residual(reference) => specialize_residual_term(evaluator, reference, environment)?,
+        };
+        changed |= term != element;
+        symbolic |= matches!(term, StaticEvalTerm::Residual(_));
+        result.push((id.clone(), term));
+    }
+    Ok((result, changed, symbolic))
+}
+
+fn specialize_data(
+    evaluator: &mut StaticEvaluator<'_>,
+    original: StaticResidualRef,
+    owner: &DeclarationId,
+    constructor: &DataConstructorId,
+    result_type: TypeId,
+    components: &[(DataComponentId, StaticEvalTerm)],
+    supplied: &StaticSpecializationEnvironmentKey,
+) -> Result<StaticEvalTerm, Stop> {
+    let inherited = evaluator.inherited_specialization_environment().clone();
+    let composed = evaluator.compose_specialization_environment(&inherited, supplied)?;
+    let (domain, type_changed) = evaluator.substitute_specialization_domain(StaticValueDomain::ValueType(result_type), &composed)?;
+    let StaticValueDomain::ValueType(result_type) = domain else {
+        return Err(Stop::invalid(StaticEvalError::InvalidResultDomain));
+    };
+    let (components, changed, symbolic) = specialize_structural_fields(evaluator, components, &composed)?;
+    if symbolic {
+        if !changed && !type_changed {
+            return Ok(StaticEvalTerm::Residual(original));
+        }
+        let residual = evaluator.intern_structural_residual_node(StaticResidualData::Data {
+            owner: owner.clone(), constructor: constructor.clone(), result_type,
+            components: components.into_boxed_slice(),
+        })?;
+        return Ok(StaticEvalTerm::Residual(residual));
+    }
+    let values = components.into_iter().map(|(id, term)| match term {
+        StaticEvalTerm::Value(value) => Ok((id, value)),
+        _ => Err(Stop::invalid(StaticEvalError::InvalidResultDomain)),
+    }).collect::<Result<Vec<_>, Stop>>()?;
+    let value = evaluator.intern_data_static_value(owner, constructor, result_type, values)?;
+    evaluator.validate_specialized_result(StaticEvalTerm::Value(value), domain)
+}
+
+fn specialize_variant(
+    evaluator: &mut StaticEvaluator<'_>,
+    original: StaticResidualRef,
+    variant: &VariantId,
+    result_type: TypeId,
+    fields: &[(VariantFieldId, StaticEvalTerm)],
+    supplied: &StaticSpecializationEnvironmentKey,
+) -> Result<StaticEvalTerm, Stop> {
+    let inherited = evaluator.inherited_specialization_environment().clone();
+    let composed = evaluator.compose_specialization_environment(&inherited, supplied)?;
+    let (domain, type_changed) = evaluator.substitute_specialization_domain(StaticValueDomain::ValueType(result_type), &composed)?;
+    let StaticValueDomain::ValueType(result_type) = domain else {
+        return Err(Stop::invalid(StaticEvalError::InvalidResultDomain));
+    };
+    let (fields, changed, symbolic) = specialize_structural_fields(evaluator, fields, &composed)?;
+    if symbolic {
+        if !changed && !type_changed {
+            return Ok(StaticEvalTerm::Residual(original));
+        }
+        let residual = evaluator.intern_structural_residual_node(StaticResidualData::Variant {
+            variant: variant.clone(), result_type, fields: fields.into_boxed_slice(),
+        })?;
+        return Ok(StaticEvalTerm::Residual(residual));
+    }
+    let values = fields.into_iter().map(|(id, term)| match term {
+        StaticEvalTerm::Value(value) => Ok((id, value)),
+        _ => Err(Stop::invalid(StaticEvalError::InvalidResultDomain)),
+    }).collect::<Result<Vec<_>, Stop>>()?;
+    let value = evaluator.intern_variant_static_value(variant, result_type, values)?;
+    evaluator.validate_specialized_result(StaticEvalTerm::Value(value), domain)
 }
 
 pub(crate) fn substitute_proof_goal(

@@ -117,7 +117,7 @@ fn top_level_const_and_let_bindings_use_their_phase_default_families() {
         assert_eq!(constant.is_some(), has_static_product);
 
         if let Some(constant) = constant {
-            let resolution = constant.checked.sequence_literals.values().next().expect("checked static bracket");
+            let resolution = constant.checked.as_ref().unwrap().sequence_literals.values().next().expect("checked static bracket");
             assert_eq!(resolution.family, SequenceLiteralFamily::Vector);
         }
     }

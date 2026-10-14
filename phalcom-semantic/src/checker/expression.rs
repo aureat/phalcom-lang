@@ -4602,8 +4602,26 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
             let arguments = application_arguments(&call.args);
             let mut target = callable_target_for_data_info(&data_info);
             target.access_denied = !ctx.data_constructor_is_accessible(&data_info);
-            let result = apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range);
-            let result_type = result.knowledge.ty().or_else(|| target.signature.return_type.ty());
+            // A typed open Pack remainder is a supertype of the inferred exact
+            // lanes. Solve the variadic constructor from its arguments first;
+            // the ordinary type relation checks the completed result against
+            // the contextual contract below.
+            let open_pack_context = decl == ctx.core_ids.pack && expected.ty().is_some_and(|ty| {
+                matches!(ctx.store.get(ty), TypeData::Pack(pack)
+                    if pack.positional_remainder != crate::types::store::AnonymousTupleRemainder::None
+                        || pack.labeled_remainder != crate::types::store::AnonymousTupleRemainder::None)
+            });
+            let constructor_expected = if open_pack_context { &ExpectedType::None } else { expected };
+            let result = apply_resolved_callable(ctx, &target, &premise, &arguments, constructor_expected, call.range);
+            let result_type = result.knowledge.ty().or_else(|| target.signature.return_type.ty().filter(|ty| ctx.store.is_proper_type(*ty)));
+            let mut typed: TypedExpression = result.into();
+            if open_pack_context && typed.status.is_ready() && let Some(expected_type) = expected.ty() {
+                let application = ctx.apply_knowledge_against_type(
+                    &typed.knowledge, expected_type, DiagnosticCode::TypeMismatch,
+                    "Pack constructor result does not match the expected Pack type", call.range,
+                );
+                apply_relation_application_to_typed(&mut typed, &application);
+            }
             let argument_mapping = result_type
                 .and_then(|result_type| compute_shape_aware_data_argument_mapping(&data_info, &target, &arguments, result_type, ctx.store))
                 .or_else(|| compute_data_argument_mapping_from_pack(&data_info, &call.args));
@@ -4618,12 +4636,81 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                             member: AssociatedMemberId::DataConstructor(data_info.constructor.constructor.clone()),
                             target: InvocationTargetId::DataConstructor(data_info.constructor.constructor.clone()),
                             result_type,
-                            argument_mapping,
+                            argument_mapping: argument_mapping.clone(),
                         },
                     },
                 );
+                if ctx.phase == crate::checker::context::EvaluationPhase::Static && typed.status.is_ready()
+                    && decl == ctx.core_ids.pack
+                    && ctx.store.kind_of(result_type) == KindId::TYPE
+                {
+                    let mut labeled = false;
+                    let mut labels = std::collections::HashSet::new();
+                    let checked = call.args.iter().enumerate().map(|(index, item)| {
+                        let (value, payload) = match item {
+                            PackItem::Positional { expr, .. } if !labeled => (expr, crate::static_definition::CheckedStaticPayloadId::PackPositional(index as u32)),
+                            PackItem::Labeled { label: PackLabel::Static { text, .. }, value, .. } => {
+                                labeled = true;
+                                if !labels.insert(text.as_str()) { return None; }
+                                (value, crate::static_definition::CheckedStaticPayloadId::PackLabeled(text.as_str().into()))
+                            }
+                            PackItem::Expand { expr, mode, .. } => {
+                                if labeled && *mode == phalcom_ast::ast::ExpansionMode::Positional {
+                                    return None;
+                                }
+                                if matches!(mode, phalcom_ast::ast::ExpansionMode::Labeled | phalcom_ast::ast::ExpansionMode::Complete) {
+                                    labeled = true;
+                                }
+                                (expr, crate::static_definition::CheckedStaticPayloadId::PackExpansion(*mode))
+                            }
+                            _ => return None,
+                        };
+                        Some(crate::static_definition::CheckedStaticConstructionArgument {
+                            expression: ctx.expression_id_for_static_range(value.range())?, payload,
+                        })
+                    }).collect::<Option<Vec<_>>>();
+                    if let Some(arguments) = checked {
+                        ctx.record_checked_static_construction(crate::static_definition::CheckedStaticConstruction {
+                            expression,
+                            target: InvocationTargetId::DataConstructor(data_info.constructor.constructor.clone()),
+                            result_type,
+                            arguments: arguments.into_boxed_slice(),
+                        });
+                    }
+                } else if ctx.phase == crate::checker::context::EvaluationPhase::Static && typed.status.is_ready()
+                    && let Some(mapping) = argument_mapping.as_deref()
+                    && mapping.len() == call.args.len()
+                    && mapping.len() == data_info.components.len()
+                {
+                    let checked = call.args.iter().zip(mapping).map(|(item, component_index)| {
+                        let value = match item {
+                            PackItem::Positional { expr, .. } => expr,
+                            PackItem::Labeled { value, .. } => value,
+                            PackItem::Expand { .. } => return None,
+                        };
+                        let component = data_info.components.get(*component_index as usize)?;
+                        Some(crate::static_definition::CheckedStaticConstructionArgument {
+                            expression: ctx.expression_id_for_static_range(value.range())?,
+                            payload: crate::static_definition::CheckedStaticPayloadId::DataComponent(component.id.clone()),
+                        })
+                    }).collect::<Option<Vec<_>>>();
+                    if let Some(checked) = checked {
+                        let distinct = checked.iter().filter_map(|argument| match &argument.payload {
+                            crate::static_definition::CheckedStaticPayloadId::DataComponent(component) => Some(component),
+                            _ => None,
+                        }).collect::<std::collections::BTreeSet<_>>();
+                        if distinct.len() == checked.len() {
+                            ctx.record_checked_static_construction(crate::static_definition::CheckedStaticConstruction {
+                                expression,
+                                target: InvocationTargetId::DataConstructor(data_info.constructor.constructor.clone()),
+                                result_type,
+                                arguments: checked.into_boxed_slice(),
+                            });
+                        }
+                    }
+                }
             }
-            return result.into();
+            return typed;
         }
         let Some(ty) = ctx.nominal_type_of(&decl) else {
             return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);

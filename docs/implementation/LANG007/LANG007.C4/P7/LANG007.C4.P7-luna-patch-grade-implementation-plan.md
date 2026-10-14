@@ -5,9 +5,9 @@ program: LANG007
 checkpoint: LANG007.C4
 kind: implementation-plan
 title: "Recursive Generic Static Computation, Normalized Residualization, Specialization, and Memoization"
-status: IN_PROGRESS
-completion: PARTIAL
-verification: UNVERIFIED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 branch: main
 prepared: 2026-10-12
 prepared_against_revision: 3f8cd71358b5c5155ac0a92c7ab232e5a86c4fb6
@@ -2082,6 +2082,9 @@ phalcom-semantic/tests/semantic/integration/**
 4. Route `Equivalent` through canonical equivalence/proof authority.
 
 5. Implement exact-item checker refinement for `FiniteExact`.
+   A Pack with an open typed remainder is not `FiniteExact`, even when its
+   fixed prefix is empty. Preserve a sound item domain so ordinary pattern
+   resolution and the loop body are checked for possible remainder entries.
 
 6. Make `StaticIterationMode` the evaluator execution authority.
 
@@ -2509,6 +2512,15 @@ branch-local mutation does not leak
 
 No residual stores evaluator continuation state.
 
+**2026-10-13 Level-2 acceptance amendment:** For control bodies whose
+unevaluated branches cannot be represented as semantic terms without executing
+untaken code, a canonical enclosing `Apply` is the accepted residual. Later
+specialization must rerun the checked body under exact arguments and preserve
+branch-local mutation, selected-branch-only execution, result domains, and
+cold/open parity. The presence of an `If` enum variant does not certify it as
+an operational residual form; leave direct `If` gated unless a distinct
+checked semantic branch representation is approved.
+
 ---
 
 ## P7.T9 — Match residualization and branch-proof specialization
@@ -2551,6 +2563,13 @@ exhaustiveness remains checker-owned
 
 Residual match does not contain/re-resolve raw pattern syntax.
 
+**2026-10-13 Level-2 acceptance amendment:** A canonical enclosing `Apply`
+may defer a match whose branch bodies cannot safely become pre-evaluated
+semantic terms. On specialization, reuse the published `MatchResolution` and
+the ordinary P6 matcher and proof environment, preserving first-match arm
+order and untaken-branch immunity. Do not treat the existing `Match` enum
+variant or source-site ID alone as a complete residual match implementation.
+
 ---
 
 ## P7.T10 — Structural construction residuals and recursive algorithms
@@ -2562,6 +2581,9 @@ phalcom-semantic/src/static_eval/residual.rs
 phalcom-semantic/src/static_eval/machine.rs
 phalcom-semantic/src/static_eval/specialize.rs
 phalcom-semantic/src/static_value/store.rs
+phalcom-semantic/src/checker/expression.rs
+phalcom-semantic/src/checker/static_iteration.rs
+phalcom-semantic/src/static_definition.rs
 phalcom-semantic/tests/semantic/integration/static_recursive_evaluation.rs
 ```
 
@@ -2619,6 +2641,47 @@ type Count<*P>: Int {
 ### Gate P7.G10
 
 Common structural recursive algorithms do not require runtime Iterator dispatch, host recursion, or quadratic Pack-tail copying.
+
+**2026-10-13 Level-2 result-domain amendment:** A checked Variant constructor
+can produce an exact-case type while its static definition declares the Sum
+supertype. Retain the exact `VariantId` and exact-case `result_type` in a
+partial Variant residual. Before allowing it to complete the definition,
+discharge `ExactCase <: declared result` through the existing bounded subtype
+authority; preserve proof terminal distinctions. Do not accept arbitrary
+wrong-domain residuals as a substitute for this proof. See
+[`INC-006`](LANG007.C4.P7-INC-006-variant-residual-result-domain.md).
+
+**2026-10-13 Pack domain amendment:** `StaticResidualData::Pack` represents a
+first-class ordinary Pack value with a checked proper `result_type`. Its
+result domain is `ValueType(result_type)`, and its labeled lane preserves
+Symbol spelling and encounter order. C3 `TypePack` kinded terms are distinct
+TypeStore forms and do not become ordinary Pack residuals. See
+[`INC-007`](LANG007.C4.P7-INC-007-pack-residual-result-domain.md).
+
+**2026-10-13 checked-source Pack amendment:** P7.T10 also owns ordinary
+source `Pack(...)` construction in static bodies. Publish a canonical checked
+Pack-lane constructor selection from the ordinary checker, including ordered
+positional and Symbol-labeled argument sites and a proper result type. Consume
+that product during exact and partial static evaluation; do not reconstruct
+selection from source spelling in the evaluator. Repair the contextual
+constructor inference conflict at its ordinary-checker authority. If the
+checked exact Pack result is narrower than the declared open Pack result,
+prove the subtype with the bounded canonical relation before permitting a
+direct residual to complete the definition. Open Pack iteration preserves
+an enclosing `Apply` until its extent is known. G10 requires source-level
+cold/open specialization parity. See
+[`INC-008`](LANG007.C4.P7-INC-008-checked-pack-construction.md).
+
+**2026-10-14 Pack spread inference amendment:** P7.T10 also owns ordinary
+constructor shape inference for exact Pack spreads (e.g. `Pack(*P)`).
+`DataConstructorArgumentRole::Expansion` binds compatible spread arguments to
+the expansion parameter when no fixed positional parameters exist. In generic
+application, `extract_pack_expansion_elements` decomposes closed exact
+operands into ordered positional and labeled elements. The checker publishes
+`CheckedStaticPayloadId::PackExpansion(mode)` for static Pack sites, and the
+static evaluator fuses exact spread contributions into the resulting Pack
+without intermediate collections. See
+[`INC-009`](LANG007.C4.P7-INC-009-pack-spread-inference.md).
 
 ---
 
@@ -2684,6 +2747,27 @@ phalcom-semantic/tests/semantic/integration/**
 ### Gate P7.G12
 
 Incremental history does not alter normalized residual/result identity.
+
+**2026-10-13 user-directed Level-2 amendment:** P7 owns a stable semantic
+fingerprint for any symbolic product that the incremental DB publishes, across
+independently constructed stores. Carry the residual DAG's owning store at
+the product/publication boundary; hash canonical declaration, type, value,
+proof, environment, member and child meanings rather than store-qualified
+offsets. Use the existing stable identity/type-export authority rather than
+inventing a competing type fingerprint engine. P8 retains durable artifact
+encoding and cross-module transport. The current lineage-local residual hash
+must not be substituted as the DB product fingerprint. Record the concrete
+ownership and type/value identity rules in this plan before publication edits.
+
+**Additional prerequisite ruling:** P7 first extends the canonical metadata
+type-export authority with the minimal generalized `FieldKey` Record
+representation needed to fingerprint accepted C4 types. Query fingerprints
+use a revision-independent logical project coordinate; serialized artifact
+identities remain revisioned. This advances only the requisite FieldKey/type
+projection portion of P8; P8 still owns final schema compatibility and
+cross-module value transport. Type-bearing static values must use the same
+canonical type projection. The residual store must be retained with each
+published symbolic product rather than returning an orphaned arena reference.
 
 ---
 

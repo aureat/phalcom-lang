@@ -116,6 +116,9 @@ pub struct CheckedStaticApplication {
 pub enum CheckedStaticPayloadId {
     DataComponent(crate::identity::DataComponentId),
     VariantField(crate::identity::VariantFieldId),
+    PackPositional(u32),
+    PackLabeled(Box<str>),
+    PackExpansion(phalcom_ast::ast::ExpansionMode),
 }
 
 /// One source argument paired with the canonical payload it initializes.

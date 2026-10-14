@@ -165,7 +165,7 @@ fn build_test_bundle() -> SemanticMetadataBundle {
                 origin: TypeNodeId(4),
                 arguments: vec![StaticArgumentRef::RecordRow(RecordRowRef {
                     fields: vec![RecordFieldRef {
-                        name: "payload".into(),
+                        key: phalcom_type_meta::field_key::FieldKeyRef::Symbol("payload".into()),
                         ty: TypeNodeId(5),
                         presence: StructuralMemberPresenceRef::Required,
                     }]
@@ -184,7 +184,7 @@ fn build_test_bundle() -> SemanticMetadataBundle {
                 origin: TypeNodeId(4),
                 arguments: vec![StaticArgumentRef::RecordRow(RecordRowRef {
                     fields: vec![RecordFieldRef {
-                        name: "payload".into(),
+                        key: phalcom_type_meta::field_key::FieldKeyRef::Symbol("payload".into()),
                         ty: TypeNodeId(1),
                         presence: StructuralMemberPresenceRef::Required,
                     }]
@@ -315,6 +315,9 @@ fn build_test_bundle() -> SemanticMetadataBundle {
         module_roots: Box::new([]),
         runtime_roots: Box::new([]),
         occurrences: Box::new([]),
+        static_values: Box::new([]),
+        static_constants: Box::new([]),
+        static_definitions: Box::new([]),
         extensions: Box::new([]),
     }
 }

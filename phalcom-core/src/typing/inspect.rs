@@ -58,6 +58,7 @@ pub fn children(context: &TypingContextData, registry: &RuntimeTypingRegistry, h
                             phalcom_type_meta::type_node::StaticArgumentRef::RecordRow(row) => {
                                 children.extend(row.fields.iter().map(|field| RuntimeTypeRef::Base { pool, node: field.ty }));
                             }
+                            phalcom_type_meta::type_node::StaticArgumentRef::GeneralRecordRow(_) => return None,
                             phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => {}
                         }
                     }
@@ -96,13 +97,14 @@ pub fn static_arguments(context: &TypingContextData, registry: &RuntimeTypingReg
                                 .fields
                                 .iter()
                                 .map(|field| crate::typing::overlay::RuntimeRecordField {
-                                    key: phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()),
+                                    key: phalcom_semantic::metadata::stable_identity::from_field_key_ref(&field.key),
                                     ty: RuntimeTypeRef::Base { pool, node: field.ty },
                                 })
                                 .collect(),
                             tail: row.tail.clone(),
                         }))
                     }
+                    phalcom_type_meta::type_node::StaticArgumentRef::GeneralRecordRow(_) => None,
                     phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => Some(RuntimeStaticArgument::DynamicType),
                 })
                 .collect()
@@ -300,7 +302,7 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                                     .map(|field| {
                                         format!(
                                             "{}: {}",
-                                            field.name,
+                                            field.key,
                                             display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: field.ty }, depth + 1)
                                         )
                                     })
@@ -312,6 +314,7 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                                     .map_or(String::new(), |tail| format!("{}**R{}", if fields.is_empty() { "" } else { ", " }, tail.index));
                                 format!("{{{fields}{tail}}}")
                             }
+                            phalcom_type_meta::type_node::StaticArgumentRef::GeneralRecordRow(_) => "<unpublished-row>".to_string(),
                             phalcom_type_meta::type_node::StaticArgumentRef::DynamicType => "Dynamic".to_string(),
                         })
                         .collect::<Vec<_>>()
@@ -386,12 +389,15 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                         .iter()
                         .map(|field| format!(
                             "{}: {}",
-                            field.name,
+                            field.key,
                             display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: field.ty }, depth + 1)
                         ))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
+                // The metadata validator rejects query-only nodes in runtime
+                // bundles; never render one as a supported runtime type.
+                TypeNode::GeneralRecord(_) => "<unpublished-record>".to_string(),
                 TypeNode::AnonymousRecord(anon_rec) => {
                     let mut parts = anon_rec
                         .fields
@@ -404,7 +410,7 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                             };
                             format!(
                                 "{}{}: {}",
-                                field.name,
+                                field.key,
                                 opt,
                                 display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: field.ty }, depth + 1)
                             )
@@ -430,7 +436,7 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                         .iter()
                         .map(|field| format!(
                             "{}: {}",
-                            field.name,
+                            field.key,
                             display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: field.ty }, depth + 1)
                         ))
                         .collect::<Vec<_>>()

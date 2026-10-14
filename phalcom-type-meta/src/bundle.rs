@@ -88,5 +88,11 @@ pub struct SemanticMetadataBundle {
     pub module_roots: Box<[ModuleMetadataRoot]>,
     pub runtime_roots: Box<[RuntimeTypeFormRoot]>,
     pub occurrences: Box<[TypeUseRecord]>,
+    #[serde(default)]
+    pub static_values: Box<[crate::static_value::StaticValueNodeEntry]>,
+    #[serde(default)]
+    pub static_constants: Box<[crate::static_value::StaticConstantRecord]>,
+    #[serde(default)]
+    pub static_definitions: Box<[crate::static_definition::StaticDefinitionRecord]>,
     pub extensions: Box<[MetadataExtensionSection]>,
 }

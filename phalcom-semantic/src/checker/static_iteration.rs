@@ -5,7 +5,7 @@ use crate::identity::ExpressionId;
 use crate::structural::{OrderedProductOrigin, StructuralClassification, StructuralClassifier};
 use crate::types::denotation::SemanticDenotation;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
-use crate::types::id::TypeId;
+use crate::types::id::{KindId, TypeId};
 use crate::types::row::RecordRowTail;
 use crate::types::store::{TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
@@ -96,6 +96,15 @@ pub fn resolve_static_iteration_lane(
 
     // First check if this is iterating over a type expression:
     if let Some(SemanticDenotation::TypeForm(term) | SemanticDenotation::StaticTerm(term)) = iter_typed.denotation {
+        if ctx.store.kind_of(term) == KindId::TYPE_PACK {
+            return Some(StaticIterationLaneResolution {
+                source_expression: source_expr_id,
+                source_range,
+                source_type: term,
+                mode: StaticIterationMode::TypePackTerms,
+                item_domain: StaticIterationItemDomain::Unknown(TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)),
+            });
+        }
         let classifier = StructuralClassifier::new(data, enums);
         let classification = classifier.classify(ctx.store, term);
         return match classification {
@@ -179,18 +188,34 @@ pub fn resolve_static_iteration_lane(
 
     // Check if the type is explicitly a Pack in TypeData:
     if let TypeData::Pack(items) = ctx.store.get(source_ty).clone() {
-        let domain_items = items
-            .elements
-            .iter()
-            .map(|elem| TypeKnowledge::established(elem.ty, EvidenceOrigin::DeclarationSemantics))
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+        let item_domain = if items.is_closed() {
+            StaticIterationItemDomain::FiniteExact(items.elements.iter()
+                .map(|elem| TypeKnowledge::established(elem.ty, EvidenceOrigin::DeclarationSemantics))
+                .collect::<Vec<_>>().into_boxed_slice())
+        } else {
+            use crate::types::store::AnonymousTupleRemainder;
+            let mut known = items.elements.iter().map(|elem| elem.ty).collect::<BTreeSet<_>>();
+            let mut has_unconstrained = false;
+            for remainder in [items.positional_remainder, items.labeled_remainder] {
+                match remainder {
+                    AnonymousTupleRemainder::Typed(ty) => { known.insert(ty); }
+                    AnonymousTupleRemainder::Unconstrained => has_unconstrained = true,
+                    AnonymousTupleRemainder::None => {}
+                }
+            }
+            if has_unconstrained || known.is_empty() {
+                StaticIterationItemDomain::Unknown(TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence))
+            } else {
+                let ty = if known.len() == 1 { *known.iter().next().unwrap() } else { ctx.store.union(&known.into_iter().collect::<Vec<_>>()) };
+                StaticIterationItemDomain::Uniform(TypeKnowledge::established(ty, EvidenceOrigin::DeclarationSemantics))
+            }
+        };
         return Some(StaticIterationLaneResolution {
             source_expression: source_expr_id,
             source_range,
             source_type: source_ty,
             mode: StaticIterationMode::PackValues,
-            item_domain: StaticIterationItemDomain::FiniteExact(domain_items),
+            item_domain,
         });
     }
 

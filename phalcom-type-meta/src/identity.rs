@@ -153,3 +153,24 @@ pub struct SourceSpanRef {
     pub start: u32,
     pub end: u32,
 }
+
+/// Stable static constant reference.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub struct StableStaticConstantRef {
+    pub module: StableModuleRef,
+    pub name: Box<str>,
+}
+
+/// Stable data component reference.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub struct StableDataComponentRef {
+    pub owner: StableDeclarationRef,
+    pub index: u32,
+}
+
+/// Stable variant field reference.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub struct StableVariantFieldRef {
+    pub variant: StableVariantRef,
+    pub index: u32,
+}

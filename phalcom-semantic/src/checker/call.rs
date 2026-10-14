@@ -19,7 +19,7 @@ use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, Unkn
 use crate::types::id::{KindId, RecordRowId, ScopedTypeId, StaticDomainId, TypeId, TypeLambdaId, TypeParameterId};
 use crate::types::instantiation::TypeMaterializationError;
 use crate::types::parameter::{GenericConstraint, GenericSignature, TypeParameterOwner, TypeTerm};
-use crate::types::row::RecordRowFormationError;
+use crate::types::row::{RecordRowFormationError, RecordRowTail};
 use crate::types::store::{StaticArgument, StaticDomainData, TypeData, TypeStore};
 use phalcom_ast::ast::{ExpansionMode, Expr, PackItem, PackLabel, RestMode};
 use phalcom_common::range::SourceRange;
@@ -64,6 +64,7 @@ enum DataConstructorArgumentRole {
     PositionalPack { parameter: TypeParameterId },
     LabeledPack { parameter: TypeParameterId, label: Box<str> },
     RecordField { parameter: TypeParameterId, label: Box<str> },
+    Expansion { parameter: TypeParameterId, mode: phalcom_ast::ast::ExpansionMode },
 }
 
 #[derive(Default)]
@@ -206,8 +207,31 @@ impl DataConstructorShapeAdapter {
                         }
                     }
                 }
-                ApplicationArgument::DynamicLabel { .. } | ApplicationArgument::Expansion { .. } => {
+                ApplicationArgument::DynamicLabel { .. } => {
                     failures.push(ArgumentShapeFailure::DynamicShape);
+                }
+                ApplicationArgument::Expansion { mode, .. } => {
+                    let has_fixed_positional = self.template.parameters.iter().any(|c| {
+                        matches!(c, DataConstructorParameterContribution::Parameter(p) if p.external_label.is_none())
+                    });
+                    let mode_compatible = match (self.shape, expansion.mode, mode) {
+                        (DataShape::Record, _, phalcom_ast::ast::ExpansionMode::Positional) => false,
+                        (DataShape::Record, _, _) => true,
+                        (DataShape::Tuple, phalcom_ast::ast::ExpansionMode::Complete, _) => true,
+                        (DataShape::Tuple, phalcom_ast::ast::ExpansionMode::Positional, phalcom_ast::ast::ExpansionMode::Positional) => true,
+                        (DataShape::Tuple, phalcom_ast::ast::ExpansionMode::Labeled, phalcom_ast::ast::ExpansionMode::Labeled) => true,
+                        _ => false,
+                    };
+                    if mode_compatible && !has_fixed_positional {
+                        roles[argument_index] = Some(DataConstructorArgumentRole::Expansion {
+                            parameter: expansion_parameter,
+                            mode,
+                        });
+                    } else if self.shape == DataShape::Record && mode == phalcom_ast::ast::ExpansionMode::Positional {
+                        failures.push(ArgumentShapeFailure::UnexpectedPositional { argument_index });
+                    } else {
+                        failures.push(ArgumentShapeFailure::DynamicShape);
+                    }
                 }
             }
         }
@@ -355,6 +379,7 @@ impl DataConstructorShapeAdapter {
                         candidate.component.is_none() && candidate.label.as_deref() == Some(label.as_ref()) && candidate.expansion_source == expansion.source
                     })? as u32
                 }
+                DataConstructorArgumentRole::Expansion { .. } => return None,
             };
             if !seen.insert(component_index) {
                 return None;
@@ -373,6 +398,62 @@ fn data_expansion_parameter(expansion: &crate::data_semantics::DataProductExpans
             crate::types::row::RecordRowTail::Parameter(parameter) => Some(parameter),
             _ => None,
         },
+        _ => None,
+    }
+}
+
+fn extract_pack_expansion_elements(store: &TypeStore, ty: TypeId) -> Option<(Vec<TypeId>, Vec<(Box<str>, TypeId)>)> {
+    match store.get(ty) {
+        TypeData::Pack(pack) if pack.is_closed() => {
+            let mut positionals = Vec::new();
+            let mut labeled = Vec::new();
+            for element in pack.elements.iter() {
+                if let Some(label) = &element.label {
+                    labeled.push((label.clone(), element.ty));
+                } else {
+                    positionals.push(element.ty);
+                }
+            }
+            Some((positionals, labeled))
+        }
+        TypeData::Tuple(tuple) if tuple.is_closed() => {
+            let mut positionals = Vec::new();
+            let mut labeled = Vec::new();
+            for element in tuple.elements.iter() {
+                if let Some(label) = &element.label {
+                    labeled.push((label.clone(), element.ty));
+                } else {
+                    positionals.push(element.ty);
+                }
+            }
+            Some((positionals, labeled))
+        }
+        TypeData::Record(row_id) => {
+            let row = store.record_row(*row_id);
+            if !matches!(row.tail, RecordRowTail::Closed) {
+                return None;
+            }
+            let mut labeled = Vec::new();
+            for field in row.fields.iter() {
+                if let crate::field_key::FieldKey::Symbol(name) = &field.key {
+                    labeled.push((name.as_ref().into(), field.ty));
+                }
+            }
+            Some((Vec::new(), labeled))
+        }
+        TypeData::TypePack(elements) => Some((elements.to_vec(), Vec::new())),
+        TypeData::LabeledTypePack(elements) => {
+            let labeled = elements.iter().map(|e| (e.label.clone(), e.element)).collect();
+            Some((Vec::new(), labeled))
+        }
+        TypeData::CompleteTypePack { positionals, labeled }
+        | TypeData::PackFromPacks { positionals, labeled }
+        | TypeData::TupleFromPacks { positionals, labeled } => {
+            let (pos, _) = extract_pack_expansion_elements(store, *positionals)?;
+            let (_, lab) = extract_pack_expansion_elements(store, *labeled)?;
+            Some((pos, lab))
+        }
+        TypeData::Unit => Some((Vec::new(), Vec::new())),
         _ => None,
     }
 }
@@ -1719,7 +1800,9 @@ fn apply_generic_callable_in_context(
         )
     });
     let fixed_return = return_term.as_ref().and_then(|term| {
-        (!session_handle.borrow().term_has_variables(term) && !term_has_row_variables(term))
+        (!session_handle.borrow().term_has_variables(term)
+            && !term_has_row_variables(term)
+            && signature.return_type.ty().is_some_and(|ty| ctx.store.is_proper_type(ty)))
             .then(|| promote_exact_return(&signature.return_type, ExactReturnOrigin::GenericInference, call_range))
     });
 
@@ -1856,6 +1939,9 @@ fn apply_generic_callable_in_context(
                         (Some(*parameter), false)
                     }
                     DataConstructorArgumentRole::RecordField { parameter, .. } => (Some(*parameter), true),
+                    DataConstructorArgumentRole::Expansion { parameter, .. } => {
+                        (Some(*parameter), target.data_constructor_shape.as_ref().is_some_and(|a| a.shape == DataShape::Record))
+                    }
                     DataConstructorArgumentRole::Fixed { .. } => (None, false),
                 };
                 if record_field
@@ -1893,6 +1979,66 @@ fn apply_generic_callable_in_context(
                         },
                     ))
                 });
+                if let DataConstructorArgumentRole::Expansion { parameter, mode } = role {
+                    let extracted = argument_typed.knowledge.ty().and_then(|ty| extract_pack_expansion_elements(ctx.store, ty));
+                    if let Some((pos_types, lab_types)) = extracted {
+                        if let Some(index) = expansion_premise_index {
+                            expansion_terms.premises[index].proof_term = inferred_term;
+                        }
+                        expansion_terms.parameter = Some(parameter);
+                        let include_pos = matches!(mode, phalcom_ast::ast::ExpansionMode::Positional | phalcom_ast::ast::ExpansionMode::Complete);
+                        let include_lab = matches!(mode, phalcom_ast::ast::ExpansionMode::Labeled | phalcom_ast::ast::ExpansionMode::Complete);
+                        if include_pos {
+                            for pos_ty in pos_types {
+                                let term = row_session.as_ref().map_or_else(
+                                    || session_handle.borrow().type_id_to_inference(pos_ty, &std::collections::HashMap::new(), ctx.store),
+                                    |rows| {
+                                        session_handle
+                                            .borrow()
+                                            .type_id_to_inference_with_rows(pos_ty, &std::collections::HashMap::new(), &rows.row_terms(), ctx.store)
+                                    },
+                                );
+                                expansion_terms.positional.push(term);
+                            }
+                        }
+                        if include_lab {
+                            for (label, lab_ty) in lab_types {
+                                let term = row_session.as_ref().map_or_else(
+                                    || session_handle.borrow().type_id_to_inference(lab_ty, &std::collections::HashMap::new(), ctx.store),
+                                    |rows| {
+                                        session_handle
+                                            .borrow()
+                                            .type_id_to_inference_with_rows(lab_ty, &std::collections::HashMap::new(), &rows.row_terms(), ctx.store)
+                                    },
+                                );
+                                if record_field {
+                                    expansion_terms.fields.push(crate::checker::row_inference::InferenceRecordField {
+                                        key: crate::field_key::FieldKey::symbol(label),
+                                        term,
+                                    });
+                                } else {
+                                    expansion_terms.labeled.push(crate::checker::inference::InferenceLabeledTypePackElement {
+                                        label,
+                                        term,
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        expansion_terms.complete = false;
+                        match &argument_typed.knowledge {
+                            TypeKnowledge::Unknown(reason) if argument_typed.symbolic_result.is_none() => {
+                                ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnknownType(reason.clone())));
+                            }
+                            TypeKnowledge::Dynamic(reason) => ctx.record_call_status(AnalysisStatus::DynamicBoundary(reason.clone())),
+                            _ => {}
+                        }
+                    }
+                    if argument_index + 1 < args.len() {
+                        let _ = ctx.inference_session(context).map(|session| ctx.propagate_inference(&mut session.borrow_mut()));
+                    }
+                    continue;
+                }
                 if let Some(term) = inferred_term {
                     if let Some(index) = expansion_premise_index {
                         expansion_terms.premises[index].proof_term = Some(term.clone());
@@ -1915,7 +2061,7 @@ fn apply_generic_callable_in_context(
                                 term,
                             });
                         }
-                        DataConstructorArgumentRole::Fixed { .. } => unreachable!(),
+                        DataConstructorArgumentRole::Fixed { .. } | DataConstructorArgumentRole::Expansion { .. } => unreachable!(),
                     }
                 } else {
                     expansion_terms.complete = false;

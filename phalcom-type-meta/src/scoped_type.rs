@@ -1,5 +1,6 @@
 //! Scoped node graph for alpha-normalized type lambda bodies.
 
+use crate::field_key::FieldKeyRef;
 use crate::fingerprint::Fingerprint128;
 use crate::kind::KindNodeId;
 use crate::type_node::TypeNodeId;
@@ -71,12 +72,36 @@ pub enum ScopedPackProjectionLaneRef {
     Complete,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct ScopedRecordFieldRef {
-    pub name: Box<str>,
+    pub key: FieldKeyRef,
     pub ty: ScopedTypeNodeId,
     #[serde(default)]
     pub presence: StructuralMemberPresenceRef,
+}
+
+impl<'de> Deserialize<'de> for ScopedRecordFieldRef {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct RawField {
+            key: Option<FieldKeyRef>,
+            name: Option<Box<str>>,
+            ty: ScopedTypeNodeId,
+            #[serde(default)]
+            presence: StructuralMemberPresenceRef,
+        }
+        let raw = RawField::deserialize(deserializer)?;
+        let key = match (raw.key, raw.name) {
+            (Some(k), _) => k,
+            (None, Some(name)) => FieldKeyRef::Symbol(name),
+            (None, None) => return Err(serde::de::Error::missing_field("key")),
+        };
+        Ok(Self {
+            key,
+            ty: raw.ty,
+            presence: raw.presence,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]

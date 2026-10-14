@@ -1394,8 +1394,8 @@ fn descriptor_field_name_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> Ph
                 .get(node.0 as usize)
                 .ok_or_else(|| RuntimeError::Internal("node not found".into()))?;
             match &entry.form {
-                phalcom_type_meta::type_node::TypeNode::Record(f) => f.get(index).map(|f| f.name.to_string()),
-                phalcom_type_meta::type_node::TypeNode::OpenRecord(o) => o.fields.get(index).map(|f| f.name.to_string()),
+                phalcom_type_meta::type_node::TypeNode::Record(f) => f.get(index).and_then(|f| f.key.as_symbol()).map(|s| s.to_string()),
+                phalcom_type_meta::type_node::TypeNode::OpenRecord(o) => o.fields.get(index).and_then(|f| f.key.as_symbol()).map(|s| s.to_string()),
                 _ => None,
             }
         }
@@ -1435,12 +1435,12 @@ fn descriptor_field_key_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
                 .ok_or_else(|| RuntimeError::Internal("node not found".into()))?;
             match &entry.form {
                 phalcom_type_meta::type_node::TypeNode::Record(fields) => {
-                    fields.get(index).map(|field| phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()))
+                    fields.get(index).map(|field| phalcom_semantic::metadata::stable_identity::from_field_key_ref(&field.key))
                 }
                 phalcom_type_meta::type_node::TypeNode::OpenRecord(record) => record
                     .fields
                     .get(index)
-                    .map(|field| phalcom_semantic::field_key::FieldKey::symbol(field.name.clone())),
+                    .map(|field| phalcom_semantic::metadata::stable_identity::from_field_key_ref(&field.key)),
                 _ => None,
             }
         }
@@ -1518,7 +1518,7 @@ fn descriptor_fields(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
                     .iter()
                     .map(|field| {
                         (
-                            phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()),
+                            phalcom_semantic::metadata::stable_identity::from_field_key_ref(&field.key),
                             RuntimeTypeRef::Base { pool, node: field.ty },
                         )
                     })
@@ -1528,7 +1528,7 @@ fn descriptor_fields(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
                     .iter()
                     .map(|field| {
                         (
-                            phalcom_semantic::field_key::FieldKey::symbol(field.name.clone()),
+                            phalcom_semantic::metadata::stable_identity::from_field_key_ref(&field.key),
                             RuntimeTypeRef::Base { pool, node: field.ty },
                         )
                     })

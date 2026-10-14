@@ -4,6 +4,7 @@ use phalcom_modules::{DeclarationId, ModuleComponent, ModuleId, ModulePath, Proj
 use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate};
 use phalcom_semantic::diagnostic::SemanticSourceSpan;
+use phalcom_semantic::field_key::FieldKey;
 use phalcom_semantic::identity::{CallableId, DispatchSide};
 use phalcom_semantic::metadata::MetadataExportError;
 use phalcom_semantic::metadata::MetadataExporter;
@@ -83,6 +84,35 @@ fn stable_project_identity_distinguishes_roots_and_revisions() {
 }
 
 #[test]
+fn query_identity_keeps_unrelated_source_revisions_out_of_type_fingerprints() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("main.ph"), "type R = Int\n").unwrap();
+    let mut projects = ProjectUniverse::new();
+    let project = projects.load_synthetic_root("sample", root.path(), "main").unwrap();
+    let declaration = DeclarationId::new(ModuleId::resolved(project, ModulePath::root()), "R".into());
+
+    let before_artifact = phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(
+        &declaration,
+        &StableIdentityContext::new(&projects),
+    );
+    let before_query = phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(
+        &declaration,
+        &StableIdentityContext::for_query(&projects),
+    );
+    std::fs::write(root.path().join("main.ph"), "type R = Int\n// unrelated edit\n").unwrap();
+    let after_artifact = phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(
+        &declaration,
+        &StableIdentityContext::new(&projects),
+    );
+    let after_query = phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(
+        &declaration,
+        &StableIdentityContext::for_query(&projects),
+    );
+    assert_ne!(before_artifact, after_artifact);
+    assert_eq!(before_query, after_query);
+}
+
+#[test]
 fn stable_builtin_and_synthetic_projects_remain_explicitly_scoped() {
     let builtin = phalcom_semantic::metadata::stable_identity::to_stable_project(&ProjectIdentity::Universe);
     assert!(matches!(builtin, StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe"));
@@ -117,6 +147,66 @@ fn test_metadata_fresh_store_determinism() {
 
     assert_eq!(bundle1, bundle2);
     validate_metadata_bundle(&bundle1, &ValidationLimits::default()).unwrap();
+}
+
+#[test]
+fn query_type_projection_distinguishes_all_canonical_record_keys() {
+    let mut store = TypeStore::new();
+    let int = store.nominal_type(dummy_decl("Int"));
+    let record = store
+        .record_row_type_checked(
+            vec![
+                RecordRowField::required(FieldKey::symbol("same"), int),
+                RecordRowField::required(FieldKey::string("same"), int),
+                RecordRowField::required(FieldKey::int(42.into()), int),
+                RecordRowField::required(FieldKey::bool(true), int),
+            ],
+            RecordRowTail::Closed,
+        )
+        .expect("generalized Record type");
+
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic).for_query_fingerprints();
+    let expected = exporter.type_fingerprint(record).expect("generalized Record query fingerprint");
+    let only_symbol = store.record_row_type_checked(vec![RecordRowField::required(FieldKey::symbol("same"), int)], RecordRowTail::Closed).unwrap();
+    let only_string = store.record_row_type_checked(vec![RecordRowField::required(FieldKey::string("same"), int)], RecordRowTail::Closed).unwrap();
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic).for_query_fingerprints();
+    assert_ne!(exporter.type_fingerprint(only_symbol).unwrap(), exporter.type_fingerprint(only_string).unwrap());
+    assert_ne!(expected, exporter.type_fingerprint(only_symbol).unwrap());
+
+    let mut other = TypeStore::new();
+    other.nominal_type(dummy_decl("AllocationDecoy"));
+    let other_int = other.nominal_type(dummy_decl("Int"));
+    let other_record = other
+        .record_row_type_checked(
+            vec![
+                RecordRowField::required(FieldKey::bool(true), other_int),
+                RecordRowField::required(FieldKey::int(42.into()), other_int),
+                RecordRowField::required(FieldKey::string("same"), other_int),
+                RecordRowField::required(FieldKey::symbol("same"), other_int),
+            ],
+            RecordRowTail::Closed,
+        )
+        .unwrap();
+    let mut other_exporter = MetadataExporter::new(&other, None, None, None, MetadataProfile::RuntimePublic).for_query_fingerprints();
+    assert_eq!(expected, other_exporter.type_fingerprint(other_record).unwrap());
+    assert!(matches!(other_exporter.build_bundle(&[]), Err(MetadataExportError::QueryOnlyTypeProjection)));
+}
+
+#[test]
+fn query_type_projection_preserves_generalized_record_row_arguments() {
+    let mut store = TypeStore::new();
+    let value_type = store.nominal_type(dummy_decl("Int"));
+    let row = store
+        .record_row_checked(
+            vec![RecordRowField::required(FieldKey::int(42.into()), value_type)],
+            RecordRowTail::Closed,
+        )
+        .unwrap();
+    let kind = store.arrow_kind(Box::new([KindId::RECORD_ROW]), KindId::TYPE);
+    let form = store.nominal_form(dummy_decl("RowBox"), kind);
+    let applied = store.apply_static_form(form, &[StaticArgument::RecordRow(row)]).unwrap();
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic).for_query_fingerprints();
+    assert!(exporter.type_fingerprint(applied).is_ok(), "query identity must include the RecordRow argument's FieldKey");
 }
 
 #[test]
@@ -432,7 +522,7 @@ fn metadata_round_trip_preserves_heterogeneous_application_and_scoped_static_dom
 
     assert!(matches!(&bundle.types[applied_id.0 as usize].form, TypeNode::Applied { arguments, .. }
         if matches!(arguments.as_ref(), [StaticArgumentRef::Term(_), StaticArgumentRef::RecordRow(row)]
-            if row.fields.len() == 1 && row.fields[0].name.as_ref() == "value")));
+            if row.fields.len() == 1 && row.fields[0].key.as_symbol() == Some("value"))));
     let TypeNode::TypeLambda(lambda) = &bundle.types[lambda_id.0 as usize].form else {
         panic!("expected type lambda metadata");
     };

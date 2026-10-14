@@ -10,6 +10,7 @@ pub mod product;
 pub mod query;
 pub mod scheduler;
 pub mod state;
+pub(crate) mod static_fingerprint;
 
 pub use budget::{BudgetKind, BudgetReport, CancellationToken, QueryBudget};
 pub use dependency::{DependencyEdge, DependencyIndex, DependencyRecorder};

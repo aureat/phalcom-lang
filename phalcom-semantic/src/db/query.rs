@@ -1345,7 +1345,10 @@ pub fn query_static_constant(
         _ => {}
     }
     let key = QueryKey::StaticConstant(product.id.clone());
-    let input_fingerprint = product.checked.input_fingerprint;
+    let input_fingerprint = product.checked.as_ref().map_or(
+        crate::db::key::InputFingerprint(0),
+        |c| c.input_fingerprint,
+    );
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(cached) = db.product(&key).and_then(|value| value.as_static_constant()) {
             db.metrics().record_hit();
@@ -1359,45 +1362,57 @@ pub fn query_static_constant(
 
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     if !matches!(product.outcome, crate::static_eval::StaticEvalOutcome::Recursive(_)) {
-        for semantic_dependency in product.checked.dependencies.iter() {
-            match ensure_formal_semantic_dependency_current(db, semantic_dependency, inputs, type_store) {
-                QueryOutcome::Ready(()) => {}
-                QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
-                QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-                QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
-                QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
-            }
-            let dependency_key = semantic_dependency_query_key(semantic_dependency);
-            if dependency_key == key {
-                return query_failure(db, key, "static constant captured a self-dependency");
-            }
-            if let crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) = semantic_dependency {
-                let Some(fingerprint) = inputs.conformance_semantics.and_then(|view| view.fingerprint_for(impl_id)) else {
-                    return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
-                };
-                recorder.record(dependency_key, fingerprint);
-            } else if let crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket_key) = semantic_dependency {
-                let Some(fingerprint) = inputs.conformance_semantics.map(|view| view.bucket_fingerprint(bucket_key)) else {
-                    return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
-                };
-                recorder.record(dependency_key, fingerprint);
-            } else if let Err(error) = db.record_dependency(&mut recorder, dependency_key) {
-                return query_failure(db, key, error);
+        if let Some(checked) = &product.checked {
+            for semantic_dependency in checked.dependencies.iter() {
+                match ensure_formal_semantic_dependency_current(db, semantic_dependency, inputs, type_store) {
+                    QueryOutcome::Ready(()) => {}
+                    QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+                    QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+                    QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+                    QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+                }
+                let dependency_key = semantic_dependency_query_key(semantic_dependency);
+                if dependency_key == key {
+                    return query_failure(db, key, "static constant captured a self-dependency");
+                }
+                if let crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) = semantic_dependency {
+                    let Some(fingerprint) = inputs.conformance_semantics.and_then(|view| view.fingerprint_for(impl_id)) else {
+                        return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+                    };
+                    recorder.record(dependency_key, fingerprint);
+                } else if let crate::checker::analysis::SemanticDependency::TraitDispatchBucket(bucket_key) = semantic_dependency {
+                    let Some(fingerprint) = inputs.conformance_semantics.map(|view| view.bucket_fingerprint(bucket_key)) else {
+                        return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+                    };
+                    recorder.record(dependency_key, fingerprint);
+                } else if let Err(error) = db.record_dependency(&mut recorder, dependency_key) {
+                    return query_failure(db, key, error);
+                }
             }
         }
     } else {
-        for semantic_dependency in product.checked.dependencies.iter() {
-            let dependency_key = semantic_dependency_query_key(semantic_dependency);
-            if dependency_key == key {
-                continue;
-            }
-            if db.query_state(&dependency_key).and_then(QueryState::validated_revision) == Some(db.revision()) {
-                let _ = db.record_dependency(&mut recorder, dependency_key);
+        if let Some(checked) = &product.checked {
+            for semantic_dependency in checked.dependencies.iter() {
+                let dependency_key = semantic_dependency_query_key(semantic_dependency);
+                if dependency_key == key {
+                    continue;
+                }
+                if db.query_state(&dependency_key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+                    let _ = db.record_dependency(&mut recorder, dependency_key);
+                }
             }
         }
     }
     let dependencies = recorder.finish();
-    let product_fingerprint = crate::db::fingerprint::static_constant_product_fingerprint(&product, value_store);
+    let product_fingerprint = match crate::db::fingerprint::static_constant_product_fingerprint(
+        &product,
+        value_store,
+        type_store,
+        &inputs.linked.universe,
+    ) {
+        Ok(fingerprint) => fingerprint,
+        Err(error) => return query_failure(db, key, error),
+    };
     if let Err(error) = publish_current_product(
         db,
         key.clone(),

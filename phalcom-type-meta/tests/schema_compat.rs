@@ -1,6 +1,7 @@
 use phalcom_type_meta::bundle::SemanticMetadataBundle;
 use phalcom_type_meta::declaration::{StaticDomainCaseRecord, StaticDomainDeclarationRecord, StaticDomainParameterRecord};
 use phalcom_type_meta::encode::{decode_metadata_json, encode_metadata_json};
+use phalcom_type_meta::field_key::FieldKeyRef;
 use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::generic::{GenericParameterModeRef, StableTypeParameterOwnerRef, StableTypeParameterRef, TypeParameterRecord, VarianceRef};
 use phalcom_type_meta::header::{
@@ -33,6 +34,9 @@ fn sample_header(version: u32, record_rows: bool) -> SemanticMetadataHeader {
             static_domains: false,
             runtime_type_constants: false,
             source_occurrences: false,
+            static_values: false,
+            static_constants: false,
+            static_definitions: false,
             advanced_sections: Box::new([]),
         },
         identity_scheme: ArtifactIdentityScheme::V1Standard,
@@ -150,6 +154,9 @@ fn sample_bundle(version: u32, record_rows: bool) -> SemanticMetadataBundle {
         module_roots: Box::new([]),
         runtime_roots: Box::new([]),
         occurrences: Box::new([]),
+        static_values: Box::new([]),
+        static_constants: Box::new([]),
+        static_definitions: Box::new([]),
         extensions: Box::new([]),
     }
 }
@@ -220,7 +227,7 @@ fn scoped_record_row_bundle(version: u32) -> SemanticMetadataBundle {
             kind: KindNodeId(1),
             form: ScopedTypeNode::RecordRow(ScopedRecordRowTypeRef {
                 fields: Box::new([ScopedRecordFieldRef {
-                    name: "payload".into(),
+                    key: FieldKeyRef::Symbol("payload".into()),
                     ty: ScopedTypeNodeId(0),
                     presence: StructuralMemberPresenceRef::Required,
                 }]),
@@ -340,7 +347,7 @@ fn schema_v9_scoped_record_rows_round_trip_all_tail_forms_and_v8_remains_compati
     wrong_field_kind.scoped_types[0].kind = KindNodeId(1);
     assert!(matches!(
         validate_metadata_bundle(&wrong_field_kind, &limits),
-        Err(MetadataValidationError::Malformed(message)) if message.contains("field 'payload'") && message.contains("must have kind Type")
+        Err(MetadataValidationError::Malformed(message)) if message.contains("payload") && message.contains("must have kind Type")
     ));
 
     let mut duplicate = bundle.clone();
@@ -349,12 +356,12 @@ fn schema_v9_scoped_record_rows_round_trip_all_tail_forms_and_v8_remains_compati
     };
     row.fields = Box::new([
         ScopedRecordFieldRef {
-            name: "payload".into(),
+            key: FieldKeyRef::Symbol("payload".into()),
             ty: ScopedTypeNodeId(0),
             presence: StructuralMemberPresenceRef::Required,
         },
         ScopedRecordFieldRef {
-            name: "payload".into(),
+            key: FieldKeyRef::Symbol("payload".into()),
             ty: ScopedTypeNodeId(0),
             presence: StructuralMemberPresenceRef::Required,
         },
@@ -834,12 +841,12 @@ fn test_schema_v2_open_record_validation() {
             form: TypeNode::OpenRecord(OpenRecordTypeRef {
                 fields: Box::new([
                     RecordFieldRef {
-                        name: "a".into(),
+                        key: FieldKeyRef::Symbol("a".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
                     RecordFieldRef {
-                        name: "b".into(),
+                        key: FieldKeyRef::Symbol("b".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
@@ -865,12 +872,12 @@ fn test_schema_v2_open_record_validation() {
             form: TypeNode::OpenRecord(OpenRecordTypeRef {
                 fields: Box::new([
                     RecordFieldRef {
-                        name: "z".into(),
+                        key: FieldKeyRef::Symbol("z".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
                     RecordFieldRef {
-                        name: "a".into(),
+                        key: FieldKeyRef::Symbol("a".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
@@ -898,12 +905,12 @@ fn test_schema_v2_open_record_validation() {
             form: TypeNode::OpenRecord(OpenRecordTypeRef {
                 fields: Box::new([
                     RecordFieldRef {
-                        name: "a".into(),
+                        key: FieldKeyRef::Symbol("a".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
                     RecordFieldRef {
-                        name: "a".into(),
+                        key: FieldKeyRef::Symbol("a".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
@@ -1283,12 +1290,12 @@ fn schema_v10_structural_presence_and_remainders_roundtrip_and_validate() {
             form: TypeNode::AnonymousRecord(AnonymousRecordTypeRef {
                 fields: Box::new([
                     RecordFieldRef {
-                        name: "a".into(),
+                        key: FieldKeyRef::Symbol("a".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
                     RecordFieldRef {
-                        name: "b".into(),
+                        key: FieldKeyRef::Symbol("b".into()),
                         ty: TypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Optional,
                     },
@@ -1329,12 +1336,12 @@ fn schema_v10_structural_presence_and_remainders_roundtrip_and_validate() {
             form: ScopedTypeNode::AnonymousRecord(ScopedAnonymousRecordTypeRef {
                 fields: Box::new([
                     ScopedRecordFieldRef {
-                        name: "a".into(),
+                        key: FieldKeyRef::Symbol("a".into()),
                         ty: ScopedTypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Required,
                     },
                     ScopedRecordFieldRef {
-                        name: "b".into(),
+                        key: FieldKeyRef::Symbol("b".into()),
                         ty: ScopedTypeNodeId(0),
                         presence: StructuralMemberPresenceRef::Optional,
                     },
@@ -1467,4 +1474,243 @@ fn pack_metadata_roundtrip() {
     let decoded = decode_metadata_json(&encoded, &limits).expect("decode should succeed");
     validate_metadata_bundle(&decoded, &limits).expect("decoded pack bundle should validate");
     assert_eq!(bundle, decoded);
+}
+
+#[test]
+fn schema_v13_field_keys_and_static_values_roundtrip_and_validate() {
+    use phalcom_type_meta::static_value::{
+        compute_static_value_fingerprint, StaticValueNode, StaticValueNodeEntry,
+    };
+
+    let limits = ValidationLimits::default();
+    let mut bundle = sample_bundle(13, true);
+    bundle.header.features.static_values = true;
+
+    // v13 all four Record keys: Symbol, String, Int, Bool
+    let sym_key = FieldKeyRef::Symbol("a".into());
+    let str_key = FieldKeyRef::String("b".into());
+    let int_key = FieldKeyRef::Int(phalcom_type_meta::scalar::StaticInt::Small(42));
+    let bool_key = FieldKeyRef::Bool(true);
+
+    bundle.types = Box::new([
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::Unit,
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+        TypeNodeEntry {
+            kind: KindNodeId(0),
+            form: TypeNode::Record(Box::new([
+                RecordFieldRef {
+                    key: sym_key.clone(),
+                    ty: TypeNodeId(0),
+                    presence: StructuralMemberPresenceRef::Required,
+                },
+                RecordFieldRef {
+                    key: str_key.clone(),
+                    ty: TypeNodeId(0),
+                    presence: StructuralMemberPresenceRef::Required,
+                },
+                RecordFieldRef {
+                    key: int_key.clone(),
+                    ty: TypeNodeId(0),
+                    presence: StructuralMemberPresenceRef::Required,
+                },
+                RecordFieldRef {
+                    key: bool_key.clone(),
+                    ty: TypeNodeId(0),
+                    presence: StructuralMemberPresenceRef::Required,
+                },
+            ])),
+            structural_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+
+    // Static value node
+    let unit_node = StaticValueNode::Unit;
+    let unit_fp = compute_static_value_fingerprint(&unit_node, |_| Fingerprint128::ZERO, |_| Fingerprint128::ZERO);
+    let int_node = StaticValueNode::Int(phalcom_type_meta::scalar::StaticInt::Small(42));
+    let int_fp = compute_static_value_fingerprint(&int_node, |_| Fingerprint128::ZERO, |_| Fingerprint128::ZERO);
+
+    bundle.static_values = Box::new([
+        StaticValueNodeEntry {
+            node: unit_node,
+            structural_fingerprint: unit_fp,
+        },
+        StaticValueNodeEntry {
+            node: int_node,
+            structural_fingerprint: int_fp,
+        },
+    ]);
+
+    validate_metadata_bundle(&bundle, &limits).expect("v13 bundle should validate");
+    let encoded = encode_metadata_json(&bundle).expect("encode v13 bundle");
+    let decoded = decode_metadata_json(&encoded, &limits).expect("decode v13 bundle");
+    validate_metadata_bundle(&decoded, &limits).expect("decoded v13 bundle should validate");
+    assert_eq!(bundle, decoded);
+
+    // Negative test: invalid unsorted keys
+    let mut unsorted = bundle.clone();
+    let TypeNode::Record(ref mut fields) = unsorted.types[1].form else { unreachable!() };
+    fields.swap(0, 1); // str before sym violates Symbol < String order
+    assert!(matches!(
+        validate_metadata_bundle(&unsorted, &limits),
+        Err(MetadataValidationError::RecordFieldOrderInvalid { .. })
+    ));
+
+    // Negative test: duplicate keys
+    let mut duplicate = bundle.clone();
+    let TypeNode::Record(ref mut fields) = duplicate.types[1].form else { unreachable!() };
+    fields[1].key = sym_key; // two sym_key fields
+    assert!(matches!(
+        validate_metadata_bundle(&duplicate, &limits),
+        Err(MetadataValidationError::RecordDuplicateField { .. })
+    ));
+
+    // Negative test: future schema v14 rejected
+    let mut future = bundle.clone();
+    future.header.schema_version = 14;
+    assert!(matches!(
+        validate_metadata_bundle(&future, &limits),
+        Err(MetadataValidationError::UnsupportedSchemaVersion { found: 14, .. })
+    ));
+}
+
+#[test]
+fn schema_v12_legacy_record_field_names_decode_as_symbol_keys() {
+    let limits = ValidationLimits::default();
+    let legacy_json = serde_json::json!({
+        "header": {
+            "schema_version": 12,
+            "semantic_model_version": 1,
+            "producer": "test",
+            "producer_version": "0.1.0",
+            "native_surface_schema_version": 2,
+            "profile": "RuntimePublic",
+            "features": {
+                "type_lambdas": false,
+                "record_rows": false,
+                "runtime_type_constants": false,
+                "source_occurrences": false,
+                "advanced_sections": []
+            },
+            "identity_scheme": "V1Standard",
+            "source_fingerprint": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            "interface_fingerprint": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        },
+        "kinds": [{
+            "node": "Type",
+            "structural_fingerprint": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        }],
+        "types": [
+            {
+                "kind": 0,
+                "form": "Unit",
+                "structural_fingerprint": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            },
+            {
+                "kind": 0,
+                "form": {
+                    "Record": [
+                        {
+                            "name": "legacy_field",
+                            "ty": 0,
+                            "presence": "Required"
+                        }
+                    ]
+                },
+                "structural_fingerprint": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            }
+        ],
+        "scoped_types": [],
+        "parameters": [],
+        "generic_signatures": [],
+        "declarations": [],
+        "aliases": [],
+        "callables": [],
+        "fields": [],
+        "module_roots": [],
+        "runtime_roots": [],
+        "occurrences": [],
+        "extensions": []
+    });
+
+    let decoded = decode_metadata_json(&legacy_json.to_string(), &limits).expect("v12 legacy JSON should decode");
+    let TypeNode::Record(ref fields) = decoded.types[1].form else { unreachable!() };
+    assert_eq!(fields[0].key, FieldKeyRef::Symbol("legacy_field".into()));
+    assert_eq!(fields[0].ty, TypeNodeId(0));
+    assert!(decoded.static_values.is_empty(), "older bundle should default static_values empty");
+    assert!(decoded.static_constants.is_empty(), "older bundle should default static_constants empty");
+}
+
+#[test]
+fn test_static_value_validation_attacks() {
+    use phalcom_type_meta::static_value::{
+        compute_static_value_fingerprint, StaticValueNode, StaticValueNodeEntry, StaticValueNodeId,
+    };
+
+    let limits = ValidationLimits {
+        max_static_values: 3,
+        max_static_constants: 1,
+        ..ValidationLimits::default()
+    };
+    let mut bundle = sample_bundle(13, true);
+    bundle.header.features.static_values = true;
+    bundle.header.features.static_constants = true;
+
+    // 1. Child out of range (node 0 references node 99)
+    let bad_child = StaticValueNode::Tuple(Box::new([StaticValueNodeId(99)]));
+    let fp = compute_static_value_fingerprint(&bad_child, |_| Fingerprint128::ZERO, |_| Fingerprint128::ZERO);
+    bundle.static_values = Box::new([StaticValueNodeEntry { node: bad_child, structural_fingerprint: fp }]);
+    assert!(matches!(
+        validate_metadata_bundle(&bundle, &limits),
+        Err(MetadataValidationError::TopologicalOrderViolation { index: 0, target: 99 })
+    ));
+
+    // 2. Limit exceeded: too many static values
+    let unit_node = StaticValueNode::Unit;
+    let unit_fp = compute_static_value_fingerprint(&unit_node, |_| Fingerprint128::ZERO, |_| Fingerprint128::ZERO);
+    bundle.static_values = Box::new([
+        StaticValueNodeEntry { node: unit_node.clone(), structural_fingerprint: unit_fp },
+        StaticValueNodeEntry { node: unit_node.clone(), structural_fingerprint: unit_fp },
+        StaticValueNodeEntry { node: unit_node.clone(), structural_fingerprint: unit_fp },
+        StaticValueNodeEntry { node: unit_node.clone(), structural_fingerprint: unit_fp },
+    ]);
+    assert!(matches!(
+        validate_metadata_bundle(&bundle, &limits),
+        Err(MetadataValidationError::Malformed(msg)) if msg.contains("exceeds limit")
+    ));
+
+    // 3. Static constant value index out of range
+    bundle.static_values = Box::new([
+        StaticValueNodeEntry { node: unit_node, structural_fingerprint: unit_fp },
+    ]);
+    let const_id = phalcom_type_meta::identity::StableStaticConstantRef {
+        module: StableModuleRef {
+            project: StableProjectRef::Builtin { namespace: "universe".into(), version: "0.1.0".into() },
+            path: Box::new([]),
+        },
+        name: "C".into(),
+    };
+    bundle.static_constants = Box::new([
+        phalcom_type_meta::static_value::StaticConstantRecord {
+            id: const_id.clone(),
+            domain: phalcom_type_meta::static_value::StaticValueDomainRef::Kind(KindNodeId(0)),
+            value: StaticValueNodeId(50), // out of range!
+            value_fingerprint: unit_fp,
+            dependency_fingerprint: Fingerprint128::ZERO,
+        },
+    ]);
+    assert!(matches!(
+        validate_metadata_bundle(&bundle, &ValidationLimits::default()),
+        Err(MetadataValidationError::Malformed(msg)) if msg.contains("out of bounds")
+    ));
+
+    // 4. Static constant value fingerprint mismatch
+    bundle.static_constants[0].value = StaticValueNodeId(0);
+    bundle.static_constants[0].value_fingerprint = Fingerprint128::from_u128(999);
+    assert!(matches!(
+        validate_metadata_bundle(&bundle, &ValidationLimits::default()),
+        Err(MetadataValidationError::Malformed(msg)) if msg.contains("fingerprint mismatch")
+    ));
 }

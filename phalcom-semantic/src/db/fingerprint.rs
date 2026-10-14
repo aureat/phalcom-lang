@@ -3067,10 +3067,20 @@ pub fn static_constant_input_fingerprint(
 pub fn static_constant_product_fingerprint(
     product: &crate::static_constant::StaticConstantProduct,
     store: &crate::static_value::StaticValueStore,
-) -> ProductFingerprint {
+    types: &crate::types::store::TypeStore,
+    projects: &phalcom_modules::ProjectUniverse,
+) -> Result<ProductFingerprint, String> {
     let mut hasher = DefaultHasher::new();
-    product.id.hash(&mut hasher);
-    product.checked.record_key_static_constant_reads.hash(&mut hasher);
+    if !matches!(product.outcome, crate::static_eval::StaticEvalOutcome::Symbolic(_)) {
+        product.id.hash(&mut hasher);
+    }
+    if let Some(checked) = &product.checked {
+        checked.record_key_static_constant_reads.hash(&mut hasher);
+    }
+    if let Some(imported) = &product.imported {
+        imported.value_fingerprint.hash(&mut hasher);
+        imported.dependency_fingerprint.hash(&mut hasher);
+    }
     match &product.outcome {
         crate::static_eval::StaticEvalOutcome::Reduced(val_ref) => {
             0u8.hash(&mut hasher);
@@ -3086,8 +3096,14 @@ pub fn static_constant_product_fingerprint(
         }
         crate::static_eval::StaticEvalOutcome::Symbolic(residual_ref) => {
             2u8.hash(&mut hasher);
-            residual_ref.store_id().raw().hash(&mut hasher);
-            residual_ref.residual_id().raw().hash(&mut hasher);
+            let mut semantic = crate::db::static_fingerprint::StaticSemanticFingerprinter::new(
+                types,
+                store,
+                product.residuals.as_deref(),
+                projects,
+            );
+            semantic.constant_owner(&product.id)?.hash(&mut hasher);
+            semantic.residual(*residual_ref)?.hash(&mut hasher);
         }
         crate::static_eval::StaticEvalOutcome::Invalid(err) => {
             3u8.hash(&mut hasher);
@@ -3123,7 +3139,7 @@ pub fn static_constant_product_fingerprint(
     for diag in product.diagnostics.iter() {
         format!("{diag:?}").hash(&mut hasher);
     }
-    finish_product(hasher)
+    Ok(finish_product(hasher))
 }
 
 #[cfg(test)]
