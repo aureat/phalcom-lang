@@ -1,5 +1,6 @@
 //! Portable, source-free module authority. Every enum tag is explicit wire ABI.
 use crate::{ArtifactError, BinaryReader, BinaryWriter, CodecError, ValidationLimits};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 
 pub const MODULE_WORLD_SCHEMA_V1: u32 = 1;
 
@@ -10,7 +11,7 @@ pub struct ArtifactModuleId(pub u32);
 pub(crate) struct Decode<'a> {
     pub(crate) reader: BinaryReader<'a>,
     pub(crate) limits: ValidationLimits,
-    pub(crate) allocations_left: u64,
+    pub(crate) allocations: &'a mut AllocationBudget,
     pub(crate) items_left: usize,
     pub(crate) depth: usize,
 }
@@ -24,13 +25,13 @@ impl Decode<'_> {
         self.depth -= 1;
         result
     }
-    pub(crate) fn allocate(&mut self, bytes: u64) -> Result<(), ArtifactError> {
-        self.allocations_left = self
-            .allocations_left
-            .checked_sub(bytes)
-            .ok_or_else(|| invalid("module payload allocation budget exceeded"))?;
-        Ok(())
-    }
+}
+fn allocation_error(error: AllocationError) -> ArtifactError {
+    invalid(match error {
+        AllocationError::Exhausted => "module payload allocation budget exceeded",
+        AllocationError::Overflow => "module payload allocation layout overflow",
+        AllocationError::Failed => "module payload allocation failed",
+    })
 }
 pub(crate) fn invalid(message: impl Into<String>) -> ArtifactError {
     ArtifactError::LimitExceeded(message.into())
@@ -86,11 +87,7 @@ impl Wire for String {
     }
     fn read(input: &mut Decode<'_>) -> Result<Self, ArtifactError> {
         let text = input.reader.read_str(input.limits.max_string_bytes)?;
-        input.allocate(text.len() as u64)?;
-        let mut owned = String::new();
-        owned.try_reserve_exact(text.len()).map_err(|_| invalid("module payload string allocation failed"))?;
-        owned.push_str(text);
-        Ok(owned)
+        input.allocations.string(text).map_err(allocation_error)
     }
 }
 impl<T: Wire> Wire for Vec<T> {
@@ -108,12 +105,7 @@ impl<T: Wire> Wire for Vec<T> {
                 return Err(invalid("module payload item budget exceeded"));
             }
             input.items_left -= count;
-            let bytes = (count as u64)
-                .checked_mul(std::mem::size_of::<T>() as u64)
-                .ok_or_else(|| invalid("module payload allocation overflow"))?;
-            input.allocate(bytes)?;
-            let mut values = Vec::new();
-            values.try_reserve_exact(count).map_err(|_| invalid("module payload allocation failed"))?;
+            let mut values = input.allocations.vector::<T>(count).map_err(allocation_error)?;
             for _ in 0..count {
                 values.push(T::read(input)?);
             }
@@ -144,11 +136,8 @@ impl<T: Wire> Wire for Box<T> {
         self.as_ref().write(out)
     }
     fn read(input: &mut Decode<'_>) -> Result<Self, ArtifactError> {
-        let allocation_size = u64::try_from(std::alloc::Layout::new::<T>().size())
-            .map_err(|_| ArtifactError::LimitExceeded("module payload box layout overflow".into()))?;
-        input.allocate(allocation_size)?;
         let value = T::read(input)?;
-        Box::try_new(value).map_err(|_| invalid("module payload box allocation failed"))
+        input.allocations.boxed(value).map_err(allocation_error)
     }
 }
 macro_rules! record {
@@ -272,25 +261,42 @@ impl ModuleWorldV1 {
         self.write(&mut out)?;
         Ok(out.into_vec())
     }
-    pub fn decode_with_budget(bytes: &[u8], limits: &ValidationLimits, remaining_budget: &mut u64) -> Result<Self, ArtifactError> {
-        let mut input = Decode {
-            reader: BinaryReader::new(bytes),
-            limits: *limits,
-            allocations_left: *remaining_budget,
-            items_left: limits.max_semantic_entries_per_family,
-            depth: 0,
+    pub fn decode_with_allocation_budget(
+        bytes: &[u8],
+        limits: &ValidationLimits,
+        transaction: &mut AllocationBudget,
+    ) -> Result<Self, ArtifactError> {
+        let section_limit = usize::try_from(limits.max_decoded_section_bytes)
+            .map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let mut section = transaction.child(section_limit);
+        let world = {
+            let mut input = Decode {
+                reader: BinaryReader::new(bytes),
+                limits: *limits,
+                allocations: &mut section,
+                items_left: limits.max_semantic_entries_per_family,
+                depth: 0,
+            };
+            if input.reader.read_u32()? != MODULE_WORLD_SCHEMA_V1 {
+                return Err(invalid("unsupported module-world schema"));
+            }
+            let world = Self::read(&mut input)?;
+            if input.reader.has_remaining() {
+                return Err(invalid("trailing module-world payload bytes"));
+            }
+            world
         };
-        if input.reader.read_u32()? != MODULE_WORLD_SCHEMA_V1 {
-            return Err(invalid("unsupported module-world schema"));
-        }
-        let world = Self::read(&mut input)?;
-        if input.reader.has_remaining() {
-            return Err(invalid("trailing module-world payload bytes"));
-        }
         if world.modules.len() > limits.max_modules {
             return Err(invalid("module count exceeds limit"));
         }
-        *remaining_budget = input.allocations_left;
+        transaction.commit_child(section).map_err(allocation_error)?;
+        Ok(world)
+    }
+    pub fn decode_with_budget(bytes: &[u8], limits: &ValidationLimits, remaining_budget: &mut u64) -> Result<Self, ArtifactError> {
+        let available = usize::try_from(*remaining_budget).map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let mut transaction = AllocationBudget::new(available);
+        let world = Self::decode_with_allocation_budget(bytes, limits, &mut transaction)?;
+        *remaining_budget = u64::try_from(transaction.remaining()).map_err(|_| allocation_error(AllocationError::Overflow))?;
         Ok(world)
     }
     pub fn decode(bytes: &[u8], limits: &ValidationLimits) -> Result<Self, ArtifactError> {

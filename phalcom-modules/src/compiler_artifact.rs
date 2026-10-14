@@ -12,6 +12,7 @@ use phalcom_ast::ast::{
 use phalcom_common::range::SourceRange;
 use phalcom_compiler_artifact::module_world::*;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -547,21 +548,57 @@ pub fn project_module_world(world: &CanonicalExternalModuleWorld, limits: &Valid
 
 /// Loads completed canonical products directly, with no source parsing or linking.
 pub fn load_module_world(wire: &ModuleWorldV1, limits: &ValidationLimits) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
+    let budget_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
+    let mut allocations = AllocationBudget::new(budget_limit);
+    load_module_world_with_allocation_budget(wire, limits, &mut allocations)
+}
+
+/// Loads module authority using the caller's cumulative load transaction.
+pub fn load_module_world_with_allocation_budget(
+    wire: &ModuleWorldV1,
+    limits: &ValidationLimits,
+    transaction: &mut AllocationBudget,
+) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
+    let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
+    let mut allocations = transaction.child(section_limit);
+    let world = load_module_world_inner(wire, limits, &mut allocations)?;
+    transaction.commit_child(allocations).map_err(allocation_error)?;
+    Ok(world)
+}
+
+fn allocation_error(error: AllocationError) -> ArtifactError {
+    ArtifactError::LimitExceeded(
+        match error {
+            AllocationError::Exhausted => "module materialization allocation budget exceeded",
+            AllocationError::Overflow => "module materialization allocation layout overflow",
+            AllocationError::Failed => "module materialization allocation failed",
+        }
+        .into(),
+    )
+}
+
+fn load_module_world_inner(
+    wire: &ModuleWorldV1,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
+) -> Result<CanonicalExternalModuleWorld, ArtifactError> {
     if wire.modules.is_empty() || wire.modules.len() > limits.max_modules {
         return Err(invalid("invalid canonical module count"));
     }
-    let mut ids = Vec::with_capacity(wire.modules.len());
+    let mut ids = allocations
+        .vector::<ModuleId>(wire.modules.len())
+        .map_err(allocation_error)?;
     for module in &wire.modules {
         if module.path.len() > limits.max_recursion_depth {
             return Err(invalid("module path exceeds depth limit"));
         }
-        let path = ModulePath::from_components(
-            module
-                .path
-                .iter()
-                .map(|part| ModuleComponent::from_identifier(part).map_err(|error| invalid(error.to_string())))
-                .collect::<Result<Vec<_>, _>>()?,
-        );
+        let mut components = allocations
+            .vector::<ModuleComponent>(module.path.len())
+            .map_err(allocation_error)?;
+        for part in &module.path {
+            components.push(ModuleComponent::from_identifier(part).map_err(|error| invalid(error.to_string()))?);
+        }
+        let path = ModulePath::from_components(components.into_boxed_slice());
         let id = ModuleId::universe(path);
         if ids.last().is_some_and(|previous| previous >= &id) {
             return Err(invalid("module paths must be unique and sorted"));
@@ -805,7 +842,7 @@ pub fn load_module_world(wire: &ModuleWorldV1, limits: &ValidationLimits) -> Res
         if !exposed_children.is_empty() {
             exposed.insert(id.clone(), exposed_children);
         }
-        interfaces.insert(id.clone(), Arc::new(interface));
+        interfaces.insert(id.clone(), allocations.arc(interface).map_err(allocation_error)?);
         modules.insert(id.clone(), linked_module);
     }
     for (id, node) in &nodes {
@@ -893,7 +930,7 @@ pub fn load_module_world(wire: &ModuleWorldV1, limits: &ValidationLimits) -> Res
     }
     // Ordering evidence above proves the eager subgraph; validate all modules too.
     validate_runtime_dag(&graphs.runtime, &ids)?;
-    let universe = Arc::new(ProjectUniverse::new());
+    let universe = allocations.arc(ProjectUniverse::new()).map_err(allocation_error)?;
     let topology = ModuleTopology {
         generation: ResolverGeneration(0),
         fingerprint: TopologyFingerprint(wire.topology_fingerprint),
@@ -903,14 +940,15 @@ pub fn load_module_world(wire: &ModuleWorldV1, limits: &ValidationLimits) -> Res
         exposed_children: exposed,
     };
     topology.validate_completed(&universe).map_err(invalid)?;
-    let linked = Arc::new(LinkedProgram {
+    let linked = allocations.arc(LinkedProgram {
         universe,
         modules,
         graphs,
         entry,
         initialization_order,
-    });
-    CanonicalExternalModuleWorld::from_parts(linked, interfaces, Arc::new(topology)).map_err(invalid)
+    }).map_err(allocation_error)?;
+    let topology = allocations.arc(topology).map_err(allocation_error)?;
+    CanonicalExternalModuleWorld::from_parts(linked, interfaces, topology).map_err(invalid)
 }
 /// Iterative Kahn validation avoids recursive SCC traversal on artifact input.
 fn validate_runtime_dag(graph: &RuntimeDependencyGraph, ids: &[ModuleId]) -> Result<(), ArtifactError> {

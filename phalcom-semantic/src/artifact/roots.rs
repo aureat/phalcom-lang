@@ -210,6 +210,53 @@ pub fn register_semantic_world_roots(
             }
         }
     }
+    for (id, product) in snapshot.type_member_declarations.iter() {
+        let owner = phalcom_type_meta::identity::StableTypeMemberRef {
+            owner: to_stable_declaration(&id.owner),
+            selector: id.selector.name().into(),
+        };
+        let mut r = Roots::new(types, StableOwnerRef::TypeMember(owner), Family::TypeMemberAndDomain);
+        for parameter in &product.signature.parameters {
+            match parameter.domain {
+                crate::types::type_member::TypeMemberDomain::Kind(kind) => {
+                    let key = r.key()?;
+                    r.types.register_kind_root(r.types.expected_lineage(), key, kind)?;
+                }
+                crate::types::type_member::TypeMemberDomain::ValueType(ty) => r.ty(ty)?,
+            }
+        }
+        match product.signature.result_domain {
+            crate::types::type_member::TypeMemberDomain::Kind(kind) => {
+                let key = r.key()?;
+                r.types.register_kind_root(r.types.expected_lineage(), key, kind)?;
+            }
+            crate::types::type_member::TypeMemberDomain::ValueType(ty) => r.ty(ty)?,
+        }
+    }
+    let mut associated_domain_ordinal = 100u32;
+    for (id, product) in snapshot.associated_static_domains.iter() {
+        let owner = StableOwnerRef::Declaration(to_stable_declaration(&id.owner));
+        let key = CanonicalTypeRootKey {
+            family_tag: Family::TypeMemberAndDomain,
+            owner: owner.clone(),
+            product_subkey: associated_domain_ordinal,
+        };
+        associated_domain_ordinal = associated_domain_ordinal
+            .checked_add(1)
+            .ok_or_else(|| ArtifactError::LimitExceeded("root ordinal overflow".into()))?;
+        types.register_domain_root(types.expected_lineage(), key, product.domain)?;
+        for &constructor in &product.constructors {
+            let key = CanonicalTypeRootKey {
+                family_tag: Family::TypeMemberAndDomain,
+                owner: owner.clone(),
+                product_subkey: associated_domain_ordinal,
+            };
+            associated_domain_ordinal = associated_domain_ordinal
+                .checked_add(1)
+                .ok_or_else(|| ArtifactError::LimitExceeded("root ordinal overflow".into()))?;
+            types.register_constructor_root(types.expected_lineage(), key, constructor)?;
+        }
+    }
     for (id, plan) in snapshot.conformance_witness_plans.iter() {
         let mut r = Roots::new(types, StableOwnerRef::Impl(to_stable_impl(id)), Family::ConstructorContract);
         r.ty(plan.target_template)?;

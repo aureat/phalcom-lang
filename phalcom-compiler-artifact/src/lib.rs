@@ -1,6 +1,5 @@
 //! `.telosc` persisted semantic compiler image artifact container and codec.
 
-#![feature(allocator_api)]
 
 pub mod codec;
 pub mod container;

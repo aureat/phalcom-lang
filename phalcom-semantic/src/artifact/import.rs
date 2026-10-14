@@ -1,36 +1,35 @@
 //! Semantic-owned artifact import for structural primary contracts (`PERF003.C2.P7.T7.A`).
 
 use crate::data_semantics::{
-    DataComponentSemantic, DataConstructorParameter, DataConstructorParameterContribution,
-    DataConstructorSignature, DataConstructorTemplate, DataInfo, DataProductContribution, DataProductExpansionSemantic,
-    DataProductShapeTemplate, DataSemanticTable, DataShape,
+    DataComponentSemantic, DataConstructorParameter, DataConstructorParameterContribution, DataConstructorSignature, DataConstructorTemplate, DataInfo,
+    DataProductContribution, DataProductExpansionSemantic, DataProductShapeTemplate, DataSemanticTable, DataShape,
 };
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::declarations::{DeclarationTypeBinding, DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticSourceSpan;
 use crate::enum_semantics::{
-    AlgebraicCasePayloadKind, EnumInfo, EnumSemanticTable, VariantConstructorParameter, VariantConstructorSignature,
-    VariantFieldSemantic, VariantInfo, VariantShape, VariantVisibility,
+    AlgebraicCasePayloadKind, EnumInfo, EnumSemanticTable, VariantConstructorParameter, VariantConstructorSignature, VariantFieldSemantic, VariantInfo,
+    VariantShape, VariantVisibility,
 };
 use crate::identity::{DataComponentId, DataConstructorId, VariantConstructorId, VariantFieldId, VariantId};
 use crate::metadata::stable_identity::{
-    from_stable_callable, from_stable_declaration, from_stable_dispatch_side, from_stable_impl,
-    from_stable_module, from_stable_variant,
+    from_stable_callable, from_stable_declaration, from_stable_dispatch_side, from_stable_impl, from_stable_module, from_stable_variant,
 };
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
 use crate::types::case_environment::CaseTypeEnvironment;
 use crate::types::evidence::{DynamicReason, UnknownReason};
-use crate::types::parameter::{GenericBinderHeader, GenericConstraint, GenericParameterMode, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterOwner, TypeTerm};
+use crate::types::parameter::{
+    GenericBinderHeader, GenericConstraint, GenericParameterMode, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterOwner, TypeTerm,
+};
 use crate::types::relation::MapTypeHierarchy;
-use crate::types::store::artifact::TypeRelocation;
 use crate::types::store::TypeStore;
+use crate::types::store::artifact::TypeRelocation;
 use crate::types::variance::Variance;
 use phalcom_common::modifier::Visibility;
 use phalcom_compiler_artifact::semantic::aggregates::*;
-use phalcom_compiler_artifact::semantic::type_store::{
-    ParameterModeV1, ParameterOwnerV1, SelfRoleV1, VarianceV1,
-};
+use phalcom_compiler_artifact::semantic::type_store::{ParameterModeV1, ParameterOwnerV1, SelfRoleV1, VarianceV1};
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -40,15 +39,9 @@ fn referential(message: impl Into<String>) -> ArtifactError {
 
 pub fn import_parameter_owner(owner: &ParameterOwnerV1) -> Result<TypeParameterOwner, ArtifactError> {
     Ok(match owner {
-        ParameterOwnerV1::Declaration { owner } => {
-            TypeParameterOwner::Declaration(from_stable_declaration(owner).map_err(referential)?)
-        }
-        ParameterOwnerV1::Callable { owner } => {
-            TypeParameterOwner::Callable(from_stable_callable(owner).map_err(referential)?)
-        }
-        ParameterOwnerV1::Impl { owner } => {
-            TypeParameterOwner::Impl(from_stable_impl(owner).map_err(referential)?)
-        }
+        ParameterOwnerV1::Declaration { owner } => TypeParameterOwner::Declaration(from_stable_declaration(owner).map_err(referential)?),
+        ParameterOwnerV1::Callable { owner } => TypeParameterOwner::Callable(from_stable_callable(owner).map_err(referential)?),
+        ParameterOwnerV1::Impl { owner } => TypeParameterOwner::Impl(from_stable_impl(owner).map_err(referential)?),
     })
 }
 
@@ -87,10 +80,7 @@ pub fn import_type_term(term: &TypeTermV1, relocation: &TypeRelocation) -> Resul
     })
 }
 
-pub fn import_constraint(
-    constraint: &GenericConstraintV1,
-    relocation: &TypeRelocation,
-) -> Result<GenericConstraint, ArtifactError> {
+pub fn import_constraint(constraint: &GenericConstraintV1, relocation: &TypeRelocation) -> Result<GenericConstraint, ArtifactError> {
     Ok(match constraint {
         GenericConstraintV1::Subtype { lower, upper } => GenericConstraint::Subtype {
             lower: import_type_term(lower, relocation)?,
@@ -115,11 +105,7 @@ pub fn import_constraint(
     })
 }
 
-pub fn import_generic_signature(
-    sig: &GenericSignatureV1,
-    relocation: &TypeRelocation,
-    store: &TypeStore,
-) -> Result<GenericSignature, ArtifactError> {
+pub fn import_generic_signature(sig: &GenericSignatureV1, relocation: &TypeRelocation, store: &TypeStore) -> Result<GenericSignature, ArtifactError> {
     let owner = import_parameter_owner(&sig.owner)?;
     let parameters = sig
         .parameters
@@ -158,10 +144,7 @@ pub fn import_generic_signature(
     Ok(reconstructed)
 }
 
-pub fn import_declared_type_state(
-    state: &DeclaredTypeStateV1,
-    relocation: &TypeRelocation,
-) -> Result<DeclaredTypeState, ArtifactError> {
+pub fn import_declared_type_state(state: &DeclaredTypeStateV1, relocation: &TypeRelocation) -> Result<DeclaredTypeState, ArtifactError> {
     Ok(match state {
         DeclaredTypeStateV1::Known { term } => DeclaredTypeState::Known(import_type_term(term, relocation)?),
         DeclaredTypeStateV1::Dynamic { reason } => DeclaredTypeState::Dynamic(match reason {
@@ -205,10 +188,7 @@ pub fn import_declared_type_basis(basis: &DeclaredTypeBasisV1) -> DeclaredTypeBa
     }
 }
 
-pub fn import_declared_type_fact(
-    fact: &DeclaredTypeFactV1,
-    relocation: &TypeRelocation,
-) -> Result<DeclaredTypeFact, ArtifactError> {
+pub fn import_declared_type_fact(fact: &DeclaredTypeFactV1, relocation: &TypeRelocation) -> Result<DeclaredTypeFact, ArtifactError> {
     Ok(DeclaredTypeFact {
         state: import_declared_type_state(&fact.state, relocation)?,
         basis: import_declared_type_basis(&fact.basis),
@@ -272,10 +252,7 @@ pub fn import_static_data(
     })
 }
 
-pub fn import_case_environment(
-    env: &CaseEnvironmentV1,
-    relocation: &TypeRelocation,
-) -> Result<CaseTypeEnvironment, ArtifactError> {
+pub fn import_case_environment(env: &CaseEnvironmentV1, relocation: &TypeRelocation) -> Result<CaseTypeEnvironment, ArtifactError> {
     let mut bindings = BTreeMap::new();
     for b in &env.bindings {
         let param = relocation.parameter(b.parameter)?;
@@ -328,11 +305,7 @@ pub fn import_structural_primary_contracts(
             .as_ref()
             .map(|s| import_generic_signature(s, type_relocation, store))
             .transpose()?;
-        let static_data = data_wire
-            .static_data
-            .as_ref()
-            .map(|s| import_static_data(s, type_relocation))
-            .transpose()?;
+        let static_data = data_wire.static_data.as_ref().map(|s| import_static_data(s, type_relocation)).transpose()?;
         let shape = import_data_shape(&data_wire.shape);
 
         let mut components = Vec::with_capacity(data_wire.components.len());
@@ -523,11 +496,7 @@ pub fn import_structural_primary_contracts(
             .as_ref()
             .map(|s| import_generic_signature(s, type_relocation, store))
             .transpose()?;
-        let static_data = enum_wire
-            .static_data
-            .as_ref()
-            .map(|s| import_static_data(s, type_relocation))
-            .transpose()?;
+        let static_data = enum_wire.static_data.as_ref().map(|s| import_static_data(s, type_relocation)).transpose()?;
         let default_result_type = type_relocation.ty(enum_wire.default_result_type)?;
 
         let mut variant_ids = Vec::with_capacity(enum_wire.variants.len());
@@ -624,11 +593,211 @@ pub fn import_structural_primary_contracts(
 use crate::artifact::operational::import_checked_static_definitions;
 use crate::artifact::validate::{compute_witness_layout_fingerprint, validate_pending_static_references};
 use crate::static_definition::OperationalTemplate;
-use crate::static_value::{import_static_value_graph, StaticRelocation, StaticValueStore};
+use crate::static_value::{StaticRelocation, StaticValueStore, import_static_value_graph};
+use phalcom_compiler_artifact::semantic::type_store::TypeMemberSelectorV1;
 use phalcom_compiler_artifact::semantic::world::{
-    AssociatedBindingValueV1, ConformanceTargetV1, RequirementSelectionV1, SemanticWorldV1,
+    AssociatedBindingValueV1, AssociatedFamilyKindV1, AssociatedMemberV1, AssociatedStaticDomainRecordV1, AssociatedSurfaceRecordV1, ConformanceTargetV1,
+    IntrinsicTypeOperationV1, RequirementSelectionV1, SemanticWorldV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
 };
 use phalcom_type_meta::identity::StableDeclarationRef;
+
+fn import_type_member_selector(selector: &TypeMemberSelectorV1) -> crate::types::type_member::TypeMemberSelector {
+    match selector {
+        TypeMemberSelectorV1::Named { name } => crate::types::type_member::TypeMemberSelector::Named(name.clone().into_boxed_str()),
+        TypeMemberSelectorV1::Subscript => crate::types::type_member::TypeMemberSelector::Subscript,
+    }
+}
+
+fn import_associated_selector(selector: &TypeMemberSelectorV1) -> phalcom_common::selector::SelectorBase {
+    match selector {
+        TypeMemberSelectorV1::Named { name } => phalcom_common::selector::SelectorBase::Named(name.clone()),
+        TypeMemberSelectorV1::Subscript => phalcom_common::selector::SelectorBase::Subscript,
+    }
+}
+
+fn import_type_member_domain(domain: &TypeMemberDomainV1, relocation: &TypeRelocation) -> Result<crate::types::type_member::TypeMemberDomain, ArtifactError> {
+    Ok(match domain {
+        TypeMemberDomainV1::Kind { kind } => crate::types::type_member::TypeMemberDomain::Kind(relocation.kind(*kind)?),
+        TypeMemberDomainV1::ValueType { ty } => crate::types::type_member::TypeMemberDomain::ValueType(relocation.ty(*ty)?),
+    })
+}
+
+fn import_intrinsic_type_operation(operation: &IntrinsicTypeOperationV1) -> crate::types::type_member::IntrinsicTypeOperation {
+    use crate::types::type_member::IntrinsicTypeOperation as Native;
+    match operation {
+        IntrinsicTypeOperationV1::TuplePositionals => Native::TuplePositionals,
+        IntrinsicTypeOperationV1::TupleLabeled => Native::TupleLabeled,
+        IntrinsicTypeOperationV1::TupleEntries => Native::TupleEntries,
+        IntrinsicTypeOperationV1::TupleElement => Native::TupleElement,
+        IntrinsicTypeOperationV1::TupleAt => Native::TupleAt,
+        IntrinsicTypeOperationV1::TupleMap => Native::TupleMap,
+        IntrinsicTypeOperationV1::RecordFields => Native::RecordFields,
+        IntrinsicTypeOperationV1::RecordValue => Native::RecordValue,
+        IntrinsicTypeOperationV1::RecordMap => Native::RecordMap,
+        IntrinsicTypeOperationV1::TypePackMap => Native::TypePackMap,
+        IntrinsicTypeOperationV1::LabeledTypePackMap => Native::LabeledTypePackMap,
+        IntrinsicTypeOperationV1::RecordRowMap => Native::RecordRowMap,
+        IntrinsicTypeOperationV1::CompleteTypePackPositionals => Native::CompleteTypePackPositionals,
+        IntrinsicTypeOperationV1::CompleteTypePackLabeled => Native::CompleteTypePackLabeled,
+        IntrinsicTypeOperationV1::CompleteTypePackMap => Native::CompleteTypePackMap,
+        IntrinsicTypeOperationV1::UnorderedShapeLookup => Native::UnorderedShapeLookup,
+        IntrinsicTypeOperationV1::UnorderedShapeView => Native::UnorderedShapeView,
+        IntrinsicTypeOperationV1::UnorderedShapeTail => Native::UnorderedShapeTail,
+    }
+}
+
+fn import_type_member_implementation(implementation: &TypeMemberImplementationV1) -> phalcom_common::modifier::ImplementationKind {
+    match implementation {
+        TypeMemberImplementationV1::Phalcom => phalcom_common::modifier::ImplementationKind::Phalcom,
+        TypeMemberImplementationV1::Native => phalcom_common::modifier::ImplementationKind::Native,
+        TypeMemberImplementationV1::Foreign => phalcom_common::modifier::ImplementationKind::Foreign,
+        TypeMemberImplementationV1::Intrinsic => phalcom_common::modifier::ImplementationKind::Intrinsic,
+    }
+}
+
+fn import_associated_family_kind(kind: &AssociatedFamilyKindV1) -> crate::associated::AssociatedFamilyKind {
+    match kind {
+        AssociatedFamilyKindV1::Variant => crate::associated::AssociatedFamilyKind::Variant,
+        AssociatedFamilyKindV1::DataConstructor => crate::associated::AssociatedFamilyKind::DataConstructor,
+        AssociatedFamilyKindV1::StaticDomain => crate::associated::AssociatedFamilyKind::StaticDomain,
+        AssociatedFamilyKindV1::TypeMember => crate::associated::AssociatedFamilyKind::TypeMember,
+        AssociatedFamilyKindV1::IntrinsicTypeMember => crate::associated::AssociatedFamilyKind::IntrinsicTypeMember,
+    }
+}
+
+fn import_associated_static_domain_declaration(
+    declaration: &phalcom_type_meta::identity::StableAssociatedStaticDomainDeclarationRef,
+) -> Result<crate::identity::AssociatedStaticDomainDeclarationId, ArtifactError> {
+    Ok(crate::identity::AssociatedStaticDomainDeclarationId::new(
+        from_stable_declaration(&declaration.owner).map_err(referential)?,
+        declaration.name.clone(),
+    ))
+}
+
+fn import_associated_member(member: &AssociatedMemberV1) -> Result<crate::associated::AssociatedMemberId, ArtifactError> {
+    Ok(match member {
+        AssociatedMemberV1::Variant { variant } => crate::associated::AssociatedMemberId::Variant(from_stable_variant(variant).map_err(referential)?),
+        AssociatedMemberV1::DataConstructor { owner } => crate::associated::AssociatedMemberId::DataConstructor(crate::identity::DataConstructorId::new(
+            from_stable_declaration(owner).map_err(referential)?,
+        )),
+        AssociatedMemberV1::DataComponent { owner, index } => crate::associated::AssociatedMemberId::DataComponent(crate::identity::DataComponentId::new(
+            from_stable_declaration(owner).map_err(referential)?,
+            *index,
+        )),
+        AssociatedMemberV1::StaticDomain { declaration } => {
+            crate::associated::AssociatedMemberId::StaticDomain(import_associated_static_domain_declaration(declaration)?)
+        }
+        AssociatedMemberV1::TypeMember { owner, selector } => {
+            crate::associated::AssociatedMemberId::TypeMember(crate::types::type_member::TypeMemberDeclarationId::new(
+                from_stable_declaration(owner).map_err(referential)?,
+                import_type_member_selector(selector),
+            ))
+        }
+    })
+}
+
+pub(super) struct ImportedAssociatedAuthority {
+    pub associated_surfaces: crate::associated::AssociatedFamilyTable,
+    pub type_member_declarations:
+        crate::parent_map::ParentMap<crate::types::type_member::TypeMemberDeclarationId, Arc<crate::db::product::TypeMemberDeclarationProduct>>,
+    pub associated_static_domains:
+        BTreeMap<crate::identity::AssociatedStaticDomainDeclarationId, Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>>,
+}
+
+pub(super) fn import_associated_authority(
+    type_member_records: &[TypeMemberDeclarationRecordV1],
+    static_domain_records: &[AssociatedStaticDomainRecordV1],
+    surface_records: &[AssociatedSurfaceRecordV1],
+    type_relocation: &TypeRelocation,
+    allocations: &mut AllocationBudget,
+) -> Result<ImportedAssociatedAuthority, ArtifactError> {
+    let mut type_member_declarations = crate::parent_map::ParentMap::default();
+    for rec in type_member_records {
+        let owner = from_stable_declaration(&rec.owner).map_err(referential)?;
+        let selector = import_type_member_selector(&rec.selector);
+        let id = crate::types::type_member::TypeMemberDeclarationId::new(owner, selector.clone());
+        let mut parameters = allocations
+            .vector::<crate::types::type_member::TypeMemberParameter>(rec.parameters.len())
+            .map_err(allocation_error)?;
+        for parameter in &rec.parameters {
+            parameters.push(crate::types::type_member::TypeMemberParameter {
+                name: parameter.name.clone(),
+                domain: import_type_member_domain(&parameter.domain, type_relocation)?,
+            });
+        }
+        let product = crate::db::product::TypeMemberDeclarationProduct {
+            id: id.clone(),
+            signature: crate::types::type_member::TypeMemberSignature {
+                selector,
+                parameters: parameters.into_boxed_slice(),
+                result_domain: import_type_member_domain(&rec.result_domain, type_relocation)?,
+                intrinsic: rec.intrinsic.as_ref().map(import_intrinsic_type_operation),
+                implementation: import_type_member_implementation(&rec.implementation),
+            },
+            source_range: phalcom_common::range::SourceRange::default(),
+        };
+        let product = allocations.arc(product).map_err(allocation_error)?;
+        if type_member_declarations.insert(id, product).is_some() {
+            return Err(referential("duplicate type-member declaration in semantic artifact"));
+        }
+    }
+
+    let mut associated_static_domains = BTreeMap::new();
+    for rec in static_domain_records {
+        let id = import_associated_static_domain_declaration(&rec.declaration)?;
+        let domain = type_relocation.domain(rec.domain)?;
+        let mut constructors = allocations
+            .vector::<crate::types::id::AlgebraicStaticConstructorId>(rec.constructors.len())
+            .map_err(allocation_error)?;
+        for &constructor in &rec.constructors {
+            constructors.push(type_relocation.constructor(constructor)?);
+        }
+        let product = crate::db::product::AssociatedStaticDomainDeclarationProduct {
+            id: id.clone(),
+            domain,
+            constructors: constructors.into_boxed_slice(),
+            source_range: phalcom_common::range::SourceRange::default(),
+        };
+        let product = allocations.arc(product).map_err(allocation_error)?;
+        if associated_static_domains.insert(id, product).is_some() {
+            return Err(referential("duplicate associated static-domain declaration in semantic artifact"));
+        }
+    }
+
+    let mut associated_surfaces = crate::associated::AssociatedFamilyTable::new();
+    for rec in surface_records {
+        let owner = from_stable_declaration(&rec.owner).map_err(referential)?;
+        let mut surface = crate::associated::AssociatedSurface::new(owner.clone());
+        for family in &rec.families {
+            let base = import_associated_selector(&family.selector);
+            let mut members = allocations
+                .vector::<crate::associated::AssociatedMemberId>(family.members.len())
+                .map_err(allocation_error)?;
+            for member in &family.members {
+                members.push(import_associated_member(member)?);
+            }
+            let family_info = crate::associated::AssociatedFamilyInfo {
+                id: crate::identity::AssociatedFamilyId::new(owner.clone(), base.clone()),
+                kind: import_associated_family_kind(&family.kind),
+                members: members.into_boxed_slice(),
+            };
+            if surface.families.insert(base, family_info).is_some() {
+                return Err(referential("duplicate associated family in semantic artifact"));
+            }
+        }
+        if associated_surfaces.surfaces.contains_key(&owner) {
+            return Err(referential("duplicate associated surface in semantic artifact"));
+        }
+        let surface = allocations.arc(surface).map_err(allocation_error)?;
+        associated_surfaces.insert(owner, surface);
+    }
+
+    Ok(ImportedAssociatedAuthority {
+        associated_surfaces,
+        type_member_declarations,
+        associated_static_domains,
+    })
+}
 
 #[derive(Debug, Default)]
 pub struct ReconstructedModuleOwnerIndexes {
@@ -649,20 +818,46 @@ pub struct ValidatedSemanticParts {
 }
 
 /// Executes stages 3–7 of the P7 loader construction order (`T4/T5` -> `T7.A` -> `T6` -> `T7.B` -> `T8`).
-pub fn validate_and_import_semantic_world(
+pub fn validate_and_import_semantic_world(world: SemanticWorldV1, limits: &ValidationLimits) -> Result<ValidatedSemanticParts, ArtifactError> {
+    let budget_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
+    let mut allocations = AllocationBudget::new(budget_limit);
+    validate_and_import_semantic_world_with_allocation_budget(world, limits, &mut allocations)
+}
+
+/// Imports semantic authority using the caller's cumulative load transaction.
+pub fn validate_and_import_semantic_world_with_allocation_budget(
     world: SemanticWorldV1,
     limits: &ValidationLimits,
+    transaction: &mut AllocationBudget,
+) -> Result<ValidatedSemanticParts, ArtifactError> {
+    let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
+    let mut allocations = transaction.child(section_limit);
+    let parts = validate_and_import_semantic_world_inner(world, limits, &mut allocations)?;
+    transaction.commit_child(allocations).map_err(allocation_error)?;
+    Ok(parts)
+}
+
+fn allocation_error(error: AllocationError) -> ArtifactError {
+    ArtifactError::LimitExceeded(
+        match error {
+            AllocationError::Exhausted => "semantic materialization allocation budget exceeded",
+            AllocationError::Overflow => "semantic materialization allocation layout overflow",
+            AllocationError::Failed => "semantic materialization allocation failed",
+        }
+        .into(),
+    )
+}
+
+fn validate_and_import_semantic_world_inner(
+    world: SemanticWorldV1,
+    limits: &ValidationLimits,
+    allocations: &mut AllocationBudget,
 ) -> Result<ValidatedSemanticParts, ArtifactError> {
     // 3. Fresh TypeStore with checked TypeRelocation
     let (mut type_store, type_relocation) = TypeStore::import_type_graph(&world.type_graph, limits)?;
 
     // 4. Structural primary contracts (shells, hierarchy, aliases, data/enum contracts, signatures)
-    let structural_contracts = import_structural_primary_contracts(
-        &world.structural_contracts,
-        &mut type_store,
-        &type_relocation,
-        limits,
-    )?;
+    let structural_contracts = import_structural_primary_contracts(&world.structural_contracts, &mut type_store, &type_relocation, limits)?;
 
     // 5. Fresh StaticValueStore through validated factories
     let (static_values, static_relocation) = import_static_value_graph(
@@ -680,12 +875,7 @@ pub fn validate_and_import_semantic_world(
     validate_pending_static_references(&world.structural_contracts, &static_relocation)?;
 
     // 6. Checked operational static definitions
-    let operational_templates = import_checked_static_definitions(
-        &world.checked_definitions,
-        &static_relocation,
-        &type_relocation,
-        limits,
-    )?;
+    let operational_templates = import_checked_static_definitions(&world.checked_definitions, &static_relocation, &type_relocation, limits)?;
 
     // 7. Verify witness plans and layout fingerprints (P7.T8)
     for witness in &world.witness_plans {
@@ -894,12 +1084,18 @@ pub fn validate_and_import_semantic_world(
         let mut surface = crate::surface::DeclarationSurface::new(Some(decl.clone()));
         for call_ref in &rec.instance_callables {
             let cid = from_stable_callable(call_ref).map_err(referential)?;
-            surface.instance.callables.insert(cid.clone(), crate::types::evidence::TypeKnowledge::assumed(crate::types::id::TypeId(0), crate::types::evidence::EvidenceOrigin::Flow));
+            surface.instance.callables.insert(
+                cid.clone(),
+                crate::types::evidence::TypeKnowledge::assumed(crate::types::id::TypeId(0), crate::types::evidence::EvidenceOrigin::Flow),
+            );
             surface.instance.callables_by_selector.insert(cid.selector.clone(), cid);
         }
         for call_ref in &rec.class_callables {
             let cid = from_stable_callable(call_ref).map_err(referential)?;
-            surface.class.callables.insert(cid.clone(), crate::types::evidence::TypeKnowledge::assumed(crate::types::id::TypeId(0), crate::types::evidence::EvidenceOrigin::Flow));
+            surface.class.callables.insert(
+                cid.clone(),
+                crate::types::evidence::TypeKnowledge::assumed(crate::types::id::TypeId(0), crate::types::evidence::EvidenceOrigin::Flow),
+            );
             surface.class.callables_by_selector.insert(cid.selector.clone(), cid);
         }
         for f in &rec.fields {
@@ -930,14 +1126,10 @@ pub fn validate_and_import_semantic_world(
         let source_module = from_stable_module(&rec.source_module).map_err(referential)?;
         let target = match &rec.target {
             ConformanceTargetV1::Declaration { declaration } => {
-                crate::impls::ConformanceTarget::Declaration(
-                    from_stable_declaration(declaration).map_err(referential)?,
-                )
+                crate::impls::ConformanceTarget::Declaration(from_stable_declaration(declaration).map_err(referential)?)
             }
             ConformanceTargetV1::ExactEnumCase { variant } => {
-                crate::impls::ConformanceTarget::ExactEnumCase(
-                    from_stable_variant(variant).map_err(referential)?,
-                )
+                crate::impls::ConformanceTarget::ExactEnumCase(from_stable_variant(variant).map_err(referential)?)
             }
         };
         let target_head = type_relocation.ty(rec.target_type)?;
@@ -951,20 +1143,18 @@ pub fn validate_and_import_semantic_world(
         } else {
             None
         };
-        conformance_index.insert(
-            crate::impls::ConformanceContribution {
-                impl_id: impl_id.clone(),
-                source_module,
-                trait_ref: crate::traits::TraitRef::new(trait_decl, args),
-                target,
-                target_head,
-                generic_signature,
-                authorized: rec.authorized,
-                eligible: rec.eligible,
-                source: crate::diagnostic::SemanticSourceSpan::new(impl_id.module.clone(), phalcom_common::range::SourceRange::default()),
-                diagnostics: Box::new([]),
-            },
-        );
+        conformance_index.insert(crate::impls::ConformanceContribution {
+            impl_id: impl_id.clone(),
+            source_module,
+            trait_ref: crate::traits::TraitRef::new(trait_decl, args),
+            target,
+            target_head,
+            generic_signature,
+            authorized: rec.authorized,
+            eligible: rec.eligible,
+            source: crate::diagnostic::SemanticSourceSpan::new(impl_id.module.clone(), phalcom_common::range::SourceRange::default()),
+            diagnostics: Box::new([]),
+        });
     }
 
     let mut witness_plans_map = BTreeMap::new();
@@ -1012,7 +1202,11 @@ pub fn validate_and_import_semantic_world(
                     let c = from_stable_callable(callable).map_err(referential)?;
                     crate::impls::RequirementSelectionTemplate::TraitDefault { callable: c }
                 }
-                RequirementSelectionV1::DataComponent { owner, index, specialized_type } => {
+                RequirementSelectionV1::DataComponent {
+                    owner,
+                    index,
+                    specialized_type,
+                } => {
                     let d = from_stable_declaration(owner).map_err(referential)?;
                     let specialized_type = type_relocation.ty(*specialized_type)?;
                     crate::impls::RequirementSelectionTemplate::DataComponent {
@@ -1027,12 +1221,8 @@ pub fn validate_and_import_semantic_world(
         for b in &witness.associated_types {
             let req_id = crate::traits::AssociatedTypeRequirementId::new(trait_decl.clone(), b.index);
             let value_template = match b.value {
-                AssociatedBindingValueV1::Type { ty } => {
-                    crate::impls::AssociatedTypeBindingValue::Type(type_relocation.ty(ty)?)
-                }
-                AssociatedBindingValueV1::Dynamic => {
-                    crate::impls::AssociatedTypeBindingValue::Dynamic
-                }
+                AssociatedBindingValueV1::Type { ty } => crate::impls::AssociatedTypeBindingValue::Type(type_relocation.ty(ty)?),
+                AssociatedBindingValueV1::Dynamic => crate::impls::AssociatedTypeBindingValue::Dynamic,
             };
             bindings.insert(
                 req_id.clone(),
@@ -1051,7 +1241,9 @@ pub fn validate_and_import_semantic_world(
             3 => crate::impls::ConformanceCompleteness::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint),
             4 => crate::impls::ConformanceCompleteness::Dynamic(crate::types::outcome::DynamicBoundaryObligation { reason: "dynamic".into() }),
             5 => crate::impls::ConformanceCompleteness::Cancelled,
-            6 => crate::impls::ConformanceCompleteness::BudgetExceeded(crate::types::outcome::BudgetReport::new(crate::types::outcome::BudgetKind::Steps, 0, 0)),
+            6 => {
+                crate::impls::ConformanceCompleteness::BudgetExceeded(crate::types::outcome::BudgetReport::new(crate::types::outcome::BudgetKind::Steps, 0, 0))
+            }
             _ => crate::impls::ConformanceCompleteness::InternalFailure("restored from artifact".into()),
         };
         let mut associated_type_plan = crate::impls::ConformanceAssociatedTypePlan::empty(impl_id.clone());
@@ -1089,13 +1281,7 @@ pub fn validate_and_import_semantic_world(
         let default_fields: Box<[crate::identity::FieldId]> = rec
             .default_fields
             .iter()
-            .map(|name| {
-                crate::identity::FieldId::new(
-                    initializer.owner.declaration().clone(),
-                    name.clone(),
-                    crate::identity::DispatchSide::Instance,
-                )
-            })
+            .map(|name| crate::identity::FieldId::new(initializer.owner.declaration().clone(), name.clone(), crate::identity::DispatchSide::Instance))
             .collect::<Vec<_>>()
             .into_boxed_slice();
         let parameter_fields: Box<[crate::signature::ConstructorParameterField]> = rec
@@ -1108,11 +1294,7 @@ pub fn validate_and_import_semantic_world(
                 };
                 crate::signature::ConstructorParameterField {
                     parameter: crate::identity::CallableParameterId::new(factory.clone(), pf.parameter_index),
-                    field: crate::identity::FieldId::new(
-                        initializer.owner.declaration().clone(),
-                        pf.field_name.clone(),
-                        side,
-                    ),
+                    field: crate::identity::FieldId::new(initializer.owner.declaration().clone(), pf.field_name.clone(), side),
                 }
             })
             .collect::<Vec<_>>()
@@ -1127,6 +1309,18 @@ pub fn validate_and_import_semantic_world(
         });
     }
 
+    let ImportedAssociatedAuthority {
+        associated_surfaces,
+        type_member_declarations,
+        associated_static_domains,
+    } = import_associated_authority(
+        &world.type_member_declarations,
+        &world.associated_static_domains,
+        &world.associated_surfaces,
+        &type_relocation,
+        allocations,
+    )?;
+
     let mut callable_definitions_by_module: BTreeMap<crate::identity::ModuleId, Vec<crate::identity::CallableId>> = BTreeMap::new();
     for (_, sig) in callable_signatures.iter() {
         callable_definitions_by_module
@@ -1134,10 +1328,8 @@ pub fn validate_and_import_semantic_world(
             .or_default()
             .push(sig.callable.clone());
     }
-    let callable_definitions_by_module: BTreeMap<crate::identity::ModuleId, Box<[crate::identity::CallableId]>> = callable_definitions_by_module
-        .into_iter()
-        .map(|(m, v)| (m, v.into_boxed_slice()))
-        .collect();
+    let callable_definitions_by_module: BTreeMap<crate::identity::ModuleId, Box<[crate::identity::CallableId]>> =
+        callable_definitions_by_module.into_iter().map(|(m, v)| (m, v.into_boxed_slice())).collect();
 
     let surfaces = dispatch_resolver.surfaces().clone();
     let mut snapshot = crate::snapshot::SemanticSnapshot {
@@ -1173,9 +1365,9 @@ pub fn validate_and_import_semantic_world(
         data_semantics: Arc::new(structural_contracts.data_table.clone()),
         enum_semantics: Arc::new(structural_contracts.enum_table.clone()),
         enum_requirements: Arc::new(crate::enum_requirements::EnumRequirementTable::new()),
-        associated_surfaces: Arc::new(crate::associated::AssociatedFamilyTable::new()),
-        type_member_declarations: Arc::new(crate::parent_map::ParentMap::default()),
-        associated_static_domains: Arc::new(BTreeMap::new()),
+        associated_surfaces: Arc::new(associated_surfaces),
+        type_member_declarations: Arc::new(type_member_declarations),
+        associated_static_domains: Arc::new(associated_static_domains),
         static_case_catalogs: Arc::new(BTreeMap::new()),
         static_case_signatures: Arc::new(BTreeMap::new()),
         static_definitions: Arc::new(crate::static_definition::StaticDefinitionTable::new()),
@@ -1219,4 +1411,151 @@ pub fn validate_and_import_semantic_world(
         owner_indexes,
         snapshot,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedFamilyTable, AssociatedMemberId, AssociatedSurface};
+    use crate::db::product::{AssociatedStaticDomainDeclarationProduct, TypeMemberDeclarationProduct};
+    use crate::identity::{AssociatedFamilyId, AssociatedStaticDomainDeclarationId, DataConstructorId, VariantId};
+    use crate::types::store::artifact::TypeExportContext;
+    use crate::types::type_member::{
+        IntrinsicTypeOperation, TypeMemberDeclarationId, TypeMemberDomain, TypeMemberParameter, TypeMemberSelector, TypeMemberSignature,
+    };
+    use phalcom_common::modifier::ImplementationKind;
+    use phalcom_common::range::SourceRange;
+    use phalcom_common::selector::{Selector, SelectorBase};
+    use phalcom_modules::{DeclarationId, ModuleComponent, ModuleId, ModulePath};
+
+    fn owner() -> DeclarationId {
+        let path = ModulePath::from_components(vec![ModuleComponent::from_identifier("artifact_parity").unwrap()]);
+        DeclarationId::new(ModuleId::universe(path), "Packet".into())
+    }
+
+    fn insert_family(
+        surface: &mut AssociatedSurface,
+        owner: &DeclarationId,
+        base: SelectorBase,
+        kind: AssociatedFamilyKind,
+        members: Box<[AssociatedMemberId]>,
+    ) {
+        surface.families.insert(
+            base.clone(),
+            AssociatedFamilyInfo {
+                id: AssociatedFamilyId::new(owner.clone(), base),
+                kind,
+                members,
+            },
+        );
+    }
+
+    #[test]
+    fn associated_authority_round_trips_through_type_relocation() {
+        let owner = owner();
+        let mut store = TypeStore::new();
+        let unit = store.unit();
+
+        let member_id = TypeMemberDeclarationId::new(owner.clone(), TypeMemberSelector::named("Map"));
+        let member_product = Arc::new(TypeMemberDeclarationProduct {
+            id: member_id.clone(),
+            signature: TypeMemberSignature {
+                selector: member_id.selector.clone(),
+                parameters: Box::new([
+                    TypeMemberParameter {
+                        name: "mapper".into(),
+                        domain: TypeMemberDomain::Kind(crate::types::id::KindId::TYPE),
+                    },
+                    TypeMemberParameter {
+                        name: "fallback".into(),
+                        domain: TypeMemberDomain::ValueType(unit),
+                    },
+                ]),
+                result_domain: TypeMemberDomain::Kind(crate::types::id::KindId::TYPE),
+                intrinsic: Some(IntrinsicTypeOperation::RecordMap),
+                implementation: ImplementationKind::Intrinsic,
+            },
+            source_range: SourceRange::default(),
+        });
+        let type_members = [(member_id.clone(), member_product)]
+            .into_iter()
+            .collect::<crate::parent_map::ParentMap<_, _>>();
+
+        let static_id = AssociatedStaticDomainDeclarationId::new(owner.clone(), "State");
+        let static_domain = store.associated_static_domain(static_id.clone(), Box::new([]));
+        let static_constructor = store.intern_static_constructor(static_domain, owner.clone(), "Ready", Box::new([]));
+        let static_product = Arc::new(AssociatedStaticDomainDeclarationProduct {
+            id: static_id.clone(),
+            domain: static_domain,
+            constructors: Box::new([static_constructor]),
+            source_range: SourceRange::default(),
+        });
+        let static_domains = [(static_id.clone(), static_product)].into_iter().collect::<BTreeMap<_, _>>();
+
+        let mut surface = AssociatedSurface::new(owner.clone());
+        let variant = VariantId::new(owner.clone(), Selector::getter("Ready").unwrap());
+        insert_family(
+            &mut surface,
+            &owner,
+            SelectorBase::Named("Ready".into()),
+            AssociatedFamilyKind::Variant,
+            Box::new([AssociatedMemberId::Variant(variant)]),
+        );
+        insert_family(
+            &mut surface,
+            &owner,
+            SelectorBase::Named("Construct".into()),
+            AssociatedFamilyKind::DataConstructor,
+            Box::new([AssociatedMemberId::DataConstructor(DataConstructorId::new(owner.clone()))]),
+        );
+        insert_family(
+            &mut surface,
+            &owner,
+            SelectorBase::Named("State".into()),
+            AssociatedFamilyKind::StaticDomain,
+            Box::new([AssociatedMemberId::StaticDomain(static_id.clone())]),
+        );
+        insert_family(
+            &mut surface,
+            &owner,
+            SelectorBase::Named("Map".into()),
+            AssociatedFamilyKind::IntrinsicTypeMember,
+            Box::new([AssociatedMemberId::TypeMember(member_id.clone())]),
+        );
+        let mut surfaces = AssociatedFamilyTable::new();
+        surfaces.insert(owner.clone(), Arc::new(surface));
+
+        let type_export = TypeExportContext::new_full(&store).unwrap();
+        let exported = crate::artifact::export::export_associated_authority(&type_members, &static_domains, &surfaces, &type_export).unwrap();
+        let graph = type_export.project_graph(&store, &ValidationLimits::default()).unwrap();
+        let (_imported_store, relocation) = TypeStore::import_type_graph(&graph, &ValidationLimits::default()).unwrap();
+
+        let imported = import_associated_authority(
+            &exported.type_member_declarations,
+            &exported.associated_static_domains,
+            &exported.associated_surfaces,
+            &relocation,
+            &mut AllocationBudget::new(usize::MAX),
+        )
+        .unwrap();
+
+        let imported_member = imported.type_member_declarations.get(&member_id).unwrap();
+        assert_eq!(imported_member.id, member_id);
+        assert_eq!(imported_member.signature.selector, TypeMemberSelector::named("Map"));
+        assert_eq!(imported_member.signature.intrinsic, Some(IntrinsicTypeOperation::RecordMap));
+        assert_eq!(imported_member.signature.implementation, ImplementationKind::Intrinsic);
+        assert_eq!(
+            imported_member.signature.parameters[1].domain,
+            TypeMemberDomain::ValueType(relocation.ty(type_export.ty(unit).unwrap()).unwrap())
+        );
+
+        let imported_static = imported.associated_static_domains.get(&static_id).unwrap();
+        assert_eq!(imported_static.id, static_id);
+        assert_eq!(imported_static.domain, relocation.domain(type_export.domain(static_domain).unwrap()).unwrap());
+        assert_eq!(
+            imported_static.constructors.as_ref(),
+            [relocation.constructor(type_export.constructor(static_constructor).unwrap()).unwrap()]
+        );
+        assert_eq!(imported.associated_surfaces, surfaces);
+    }
 }

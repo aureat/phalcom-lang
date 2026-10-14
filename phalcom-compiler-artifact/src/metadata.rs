@@ -8,6 +8,7 @@ use crate::error::{ArtifactError, ValidationError};
 use crate::limits::ValidationLimits;
 use phalcom_type_meta::header::{ArtifactIdentityScheme, MetadataProfile};
 use phalcom_type_meta::{SemanticMetadataBundle, TYPE_METADATA_SCHEMA_VERSION};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 
 mod preflight;
 pub use preflight::{MetadataPreflightCounts, inspect_metadata_json};
@@ -150,7 +151,24 @@ impl MetadataSectionV1 {
         expected_package_digest: &[u8; 32],
         shared_remaining_bytes: &mut usize,
     ) -> Result<SemanticMetadataBundle, MetadataTransportError> {
-        let mut remaining = *shared_remaining_bytes;
+        let mut transaction = AllocationBudget::new(*shared_remaining_bytes);
+        let bundle = self.decode_bundle_with_allocation_budget(
+            limits,
+            bundle_limits,
+            expected_package_digest,
+            &mut transaction,
+        )?;
+        *shared_remaining_bytes = transaction.remaining();
+        Ok(bundle)
+    }
+
+    pub fn decode_bundle_with_allocation_budget(
+        &self,
+        limits: &MetadataPreflightLimits,
+        bundle_limits: &phalcom_type_meta::ValidationLimits,
+        expected_package_digest: &[u8; 32],
+        transaction: &mut AllocationBudget,
+    ) -> Result<SemanticMetadataBundle, MetadataTransportError> {
         validate_metadata_preflight(self, limits, expected_package_digest).map_err(MetadataTransportError::Envelope)?;
         let json = std::str::from_utf8(&self.encoded_bundle)?;
         // Probe only the header before the allocating owner codec: never invoke
@@ -166,7 +184,12 @@ impl MetadataSectionV1 {
         if self.identity_mode != probe.identity_scheme {
             return Err(MetadataTransportError::HeaderMismatch("identity mode"));
         }
-        let bundle = phalcom_type_meta::encode::decode_metadata_json_budgeted(json, bundle_limits, None, &mut remaining)?;
+        let bundle = phalcom_type_meta::encode::decode_metadata_json_with_allocation_budget(
+            json,
+            bundle_limits,
+            None,
+            transaction,
+        )?;
         if u32::from(self.inner_schema_version) != bundle.header.schema_version {
             return Err(MetadataTransportError::HeaderMismatch("schema"));
         }
@@ -176,7 +199,6 @@ impl MetadataSectionV1 {
         if self.identity_mode != bundle.header.identity_scheme {
             return Err(MetadataTransportError::HeaderMismatch("identity mode"));
         }
-        *shared_remaining_bytes = remaining;
         Ok(bundle)
     }
 
@@ -205,7 +227,14 @@ impl MetadataSectionV1 {
         Ok(out.into_vec())
     }
 
-    pub fn decode_with_budget(bytes: &[u8], limits: &ValidationLimits, remaining_budget: &mut u64) -> Result<Self, ArtifactError> {
+    pub fn decode_with_allocation_budget(
+        bytes: &[u8],
+        limits: &ValidationLimits,
+        transaction: &mut AllocationBudget,
+    ) -> Result<Self, ArtifactError> {
+        let section_limit = usize::try_from(limits.max_decoded_section_bytes.min(limits.max_metadata_bytes))
+            .map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let mut section = transaction.child(section_limit);
         let mut reader = BinaryReader::new(bytes);
         let schema = reader.read_u32()?;
         if schema != METADATA_SECTION_SCHEMA_V1 {
@@ -230,8 +259,9 @@ impl MetadataSectionV1 {
         let preflight_tokens = reader.read_u32()?;
         let preflight_containers = reader.read_u32()?;
         let preflight_nesting = reader.read_u16()?;
-        let byte_limit = usize::try_from(limits.max_metadata_bytes.min(*remaining_budget))
-            .map_err(|_| ArtifactError::LimitExceeded("metadata byte limit exceeds address space".into()))?;
+        let byte_limit = usize::try_from(limits.max_metadata_bytes)
+            .unwrap_or(usize::MAX)
+            .min(section.remaining());
         let encoded = reader.read_bytes_with_len(byte_limit)?;
         if reader.has_remaining() {
             return Err(ValidationError::ReferentialIntegrity("trailing metadata section bytes".into()).into());
@@ -261,17 +291,9 @@ impl MetadataSectionV1 {
             }
             .into());
         }
-        let encoded_len = encoded.len() as u64;
-        if encoded_len > *remaining_budget {
-            return Err(ArtifactError::LimitExceeded("metadata section allocation budget exceeded".into()));
-        }
-        let mut encoded_bundle = Vec::new();
-        encoded_bundle
-            .try_reserve_exact(encoded.len())
-            .map_err(|_| ArtifactError::LimitExceeded("metadata payload allocation failed".into()))?;
+        let mut encoded_bundle = section.vector::<u8>(encoded.len()).map_err(allocation_error)?;
         encoded_bundle.extend_from_slice(encoded);
-        *remaining_budget = remaining_budget.saturating_sub(encoded_len);
-        Ok(Self {
+        let decoded = Self {
             wrapper_version,
             inner_schema_version,
             profile,
@@ -281,13 +303,32 @@ impl MetadataSectionV1 {
             preflight_containers,
             preflight_nesting,
             encoded_bundle,
-        })
+        };
+        transaction.commit_child(section).map_err(allocation_error)?;
+        Ok(decoded)
+    }
+
+    pub fn decode_with_budget(bytes: &[u8], limits: &ValidationLimits, remaining_budget: &mut u64) -> Result<Self, ArtifactError> {
+        let available = usize::try_from(*remaining_budget).map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let mut transaction = AllocationBudget::new(available);
+        let decoded = Self::decode_with_allocation_budget(bytes, limits, &mut transaction)?;
+        *remaining_budget = u64::try_from(transaction.remaining()).map_err(|_| allocation_error(AllocationError::Overflow))?;
+        Ok(decoded)
     }
 
     pub fn decode(bytes: &[u8], limits: &ValidationLimits) -> Result<Self, ArtifactError> {
         let mut budget = limits.max_decoded_section_bytes;
         Self::decode_with_budget(bytes, limits, &mut budget)
     }
+}
+
+fn allocation_error(error: AllocationError) -> ArtifactError {
+    ArtifactError::LimitExceeded(match error {
+        AllocationError::Exhausted => "metadata section allocation budget exceeded",
+        AllocationError::Overflow => "metadata section allocation layout overflow",
+        AllocationError::Failed => "metadata section allocation failed",
+    }
+    .into())
 }
 
 /// Checks actual content and reserves encoded payload bytes transactionally.

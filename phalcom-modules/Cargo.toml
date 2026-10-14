@@ -11,6 +11,7 @@ phalcom-compiler-artifact = { path = "../phalcom-compiler-artifact" }
 phalcom-ast = { path = "../phalcom-ast" }
 phalcom-common = { path = "../phalcom-common" }
 phalcom-native-meta = { path = "../phalcom-native-meta" }
+phalcom-type-meta = { path = "../phalcom-type-meta" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }

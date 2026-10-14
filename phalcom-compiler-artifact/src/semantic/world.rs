@@ -4,9 +4,12 @@ use crate::module_world::{Decode, Wire, invalid, record, tagged};
 use crate::semantic::aggregates::{DeclaredTypeFactV1, GenericSignatureV1, StructuralPrimaryContractsV1, TraitRefV1};
 use crate::semantic::operational::CheckedStaticDefinitionsV1;
 use crate::semantic::static_value::StaticValueGraphV1;
-use crate::semantic::type_store::{ArtifactTypeId, TypeGraphV1};
+use crate::semantic::type_store::{ArtifactKindId, ArtifactStaticConstructorId, ArtifactStaticDomainId, ArtifactTypeId, TypeGraphV1, TypeMemberSelectorV1};
 use crate::{ArtifactError, BinaryReader, BinaryWriter, ValidationLimits};
-use phalcom_type_meta::identity::{StableCallableRef, StableDeclarationRef, StableImplRef, StableModuleRef, StableVariantRef};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
+use phalcom_type_meta::identity::{
+    StableAssociatedStaticDomainDeclarationRef, StableCallableRef, StableDeclarationRef, StableImplRef, StableModuleRef, StableVariantRef,
+};
 
 pub const SEMANTIC_WORLD_SCHEMA_V1: u32 = 1;
 
@@ -126,6 +129,86 @@ record!(ConstructorInitializationRecordV1 {
     parameter_fields: Vec<ConstructorParamFieldV1>,
 });
 
+tagged!(TypeMemberDomainV1 {
+    0 => Kind { kind: ArtifactKindId },
+    1 => ValueType { ty: ArtifactTypeId },
+});
+
+record!(TypeMemberParameterV1 {
+    name: Box<str>,
+    domain: TypeMemberDomainV1,
+});
+
+tagged!(IntrinsicTypeOperationV1 {
+    0 => TuplePositionals,
+    1 => TupleLabeled,
+    2 => TupleEntries,
+    3 => TupleElement,
+    4 => TupleAt,
+    5 => TupleMap,
+    6 => RecordFields,
+    7 => RecordValue,
+    8 => RecordMap,
+    9 => TypePackMap,
+    10 => LabeledTypePackMap,
+    11 => RecordRowMap,
+    12 => CompleteTypePackPositionals,
+    13 => CompleteTypePackLabeled,
+    14 => CompleteTypePackMap,
+    15 => UnorderedShapeLookup,
+    16 => UnorderedShapeView,
+    17 => UnorderedShapeTail,
+});
+
+tagged!(TypeMemberImplementationV1 {
+    0 => Phalcom,
+    1 => Native,
+    2 => Foreign,
+    3 => Intrinsic,
+});
+
+record!(TypeMemberDeclarationRecordV1 {
+    owner: StableDeclarationRef,
+    selector: TypeMemberSelectorV1,
+    parameters: Vec<TypeMemberParameterV1>,
+    result_domain: TypeMemberDomainV1,
+    intrinsic: Option<IntrinsicTypeOperationV1>,
+    implementation: TypeMemberImplementationV1,
+});
+
+record!(AssociatedStaticDomainRecordV1 {
+    declaration: StableAssociatedStaticDomainDeclarationRef,
+    domain: ArtifactStaticDomainId,
+    constructors: Vec<ArtifactStaticConstructorId>,
+});
+
+tagged!(AssociatedMemberV1 {
+    0 => Variant { variant: StableVariantRef },
+    1 => DataConstructor { owner: StableDeclarationRef },
+    2 => DataComponent { owner: StableDeclarationRef, index: u32 },
+    3 => StaticDomain { declaration: StableAssociatedStaticDomainDeclarationRef },
+    4 => TypeMember { owner: StableDeclarationRef, selector: TypeMemberSelectorV1 },
+});
+
+tagged!(AssociatedFamilyKindV1 {
+    0 => Variant,
+    1 => DataConstructor,
+    2 => StaticDomain,
+    3 => TypeMember,
+    4 => IntrinsicTypeMember,
+});
+
+record!(AssociatedFamilyRecordV1 {
+    selector: TypeMemberSelectorV1,
+    kind: AssociatedFamilyKindV1,
+    members: Vec<AssociatedMemberV1>,
+});
+
+record!(AssociatedSurfaceRecordV1 {
+    owner: StableDeclarationRef,
+    families: Vec<AssociatedFamilyRecordV1>,
+});
+
 record!(SemanticWorldV1 {
     type_graph: TypeGraphV1,
     structural_contracts: StructuralPrimaryContractsV1,
@@ -138,6 +221,9 @@ record!(SemanticWorldV1 {
     dispatch_surfaces: Vec<DeclarationSurfaceRecordV1>,
     conformance_heads: Vec<ConformanceHeadRecordV1>,
     constructor_initializations: Vec<ConstructorInitializationRecordV1>,
+    type_member_declarations: Vec<TypeMemberDeclarationRecordV1>,
+    associated_static_domains: Vec<AssociatedStaticDomainRecordV1>,
+    associated_surfaces: Vec<AssociatedSurfaceRecordV1>,
 });
 
 impl SemanticWorldV1 {
@@ -149,26 +235,36 @@ impl SemanticWorldV1 {
         Ok(out.into_vec())
     }
 
-    pub fn decode_with_budget(bytes: &[u8], limits: &ValidationLimits, remaining_budget: &mut u64) -> Result<Self, ArtifactError> {
-        if bytes.len() as u64 > *remaining_budget {
-            return Err(invalid("semantic world section byte budget exceeded"));
-        }
-        let mut input = Decode {
-            reader: BinaryReader::new(bytes),
-            limits: *limits,
-            allocations_left: *remaining_budget,
-            items_left: limits.max_semantic_entries_per_family,
-            depth: 0,
+    pub fn decode_with_allocation_budget(bytes: &[u8], limits: &ValidationLimits, transaction: &mut AllocationBudget) -> Result<Self, ArtifactError> {
+        let section_limit = usize::try_from(limits.max_decoded_section_bytes).map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let mut section = transaction.child(section_limit);
+        let world = {
+            let mut input = Decode {
+                reader: BinaryReader::new(bytes),
+                limits: *limits,
+                allocations: &mut section,
+                items_left: limits.max_semantic_entries_per_family,
+                depth: 0,
+            };
+            if input.reader.read_u32()? != SEMANTIC_WORLD_SCHEMA_V1 {
+                return Err(invalid("unsupported semantic world schema"));
+            }
+            let world = Self::read(&mut input)?;
+            if input.reader.has_remaining() {
+                return Err(invalid("trailing semantic world bytes"));
+            }
+            world
         };
-        if input.reader.read_u32()? != SEMANTIC_WORLD_SCHEMA_V1 {
-            return Err(invalid("unsupported semantic world schema"));
-        }
-        let world = Self::read(&mut input)?;
-        if input.reader.has_remaining() {
-            return Err(invalid("trailing semantic world bytes"));
-        }
         world.validate(limits)?;
-        *remaining_budget = input.allocations_left;
+        transaction.commit_child(section).map_err(allocation_error)?;
+        Ok(world)
+    }
+
+    pub fn decode_with_budget(bytes: &[u8], limits: &ValidationLimits, remaining_budget: &mut u64) -> Result<Self, ArtifactError> {
+        let available = usize::try_from(*remaining_budget).map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let mut transaction = AllocationBudget::new(available);
+        let world = Self::decode_with_allocation_budget(bytes, limits, &mut transaction)?;
+        *remaining_budget = u64::try_from(transaction.remaining()).map_err(|_| allocation_error(AllocationError::Overflow))?;
         Ok(world)
     }
 
@@ -188,9 +284,20 @@ impl SemanticWorldV1 {
             || self.trait_surfaces.len() > limits.max_semantic_entries_per_family
             || self.dispatch_surfaces.len() > limits.max_semantic_entries_per_family
             || self.conformance_heads.len() > limits.max_semantic_entries_per_family
+            || self.type_member_declarations.len() > limits.max_semantic_entries_per_family
+            || self.associated_static_domains.len() > limits.max_semantic_entries_per_family
+            || self.associated_surfaces.len() > limits.max_semantic_entries_per_family
         {
             return Err(invalid("primary family count budget exceeded"));
         }
         Ok(())
     }
+}
+
+fn allocation_error(error: AllocationError) -> ArtifactError {
+    invalid(match error {
+        AllocationError::Exhausted => "semantic world allocation budget exceeded",
+        AllocationError::Overflow => "semantic world allocation layout overflow",
+        AllocationError::Failed => "semantic world allocation failed",
+    })
 }

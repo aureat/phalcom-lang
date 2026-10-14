@@ -46,6 +46,20 @@ pub fn decode_metadata_json_budgeted(
     symbol: Option<&crate::identity::StableDeclarationRef>,
     shared_budget: &mut usize,
 ) -> Result<SemanticMetadataBundle, MetadataDecodeError> {
+    let mut budget = crate::allocation::AllocationBudget::new(*shared_budget);
+    let bundle = decode_metadata_json_with_allocation_budget(json, limits, symbol, &mut budget)?;
+    *shared_budget = budget.remaining();
+    Ok(bundle)
+}
+
+/// Decodes current-schema metadata into the caller's load transaction. The
+/// supplied ledger is replaced only after decoding and validation both pass.
+pub fn decode_metadata_json_with_allocation_budget(
+    json: &str,
+    limits: &ValidationLimits,
+    symbol: Option<&crate::identity::StableDeclarationRef>,
+    transaction: &mut crate::allocation::AllocationBudget,
+) -> Result<SemanticMetadataBundle, MetadataDecodeError> {
     if json.len() > limits.max_total_bytes {
         return Err(MetadataDecodeError::Validation(Box::new(MetadataValidationError::BudgetExceeded {
             resource: "bytes",
@@ -58,13 +72,12 @@ pub fn decode_metadata_json_budgeted(
     if crate::budgeted::schema_version(json)? != crate::header::TYPE_METADATA_SCHEMA_VERSION {
         return Err(crate::budgeted::DecodeError::Syntax("budgeted decode requires current schema").into());
     }
-    let mut budget = crate::allocation::AllocationBudget::new(*shared_budget);
+    let mut budget = transaction.clone();
     let mut decoder = crate::budgeted::Decoder::new(json, &mut budget, 256)?;
     let bundle = <SemanticMetadataBundle as crate::budgeted::BudgetDecode>::decode(&mut decoder)?;
     decoder.cursor.finish()?;
     crate::validate::validate_metadata_bundle_with_budget(&bundle, limits, &mut budget)?;
-    *shared_budget = budget.remaining();
-
+    *transaction = budget;
     Ok(bundle)
 }
 

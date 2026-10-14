@@ -10,6 +10,7 @@ use phalcom_compiler_artifact::query::{
     PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryProfileSupport,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError};
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 use phalcom_type_meta::identity::{StableCallableRef, StableDeclarationRef, StableFieldRef};
 use serde::de::DeserializeOwned;
 use std::collections::{BTreeMap, BTreeSet};
@@ -316,9 +317,52 @@ pub fn reconstruct_query_image(
     world: &CanonicalSemanticWorldId,
     modules: &phalcom_modules::canonical_products::CanonicalExternalModuleWorld,
 ) -> Result<(Arc<CanonicalSemanticQueryImage>, BTreeMap<QueryKey, ProductFingerprint>), CanonicalImageError> {
+    let limits = phalcom_compiler_artifact::ValidationLimits::default();
+    let budget_limit = usize::try_from(limits.max_decoded_section_bytes)
+        .map_err(|_| allocation_error(AllocationError::Overflow))?;
+    let mut allocations = AllocationBudget::new(budget_limit);
+    reconstruct_query_image_with_allocation_budget(image, snapshot, world, modules, &limits, &mut allocations)
+}
+
+/// Reconstructs query authority using the caller's cumulative load transaction.
+pub fn reconstruct_query_image_with_allocation_budget(
+    image: &QueryImageV1,
+    snapshot: &Arc<SemanticSnapshot>,
+    world: &CanonicalSemanticWorldId,
+    modules: &phalcom_modules::canonical_products::CanonicalExternalModuleWorld,
+    limits: &phalcom_compiler_artifact::ValidationLimits,
+    transaction: &mut AllocationBudget,
+) -> Result<(Arc<CanonicalSemanticQueryImage>, BTreeMap<QueryKey, ProductFingerprint>), CanonicalImageError> {
+    let section_limit = usize::try_from(limits.max_decoded_section_bytes)
+        .map_err(|_| allocation_error(AllocationError::Overflow))?;
+    let mut allocations = transaction.child(section_limit);
+    let reconstructed = reconstruct_query_image_inner(image, snapshot, world, modules, &mut allocations)?;
+    transaction
+        .commit_child(allocations)
+        .map_err(allocation_error)?;
+    Ok(reconstructed)
+}
+
+fn allocation_error(error: AllocationError) -> CanonicalImageError {
+    incomplete(match error {
+        AllocationError::Exhausted => "query reconstruction allocation budget exceeded",
+        AllocationError::Overflow => "query reconstruction allocation layout overflow",
+        AllocationError::Failed => "query reconstruction allocation failed",
+    })
+}
+
+fn reconstruct_query_image_inner(
+    image: &QueryImageV1,
+    snapshot: &Arc<SemanticSnapshot>,
+    world: &CanonicalSemanticWorldId,
+    modules: &phalcom_modules::canonical_products::CanonicalExternalModuleWorld,
+    allocations: &mut AllocationBudget,
+) -> Result<(Arc<CanonicalSemanticQueryImage>, BTreeMap<QueryKey, ProductFingerprint>), CanonicalImageError> {
     validate_query_image_closure(image).map_err(|error| incomplete(error.to_string()))?;
 
-    let mut roots = Vec::with_capacity(image.supported_roots.len());
+    let mut roots = allocations
+        .vector::<(QueryKey, Arc<SemanticProduct>, ProductFingerprint, InputFingerprint)>(image.supported_roots.len())
+        .map_err(allocation_error)?;
     for root in &image.supported_roots {
         let query_key = resolve_query_key(&root.key)?;
         let (product, product_fingerprint, input_fingerprint) = product_and_fingerprints(snapshot, &query_key, modules)?;
@@ -329,7 +373,9 @@ pub fn reconstruct_query_image(
     let mut fingerprints = BTreeMap::new();
     for (idx, root) in image.supported_roots.iter().enumerate() {
         let (query_key, product, product_fingerprint, input_fingerprint) = &roots[idx];
-        let mut edges = Vec::with_capacity(root.dependency_indices.len());
+        let mut edges = allocations
+            .vector::<DependencyEdge>(root.dependency_indices.len())
+            .map_err(allocation_error)?;
         for &dep_idx in &root.dependency_indices {
             let (dependency, _, observed_fingerprint, _) = roots
                 .get(dep_idx as usize)
@@ -360,5 +406,6 @@ pub fn reconstruct_query_image(
         snapshot.store.clone(),
         snapshot.static_values.clone(),
     )?;
-    Ok((Arc::new(query_image), fingerprints))
+    let query_image = allocations.arc(query_image).map_err(allocation_error)?;
+    Ok((query_image, fingerprints))
 }

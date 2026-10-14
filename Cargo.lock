@@ -1225,6 +1225,7 @@ dependencies = [
  "phalcom-common",
  "phalcom-compiler-artifact",
  "phalcom-native-meta",
+ "phalcom-type-meta",
  "serde",
  "tempfile",
  "thiserror",

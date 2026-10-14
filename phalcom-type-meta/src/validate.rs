@@ -321,7 +321,9 @@ fn validate_static_domain_catalog<'a>(
             }
         }
     }
-    catalog.sort_by(|a, b| a.0.cmp(&b.0));
+    // Stability is irrelevant because duplicate identities are rejected below.
+    // Use the in-place sorter so validation has no hidden merge scratch.
+    catalog.sort_unstable_by(|a, b| a.0.cmp(&b.0));
     for window in catalog.windows(2) {
         if window[0].0 == window[1].0 {
             return Err(MetadataValidationError::DuplicateStaticDomainCatalogEntry(window[0].1.declaration.clone()));
@@ -935,7 +937,9 @@ pub fn validate_metadata_bundle_with_budget(bundle: &SemanticMetadataBundle, lim
         }
         param_map.push(((&param.id.owner, param.id.index), param));
     }
-    param_map.sort_by(|a, b| a.0.cmp(&b.0));
+    // Stability is irrelevant because duplicate owner/index pairs are invalid.
+    // `sort_unstable_by` is in-place and therefore needs no unaccounted scratch.
+    param_map.sort_unstable_by(|a, b| a.0.cmp(&b.0));
     for window in param_map.windows(2) {
         if window[0].0 == window[1].0 {
             return Err(MetadataValidationError::DuplicateParameterOwner(format!("{:?}", window[0].0.0), window[0].0.1));

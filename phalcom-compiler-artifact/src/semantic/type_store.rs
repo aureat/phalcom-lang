@@ -2,6 +2,7 @@
 use crate::module_world::{Decode, Wire, invalid, record, tagged};
 use crate::{ArtifactError, BinaryReader, BinaryWriter, ValidationLimits};
 use phalcom_type_meta::Fingerprint128;
+use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_type_meta::identity::*;
 
 pub const TYPE_GRAPH_SCHEMA_V1: u32 = 1;
@@ -409,10 +410,13 @@ impl TypeGraphV1 {
         if bytes.len() as u64 > limits.max_decoded_section_bytes {
             return Err(invalid("type graph byte budget exceeded"));
         }
+        let allocation_limit = usize::try_from(limits.max_decoded_section_bytes)
+            .map_err(|_| invalid("type graph allocation limit exceeds address space"))?;
+        let mut allocations = AllocationBudget::new(allocation_limit);
         let mut input = Decode {
             reader: BinaryReader::new(bytes),
             limits: *limits,
-            allocations_left: limits.max_decoded_section_bytes,
+            allocations: &mut allocations,
             items_left: limits.max_semantic_entries_per_family,
             depth: 0,
         };

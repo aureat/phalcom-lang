@@ -3,7 +3,7 @@
 use crate::codec::{BinaryReader, BinaryWriter};
 use crate::error::{ArtifactError, ValidationError};
 use crate::limits::ValidationLimits;
-use std::alloc::Layout;
+use phalcom_type_meta::allocation::{AllocationBudget, AllocationError};
 
 pub const QUERY_IMAGE_SCHEMA_V1: u32 = 1;
 
@@ -117,12 +117,17 @@ impl QueryImageV1 {
         Ok(out.into_vec())
     }
 
-    pub fn decode_with_budget(bytes: &[u8], limits: &ValidationLimits, remaining_budget: &mut u64) -> Result<Self, ArtifactError> {
+    pub fn decode_with_allocation_budget(
+        bytes: &[u8],
+        limits: &ValidationLimits,
+        transaction: &mut AllocationBudget,
+    ) -> Result<Self, ArtifactError> {
         // The input is borrowed. Charge only allocations made while constructing
-        // the DTO, and keep the caller's transaction unchanged on every failure.
-        let original_budget = *remaining_budget;
-        let initial_budget = original_budget.min(limits.max_decoded_section_bytes);
-        let mut allocation_budget = initial_budget;
+        // the DTO. A child ledger enforces the section limit independently of
+        // the parent transaction and commits only after complete validation.
+        let section_limit = usize::try_from(limits.max_decoded_section_bytes)
+            .map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let mut allocation_budget = transaction.child(section_limit);
         let mut reader = BinaryReader::new(bytes);
         let schema = reader.read_u32()?;
         if schema != QUERY_IMAGE_SCHEMA_V1 {
@@ -172,8 +177,19 @@ impl QueryImageV1 {
         }
         let image = Self { supported_roots, dependency_evidence };
         image.validate(limits)?;
-        let consumed = initial_budget - allocation_budget;
-        *remaining_budget = remaining_budget.saturating_sub(consumed);
+        transaction
+            .commit_child(allocation_budget)
+            .map_err(allocation_error)?;
+        Ok(image)
+    }
+
+    pub fn decode_with_budget(bytes: &[u8], limits: &ValidationLimits, remaining_budget: &mut u64) -> Result<Self, ArtifactError> {
+        let available = usize::try_from(*remaining_budget)
+            .map_err(|_| allocation_error(AllocationError::Overflow))?;
+        let mut transaction = AllocationBudget::new(available);
+        let image = Self::decode_with_allocation_budget(bytes, limits, &mut transaction)?;
+        *remaining_budget = u64::try_from(transaction.remaining())
+            .map_err(|_| allocation_error(AllocationError::Overflow))?;
         Ok(image)
     }
 
@@ -193,31 +209,24 @@ impl QueryImageV1 {
     }
 }
 
-fn charge_allocation(remaining: &mut u64, bytes: usize) -> Result<(), ArtifactError> {
-    let bytes = u64::try_from(bytes).map_err(|_| ArtifactError::LimitExceeded("query image allocation size overflow".into()))?;
-    *remaining = remaining
-        .checked_sub(bytes)
-        .ok_or_else(|| ArtifactError::LimitExceeded("query image allocation budget exceeded".into()))?;
-    Ok(())
+fn allocation_error(error: AllocationError) -> ArtifactError {
+    ArtifactError::LimitExceeded(match error {
+        AllocationError::Exhausted => "query image allocation budget exceeded",
+        AllocationError::Overflow => "query image allocation layout overflow",
+        AllocationError::Failed => "query image allocation failed",
+    }
+    .into())
 }
 
-fn reserve_vec<T>(remaining: &mut u64, count: usize) -> Result<Vec<T>, ArtifactError> {
-    let layout = Layout::array::<T>(count).map_err(|_| ArtifactError::LimitExceeded("query image allocation layout overflow".into()))?;
-    charge_allocation(remaining, layout.size())?;
-    let mut values = Vec::new();
-    values.try_reserve_exact(count).map_err(|_| ArtifactError::LimitExceeded("query image allocation failed".into()))?;
-    Ok(values)
+fn reserve_vec<T>(remaining: &mut AllocationBudget, count: usize) -> Result<Vec<T>, ArtifactError> {
+    remaining.vector(count).map_err(allocation_error)
 }
 
 fn read_owned_string(
     reader: &mut BinaryReader<'_>,
     limits: &ValidationLimits,
-    remaining: &mut u64,
+    remaining: &mut AllocationBudget,
 ) -> Result<String, ArtifactError> {
     let value = reader.read_str(limits.max_string_bytes)?;
-    charge_allocation(remaining, value.len())?;
-    let mut owned = String::new();
-    owned.try_reserve_exact(value.len()).map_err(|_| ArtifactError::LimitExceeded("query image string allocation failed".into()))?;
-    owned.push_str(value);
-    Ok(owned)
+    remaining.string(value).map_err(allocation_error)
 }

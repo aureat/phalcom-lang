@@ -4,6 +4,7 @@ use crate::module_world::{Decode, Wire, invalid, record, tagged};
 use crate::semantic::static_value::ArtifactStaticValueId;
 use crate::semantic::type_store::ArtifactTypeId;
 use crate::{ArtifactError, BinaryReader, BinaryWriter, ValidationError, ValidationLimits};
+use phalcom_type_meta::allocation::AllocationBudget;
 use phalcom_type_meta::identity::StableDeclarationRef;
 
 pub const OPERATIONAL_TEMPLATE_SCHEMA_V1: u32 = 1;
@@ -83,10 +84,13 @@ impl CheckedStaticDefinitionsV1 {
         if bytes.len() as u64 > limits.max_decoded_section_bytes {
             return Err(invalid("operational template byte budget exceeded"));
         }
+        let allocation_limit = usize::try_from(limits.max_decoded_section_bytes)
+            .map_err(|_| invalid("operational template allocation limit exceeds address space"))?;
+        let mut allocations = AllocationBudget::new(allocation_limit);
         let mut input = Decode {
             reader: BinaryReader::new(bytes),
             limits: *limits,
-            allocations_left: limits.max_decoded_section_bytes,
+            allocations: &mut allocations,
             items_left: limits.max_semantic_entries_per_family,
             depth: 0,
         };

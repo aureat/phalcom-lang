@@ -5,8 +5,7 @@ use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeS
 use crate::declarations::DeclarationTypeTable;
 use crate::enum_semantics::{AlgebraicCasePayloadKind, EnumSemanticTable, VariantFieldSemantic, VariantShape, VariantVisibility};
 use crate::metadata::stable_identity::{
-    to_stable_callable, to_stable_declaration, to_stable_dispatch_side, to_stable_field, to_stable_impl, to_stable_module,
-    to_stable_variant,
+    to_stable_callable, to_stable_declaration, to_stable_dispatch_side, to_stable_field, to_stable_impl, to_stable_module, to_stable_variant,
 };
 use crate::type_alias::TypeAliasTable;
 use crate::types::case_environment::CaseTypeEnvironment;
@@ -18,8 +17,7 @@ use crate::types::variance::Variance;
 use phalcom_common::modifier::Visibility;
 use phalcom_compiler_artifact::semantic::aggregates::*;
 use phalcom_compiler_artifact::semantic::type_store::{
-    CanonicalRootFamilyTag, CanonicalTypeRootKey, ParameterModeV1, ParameterOwnerV1, SelfRoleV1, SelfTypeV1,
-    StableOwnerRef, VarianceV1,
+    CanonicalRootFamilyTag, CanonicalTypeRootKey, ParameterModeV1, ParameterOwnerV1, SelfRoleV1, SelfTypeV1, StableOwnerRef, VarianceV1,
 };
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
 use std::collections::BTreeSet;
@@ -36,9 +34,7 @@ pub fn export_parameter_owner(owner: &TypeParameterOwner) -> Result<ParameterOwn
         TypeParameterOwner::Callable(callable) => ParameterOwnerV1::Callable {
             owner: to_stable_callable(callable),
         },
-        TypeParameterOwner::Impl(r#impl) => ParameterOwnerV1::Impl {
-            owner: to_stable_impl(r#impl),
-        },
+        TypeParameterOwner::Impl(r#impl) => ParameterOwnerV1::Impl { owner: to_stable_impl(r#impl) },
     })
 }
 
@@ -80,10 +76,7 @@ pub fn export_type_term(term: &TypeTerm, types: &TypeExportContext) -> Result<Ty
     }
 }
 
-pub fn export_constraint(
-    constraint: &GenericConstraint,
-    types: &TypeExportContext,
-) -> Result<GenericConstraintV1, ArtifactError> {
+pub fn export_constraint(constraint: &GenericConstraint, types: &TypeExportContext) -> Result<GenericConstraintV1, ArtifactError> {
     Ok(match constraint {
         GenericConstraint::Subtype { lower, upper } => GenericConstraintV1::Subtype {
             lower: export_type_term(lower, types)?,
@@ -97,40 +90,21 @@ pub fn export_constraint(
             subject: export_type_term(subject, types)?,
             trait_ref: TraitRefV1 {
                 declaration: to_stable_declaration(&trait_ref.declaration),
-                arguments: trait_ref
-                    .arguments
-                    .iter()
-                    .map(|&arg| types.ty(arg))
-                    .collect::<Result<Vec<_>, _>>()?,
+                arguments: trait_ref.arguments.iter().map(|&arg| types.ty(arg)).collect::<Result<Vec<_>, _>>()?,
             },
         },
     })
 }
 
-pub fn export_generic_signature(
-    sig: &GenericSignature,
-    types: &TypeExportContext,
-) -> Result<GenericSignatureV1, ArtifactError> {
+pub fn export_generic_signature(sig: &GenericSignature, types: &TypeExportContext) -> Result<GenericSignatureV1, ArtifactError> {
     let owner = export_parameter_owner(&sig.owner)?;
-    let parameters = sig
-        .parameters
-        .iter()
-        .map(|&p| types.parameter(p))
-        .collect::<Result<Vec<_>, _>>()?;
-    let parameter_kinds = sig
-        .parameter_kinds
-        .iter()
-        .map(|&k| types.kind(k))
-        .collect::<Result<Vec<_>, _>>()?;
+    let parameters = sig.parameters.iter().map(|&p| types.parameter(p)).collect::<Result<Vec<_>, _>>()?;
+    let parameter_kinds = sig.parameter_kinds.iter().map(|&k| types.kind(k)).collect::<Result<Vec<_>, _>>()?;
     let parameter_kind_shapes = sig.parameter_kind_shapes.to_vec();
     let parameter_variances = sig.parameter_variances.iter().map(|&v| export_variance(v)).collect();
     let parameter_modes = sig.parameter_modes.iter().map(|&m| export_mode(m)).collect();
     let constraint_shapes = sig.constraint_shapes.to_vec();
-    let constraints = sig
-        .constraints
-        .iter()
-        .map(|c| export_constraint(c, types))
-        .collect::<Result<Vec<_>, _>>()?;
+    let constraints = sig.constraints.iter().map(|c| export_constraint(c, types)).collect::<Result<Vec<_>, _>>()?;
 
     Ok(GenericSignatureV1 {
         owner,
@@ -144,10 +118,7 @@ pub fn export_generic_signature(
     })
 }
 
-pub fn export_declared_type_state(
-    state: &DeclaredTypeState,
-    types: &TypeExportContext,
-) -> Result<DeclaredTypeStateV1, ArtifactError> {
+pub fn export_declared_type_state(state: &DeclaredTypeState, types: &TypeExportContext) -> Result<DeclaredTypeStateV1, ArtifactError> {
     Ok(match state {
         DeclaredTypeState::Known(term) => DeclaredTypeStateV1::Known {
             term: export_type_term(term, types)?,
@@ -197,10 +168,7 @@ pub fn export_declared_type_basis(basis: DeclaredTypeBasis) -> DeclaredTypeBasis
     }
 }
 
-pub fn export_declared_type_fact(
-    fact: &DeclaredTypeFact,
-    types: &TypeExportContext,
-) -> Result<DeclaredTypeFactV1, ArtifactError> {
+pub fn export_declared_type_fact(fact: &DeclaredTypeFact, types: &TypeExportContext) -> Result<DeclaredTypeFactV1, ArtifactError> {
     Ok(DeclaredTypeFactV1 {
         state: export_declared_type_state(&fact.state, types)?,
         basis: export_declared_type_basis(fact.basis),
@@ -255,18 +223,11 @@ pub fn export_static_data(
 ) -> Result<StaticAlgebraicDeclarationV1, ArtifactError> {
     Ok(StaticAlgebraicDeclarationV1 {
         domain: types.domain(static_data.domain)?,
-        constructors: static_data
-            .constructors
-            .iter()
-            .map(|&c| types.constructor(c))
-            .collect::<Result<Vec<_>, _>>()?,
+        constructors: static_data.constructors.iter().map(|&c| types.constructor(c)).collect::<Result<Vec<_>, _>>()?,
     })
 }
 
-pub fn export_case_environment(
-    env: &CaseTypeEnvironment,
-    types: &TypeExportContext,
-) -> Result<CaseEnvironmentV1, ArtifactError> {
+pub fn export_case_environment(env: &CaseTypeEnvironment, types: &TypeExportContext) -> Result<CaseEnvironmentV1, ArtifactError> {
     let mut bindings = Vec::with_capacity(env.bindings.len());
     for (&param, &ty) in &env.bindings {
         bindings.push(CaseBindingV1 {
@@ -276,19 +237,12 @@ pub fn export_case_environment(
     }
     bindings.sort_by_key(|b| b.parameter.0);
 
-    let equalities = env
-        .equalities
-        .iter()
-        .map(|eq| export_constraint(eq, types))
-        .collect::<Result<Vec<_>, _>>()?;
+    let equalities = env.equalities.iter().map(|eq| export_constraint(eq, types)).collect::<Result<Vec<_>, _>>()?;
 
     Ok(CaseEnvironmentV1 { bindings, equalities })
 }
 
-pub fn export_data_component(
-    comp: &DataComponentSemantic,
-    types: &TypeExportContext,
-) -> Result<DataComponentSemanticV1, ArtifactError> {
+pub fn export_data_component(comp: &DataComponentSemantic, types: &TypeExportContext) -> Result<DataComponentSemanticV1, ArtifactError> {
     Ok(DataComponentSemanticV1 {
         local_name: comp.local_name.clone(),
         external_label: comp.external_label.clone(),
@@ -296,10 +250,7 @@ pub fn export_data_component(
     })
 }
 
-pub fn export_data_constructor_parameter(
-    param: &DataConstructorParameter,
-    types: &TypeExportContext,
-) -> Result<DataConstructorParameterV1, ArtifactError> {
+pub fn export_data_constructor_parameter(param: &DataConstructorParameter, types: &TypeExportContext) -> Result<DataConstructorParameterV1, ArtifactError> {
     Ok(DataConstructorParameterV1 {
         external_label: param.external_label.clone(),
         local_name: param.local_name.clone(),
@@ -307,29 +258,19 @@ pub fn export_data_constructor_parameter(
     })
 }
 
-pub fn export_shape_contribution(
-    contribution: &DataProductContribution,
-    types: &TypeExportContext,
-) -> Result<DataProductContributionV1, ArtifactError> {
+pub fn export_shape_contribution(contribution: &DataProductContribution, types: &TypeExportContext) -> Result<DataProductContributionV1, ArtifactError> {
     Ok(match contribution {
-        DataProductContribution::Component(comp) => {
-            DataProductContributionV1::Component {
-                component: export_data_component(comp, types)?,
-            }
-        }
-        DataProductContribution::Expansion(exp) => {
-            DataProductContributionV1::Expansion {
-                mode: export_expansion_mode(exp.mode),
-                operand: export_declared_type_fact(&exp.operand, types)?,
-            }
-        }
+        DataProductContribution::Component(comp) => DataProductContributionV1::Component {
+            component: export_data_component(comp, types)?,
+        },
+        DataProductContribution::Expansion(exp) => DataProductContributionV1::Expansion {
+            mode: export_expansion_mode(exp.mode),
+            operand: export_declared_type_fact(&exp.operand, types)?,
+        },
     })
 }
 
-pub fn export_variant_field(
-    field: &VariantFieldSemantic,
-    types: &TypeExportContext,
-) -> Result<VariantFieldV1, ArtifactError> {
+pub fn export_variant_field(field: &VariantFieldSemantic, types: &TypeExportContext) -> Result<VariantFieldV1, ArtifactError> {
     Ok(VariantFieldV1 {
         local_name: field.local_name.clone(),
         external_label: field.external_label.clone(),
@@ -450,10 +391,7 @@ pub fn export_structural_primary_contracts(
         let declaration = to_stable_declaration(decl_id);
         let self_type = types.ty(info.form)?;
         let parameters = if let Some(sig) = &info.generic_signature {
-            sig.parameters
-                .iter()
-                .map(|&p| types.parameter(p))
-                .collect::<Result<Vec<_>, _>>()?
+            sig.parameters.iter().map(|&p| types.parameter(p)).collect::<Result<Vec<_>, _>>()?
         } else {
             Vec::new()
         };
@@ -509,18 +447,10 @@ pub fn export_structural_primary_contracts(
     for (_, info) in data_decls {
         let owner = to_stable_declaration(&info.owner);
         let root_form = types.ty(info.root_form)?;
-        let generic_signature = info
-            .generic_signature
-            .as_ref()
-            .map(|s| export_generic_signature(s, types))
-            .transpose()?;
+        let generic_signature = info.generic_signature.as_ref().map(|s| export_generic_signature(s, types)).transpose()?;
         let static_data = info.static_data.as_ref().map(|s| export_static_data(s, types)).transpose()?;
         let shape = export_data_shape(info.shape);
-        let components = info
-            .components
-            .iter()
-            .map(|c| export_data_component(c, types))
-            .collect::<Result<Vec<_>, _>>()?;
+        let components = info.components.iter().map(|c| export_data_component(c, types)).collect::<Result<Vec<_>, _>>()?;
         let constructor_visibility = export_visibility(info.constructor.visibility);
         let constructor_parameters = info
             .constructor
@@ -559,11 +489,7 @@ pub fn export_structural_primary_contracts(
     for (_, info) in enums {
         let owner = to_stable_declaration(&info.owner);
         let root_form = types.ty(info.root_form)?;
-        let generic_signature = info
-            .generic_signature
-            .as_ref()
-            .map(|s| export_generic_signature(s, types))
-            .transpose()?;
+        let generic_signature = info.generic_signature.as_ref().map(|s| export_generic_signature(s, types)).transpose()?;
         let static_data = info.static_data.as_ref().map(|s| export_static_data(s, types)).transpose()?;
         let default_result_type = types.ty(info.default_result_type)?;
         let variants = info.variants.iter().map(to_stable_variant).collect();
@@ -576,11 +502,7 @@ pub fn export_structural_primary_contracts(
             let variant_type = types.variant(var_info.type_handle)?;
             let shape = export_variant_shape(var_info.shape);
             let payload_kind = export_payload_kind(var_info.payload_kind);
-            let fields = var_info
-                .fields
-                .iter()
-                .map(|f| export_variant_field(f, types))
-                .collect::<Result<Vec<_>, _>>()?;
+            let fields = var_info.fields.iter().map(|f| export_variant_field(f, types)).collect::<Result<Vec<_>, _>>()?;
             let result_type = types.ty(var_info.result_type_template)?;
             let exact_case_type = types.ty(var_info.exact_case_template)?;
             let case_environment = export_case_environment(&var_info.case_environment, types)?;
@@ -588,11 +510,7 @@ pub fn export_structural_primary_contracts(
                 .constructor
                 .as_ref()
                 .map(|c| -> Result<VariantConstructorV1, ArtifactError> {
-                    let c_sig = c
-                        .generic_signature
-                        .as_ref()
-                        .map(|s| export_generic_signature(s, types))
-                        .transpose()?;
+                    let c_sig = c.generic_signature.as_ref().map(|s| export_generic_signature(s, types)).transpose()?;
                     let params = c
                         .parameters
                         .iter()
@@ -652,17 +570,205 @@ use crate::artifact::validate::compute_witness_layout_fingerprint;
 use crate::canonical_image::CanonicalSemanticQueryImage;
 use crate::snapshot::SemanticSnapshot;
 use crate::static_value::StaticExportContext;
-use phalcom_compiler_artifact::query::{
-    DependencyEvidenceEntryV1, PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryRootEntryV1,
-};
+use phalcom_compiler_artifact::query::{DependencyEvidenceEntryV1, PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryRootEntryV1};
+use phalcom_compiler_artifact::semantic::type_store::TypeMemberSelectorV1;
 use phalcom_compiler_artifact::semantic::world::{
-    AssociatedBindingEntryV1, AssociatedBindingValueV1, CallableAnalysisRecordV1, CallableParameterV1,
-    CallableSignatureRecordV1, ConformanceHeadRecordV1, ConformanceTargetV1,
-    ConstructorInitializationRecordV1, ConstructorParamFieldV1, DeclarationSurfaceRecordV1, FieldSignatureV1,
-    RequirementEntryV1, RequirementSelectionV1, SemanticWorldV1, TraitSurfaceRecordV1, WitnessPlanV1,
+    AssociatedBindingEntryV1, AssociatedBindingValueV1, AssociatedFamilyKindV1, AssociatedFamilyRecordV1, AssociatedMemberV1, AssociatedStaticDomainRecordV1,
+    AssociatedSurfaceRecordV1, CallableAnalysisRecordV1, CallableParameterV1, CallableSignatureRecordV1, ConformanceHeadRecordV1, ConformanceTargetV1,
+    ConstructorInitializationRecordV1, ConstructorParamFieldV1, DeclarationSurfaceRecordV1, FieldSignatureV1, IntrinsicTypeOperationV1, RequirementEntryV1,
+    RequirementSelectionV1, SemanticWorldV1, TraitSurfaceRecordV1, TypeMemberDeclarationRecordV1, TypeMemberDomainV1, TypeMemberImplementationV1,
+    TypeMemberParameterV1, WitnessPlanV1,
 };
-use phalcom_type_meta::identity::StableCallableRef;
+use phalcom_type_meta::identity::{StableAssociatedStaticDomainDeclarationRef, StableCallableRef};
 use std::collections::BTreeMap;
+
+fn export_type_member_selector(selector: &crate::types::type_member::TypeMemberSelector) -> TypeMemberSelectorV1 {
+    match selector {
+        crate::types::type_member::TypeMemberSelector::Named(name) => TypeMemberSelectorV1::Named { name: name.to_string() },
+        crate::types::type_member::TypeMemberSelector::Subscript => TypeMemberSelectorV1::Subscript,
+    }
+}
+
+fn export_associated_selector(base: &phalcom_common::selector::SelectorBase) -> TypeMemberSelectorV1 {
+    match base {
+        phalcom_common::selector::SelectorBase::Named(name) => TypeMemberSelectorV1::Named { name: name.clone() },
+        phalcom_common::selector::SelectorBase::Subscript => TypeMemberSelectorV1::Subscript,
+    }
+}
+
+fn export_type_member_domain(domain: crate::types::type_member::TypeMemberDomain, types: &TypeExportContext) -> Result<TypeMemberDomainV1, ArtifactError> {
+    Ok(match domain {
+        crate::types::type_member::TypeMemberDomain::Kind(kind) => TypeMemberDomainV1::Kind { kind: types.kind(kind)? },
+        crate::types::type_member::TypeMemberDomain::ValueType(ty) => TypeMemberDomainV1::ValueType { ty: types.ty(ty)? },
+    })
+}
+
+fn export_intrinsic_type_operation(operation: crate::types::type_member::IntrinsicTypeOperation) -> IntrinsicTypeOperationV1 {
+    use crate::types::type_member::IntrinsicTypeOperation as Native;
+    match operation {
+        Native::TuplePositionals => IntrinsicTypeOperationV1::TuplePositionals,
+        Native::TupleLabeled => IntrinsicTypeOperationV1::TupleLabeled,
+        Native::TupleEntries => IntrinsicTypeOperationV1::TupleEntries,
+        Native::TupleElement => IntrinsicTypeOperationV1::TupleElement,
+        Native::TupleAt => IntrinsicTypeOperationV1::TupleAt,
+        Native::TupleMap => IntrinsicTypeOperationV1::TupleMap,
+        Native::RecordFields => IntrinsicTypeOperationV1::RecordFields,
+        Native::RecordValue => IntrinsicTypeOperationV1::RecordValue,
+        Native::RecordMap => IntrinsicTypeOperationV1::RecordMap,
+        Native::TypePackMap => IntrinsicTypeOperationV1::TypePackMap,
+        Native::LabeledTypePackMap => IntrinsicTypeOperationV1::LabeledTypePackMap,
+        Native::RecordRowMap => IntrinsicTypeOperationV1::RecordRowMap,
+        Native::CompleteTypePackPositionals => IntrinsicTypeOperationV1::CompleteTypePackPositionals,
+        Native::CompleteTypePackLabeled => IntrinsicTypeOperationV1::CompleteTypePackLabeled,
+        Native::CompleteTypePackMap => IntrinsicTypeOperationV1::CompleteTypePackMap,
+        Native::UnorderedShapeLookup => IntrinsicTypeOperationV1::UnorderedShapeLookup,
+        Native::UnorderedShapeView => IntrinsicTypeOperationV1::UnorderedShapeView,
+        Native::UnorderedShapeTail => IntrinsicTypeOperationV1::UnorderedShapeTail,
+    }
+}
+
+fn export_type_member_implementation(implementation: phalcom_common::modifier::ImplementationKind) -> TypeMemberImplementationV1 {
+    match implementation {
+        phalcom_common::modifier::ImplementationKind::Phalcom => TypeMemberImplementationV1::Phalcom,
+        phalcom_common::modifier::ImplementationKind::Native => TypeMemberImplementationV1::Native,
+        phalcom_common::modifier::ImplementationKind::Foreign => TypeMemberImplementationV1::Foreign,
+        phalcom_common::modifier::ImplementationKind::Intrinsic => TypeMemberImplementationV1::Intrinsic,
+    }
+}
+
+fn export_associated_family_kind(kind: crate::associated::AssociatedFamilyKind) -> AssociatedFamilyKindV1 {
+    match kind {
+        crate::associated::AssociatedFamilyKind::Variant => AssociatedFamilyKindV1::Variant,
+        crate::associated::AssociatedFamilyKind::DataConstructor => AssociatedFamilyKindV1::DataConstructor,
+        crate::associated::AssociatedFamilyKind::StaticDomain => AssociatedFamilyKindV1::StaticDomain,
+        crate::associated::AssociatedFamilyKind::TypeMember => AssociatedFamilyKindV1::TypeMember,
+        crate::associated::AssociatedFamilyKind::IntrinsicTypeMember => AssociatedFamilyKindV1::IntrinsicTypeMember,
+    }
+}
+
+fn export_associated_static_domain_declaration(
+    declaration: &crate::identity::AssociatedStaticDomainDeclarationId,
+) -> StableAssociatedStaticDomainDeclarationRef {
+    StableAssociatedStaticDomainDeclarationRef {
+        owner: to_stable_declaration(&declaration.owner),
+        name: declaration.name.clone(),
+    }
+}
+
+fn export_associated_member(member: &crate::associated::AssociatedMemberId) -> AssociatedMemberV1 {
+    match member {
+        crate::associated::AssociatedMemberId::Variant(variant) => AssociatedMemberV1::Variant {
+            variant: to_stable_variant(variant),
+        },
+        crate::associated::AssociatedMemberId::DataConstructor(constructor) => AssociatedMemberV1::DataConstructor {
+            owner: to_stable_declaration(&constructor.owner),
+        },
+        crate::associated::AssociatedMemberId::DataComponent(component) => AssociatedMemberV1::DataComponent {
+            owner: to_stable_declaration(&component.owner),
+            index: component.index,
+        },
+        crate::associated::AssociatedMemberId::StaticDomain(declaration) => AssociatedMemberV1::StaticDomain {
+            declaration: export_associated_static_domain_declaration(declaration),
+        },
+        crate::associated::AssociatedMemberId::TypeMember(member) => AssociatedMemberV1::TypeMember {
+            owner: to_stable_declaration(&member.owner),
+            selector: export_type_member_selector(&member.selector),
+        },
+    }
+}
+
+pub(super) struct ExportedAssociatedAuthority {
+    pub type_member_declarations: Vec<TypeMemberDeclarationRecordV1>,
+    pub associated_static_domains: Vec<AssociatedStaticDomainRecordV1>,
+    pub associated_surfaces: Vec<AssociatedSurfaceRecordV1>,
+}
+
+pub(super) fn export_associated_authority(
+    type_member_products: &crate::parent_map::ParentMap<
+        crate::types::type_member::TypeMemberDeclarationId,
+        std::sync::Arc<crate::db::product::TypeMemberDeclarationProduct>,
+    >,
+    static_domain_products: &BTreeMap<
+        crate::identity::AssociatedStaticDomainDeclarationId,
+        std::sync::Arc<crate::db::product::AssociatedStaticDomainDeclarationProduct>,
+    >,
+    surface_products: &crate::associated::AssociatedFamilyTable,
+    types: &TypeExportContext,
+) -> Result<ExportedAssociatedAuthority, ArtifactError> {
+    let mut type_member_products = type_member_products.iter().collect::<Vec<_>>();
+    type_member_products.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    let mut type_member_declarations = Vec::with_capacity(type_member_products.len());
+    for (id, product) in type_member_products {
+        if id != &product.id || product.signature.selector != id.selector {
+            return Err(referential("type-member declaration identity does not match its checked product"));
+        }
+        let parameters = product
+            .signature
+            .parameters
+            .iter()
+            .map(|parameter| {
+                Ok(TypeMemberParameterV1 {
+                    name: parameter.name.clone(),
+                    domain: export_type_member_domain(parameter.domain, types)?,
+                })
+            })
+            .collect::<Result<Vec<_>, ArtifactError>>()?;
+        type_member_declarations.push(TypeMemberDeclarationRecordV1 {
+            owner: to_stable_declaration(&id.owner),
+            selector: export_type_member_selector(&id.selector),
+            parameters,
+            result_domain: export_type_member_domain(product.signature.result_domain, types)?,
+            intrinsic: product.signature.intrinsic.map(export_intrinsic_type_operation),
+            implementation: export_type_member_implementation(product.signature.implementation),
+        });
+    }
+
+    let mut associated_static_domains = Vec::with_capacity(static_domain_products.len());
+    for (id, product) in static_domain_products {
+        if id != &product.id {
+            return Err(referential("associated static-domain identity does not match its checked product"));
+        }
+        associated_static_domains.push(AssociatedStaticDomainRecordV1 {
+            declaration: export_associated_static_domain_declaration(id),
+            domain: types.domain(product.domain)?,
+            constructors: product
+                .constructors
+                .iter()
+                .map(|&constructor| types.constructor(constructor))
+                .collect::<Result<Vec<_>, _>>()?,
+        });
+    }
+
+    let mut associated_surface_products = surface_products.surfaces.iter().collect::<Vec<_>>();
+    associated_surface_products.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    let mut associated_surfaces = Vec::with_capacity(associated_surface_products.len());
+    for (owner, surface) in associated_surface_products {
+        if owner != &surface.owner {
+            return Err(referential("associated surface owner does not match its table identity"));
+        }
+        let mut families = Vec::with_capacity(surface.families.len());
+        for (base, family) in &surface.families {
+            if family.id.owner != *owner || family.id.base != *base {
+                return Err(referential("associated family identity does not match its surface key"));
+            }
+            families.push(AssociatedFamilyRecordV1 {
+                selector: export_associated_selector(base),
+                kind: export_associated_family_kind(family.kind),
+                members: family.members.iter().map(export_associated_member).collect(),
+            });
+        }
+        associated_surfaces.push(AssociatedSurfaceRecordV1 {
+            owner: to_stable_declaration(owner),
+            families,
+        });
+    }
+
+    Ok(ExportedAssociatedAuthority {
+        type_member_declarations,
+        associated_static_domains,
+        associated_surfaces,
+    })
+}
 
 pub fn export_semantic_world(
     snapshot: &SemanticSnapshot,
@@ -719,22 +825,20 @@ pub fn export_semantic_world(
                 crate::identity::DispatchSide::Class => 1,
             };
             let sel_v1 = match selection {
-                crate::impls::RequirementSelectionTemplate::ConformanceCallable { callable } => {
-                    RequirementSelectionV1::ConformanceCallable { callable: to_stable_callable(callable) }
-                }
-                crate::impls::RequirementSelectionTemplate::InherentCallable { callable, .. } => {
-                    RequirementSelectionV1::InherentCallable { callable: to_stable_callable(callable) }
-                }
-                crate::impls::RequirementSelectionTemplate::TraitDefault { callable } => {
-                    RequirementSelectionV1::TraitDefault { callable: to_stable_callable(callable) }
-                }
-                crate::impls::RequirementSelectionTemplate::DataComponent { component, specialized_type } => {
-                    RequirementSelectionV1::DataComponent {
-                        owner: to_stable_declaration(&component.owner),
-                        index: component.index,
-                        specialized_type: types.ty(*specialized_type)?,
-                    }
-                }
+                crate::impls::RequirementSelectionTemplate::ConformanceCallable { callable } => RequirementSelectionV1::ConformanceCallable {
+                    callable: to_stable_callable(callable),
+                },
+                crate::impls::RequirementSelectionTemplate::InherentCallable { callable, .. } => RequirementSelectionV1::InherentCallable {
+                    callable: to_stable_callable(callable),
+                },
+                crate::impls::RequirementSelectionTemplate::TraitDefault { callable } => RequirementSelectionV1::TraitDefault {
+                    callable: to_stable_callable(callable),
+                },
+                crate::impls::RequirementSelectionTemplate::DataComponent { component, specialized_type } => RequirementSelectionV1::DataComponent {
+                    owner: to_stable_declaration(&component.owner),
+                    index: component.index,
+                    specialized_type: types.ty(*specialized_type)?,
+                },
                 crate::impls::RequirementSelectionTemplate::ConditionalInherent { .. } => {
                     return Err(referential("unresolved conditional inherent cannot be exported to artifact"));
                 }
@@ -748,17 +852,10 @@ pub fn export_semantic_world(
         let mut associated_types = Vec::with_capacity(plan.associated_type_plan.bindings.len());
         for (req_id, template) in &plan.associated_type_plan.bindings {
             let value = match template.value_template {
-                crate::impls::AssociatedTypeBindingValue::Type(ty) => {
-                    AssociatedBindingValueV1::Type { ty: types.ty(ty)? }
-                }
-                crate::impls::AssociatedTypeBindingValue::Dynamic => {
-                    AssociatedBindingValueV1::Dynamic
-                }
+                crate::impls::AssociatedTypeBindingValue::Type(ty) => AssociatedBindingValueV1::Type { ty: types.ty(ty)? },
+                crate::impls::AssociatedTypeBindingValue::Dynamic => AssociatedBindingValueV1::Dynamic,
             };
-            associated_types.push(AssociatedBindingEntryV1 {
-                index: req_id.index,
-                value,
-            });
+            associated_types.push(AssociatedBindingEntryV1 { index: req_id.index, value });
         }
         let fingerprint = plan.fingerprint.0;
         let ordered_selected_callables: Vec<StableCallableRef> = plan
@@ -767,9 +864,7 @@ pub fn export_semantic_world(
             .filter_map(|req| match req {
                 crate::impls::RequirementSelectionTemplate::ConformanceCallable { callable }
                 | crate::impls::RequirementSelectionTemplate::InherentCallable { callable, .. }
-                | crate::impls::RequirementSelectionTemplate::TraitDefault { callable } => {
-                    Some(to_stable_callable(callable))
-                }
+                | crate::impls::RequirementSelectionTemplate::TraitDefault { callable } => Some(to_stable_callable(callable)),
                 _ => None,
             })
             .collect();
@@ -943,16 +1038,12 @@ pub fn export_semantic_world(
         let stable_impl = to_stable_impl(impl_id);
         let source_module = to_stable_module(&contribution.source_module);
         let target = match &contribution.target {
-            crate::impls::ConformanceTarget::Declaration(decl) => {
-                ConformanceTargetV1::Declaration {
-                    declaration: to_stable_declaration(decl),
-                }
-            }
-            crate::impls::ConformanceTarget::ExactEnumCase(variant) => {
-                ConformanceTargetV1::ExactEnumCase {
-                    variant: to_stable_variant(variant),
-                }
-            }
+            crate::impls::ConformanceTarget::Declaration(decl) => ConformanceTargetV1::Declaration {
+                declaration: to_stable_declaration(decl),
+            },
+            crate::impls::ConformanceTarget::ExactEnumCase(variant) => ConformanceTargetV1::ExactEnumCase {
+                variant: to_stable_variant(variant),
+            },
         };
         let target_type = types.ty(contribution.target_head)?;
         let trait_decl = to_stable_declaration(&contribution.trait_ref.declaration);
@@ -1014,6 +1105,17 @@ pub fn export_semantic_world(
         });
     }
 
+    let ExportedAssociatedAuthority {
+        type_member_declarations,
+        associated_static_domains,
+        associated_surfaces,
+    } = export_associated_authority(
+        &snapshot.type_member_declarations,
+        &snapshot.associated_static_domains,
+        &snapshot.associated_surfaces,
+        types,
+    )?;
+
     let world = SemanticWorldV1 {
         type_graph,
         structural_contracts,
@@ -1026,6 +1128,9 @@ pub fn export_semantic_world(
         dispatch_surfaces,
         conformance_heads,
         constructor_initializations,
+        type_member_declarations,
+        associated_static_domains,
+        associated_surfaces,
     };
     world.validate(limits)?;
     Ok(world)
@@ -1041,9 +1146,6 @@ fn validate_semantic_world_export_coverage(snapshot: &SemanticSnapshot) -> Resul
         ));
     }
     if !snapshot.enum_requirements.requirements.is_empty()
-        || snapshot.associated_surfaces.surfaces.iter().next().is_some()
-        || snapshot.type_member_declarations.iter().next().is_some()
-        || !snapshot.associated_static_domains.is_empty()
         || !snapshot.static_case_catalogs.is_empty()
         || !snapshot.static_case_signatures.is_empty()
         || snapshot.static_definitions.iter().next().is_some()
@@ -1064,19 +1166,13 @@ fn validate_semantic_world_export_coverage(snapshot: &SemanticSnapshot) -> Resul
             || plan.requirements.values().any(|selection| {
                 matches!(
                     selection,
-                    crate::impls::RequirementSelectionTemplate::InherentCallable {
-                        conditional_impl: Some(_),
-                        ..
-                    } | crate::impls::RequirementSelectionTemplate::InherentCallable {
-                        applicability: Some(_),
-                        ..
-                    } | crate::impls::RequirementSelectionTemplate::ConditionalInherent { .. }
+                    crate::impls::RequirementSelectionTemplate::InherentCallable { conditional_impl: Some(_), .. }
+                        | crate::impls::RequirementSelectionTemplate::InherentCallable { applicability: Some(_), .. }
+                        | crate::impls::RequirementSelectionTemplate::ConditionalInherent { .. }
                 )
             })
         {
-            return Err(referential(
-                "semantic artifact export cannot losslessly encode this conformance witness plan",
-            ));
+            return Err(referential("semantic artifact export cannot losslessly encode this conformance witness plan"));
         }
     }
     Ok(())
@@ -1100,10 +1196,7 @@ pub fn export_query_image(
             continue;
         }
         let stable_owner_key = portable_query_owner_key(key)?;
-        let portable_key = PortableQueryKeyV1 {
-            kind,
-            stable_owner_key,
-        };
+        let portable_key = PortableQueryKeyV1 { kind, stable_owner_key };
         candidate_roots.push((key.clone(), portable_key, entry));
     }
 
@@ -1165,10 +1258,7 @@ pub fn export_query_image(
         let stable_owner_key = portable_query_owner_key(key)?;
         let stable_aggregate_owner = stable_owner_key.clone();
         dependency_evidence.push(DependencyEvidenceEntryV1 {
-            key: PortableQueryKeyV1 {
-                kind,
-                stable_owner_key,
-            },
+            key: PortableQueryKeyV1 { kind, stable_owner_key },
             stable_aggregate_owner,
         });
     }
@@ -1219,12 +1309,8 @@ pub(crate) fn portable_query_owner_key(key: &crate::db::QueryKey) -> Result<Stri
         | crate::db::QueryKey::CallableContracts(c)
         | crate::db::QueryKey::VerificationConditions(c)
         | crate::db::QueryKey::SourceFormalAttachment(c)
-        | crate::db::QueryKey::AdvisoryCallable(c) => {
-            typed_json("callable", &to_stable_callable(c))
-        }
-        crate::db::QueryKey::FieldSignature(f) => {
-            typed_json("field", &to_stable_field(f))
-        }
+        | crate::db::QueryKey::AdvisoryCallable(c) => typed_json("callable", &to_stable_callable(c)),
+        crate::db::QueryKey::FieldSignature(f) => typed_json("field", &to_stable_field(f)),
         crate::db::QueryKey::TypeMemberDeclaration(id) => {
             let selector = match &id.selector {
                 crate::types::type_member::TypeMemberSelector::Named(name) => (0_u8, name.as_ref()),
@@ -1232,9 +1318,7 @@ pub(crate) fn portable_query_owner_key(key: &crate::db::QueryKey) -> Result<Stri
             };
             typed_json("type-member", &(to_stable_declaration(&id.owner), selector))
         }
-        crate::db::QueryKey::ConformanceDispatch(impl_id) => {
-            typed_json("impl", &to_stable_impl(impl_id))
-        }
+        crate::db::QueryKey::ConformanceDispatch(impl_id) => typed_json("impl", &to_stable_impl(impl_id)),
         _ => Err(referential("query kind has no portable stable owner-key encoding")),
     }
 }
