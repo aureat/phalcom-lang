@@ -1807,10 +1807,10 @@ impl<'a> StaticEvaluator<'a> {
         }
         match &mut self.canonical_types {
             Some(EvaluatorTypeStore::Snapshot(s)) => {
-                sub_evaluator = sub_evaluator.with_type_store(*s);
+                sub_evaluator = sub_evaluator.with_type_store(s);
             }
             Some(EvaluatorTypeStore::Session(s)) => {
-                sub_evaluator = sub_evaluator.with_type_store_mut(*s);
+                sub_evaluator = sub_evaluator.with_type_store_mut(s);
             }
             None => {}
         }
@@ -2227,7 +2227,7 @@ impl<'a> StaticEvaluator<'a> {
                     return false;
                 };
                 if !matches!(
-                    (residual, expr.as_ref()),
+                    (residual, expr),
                     (StaticResidualData::Tuple { .. }, Expr::TupleLiteral(_))
                         | (StaticResidualData::Record { .. }, Expr::RecordLiteral(_))
                         | (StaticResidualData::Variant { .. }, Expr::AssociatedInvoke(_))

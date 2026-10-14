@@ -49,7 +49,7 @@ class Probe {
     );
 
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
-    fixture.assert_expression_established(&fixture.expression(run, "Derived.new()"), fixture.ty("Derived"));
+    fixture.assert_expression_established(fixture.expression(run, "Derived.new()"), fixture.ty("Derived"));
     assert_eq!(fixture.binding(run, "value").contract.as_ref().unwrap().ty, fixture.ty("Base"));
     fixture.assert_subtype(fixture.ty("Derived"), fixture.ty("Base"));
     fixture.assert_no_error_diagnostics();

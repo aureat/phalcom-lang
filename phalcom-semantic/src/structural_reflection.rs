@@ -550,7 +550,7 @@ impl<'a> StructuralReflectionProjector<'a> {
                             "UnorderedShape member requires StaticValue subject".into(),
                         ));
                     };
-                    let op = match decl_id.selector.name().as_ref() {
+                    let op = match decl_id.selector.name() {
                         "Lookup" => IntrinsicTypeOperation::UnorderedShapeLookup,
                         "View" => IntrinsicTypeOperation::UnorderedShapeView,
                         "Tail" => IntrinsicTypeOperation::UnorderedShapeTail,

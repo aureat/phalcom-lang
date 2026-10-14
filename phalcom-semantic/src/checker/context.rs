@@ -1103,7 +1103,7 @@ impl<'a> CheckingContext<'a> {
         semantic_module: &phalcom_modules::linker::SemanticLinkedModule,
         bindings: &BTreeMap<ModuleId, Arc<crate::module_bindings::ModuleStaticBindingIndex>>,
     ) {
-        for (_id, import_binding) in &semantic_module.imports.bindings {
+        for import_binding in semantic_module.imports.bindings.values() {
             let phalcom_modules::linker::SymbolicImportTarget::Binding(ref symbol) = import_binding.target else {
                 continue;
             };
