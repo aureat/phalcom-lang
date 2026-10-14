@@ -902,13 +902,15 @@ impl ModuleLinker {
                         target_module: target_module.clone(),
                     });
                 }
-                if !canonical_runtime_reads.contains_key(&(requirement.importer.clone(), target.clone())) {
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    canonical_runtime_reads.entry((requirement.importer.clone(), target.clone()))
+                {
                     let linked = modules
                         .get_mut(&requirement.importer)
                         .expect("known runtime requirement importer has a linked module");
                     let slot = ImportBindingId(linked.linked_reads.len() as u32);
                     linked.linked_reads.push(target.clone());
-                    canonical_runtime_reads.insert((requirement.importer.clone(), target.clone()), slot);
+                    entry.insert(slot);
                 }
             }
             if requirement.provenance.consumer != requirement.importer
