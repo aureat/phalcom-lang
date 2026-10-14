@@ -178,7 +178,7 @@ impl<T> Chain<T> {
 
   /// Returns a shared suffix. Nonpositive counts return self.
   drop(_ count: Int) -> Chain<T> {
-    let mut remaining = self
+    let mut remaining: Chain<T> = self
     let mut left = count
     while left > 0 {
       match remaining {
