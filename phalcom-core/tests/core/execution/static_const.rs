@@ -54,7 +54,11 @@ let a2 = A
     let array = module.static_constants[&array_name].as_obj().expect("Array constant object");
     assert!(matches!(vm.heap.get(vector), Object::Vector(_)));
     assert!(matches!(vm.heap.get(array), Object::Array(value) if value.is_frozen()));
-    assert_eq!(Value::obj(array).class(&vm), vm.universe.classes.array_class, "freezing preserves the Array runtime classifier");
+    assert_eq!(
+        Value::obj(array).class(&vm),
+        vm.universe.classes.array_class,
+        "freezing preserves the Array runtime classifier"
+    );
 
     let global = |name: &str| get_module_global(&vm, mod_obj, name).as_obj().expect("sequence read object");
     assert_eq!(global("v1"), vector, "same-module Vector read uses canonical owner value");
@@ -62,11 +66,21 @@ let a2 = A
     assert_eq!(global("a1"), array, "same-module Array read uses canonical owner value");
     assert_eq!(global("a2"), array, "repeated Array read does not allocate a copy");
 
-    let Object::Vector(vector_value) = vm.heap.get(vector) else { panic!("Vector object") };
-    assert_eq!(vector_value.elements().iter().map(|value| value.as_int().unwrap()).collect::<Vec<_>>(), [1, 2, 3]);
-    let Object::Array(array_value) = vm.heap.get(array) else { panic!("Array object") };
+    let Object::Vector(vector_value) = vm.heap.get(vector) else {
+        panic!("Vector object")
+    };
+    assert_eq!(
+        vector_value.elements().iter().map(|value| value.as_int().unwrap()).collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
+    let Object::Array(array_value) = vm.heap.get(array) else {
+        panic!("Array object")
+    };
     assert!(array_value.is_frozen());
-    assert_eq!(array_value.elements().iter().map(|value| value.as_int().unwrap()).collect::<Vec<_>>(), [4, 5, 6]);
+    assert_eq!(
+        array_value.elements().iter().map(|value| value.as_int().unwrap()).collect::<Vec<_>>(),
+        [4, 5, 6]
+    );
     assert!(!module.name_to_slot.contains_key(&vector_name), "static Vector has no ordinary global slot");
     assert!(!module.name_to_slot.contains_key(&array_name), "static Array has no ordinary global slot");
 
@@ -95,7 +109,10 @@ fn static_const_array_alias_stays_frozen_at_runtime() {
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("const Array alias compiles");
     let mut vm = VM::new();
     let error = vm.run_compiled(&program).expect_err("alias mutation must reach the frozen Array guard");
-    assert!(error.to_string().contains("cannot mutate frozen Array"), "expected FrozenMutation, got: {error}");
+    assert!(
+        error.to_string().contains("cannot mutate frozen Array"),
+        "expected FrozenMutation, got: {error}"
+    );
 }
 
 #[test]
@@ -112,7 +129,10 @@ inner_alias[0] = 9
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("nested static Arrays compile");
     let mut vm = VM::new();
     let error = vm.run_compiled(&program).expect_err("recursively materialized nested Array must be frozen");
-    assert!(error.to_string().contains("cannot mutate frozen Array"), "expected FrozenMutation, got: {error}");
+    assert!(
+        error.to_string().contains("cannot mutate frozen Array"),
+        "expected FrozenMutation, got: {error}"
+    );
 
     let entry = program.initialization_order.last().expect("entry module");
     let module = vm.module_registry.get(entry).expect("entry module materialized").object;
@@ -123,8 +143,14 @@ inner_alias[0] = 9
     assert!(matches!(vm.heap.get(inner_object), Object::Array(array) if array.is_frozen()));
 
     vm.force_gc();
-    assert!(matches!(vm.heap.get(outer_object), Object::Array(array) if array.is_frozen()), "owner cache roots outer Array");
-    assert!(matches!(vm.heap.get(inner_object), Object::Array(array) if array.is_frozen()), "nested graph survives collection");
+    assert!(
+        matches!(vm.heap.get(outer_object), Object::Array(array) if array.is_frozen()),
+        "owner cache roots outer Array"
+    );
+    assert!(
+        matches!(vm.heap.get(inner_object), Object::Array(array) if array.is_frozen()),
+        "nested graph survives collection"
+    );
 }
 
 #[test]
@@ -133,7 +159,10 @@ fn static_const_vector_still_has_no_element_mutation_api() {
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("Vector assignment remains a dynamic selector");
     let mut vm = VM::new();
     let error = vm.run_compiled(&program).expect_err("Vector has no subscript setter or element mutator");
-    assert!(error.to_string().contains("does not understand"), "expected missing Vector mutation selector, got: {error}");
+    assert!(
+        error.to_string().contains("does not understand"),
+        "expected missing Vector mutation selector, got: {error}"
+    );
 }
 
 #[test]

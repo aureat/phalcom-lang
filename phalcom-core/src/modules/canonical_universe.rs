@@ -274,10 +274,7 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     // Module discovery owns the source initializer closure, while the
     // finalized runtime DAG owns dependency-first execution constraints.
     // Preserve the old authored order wherever runtime dependencies permit.
-    let bootstrap_order = align_bootstrap_order_with_runtime_dependencies(
-        &program.linked.as_program().graphs.runtime,
-        &authored_bootstrap_order,
-    )?;
+    let bootstrap_order = align_bootstrap_order_with_runtime_dependencies(&program.linked.as_program().graphs.runtime, &authored_bootstrap_order)?;
 
     validate_canonical_product(&source_index, &program, &root_reachable, &bootstrap_order)?;
 
@@ -579,10 +576,7 @@ fn align_bootstrap_order_with_runtime_dependencies(
 /// Validate actual runtime edges against the VM's source-execution schedule.
 /// Linker acyclicity alone does not prove that the source-index order honors
 /// a generated, unsatisfied runtime requirement.
-fn validate_bootstrap_runtime_order(
-    graph: &phalcom_modules::RuntimeDependencyGraph,
-    bootstrap_order: &[ModuleId],
-) -> Result<(), CanonicalUniverseBuildError> {
+fn validate_bootstrap_runtime_order(graph: &phalcom_modules::RuntimeDependencyGraph, bootstrap_order: &[ModuleId]) -> Result<(), CanonicalUniverseBuildError> {
     let positions = bootstrap_order
         .iter()
         .enumerate()
@@ -631,13 +625,10 @@ mod tests {
             provenance: None,
         });
 
-        let aligned = super::align_bootstrap_order_with_runtime_dependencies(
-            &graph,
-            &[independent.clone(), importer.clone(), dependency.clone()],
-        ).expect("acyclic finalized dependencies can be honored by reordering");
+        let aligned = super::align_bootstrap_order_with_runtime_dependencies(&graph, &[independent.clone(), importer.clone(), dependency.clone()])
+            .expect("acyclic finalized dependencies can be honored by reordering");
         assert_eq!(aligned, [independent, dependency, importer]);
-        super::validate_bootstrap_runtime_order(&graph, &aligned)
-            .expect("reconciled schedule honors finalized dependencies");
+        super::validate_bootstrap_runtime_order(&graph, &aligned).expect("reconciled schedule honors finalized dependencies");
     }
 
     #[test]
@@ -663,8 +654,7 @@ mod tests {
                 importer: actual_importer, dependency: actual_dependency
             }) if actual_importer == importer && actual_dependency == dependency
         ));
-        super::validate_bootstrap_runtime_order(&graph, &[dependency, importer])
-            .expect("dependency-first order must pass");
+        super::validate_bootstrap_runtime_order(&graph, &[dependency, importer]).expect("dependency-first order must pass");
     }
 
     #[test]
@@ -684,8 +674,7 @@ mod tests {
             provenance: None,
         });
 
-        super::validate_bootstrap_runtime_order(&graph, &[importer])
-            .expect("nonexecuted target is not part of this source execution schedule");
+        super::validate_bootstrap_runtime_order(&graph, &[importer]).expect("nonexecuted target is not part of this source execution schedule");
     }
 
     #[test]
@@ -736,24 +725,22 @@ mod tests {
     fn unexecuted_universe_modules_cannot_publish_source_initialized_value_proofs() {
         let canonical = canonical_universe_program().expect("canonical Universe compiler product");
 
-        let empty_schedule = super::fully_initialized_universe_availability(
-            &canonical.native_floor_availability,
-            canonical.program(),
-            &[],
-        );
+        let empty_schedule = super::fully_initialized_universe_availability(&canonical.native_floor_availability, canonical.program(), &[]);
         assert!(
             !empty_schedule.proofs().any(|proof| {
-                proof.authority == AvailabilityAuthority::FullyInitializedUniverse
-                    && proof.product == RuntimeRequirementProduct::SourceInitializedValue
+                proof.authority == AvailabilityAuthority::FullyInitializedUniverse && proof.product == RuntimeRequirementProduct::SourceInitializedValue
             }),
             "linking a module must not assert that its source initializer executed"
         );
 
         let executed = canonical.bootstrap_order().iter().cloned().collect::<std::collections::BTreeSet<_>>();
-        let source_values = canonical.availability_after_bootstrap().proofs().filter(|proof| {
-            proof.authority == AvailabilityAuthority::FullyInitializedUniverse
-                && proof.product == RuntimeRequirementProduct::SourceInitializedValue
-        }).collect::<Vec<_>>();
+        let source_values = canonical
+            .availability_after_bootstrap()
+            .proofs()
+            .filter(|proof| {
+                proof.authority == AvailabilityAuthority::FullyInitializedUniverse && proof.product == RuntimeRequirementProduct::SourceInitializedValue
+            })
+            .collect::<Vec<_>>();
         assert!(!source_values.is_empty(), "executed canonical modules publish source values");
         for proof in source_values {
             assert!(

@@ -720,8 +720,7 @@ fn adt_decl_04_gadt_result_templates_publish_case_environments() {
 
 #[test]
 fn adt_decl_05_same_base_distinct_selector_declarations_do_not_collapse() {
-    let case =
-        super::support::analyze_adt("data Animal {\n  Dog\n  Dog()\n  Dog(_ name: String)\n  Dog(named age: Int)\n}\n");
+    let case = super::support::analyze_adt("data Animal {\n  Dog\n  Dog()\n  Dog(_ name: String)\n  Dog(named age: Int)\n}\n");
     let info = case.enum_info("Animal");
     assert_eq!(info.variants.len(), 4);
     let selectors = info.variants.iter().map(|variant| variant.selector.encode()).collect::<Vec<_>>();

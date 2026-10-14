@@ -505,10 +505,7 @@ fn try_resolve_contextual_singleton(
     // A union scrutinee has no single nominal origin. Keep each member's
     // declaration-backed type while looking up its variant; never construct an
     // owner from the contextual leaf spelling.
-    let owners = super::contextual_variant::expected_owners(
-        ctx,
-        &super::expected::ExpectedType::proper(subject.canonical),
-    );
+    let owners = super::contextual_variant::expected_owners(ctx, &super::expected::ExpectedType::proper(subject.canonical));
     let (discovered, _) = super::contextual_variant::discover(ctx, &owners, |info| {
         info.id.selector == target_selector && info.shape == VariantShape::Singleton
     });
@@ -761,17 +758,9 @@ fn resolve_variant_pattern(
         }
         decl
     } else if let Some(decl) = {
-        let owners = super::contextual_variant::expected_owners(
-            ctx,
-            &super::expected::ExpectedType::proper(subject.canonical),
-        );
-        let (discovered, _) = super::contextual_variant::discover(ctx, &owners, |info| {
-            matches_variant_info(info, &variant_pat.base, &constraint, variant_pat)
-        });
-        let candidates = discovered
-            .into_iter()
-            .map(|candidate| candidate.owner.owner)
-            .collect::<BTreeSet<_>>();
+        let owners = super::contextual_variant::expected_owners(ctx, &super::expected::ExpectedType::proper(subject.canonical));
+        let (discovered, _) = super::contextual_variant::discover(ctx, &owners, |info| matches_variant_info(info, &variant_pat.base, &constraint, variant_pat));
+        let candidates = discovered.into_iter().map(|candidate| candidate.owner.owner).collect::<BTreeSet<_>>();
         if candidates.len() > 1 {
             ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
                 ctx.current_module.clone(),

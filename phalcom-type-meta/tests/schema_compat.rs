@@ -1479,9 +1479,7 @@ fn pack_metadata_roundtrip() {
 
 #[test]
 fn schema_v13_field_keys_and_static_values_roundtrip_and_validate() {
-    use phalcom_type_meta::static_value::{
-        compute_static_value_fingerprint, StaticValueNode, StaticValueNodeEntry,
-    };
+    use phalcom_type_meta::static_value::{StaticValueNode, StaticValueNodeEntry, compute_static_value_fingerprint};
 
     let limits = ValidationLimits::default();
     let mut bundle = sample_bundle(13, true);
@@ -1552,7 +1550,9 @@ fn schema_v13_field_keys_and_static_values_roundtrip_and_validate() {
 
     // Negative test: invalid unsorted keys
     let mut unsorted = bundle.clone();
-    let TypeNode::Record(ref mut fields) = unsorted.types[1].form else { unreachable!() };
+    let TypeNode::Record(ref mut fields) = unsorted.types[1].form else {
+        unreachable!()
+    };
     fields.swap(0, 1); // str before sym violates Symbol < String order
     assert!(matches!(
         validate_metadata_bundle(&unsorted, &limits),
@@ -1561,7 +1561,9 @@ fn schema_v13_field_keys_and_static_values_roundtrip_and_validate() {
 
     // Negative test: duplicate keys
     let mut duplicate = bundle.clone();
-    let TypeNode::Record(ref mut fields) = duplicate.types[1].form else { unreachable!() };
+    let TypeNode::Record(ref mut fields) = duplicate.types[1].form else {
+        unreachable!()
+    };
     fields[1].key = sym_key; // two sym_key fields
     assert!(matches!(
         validate_metadata_bundle(&duplicate, &limits),
@@ -1637,7 +1639,9 @@ fn schema_v12_legacy_record_field_names_decode_as_symbol_keys() {
     });
 
     let decoded = decode_metadata_json(&legacy_json.to_string(), &limits).expect("v12 legacy JSON should decode");
-    let TypeNode::Record(ref fields) = decoded.types[1].form else { unreachable!() };
+    let TypeNode::Record(ref fields) = decoded.types[1].form else {
+        unreachable!()
+    };
     assert_eq!(fields[0].key, FieldKeyRef::Symbol("legacy_field".into()));
     assert_eq!(fields[0].ty, TypeNodeId(0));
     assert!(decoded.static_values.is_empty(), "older bundle should default static_values empty");
@@ -1646,9 +1650,7 @@ fn schema_v12_legacy_record_field_names_decode_as_symbol_keys() {
 
 #[test]
 fn test_static_value_validation_attacks() {
-    use phalcom_type_meta::static_value::{
-        compute_static_value_fingerprint, StaticValueNode, StaticValueNodeEntry, StaticValueNodeId,
-    };
+    use phalcom_type_meta::static_value::{StaticValueNode, StaticValueNodeEntry, StaticValueNodeId, compute_static_value_fingerprint};
 
     let limits = ValidationLimits {
         max_static_values: 3,
@@ -1662,7 +1664,10 @@ fn test_static_value_validation_attacks() {
     // 1. Child out of range (node 0 references node 99)
     let bad_child = StaticValueNode::Tuple(Box::new([StaticValueNodeId(99)]));
     let fp = compute_static_value_fingerprint(&bad_child, |_| Fingerprint128::ZERO, |_| Fingerprint128::ZERO);
-    bundle.static_values = Box::new([StaticValueNodeEntry { node: bad_child, structural_fingerprint: fp }]);
+    bundle.static_values = Box::new([StaticValueNodeEntry {
+        node: bad_child,
+        structural_fingerprint: fp,
+    }]);
     assert!(matches!(
         validate_metadata_bundle(&bundle, &limits),
         Err(MetadataValidationError::TopologicalOrderViolation { index: 0, target: 99 })
@@ -1672,10 +1677,22 @@ fn test_static_value_validation_attacks() {
     let unit_node = StaticValueNode::Unit;
     let unit_fp = compute_static_value_fingerprint(&unit_node, |_| Fingerprint128::ZERO, |_| Fingerprint128::ZERO);
     bundle.static_values = Box::new([
-        StaticValueNodeEntry { node: unit_node.clone(), structural_fingerprint: unit_fp },
-        StaticValueNodeEntry { node: unit_node.clone(), structural_fingerprint: unit_fp },
-        StaticValueNodeEntry { node: unit_node.clone(), structural_fingerprint: unit_fp },
-        StaticValueNodeEntry { node: unit_node.clone(), structural_fingerprint: unit_fp },
+        StaticValueNodeEntry {
+            node: unit_node.clone(),
+            structural_fingerprint: unit_fp,
+        },
+        StaticValueNodeEntry {
+            node: unit_node.clone(),
+            structural_fingerprint: unit_fp,
+        },
+        StaticValueNodeEntry {
+            node: unit_node.clone(),
+            structural_fingerprint: unit_fp,
+        },
+        StaticValueNodeEntry {
+            node: unit_node.clone(),
+            structural_fingerprint: unit_fp,
+        },
     ]);
     assert!(matches!(
         validate_metadata_bundle(&bundle, &limits),
@@ -1683,25 +1700,27 @@ fn test_static_value_validation_attacks() {
     ));
 
     // 3. Static constant value index out of range
-    bundle.static_values = Box::new([
-        StaticValueNodeEntry { node: unit_node, structural_fingerprint: unit_fp },
-    ]);
+    bundle.static_values = Box::new([StaticValueNodeEntry {
+        node: unit_node,
+        structural_fingerprint: unit_fp,
+    }]);
     let const_id = phalcom_type_meta::identity::StableStaticConstantRef {
         module: StableModuleRef {
-            project: StableProjectRef::Builtin { namespace: "universe".into(), version: "0.1.0".into() },
+            project: StableProjectRef::Builtin {
+                namespace: "universe".into(),
+                version: "0.1.0".into(),
+            },
             path: Box::new([]),
         },
         name: "C".into(),
     };
-    bundle.static_constants = Box::new([
-        phalcom_type_meta::static_value::StaticConstantRecord {
-            id: const_id.clone(),
-            domain: phalcom_type_meta::static_value::StaticValueDomainRef::Kind(KindNodeId(0)),
-            value: StaticValueNodeId(50), // out of range!
-            value_fingerprint: unit_fp,
-            dependency_fingerprint: Fingerprint128::ZERO,
-        },
-    ]);
+    bundle.static_constants = Box::new([phalcom_type_meta::static_value::StaticConstantRecord {
+        id: const_id.clone(),
+        domain: phalcom_type_meta::static_value::StaticValueDomainRef::Kind(KindNodeId(0)),
+        value: StaticValueNodeId(50), // out of range!
+        value_fingerprint: unit_fp,
+        dependency_fingerprint: Fingerprint128::ZERO,
+    }]);
     assert!(matches!(
         validate_metadata_bundle(&bundle, &ValidationLimits::default()),
         Err(MetadataValidationError::Malformed(msg)) if msg.contains("out of bounds")

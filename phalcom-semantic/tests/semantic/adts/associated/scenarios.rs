@@ -109,8 +109,7 @@ fn adt_assoc_08_positional_rest_routes_matching_candidate_shapes() {
 
 #[test]
 fn adt_assoc_09_labeled_rest_routes_matching_candidate_shapes() {
-    let case =
-        analyze_adt("data Animal { Dog(named age: Int) Dog(named age: Int, breed: String) }\nclass Test { run() { &Animal::Dog... } }\n");
+    let case = analyze_adt("data Animal { Dog(named age: Int) Dog(named age: Int, breed: String) }\nclass Test { run() { &Animal::Dog... } }\n");
     let AssociatedResolutionKind::Family { members, .. } = &resolution(&case, "&Animal::Dog...").kind else {
         panic!("expected labeled-rest family surface");
     };
@@ -119,8 +118,7 @@ fn adt_assoc_09_labeled_rest_routes_matching_candidate_shapes() {
 
 #[test]
 fn adt_assoc_10_generic_family_metadata_keeps_owner_specialization() {
-    let case =
-        analyze_adt("data Option<T> { Some(_ value: T) -> Option<T> None -> Option<T> }\nclass Test { run() { &Option<Int>::Some... } }\n");
+    let case = analyze_adt("data Option<T> { Some(_ value: T) -> Option<T> None -> Option<T> }\nclass Test { run() { &Option<Int>::Some... } }\n");
     let family = case.associated_family("Option", "Some");
     assert!(!family.members.is_empty());
 }

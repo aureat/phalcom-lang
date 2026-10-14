@@ -90,15 +90,8 @@ impl LinkedTypeResolver {
 
     /// Constructs a resolver backed by a symbolic semantic link product without
     /// requiring executable runtime slots or initialization order.
-    pub fn from_semantic(
-        semantic_linked: Arc<SemanticLinkedProgram>,
-        known_declarations: HashSet<DeclarationId>,
-    ) -> Self {
-        Self::from_semantic_with_prelude(
-            semantic_linked,
-            known_declarations,
-            PreludeTypeMap::shared_canonical_universe(),
-        )
+    pub fn from_semantic(semantic_linked: Arc<SemanticLinkedProgram>, known_declarations: HashSet<DeclarationId>) -> Self {
+        Self::from_semantic_with_prelude(semantic_linked, known_declarations, PreludeTypeMap::shared_canonical_universe())
     }
 
     /// Constructs a resolver backed by a symbolic semantic link product with an

@@ -139,10 +139,7 @@ pub enum MemberProjectionApplicationError {
     #[error("arity mismatch: expected {expected}, got {actual}")]
     ArityMismatch { expected: usize, actual: usize },
     #[error("domain mismatch at parameter {index}: expected {expected:?}")]
-    DomainMismatch {
-        index: usize,
-        expected: StaticValueDomain,
-    },
+    DomainMismatch { index: usize, expected: StaticValueDomain },
     #[error("static value store error: {0}")]
     ValueStore(StaticValueStoreError),
 }
@@ -234,9 +231,7 @@ pub fn validate_member_projection_arguments(
                             });
                         }
                     } else {
-                        let actual_domain = values
-                            .domain_of(*val_ref, types)
-                            .map_err(MemberProjectionApplicationError::ValueStore)?;
+                        let actual_domain = values.domain_of(*val_ref, types).map_err(MemberProjectionApplicationError::ValueStore)?;
                         if actual_domain != expected_domain {
                             return Err(MemberProjectionApplicationError::DomainMismatch {
                                 index,
@@ -246,9 +241,7 @@ pub fn validate_member_projection_arguments(
                     }
                 }
                 crate::types::type_member::TypeMemberDomain::Kind(expected_kind) => {
-                    let actual_domain = values
-                        .domain_of(*val_ref, types)
-                        .map_err(MemberProjectionApplicationError::ValueStore)?;
+                    let actual_domain = values.domain_of(*val_ref, types).map_err(MemberProjectionApplicationError::ValueStore)?;
                     if actual_domain != StaticValueDomain::Kind(expected_kind) {
                         return Err(MemberProjectionApplicationError::DomainMismatch {
                             index,

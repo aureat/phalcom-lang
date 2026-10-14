@@ -3093,12 +3093,7 @@ pub fn static_constant_product_fingerprint(
         }
         crate::static_eval::StaticEvalOutcome::Symbolic(residual_ref) => {
             2u8.hash(&mut hasher);
-            let mut semantic = crate::db::static_fingerprint::StaticSemanticFingerprinter::new(
-                types,
-                store,
-                product.residuals.as_deref(),
-                projects,
-            );
+            let mut semantic = crate::db::static_fingerprint::StaticSemanticFingerprinter::new(types, store, product.residuals.as_deref(), projects);
             semantic.constant_owner(&product.id)?.hash(&mut hasher);
             semantic.residual(*residual_ref)?.hash(&mut hasher);
         }

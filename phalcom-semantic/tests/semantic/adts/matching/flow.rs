@@ -34,17 +34,13 @@ class Test {
 
 #[test]
 fn match_flow_01_homogeneous_arms_join_to_one_type() {
-    let case = analyze_adt(
-        "data Choice { Left Right }\nclass Test { run(_ value: Choice) { match value { Choice::Left => 1 Choice::Right => 2 } } }\n",
-    );
+    let case = analyze_adt("data Choice { Left Right }\nclass Test { run(_ value: Choice) { match value { Choice::Left => 1 Choice::Right => 2 } } }\n");
     assert_eq!(case.only_match().resolution().result.ty(), Some(case.declaration("Int").form));
 }
 
 #[test]
 fn match_flow_02_heterogeneous_arms_publish_canonical_union() {
-    let case = analyze_adt(
-        "data Choice { Left Right }\nclass Test { run(_ value: Choice) { match value { Choice::Left => 1 Choice::Right => \"two\" } } }\n",
-    );
+    let case = analyze_adt("data Choice { Left Right }\nclass Test { run(_ value: Choice) { match value { Choice::Left => 1 Choice::Right => \"two\" } } }\n");
     let result = case.only_match().resolution().result.ty().expect("match result type");
     assert!(matches!(case.type_data(result), phalcom_semantic::types::store::TypeData::Union(_)));
 }
@@ -64,8 +60,7 @@ fn match_flow_07_variant_arm_publishes_stable_binding_refinement() {
 
 #[test]
 fn match_flow_08_family_arm_keeps_candidate_space_in_match_product() {
-    let case =
-        analyze_adt("data Animal { Dog Dog() Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Cat => 2 } } }\n");
+    let case = analyze_adt("data Animal { Dog Dog() Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Cat => 2 } } }\n");
     let handle = case.only_match();
     assert!(!matches!(
         handle.arm(0).resolution().reachable_space,
@@ -89,9 +84,7 @@ fn match_flow_09_bindings_are_arm_local() {
 
 #[test]
 fn match_flow_11_later_arm_residual_excludes_earlier_case() {
-    let case = analyze_adt(
-        "data Choice { Left Right }\nclass Test { run(_ value: Choice) { match value { Choice::Left => 1 Choice::Right => 2 } } }\n",
-    );
+    let case = analyze_adt("data Choice { Left Right }\nclass Test { run(_ value: Choice) { match value { Choice::Left => 1 Choice::Right => 2 } } }\n");
     let handle = case.only_match();
     assert!(handle.arm(1).resolution().reachable_space != handle.arm(0).resolution().reachable_space);
 }
@@ -123,9 +116,8 @@ fn r2_t03_nested_reachable_summary_uses_payload_subject() {
 #[test]
 #[ignore = "GATED: abrupt branch fixture is required"]
 fn match_flow_03_abrupt_arm_is_excluded_from_normal_result_join() {
-    let case = analyze_adt(
-        "data Choice { Left Right }\nclass Test { run(_ value: Choice) -> Int { match value { Choice::Left => return 1 Choice::Right => 2 } } }\n",
-    );
+    let case =
+        analyze_adt("data Choice { Left Right }\nclass Test { run(_ value: Choice) -> Int { match value { Choice::Left => return 1 Choice::Right => 2 } } }\n");
     assert_eq!(case.only_match().resolution().result.ty(), Some(case.declaration("Int").form));
 }
 
@@ -140,9 +132,7 @@ fn match_flow_04_all_abrupt_arms_have_never_result() {
 
 #[test]
 fn match_flow_05_expected_type_is_checked_per_reachable_arm() {
-    let case = analyze_adt(
-        "data Choice { Left Right }\nclass Test { run(_ value: Choice) -> Int { match value { Choice::Left => 1 Choice::Right => 2 } } }\n",
-    );
+    let case = analyze_adt("data Choice { Left Right }\nclass Test { run(_ value: Choice) -> Int { match value { Choice::Left => 1 Choice::Right => 2 } } }\n");
     assert_eq!(case.only_match().resolution().result.ty(), Some(case.declaration("Int").form));
 }
 

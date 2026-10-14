@@ -3,14 +3,10 @@ use crate::field_key::FieldKey;
 use crate::identity::{DataComponentId, DataConstructorId, DeclarationId, VariantFieldId, VariantId};
 use crate::member_projection::{MemberProjection, MemberProjectionArgument, MemberProjectionSubject, StaticMemberProjectionOutcome};
 use crate::static_domain::StaticValueDomain;
-use crate::static_eval::application::{
-    StaticSpecializationArgument, StaticSpecializationEnvironmentError, StaticSpecializationEnvironmentKey,
-};
+use crate::static_eval::application::{StaticSpecializationArgument, StaticSpecializationEnvironmentError, StaticSpecializationEnvironmentKey};
 use crate::static_eval::error::StaticEvalError;
 use crate::static_eval::machine::{StaticArgument, StaticEvaluator, Stop};
-use crate::static_eval::residual::{
-    StaticEvalTerm, StaticResidualApplication, StaticResidualData, StaticResidualParameter, StaticResidualRef,
-};
+use crate::static_eval::residual::{StaticEvalTerm, StaticResidualApplication, StaticResidualData, StaticResidualParameter, StaticResidualRef};
 use crate::traits::TraitRef;
 use crate::types::id::TypeId;
 use crate::types::parameter::TypeTerm;
@@ -63,48 +59,46 @@ pub(crate) fn specialize_residual_term(
 
     let previous_context = evaluator.replace_trusted_branch_context(trusted_context.clone());
     let result = match residual_data {
-        StaticResidualData::Parameter { parameter } => {
-            specialize_parameter(evaluator, residual, &parameter, supplied)
-        }
-        StaticResidualData::Apply { application, result_domain } => {
-            specialize_apply(evaluator, residual, &application, result_domain, supplied)
-        }
-        StaticResidualData::Proof { goal, result_type, environment } => {
-            specialize_proof(evaluator, residual, &goal, result_type, &environment, supplied)
-        }
-        StaticResidualData::MemberProjection { projection, result_domain, environment } => {
-            specialize_member_projection(evaluator, residual, &projection, result_domain, &environment, supplied)
-        }
-        StaticResidualData::Pack { positionals, labels, labeled_values, result_type } => {
-            specialize_pack(evaluator, residual, &positionals, &labels, &labeled_values, result_type, supplied)
-        }
-        StaticResidualData::Tuple { elements, result_type } => {
-            specialize_tuple(evaluator, residual, &elements, result_type, supplied)
-        }
-        StaticResidualData::Record { fields, result_type } => {
-            specialize_record(evaluator, residual, &fields, result_type, supplied)
-        }
-        StaticResidualData::Data { owner, constructor, result_type, components } => {
-            specialize_data(evaluator, residual, &owner, &constructor, result_type, &components, supplied)
-        }
-        StaticResidualData::Variant { variant, result_type, fields } => {
-            specialize_variant(evaluator, residual, &variant, result_type, &fields, supplied)
-        }
+        StaticResidualData::Parameter { parameter } => specialize_parameter(evaluator, residual, &parameter, supplied),
+        StaticResidualData::Apply { application, result_domain } => specialize_apply(evaluator, residual, &application, result_domain, supplied),
+        StaticResidualData::Proof {
+            goal,
+            result_type,
+            environment,
+        } => specialize_proof(evaluator, residual, &goal, result_type, &environment, supplied),
+        StaticResidualData::MemberProjection {
+            projection,
+            result_domain,
+            environment,
+        } => specialize_member_projection(evaluator, residual, &projection, result_domain, &environment, supplied),
+        StaticResidualData::Pack {
+            positionals,
+            labels,
+            labeled_values,
+            result_type,
+        } => specialize_pack(evaluator, residual, &positionals, &labels, &labeled_values, result_type, supplied),
+        StaticResidualData::Tuple { elements, result_type } => specialize_tuple(evaluator, residual, &elements, result_type, supplied),
+        StaticResidualData::Record { fields, result_type } => specialize_record(evaluator, residual, &fields, result_type, supplied),
+        StaticResidualData::Data {
+            owner,
+            constructor,
+            result_type,
+            components,
+        } => specialize_data(evaluator, residual, &owner, &constructor, result_type, &components, supplied),
+        StaticResidualData::Variant { variant, result_type, fields } => specialize_variant(evaluator, residual, &variant, result_type, &fields, supplied),
         _ => Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
     };
     let result = match result {
-        Ok(StaticEvalTerm::Residual(reference)) if reference == residual && evaluator.trusted_branch_context() != &trusted_context => {
-            evaluator
-                .reintern_residual_with_trusted_context(
-                    evaluator
-                        .residuals()
-                        .and_then(|store| store.get(residual).ok())
-                        .cloned()
-                        .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?,
-                    evaluator.trusted_branch_context().clone(),
-                )
-                .map(StaticEvalTerm::Residual)
-        }
+        Ok(StaticEvalTerm::Residual(reference)) if reference == residual && evaluator.trusted_branch_context() != &trusted_context => evaluator
+            .reintern_residual_with_trusted_context(
+                evaluator
+                    .residuals()
+                    .and_then(|store| store.get(residual).ok())
+                    .cloned()
+                    .ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?,
+                evaluator.trusted_branch_context().clone(),
+            )
+            .map(StaticEvalTerm::Residual),
         other => other,
     };
     evaluator.replace_trusted_branch_context(previous_context);
@@ -232,10 +226,7 @@ fn specialize_proof(
     environment: &StaticSpecializationEnvironmentKey,
     supplied: &StaticSpecializationEnvironmentKey,
 ) -> Result<StaticEvalTerm, Stop> {
-    if supplied.is_empty()
-        && evaluator.inherited_specialization_environment().is_empty()
-        && goal_has_open_terms(goal, evaluator)?
-    {
+    if supplied.is_empty() && evaluator.inherited_specialization_environment().is_empty() && goal_has_open_terms(goal, evaluator)? {
         return Ok(StaticEvalTerm::Residual(original));
     }
     // 1. Compose captured environment with supplied specialization
@@ -243,10 +234,8 @@ fn specialize_proof(
 
     // 2. Substitute goal propositions using substitution closure
     let (specialized_goal, changed) = evaluator.substitute_proof_goal(goal, &composed_env)?;
-    let (specialized_result_domain, result_type_changed) = evaluator.substitute_specialization_domain(
-        StaticValueDomain::ValueType(result_type),
-        &composed_env,
-    )?;
+    let (specialized_result_domain, result_type_changed) =
+        evaluator.substitute_specialization_domain(StaticValueDomain::ValueType(result_type), &composed_env)?;
     let StaticValueDomain::ValueType(specialized_result_type) = specialized_result_domain else {
         unreachable!();
     };
@@ -275,10 +264,7 @@ fn specialize_proof(
             let result = StaticEvalTerm::Value(evaluator.intern_bool(false));
             evaluator.validate_specialized_result(result, StaticValueDomain::ValueType(specialized_result_type))
         }
-        Err(Stop::Symbolic(r)) => evaluator.validate_specialized_result(
-            StaticEvalTerm::Residual(r),
-            StaticValueDomain::ValueType(specialized_result_type),
-        ),
+        Err(Stop::Symbolic(r)) => evaluator.validate_specialized_result(StaticEvalTerm::Residual(r), StaticValueDomain::ValueType(specialized_result_type)),
         Err(stop) => Err(stop),
     }
 }
@@ -323,12 +309,8 @@ fn specialize_member_projection(
     // 4. Closed: evaluate using existing StructuralReflectionProjector
     let outcome = evaluator.project_member_with_environment(&specialized_projection, composed_env.clone())?;
     match outcome {
-        StaticMemberProjectionOutcome::ReducedValue(val) => {
-            evaluator.validate_specialized_result(StaticEvalTerm::Value(val), result_domain)
-        }
-        StaticMemberProjectionOutcome::ReducedKinded(ty) => {
-            evaluator.validate_specialized_result(StaticEvalTerm::Kinded(ty), result_domain)
-        }
+        StaticMemberProjectionOutcome::ReducedValue(val) => evaluator.validate_specialized_result(StaticEvalTerm::Value(val), result_domain),
+        StaticMemberProjectionOutcome::ReducedKinded(ty) => evaluator.validate_specialized_result(StaticEvalTerm::Kinded(ty), result_domain),
         StaticMemberProjectionOutcome::Stuck(stuck_proj) => {
             if stuck_proj.member != specialized_projection.member
                 || stuck_proj.arguments != specialized_projection.arguments
@@ -396,19 +378,29 @@ fn specialize_pack(
             return Ok(StaticEvalTerm::Residual(original));
         }
         let residual = evaluator.intern_structural_residual_node(StaticResidualData::Pack {
-            positionals: positionals.into_boxed_slice(), labels: labels.into(),
-            labeled_values: labeled_values.into_boxed_slice(), result_type,
+            positionals: positionals.into_boxed_slice(),
+            labels: labels.into(),
+            labeled_values: labeled_values.into_boxed_slice(),
+            result_type,
         })?;
         return Ok(StaticEvalTerm::Residual(residual));
     }
-    let positionals = positionals.into_iter().map(|term| match term {
-        StaticEvalTerm::Value(value) => Ok(value),
-        _ => Err(Stop::invalid(StaticEvalError::InvalidResultDomain)),
-    }).collect::<Result<Vec<_>, Stop>>()?;
-    let labeled = labels.iter().cloned().zip(labeled_values).map(|(label, term)| match term {
-        StaticEvalTerm::Value(value) => Ok((label, value)),
-        _ => Err(Stop::invalid(StaticEvalError::InvalidResultDomain)),
-    }).collect::<Result<Vec<_>, Stop>>()?;
+    let positionals = positionals
+        .into_iter()
+        .map(|term| match term {
+            StaticEvalTerm::Value(value) => Ok(value),
+            _ => Err(Stop::invalid(StaticEvalError::InvalidResultDomain)),
+        })
+        .collect::<Result<Vec<_>, Stop>>()?;
+    let labeled = labels
+        .iter()
+        .cloned()
+        .zip(labeled_values)
+        .map(|(label, term)| match term {
+            StaticEvalTerm::Value(value) => Ok((label, value)),
+            _ => Err(Stop::invalid(StaticEvalError::InvalidResultDomain)),
+        })
+        .collect::<Result<Vec<_>, Stop>>()?;
     let value = evaluator.intern_pack_static_values(positionals, labeled)?;
     evaluator.validate_specialized_result(StaticEvalTerm::Value(value), domain)
 }
@@ -456,10 +448,13 @@ fn specialize_tuple(
         let residual = evaluator.intern_tuple_residual_node(specialized.into_boxed_slice(), result_type)?;
         return Ok(StaticEvalTerm::Residual(residual));
     }
-    let values = specialized.into_iter().map(|term| match term {
-        StaticEvalTerm::Value(value) => value,
-        _ => unreachable!("all tuple elements were reduced"),
-    }).collect();
+    let values = specialized
+        .into_iter()
+        .map(|term| match term {
+            StaticEvalTerm::Value(value) => value,
+            _ => unreachable!("all tuple elements were reduced"),
+        })
+        .collect();
     let value = evaluator.intern_tuple_static_values(values)?;
     evaluator.validate_specialized_result(StaticEvalTerm::Value(value), domain)
 }
@@ -508,10 +503,13 @@ fn specialize_record(
         let residual = evaluator.intern_record_residual_node(specialized, result_type)?;
         return Ok(StaticEvalTerm::Residual(residual));
     }
-    let values = specialized.into_iter().map(|(key, term)| match term {
-        StaticEvalTerm::Value(value) => (key, value),
-        _ => unreachable!("all Record fields were reduced"),
-    }).collect();
+    let values = specialized
+        .into_iter()
+        .map(|(key, term)| match term {
+            StaticEvalTerm::Value(value) => (key, value),
+            _ => unreachable!("all Record fields were reduced"),
+        })
+        .collect();
     let value = evaluator.intern_record_static_values(values)?;
     evaluator.validate_specialized_result(StaticEvalTerm::Value(value), domain)
 }
@@ -569,15 +567,20 @@ fn specialize_data(
             return Ok(StaticEvalTerm::Residual(original));
         }
         let residual = evaluator.intern_structural_residual_node(StaticResidualData::Data {
-            owner: owner.clone(), constructor: constructor.clone(), result_type,
+            owner: owner.clone(),
+            constructor: constructor.clone(),
+            result_type,
             components: components.into_boxed_slice(),
         })?;
         return Ok(StaticEvalTerm::Residual(residual));
     }
-    let values = components.into_iter().map(|(id, term)| match term {
-        StaticEvalTerm::Value(value) => Ok((id, value)),
-        _ => Err(Stop::invalid(StaticEvalError::InvalidResultDomain)),
-    }).collect::<Result<Vec<_>, Stop>>()?;
+    let values = components
+        .into_iter()
+        .map(|(id, term)| match term {
+            StaticEvalTerm::Value(value) => Ok((id, value)),
+            _ => Err(Stop::invalid(StaticEvalError::InvalidResultDomain)),
+        })
+        .collect::<Result<Vec<_>, Stop>>()?;
     let value = evaluator.intern_data_static_value(owner, constructor, result_type, values)?;
     evaluator.validate_specialized_result(StaticEvalTerm::Value(value), domain)
 }
@@ -602,14 +605,19 @@ fn specialize_variant(
             return Ok(StaticEvalTerm::Residual(original));
         }
         let residual = evaluator.intern_structural_residual_node(StaticResidualData::Variant {
-            variant: variant.clone(), result_type, fields: fields.into_boxed_slice(),
+            variant: variant.clone(),
+            result_type,
+            fields: fields.into_boxed_slice(),
         })?;
         return Ok(StaticEvalTerm::Residual(residual));
     }
-    let values = fields.into_iter().map(|(id, term)| match term {
-        StaticEvalTerm::Value(value) => Ok((id, value)),
-        _ => Err(Stop::invalid(StaticEvalError::InvalidResultDomain)),
-    }).collect::<Result<Vec<_>, Stop>>()?;
+    let values = fields
+        .into_iter()
+        .map(|(id, term)| match term {
+            StaticEvalTerm::Value(value) => Ok((id, value)),
+            _ => Err(Stop::invalid(StaticEvalError::InvalidResultDomain)),
+        })
+        .collect::<Result<Vec<_>, Stop>>()?;
     let value = evaluator.intern_variant_static_value(variant, result_type, values)?;
     evaluator.validate_specialized_result(StaticEvalTerm::Value(value), domain)
 }
@@ -621,27 +629,42 @@ pub(crate) fn substitute_proof_goal(
 ) -> Result<(ProofPredicateGoal, bool), StaticSpecializationEnvironmentError> {
     match goal {
         ProofPredicateGoal::Equivalent { left, right } => {
-            let sub_left = subst.try_apply(types, *left)
+            let sub_left = subst
+                .try_apply(types, *left)
                 .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
-            let sub_right = subst.try_apply(types, *right)
+            let sub_right = subst
+                .try_apply(types, *right)
                 .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
             let changed = sub_left != *left || sub_right != *right;
-            let (min, max) = if sub_left <= sub_right { (sub_left, sub_right) } else { (sub_right, sub_left) };
+            let (min, max) = if sub_left <= sub_right {
+                (sub_left, sub_right)
+            } else {
+                (sub_right, sub_left)
+            };
             Ok((ProofPredicateGoal::Equivalent { left: min, right: max }, changed))
         }
         ProofPredicateGoal::Subtype { lower, upper } => {
-            let sub_lower = subst.try_apply(types, *lower)
+            let sub_lower = subst
+                .try_apply(types, *lower)
                 .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
-            let sub_upper = subst.try_apply(types, *upper)
+            let sub_upper = subst
+                .try_apply(types, *upper)
                 .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
             let changed = sub_lower != *lower || sub_upper != *upper;
-            Ok((ProofPredicateGoal::Subtype { lower: sub_lower, upper: sub_upper }, changed))
+            Ok((
+                ProofPredicateGoal::Subtype {
+                    lower: sub_lower,
+                    upper: sub_upper,
+                },
+                changed,
+            ))
         }
         ProofPredicateGoal::Conforms { key } => {
             let mut changed = false;
             let sub_subject = match &key.subject {
                 TypeTerm::Canonical(ty) => {
-                    let sub_ty = subst.try_apply(types, *ty)
+                    let sub_ty = subst
+                        .try_apply(types, *ty)
                         .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
                     if sub_ty != *ty {
                         changed = true;
@@ -652,33 +675,24 @@ pub(crate) fn substitute_proof_goal(
             };
             let mut sub_args = Vec::with_capacity(key.trait_ref.arguments.len());
             for &arg_ty in key.trait_ref.arguments.iter() {
-                let sub_arg = subst.try_apply(types, arg_ty)
+                let sub_arg = subst
+                    .try_apply(types, arg_ty)
                     .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
                 if sub_arg != arg_ty {
                     changed = true;
                 }
                 sub_args.push(sub_arg);
             }
-            let sub_key = crate::generic_evidence::GenericConformanceKey::new(
-                sub_subject,
-                TraitRef::new(key.trait_ref.declaration.clone(), sub_args),
-            );
+            let sub_key = crate::generic_evidence::GenericConformanceKey::new(sub_subject, TraitRef::new(key.trait_ref.declaration.clone(), sub_args));
             Ok((ProofPredicateGoal::Conforms { key: sub_key }, changed))
         }
     }
 }
 
-fn goal_has_open_terms(
-    goal: &ProofPredicateGoal,
-    evaluator: &StaticEvaluator<'_>,
-) -> Result<bool, Stop> {
+fn goal_has_open_terms(goal: &ProofPredicateGoal, evaluator: &StaticEvaluator<'_>) -> Result<bool, Stop> {
     match goal {
-        ProofPredicateGoal::Equivalent { left, right } => {
-            Ok(evaluator.is_open_type(*left)? || evaluator.is_open_type(*right)?)
-        }
-        ProofPredicateGoal::Subtype { lower, upper } => {
-            Ok(evaluator.is_open_type(*lower)? || evaluator.is_open_type(*upper)?)
-        }
+        ProofPredicateGoal::Equivalent { left, right } => Ok(evaluator.is_open_type(*left)? || evaluator.is_open_type(*right)?),
+        ProofPredicateGoal::Subtype { lower, upper } => Ok(evaluator.is_open_type(*lower)? || evaluator.is_open_type(*upper)?),
         ProofPredicateGoal::Conforms { key } => {
             let open_subject = match &key.subject {
                 TypeTerm::Canonical(ty) => evaluator.is_open_type(*ty)?,
@@ -706,7 +720,8 @@ pub(crate) fn substitute_member_projection(
     let mut changed = false;
     let sub_subject = match &projection.subject {
         MemberProjectionSubject::Type(ty) => {
-            let sub_ty = subst.try_apply(types, *ty)
+            let sub_ty = subst
+                .try_apply(types, *ty)
                 .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
             if sub_ty != *ty {
                 changed = true;
@@ -719,7 +734,8 @@ pub(crate) fn substitute_member_projection(
     for arg in projection.arguments.iter() {
         match arg {
             MemberProjectionArgument::Kinded(crate::types::type_member::TypeMemberArgument::Type(ty)) => {
-                let sub_ty = subst.try_apply(types, *ty)
+                let sub_ty = subst
+                    .try_apply(types, *ty)
                     .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
                 if sub_ty != *ty {
                     changed = true;
@@ -735,7 +751,8 @@ pub(crate) fn substitute_member_projection(
         Some(ev) => {
             let sub_subj = match &ev.subject {
                 TypeTerm::Canonical(ty) => {
-                    let sub_ty = subst.try_apply(types, *ty)
+                    let sub_ty = subst
+                        .try_apply(types, *ty)
                         .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
                     if sub_ty != *ty {
                         changed = true;
@@ -746,7 +763,8 @@ pub(crate) fn substitute_member_projection(
             };
             let mut sub_trait_args = Vec::with_capacity(ev.trait_ref.arguments.len());
             for &arg_ty in ev.trait_ref.arguments.iter() {
-                let sub_arg = subst.try_apply(types, arg_ty)
+                let sub_arg = subst
+                    .try_apply(types, arg_ty)
                     .map_err(|_| StaticSpecializationEnvironmentError::UnsupportedCanonicalSubstitution)?;
                 if sub_arg != arg_ty {
                     changed = true;
@@ -774,10 +792,7 @@ pub(crate) fn substitute_member_projection(
     Ok((sub_proj, changed))
 }
 
-fn member_projection_is_open(
-    projection: &MemberProjection,
-    evaluator: &StaticEvaluator<'_>,
-) -> Result<bool, Stop> {
+fn member_projection_is_open(projection: &MemberProjection, evaluator: &StaticEvaluator<'_>) -> Result<bool, Stop> {
     if let MemberProjectionSubject::Type(ty) = &projection.subject {
         if evaluator.is_open_type(*ty)? {
             return Ok(true);

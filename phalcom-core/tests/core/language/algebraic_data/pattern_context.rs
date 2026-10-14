@@ -10,8 +10,7 @@ fn slot(vm: &phalcom_core::vm::VM, module: phalcom_core::heap::ObjRef, name: &st
 #[test]
 #[ignore = "GATED: if-let pattern syntax is not available in current parser"]
 fn pat_ctx_01_if_let_nested_success_commits_binding() {
-    let source =
-        "data Outer { Some(_ value: Int) None }\nlet value = Outer::Some(42)\nlet result = if let Outer::Some(x) = value { x } else { 0 }\n";
+    let source = "data Outer { Some(_ value: Int) None }\nlet value = Outer::Some(42)\nlet result = if let Outer::Some(x) = value { x } else { 0 }\n";
     let (vm, module) = run_inline(source).expect("nested if-let should execute");
     assert_eq!(slot(&vm, module, "result"), Some(Value::int(42)));
 }
@@ -19,8 +18,7 @@ fn pat_ctx_01_if_let_nested_success_commits_binding() {
 #[test]
 #[ignore = "GATED: if-let pattern syntax is not available in current parser"]
 fn pat_ctx_02_if_let_nested_failure_does_not_leak_binding() {
-    let source =
-        "data Outer { Some(_ value: Int) None }\nlet value = Outer::None\nlet result = if let Outer::Some(x) = value { x } else { 0 }\n";
+    let source = "data Outer { Some(_ value: Int) None }\nlet value = Outer::None\nlet result = if let Outer::Some(x) = value { x } else { 0 }\n";
     let (vm, module) = run_inline(source).expect("failed if-let should execute else branch");
     assert_eq!(slot(&vm, module, "result"), Some(Value::int(0)));
 }
@@ -36,16 +34,14 @@ fn pat_ctx_03_if_let_or_pattern_publishes_shared_binding() {
 #[test]
 #[ignore = "GATED: while-let pattern syntax is not available in current parser"]
 fn pat_ctx_04_while_let_evaluates_rhs_once_per_iteration() {
-    let source =
-        "data Option { Some(_ value: Int) None }\nlet value = Option::None\nwhile let Option::Some(x) = value { break }\nlet result = 1\n";
+    let source = "data Option { Some(_ value: Int) None }\nlet value = Option::None\nwhile let Option::Some(x) = value { break }\nlet result = 1\n";
     let (_vm, _module) = run_inline(source).expect("while-let should compile and terminate");
 }
 
 #[test]
 #[ignore = "GATED: while-let pattern syntax is not available in current parser"]
 fn pat_ctx_05_while_let_failed_iteration_does_not_leak_binding() {
-    let source =
-        "data Option { Some(_ value: Int) None }\nlet value = Option::None\nwhile let Option::Some(x) = value { break }\nlet result = 0\n";
+    let source = "data Option { Some(_ value: Int) None }\nlet value = Option::None\nwhile let Option::Some(x) = value { break }\nlet result = 0\n";
     let (vm, module) = run_inline(source).expect("failed while-let should terminate cleanly");
     assert_eq!(slot(&vm, module, "result"), Some(Value::int(0)));
 }
@@ -53,7 +49,8 @@ fn pat_ctx_05_while_let_failed_iteration_does_not_leak_binding() {
 #[test]
 #[ignore = "GATED: required destructuring emitter fixture is not available"]
 fn pat_ctx_06_required_destructuring_uses_shared_emitter() {
-    let source = "data Pair { Pair(_ left: Int, _ right: Int) }\nlet value = Pair::Pair(20, 22)\nlet Pair::Pair(left, right) = value\nlet result = left + right\n";
+    let source =
+        "data Pair { Pair(_ left: Int, _ right: Int) }\nlet value = Pair::Pair(20, 22)\nlet Pair::Pair(left, right) = value\nlet result = left + right\n";
     let (vm, module) = run_inline(source).expect("required destructuring should use pattern emitter");
     assert_eq!(slot(&vm, module, "result"), Some(Value::int(42)));
 }

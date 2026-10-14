@@ -11,18 +11,10 @@ use crate::enum_semantics::{AlgebraicCasePayloadKind, EnumSemanticTable};
 use crate::field_key::FieldKey;
 use crate::generic_evidence::GenericConformanceEvidence;
 use crate::identity::{DeclarationId, VariantId};
-use crate::member_projection::{
-    MemberDeclarationIdentity, MemberProjection, MemberProjectionArgument, MemberProjectionSubject, StaticMemberProjectionOutcome,
-};
+use crate::member_projection::{MemberDeclarationIdentity, MemberProjection, MemberProjectionArgument, MemberProjectionSubject, StaticMemberProjectionOutcome};
 use crate::static_domain::StaticValueDomain;
-use crate::static_value::{
-    StaticValueData, StaticValueRef, StaticValueStore, StaticValueStoreError,
-};
-use crate::structural::{
-    OrderedProductStructure, StructuralClassification,
-    StructuralClassifier, SumStructureError,
-    UnorderedProductStructure,
-};
+use crate::static_value::{StaticValueData, StaticValueRef, StaticValueStore, StaticValueStoreError};
+use crate::structural::{OrderedProductStructure, StructuralClassification, StructuralClassifier, SumStructureError, UnorderedProductStructure};
 use crate::types::id::{KindId, TypeId};
 use crate::types::row::{AnonymousRecordRemainder, RecordRowTail, StructuralMemberPresence};
 use crate::types::store::{AnonymousTupleRemainder, TypeData, TypeStore};
@@ -125,9 +117,7 @@ impl<'a> StructuralReflectionProjector<'a> {
                         },
                         arguments: Box::new([]),
                         evidence: None,
-                        result_domain: StaticValueDomain::ValueType(
-                            self.declarations.form(&self.ids.product_kind).unwrap_or(subject),
-                        ),
+                        result_domain: StaticValueDomain::ValueType(self.declarations.form(&self.ids.product_kind).unwrap_or(subject)),
                     }))
                 } else {
                     Ok(StaticMemberProjectionOutcome::Invalid("subject does not conform to Product".into()))
@@ -153,9 +143,7 @@ impl<'a> StructuralReflectionProjector<'a> {
                         },
                         arguments: Box::new([]),
                         evidence: None,
-                        result_domain: StaticValueDomain::ValueType(
-                            self.declarations.form(&self.ids.product_shape).unwrap_or(subject),
-                        ),
+                        result_domain: StaticValueDomain::ValueType(self.declarations.form(&self.ids.product_shape).unwrap_or(subject)),
                     }));
                 }
                 let shape_val = self.project_ordered_shape_from_structure(&structure)?;
@@ -175,9 +163,7 @@ impl<'a> StructuralReflectionProjector<'a> {
                         },
                         arguments: Box::new([]),
                         evidence: None,
-                        result_domain: StaticValueDomain::ValueType(
-                            self.declarations.form(&self.ids.product_shape).unwrap_or(subject),
-                        ),
+                        result_domain: StaticValueDomain::ValueType(self.declarations.form(&self.ids.product_shape).unwrap_or(subject)),
                     }));
                 }
                 let shape_val = self.project_unordered_shape_from_structure(&structure)?;
@@ -194,9 +180,7 @@ impl<'a> StructuralReflectionProjector<'a> {
                         },
                         arguments: Box::new([]),
                         evidence: None,
-                        result_domain: StaticValueDomain::ValueType(
-                            self.declarations.form(&self.ids.product_shape).unwrap_or(subject),
-                        ),
+                        result_domain: StaticValueDomain::ValueType(self.declarations.form(&self.ids.product_shape).unwrap_or(subject)),
                     }))
                 } else {
                     Ok(StaticMemberProjectionOutcome::Invalid("subject does not conform to Product".into()))
@@ -206,11 +190,7 @@ impl<'a> StructuralReflectionProjector<'a> {
     }
 
     /// Evaluates an `OrderedProduct` member (`OrderedShape`, `Entries`, `PositionalEntries`, `LabeledEntries`).
-    pub fn project_ordered_product_member(
-        &mut self,
-        subject: TypeId,
-        member_name: &str,
-    ) -> Result<StaticMemberProjectionOutcome, StructuralReflectionError> {
+    pub fn project_ordered_product_member(&mut self, subject: TypeId, member_name: &str) -> Result<StaticMemberProjectionOutcome, StructuralReflectionError> {
         let Some(structure) = self.classifier.ordered_product(self.types, subject)? else {
             if self.is_abstract(subject) {
                 let req_index = match member_name {
@@ -228,9 +208,7 @@ impl<'a> StructuralReflectionProjector<'a> {
                     },
                     arguments: Box::new([]),
                     evidence: None,
-                    result_domain: StaticValueDomain::ValueType(
-                        self.declarations.form(&self.ids.ordered_shape).unwrap_or(subject),
-                    ),
+                    result_domain: StaticValueDomain::ValueType(self.declarations.form(&self.ids.ordered_shape).unwrap_or(subject)),
                 }));
             }
             return Ok(StaticMemberProjectionOutcome::Invalid("subject does not conform to OrderedProduct".into()));
@@ -252,9 +230,7 @@ impl<'a> StructuralReflectionProjector<'a> {
                 },
                 arguments: Box::new([]),
                 evidence: None,
-                result_domain: StaticValueDomain::ValueType(
-                    self.declarations.form(&self.ids.ordered_shape).unwrap_or(subject),
-                ),
+                result_domain: StaticValueDomain::ValueType(self.declarations.form(&self.ids.ordered_shape).unwrap_or(subject)),
             }));
         }
 
@@ -275,16 +251,14 @@ impl<'a> StructuralReflectionProjector<'a> {
                 let val = self.project_ordered_labeled_from_structure(&structure)?;
                 Ok(StaticMemberProjectionOutcome::ReducedValue(val))
             }
-            other => Ok(StaticMemberProjectionOutcome::Invalid(format!("unknown OrderedProduct member `{other}`").into())),
+            other => Ok(StaticMemberProjectionOutcome::Invalid(
+                format!("unknown OrderedProduct member `{other}`").into(),
+            )),
         }
     }
 
     /// Evaluates an `UnorderedProduct` member (`UnorderedShape`).
-    pub fn project_unordered_product_member(
-        &mut self,
-        subject: TypeId,
-        member_name: &str,
-    ) -> Result<StaticMemberProjectionOutcome, StructuralReflectionError> {
+    pub fn project_unordered_product_member(&mut self, subject: TypeId, member_name: &str) -> Result<StaticMemberProjectionOutcome, StructuralReflectionError> {
         let Some(structure) = self.classifier.unordered_product(self.types, subject)? else {
             if self.is_abstract(subject) {
                 return Ok(StaticMemberProjectionOutcome::Stuck(MemberProjection {
@@ -295,9 +269,7 @@ impl<'a> StructuralReflectionProjector<'a> {
                     },
                     arguments: Box::new([]),
                     evidence: None,
-                    result_domain: StaticValueDomain::ValueType(
-                        self.declarations.form(&self.ids.unordered_shape).unwrap_or(subject),
-                    ),
+                    result_domain: StaticValueDomain::ValueType(self.declarations.form(&self.ids.unordered_shape).unwrap_or(subject)),
                 }));
             }
             return Ok(StaticMemberProjectionOutcome::Invalid("subject does not conform to UnorderedProduct".into()));
@@ -312,9 +284,7 @@ impl<'a> StructuralReflectionProjector<'a> {
                 },
                 arguments: Box::new([]),
                 evidence: None,
-                result_domain: StaticValueDomain::ValueType(
-                    self.declarations.form(&self.ids.unordered_shape).unwrap_or(subject),
-                ),
+                result_domain: StaticValueDomain::ValueType(self.declarations.form(&self.ids.unordered_shape).unwrap_or(subject)),
             }));
         }
 
@@ -323,7 +293,9 @@ impl<'a> StructuralReflectionProjector<'a> {
                 let val = self.project_unordered_shape_from_structure(&structure)?;
                 Ok(StaticMemberProjectionOutcome::ReducedValue(val))
             }
-            other => Ok(StaticMemberProjectionOutcome::Invalid(format!("unknown UnorderedProduct member `{other}`").into())),
+            other => Ok(StaticMemberProjectionOutcome::Invalid(
+                format!("unknown UnorderedProduct member `{other}`").into(),
+            )),
         }
     }
 
@@ -339,9 +311,7 @@ impl<'a> StructuralReflectionProjector<'a> {
                     },
                     arguments: Box::new([]),
                     evidence: None,
-                    result_domain: StaticValueDomain::ValueType(
-                        self.declarations.form(&self.ids.variant).unwrap_or(subject),
-                    ),
+                    result_domain: StaticValueDomain::ValueType(self.declarations.form(&self.ids.variant).unwrap_or(subject)),
                 }));
             }
             return Ok(StaticMemberProjectionOutcome::Invalid("subject does not conform to Sum".into()));
@@ -384,24 +354,18 @@ impl<'a> StructuralReflectionProjector<'a> {
                                 member: MemberDeclarationIdentity::Intrinsic(operation),
                                 arguments: args.to_vec().into_boxed_slice(),
                                 evidence: None,
-                                result_domain: StaticValueDomain::ValueType(
-                                    self.declarations.form(&self.ids.field_lookup).unwrap_or(self.types.unit()),
-                                ),
+                                result_domain: StaticValueDomain::ValueType(self.declarations.form(&self.ids.field_lookup).unwrap_or(self.types.unit())),
                             }));
                         }
                     },
-                    MemberProjectionArgument::Kinded(TypeMemberArgument::Const(ConstTerm::Int(i))) => {
-                        FieldKey::int(i.clone())
-                    }
+                    MemberProjectionArgument::Kinded(TypeMemberArgument::Const(ConstTerm::Int(i))) => FieldKey::int(i.clone()),
                     _ => {
                         return Ok(StaticMemberProjectionOutcome::Stuck(MemberProjection {
                             subject: MemberProjectionSubject::Value(shape_val),
                             member: MemberDeclarationIdentity::Intrinsic(operation),
                             arguments: args.to_vec().into_boxed_slice(),
                             evidence: None,
-                            result_domain: StaticValueDomain::ValueType(
-                                self.declarations.form(&self.ids.field_lookup).unwrap_or(self.types.unit()),
-                            ),
+                            result_domain: StaticValueDomain::ValueType(self.declarations.form(&self.ids.field_lookup).unwrap_or(self.types.unit())),
                         }));
                     }
                 };
@@ -573,20 +537,28 @@ impl<'a> StructuralReflectionProjector<'a> {
             }
             MemberDeclarationIdentity::Intrinsic(operation) => {
                 let MemberProjectionSubject::Value(val_ref) = subject else {
-                    return Ok(StaticMemberProjectionOutcome::Invalid("intrinsic operation requires StaticValue subject".into()));
+                    return Ok(StaticMemberProjectionOutcome::Invalid(
+                        "intrinsic operation requires StaticValue subject".into(),
+                    ));
                 };
                 self.project_unordered_shape_member(*val_ref, *operation, arguments)
             }
             MemberDeclarationIdentity::TypeMember(decl_id) => {
                 if decl_id.owner == self.ids.unordered_shape {
                     let MemberProjectionSubject::Value(val_ref) = subject else {
-                        return Ok(StaticMemberProjectionOutcome::Invalid("UnorderedShape member requires StaticValue subject".into()));
+                        return Ok(StaticMemberProjectionOutcome::Invalid(
+                            "UnorderedShape member requires StaticValue subject".into(),
+                        ));
                     };
                     let op = match decl_id.selector.name().as_ref() {
                         "Lookup" => IntrinsicTypeOperation::UnorderedShapeLookup,
                         "View" => IntrinsicTypeOperation::UnorderedShapeView,
                         "Tail" => IntrinsicTypeOperation::UnorderedShapeTail,
-                        other => return Ok(StaticMemberProjectionOutcome::Invalid(format!("unknown UnorderedShape member `{other}`").into())),
+                        other => {
+                            return Ok(StaticMemberProjectionOutcome::Invalid(
+                                format!("unknown UnorderedShape member `{other}`").into(),
+                            ));
+                        }
                     };
                     self.project_unordered_shape_member(*val_ref, op, arguments)
                 } else {
@@ -613,10 +585,7 @@ impl<'a> StructuralReflectionProjector<'a> {
         let StaticValueData::Type(key_ty) = *self.values.get(key_ty_ref)? else {
             return Ok(false);
         };
-        let field_key_decl = DeclarationId::new(
-            crate::core_surface::identity::universe_module(&["collections", "record"]),
-            "FieldKey".into(),
-        );
+        let field_key_decl = DeclarationId::new(crate::core_surface::identity::universe_module(&["collections", "record"]), "FieldKey".into());
         let int_decl = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int);
         let str_decl = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::String);
         let sym_decl = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Symbol);
@@ -634,30 +603,28 @@ impl<'a> StructuralReflectionProjector<'a> {
         }
     }
 
-    fn project_ordered_shape_from_structure(
-        &mut self,
-        structure: &OrderedProductStructure,
-    ) -> Result<StaticValueRef, StructuralReflectionError> {
+    fn project_ordered_shape_from_structure(&mut self, structure: &OrderedProductStructure) -> Result<StaticValueRef, StructuralReflectionError> {
         let entries_val = self.project_ordered_entries_from_structure(structure)?;
         let pos_tail = self.construct_ordered_tail(structure.positional_remainder, true)?;
         let lab_tail = self.construct_ordered_tail(structure.labeled_remainder, false)?;
         self.construct_ordered_shape(entries_val, pos_tail, lab_tail)
     }
 
-    fn project_ordered_entries_from_structure(
-        &mut self,
-        structure: &OrderedProductStructure,
-    ) -> Result<StaticValueRef, StructuralReflectionError> {
+    fn project_ordered_entries_from_structure(&mut self, structure: &OrderedProductStructure) -> Result<StaticValueRef, StructuralReflectionError> {
         let mut positionals = Vec::with_capacity(structure.positional_entries.len());
         for entry in structure.positional_entries.iter() {
-            let ty = entry.ty.ok_or_else(|| StructuralReflectionError::TypeFormation("entry type is absent".into()))?;
+            let ty = entry
+                .ty
+                .ok_or_else(|| StructuralReflectionError::TypeFormation("entry type is absent".into()))?;
             let ty_val = self.values.intern_type(ty, self.types)?;
             positionals.push(ty_val);
         }
 
         let mut labeled = Vec::with_capacity(structure.labeled_entries.len());
         for entry in structure.labeled_entries.iter() {
-            let ty = entry.ty.ok_or_else(|| StructuralReflectionError::TypeFormation("entry type is absent".into()))?;
+            let ty = entry
+                .ty
+                .ok_or_else(|| StructuralReflectionError::TypeFormation("entry type is absent".into()))?;
             let ty_val = self.values.intern_type(ty, self.types)?;
             let label_sym = self.values.intern_symbol_id(entry.label.as_deref().unwrap_or(""));
             labeled.push((label_sym, ty_val));
@@ -666,26 +633,24 @@ impl<'a> StructuralReflectionProjector<'a> {
         self.values.intern_pack(positionals, labeled).map_err(StructuralReflectionError::from)
     }
 
-    fn project_ordered_positionals_from_structure(
-        &mut self,
-        structure: &OrderedProductStructure,
-    ) -> Result<StaticValueRef, StructuralReflectionError> {
+    fn project_ordered_positionals_from_structure(&mut self, structure: &OrderedProductStructure) -> Result<StaticValueRef, StructuralReflectionError> {
         let mut positionals = Vec::with_capacity(structure.positional_entries.len());
         for entry in structure.positional_entries.iter() {
-            let ty = entry.ty.ok_or_else(|| StructuralReflectionError::TypeFormation("entry type is absent".into()))?;
+            let ty = entry
+                .ty
+                .ok_or_else(|| StructuralReflectionError::TypeFormation("entry type is absent".into()))?;
             let ty_val = self.values.intern_type(ty, self.types)?;
             positionals.push(ty_val);
         }
         self.values.intern_pack(positionals, Vec::new()).map_err(StructuralReflectionError::from)
     }
 
-    fn project_ordered_labeled_from_structure(
-        &mut self,
-        structure: &OrderedProductStructure,
-    ) -> Result<StaticValueRef, StructuralReflectionError> {
+    fn project_ordered_labeled_from_structure(&mut self, structure: &OrderedProductStructure) -> Result<StaticValueRef, StructuralReflectionError> {
         let mut labeled = Vec::with_capacity(structure.labeled_entries.len());
         for entry in structure.labeled_entries.iter() {
-            let ty = entry.ty.ok_or_else(|| StructuralReflectionError::TypeFormation("entry type is absent".into()))?;
+            let ty = entry
+                .ty
+                .ok_or_else(|| StructuralReflectionError::TypeFormation("entry type is absent".into()))?;
             let ty_val = self.values.intern_type(ty, self.types)?;
             let label_sym = self.values.intern_symbol_id(entry.label.as_deref().unwrap_or(""));
             labeled.push((label_sym, ty_val));
@@ -693,13 +658,12 @@ impl<'a> StructuralReflectionProjector<'a> {
         self.values.intern_pack(Vec::new(), labeled).map_err(StructuralReflectionError::from)
     }
 
-    fn project_unordered_shape_from_structure(
-        &mut self,
-        structure: &UnorderedProductStructure,
-    ) -> Result<StaticValueRef, StructuralReflectionError> {
+    fn project_unordered_shape_from_structure(&mut self, structure: &UnorderedProductStructure) -> Result<StaticValueRef, StructuralReflectionError> {
         let mut record_fields = Vec::with_capacity(structure.fields.len());
         for entry in structure.fields.iter() {
-            let ty = entry.ty.ok_or_else(|| StructuralReflectionError::TypeFormation("field type is absent".into()))?;
+            let ty = entry
+                .ty
+                .ok_or_else(|| StructuralReflectionError::TypeFormation("field type is absent".into()))?;
             let ty_val = self.values.intern_type(ty, self.types)?;
             let presence_val = self.construct_presence(entry.presence)?;
             let fi_val = self.construct_field_info(ty_val, presence_val)?;
@@ -710,10 +674,7 @@ impl<'a> StructuralReflectionProjector<'a> {
         self.construct_unordered_shape(fields_record, tail_val)
     }
 
-    fn project_variant_shape(
-        &mut self,
-        specialized: &crate::structural::SpecializedVariantStructure,
-    ) -> Result<StaticValueRef, StructuralReflectionError> {
+    fn project_variant_shape(&mut self, specialized: &crate::structural::SpecializedVariantStructure) -> Result<StaticValueRef, StructuralReflectionError> {
         match specialized.payload_kind {
             AlgebraicCasePayloadKind::Singleton | AlgebraicCasePayloadKind::ExplicitEmpty => {
                 let empty_pack = self.values.intern_pack(Vec::new(), Vec::new())?;
@@ -755,79 +716,95 @@ impl<'a> StructuralReflectionProjector<'a> {
     }
 
     fn construct_product_kind_ordered(&mut self) -> Result<StaticValueRef, StructuralReflectionError> {
-        let enum_info = self.enums.enum_info(&self.ids.product_kind).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.product_kind.clone())
-        })?;
+        let enum_info = self
+            .enums
+            .enum_info(&self.ids.product_kind)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.product_kind.clone()))?;
         let variant_id = enum_info
             .variants
             .iter()
             .find(|v| selector_name(&v.selector) == Some("Ordered"))
             .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.product_kind.clone()))?;
-        let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-            StructuralReflectionError::MissingVariant(variant_id.clone())
-        })?;
+        let variant_info = self
+            .enums
+            .variant_info(variant_id)
+            .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
         let enum_ty = self.declarations.form(&self.ids.product_kind).unwrap();
-        let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-            StructuralReflectionError::TypeFormation("exact case type error".into())
-        })?;
-        self.values.intern_variant(variant_info, exact_case_ty, Vec::new(), self.types).map_err(Into::into)
+        let exact_case_ty = self
+            .types
+            .exact_case_type(variant_id, enum_ty)
+            .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
+        self.values
+            .intern_variant(variant_info, exact_case_ty, Vec::new(), self.types)
+            .map_err(Into::into)
     }
 
     fn construct_product_kind_unordered(&mut self) -> Result<StaticValueRef, StructuralReflectionError> {
-        let enum_info = self.enums.enum_info(&self.ids.product_kind).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.product_kind.clone())
-        })?;
+        let enum_info = self
+            .enums
+            .enum_info(&self.ids.product_kind)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.product_kind.clone()))?;
         let variant_id = enum_info
             .variants
             .iter()
             .find(|v| selector_name(&v.selector) == Some("Unordered"))
             .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.product_kind.clone()))?;
-        let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-            StructuralReflectionError::MissingVariant(variant_id.clone())
-        })?;
+        let variant_info = self
+            .enums
+            .variant_info(variant_id)
+            .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
         let enum_ty = self.declarations.form(&self.ids.product_kind).unwrap();
-        let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-            StructuralReflectionError::TypeFormation("exact case type error".into())
-        })?;
-        self.values.intern_variant(variant_info, exact_case_ty, Vec::new(), self.types).map_err(Into::into)
+        let exact_case_ty = self
+            .types
+            .exact_case_type(variant_id, enum_ty)
+            .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
+        self.values
+            .intern_variant(variant_info, exact_case_ty, Vec::new(), self.types)
+            .map_err(Into::into)
     }
 
     fn wrap_product_shape_ordered(&mut self, ordered_shape_ref: StaticValueRef) -> Result<StaticValueRef, StructuralReflectionError> {
-        let enum_info = self.enums.enum_info(&self.ids.product_shape).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.product_shape.clone())
-        })?;
+        let enum_info = self
+            .enums
+            .enum_info(&self.ids.product_shape)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.product_shape.clone()))?;
         let variant_id = enum_info
             .variants
             .iter()
             .find(|v| selector_name(&v.selector) == Some("Ordered"))
             .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.product_shape.clone()))?;
-        let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-            StructuralReflectionError::MissingVariant(variant_id.clone())
-        })?;
+        let variant_info = self
+            .enums
+            .variant_info(variant_id)
+            .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
         let enum_ty = self.declarations.form(&self.ids.product_shape).unwrap();
-        let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-            StructuralReflectionError::TypeFormation("exact case type error".into())
-        })?;
+        let exact_case_ty = self
+            .types
+            .exact_case_type(variant_id, enum_ty)
+            .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
         let fields = vec![(variant_info.fields[0].id.clone(), ordered_shape_ref)];
         self.values.intern_variant(variant_info, exact_case_ty, fields, self.types).map_err(Into::into)
     }
 
     fn wrap_product_shape_unordered(&mut self, unordered_shape_ref: StaticValueRef) -> Result<StaticValueRef, StructuralReflectionError> {
-        let enum_info = self.enums.enum_info(&self.ids.product_shape).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.product_shape.clone())
-        })?;
+        let enum_info = self
+            .enums
+            .enum_info(&self.ids.product_shape)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.product_shape.clone()))?;
         let variant_id = enum_info
             .variants
             .iter()
             .find(|v| selector_name(&v.selector) == Some("Unordered"))
             .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.product_shape.clone()))?;
-        let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-            StructuralReflectionError::MissingVariant(variant_id.clone())
-        })?;
+        let variant_info = self
+            .enums
+            .variant_info(variant_id)
+            .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
         let enum_ty = self.declarations.form(&self.ids.product_shape).unwrap();
-        let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-            StructuralReflectionError::TypeFormation("exact case type error".into())
-        })?;
+        let exact_case_ty = self
+            .types
+            .exact_case_type(variant_id, enum_ty)
+            .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
         let fields = vec![(variant_info.fields[0].id.clone(), unordered_shape_ref)];
         self.values.intern_variant(variant_info, exact_case_ty, fields, self.types).map_err(Into::into)
     }
@@ -838,9 +815,10 @@ impl<'a> StructuralReflectionProjector<'a> {
         pos_tail_ref: StaticValueRef,
         lab_tail_ref: StaticValueRef,
     ) -> Result<StaticValueRef, StructuralReflectionError> {
-        let data_info = self.data.data_info(&self.ids.ordered_shape).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.ordered_shape.clone())
-        })?;
+        let data_info = self
+            .data
+            .data_info(&self.ids.ordered_shape)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.ordered_shape.clone()))?;
         let ordered_shape_ty = self.declarations.form(&self.ids.ordered_shape).unwrap();
         let components = vec![
             (data_info.components[0].id.clone(), entries_ref),
@@ -850,14 +828,11 @@ impl<'a> StructuralReflectionProjector<'a> {
         self.values.intern_data(data_info, ordered_shape_ty, components, self.types).map_err(Into::into)
     }
 
-    fn construct_ordered_tail(
-        &mut self,
-        remainder: AnonymousTupleRemainder,
-        _is_positional: bool,
-    ) -> Result<StaticValueRef, StructuralReflectionError> {
-        let enum_info = self.enums.enum_info(&self.ids.ordered_tail).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.ordered_tail.clone())
-        })?;
+    fn construct_ordered_tail(&mut self, remainder: AnonymousTupleRemainder, _is_positional: bool) -> Result<StaticValueRef, StructuralReflectionError> {
+        let enum_info = self
+            .enums
+            .enum_info(&self.ids.ordered_tail)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.ordered_tail.clone()))?;
         let tail_form = self.declarations.form(&self.ids.ordered_tail).unwrap();
         let unit_ty = self.types.unit();
         let applied_ty = self.types.apply_type_form(tail_form, &[unit_ty]).unwrap_or(tail_form);
@@ -869,13 +844,17 @@ impl<'a> StructuralReflectionProjector<'a> {
                     .iter()
                     .find(|v| selector_name(&v.selector) == Some("Closed"))
                     .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.ordered_tail.clone()))?;
-                let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-                    StructuralReflectionError::MissingVariant(variant_id.clone())
-                })?;
-                let exact_case_ty = self.types.exact_case_type(variant_id, applied_ty).map_err(|_| {
-                    StructuralReflectionError::TypeFormation("exact case type error".into())
-                })?;
-                self.values.intern_variant(variant_info, exact_case_ty, Vec::new(), self.types).map_err(Into::into)
+                let variant_info = self
+                    .enums
+                    .variant_info(variant_id)
+                    .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
+                let exact_case_ty = self
+                    .types
+                    .exact_case_type(variant_id, applied_ty)
+                    .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
+                self.values
+                    .intern_variant(variant_info, exact_case_ty, Vec::new(), self.types)
+                    .map_err(Into::into)
             }
             AnonymousTupleRemainder::Typed(elem_ty) => {
                 let variant_id = enum_info
@@ -883,12 +862,14 @@ impl<'a> StructuralReflectionProjector<'a> {
                     .iter()
                     .find(|v| selector_name(&v.selector) == Some("Typed"))
                     .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.ordered_tail.clone()))?;
-                let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-                    StructuralReflectionError::MissingVariant(variant_id.clone())
-                })?;
-                let exact_case_ty = self.types.exact_case_type(variant_id, applied_ty).map_err(|_| {
-                    StructuralReflectionError::TypeFormation("exact case type error".into())
-                })?;
+                let variant_info = self
+                    .enums
+                    .variant_info(variant_id)
+                    .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
+                let exact_case_ty = self
+                    .types
+                    .exact_case_type(variant_id, applied_ty)
+                    .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
                 let elem_val = self.values.intern_type(elem_ty, self.types)?;
                 let fields = vec![(variant_info.fields[0].id.clone(), elem_val)];
                 self.values.intern_variant(variant_info, exact_case_ty, fields, self.types).map_err(Into::into)
@@ -899,21 +880,26 @@ impl<'a> StructuralReflectionProjector<'a> {
                     .iter()
                     .find(|v| selector_name(&v.selector) == Some("Unconstrained"))
                     .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.ordered_tail.clone()))?;
-                let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-                    StructuralReflectionError::MissingVariant(variant_id.clone())
-                })?;
-                let exact_case_ty = self.types.exact_case_type(variant_id, applied_ty).map_err(|_| {
-                    StructuralReflectionError::TypeFormation("exact case type error".into())
-                })?;
-                self.values.intern_variant(variant_info, exact_case_ty, Vec::new(), self.types).map_err(Into::into)
+                let variant_info = self
+                    .enums
+                    .variant_info(variant_id)
+                    .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
+                let exact_case_ty = self
+                    .types
+                    .exact_case_type(variant_id, applied_ty)
+                    .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
+                self.values
+                    .intern_variant(variant_info, exact_case_ty, Vec::new(), self.types)
+                    .map_err(Into::into)
             }
         }
     }
 
     fn construct_presence(&mut self, presence: StructuralMemberPresence) -> Result<StaticValueRef, StructuralReflectionError> {
-        let enum_info = self.enums.enum_info(&self.ids.presence).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.presence.clone())
-        })?;
+        let enum_info = self
+            .enums
+            .enum_info(&self.ids.presence)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.presence.clone()))?;
         let var_name = match presence {
             StructuralMemberPresence::Required => "Required",
             StructuralMemberPresence::Optional => "Optional",
@@ -923,20 +909,25 @@ impl<'a> StructuralReflectionProjector<'a> {
             .iter()
             .find(|v| selector_name(&v.selector) == Some(var_name))
             .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.presence.clone()))?;
-        let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-            StructuralReflectionError::MissingVariant(variant_id.clone())
-        })?;
+        let variant_info = self
+            .enums
+            .variant_info(variant_id)
+            .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
         let enum_ty = self.declarations.form(&self.ids.presence).unwrap();
-        let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-            StructuralReflectionError::TypeFormation("exact case type error".into())
-        })?;
-        self.values.intern_variant(variant_info, exact_case_ty, Vec::new(), self.types).map_err(Into::into)
+        let exact_case_ty = self
+            .types
+            .exact_case_type(variant_id, enum_ty)
+            .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
+        self.values
+            .intern_variant(variant_info, exact_case_ty, Vec::new(), self.types)
+            .map_err(Into::into)
     }
 
     fn construct_field_info(&mut self, val_ty_ref: StaticValueRef, presence_ref: StaticValueRef) -> Result<StaticValueRef, StructuralReflectionError> {
-        let data_info = self.data.data_info(&self.ids.field_info).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.field_info.clone())
-        })?;
+        let data_info = self
+            .data
+            .data_info(&self.ids.field_info)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.field_info.clone()))?;
         let fi_ty = self.declarations.form(&self.ids.field_info).unwrap();
         let components = vec![
             (data_info.components[0].id.clone(), val_ty_ref),
@@ -951,9 +942,10 @@ impl<'a> StructuralReflectionProjector<'a> {
         val_ty_ref: StaticValueRef,
         presence_ref: StaticValueRef,
     ) -> Result<StaticValueRef, StructuralReflectionError> {
-        let data_info = self.data.data_info(&self.ids.product_field).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.product_field.clone())
-        })?;
+        let data_info = self
+            .data
+            .data_info(&self.ids.product_field)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.product_field.clone()))?;
         let pf_ty = self.declarations.form(&self.ids.product_field).unwrap();
         let key_val = self.field_key_to_static_value(key)?;
         let components = vec![
@@ -965,9 +957,10 @@ impl<'a> StructuralReflectionProjector<'a> {
     }
 
     fn construct_unordered_tail(&mut self, tail: &RecordRowTail) -> Result<StaticValueRef, StructuralReflectionError> {
-        let enum_info = self.enums.enum_info(&self.ids.unordered_tail).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.unordered_tail.clone())
-        })?;
+        let enum_info = self
+            .enums
+            .enum_info(&self.ids.unordered_tail)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.unordered_tail.clone()))?;
         let enum_ty = self.declarations.form(&self.ids.unordered_tail).unwrap();
         match tail {
             RecordRowTail::Closed => {
@@ -976,13 +969,17 @@ impl<'a> StructuralReflectionProjector<'a> {
                     .iter()
                     .find(|v| selector_name(&v.selector) == Some("Closed"))
                     .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.unordered_tail.clone()))?;
-                let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-                    StructuralReflectionError::MissingVariant(variant_id.clone())
-                })?;
-                let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-                    StructuralReflectionError::TypeFormation("exact case type error".into())
-                })?;
-                self.values.intern_variant(variant_info, exact_case_ty, Vec::new(), self.types).map_err(Into::into)
+                let variant_info = self
+                    .enums
+                    .variant_info(variant_id)
+                    .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
+                let exact_case_ty = self
+                    .types
+                    .exact_case_type(variant_id, enum_ty)
+                    .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
+                self.values
+                    .intern_variant(variant_info, exact_case_ty, Vec::new(), self.types)
+                    .map_err(Into::into)
             }
             RecordRowTail::Anonymous(AnonymousRecordRemainder::Typed { key_type, value_type }) => {
                 let variant_id = enum_info
@@ -990,18 +987,17 @@ impl<'a> StructuralReflectionProjector<'a> {
                     .iter()
                     .find(|v| selector_name(&v.selector) == Some("Typed"))
                     .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.unordered_tail.clone()))?;
-                let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-                    StructuralReflectionError::MissingVariant(variant_id.clone())
-                })?;
-                let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-                    StructuralReflectionError::TypeFormation("exact case type error".into())
-                })?;
+                let variant_info = self
+                    .enums
+                    .variant_info(variant_id)
+                    .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
+                let exact_case_ty = self
+                    .types
+                    .exact_case_type(variant_id, enum_ty)
+                    .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
                 let key_ty_val = self.values.intern_type(*key_type, self.types)?;
                 let val_ty_val = self.values.intern_type(*value_type, self.types)?;
-                let fields = vec![
-                    (variant_info.fields[0].id.clone(), key_ty_val),
-                    (variant_info.fields[1].id.clone(), val_ty_val),
-                ];
+                let fields = vec![(variant_info.fields[0].id.clone(), key_ty_val), (variant_info.fields[1].id.clone(), val_ty_val)];
                 self.values.intern_variant(variant_info, exact_case_ty, fields, self.types).map_err(Into::into)
             }
             RecordRowTail::Anonymous(AnonymousRecordRemainder::Unconstrained { key_type }) => {
@@ -1010,12 +1006,14 @@ impl<'a> StructuralReflectionProjector<'a> {
                     .iter()
                     .find(|v| selector_name(&v.selector) == Some("Unconstrained"))
                     .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.unordered_tail.clone()))?;
-                let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-                    StructuralReflectionError::MissingVariant(variant_id.clone())
-                })?;
-                let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-                    StructuralReflectionError::TypeFormation("exact case type error".into())
-                })?;
+                let variant_info = self
+                    .enums
+                    .variant_info(variant_id)
+                    .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
+                let exact_case_ty = self
+                    .types
+                    .exact_case_type(variant_id, enum_ty)
+                    .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
                 let key_ty_val = self.values.intern_type(*key_type, self.types)?;
                 let fields = vec![(variant_info.fields[0].id.clone(), key_ty_val)];
                 self.values.intern_variant(variant_info, exact_case_ty, fields, self.types).map_err(Into::into)
@@ -1026,16 +1024,15 @@ impl<'a> StructuralReflectionProjector<'a> {
                     .iter()
                     .find(|v| selector_name(&v.selector) == Some("Unconstrained"))
                     .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.unordered_tail.clone()))?;
-                let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-                    StructuralReflectionError::MissingVariant(variant_id.clone())
-                })?;
-                let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-                    StructuralReflectionError::TypeFormation("exact case type error".into())
-                })?;
-                let field_key_decl = DeclarationId::new(
-                    crate::core_surface::identity::universe_module(&["collections", "record"]),
-                    "FieldKey".into(),
-                );
+                let variant_info = self
+                    .enums
+                    .variant_info(variant_id)
+                    .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
+                let exact_case_ty = self
+                    .types
+                    .exact_case_type(variant_id, enum_ty)
+                    .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
+                let field_key_decl = DeclarationId::new(crate::core_surface::identity::universe_module(&["collections", "record"]), "FieldKey".into());
                 let field_key_ty = self
                     .declarations
                     .form(&field_key_decl)
@@ -1047,116 +1044,129 @@ impl<'a> StructuralReflectionProjector<'a> {
         }
     }
 
-    fn construct_unordered_shape(
-        &mut self,
-        fields_ref: StaticValueRef,
-        tail_ref: StaticValueRef,
-    ) -> Result<StaticValueRef, StructuralReflectionError> {
-        let data_info = self.data.data_info(&self.ids.unordered_shape).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.unordered_shape.clone())
-        })?;
+    fn construct_unordered_shape(&mut self, fields_ref: StaticValueRef, tail_ref: StaticValueRef) -> Result<StaticValueRef, StructuralReflectionError> {
+        let data_info = self
+            .data
+            .data_info(&self.ids.unordered_shape)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.unordered_shape.clone()))?;
         let us_ty = self.declarations.form(&self.ids.unordered_shape).unwrap();
-        let components = vec![
-            (data_info.components[0].id.clone(), fields_ref),
-            (data_info.components[1].id.clone(), tail_ref),
-        ];
+        let components = vec![(data_info.components[0].id.clone(), fields_ref), (data_info.components[1].id.clone(), tail_ref)];
         self.values.intern_data(data_info, us_ty, components, self.types).map_err(Into::into)
     }
 
     fn construct_field_lookup_required(&mut self, val_ty_ref: StaticValueRef) -> Result<StaticValueRef, StructuralReflectionError> {
-        let enum_info = self.enums.enum_info(&self.ids.field_lookup).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.field_lookup.clone())
-        })?;
+        let enum_info = self
+            .enums
+            .enum_info(&self.ids.field_lookup)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.field_lookup.clone()))?;
         let variant_id = enum_info
             .variants
             .iter()
             .find(|v| selector_name(&v.selector) == Some("Required"))
             .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.field_lookup.clone()))?;
-        let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-            StructuralReflectionError::MissingVariant(variant_id.clone())
-        })?;
+        let variant_info = self
+            .enums
+            .variant_info(variant_id)
+            .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
         let enum_ty = self.declarations.form(&self.ids.field_lookup).unwrap();
-        let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-            StructuralReflectionError::TypeFormation("exact case type error".into())
-        })?;
+        let exact_case_ty = self
+            .types
+            .exact_case_type(variant_id, enum_ty)
+            .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
         let fields = vec![(variant_info.fields[0].id.clone(), val_ty_ref)];
         self.values.intern_variant(variant_info, exact_case_ty, fields, self.types).map_err(Into::into)
     }
 
     fn construct_field_lookup_optional(&mut self, val_ty_ref: StaticValueRef) -> Result<StaticValueRef, StructuralReflectionError> {
-        let enum_info = self.enums.enum_info(&self.ids.field_lookup).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.field_lookup.clone())
-        })?;
+        let enum_info = self
+            .enums
+            .enum_info(&self.ids.field_lookup)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.field_lookup.clone()))?;
         let variant_id = enum_info
             .variants
             .iter()
             .find(|v| selector_name(&v.selector) == Some("Optional"))
             .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.field_lookup.clone()))?;
-        let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-            StructuralReflectionError::MissingVariant(variant_id.clone())
-        })?;
+        let variant_info = self
+            .enums
+            .variant_info(variant_id)
+            .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
         let enum_ty = self.declarations.form(&self.ids.field_lookup).unwrap();
-        let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-            StructuralReflectionError::TypeFormation("exact case type error".into())
-        })?;
+        let exact_case_ty = self
+            .types
+            .exact_case_type(variant_id, enum_ty)
+            .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
         let fields = vec![(variant_info.fields[0].id.clone(), val_ty_ref)];
         self.values.intern_variant(variant_info, exact_case_ty, fields, self.types).map_err(Into::into)
     }
 
     fn construct_field_lookup_absent(&mut self) -> Result<StaticValueRef, StructuralReflectionError> {
-        let enum_info = self.enums.enum_info(&self.ids.field_lookup).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.field_lookup.clone())
-        })?;
+        let enum_info = self
+            .enums
+            .enum_info(&self.ids.field_lookup)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.field_lookup.clone()))?;
         let variant_id = enum_info
             .variants
             .iter()
             .find(|v| selector_name(&v.selector) == Some("Absent"))
             .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.field_lookup.clone()))?;
-        let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-            StructuralReflectionError::MissingVariant(variant_id.clone())
-        })?;
+        let variant_info = self
+            .enums
+            .variant_info(variant_id)
+            .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
         let enum_ty = self.declarations.form(&self.ids.field_lookup).unwrap();
-        let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-            StructuralReflectionError::TypeFormation("exact case type error".into())
-        })?;
-        self.values.intern_variant(variant_info, exact_case_ty, Vec::new(), self.types).map_err(Into::into)
+        let exact_case_ty = self
+            .types
+            .exact_case_type(variant_id, enum_ty)
+            .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
+        self.values
+            .intern_variant(variant_info, exact_case_ty, Vec::new(), self.types)
+            .map_err(Into::into)
     }
 
     fn construct_field_lookup_unknown(&mut self) -> Result<StaticValueRef, StructuralReflectionError> {
-        let enum_info = self.enums.enum_info(&self.ids.field_lookup).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.field_lookup.clone())
-        })?;
+        let enum_info = self
+            .enums
+            .enum_info(&self.ids.field_lookup)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.field_lookup.clone()))?;
         let variant_id = enum_info
             .variants
             .iter()
             .find(|v| selector_name(&v.selector) == Some("Unknown"))
             .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.field_lookup.clone()))?;
-        let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-            StructuralReflectionError::MissingVariant(variant_id.clone())
-        })?;
+        let variant_info = self
+            .enums
+            .variant_info(variant_id)
+            .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
         let enum_ty = self.declarations.form(&self.ids.field_lookup).unwrap();
-        let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-            StructuralReflectionError::TypeFormation("exact case type error".into())
-        })?;
-        self.values.intern_variant(variant_info, exact_case_ty, Vec::new(), self.types).map_err(Into::into)
+        let exact_case_ty = self
+            .types
+            .exact_case_type(variant_id, enum_ty)
+            .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
+        self.values
+            .intern_variant(variant_info, exact_case_ty, Vec::new(), self.types)
+            .map_err(Into::into)
     }
 
     fn construct_unordered_shape_view_empty(&mut self, tail_ref: StaticValueRef) -> Result<StaticValueRef, StructuralReflectionError> {
-        let enum_info = self.enums.enum_info(&self.ids.unordered_shape_view).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.unordered_shape_view.clone())
-        })?;
+        let enum_info = self
+            .enums
+            .enum_info(&self.ids.unordered_shape_view)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.unordered_shape_view.clone()))?;
         let variant_id = enum_info
             .variants
             .iter()
             .find(|v| selector_name(&v.selector) == Some("Empty"))
             .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.unordered_shape_view.clone()))?;
-        let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-            StructuralReflectionError::MissingVariant(variant_id.clone())
-        })?;
+        let variant_info = self
+            .enums
+            .variant_info(variant_id)
+            .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
         let enum_ty = self.declarations.form(&self.ids.unordered_shape_view).unwrap();
-        let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-            StructuralReflectionError::TypeFormation("exact case type error".into())
-        })?;
+        let exact_case_ty = self
+            .types
+            .exact_case_type(variant_id, enum_ty)
+            .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
         let fields = vec![(variant_info.fields[0].id.clone(), tail_ref)];
         self.values.intern_variant(variant_info, exact_case_ty, fields, self.types).map_err(Into::into)
     }
@@ -1166,21 +1176,24 @@ impl<'a> StructuralReflectionProjector<'a> {
         field_ref: StaticValueRef,
         rest_shape_ref: StaticValueRef,
     ) -> Result<StaticValueRef, StructuralReflectionError> {
-        let enum_info = self.enums.enum_info(&self.ids.unordered_shape_view).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.unordered_shape_view.clone())
-        })?;
+        let enum_info = self
+            .enums
+            .enum_info(&self.ids.unordered_shape_view)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.unordered_shape_view.clone()))?;
         let variant_id = enum_info
             .variants
             .iter()
             .find(|v| selector_name(&v.selector) == Some("Field"))
             .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.unordered_shape_view.clone()))?;
-        let variant_info = self.enums.variant_info(variant_id).ok_or_else(|| {
-            StructuralReflectionError::MissingVariant(variant_id.clone())
-        })?;
+        let variant_info = self
+            .enums
+            .variant_info(variant_id)
+            .ok_or_else(|| StructuralReflectionError::MissingVariant(variant_id.clone()))?;
         let enum_ty = self.declarations.form(&self.ids.unordered_shape_view).unwrap();
-        let exact_case_ty = self.types.exact_case_type(variant_id, enum_ty).map_err(|_| {
-            StructuralReflectionError::TypeFormation("exact case type error".into())
-        })?;
+        let exact_case_ty = self
+            .types
+            .exact_case_type(variant_id, enum_ty)
+            .map_err(|_| StructuralReflectionError::TypeFormation("exact case type error".into()))?;
         let fields = vec![
             (variant_info.fields[0].id.clone(), field_ref),
             (variant_info.fields[1].id.clone(), rest_shape_ref),
@@ -1189,9 +1202,10 @@ impl<'a> StructuralReflectionProjector<'a> {
     }
 
     fn construct_variant(&mut self, name_sym_ref: StaticValueRef, shape_ref: StaticValueRef) -> Result<StaticValueRef, StructuralReflectionError> {
-        let data_info = self.data.data_info(&self.ids.variant).ok_or_else(|| {
-            StructuralReflectionError::MissingDeclaration(self.ids.variant.clone())
-        })?;
+        let data_info = self
+            .data
+            .data_info(&self.ids.variant)
+            .ok_or_else(|| StructuralReflectionError::MissingDeclaration(self.ids.variant.clone()))?;
         let v_ty = self.declarations.form(&self.ids.variant).unwrap();
         let components = vec![
             (data_info.components[0].id.clone(), name_sym_ref),

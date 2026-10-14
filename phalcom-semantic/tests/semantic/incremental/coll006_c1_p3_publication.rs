@@ -89,7 +89,9 @@ fn publication_invalid_valid_invalid_matches_cold_and_reuses_unrelated_callable(
     let other_source = "class Other { @class stable() -> Int { 1 } }";
     let mut incremental = SemanticWorkspaceSession::new();
 
-    let first = incremental.update(multi_module_input(vec![(main.clone(), source(true)), (other.clone(), other_source.into())], 1)).expect("semantic test update should succeed");
+    let first = incremental
+        .update(multi_module_input(vec![(main.clone(), source(true)), (other.clone(), other_source.into())], 1))
+        .expect("semantic test update should succeed");
     let run = run_id(&main);
     let other_callable = CallableId::new(
         DeclarationId::new(other.clone(), "Other".into()),
@@ -100,7 +102,9 @@ fn publication_invalid_valid_invalid_matches_cold_and_reuses_unrelated_callable(
     assert_eq!(sequence_meanings(&first.snapshot, &run).len(), 1);
     let other_first = first.snapshot.callable_analyses.get(&other_callable).expect("other callable").clone();
 
-    let second = incremental.update(multi_module_input(vec![(main.clone(), source(false)), (other.clone(), other_source.into())], 2)).expect("semantic test update should succeed");
+    let second = incremental
+        .update(multi_module_input(vec![(main.clone(), source(false)), (other.clone(), other_source.into())], 2))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     assert_eq!(sequence_meanings(&second.snapshot, &run).len(), 2);
     assert!(std::sync::Arc::ptr_eq(
@@ -108,13 +112,17 @@ fn publication_invalid_valid_invalid_matches_cold_and_reuses_unrelated_callable(
         second.snapshot.callable_analyses.get(&other_callable).expect("reused other callable"),
     ));
 
-    let third = incremental.update(multi_module_input(vec![(main.clone(), source(true)), (other.clone(), other_source.into())], 3)).expect("semantic test update should succeed");
+    let third = incremental
+        .update(multi_module_input(vec![(main.clone(), source(true)), (other.clone(), other_source.into())], 3))
+        .expect("semantic test update should succeed");
     assert!(third.snapshot.has_errors());
     assert_eq!(sequence_meanings(&third.snapshot, &run).len(), 1);
 
     for (generation, text, update) in [(1, source(true), &first), (2, source(false), &second), (3, source(true), &third)] {
         let mut cold = SemanticWorkspaceSession::new();
-        let cold_update = cold.update(single_module_input(main.clone(), &text, generation)).expect("semantic test update should succeed");
+        let cold_update = cold
+            .update(single_module_input(main.clone(), &text, generation))
+            .expect("semantic test update should succeed");
         assert_eq!(update.snapshot.has_errors(), cold_update.snapshot.has_errors(), "generation {generation}");
         assert_eq!(
             sequence_meanings(&update.snapshot, &run),
@@ -164,10 +172,12 @@ fn static_sequence_incremental_edits_match_cold_and_drop_stale_products() {
     let mut previous_fingerprint = None;
 
     for (generation, source, expected) in revisions {
-        let update = incremental.update(multi_module_input(
-            vec![(main_module.clone(), source.to_owned()), (other.clone(), other_source.to_owned())],
-            generation,
-        )).expect("semantic test update should succeed");
+        let update = incremental
+            .update(multi_module_input(
+                vec![(main_module.clone(), source.to_owned()), (other.clone(), other_source.to_owned())],
+                generation,
+            ))
+            .expect("semantic test update should succeed");
         assert_eq!(static_sequence_meaning(&update.snapshot, &values), expected, "generation {generation}");
         let binding = update.snapshot.module_static_binding(&symbol).expect("current module binding");
         let (expected_phase, expected_type) = match expected.as_ref() {
@@ -233,10 +243,12 @@ fn static_sequence_incremental_edits_match_cold_and_drop_stale_products() {
             stable_product = Some(current_stable);
         }
 
-        let cold = SemanticWorkspaceSession::new().update(multi_module_input(
-            vec![(main_module.clone(), source.to_owned()), (other.clone(), other_source.to_owned())],
-            1,
-        )).expect("semantic test update should succeed");
+        let cold = SemanticWorkspaceSession::new()
+            .update(multi_module_input(
+                vec![(main_module.clone(), source.to_owned()), (other.clone(), other_source.to_owned())],
+                1,
+            ))
+            .expect("semantic test update should succeed");
         assert_eq!(
             update.snapshot.diagnostics.get(&main_module),
             cold.snapshot.diagnostics.get(&main_module),
@@ -264,7 +276,9 @@ fn static_sequence_incremental_invalid_valid_invalid_and_spread_exactness_have_n
     let source_id = StaticConstantId::new(main_module.clone(), "source");
     let mut incremental = SemanticWorkspaceSession::new();
 
-    let invalid_empty = incremental.update(single_module_input(main_module.clone(), "const values = []\n", 1)).expect("semantic test update should succeed");
+    let invalid_empty = incremental
+        .update(single_module_input(main_module.clone(), "const values = []\n", 1))
+        .expect("semantic test update should succeed");
     assert!(invalid_empty.snapshot.has_errors());
     assert!(static_sequence_meaning(&invalid_empty.snapshot, &values).is_none());
     assert!(
@@ -274,11 +288,15 @@ fn static_sequence_incremental_invalid_valid_invalid_and_spread_exactness_have_n
             .is_some_and(|product| { product.value().is_none() && product.materialization_descriptor(invalid_empty.snapshot.static_values()).is_none() })
     );
 
-    let valid = incremental.update(single_module_input(main_module.clone(), "const values = [1, 2]\n", 2)).expect("semantic test update should succeed");
+    let valid = incremental
+        .update(single_module_input(main_module.clone(), "const values = [1, 2]\n", 2))
+        .expect("semantic test update should succeed");
     assert!(!valid.snapshot.has_errors(), "diagnostics: {:?}", valid.snapshot.diagnostics);
     assert!(static_sequence_meaning(&valid.snapshot, &values).is_some());
 
-    let invalid_extent = incremental.update(single_module_input(main_module.clone(), "const values: Vector<Int, 2> = [1]\n", 3)).expect("semantic test update should succeed");
+    let invalid_extent = incremental
+        .update(single_module_input(main_module.clone(), "const values: Vector<Int, 2> = [1]\n", 3))
+        .expect("semantic test update should succeed");
     assert!(invalid_extent.snapshot.has_errors());
     assert!(static_sequence_meaning(&invalid_extent.snapshot, &values).is_none());
     assert!(
@@ -288,20 +306,24 @@ fn static_sequence_incremental_invalid_valid_invalid_and_spread_exactness_have_n
             .is_some_and(|product| { product.value().is_none() && product.materialization_descriptor(invalid_extent.snapshot.static_values()).is_none() })
     );
 
-    let exact_spread = incremental.update(single_module_input(
-        main_module.clone(),
-        "const source: Vector<Int, 2> = <Int, 2>[1, 2]\nconst values: Vector<Int, 2> = [*source]\n",
-        4,
-    )).expect("semantic test update should succeed");
+    let exact_spread = incremental
+        .update(single_module_input(
+            main_module.clone(),
+            "const source: Vector<Int, 2> = <Int, 2>[1, 2]\nconst values: Vector<Int, 2> = [*source]\n",
+            4,
+        ))
+        .expect("semantic test update should succeed");
     assert!(!exact_spread.snapshot.has_errors(), "diagnostics: {:?}", exact_spread.snapshot.diagnostics);
     assert_eq!(static_sequence_meaning(&exact_spread.snapshot, &values).unwrap().1.len(), 2);
     assert!(static_sequence_meaning(&exact_spread.snapshot, &source_id).is_some());
 
-    let runtime_spread = incremental.update(single_module_input(
-        main_module.clone(),
-        "let source = <Int>[1, 2]\nconst values: Vector<Int, 2> = [*source]\n",
-        5,
-    )).expect("semantic test update should succeed");
+    let runtime_spread = incremental
+        .update(single_module_input(
+            main_module.clone(),
+            "let source = <Int>[1, 2]\nconst values: Vector<Int, 2> = [*source]\n",
+            5,
+        ))
+        .expect("semantic test update should succeed");
     assert!(runtime_spread.snapshot.has_errors());
     assert!(static_sequence_meaning(&runtime_spread.snapshot, &values).is_none());
     assert!(
@@ -311,11 +333,13 @@ fn static_sequence_incremental_invalid_valid_invalid_and_spread_exactness_have_n
             .is_some_and(|product| { product.value().is_none() && product.materialization_descriptor(runtime_spread.snapshot.static_values()).is_none() })
     );
 
-    let cold = SemanticWorkspaceSession::new().update(single_module_input(
-        main_module,
-        "let source = <Int>[1, 2]\nconst values: Vector<Int, 2> = [*source]\n",
-        1,
-    )).expect("semantic test update should succeed");
+    let cold = SemanticWorkspaceSession::new()
+        .update(single_module_input(
+            main_module,
+            "let source = <Int>[1, 2]\nconst values: Vector<Int, 2> = [*source]\n",
+            1,
+        ))
+        .expect("semantic test update should succeed");
     assert_eq!(runtime_spread.snapshot.diagnostics, cold.snapshot.diagnostics);
     assert_eq!(
         static_sequence_meaning(&runtime_spread.snapshot, &values),
@@ -338,7 +362,9 @@ const middle: Vector<Int, 2> = [*base]
 const outer: Vector<Int, 3> = [0, *middle]
 const stable: Vector<Int, 1> = <Int, 1>[7]
 "#;
-    let initial = incremental.update(single_module_input(main.clone(), initial_source, 1)).expect("semantic test update should succeed");
+    let initial = incremental
+        .update(single_module_input(main.clone(), initial_source, 1))
+        .expect("semantic test update should succeed");
     assert!(!initial.snapshot.has_errors(), "initial diagnostics: {:?}", initial.snapshot.diagnostics);
     let initial_middle = static_sequence_meaning(&initial.snapshot, &middle).expect("middle value");
     let initial_outer = static_sequence_meaning(&initial.snapshot, &outer).expect("outer value");
@@ -351,11 +377,16 @@ const middle: Vector<Int, 2> = [*base]
 const outer: Vector<Int, 3> = [0, *middle]
 const stable: Vector<Int, 1> = <Int, 1>[7]
 "#;
-    let changed = incremental.update(single_module_input(main.clone(), content_edit, 2)).expect("semantic test update should succeed");
+    let changed = incremental
+        .update(single_module_input(main.clone(), content_edit, 2))
+        .expect("semantic test update should succeed");
     assert!(!changed.snapshot.has_errors(), "content edit diagnostics: {:?}", changed.snapshot.diagnostics);
     assert_eq!(static_sequence_meaning(&changed.snapshot, &middle).unwrap().1, static_ints(&[3, 4]));
     assert_eq!(static_sequence_meaning(&changed.snapshot, &outer).unwrap().1, static_ints(&[0, 3, 4]));
-    assert_eq!(static_sequence_meaning(&changed.snapshot, &stable), static_sequence_meaning(&initial.snapshot, &stable));
+    assert_eq!(
+        static_sequence_meaning(&changed.snapshot, &stable),
+        static_sequence_meaning(&initial.snapshot, &stable)
+    );
 
     let extent_edit = r#"
 const base: Vector<Int, 3> = <Int, 3>[5, 6, 7]
@@ -363,20 +394,34 @@ const middle: Vector<Int, 2> = [*base]
 const outer: Vector<Int, 3> = [0, *middle]
 const stable: Vector<Int, 1> = <Int, 1>[7]
 "#;
-    let invalid = incremental.update(single_module_input(main.clone(), extent_edit, 3)).expect("semantic test update should succeed");
+    let invalid = incremental
+        .update(single_module_input(main.clone(), extent_edit, 3))
+        .expect("semantic test update should succeed");
     assert!(invalid.snapshot.has_errors(), "a stale exact spread extent must be rejected");
     assert!(static_sequence_meaning(&invalid.snapshot, &base).is_some(), "edited source is valid");
     for id in [&middle, &outer] {
         assert!(static_sequence_meaning(&invalid.snapshot, id).is_none(), "stale dependent value for {id}");
         let product = invalid.snapshot.static_constant(id).expect("current dependent product");
         assert!(product.value().is_none(), "stale dependent value survived for {id}");
-        assert!(product.materialization_descriptor(invalid.snapshot.static_values()).is_none(), "stale descriptor survived for {id}");
+        assert!(
+            product.materialization_descriptor(invalid.snapshot.static_values()).is_none(),
+            "stale descriptor survived for {id}"
+        );
     }
-    assert_eq!(static_sequence_meaning(&invalid.snapshot, &stable), static_sequence_meaning(&changed.snapshot, &stable));
+    assert_eq!(
+        static_sequence_meaning(&invalid.snapshot, &stable),
+        static_sequence_meaning(&changed.snapshot, &stable)
+    );
 
-    let cold = SemanticWorkspaceSession::new().update(single_module_input(main, extent_edit, 1)).expect("semantic test update should succeed");
+    let cold = SemanticWorkspaceSession::new()
+        .update(single_module_input(main, extent_edit, 1))
+        .expect("semantic test update should succeed");
     assert_eq!(invalid.snapshot.diagnostics, cold.snapshot.diagnostics);
     for id in [&base, &middle, &outer, &stable] {
-        assert_eq!(static_sequence_meaning(&invalid.snapshot, id), static_sequence_meaning(&cold.snapshot, id), "cold parity for {id}");
+        assert_eq!(
+            static_sequence_meaning(&invalid.snapshot, id),
+            static_sequence_meaning(&cold.snapshot, id),
+            "cold parity for {id}"
+        );
     }
 }

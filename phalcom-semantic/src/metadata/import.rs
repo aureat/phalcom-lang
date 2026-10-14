@@ -3,37 +3,31 @@
 use crate::identity::{DataComponentId, DeclarationId, VariantFieldId, VariantId};
 use crate::metadata::export::MetadataExportError;
 use crate::metadata::stable_identity::from_field_key_ref;
-use crate::static_constant::{
-    ImportedStaticConstantOrigin, StaticConstantId, StaticConstantProduct, StaticConstantTable,
-};
+use crate::static_constant::{ImportedStaticConstantOrigin, StaticConstantId, StaticConstantProduct, StaticConstantTable};
 use crate::static_value::{StaticFloat, StaticValueRef, StaticValueStore};
 use crate::types::id::TypeId;
 use crate::types::row::{RecordRowField, RecordRowTail};
 use crate::types::store::{StaticArgument, TupleTypeElement, TypeStore};
 use phalcom_common::selector::Selector;
-use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ProjectIdentity};
 use phalcom_modules::ProjectUniverse;
+use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ProjectIdentity};
 use phalcom_type_meta::bundle::SemanticMetadataBundle;
 use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
 use phalcom_type_meta::static_value::{StaticValueNode, StaticValueNodeId};
 use phalcom_type_meta::type_node::{StaticArgumentRef, TypeNode, TypeNodeId};
-use phalcom_type_meta::validate::{validate_metadata_bundle, ValidationLimits};
+use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 pub fn resolve_stable_module(module: &StableModuleRef, projects: &ProjectUniverse) -> Option<ModuleId> {
     let project = match &module.project {
-        StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe" => {
-            ProjectIdentity::Universe
-        }
+        StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe" => ProjectIdentity::Universe,
         StableProjectRef::SourceArtifact { logical_uri, .. } => projects
             .projects()
             .iter()
             .find(|p| *p.source_identity.0.to_string_lossy() == **logical_uri)
             .map(|p| ProjectIdentity::Resolved(p.id))?,
-        StableProjectRef::Session { .. } => {
-            ProjectIdentity::Synthetic(phalcom_modules::identity::SyntheticProjectIdAllocator.allocate())
-        }
+        StableProjectRef::Session { .. } => ProjectIdentity::Synthetic(phalcom_modules::identity::SyntheticProjectIdAllocator.allocate()),
         _ => return None,
     };
     let components = module
@@ -63,12 +57,7 @@ pub struct SemanticMetadataImporter<'a> {
 }
 
 impl<'a> SemanticMetadataImporter<'a> {
-    pub fn new(
-        bundle: &'a SemanticMetadataBundle,
-        store: &'a mut StaticValueStore,
-        types: &'a mut TypeStore,
-        projects: &'a ProjectUniverse,
-    ) -> Self {
+    pub fn new(bundle: &'a SemanticMetadataBundle, store: &'a mut StaticValueStore, types: &'a mut TypeStore, projects: &'a ProjectUniverse) -> Self {
         Self {
             bundle,
             store,
@@ -102,10 +91,7 @@ impl<'a> SemanticMetadataImporter<'a> {
                 let mut elems = Vec::with_capacity(elements.len());
                 for el in elements.iter() {
                     let ty = self.resolve_type(el.ty)?;
-                    elems.push(TupleTypeElement {
-                        label: el.label.clone(),
-                        ty,
-                    });
+                    elems.push(TupleTypeElement { label: el.label.clone(), ty });
                 }
                 self.types.tuple(elems.into_boxed_slice())
             }
@@ -127,10 +113,7 @@ impl<'a> SemanticMetadataImporter<'a> {
                 let mut elems = Vec::with_capacity(pack.elements.len());
                 for el in pack.elements.iter() {
                     let ty = self.resolve_type(el.ty)?;
-                    elems.push(TupleTypeElement {
-                        label: el.label.clone(),
-                        ty,
-                    });
+                    elems.push(TupleTypeElement { label: el.label.clone(), ty });
                 }
                 self.types
                     .pack(elems.into_boxed_slice())
@@ -172,12 +155,8 @@ impl<'a> SemanticMetadataImporter<'a> {
         Ok(ty)
     }
 
-    pub fn import_all(
-        mut self,
-        constants_table: &mut StaticConstantTable,
-    ) -> Result<Vec<StaticValueRef>, MetadataExportError> {
-        validate_metadata_bundle(self.bundle, &ValidationLimits::default())
-            .map_err(|e| MetadataExportError::StaticValue(e.to_string()))?;
+    pub fn import_all(mut self, constants_table: &mut StaticConstantTable) -> Result<Vec<StaticValueRef>, MetadataExportError> {
+        validate_metadata_bundle(self.bundle, &ValidationLimits::default()).map_err(|e| MetadataExportError::StaticValue(e.to_string()))?;
 
         // Reconstruct static values in topological order:
         for (i, entry) in self.bundle.static_values.iter().enumerate() {
@@ -204,11 +183,13 @@ impl<'a> SemanticMetadataImporter<'a> {
                 }
                 StaticValueNode::Tuple(elements) => {
                     let children = elements.iter().map(|id| self.value_map[id]).collect();
-                    self.store
-                        .intern_tuple(children)
-                        .map_err(|e| MetadataExportError::StaticValue(e.to_string()))?
+                    self.store.intern_tuple(children).map_err(|e| MetadataExportError::StaticValue(e.to_string()))?
                 }
-                StaticValueNode::Sequence { family: _, result_type, elements } => {
+                StaticValueNode::Sequence {
+                    family: _,
+                    result_type,
+                    elements,
+                } => {
                     let children = elements.iter().map(|id| self.value_map[id]).collect();
                     let res_ty = self.resolve_type(*result_type)?;
                     self.store
@@ -216,25 +197,21 @@ impl<'a> SemanticMetadataImporter<'a> {
                         .map_err(|e| MetadataExportError::StaticValue(e.to_string()))?
                 }
                 StaticValueNode::Record(fields) => {
-                    let rec_fields = fields
-                        .iter()
-                        .map(|(k, v)| (from_field_key_ref(k), self.value_map[v]))
-                        .collect();
+                    let rec_fields = fields.iter().map(|(k, v)| (from_field_key_ref(k), self.value_map[v])).collect();
                     self.store
                         .intern_record(rec_fields)
                         .map_err(|e| MetadataExportError::StaticValue(e.to_string()))?
                 }
                 StaticValueNode::Pack { positionals, labeled } => {
                     let pos = positionals.iter().map(|id| self.value_map[id]).collect();
-                    let lab = labeled
-                        .iter()
-                        .map(|(lbl, id)| (self.store.intern_symbol_id(lbl), self.value_map[id]))
-                        .collect();
-                    self.store
-                        .intern_pack(pos, lab)
-                        .map_err(|e| MetadataExportError::StaticValue(e.to_string()))?
+                    let lab = labeled.iter().map(|(lbl, id)| (self.store.intern_symbol_id(lbl), self.value_map[id])).collect();
+                    self.store.intern_pack(pos, lab).map_err(|e| MetadataExportError::StaticValue(e.to_string()))?
                 }
-                StaticValueNode::Data { owner, result_type, components } => {
+                StaticValueNode::Data {
+                    owner,
+                    result_type,
+                    components,
+                } => {
                     let res_ty = self.resolve_type(*result_type)?;
                     let decl = resolve_stable_declaration(owner, self.projects)
                         .ok_or_else(|| MetadataExportError::StaticValue("unknown data owner in import".into()))?;
@@ -251,8 +228,7 @@ impl<'a> SemanticMetadataImporter<'a> {
                     let res_ty = self.resolve_type(*result_type)?;
                     let decl = resolve_stable_declaration(&variant.owner, self.projects)
                         .ok_or_else(|| MetadataExportError::StaticValue("unknown variant owner in import".into()))?;
-                    let selector = Selector::try_decode_exact(&variant.selector)
-                        .map_err(|e| MetadataExportError::StaticValue(e.to_string()))?;
+                    let selector = Selector::try_decode_exact(&variant.selector).map_err(|e| MetadataExportError::StaticValue(e.to_string()))?;
                     let var_id = VariantId::new(decl, selector);
                     let field_values = fields
                         .iter()
@@ -271,7 +247,10 @@ impl<'a> SemanticMetadataImporter<'a> {
             let module = resolve_stable_module(&constant.id.module, self.projects)
                 .ok_or_else(|| MetadataExportError::StaticValue("unknown module in imported constant".into()))?;
             let id = StaticConstantId::new(module, &*constant.id.name);
-            let val_ref = self.value_map.get(&constant.value).copied()
+            let val_ref = self
+                .value_map
+                .get(&constant.value)
+                .copied()
                 .ok_or_else(|| MetadataExportError::StaticValue("unknown value index in imported constant".into()))?;
             let origin = ImportedStaticConstantOrigin {
                 provider: constant.id.clone(),

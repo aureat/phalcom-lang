@@ -26,7 +26,6 @@ use crate::db::query::{
     query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
-use crate::types::outcome::BlockReason;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, NominalDeclarationHeader, TypeDeclarationShell};
 use crate::diagnostic::{DiagnosticCode, DiagnosticLabel, SemanticDiagnostic, SemanticSourceSpan};
 use crate::dispatch::SurfaceDispatchResolver;
@@ -53,6 +52,7 @@ use crate::types::annotation::{
     GenericBinderSite, TypeFormationOutcome, TypeFormationSite, TypeResolver, resolve_generic_signature, resolve_kind_syntax, type_level_binding_for_parameter,
 };
 use crate::types::id::{KindId, TypeId};
+use crate::types::outcome::BlockReason;
 use crate::types::parameter::{GenericBinderHeader, GenericSignature, TypeParameterOwner};
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
@@ -932,27 +932,28 @@ impl SemanticWorkspaceSession {
         };
         let current_sources = update.sources.keys().cloned().collect::<BTreeSet<_>>();
         let delta = self.merge_pending_semantic_delta(delta, &current_sources);
-        let result = self.update_with_budget_and_cancel_and_delta(
-            SemanticWorkspaceInput {
-                linked: update.linked,
-                semantic_linked: None,
-                sources: update.sources,
-                interfaces: update.interfaces,
-                import_products: update.import_products,
-                module_graph_changed: update.module_graph_changed,
-                import_sites_by_module: update.sites_by_importer,
-                require_canonical_import_products: true,
-                diagnostics: update.diagnostics,
-                blocked_modules: update.blocked_modules,
-                generation,
-                topology: Some(update.topology),
-                reverse_imports: Some(update.reverse_importers),
-            },
-            budget,
-            cancel,
-            Some(delta.clone()),
-        )
-        .map_err(SemanticUpdateFailure::from);
+        let result = self
+            .update_with_budget_and_cancel_and_delta(
+                SemanticWorkspaceInput {
+                    linked: update.linked,
+                    semantic_linked: None,
+                    sources: update.sources,
+                    interfaces: update.interfaces,
+                    import_products: update.import_products,
+                    module_graph_changed: update.module_graph_changed,
+                    import_sites_by_module: update.sites_by_importer,
+                    require_canonical_import_products: true,
+                    diagnostics: update.diagnostics,
+                    blocked_modules: update.blocked_modules,
+                    generation,
+                    topology: Some(update.topology),
+                    reverse_imports: Some(update.reverse_importers),
+                },
+                budget,
+                cancel,
+                Some(delta.clone()),
+            )
+            .map_err(SemanticUpdateFailure::from);
         self.pending_semantic_delta = result.as_ref().err().map(|_| delta);
         result
     }
@@ -4828,7 +4829,10 @@ impl SemanticWorkspaceSession {
             conformance_associated_type_plans.retain(|impl_id, _| &impl_id.module != module);
             derived_conformance_rules.remove_source(module);
         }
-        for impl_id in conformance_witness_rebuild_impls.iter().filter(|impl_id| !structural_work_modules.contains(&impl_id.module)) {
+        for impl_id in conformance_witness_rebuild_impls
+            .iter()
+            .filter(|impl_id| !structural_work_modules.contains(&impl_id.module))
+        {
             conformance_index.remove(impl_id);
             conformance_witness_plans.remove(impl_id);
             conformance_associated_type_plans.remove(impl_id);
@@ -4848,9 +4852,7 @@ impl SemanticWorkspaceSession {
                 if let Statement::Impl(impl_def) = statement {
                     let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(idx as u32));
                     let is_conformance = matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Conformance { .. });
-                    if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some()
-                        && module_id.path.to_string().contains("collections.list")
-                    {
+                    if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() && module_id.path.to_string().contains("collections.list") {
                         eprintln!("conformance candidate {:?} module={} is_conformance={is_conformance}", impl_id, module_id);
                     }
                     if is_conformance && !conformance_witness_rebuild_impls.contains(&impl_id) {
@@ -4866,10 +4868,11 @@ impl SemanticWorkspaceSession {
                         context.attach_enum_semantics(&enum_semantics);
                         match crate::impls::resolve_conformance_head(&mut context, &trait_headers, &impl_id, impl_def) {
                             Ok(crate::impls::ResolvedConformanceDeclaration::Nominal(head)) => {
-                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some()
-                                    && module_id.path.to_string().contains("collections.list")
-                                {
-                                    eprintln!("conformance resolved {:?} target={:?} trait={:?} eligible={}", impl_id, head.target, head.trait_ref, head.eligible);
+                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() && module_id.path.to_string().contains("collections.list") {
+                                    eprintln!(
+                                        "conformance resolved {:?} target={:?} trait={:?} eligible={}",
+                                        impl_id, head.target, head.trait_ref, head.eligible
+                                    );
                                 }
                                 let authorized = crate::impls::conformance_is_authorized(&head.source_module, &head.trait_ref, &head.target);
                                 let target_owner = head.target.declaration().clone();
@@ -5060,10 +5063,11 @@ impl SemanticWorkspaceSession {
                                 conformance_index.insert(contribution);
                             }
                             Ok(crate::impls::ResolvedConformanceDeclaration::GuardedRule(rule_head)) => {
-                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some()
-                                    && module_id.path.to_string().contains("collections.list")
-                                {
-                                    eprintln!("conformance guarded {:?} target={:?} trait={:?}", impl_id, rule_head.target_template, rule_head.trait_ref);
+                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() && module_id.path.to_string().contains("collections.list") {
+                                    eprintln!(
+                                        "conformance guarded {:?} target={:?} trait={:?}",
+                                        impl_id, rule_head.target_template, rule_head.trait_ref
+                                    );
                                 }
                                 let Some(surface) = trait_surfaces.get(&rule_head.trait_ref.declaration) else {
                                     continue;
@@ -5241,9 +5245,7 @@ impl SemanticWorkspaceSession {
                                 derived_conformance_rules.insert(rule);
                             }
                             Err(diagnostics) => {
-                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some()
-                                    && module_id.path.to_string().contains("collections.list")
-                                {
+                                if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() && module_id.path.to_string().contains("collections.list") {
                                     eprintln!("conformance rejected {:?}: {:?}", impl_id, diagnostics);
                                 }
                                 diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
@@ -5268,9 +5270,10 @@ impl SemanticWorkspaceSession {
                             };
                             let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
                             let annotations = crate::checker::declaration_signature::callable_syntax_type_annotations(syntax);
-                            if !annotations.iter().any(|annotation| {
-                                crate::checker::declaration_signature::annotation_has_computed_record_key(annotation)
-                            }) {
+                            if !annotations
+                                .iter()
+                                .any(|annotation| crate::checker::declaration_signature::annotation_has_computed_record_key(annotation))
+                            {
                                 continue;
                             }
                             let is_class_side = syntax.attributes().iter().any(|attribute| attribute.name == "class")
@@ -5320,11 +5323,7 @@ impl SemanticWorkspaceSession {
                                         cancel,
                                         active_constants: Vec::new(),
                                     };
-                                    driver.project_annotations(
-                                        QueryKey::CallableSignature(callable_id.clone()),
-                                        module_id,
-                                        annotations.iter().copied(),
-                                    )
+                                    driver.project_annotations(QueryKey::CallableSignature(callable_id.clone()), module_id, annotations.iter().copied())
                                 };
                                 match projection {
                                     crate::static_constant_demand::StaticDemandOutcome::Ready(projections) => break Some(projections),
@@ -6112,10 +6111,7 @@ impl SemanticWorkspaceSession {
                 .collect::<BTreeSet<_>>();
             bucket_keys
                 .into_iter()
-                .filter(|bucket_key| {
-                    trait_dispatch_index.bucket_fingerprint(bucket_key)
-                        != previous.trait_dispatch_index.bucket_fingerprint(bucket_key)
-                })
+                .filter(|bucket_key| trait_dispatch_index.bucket_fingerprint(bucket_key) != previous.trait_dispatch_index.bucket_fingerprint(bucket_key))
                 .map(QueryKey::TraitDispatchBucket)
                 .collect()
         });
@@ -8412,7 +8408,11 @@ impl SemanticWorkspaceSession {
                         let (elaboration, _) = context.elaborate_type_annotation(&resolver, annotation);
                         match elaboration {
                             Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context: inf_ctx, term, .. }) => {
-                                crate::checker::expected::ExpectedType::inference_from(inf_ctx, term, crate::checker::expected::ExpectationOrigin::DeclarationContract)
+                                crate::checker::expected::ExpectedType::inference_from(
+                                    inf_ctx,
+                                    term,
+                                    crate::checker::expected::ExpectationOrigin::DeclarationContract,
+                                )
                             }
                             Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
                                 crate::checker::expected::ExpectedType::proper_from(ty, crate::checker::expected::ExpectationOrigin::DeclarationContract)
@@ -8595,16 +8595,15 @@ impl SemanticWorkspaceSession {
         }
         if let Some(semantic_linked) = input.semantic_linked.as_ref() {
             let is_complete = input.blocked_modules.is_empty();
-            let (import_phase_products, generated_runtime_requirements) =
-                crate::phase_evidence::compute_module_import_phase_products(
-                    semantic_linked,
-                    &input.sources,
-                    snapshot_obj.source_index.as_ref(),
-                    &snapshot_obj.callable_analyses,
-                    Some(snapshot_obj.store.as_ref()),
-                    Some(&snapshot_obj.static_constants),
-                    is_complete,
-                );
+            let (import_phase_products, generated_runtime_requirements) = crate::phase_evidence::compute_module_import_phase_products(
+                semantic_linked,
+                &input.sources,
+                snapshot_obj.source_index.as_ref(),
+                &snapshot_obj.callable_analyses,
+                Some(snapshot_obj.store.as_ref()),
+                Some(&snapshot_obj.static_constants),
+                is_complete,
+            );
             snapshot_obj.import_phase_products = Arc::new(import_phase_products);
             snapshot_obj.generated_runtime_requirements = Arc::from(generated_runtime_requirements);
         }
@@ -8887,8 +8886,7 @@ fn collect_alias_dependencies(
                             collect_alias_dependencies(constraint.as_ref(), module, resolver, aliases, dependencies);
                         }
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_)
-                    | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -9031,8 +9029,7 @@ fn collect_associated_projection_targets(
                             collect_associated_projection_targets(constraint.as_ref(), module, surface, targets);
                         }
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_)
-                    | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -9204,8 +9201,7 @@ fn collect_type_annotation_declarations(
                             collect_type_annotation_declarations(constraint.as_ref(), module, resolver, dependencies);
                         }
                     }
-                    phalcom_ast::ast::GenericArgumentSyntax::Value(_)
-                    | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
+                    phalcom_ast::ast::GenericArgumentSyntax::Value(_) | phalcom_ast::ast::GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -9589,8 +9585,7 @@ fn collect_static_case_signature_dependencies(
                             collect_static_case_signature_dependencies(constraint.as_ref(), module, resolver, catalogs, dependencies);
                         }
                     }
-                    GenericArgumentSyntax::Value(_)
-                    | GenericArgumentSyntax::InferenceHole { .. } => {}
+                    GenericArgumentSyntax::Value(_) | GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }
@@ -9988,8 +9983,7 @@ fn collect_source_member_projection_dependencies(
                             collect_source_member_projection_dependencies(constraint.as_ref(), module, resolver, members, dependencies);
                         }
                     }
-                    GenericArgumentSyntax::Value(_)
-                    | GenericArgumentSyntax::InferenceHole { .. } => {}
+                    GenericArgumentSyntax::Value(_) | GenericArgumentSyntax::InferenceHole { .. } => {}
                 }
             }
         }

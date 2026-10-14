@@ -160,8 +160,7 @@ fn is_query_owned_module(module: &ModuleId) -> bool {
 /// remain ordinary semantic identities and must retain their fine-grained
 /// dependency edges. Only the aggregate root is bootstrap-owned here.
 fn is_bootstrap_declaration(declaration: &DeclarationId) -> bool {
-    declaration.module == ModuleId::universe_root()
-        || crate::checker::proof_predicate::is_proof_predicate_declaration(declaration).is_some()
+    declaration.module == ModuleId::universe_root() || crate::checker::proof_predicate::is_proof_predicate_declaration(declaration).is_some()
 }
 
 /// Built-in type-test callables are represented by the standalone bootstrap
@@ -1092,11 +1091,7 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
-    pub(crate) fn record_import_phase(
-        &mut self,
-        id: &phalcom_modules::identity::SourceImportBindingId,
-        phase: phalcom_modules::graph::DependencyPhase,
-    ) {
+    pub(crate) fn record_import_phase(&mut self, id: &phalcom_modules::identity::SourceImportBindingId, phase: phalcom_modules::graph::DependencyPhase) {
         self.observed_import_phases
             .entry(id.clone())
             .and_modify(|p| *p = p.join(phase))
@@ -1121,9 +1116,7 @@ impl<'a> CheckingContext<'a> {
                 local_name.clone(),
             ));
             self.record_semantic_dependency(crate::checker::analysis::SemanticDependency::ModuleStaticBindings(symbol.module.clone()));
-            if let BindingDeclarationResult::Inserted(binding_id) =
-                self.declare_checked_binding(local_name, &fact.state, fact.phase)
-            {
+            if let BindingDeclarationResult::Inserted(binding_id) = self.declare_checked_binding(local_name, &fact.state, fact.phase) {
                 self.imported_source_bindings.insert(binding_id, import_binding.id.clone());
             }
         }
@@ -1186,10 +1179,7 @@ impl<'a> CheckingContext<'a> {
     /// Checks a candidate without committing solver, flow, rigid or publication
     /// state. Dependency reads and budget/cancellation remain shared. A unique
     /// winner must subsequently be checked through the live application path.
-    pub(crate) fn run_candidate_probe<T>(
-        &mut self,
-        run: impl FnOnce(&mut CheckingContext<'_>) -> T,
-    ) -> T {
+    pub(crate) fn run_candidate_probe<T>(&mut self, run: impl FnOnce(&mut CheckingContext<'_>) -> T) -> T {
         let resolver = self.resolver.inner;
         let mut probe = self.with_resolver(resolver);
         probe.inference_contexts = probe
@@ -1392,7 +1382,11 @@ impl<'a> CheckingContext<'a> {
                     match norm_progress {
                         Ok(changed) => {
                             if std::env::var_os("PHALCOM_INFERENCE_TRACE").is_some() {
-                                eprintln!("inference frame {:?}: projection rewrite changed={changed} residual={:?}", frame, session.residual_obligations());
+                                eprintln!(
+                                    "inference frame {:?}: projection rewrite changed={changed} residual={:?}",
+                                    frame,
+                                    session.residual_obligations()
+                                );
                             }
                             // Rewrites, including reflexive equalities with no
                             // new binding, require a canonical residual retry.
@@ -1423,7 +1417,8 @@ impl<'a> CheckingContext<'a> {
         let mut session = crate::checker::inference::InferenceCoordinator::new();
         let frame = session.root_frame();
         self.inference_contexts.insert(context, Rc::new(RefCell::new(session)));
-        self.sequence_publication.register(super::sequence_publication::PublicationOwner(context, frame), None);
+        self.sequence_publication
+            .register(super::sequence_publication::PublicationOwner(context, frame), None);
         (context, frame)
     }
 
@@ -1502,13 +1497,19 @@ impl<'a> CheckingContext<'a> {
             .unwrap_or_default()
     }
 
-    pub(crate) fn stage_sequence(&mut self, resolution: super::analysis::SequenceLiteralResolution, mut dependencies: super::sequence_publication::PublicationDependencies) {
+    pub(crate) fn stage_sequence(
+        &mut self,
+        resolution: super::analysis::SequenceLiteralResolution,
+        mut dependencies: super::sequence_publication::PublicationDependencies,
+    ) {
         dependencies.extend(self.sequence_dependencies());
         self.sequence_publication.stage(resolution, dependencies, &mut self.sequence_literals);
     }
 
     pub(crate) fn sequence_local_resolution(&self, expression: ExpressionId) -> Option<&super::analysis::SequenceLiteralResolution> {
-        self.sequence_literals.get(&expression).or_else(|| self.sequence_publication.local_resolution(expression))
+        self.sequence_literals
+            .get(&expression)
+            .or_else(|| self.sequence_publication.local_resolution(expression))
     }
 
     pub(crate) fn reject_sequence_expression(&mut self, expression: ExpressionId) {
@@ -1528,9 +1529,12 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub(crate) fn accept_sequence_owner(&mut self, owner: super::sequence_publication::PublicationOwner) -> Result<(), AnalysisStatus> {
-        let requirements = self.deferred_applications.values()
+        let requirements = self
+            .deferred_applications
+            .values()
             .filter(|requirements| self.sequence_publication.requires_owner(owner) && self.sequence_publication.depends_on(requirements.owner, owner))
-            .cloned().collect::<Vec<_>>();
+            .cloned()
+            .collect::<Vec<_>>();
         for requirements in &requirements {
             if let Err(status) = requirements.validate(self) {
                 self.reject_sequence_owner(owner);
@@ -1564,7 +1568,9 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub(crate) fn finish_call_sequence_publication(&mut self, status: &mut AnalysisStatus, causal: super::causal::CausalInvalidity) {
-        let Some(expression) = self.current_expression_id() else { return; };
+        let Some(expression) = self.current_expression_id() else {
+            return;
+        };
         let owners = self.call_publication_owners.remove(&expression).unwrap_or_default();
         for (owner, owns_context) in owners {
             let readiness = self.deferred_applications.get(&owner);
@@ -1585,7 +1591,11 @@ impl<'a> CheckingContext<'a> {
 
     pub(crate) fn record_sequence_dependencies(&mut self, dependencies: &super::sequence_publication::PublicationDependencies) {
         if let Some(expression) = self.current_expression_id() {
-            self.sequence_publication.expression_dependencies.entry(expression).or_default().extend(dependencies.iter().copied());
+            self.sequence_publication
+                .expression_dependencies
+                .entry(expression)
+                .or_default()
+                .extend(dependencies.iter().copied());
         }
     }
 
@@ -1595,7 +1605,11 @@ impl<'a> CheckingContext<'a> {
         if !self.sequence_publication.has_pending() {
             return true;
         }
-        if !self.diagnostics.iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::DiagnosticSeverity::Error) {
+        if !self
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == crate::diagnostic::DiagnosticSeverity::Error)
+        {
             self.publish_analysis_incident("sequence construction reached artifact extraction with an unsettled inference owner");
             self.emit_diagnostic(SemanticDiagnostic::error_in(
                 self.current_module.clone(),
@@ -1743,10 +1757,7 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub(crate) fn current_call_explanations(&self) -> Vec<crate::identity::ExplanationId> {
-        self.call_dependency_frames
-            .last()
-            .map(|frame| frame.explanations.clone())
-            .unwrap_or_default()
+        self.call_dependency_frames.last().map(|frame| frame.explanations.clone()).unwrap_or_default()
     }
 
     pub(crate) fn record_terminal_status(&mut self, status: AnalysisStatus) {
@@ -1933,7 +1944,10 @@ impl<'a> CheckingContext<'a> {
         &mut self,
         resolver: &dyn TypeResolver,
         annotation: &phalcom_ast::ast::TypeAnnotation,
-    ) -> (Option<crate::checker::annotation_elaboration::AnnotationElaboration>, crate::checker::causal::CausalInvalidity) {
+    ) -> (
+        Option<crate::checker::annotation_elaboration::AnnotationElaboration>,
+        crate::checker::causal::CausalInvalidity,
+    ) {
         match crate::checker::annotation_elaboration::elaborate_annotation(self, resolver, annotation) {
             Ok(elaboration) => (Some(elaboration), crate::checker::causal::CausalInvalidity::Clean),
             Err(diagnostics) => {

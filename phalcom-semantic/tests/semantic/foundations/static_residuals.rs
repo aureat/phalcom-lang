@@ -5,12 +5,10 @@ use phalcom_semantic::identity::{DeclarationId, ModuleId};
 use phalcom_semantic::match_semantics::BranchProofEnvironment;
 use phalcom_semantic::static_domain::StaticValueDomain;
 use phalcom_semantic::static_eval::application::{
-    CanonicalStaticProofFact, StaticSpecializationArgument, StaticSpecializationEnvironmentError,
-    StaticSpecializationEnvironmentKey,
+    CanonicalStaticProofFact, StaticSpecializationArgument, StaticSpecializationEnvironmentError, StaticSpecializationEnvironmentKey,
 };
 use phalcom_semantic::static_eval::residual::{
-    StaticEvalTerm, StaticResidualApplication, StaticResidualData, StaticResidualParameter, StaticResidualStore,
-    StaticResidualStoreError,
+    StaticEvalTerm, StaticResidualApplication, StaticResidualData, StaticResidualParameter, StaticResidualStore, StaticResidualStoreError,
 };
 use phalcom_semantic::types::constraint::TypeConstraint;
 use phalcom_semantic::types::id::{KindId, TypeId, TypeParameterId};
@@ -167,12 +165,8 @@ fn test_equivalent_proof_fingerprint_is_commutative() {
         right: TypeId(42),
     };
 
-    let r1 = store
-        .proof(g1, TypeId(1), StaticSpecializationEnvironmentKey::default(), &mut budget)
-        .unwrap();
-    let r2 = store
-        .proof(g2, TypeId(1), StaticSpecializationEnvironmentKey::default(), &mut budget)
-        .unwrap();
+    let r1 = store.proof(g1, TypeId(1), StaticSpecializationEnvironmentKey::default(), &mut budget).unwrap();
+    let r2 = store.proof(g2, TypeId(1), StaticSpecializationEnvironmentKey::default(), &mut budget).unwrap();
 
     assert_eq!(r1, r2, "symmetric Equivalent goals normalize to one residual node");
 
@@ -285,8 +279,11 @@ fn pack_residual_rejects_mismatched_or_duplicate_symbol_lanes() {
     let malformed = store.pack(Box::new([]), Box::new([Box::<str>::from("x")]), Box::new([]), TypeId(42), &mut budget);
     assert_eq!(malformed, Err(StaticResidualStoreError::InvalidPackLanes));
     let duplicate = store.pack(
-        Box::new([]), Box::new([Box::<str>::from("x"), Box::<str>::from("x")]),
-        Box::new([StaticEvalTerm::Kinded(TypeId(1)), StaticEvalTerm::Kinded(TypeId(2))]), TypeId(42), &mut budget,
+        Box::new([]),
+        Box::new([Box::<str>::from("x"), Box::<str>::from("x")]),
+        Box::new([StaticEvalTerm::Kinded(TypeId(1)), StaticEvalTerm::Kinded(TypeId(2))]),
+        TypeId(42),
+        &mut budget,
     );
     assert_eq!(duplicate, Err(StaticResidualStoreError::DuplicatePackLabel("x".into())));
     assert_eq!(budget.residual_nodes_created, 0);
@@ -323,7 +320,8 @@ fn cv_env_01_environment_normalization_laws() {
             CanonicalStaticProofFact::Equal(ty_b, ty_a),
             CanonicalStaticProofFact::Subtype { lower: ty_a, upper: ty_b },
         ],
-    ).unwrap();
+    )
+    .unwrap();
 
     let env_2 = StaticSpecializationEnvironmentKey::normalized(
         vec![
@@ -335,7 +333,8 @@ fn cv_env_01_environment_normalization_laws() {
             CanonicalStaticProofFact::Subtype { lower: ty_a, upper: ty_b },
             CanonicalStaticProofFact::Equal(ty_a, ty_b),
         ],
-    ).unwrap();
+    )
+    .unwrap();
 
     assert_eq!(env_1, env_2, "normalization must be independent of input ordering");
 
@@ -346,11 +345,9 @@ fn cv_env_01_environment_normalization_laws() {
             (p0.clone(), StaticSpecializationArgument::Kinded(ty_a)),
         ],
         vec![(t0, ty_a), (t0, ty_a)],
-        vec![
-            CanonicalStaticProofFact::Equal(ty_a, ty_b),
-            CanonicalStaticProofFact::Equal(ty_b, ty_a),
-        ],
-    ).unwrap();
+        vec![CanonicalStaticProofFact::Equal(ty_a, ty_b), CanonicalStaticProofFact::Equal(ty_b, ty_a)],
+    )
+    .unwrap();
     assert_eq!(env_dup.argument_bindings().len(), 1);
     assert_eq!(env_dup.type_bindings().len(), 1);
     assert_eq!(env_dup.constraints().len(), 1);
@@ -359,16 +356,10 @@ fn cv_env_01_environment_normalization_laws() {
     assert_eq!(env_dup.constraints()[0], CanonicalStaticProofFact::Equal(ty_a, ty_b));
 
     // 4. Directional Subtype preservation
-    let env_sub_1 = StaticSpecializationEnvironmentKey::normalized(
-        vec![],
-        vec![],
-        vec![CanonicalStaticProofFact::Subtype { lower: ty_a, upper: ty_b }],
-    ).unwrap();
-    let env_sub_2 = StaticSpecializationEnvironmentKey::normalized(
-        vec![],
-        vec![],
-        vec![CanonicalStaticProofFact::Subtype { lower: ty_b, upper: ty_a }],
-    ).unwrap();
+    let env_sub_1 =
+        StaticSpecializationEnvironmentKey::normalized(vec![], vec![], vec![CanonicalStaticProofFact::Subtype { lower: ty_a, upper: ty_b }]).unwrap();
+    let env_sub_2 =
+        StaticSpecializationEnvironmentKey::normalized(vec![], vec![], vec![CanonicalStaticProofFact::Subtype { lower: ty_b, upper: ty_a }]).unwrap();
     assert_ne!(env_sub_1, env_sub_2, "Subtype directionality must be preserved");
 
     // 5. Idempotence: N(N(E)) == N(E)
@@ -376,7 +367,8 @@ fn cv_env_01_environment_normalization_laws() {
         env_1.argument_bindings().iter().cloned(),
         env_1.type_bindings().iter().copied(),
         env_1.constraints().iter().cloned(),
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(env_1, env_idemp, "normalization must be idempotent");
 
     // 6. Conflicting same-layer bindings fail closed
@@ -390,11 +382,7 @@ fn cv_env_01_environment_normalization_laws() {
     );
     assert_eq!(conflict_arg.unwrap_err(), StaticSpecializationEnvironmentError::ConflictingArgumentBinding);
 
-    let conflict_ty = StaticSpecializationEnvironmentKey::normalized(
-        vec![],
-        vec![(t0, ty_a), (t0, ty_b)],
-        vec![],
-    );
+    let conflict_ty = StaticSpecializationEnvironmentKey::normalized(vec![], vec![(t0, ty_a), (t0, ty_b)], vec![]);
     assert_eq!(conflict_ty.unwrap_err(), StaticSpecializationEnvironmentError::ConflictingTypeBinding);
 }
 
@@ -426,20 +414,10 @@ fn cv_sub_01_and_02_substitution_before_conflict_and_rejection() {
     let cancellation = CancellationToken::new();
 
     let owner = DeclarationId::new(ModuleId::universe_root(), "TestDecl".into());
-    let p_u = types.intern_type_parameter(TypeParameterData::new(
-        TypeParameterOwner::Declaration(owner.clone()),
-        0,
-        "U",
-        KindId::TYPE,
-    ));
+    let p_u = types.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(owner.clone()), 0, "U", KindId::TYPE));
     let ty_u = types.parameter_form(p_u);
 
-    let p_t = types.intern_type_parameter(TypeParameterData::new(
-        TypeParameterOwner::Declaration(owner),
-        1,
-        "T",
-        KindId::TYPE,
-    ));
+    let p_t = types.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(owner), 1, "T", KindId::TYPE));
 
     let boxed_decl = DeclarationId::new(ModuleId::universe_root(), "Boxed".into());
     let ctor_kind = types.arrow_kind(Box::new([KindId::TYPE]), KindId::TYPE);
@@ -454,31 +432,21 @@ fn cv_sub_01_and_02_substitution_before_conflict_and_rejection() {
     let boxed_other = types.apply_type_form(boxed_origin, &[other_ty]).unwrap();
 
     // Captured: T = Boxed<U>
-    let captured = StaticSpecializationEnvironmentKey::normalized(
-        vec![],
-        vec![(p_t, boxed_u)],
-        vec![],
-    ).unwrap();
+    let captured = StaticSpecializationEnvironmentKey::normalized(vec![], vec![(p_t, boxed_u)], vec![]).unwrap();
 
     // Supplied 1: U = Unit, T = Boxed<Unit>
-    let supplied_valid = StaticSpecializationEnvironmentKey::normalized(
-        vec![],
-        vec![(p_u, ty_unit), (p_t, boxed_unit)],
-        vec![],
-    ).unwrap();
+    let supplied_valid = StaticSpecializationEnvironmentKey::normalized(vec![], vec![(p_u, ty_unit), (p_t, boxed_unit)], vec![]).unwrap();
 
-    let composed_valid = captured.compose_with_supplied(&supplied_valid, &mut types, &mut budget, &cancellation)
+    let composed_valid = captured
+        .compose_with_supplied(&supplied_valid, &mut types, &mut budget, &cancellation)
         .expect("substitution before conflict must succeed when substituted captured matches supplied");
     assert_eq!(composed_valid.type_bindings().len(), 2);
 
     // Supplied 2: U = Unit, T = Boxed<Other> (contradiction after U = Unit)
-    let supplied_conflict = StaticSpecializationEnvironmentKey::normalized(
-        vec![],
-        vec![(p_u, ty_unit), (p_t, boxed_other)],
-        vec![],
-    ).unwrap();
+    let supplied_conflict = StaticSpecializationEnvironmentKey::normalized(vec![], vec![(p_u, ty_unit), (p_t, boxed_other)], vec![]).unwrap();
 
-    let err = captured.compose_with_supplied(&supplied_conflict, &mut types, &mut budget, &cancellation)
+    let err = captured
+        .compose_with_supplied(&supplied_conflict, &mut types, &mut budget, &cancellation)
         .unwrap_err();
     assert_eq!(err, StaticSpecializationEnvironmentError::ConflictingTypeBinding);
 }

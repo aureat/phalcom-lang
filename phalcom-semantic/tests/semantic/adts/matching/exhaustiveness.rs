@@ -338,16 +338,14 @@ fn match_exh_03_singleton_coverage_does_not_cover_nullary_constructor() {
 
 #[test]
 fn match_exh_04_distinct_payload_constructors_are_each_required() {
-    let case = analyze_adt(
-        "data Result { Ok(_ value: Int) Error(_ value: String) }\nclass Test { run(_ value: Result) { match value { Result::Ok(x) => x } } }\n",
-    );
+    let case =
+        analyze_adt("data Result { Ok(_ value: Int) Error(_ value: String) }\nclass Test { run(_ value: Result) { match value { Result::Ok(x) => x } } }\n");
     case.only_match().assert_not_exhaustive();
 }
 
 #[test]
 fn match_exh_05_family_pattern_covers_family_but_not_sibling() {
-    let case =
-        analyze_adt("data Animal { Dog Dog() Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Cat => 2 } } }\n");
+    let case = analyze_adt("data Animal { Dog Dog() Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Cat => 2 } } }\n");
     case.only_match().assert_exhaustive();
 }
 
@@ -452,32 +450,25 @@ fn match_exh_15_open_object_requires_wildcard() {
 
 #[test]
 fn match_use_02_exact_duplicate_arm_is_redundant() {
-    let case =
-        analyze_adt("data Choice { A B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 Choice::A => 2 _ => 0 } } }\n");
+    let case = analyze_adt("data Choice { A B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 Choice::A => 2 _ => 0 } } }\n");
     assert_eq!(case.only_match().arm(1).resolution().usefulness, PatternUsefulness::Redundant);
 }
 
 #[test]
 fn match_use_03_family_subsumes_exact_member() {
-    let case = analyze_adt(
-        "data Animal { Dog Dog() Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Dog() => 2 _ => 0 } } }\n",
-    );
+    let case = analyze_adt("data Animal { Dog Dog() Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Dog() => 2 _ => 0 } } }\n");
     assert_eq!(case.only_match().arm(1).resolution().usefulness, PatternUsefulness::Redundant);
 }
 
 #[test]
 fn match_use_04_duplicate_or_alternative_is_redundant() {
-    let case = analyze_adt(
-        "data Choice { Left Right }\nclass Test { run(_ value: Choice) { match value { Choice::Left | Choice::Left => 1 _ => 0 } } }\n",
-    );
+    let case = analyze_adt("data Choice { Left Right }\nclass Test { run(_ value: Choice) { match value { Choice::Left | Choice::Left => 1 _ => 0 } } }\n");
     assert!(!case.only_match().resolution().arms.is_empty());
 }
 
 #[test]
 fn match_use_05_family_alternative_subsumes_exact_member() {
-    let case = analyze_adt(
-        "data Animal { Dog Dog() Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Dog => 2 _ => 0 } } }\n",
-    );
+    let case = analyze_adt("data Animal { Dog Dog() Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Dog => 2 _ => 0 } } }\n");
     assert_eq!(case.only_match().arm(1).resolution().usefulness, PatternUsefulness::Redundant);
 }
 

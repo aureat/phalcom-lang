@@ -1434,9 +1434,9 @@ fn descriptor_field_key_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
                 .get(node.0 as usize)
                 .ok_or_else(|| RuntimeError::Internal("node not found".into()))?;
             match &entry.form {
-                phalcom_type_meta::type_node::TypeNode::Record(fields) => {
-                    fields.get(index).map(|field| phalcom_semantic::metadata::stable_identity::from_field_key_ref(&field.key))
-                }
+                phalcom_type_meta::type_node::TypeNode::Record(fields) => fields
+                    .get(index)
+                    .map(|field| phalcom_semantic::metadata::stable_identity::from_field_key_ref(&field.key)),
                 phalcom_type_meta::type_node::TypeNode::OpenRecord(record) => record
                     .fields
                     .get(index)

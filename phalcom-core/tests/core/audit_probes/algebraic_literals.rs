@@ -96,16 +96,14 @@ fn class_side_trait_default_runs_at_runtime() {
         .name("class-side-trait-default-runtime".into())
         .stack_size(8 * 1024 * 1024)
         .spawn(|| {
-            let (vm, module) = run(
-                r#"
+            let (vm, module) = run(r#"
 trait Describable {
   @class describe() -> String { "undescribed" }
 }
 data Widget(_ value: Int)
 impl Describable for Widget {}
 let description = Widget.describe()
-"#,
-            );
+"#);
             let description = global(&vm, module, "description");
             let text = vm.heap.as_string(description.as_obj().expect("String object")).expect("String value");
             assert_eq!(text.as_str(), "undescribed");
@@ -138,7 +136,11 @@ let firstThenSecond = y === Quaternion(0, 2, 3, 0)
 "#);
         assert_eq!(global(&vm, module, "once"), Value::bool(true));
         assert_eq!(global(&vm, module, "thrice"), Value::bool(true));
-        assert_eq!(global(&vm, module, "firstThenSecond"), Value::bool(true), "the i coefficient must be evaluated before the j coefficient");
+        assert_eq!(
+            global(&vm, module, "firstThenSecond"),
+            Value::bool(true),
+            "the i coefficient must be evaluated before the j coefficient"
+        );
         assert_eq!(exact_data_type(&vm, global(&vm, module, "x")), "Complex<Int>");
         assert_eq!(exact_data_type(&vm, global(&vm, module, "y")), "Quaternion<Int>");
     });
@@ -157,7 +159,10 @@ let same = coefficientFirst === basisFirst
         let start = source.find("i * 3").expect("basis-first operand order");
         let basis_first_range = phalcom_common::range::SourceRange::new(start, start + "i * 3".len());
         assert!(
-            program.modules[&program.entry].lowering.contextual_realizations.contains_key(&basis_first_range),
+            program.modules[&program.entry]
+                .lowering
+                .contextual_realizations
+                .contains_key(&basis_first_range),
             "basis-first product must publish its canonical realization"
         );
         let mut vm = VM::new();

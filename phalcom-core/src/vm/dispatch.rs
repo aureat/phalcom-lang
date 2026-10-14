@@ -1509,7 +1509,10 @@ impl VM {
             }
         }
         let type_environment = self.materialize_type_bindings(&bindings.into_iter().collect::<Vec<_>>())?;
-        let is_trait_default = matches!(spec.selection.selection, phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. });
+        let is_trait_default = matches!(
+            spec.selection.selection,
+            phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }
+        );
         let max_req_slot = if is_trait_default {
             spec.requirement_slots.iter().map(|(_, slot)| *slot as usize + 1).max().unwrap_or(0)
         } else {
@@ -1672,9 +1675,7 @@ impl VM {
         // selected the captured receiver's actual method.
         if let Some(recipe) = call_environment
             && self.resolve_symbol(selector_sym) == "call(***)"
-            && receiver
-                .as_obj()
-                .is_some_and(|id| matches!(self.heap.get(id), Object::Family(_)))
+            && receiver.as_obj().is_some_and(|id| matches!(self.heap.get(id), Object::Family(_)))
         {
             let authority = self.current_caller_authority();
             let view = ArgumentView::from_layout(receiver_idx, layout, authority.0, authority.1);
@@ -1856,7 +1857,9 @@ impl VM {
             ) {
                 return Ok(());
             }
-            return Err(RuntimeError::Internal("specialized call: selected method has no canonical runtime callable metadata".into()));
+            return Err(RuntimeError::Internal(
+                "specialized call: selected method has no canonical runtime callable metadata".into(),
+            ));
         };
         let actual = self
             .typing_registry

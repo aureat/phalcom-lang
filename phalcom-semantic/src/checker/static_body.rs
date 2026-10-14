@@ -16,8 +16,8 @@ use crate::member_projection::{MemberDeclarationIdentity, MemberProjection, Memb
 use crate::static_definition::{CheckedStaticBody, StaticBodyId, StaticDefinition, StaticDefinitionBodyRepr};
 use crate::static_domain::StaticValueDomain;
 use crate::static_intrinsic::StaticIntrinsicRegistry;
-use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::annotation::TypeResolver;
+use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::store::TypeData;
 use crate::types::type_member::{ProjectionSubject, TypeMemberArgument};
 use phalcom_ast::ast::{Expr, TypeAnnotationExpr};
@@ -161,16 +161,7 @@ pub fn analyze_static_constant_initializer_with_expected_and_diagnostic_start(
 ) -> crate::static_constant::CheckedStaticConstantInitializer {
     let expected_type = expected.ty();
     let input_fingerprint = crate::db::fingerprint::static_constant_input_fingerprint(constant_id, initializer, annotation, expected_type);
-    let expression = analyze_static_expression_with_demands_at(
-        context,
-        initializer,
-        expected,
-        catalog,
-        binding_states,
-        intrinsics,
-        diagnostic_start,
-    )
-    .0;
+    let expression = analyze_static_expression_with_demands_at(context, initializer, expected, catalog, binding_states, intrinsics, diagnostic_start).0;
     crate::static_constant::CheckedStaticConstantInitializer {
         id: constant_id.clone(),
         declaration_range,
@@ -238,15 +229,7 @@ pub fn check_static_expression_with_expected(
     intrinsics: &StaticIntrinsicRegistry,
 ) -> StaticExpressionCheckOutcome {
     let diagnostic_start = context.diagnostics.len();
-    check_static_expression_with_expected_and_diagnostic_start(
-        context,
-        initializer,
-        expected,
-        catalog,
-        binding_states,
-        intrinsics,
-        diagnostic_start,
-    )
+    check_static_expression_with_expected_and_diagnostic_start(context, initializer, expected, catalog, binding_states, intrinsics, diagnostic_start)
 }
 
 pub fn check_static_expression_with_expected_and_diagnostic_start(
@@ -357,9 +340,14 @@ fn analyze_static_expression_with_demands_at(
 
     let solved_expected_type = if source_invalid {
         None
-    } else if let ExpectedType::Inference { context: inf_ctx, ref term, .. } = expected {
+    } else if let ExpectedType::Inference {
+        context: inf_ctx, ref term, ..
+    } = expected
+    {
         if let Some(session) = context.inference_session(inf_ctx) {
-            let frame = context.current_inference_frame(inf_ctx).unwrap_or(crate::checker::inference::InferenceFrameId(0));
+            let frame = context
+                .current_inference_frame(inf_ctx)
+                .unwrap_or(crate::checker::inference::InferenceFrameId(0));
             let outcome = context.solve_inference_in_frame(&mut session.borrow_mut(), frame);
             let solved = if outcome.is_solved() {
                 session.borrow().materialize(term, context.store).ok()
@@ -369,7 +357,9 @@ fn analyze_static_expression_with_demands_at(
             let owner = super::sequence_publication::PublicationOwner(inf_ctx, frame);
             let source_valid = typed_result.status.is_ready()
                 && matches!(typed_result.causal_invalidity, CausalInvalidity::Clean)
-                && !context.diagnostics[diagnostic_start..].iter().any(|diagnostic| diagnostic.severity == crate::diagnostic::DiagnosticSeverity::Error);
+                && !context.diagnostics[diagnostic_start..]
+                    .iter()
+                    .any(|diagnostic| diagnostic.severity == crate::diagnostic::DiagnosticSeverity::Error);
             if solved.is_some() && source_valid {
                 if let Err(status) = context.accept_sequence_owner(owner) {
                     typed_result.status = status.clone();
@@ -379,15 +369,22 @@ fn analyze_static_expression_with_demands_at(
                         .any(|diagnostic| diagnostic.severity == crate::diagnostic::DiagnosticSeverity::Error)
                     {
                         let (code, message) = match status {
-                            AnalysisStatus::Blocked(reason) => (DiagnosticCode::AnalysisBlocked, format!("static initializer inference is blocked: {reason:?}")),
-                            AnalysisStatus::BudgetExceeded(report) => {
-                                (DiagnosticCode::AnalysisBudgetExceeded, format!("static initializer inference exceeded budget: {report:?}"))
+                            AnalysisStatus::Blocked(reason) => {
+                                (DiagnosticCode::AnalysisBlocked, format!("static initializer inference is blocked: {reason:?}"))
                             }
-                            AnalysisStatus::InternalFailure(incident) => {
-                                (DiagnosticCode::AnalysisInternalFailure, format!("static initializer inference failed: {incident:?}"))
-                            }
+                            AnalysisStatus::BudgetExceeded(report) => (
+                                DiagnosticCode::AnalysisBudgetExceeded,
+                                format!("static initializer inference exceeded budget: {report:?}"),
+                            ),
+                            AnalysisStatus::InternalFailure(incident) => (
+                                DiagnosticCode::AnalysisInternalFailure,
+                                format!("static initializer inference failed: {incident:?}"),
+                            ),
                             AnalysisStatus::Cancelled => (DiagnosticCode::AnalysisBlocked, "static initializer inference was cancelled".to_string()),
-                            _ => (DiagnosticCode::GenericInferenceUnderconstrained, "static initializer inference was not accepted".to_string()),
+                            _ => (
+                                DiagnosticCode::GenericInferenceUnderconstrained,
+                                "static initializer inference was not accepted".to_string(),
+                            ),
                         };
                         context.emit_diagnostic(SemanticDiagnostic::error_in(context.current_module.clone(), code, message, initializer.range()));
                     }
@@ -395,11 +392,15 @@ fn analyze_static_expression_with_demands_at(
             } else {
                 context.reject_sequence_owner(owner);
                 if source_valid {
-                    typed_result.status = AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnknownType(crate::types::evidence::UnknownReason::InferenceBlocked));
+                    typed_result.status = AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnknownType(
+                        crate::types::evidence::UnknownReason::InferenceBlocked,
+                    ));
                     context.sync_expression_outcome(&typed_result);
                     context.emit_diagnostic(SemanticDiagnostic::error_in(
-                        context.current_module.clone(), DiagnosticCode::GenericInferenceUnderconstrained,
-                        "static initializer inference could not be completed", initializer.range(),
+                        context.current_module.clone(),
+                        DiagnosticCode::GenericInferenceUnderconstrained,
+                        "static initializer inference could not be completed",
+                        initializer.range(),
                     ));
                 }
             }
@@ -519,7 +520,6 @@ fn analyze_static_expression_with_demands_at(
     }
     dependencies.sort();
     dependencies.dedup();
-
 
     let diagnostics = Arc::from(context.diagnostics[diagnostic_start..].to_vec().into_boxed_slice());
     let checked = crate::static_constant::CheckedStaticExpression {
@@ -863,16 +863,13 @@ fn checked_member_projection_index(
             continue;
         }
         let Some(form) = analysis.denotation.as_ref().and_then(|denotation| match denotation {
-            crate::types::denotation::SemanticDenotation::TypeForm(form)
-            | crate::types::denotation::SemanticDenotation::StaticTerm(form) => Some(*form),
+            crate::types::denotation::SemanticDenotation::TypeForm(form) | crate::types::denotation::SemanticDenotation::StaticTerm(form) => Some(*form),
             _ => None,
         }) else {
             continue;
         };
         let projection = match context.store.get(form) {
-            TypeData::AssociatedProjection(projection)
-                if structural_ids.is_structural_capability(&projection.trait_ref.declaration) =>
-            {
+            TypeData::AssociatedProjection(projection) if structural_ids.is_structural_capability(&projection.trait_ref.declaration) => {
                 let Some(surface) = context
                     .conformance_semantics
                     .and_then(|view| view.trait_surfaces.get(&projection.trait_ref.declaration))
@@ -927,11 +924,13 @@ fn checked_member_projection_index(
                         .arguments
                         .iter()
                         .cloned()
-                        .map(|argument| MemberProjectionArgument::Kinded(match argument {
-                            TypeMemberArgument::Type(ty) => TypeMemberArgument::Type(ty),
-                            TypeMemberArgument::Const(term) => TypeMemberArgument::Const(term),
-                            TypeMemberArgument::RecordRow(row) => TypeMemberArgument::RecordRow(row),
-                        }))
+                        .map(|argument| {
+                            MemberProjectionArgument::Kinded(match argument {
+                                TypeMemberArgument::Type(ty) => TypeMemberArgument::Type(ty),
+                                TypeMemberArgument::Const(term) => TypeMemberArgument::Const(term),
+                                TypeMemberArgument::RecordRow(row) => TypeMemberArgument::RecordRow(row),
+                            })
+                        })
                         .collect::<Vec<_>>()
                         .into_boxed_slice(),
                     evidence: None,
@@ -1129,12 +1128,9 @@ mod tests {
         context.attach_conformance_semantics(&conformance_semantics);
 
         let expression = crate::identity::ExpressionId::new(crate::identity::BodyId(7), crate::identity::LocalExpressionId(0));
-        let analysis = crate::checker::analysis::ExpressionAnalysis::ready(
-            expression,
-            SourceRange::default(),
-            TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
-        )
-        .with_denotation(Some(crate::types::denotation::SemanticDenotation::TypeForm(projection)));
+        let analysis =
+            crate::checker::analysis::ExpressionAnalysis::ready(expression, SourceRange::default(), TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence))
+                .with_denotation(Some(crate::types::denotation::SemanticDenotation::TypeForm(projection)));
         let expressions = BTreeMap::from([(expression, analysis)]);
 
         let projections = checked_member_projection_index(&context, &expressions);
@@ -1148,9 +1144,11 @@ mod tests {
             }
         );
         assert_eq!(checked.result_domain, StaticValueDomain::ValueType(product_shape));
-        assert!(context
-            .semantic_dependencies_snapshot()
-            .contains(&SemanticDependency::TraitSurface(structural_ids.product)));
+        assert!(
+            context
+                .semantic_dependencies_snapshot()
+                .contains(&SemanticDependency::TraitSurface(structural_ids.product))
+        );
     }
 
     #[test]

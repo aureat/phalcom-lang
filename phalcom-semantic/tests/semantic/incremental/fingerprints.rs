@@ -902,7 +902,9 @@ fn constructor_products_refresh_when_attributes_and_field_defaults_change() {
     let module = module("constructor_products");
     let initial = "@construct\nclass Parent {\n  _required: Int\n  _defaulted: Int = 1\n}\nclass Child is Parent {\n  _child: Int = 3\n}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(super::support::single_module_input(module.clone(), initial, 1)).expect("semantic test update should succeed");
+    let first = session
+        .update(super::support::single_module_input(module.clone(), initial, 1))
+        .expect("semantic test update should succeed");
     let owner = DeclarationId::new(module.clone(), "Parent".into());
     let generated = CallableId::new(
         owner.clone(),
@@ -915,7 +917,9 @@ fn constructor_products_refresh_when_attributes_and_field_defaults_change() {
     );
 
     let changed_default = "@construct\nclass Parent {\n  _required: Int\n  _defaulted: Int = 9\n}\nclass Child is Parent {\n  _child: Int = 3\n}\n";
-    let second = session.update(super::support::single_module_input(module.clone(), changed_default, 2)).expect("semantic test update should succeed");
+    let second = session
+        .update(super::support::single_module_input(module.clone(), changed_default, 2))
+        .expect("semantic test update should succeed");
     assert_ne!(
         first
             .snapshot
@@ -931,7 +935,9 @@ fn constructor_products_refresh_when_attributes_and_field_defaults_change() {
     );
 
     let without_attribute = "class Parent {\n  _required: Int\n  _defaulted: Int = 2\n}\nclass Child is Parent {\n  _child: Int = 3\n}\n";
-    let third = session.update(super::support::single_module_input(module.clone(), without_attribute, 3)).expect("semantic test update should succeed");
+    let third = session
+        .update(super::support::single_module_input(module.clone(), without_attribute, 3))
+        .expect("semantic test update should succeed");
     assert!(
         third.snapshot.constructor_initializations.get(&generated).is_none(),
         "removed @construct path must not survive as a stale product"
@@ -949,7 +955,9 @@ fn constructor_products_refresh_when_attributes_and_field_defaults_change() {
     );
 
     let no_defaults = "class Parent {}\nclass Child is Parent {\n  _child: Int = 3\n}\n";
-    let fourth = session.update(super::support::single_module_input(module.clone(), no_defaults, 4)).expect("semantic test update should succeed");
+    let fourth = session
+        .update(super::support::single_module_input(module.clone(), no_defaults, 4))
+        .expect("semantic test update should succeed");
     assert!(
         fourth.snapshot.constructor_initializations.get(&default_only).is_none(),
         "removing the final default must remove the default-only path"
@@ -961,7 +969,9 @@ fn constructor_products_refresh_when_attributes_and_field_defaults_change() {
     );
 
     let mut cold = SemanticWorkspaceSession::new();
-    let cold = cold.update(super::support::single_module_input(module, no_defaults, 1)).expect("semantic test update should succeed");
+    let cold = cold
+        .update(super::support::single_module_input(module, no_defaults, 1))
+        .expect("semantic test update should succeed");
     assert_eq!(
         &*fourth.snapshot.constructor_initializations, &*cold.snapshot.constructor_initializations,
         "incremental constructor products must match a cold final snapshot"
@@ -978,7 +988,9 @@ fn parent_constructor_product_change_revalidates_explicit_super_body() {
     let module = module("constructor_super_dependency");
     let initial = "class ParentDefaults {\n  _base: Int = 1\n}\nclass Child is ParentDefaults {\n  @constructor new() { super.new() }\n}\n";
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(super::support::single_module_input(module.clone(), initial, 1)).expect("semantic test update should succeed");
+    let first = session
+        .update(super::support::single_module_input(module.clone(), initial, 1))
+        .expect("semantic test update should succeed");
     let parent = DeclarationId::new(module.clone(), "ParentDefaults".into());
     let parent_factory = CallableId::new(parent.clone(), Selector::method("new", Vec::new()).unwrap(), DispatchSide::Class);
     let parent_key = QueryKey::ConstructorInitialization(parent);
@@ -1000,7 +1012,9 @@ fn parent_constructor_product_change_revalidates_explicit_super_body() {
     );
 
     let changed = "class ParentDefaults {\n  _base: Int = 2\n}\nclass Child is ParentDefaults {\n  @constructor new() { super.new() }\n}\n";
-    let second = session.update(super::support::single_module_input(module, changed, 2)).expect("semantic test update should succeed");
+    let second = session
+        .update(super::support::single_module_input(module, changed, 2))
+        .expect("semantic test update should succeed");
     assert_ne!(
         initial_field_fingerprint,
         second

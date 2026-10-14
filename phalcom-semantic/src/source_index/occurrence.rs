@@ -469,8 +469,7 @@ impl OccurrenceBuilder<'_> {
                                 self.expr(default, OccurrenceRole::Read);
                             }
                         }
-                        phalcom_ast::ast::ClassMember::Delegation(_)
-                        | phalcom_ast::ast::ClassMember::TypeMember(_) => {}
+                        phalcom_ast::ast::ClassMember::Delegation(_) | phalcom_ast::ast::ClassMember::TypeMember(_) => {}
                     }
                 }
             }

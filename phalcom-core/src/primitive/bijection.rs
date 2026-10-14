@@ -42,8 +42,7 @@ pub fn bijection_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> P
 pub fn bijection_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = expect_bijection(vm, receiver)?;
     let len = vm.heap.bijection(id).len();
-    let count = i64::try_from(len)
-        .map_err(|_| RuntimeError::NumericLimit("Bijection size exceeds Int range".to_string()))?;
+    let count = i64::try_from(len).map_err(|_| RuntimeError::NumericLimit("Bijection size exceeds Int range".to_string()))?;
     Ok(Value::int(count))
 }
 
@@ -87,20 +86,12 @@ pub fn bijection_raw_associate(vm: &mut VM, receiver: &Value, args: &[Value]) ->
             }
         }
         let rendered_key = key.to_string(vm);
-        return Err(bijection_conflict_error(
-            vm,
-            format!("Key '{rendered_key}' is already associated with another value in Bijection"),
-        )
-        .into());
+        return Err(bijection_conflict_error(vm, format!("Key '{rendered_key}' is already associated with another value in Bijection")).into());
     }
 
     if let Some(_existing_key) = rev_plan.old_payload {
         let rendered_val = val.to_string(vm);
-        return Err(bijection_conflict_error(
-            vm,
-            format!("Value '{rendered_val}' is already associated with another key in Bijection"),
-        )
-        .into());
+        return Err(bijection_conflict_error(vm, format!("Value '{rendered_val}' is already associated with another key in Bijection")).into());
     }
 
     let (new_fwd, _) = persistent_hash::commit_insert(&mut vm.heap, fwd_plan);

@@ -634,12 +634,10 @@ pub fn resolve_static_generic_value(
 
     let value = match expression {
         Expr::Int { digits, radix, .. } => BigInt::parse_bytes(digits.as_bytes(), *radix),
-        Expr::Unary(unary) if matches!(unary.op, phalcom_ast::ast::UnaryOp::Minus) => {
-            match &unary.expr {
-                Expr::Int { digits, radix, .. } => BigInt::parse_bytes(digits.as_bytes(), *radix).map(|value| -value),
-                _ => None,
-            }
-        }
+        Expr::Unary(unary) if matches!(unary.op, phalcom_ast::ast::UnaryOp::Minus) => match &unary.expr {
+            Expr::Int { digits, radix, .. } => BigInt::parse_bytes(digits.as_bytes(), *radix).map(|value| -value),
+            _ => None,
+        },
         _ => None,
     };
     let Some(value) = value else {
@@ -3269,9 +3267,7 @@ pub fn resolve_type_form(
             let mut arg_tys = Vec::with_capacity(arguments.len());
             for (index, arg) in arguments.iter().enumerate() {
                 let arg_res = match arg {
-                    phalcom_ast::ast::GenericArgumentSyntax::Single(arg) => {
-                        resolve_type_form(store, declarations, resolver, site, arg, diagnostics)
-                    }
+                    phalcom_ast::ast::GenericArgumentSyntax::Single(arg) => resolve_type_form(store, declarations, resolver, site, arg, diagnostics),
                     phalcom_ast::ast::GenericArgumentSyntax::Value(expression) => {
                         let Some(expected_kind) = parameter_kinds.get(index).copied() else {
                             diagnostics.push(SemanticDiagnostic::error_in(

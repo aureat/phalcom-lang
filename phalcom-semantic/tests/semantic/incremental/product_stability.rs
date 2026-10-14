@@ -184,7 +184,9 @@ class Consumer {
   @class read() -> Int { Api.value() }
 }
 "#;
-    let update1 = session.update(input(module.clone(), source_v1, 1)).expect("semantic test update should succeed");
+    let update1 = session
+        .update(input(module.clone(), source_v1, 1))
+        .expect("semantic test update should succeed");
     assert!(!update1.snapshot.has_errors());
     let rev1 = update1.snapshot.id.revision();
 
@@ -215,7 +217,9 @@ class Consumer {
   @class read() -> Int { Api.value() }
 }
 "#;
-    let update2 = session.update(input(module.clone(), source_v2, 2)).expect("semantic test update should succeed");
+    let update2 = session
+        .update(input(module.clone(), source_v2, 2))
+        .expect("semantic test update should succeed");
     assert!(!update2.snapshot.has_errors());
     let rev2 = update2.snapshot.id.revision();
     assert_ne!(rev1, rev2);
@@ -323,7 +327,9 @@ class Consumer {
   @class read() { Missing.value() }
 }
 "#;
-    let update1 = session.update(input(module.clone(), source_v1, 1)).expect("semantic test update should succeed");
+    let update1 = session
+        .update(input(module.clone(), source_v1, 1))
+        .expect("semantic test update should succeed");
     let consumer = DeclarationId::new(module.clone(), "Consumer".into());
     let consumer_read = CallableId::new(consumer, Selector::method("read", []).unwrap(), DispatchSide::Class);
     let body_key = QueryKey::CallableBody(consumer_read.clone());
@@ -351,7 +357,9 @@ class Consumer {
   @class read() { Missing.value() }
 }
 "#;
-    let update2 = session.update(input(module.clone(), source_v2, 2)).expect("semantic test update should succeed");
+    let update2 = session
+        .update(input(module.clone(), source_v2, 2))
+        .expect("semantic test update should succeed");
     assert!(!update2.snapshot.has_errors());
     let rev2 = update2.snapshot.id.revision();
     let consumer_state = session.db().query_state(&body_key).unwrap();
@@ -382,10 +390,12 @@ class Broken {
     let source_b_v2 = "class Stable { @class value() -> Int { 2 } }";
 
     let mut session = SemanticWorkspaceSession::new();
-    let initial = session.update(multi_module_input(
-        vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b_v1.into())],
-        1,
-    )).expect("semantic test update should succeed");
+    let initial = session
+        .update(multi_module_input(
+            vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b_v1.into())],
+            1,
+        ))
+        .expect("semantic test update should succeed");
     let initial_a_diagnostics = initial
         .snapshot
         .diagnostics
@@ -394,16 +404,20 @@ class Broken {
         .expect("module A must publish its semantic diagnostic");
     assert!(initial_a_diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch));
 
-    let updated = session.update(multi_module_input(
-        vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b_v2.into())],
-        2,
-    )).expect("semantic test update should succeed");
+    let updated = session
+        .update(multi_module_input(
+            vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b_v2.into())],
+            2,
+        ))
+        .expect("semantic test update should succeed");
 
     assert_eq!(updated.snapshot.diagnostics.get(&module_a), Some(&initial_a_diagnostics));
     assert!(!updated.effects.diagnostics_changed.contains(&module_a));
 
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold = cold_session.update(multi_module_input(vec![(module_a.clone(), source_a.into()), (module_b, source_b_v2.into())], 2)).expect("semantic test update should succeed");
+    let cold = cold_session
+        .update(multi_module_input(vec![(module_a.clone(), source_a.into()), (module_b, source_b_v2.into())], 2))
+        .expect("semantic test update should succeed");
     assert_eq!(updated.snapshot.diagnostics, cold.snapshot.diagnostics);
 }
 
@@ -466,9 +480,13 @@ class Consumer {
 }
 "#;
 
-    let initial = session.update(input(module.clone(), source_v1, 1)).expect("semantic test update should succeed");
+    let initial = session
+        .update(input(module.clone(), source_v1, 1))
+        .expect("semantic test update should succeed");
     assert!(!initial.snapshot.has_errors());
-    let updated = session.update(input(module.clone(), source_v2, 2)).expect("semantic test update should succeed");
+    let updated = session
+        .update(input(module.clone(), source_v2, 2))
+        .expect("semantic test update should succeed");
     assert!(
         updated
             .snapshot
@@ -535,13 +553,15 @@ fn removed_module_removes_all_diagnostics() {
         ModulePath::from_components(vec![ModuleComponent::from_identifier("survivor").unwrap()]),
     );
     let mut session = SemanticWorkspaceSession::new();
-    let initial = session.update(multi_module_input(
-        vec![
-            (module_a.clone(), "class Broken { @class number() -> Int { \"bad\" } }".into()),
-            (module_b.clone(), "class Stable { @class value() -> Int { 1 } }".into()),
-        ],
-        1,
-    )).expect("semantic test update should succeed");
+    let initial = session
+        .update(multi_module_input(
+            vec![
+                (module_a.clone(), "class Broken { @class number() -> Int { \"bad\" } }".into()),
+                (module_b.clone(), "class Stable { @class value() -> Int { 1 } }".into()),
+            ],
+            1,
+        ))
+        .expect("semantic test update should succeed");
     assert!(
         initial
             .snapshot
@@ -549,10 +569,12 @@ fn removed_module_removes_all_diagnostics() {
             .is_some_and(|diagnostics| { diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch) })
     );
 
-    let updated = session.update(multi_module_input(
-        vec![(module_b.clone(), "class Stable { @class value() -> Int { 2 } }".into())],
-        2,
-    )).expect("semantic test update should succeed");
+    let updated = session
+        .update(multi_module_input(
+            vec![(module_b.clone(), "class Stable { @class value() -> Int { 2 } }".into())],
+            2,
+        ))
+        .expect("semantic test update should succeed");
     assert!(updated.snapshot.diagnostics_for(&module_a).is_none());
     assert!(!updated.snapshot.has_errors());
 }
@@ -572,17 +594,23 @@ fn diagnostic_aggregate_matches_cold_after_repair_and_unrelated_edit() {
     let source_b_v2 = "class Stable { @class value() -> Int { 2 } }";
 
     let mut session = SemanticWorkspaceSession::new();
-    let _ = session.update(multi_module_input(
-        vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b_v1.into())],
-        1,
-    )).expect("semantic test update should succeed");
-    let incremental = session.update(multi_module_input(
-        vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b_v2.into())],
-        2,
-    )).expect("semantic test update should succeed");
+    let _ = session
+        .update(multi_module_input(
+            vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b_v1.into())],
+            1,
+        ))
+        .expect("semantic test update should succeed");
+    let incremental = session
+        .update(multi_module_input(
+            vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b_v2.into())],
+            2,
+        ))
+        .expect("semantic test update should succeed");
 
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold = cold_session.update(multi_module_input(vec![(module_a, source_a.into()), (module_b, source_b_v2.into())], 2)).expect("semantic test update should succeed");
+    let cold = cold_session
+        .update(multi_module_input(vec![(module_a, source_a.into()), (module_b, source_b_v2.into())], 2))
+        .expect("semantic test update should succeed");
     assert_eq!(incremental.snapshot.diagnostics, cold.snapshot.diagnostics);
 }
 
@@ -823,7 +851,9 @@ fn declaration_surface_field_annotation_diagnostic_is_retained() {
         ModulePath::from_components(vec![ModuleComponent::from_identifier("field_surface_diagnostics").unwrap()]),
     );
     let source = "class Handler {\n  _value: MissingType\n}\n";
-    let update = SemanticWorkspaceSession::new().update(input(module.clone(), source, 1)).expect("semantic test update should succeed");
+    let update = SemanticWorkspaceSession::new()
+        .update(input(module.clone(), source, 1))
+        .expect("semantic test update should succeed");
     let diagnostics = update.snapshot.all_diagnostics().collect::<Vec<_>>();
     assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:#?}");
     assert_eq!(diagnostics[0].code, DiagnosticCode::AnnotationUnresolved);
@@ -855,7 +885,9 @@ class Unrelated {
   @class stable() -> Int { 7 }
 }
 "#;
-    let update1 = session.update(input(module.clone(), source_v1, 1)).expect("semantic test update should succeed");
+    let update1 = session
+        .update(input(module.clone(), source_v1, 1))
+        .expect("semantic test update should succeed");
     assert!(!update1.snapshot.has_errors());
     let rev1 = update1.snapshot.id.revision();
 
@@ -885,7 +917,9 @@ class Unrelated {
   @class stable() -> Int { 7 }
 }
 "#;
-    let update2 = session.update(input(module.clone(), source_v2, 2)).expect("semantic test update should succeed");
+    let update2 = session
+        .update(input(module.clone(), source_v2, 2))
+        .expect("semantic test update should succeed");
     assert!(!update2.snapshot.has_errors());
     let rev2 = update2.snapshot.id.revision();
 
@@ -933,7 +967,9 @@ class Unrelated {
   @class stable() -> Int { 7 }
 }
 "#;
-    let update1 = session.update(input(module.clone(), source_v1, 1)).expect("semantic test update should succeed");
+    let update1 = session
+        .update(input(module.clone(), source_v1, 1))
+        .expect("semantic test update should succeed");
     assert!(!update1.snapshot.has_errors());
 
     let run = CallableId::new(
@@ -1023,7 +1059,9 @@ fn field_mutability_edit_invalidates_field_and_write_products() {
         )
     };
     let source_v1 = source(false);
-    let update1 = session.update(input(module.clone(), &source_v1, 1)).expect("semantic test update should succeed");
+    let update1 = session
+        .update(input(module.clone(), &source_v1, 1))
+        .expect("semantic test update should succeed");
     let owner = DeclarationId::new(module.clone(), "Store".into());
     let field = FieldId::new(owner.clone(), "_value", DispatchSide::Instance);
     let write = CallableId::new(owner, Selector::method("write", []).unwrap(), DispatchSide::Instance);
@@ -1041,7 +1079,9 @@ fn field_mutability_edit_invalidates_field_and_write_products() {
     let stable_v1 = update1.snapshot.callable_analyses.get(&stable).unwrap().clone();
 
     let source_v2 = source(true);
-    let update2 = session.update(input(module.clone(), &source_v2, 2)).expect("semantic test update should succeed");
+    let update2 = session
+        .update(input(module.clone(), &source_v2, 2))
+        .expect("semantic test update should succeed");
     let rev2 = update2.snapshot.id.revision();
     assert!(update2.snapshot.field_signatures.get(&field).unwrap().mutable);
     assert_eq!(session.db().query_state(&field_key).unwrap().revision(), Some(rev2));
@@ -1145,7 +1185,9 @@ fn pa8_recomputed_stable_intermediate_allows_downstream_reuse() {
     let source_c = "import stable_b.Middle\nclass Top { @class value() -> Int { Middle.value() } }\n";
     let mut session = SemanticWorkspaceSession::new();
 
-    let first = session.update(layered_input(source_a_v1, source_b, source_c, 1)).expect("semantic test update should succeed");
+    let first = session
+        .update(layered_input(source_a_v1, source_b, source_c, 1))
+        .expect("semantic test update should succeed");
     assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
     let middle = CallableId::new(
         DeclarationId::new(b.clone(), "Middle".into()),
@@ -1163,7 +1205,9 @@ fn pa8_recomputed_stable_intermediate_allows_downstream_reuse() {
     let middle_product_v1 = session.db().ready_product_fingerprint(&middle_key).expect("Middle product v1");
     let top_revision_v1 = session.db().query_state(&top_key).and_then(|state| state.revision()).expect("Top revision v1");
 
-    let second = session.update(layered_input(source_a_v2, source_b, source_c, 2)).expect("semantic test update should succeed");
+    let second = session
+        .update(layered_input(source_a_v2, source_b, source_c, 2))
+        .expect("semantic test update should succeed");
     assert!(!second.snapshot.has_errors(), "updated diagnostics: {:?}", second.snapshot.diagnostics);
     assert!(second.recomputed.contains(&middle_key), "A's contract refresh must recompute B");
     assert!(!second.recomputed.contains(&top_key), "C must stop at B's stable product");
@@ -1214,7 +1258,9 @@ class Unrelated {
   @class stable() -> Int { 9 }
 }
 "#;
-    let update1 = session.update(input(module.clone(), source_v1, 1)).expect("semantic test update should succeed");
+    let update1 = session
+        .update(input(module.clone(), source_v1, 1))
+        .expect("semantic test update should succeed");
     assert!(!update1.snapshot.has_errors());
     let rev1 = update1.snapshot.id.revision();
 

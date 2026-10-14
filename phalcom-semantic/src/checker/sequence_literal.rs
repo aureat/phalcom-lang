@@ -205,106 +205,128 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
         ctx.record_sequence_dependencies(&[owner].into_iter().collect());
     }
     let mut result = (|| {
-    let literal_expected = match &elaboration {
-        Some(AnnotationElaboration::Canonical(ty)) => ExpectedType::proper(*ty),
-        Some(AnnotationElaboration::Inference { context, term, .. }) => ExpectedType::inference_from(*context, term.clone(), ExpectationOrigin::ExplicitCheck),
-        None => expected.clone(),
-    };
-    let element_expected = argument(ctx, &literal_expected, selected, 0);
-    let extent_expected = argument(ctx, &literal_expected, selected, 1);
-    let element_dependencies = if literal.head.is_none() { ctx.sequence_dependencies() } else { Default::default() };
-    let mut operands = Vec::new();
-    let mut element_types = Vec::new();
-    let mut exact_expansions = BTreeMap::new();
-    let mut concrete_count = BigInt::from(0);
-    let mut symbolic_extent = None;
-    let mut valid = true;
-    let mut has_expansion = false;
-
-    for element in &literal.elements {
-        match element {
-            BracketLiteralElement::Element { expr, .. } => {
-                let typed = check_typed_expr_with_publication(ctx, expr, &element_expected, element_dependencies.clone());
-                if let Some(ty) = typed.knowledge.ty() {
-                    element_types.push(ty);
-                } else {
-                    valid = false;
-                }
-                valid &= matches!(typed.causal_invalidity, super::causal::CausalInvalidity::Clean);
-                concrete_count += 1;
-                operands.push(typed);
+        let literal_expected = match &elaboration {
+            Some(AnnotationElaboration::Canonical(ty)) => ExpectedType::proper(*ty),
+            Some(AnnotationElaboration::Inference { context, term, .. }) => {
+                ExpectedType::inference_from(*context, term.clone(), ExpectationOrigin::ExplicitCheck)
             }
-            BracketLiteralElement::Expansion { expr, range } => {
-                has_expansion = true;
-                let typed = analyze_expression(ctx, expr, &ExpectedType::None);
-                let source_ty = typed.knowledge.ty();
-                let mut exact = None;
-                let mut items = Vec::new();
-                if let Some(source_ty) = source_ty {
-                    match ctx.store.get(source_ty).clone() {
-                        TypeData::Unit => {
-                            exact = Some(SequenceExpansionResolution::TuplePositionals {
-                                extent: ctx.store.const_int(0),
-                            })
+            None => expected.clone(),
+        };
+        let element_expected = argument(ctx, &literal_expected, selected, 0);
+        let extent_expected = argument(ctx, &literal_expected, selected, 1);
+        let element_dependencies = if literal.head.is_none() {
+            ctx.sequence_dependencies()
+        } else {
+            Default::default()
+        };
+        let mut operands = Vec::new();
+        let mut element_types = Vec::new();
+        let mut exact_expansions = BTreeMap::new();
+        let mut concrete_count = BigInt::from(0);
+        let mut symbolic_extent = None;
+        let mut valid = true;
+        let mut has_expansion = false;
+
+        for element in &literal.elements {
+            match element {
+                BracketLiteralElement::Element { expr, .. } => {
+                    let typed = check_typed_expr_with_publication(ctx, expr, &element_expected, element_dependencies.clone());
+                    if let Some(ty) = typed.knowledge.ty() {
+                        element_types.push(ty);
+                    } else {
+                        valid = false;
+                    }
+                    valid &= matches!(typed.causal_invalidity, super::causal::CausalInvalidity::Clean);
+                    concrete_count += 1;
+                    operands.push(typed);
+                }
+                BracketLiteralElement::Expansion { expr, range } => {
+                    has_expansion = true;
+                    let typed = analyze_expression(ctx, expr, &ExpectedType::None);
+                    let source_ty = typed.knowledge.ty();
+                    let mut exact = None;
+                    let mut items = Vec::new();
+                    if let Some(source_ty) = source_ty {
+                        match ctx.store.get(source_ty).clone() {
+                            TypeData::Unit => {
+                                exact = Some(SequenceExpansionResolution::TuplePositionals {
+                                    extent: ctx.store.const_int(0),
+                                })
+                            }
+                            TypeData::Tuple(tuple) if tuple.positional_remainder == AnonymousTupleRemainder::None => {
+                                items.extend(tuple.elements.iter().filter(|entry| entry.label.is_none()).map(|entry| entry.ty));
+                                exact = Some(SequenceExpansionResolution::TuplePositionals {
+                                    extent: ctx.store.const_int(BigInt::from(items.len())),
+                                });
+                            }
+                            _ => {
+                                if let Some(arguments) = canonical_collection_arguments(ctx.store, source_ty, &ctx.core_ids.vector, 2) {
+                                    items.push(arguments[0]);
+                                    exact = Some(SequenceExpansionResolution::VectorStorage { extent: arguments[1] });
+                                }
+                            }
                         }
-                        TypeData::Tuple(tuple) if tuple.positional_remainder == AnonymousTupleRemainder::None => {
-                            items.extend(tuple.elements.iter().filter(|entry| entry.label.is_none()).map(|entry| entry.ty));
-                            exact = Some(SequenceExpansionResolution::TuplePositionals {
-                                extent: ctx.store.const_int(BigInt::from(items.len())),
-                            });
-                        }
-                        _ => {
-                            if let Some(arguments) = canonical_collection_arguments(ctx.store, source_ty, &ctx.core_ids.vector, 2) {
+                        if exact.is_none() && selected != SequenceLiteralFamily::Vector {
+                            let (resolution, _) = super::iteration::resolve_positional_expansion(ctx, typed.expression_id, source_ty, *range);
+                            if let Some(resolution) = resolution {
+                                items.push(resolution.item_type);
+                                ctx.positional_expansions.insert(resolution.source_expression, resolution);
+                            } else if let Some(arguments) = canonical_collection_arguments(ctx.store, source_ty, &ctx.core_ids.array, 1)
+                                .or_else(|| canonical_collection_arguments(ctx.store, source_ty, &ctx.core_ids.list, 1))
+                            {
+                                // Canonical runtime-sized sequence declarations
+                                // establish their element type even when a reduced
+                                // fixture does not load protocol evidence.
                                 items.push(arguments[0]);
-                                exact = Some(SequenceExpansionResolution::VectorStorage { extent: arguments[1] });
+                            } else {
+                                super::iteration::record_known_invalid_positional_expansion(ctx, typed.expression_id, source_ty, *range);
+                                valid = false;
                             }
                         }
                     }
-                    if exact.is_none() && selected != SequenceLiteralFamily::Vector {
-                        let (resolution, _) = super::iteration::resolve_positional_expansion(ctx, typed.expression_id, source_ty, *range);
-                        if let Some(resolution) = resolution {
-                            items.push(resolution.item_type);
-                            ctx.positional_expansions.insert(resolution.source_expression, resolution);
-                        } else if let Some(arguments) = canonical_collection_arguments(ctx.store, source_ty, &ctx.core_ids.array, 1)
-                            .or_else(|| canonical_collection_arguments(ctx.store, source_ty, &ctx.core_ids.list, 1))
-                        {
-                            // Canonical runtime-sized sequence declarations
-                            // establish their element type even when a reduced
-                            // fixture does not load protocol evidence.
-                            items.push(arguments[0]);
-                        } else {
-                            super::iteration::record_known_invalid_positional_expansion(ctx, typed.expression_id, source_ty, *range);
-                            valid = false;
+                    if selected == SequenceLiteralFamily::Vector && exact.is_none() {
+                        error(
+                            ctx,
+                            DiagnosticCode::GenericInferenceUnderconstrained,
+                            "Vector spread cardinality is not statically established; use a closed positional product or Vector",
+                            *range,
+                        );
+                        valid = false;
+                    }
+                    if let Some(exact) = exact {
+                        let extent = match exact {
+                            SequenceExpansionResolution::TuplePositionals { extent } | SequenceExpansionResolution::VectorStorage { extent } => extent,
+                        };
+                        match ctx.store.get(extent) {
+                            TypeData::ConstInt(value) => concrete_count += value.to_bigint(),
+                            _ if symbolic_extent.is_none() => symbolic_extent = Some(extent),
+                            _ => valid = false,
                         }
+                        exact_expansions.insert(*range, exact);
                     }
-                }
-                if selected == SequenceLiteralFamily::Vector && exact.is_none() {
-                    error(
-                        ctx,
-                        DiagnosticCode::GenericInferenceUnderconstrained,
-                        "Vector spread cardinality is not statically established; use a closed positional product or Vector",
-                        *range,
-                    );
-                    valid = false;
-                }
-                if let Some(exact) = exact {
-                    let extent = match exact {
-                        SequenceExpansionResolution::TuplePositionals { extent } | SequenceExpansionResolution::VectorStorage { extent } => extent,
-                    };
-                    match ctx.store.get(extent) {
-                        TypeData::ConstInt(value) => concrete_count += value.to_bigint(),
-                        _ if symbolic_extent.is_none() => symbolic_extent = Some(extent),
-                        _ => valid = false,
-                    }
-                    exact_expansions.insert(*range, exact);
-                }
-                if !items.is_empty() {
-                    let item = ctx.store.union(&items);
-                    match constrain(ctx, &element_expected, item, false) {
-                        ConstraintApplication::ConcreteSatisfied
-                        | ConstraintApplication::ConcreteRelationDeferred
-                        | ConstraintApplication::InferenceRegistered => {}
-                        ConstraintApplication::ConcreteMismatch => {
+                    if !items.is_empty() {
+                        let item = ctx.store.union(&items);
+                        match constrain(ctx, &element_expected, item, false) {
+                            ConstraintApplication::ConcreteSatisfied
+                            | ConstraintApplication::ConcreteRelationDeferred
+                            | ConstraintApplication::InferenceRegistered => {}
+                            ConstraintApplication::ConcreteMismatch => {
+                                error(
+                                    ctx,
+                                    DiagnosticCode::BindingInitializerMismatch,
+                                    "sequence spread element is incompatible with the expected element type",
+                                    *range,
+                                );
+                                valid = false;
+                            }
+                            ConstraintApplication::MissingInferenceOwner => {
+                                report_missing_inference_owner(ctx, *range, "spread element");
+                                valid = false;
+                            }
+                        }
+                        if let Some(expected) = element_expected.ty()
+                            && !crate::types::relation::is_subtype(ctx.store, &ctx.hierarchy, item, expected)
+                        {
                             error(
                                 ctx,
                                 DiagnosticCode::BindingInitializerMismatch,
@@ -313,205 +335,192 @@ pub(crate) fn synthesize(ctx: &mut CheckingContext<'_>, literal: &BracketLiteral
                             );
                             valid = false;
                         }
-                        ConstraintApplication::MissingInferenceOwner => {
-                            report_missing_inference_owner(ctx, *range, "spread element");
-                            valid = false;
-                        }
+                        element_types.push(item);
                     }
-                    if let Some(expected) = element_expected.ty()
-                        && !crate::types::relation::is_subtype(ctx.store, &ctx.hierarchy, item, expected)
-                    {
-                        error(
-                            ctx,
-                            DiagnosticCode::BindingInitializerMismatch,
-                            "sequence spread element is incompatible with the expected element type",
-                            *range,
-                        );
-                        valid = false;
-                    }
-                    element_types.push(item);
+                    valid &= matches!(typed.causal_invalidity, super::causal::CausalInvalidity::Clean);
+                    operands.push(typed);
                 }
-                valid &= matches!(typed.causal_invalidity, super::causal::CausalInvalidity::Clean);
-                operands.push(typed);
             }
         }
-    }
-    let extent = if selected == SequenceLiteralFamily::Vector {
-        let extent = if let Some(symbolic) = symbolic_extent {
-            if concrete_count != BigInt::from(0) {
-                error(
-                    ctx,
-                    DiagnosticCode::GenericInferenceUnderconstrained,
-                    "symbolic Vector cardinality arithmetic is not established",
-                    literal.range,
-                );
-                valid = false;
+        let extent = if selected == SequenceLiteralFamily::Vector {
+            let extent = if let Some(symbolic) = symbolic_extent {
+                if concrete_count != BigInt::from(0) {
+                    error(
+                        ctx,
+                        DiagnosticCode::GenericInferenceUnderconstrained,
+                        "symbolic Vector cardinality arithmetic is not established",
+                        literal.range,
+                    );
+                    valid = false;
+                }
+                symbolic
+            } else {
+                ctx.store.const_int(concrete_count)
+            };
+            match constrain(ctx, &extent_expected, extent, true) {
+                ConstraintApplication::ConcreteSatisfied | ConstraintApplication::InferenceRegistered => {}
+                ConstraintApplication::ConcreteMismatch => {
+                    error(
+                        ctx,
+                        DiagnosticCode::GenericInferenceConflict,
+                        "Vector extent mismatch: constructed cardinality differs from the declared extent",
+                        literal.range,
+                    );
+                    valid = false;
+                }
+                ConstraintApplication::ConcreteRelationDeferred => {
+                    ctx.publish_analysis_incident("exact Vector extent constraint was deferred as a subtype relation");
+                    let _ = ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::AnalysisInternalFailure,
+                        "exact Vector extent constraint was not checked",
+                        literal.range,
+                    ));
+                    valid = false;
+                }
+                ConstraintApplication::MissingInferenceOwner => {
+                    report_missing_inference_owner(ctx, literal.range, "Vector extent");
+                    valid = false;
+                }
             }
-            symbolic
-        } else {
-            ctx.store.const_int(concrete_count)
-        };
-        match constrain(ctx, &extent_expected, extent, true) {
-            ConstraintApplication::ConcreteSatisfied | ConstraintApplication::InferenceRegistered => {}
-            ConstraintApplication::ConcreteMismatch => {
-                error(
-                    ctx,
-                    DiagnosticCode::GenericInferenceConflict,
-                    "Vector extent mismatch: constructed cardinality differs from the declared extent",
-                    literal.range,
-                );
-                valid = false;
-            }
-            ConstraintApplication::ConcreteRelationDeferred => {
-                ctx.publish_analysis_incident("exact Vector extent constraint was deferred as a subtype relation");
-                let _ = ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-                    ctx.current_module.clone(),
-                    DiagnosticCode::AnalysisInternalFailure,
-                    "exact Vector extent constraint was not checked",
-                    literal.range,
-                ));
-                valid = false;
-            }
-            ConstraintApplication::MissingInferenceOwner => {
-                report_missing_inference_owner(ctx, literal.range, "Vector extent");
-                valid = false;
-            }
-        }
-        Some(extent)
-    } else {
-        None
-    };
-    let identity_spread = if selected == SequenceLiteralFamily::Vector && symbolic_extent.is_some() {
-        match literal.elements.as_slice() {
-            [BracketLiteralElement::Expansion { range, .. }] => match exact_expansions.get(range) {
-                Some(SequenceExpansionResolution::VectorStorage { extent: source_extent }) if Some(*source_extent) == extent => Some((*range, *source_extent)),
-                _ => None,
-            },
-            _ => None,
-        }
-    } else {
-        None
-    };
-    if symbolic_extent.is_some() && selected == SequenceLiteralFamily::Vector && identity_spread.is_none() {
-        error(
-            ctx,
-            DiagnosticCode::GenericInferenceUnderconstrained,
-            "symbolic Vector construction requires a lone identity storage spread",
-            literal.range,
-        );
-        valid = false;
-    }
-    let inferred_element = if element_types.is_empty() {
-        None
-    } else {
-        Some(ctx.store.union(&element_types))
-    };
-    let mut element_type = element_expected.ty().or(inferred_element);
-
-    if let Some(AnnotationElaboration::Inference { context, frame, term, holes }) = elaboration {
-        let outcome = ctx
-            .inference_session(context)
-            .map(|session| ctx.solve_inference_in_frame(&mut session.borrow_mut(), frame));
-        let solved = if outcome.as_ref().is_some_and(|outcome| outcome.is_solved()) {
-            ctx.inference_session(context)
-                .and_then(|session| session.borrow().materialize(&term, ctx.store).ok())
+            Some(extent)
         } else {
             None
         };
-        if let Some(solved) = solved {
-            element_type =
-                canonical_collection_arguments(ctx.store, solved, &declaration, if extent.is_some() { 2 } else { 1 }).and_then(|args| args.first().copied());
-        } else {
-            for hole in holes {
-                error(
-                    ctx,
-                    DiagnosticCode::GenericInferenceUnderconstrained,
-                    "sequence inference hole is underconstrained or conflicting",
-                    hole.range,
-                );
+        let identity_spread = if selected == SequenceLiteralFamily::Vector && symbolic_extent.is_some() {
+            match literal.elements.as_slice() {
+                [BracketLiteralElement::Expansion { range, .. }] => match exact_expansions.get(range) {
+                    Some(SequenceExpansionResolution::VectorStorage { extent: source_extent }) if Some(*source_extent) == extent => {
+                        Some((*range, *source_extent))
+                    }
+                    _ => None,
+                },
+                _ => None,
             }
+        } else {
+            None
+        };
+        if symbolic_extent.is_some() && selected == SequenceLiteralFamily::Vector && identity_spread.is_none() {
+            error(
+                ctx,
+                DiagnosticCode::GenericInferenceUnderconstrained,
+                "symbolic Vector construction requires a lone identity storage spread",
+                literal.range,
+            );
             valid = false;
         }
-    }
-    let Some(element_type) = element_type else {
-        return TypedExpression::unknown(UnknownReason::NoTypeEvidence);
-    };
-    let mut arguments = vec![element_type];
-    arguments.extend(extent);
-    let Ok(result_type) = ctx.store.apply_type_form(form, &arguments) else {
-        return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
-    };
-    let mut result = TypedExpression::established(result_type, EvidenceOrigin::Syntax, literal.range);
-    super::composition::propagate_required_dependencies(&mut result, &operands);
-    // Fixed slots in a partial outer annotation are contracts too. The
-    // enclosing inference owner still solves its holes; do not finish it here.
-    if literal.head.is_some() && expected.ty().is_none() {
-        if let (Some(expected_element), Some(owner)) = (argument(ctx, expected, selected, 0).ty(), ctx.current_expression_id()) {
+        let inferred_element = if element_types.is_empty() {
+            None
+        } else {
+            Some(ctx.store.union(&element_types))
+        };
+        let mut element_type = element_expected.ty().or(inferred_element);
+
+        if let Some(AnnotationElaboration::Inference { context, frame, term, holes }) = elaboration {
+            let outcome = ctx
+                .inference_session(context)
+                .map(|session| ctx.solve_inference_in_frame(&mut session.borrow_mut(), frame));
+            let solved = if outcome.as_ref().is_some_and(|outcome| outcome.is_solved()) {
+                ctx.inference_session(context)
+                    .and_then(|session| session.borrow().materialize(&term, ctx.store).ok())
+            } else {
+                None
+            };
+            if let Some(solved) = solved {
+                element_type = canonical_collection_arguments(ctx.store, solved, &declaration, if extent.is_some() { 2 } else { 1 })
+                    .and_then(|args| args.first().copied());
+            } else {
+                for hole in holes {
+                    error(
+                        ctx,
+                        DiagnosticCode::GenericInferenceUnderconstrained,
+                        "sequence inference hole is underconstrained or conflicting",
+                        hole.range,
+                    );
+                }
+                valid = false;
+            }
+        }
+        let Some(element_type) = element_type else {
+            return TypedExpression::unknown(UnknownReason::NoTypeEvidence);
+        };
+        let mut arguments = vec![element_type];
+        arguments.extend(extent);
+        let Ok(result_type) = ctx.store.apply_type_form(form, &arguments) else {
+            return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
+        };
+        let mut result = TypedExpression::established(result_type, EvidenceOrigin::Syntax, literal.range);
+        super::composition::propagate_required_dependencies(&mut result, &operands);
+        // Fixed slots in a partial outer annotation are contracts too. The
+        // enclosing inference owner still solves its holes; do not finish it here.
+        if literal.head.is_some() && expected.ty().is_none() {
+            if let (Some(expected_element), Some(owner)) = (argument(ctx, expected, selected, 0).ty(), ctx.current_expression_id()) {
+                let application = ctx.apply_knowledge_against_type_owned(
+                    &TypeKnowledge::established(element_type, EvidenceOrigin::Syntax),
+                    expected_element,
+                    DiagnosticCode::BindingInitializerMismatch,
+                    "sequence element type conflicts with its contextual type",
+                    literal.range,
+                    owner,
+                );
+                valid &= application.outcome.is_proven();
+            }
+            if let (Some(expected_extent), Some(actual_extent)) = (argument(ctx, expected, selected, 1).ty(), extent)
+                && expected_extent != actual_extent
+            {
+                error(
+                    ctx,
+                    DiagnosticCode::GenericInferenceConflict,
+                    "Vector extent conflicts with its contextual static argument",
+                    literal.range,
+                );
+                valid = false;
+            }
+        }
+        // An explicit head refines construction but does not erase the surrounding
+        // contract. Establish that relation before publishing executable facts.
+        if let (Some(expected_type), Some(owner)) = (expected.ty(), ctx.current_expression_id()) {
             let application = ctx.apply_knowledge_against_type_owned(
-                &TypeKnowledge::established(element_type, EvidenceOrigin::Syntax),
-                expected_element,
+                &result.knowledge,
+                expected_type,
                 DiagnosticCode::BindingInitializerMismatch,
-                "sequence element type conflicts with its contextual type",
+                "sequence literal is incompatible with its contextual type",
                 literal.range,
                 owner,
             );
             valid &= application.outcome.is_proven();
         }
-        if let (Some(expected_extent), Some(actual_extent)) = (argument(ctx, expected, selected, 1).ty(), extent)
-            && expected_extent != actual_extent
-        {
-            error(
-                ctx,
-                DiagnosticCode::GenericInferenceConflict,
-                "Vector extent conflicts with its contextual static argument",
-                literal.range,
-            );
-            valid = false;
-        }
-    }
-    // An explicit head refines construction but does not erase the surrounding
-    // contract. Establish that relation before publishing executable facts.
-    if let (Some(expected_type), Some(owner)) = (expected.ty(), ctx.current_expression_id()) {
-        let application = ctx.apply_knowledge_against_type_owned(
-            &result.knowledge,
-            expected_type,
-            DiagnosticCode::BindingInitializerMismatch,
-            "sequence literal is incompatible with its contextual type",
-            literal.range,
-            owner,
-        );
-        valid &= application.outcome.is_proven();
-    }
-    if valid && let Some(expression) = ctx.current_expression_id() {
-        ctx.stage_sequence(
-            SequenceLiteralResolution {
-                source_expression: expression,
-                source_range: literal.range,
-                family: selected,
-                result_type,
-                element_type,
-                extent,
-                construction: if let Some((source_range, extent)) = identity_spread {
-                    SequenceConstructionPlan::VectorIdentitySpread { source_range, extent }
-                } else if has_expansion {
-                    SequenceConstructionPlan::Expanded
-                } else {
-                    SequenceConstructionPlan::Fixed {
-                        element_count: literal.elements.len(),
-                    }
+        if valid && let Some(expression) = ctx.current_expression_id() {
+            ctx.stage_sequence(
+                SequenceLiteralResolution {
+                    source_expression: expression,
+                    source_range: literal.range,
+                    family: selected,
+                    result_type,
+                    element_type,
+                    extent,
+                    construction: if let Some((source_range, extent)) = identity_spread {
+                        SequenceConstructionPlan::VectorIdentitySpread { source_range, extent }
+                    } else if has_expansion {
+                        SequenceConstructionPlan::Expanded
+                    } else {
+                        SequenceConstructionPlan::Fixed {
+                            element_count: literal.elements.len(),
+                        }
+                    },
+                    exact_expansions,
                 },
-                exact_expansions,
-            },
-            result.publication_dependencies.clone(),
-        );
-    }
-    if !valid {
-        result.knowledge = TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause);
-    }
-    result
+                result.publication_dependencies.clone(),
+            );
+        }
+        if !valid {
+            result.knowledge = TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause);
+        }
+        result
     })();
     if let Some(owner) = head_owner {
-        if result.knowledge.ty().is_some() && result.status.is_ready()
+        if result.knowledge.ty().is_some()
+            && result.status.is_ready()
             && matches!(result.causal_invalidity, super::causal::CausalInvalidity::Clean)
             && ctx.owning_cause_for_current_expression().is_none()
         {

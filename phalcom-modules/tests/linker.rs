@@ -580,33 +580,36 @@ fn individually_acyclic_generated_requirement_families_can_form_combined_cycle()
         Arc::new(ProjectUniverse::new()),
         interfaces(&[(a.clone(), "class A {}\n"), (b.clone(), "class B {}\n")]),
     );
-    let semantic = linker.link_semantic(a.clone(), &BTreeMap::new())
+    let semantic = linker
+        .link_semantic(a.clone(), &BTreeMap::new())
         .expect("symbolic linking accepts both modules");
     let semantic_generated = requirement(
-        &a, &b, None,
+        &a,
+        &b,
+        None,
         RuntimeRequirementProducer::CallableOwner,
         RuntimeRequirementProduct::SourceInitializedValue,
         RuntimeRequirementTiming::DuringModuleInitializer,
     );
     let metadata_generated = requirement(
-        &b, &a, None,
+        &b,
+        &a,
+        None,
         RuntimeRequirementProducer::MetadataTypeOwner,
         RuntimeRequirementProduct::SourceInitializedValue,
         RuntimeRequirementTiming::DuringModuleInitializer,
     );
 
     for family in [&semantic_generated, &metadata_generated] {
-        linker.finalize_executable_with_requirements(
-            semantic.clone(), &BTreeMap::new(), std::slice::from_ref(family),
-        ).expect("one directed dependency cannot create a cycle");
+        linker
+            .finalize_executable_with_requirements(semantic.clone(), &BTreeMap::new(), std::slice::from_ref(family))
+            .expect("one directed dependency cannot create a cycle");
     }
 
-    let error = linker.finalize_executable_with_requirements(
-        semantic, &BTreeMap::new(), &[semantic_generated, metadata_generated],
-    ).expect_err("combined producer families must not evade strict DAG rejection");
-    let LinkError::RuntimeCycle(phalcom_modules::ModuleGraphError::RuntimeCycle {
-        components, path, ..
-    }) = error else {
+    let error = linker
+        .finalize_executable_with_requirements(semantic, &BTreeMap::new(), &[semantic_generated, metadata_generated])
+        .expect_err("combined producer families must not evade strict DAG rejection");
+    let LinkError::RuntimeCycle(phalcom_modules::ModuleGraphError::RuntimeCycle { components, path, .. }) = error else {
         panic!("expected a provenance-bearing runtime-cycle diagnostic");
     };
     assert_eq!(components, vec![vec![a, b]]);

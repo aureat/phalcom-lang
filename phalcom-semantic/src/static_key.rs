@@ -436,9 +436,7 @@ pub fn project_checked_static_key(
         StaticEvalOutcome::Cancelled => QueryOutcome::Cancelled,
         StaticEvalOutcome::Unknown(reason) => QueryOutcome::Ready(StaticKeyProjection::Invalid(StaticKeyProjectionError::Unknown(reason))),
         StaticEvalOutcome::Blocked(reason) => QueryOutcome::Ready(StaticKeyProjection::Invalid(StaticKeyProjectionError::Blocked(reason))),
-        StaticEvalOutcome::Dynamic(obligation) => {
-            QueryOutcome::Ready(StaticKeyProjection::Invalid(StaticKeyProjectionError::Dynamic(obligation)))
-        }
+        StaticEvalOutcome::Dynamic(obligation) => QueryOutcome::Ready(StaticKeyProjection::Invalid(StaticKeyProjectionError::Dynamic(obligation))),
     }
 }
 

@@ -40,8 +40,7 @@ data Animal {
 
 #[test]
 fn adt_constr_01_payload_constructor_publishes_exact_and_root_result() {
-    let case =
-        analyze_adt("data Option<T> { Some(_ value: T) -> Option<T> None -> Option<T> }\n\nclass Test { run() { Option<Int>::Some(42) } }\n");
+    let case = analyze_adt("data Option<T> { Some(_ value: T) -> Option<T> None -> Option<T> }\n\nclass Test { run() { Option<Int>::Some(42) } }\n");
     let some = case.variant("Option", Selector::method("Some", [SelectorSlot::Positional]).expect("Some"));
     assert_eq!(some.fields.len(), 1);
     let resolution = case

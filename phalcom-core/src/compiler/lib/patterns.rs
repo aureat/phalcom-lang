@@ -18,28 +18,24 @@ pub(crate) struct PatternExecutionFrame {
 pub(crate) fn count_pattern_temp_depth(pattern: &ExecutablePattern) -> usize {
     match pattern {
         ExecutablePattern::Wildcard | ExecutablePattern::Char(_) | ExecutablePattern::Binding { .. } => 0,
-        ExecutablePattern::Variant { candidates } => {
-            candidates
-                .iter()
-                .map(|c| {
-                    c.fields
-                        .iter()
-                        .map(|f| {
-                            if matches!(f.child, ExecutablePattern::Wildcard | ExecutablePattern::Binding { .. }) {
-                                0
-                            } else {
-                                1 + count_pattern_temp_depth(&f.child)
-                            }
-                        })
-                        .max()
-                        .unwrap_or(0)
-                })
-                .max()
-                .unwrap_or(0)
-        }
-        ExecutablePattern::Tuple { elements } => {
-            elements.iter().map(|e| 1 + count_pattern_temp_depth(e)).max().unwrap_or(0)
-        }
+        ExecutablePattern::Variant { candidates } => candidates
+            .iter()
+            .map(|c| {
+                c.fields
+                    .iter()
+                    .map(|f| {
+                        if matches!(f.child, ExecutablePattern::Wildcard | ExecutablePattern::Binding { .. }) {
+                            0
+                        } else {
+                            1 + count_pattern_temp_depth(&f.child)
+                        }
+                    })
+                    .max()
+                    .unwrap_or(0)
+            })
+            .max()
+            .unwrap_or(0),
+        ExecutablePattern::Tuple { elements } => elements.iter().map(|e| 1 + count_pattern_temp_depth(e)).max().unwrap_or(0),
         ExecutablePattern::List { elements, rest } => {
             let elem_max = elements.iter().map(|e| 1 + count_pattern_temp_depth(e)).max().unwrap_or(0);
             // A rest extraction holds both the newly built tail list and the
@@ -48,15 +44,9 @@ pub(crate) fn count_pattern_temp_depth(pattern: &ExecutablePattern) -> usize {
             let rest_max = rest.as_ref().map_or(0, |r| 2.max(1 + count_pattern_temp_depth(r)));
             elem_max.max(rest_max)
         }
-        ExecutablePattern::Record { entries } => {
-            entries.iter().map(|(_, e)| 2 + count_pattern_temp_depth(e)).max().unwrap_or(0)
-        }
-        ExecutablePattern::Map { entries } => {
-            entries.iter().map(|(_, e)| 2 + count_pattern_temp_depth(e)).max().unwrap_or(0)
-        }
-        ExecutablePattern::Or { alternatives } => {
-            alternatives.iter().map(count_pattern_temp_depth).max().unwrap_or(0)
-        }
+        ExecutablePattern::Record { entries } => entries.iter().map(|(_, e)| 2 + count_pattern_temp_depth(e)).max().unwrap_or(0),
+        ExecutablePattern::Map { entries } => entries.iter().map(|(_, e)| 2 + count_pattern_temp_depth(e)).max().unwrap_or(0),
+        ExecutablePattern::Or { alternatives } => alternatives.iter().map(count_pattern_temp_depth).max().unwrap_or(0),
     }
 }
 
@@ -379,18 +369,12 @@ impl<'vm> Compiler<'vm> {
     /// [`Self::setup_pattern_frame`]. Under-provisioning is a compiler
     /// invariant failure, not permission to allocate a new local in a loop
     /// iteration or while resolving alternative pattern branches.
-    fn claim_pattern_temp_at_depth(
-        &mut self,
-        frame: &PatternExecutionFrame,
-        depth: usize,
-        prefix: &str,
-        range: SourceRange,
-    ) -> Result<u16, CompilerError> {
-        let slot = frame.temp_slots.get(depth).copied().ok_or_else(|| {
-            CompilerError::Message(format!(
-                "pattern scratch layout under-provisioned for {prefix} at depth {depth}"
-            ))
-        })?;
+    fn claim_pattern_temp_at_depth(&mut self, frame: &PatternExecutionFrame, depth: usize, prefix: &str, range: SourceRange) -> Result<u16, CompilerError> {
+        let slot = frame
+            .temp_slots
+            .get(depth)
+            .copied()
+            .ok_or_else(|| CompilerError::Message(format!("pattern scratch layout under-provisioned for {prefix} at depth {depth}")))?;
         self.emit(Bytecode::SetLocal(slot), range);
         self.emit(Bytecode::Pop, range);
         Ok(slot)

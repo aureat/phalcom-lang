@@ -1185,13 +1185,18 @@ pub const UNIVERSE_TYPE_FORMS: &[UniverseTypeFormSpec] = &[
     },
     UniverseTypeFormSpec {
         owner: UniverseKey::Vector,
-        parameters: &[TypeParameterDeclSpec {
-            name: "T",
-            kind: KindSpec::Type,
-        }, TypeParameterDeclSpec {
-            name: "N",
-            kind: KindSpec::StaticDomain { form: &TypeExprSpec::Universe(UniverseKey::Int) },
-        }],
+        parameters: &[
+            TypeParameterDeclSpec {
+                name: "T",
+                kind: KindSpec::Type,
+            },
+            TypeParameterDeclSpec {
+                name: "N",
+                kind: KindSpec::StaticDomain {
+                    form: &TypeExprSpec::Universe(UniverseKey::Int),
+                },
+            },
+        ],
     },
     UniverseTypeFormSpec {
         owner: UniverseKey::Slice,
@@ -1224,23 +1229,41 @@ pub const UNIVERSE_TYPE_FORMS: &[UniverseTypeFormSpec] = &[
     UniverseTypeFormSpec {
         owner: UniverseKey::IndexedDict,
         parameters: &[
-            TypeParameterDeclSpec { name: "K", kind: KindSpec::Type },
-            TypeParameterDeclSpec { name: "V", kind: KindSpec::Type },
+            TypeParameterDeclSpec {
+                name: "K",
+                kind: KindSpec::Type,
+            },
+            TypeParameterDeclSpec {
+                name: "V",
+                kind: KindSpec::Type,
+            },
         ],
     },
     UniverseTypeFormSpec {
         owner: UniverseKey::OrderedSet,
-        parameters: &[TypeParameterDeclSpec { name: "T", kind: KindSpec::Type }],
+        parameters: &[TypeParameterDeclSpec {
+            name: "T",
+            kind: KindSpec::Type,
+        }],
     },
     UniverseTypeFormSpec {
         owner: UniverseKey::Bag,
-        parameters: &[TypeParameterDeclSpec { name: "T", kind: KindSpec::Type }],
+        parameters: &[TypeParameterDeclSpec {
+            name: "T",
+            kind: KindSpec::Type,
+        }],
     },
     UniverseTypeFormSpec {
         owner: UniverseKey::Bijection,
         parameters: &[
-            TypeParameterDeclSpec { name: "K", kind: KindSpec::Type },
-            TypeParameterDeclSpec { name: "V", kind: KindSpec::Type },
+            TypeParameterDeclSpec {
+                name: "K",
+                kind: KindSpec::Type,
+            },
+            TypeParameterDeclSpec {
+                name: "V",
+                kind: KindSpec::Type,
+            },
         ],
     },
     UniverseTypeFormSpec {
@@ -1306,7 +1329,10 @@ mod collection_tests {
             assert!(binding.exported);
             assert!(binding.prelude);
 
-            let relation = UNIVERSE_CLASS_RELATIONS.iter().find(|relation| relation.class == key).expect("canonical class relation");
+            let relation = UNIVERSE_CLASS_RELATIONS
+                .iter()
+                .find(|relation| relation.class == key)
+                .expect("canonical class relation");
             assert_eq!(relation.superclass, Some(UniverseKey::Collection));
 
             let form = UNIVERSE_TYPE_FORMS.iter().find(|form| form.owner == key).expect("canonical generic type form");

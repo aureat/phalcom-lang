@@ -3,15 +3,13 @@
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_modules::interface::{LinkedExport, LinkedExportTarget, LinkedModuleInterface};
 use phalcom_modules::linker::SymbolId;
-use phalcom_modules::linker::{
-    GlobalBindingId, ImportBindingId, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout,
-};
+use phalcom_modules::linker::{GlobalBindingId, ImportBindingId, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout};
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::{ModuleKind, ParsedModuleUnit};
+use phalcom_semantic::SemanticWorkspaceSession;
 use phalcom_semantic::static_constant::StaticConstantId;
 use phalcom_semantic::static_value::{StaticInt, StaticValueData};
 use phalcom_semantic::workspace::SemanticWorkspaceInput;
-use phalcom_semantic::SemanticWorkspaceSession;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -23,12 +21,7 @@ struct ModulePair {
 
 fn artifact_input(provider_source: &str, consumer_source: &str, generation: u64) -> (SemanticWorkspaceInput, ModulePair) {
     let project = ResolvedProjectId::from_raw(88);
-    let module_id = |name: &str| {
-        ModuleId::resolved(
-            project,
-            ModulePath::from_components(vec![ModuleComponent::from_identifier(name).unwrap()]),
-        )
-    };
+    let module_id = |name: &str| ModuleId::resolved(project, ModulePath::from_components(vec![ModuleComponent::from_identifier(name).unwrap()]));
     let provider = module_id("provider");
     let consumer = module_id("consumer");
     let provider_src: Arc<str> = Arc::from(provider_source);
@@ -38,23 +31,11 @@ fn artifact_input(provider_source: &str, consumer_source: &str, generation: u64)
     let sources = BTreeMap::from([
         (
             provider.clone(),
-            Arc::new(ParsedModuleUnit::new(
-                provider.clone(),
-                ModuleKind::Module,
-                None,
-                provider_src,
-                provider_prog,
-            )),
+            Arc::new(ParsedModuleUnit::new(provider.clone(), ModuleKind::Module, None, provider_src, provider_prog)),
         ),
         (
             consumer.clone(),
-            Arc::new(ParsedModuleUnit::new(
-                consumer.clone(),
-                ModuleKind::Module,
-                None,
-                consumer_src,
-                consumer_prog,
-            )),
+            Arc::new(ParsedModuleUnit::new(consumer.clone(), ModuleKind::Module, None, consumer_src, consumer_prog)),
         ),
     ]);
     let symbol = SymbolId {
@@ -140,7 +121,11 @@ fn exported_const_value_change_invalidates_importer() {
     assert_eq!(prod2.value().unwrap(), prod3.value().unwrap(), "same reduced value retains value identity");
 
     // 4. Change unrelated private const: importer is reused
-    let (input4, _) = artifact_input("const exported_const: Int = 20 + 5\nconst private_const: Int = 999\nexport exported_const\n", consumer_src, 4);
+    let (input4, _) = artifact_input(
+        "const exported_const: Int = 20 + 5\nconst private_const: Int = 999\nexport exported_const\n",
+        consumer_src,
+        4,
+    );
     let snap4 = session.update(input4).expect("update 4").snapshot;
     let prod4 = snap4.static_constant(&derived_id).cloned().expect("Derived rev 4");
     assert!(prod4.is_successful());

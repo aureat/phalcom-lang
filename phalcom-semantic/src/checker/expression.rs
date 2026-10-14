@@ -61,15 +61,13 @@ pub(crate) fn analyze_expression_with_publication(
     let effective_expected = algebraic_expected.as_ref().unwrap_or(expected);
     let expr_id = ctx.alloc_expression_id();
     let missing_inference_owner = match expected {
-        ExpectedType::Inference { context, .. } => {
-            match (ctx.inference_session(*context), ctx.current_inference_frame(*context)) {
-                (Some(_), Some(frame)) => {
-                    dependencies.insert(super::sequence_publication::PublicationOwner(*context, frame));
-                    false
-                }
-                _ => true,
+        ExpectedType::Inference { context, .. } => match (ctx.inference_session(*context), ctx.current_inference_frame(*context)) {
+            (Some(_), Some(frame)) => {
+                dependencies.insert(super::sequence_publication::PublicationOwner(*context, frame));
+                false
             }
-        }
+            _ => true,
+        },
         _ => false,
     };
     ctx.sequence_publication.expression_dependencies.insert(expr_id, dependencies);
@@ -231,7 +229,11 @@ pub(crate) fn analyze_expression_with_publication(
 
 /// Propagates only the provenance of an expectation derived from this result.
 fn analyze_contextual_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
-    let dependencies = if expected.is_none() { Default::default() } else { ctx.sequence_dependencies() };
+    let dependencies = if expected.is_none() {
+        Default::default()
+    } else {
+        ctx.sequence_dependencies()
+    };
     analyze_expression_with_publication(ctx, expr, expected, dependencies)
 }
 
@@ -1714,9 +1716,7 @@ fn analyze_checked_static_application(ctx: &mut CheckingContext<'_>, annotation:
                             return Some(TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause));
                         }
                     },
-                    GenericArgumentSyntax::Expansion(_)
-                    | GenericArgumentSyntax::Remainder(_)
-                    | GenericArgumentSyntax::InferenceHole { .. } => {
+                    GenericArgumentSyntax::Expansion(_) | GenericArgumentSyntax::Remainder(_) | GenericArgumentSyntax::InferenceHole { .. } => {
                         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                             ctx.current_module.clone(),
                             DiagnosticCode::ApplicationArgumentKindMismatch,
@@ -1755,8 +1755,8 @@ fn analyze_checked_static_application(ctx: &mut CheckingContext<'_>, annotation:
 }
 
 fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &phalcom_ast::ast::TypeAnnotation) -> Option<TypedExpression> {
+    use crate::checker::proof_predicate::{ProofPredicateGoal, ProofPredicateKind, ProofPredicateResolution, is_proof_predicate_declaration};
     use phalcom_ast::ast::TypeAnnotationExpr;
-    use crate::checker::proof_predicate::{is_proof_predicate_declaration, ProofPredicateGoal, ProofPredicateKind, ProofPredicateResolution};
 
     let TypeAnnotationExpr::Application { origin, arguments, range } = &annotation.expr else {
         return None;
@@ -1768,7 +1768,11 @@ fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &p
     let declaration = ctx.resolver.resolve_type_name(&ctx.current_module, &reference.root, &members)?;
     let kind = is_proof_predicate_declaration(&declaration)?;
 
-    if ctx.resolver.resolve_static_definition_name(&ctx.current_module, &reference.root, &members).is_some() {
+    if ctx
+        .resolver
+        .resolve_static_definition_name(&ctx.current_module, &reference.root, &members)
+        .is_some()
+    {
         return None;
     }
 
@@ -1869,10 +1873,7 @@ fn analyze_checked_proof_predicate(ctx: &mut CheckingContext<'_>, annotation: &p
             }
 
             let trait_ref = crate::traits::TraitRef::new(decl, resolved_args);
-            let key = crate::generic_evidence::GenericConformanceKey::new(
-                crate::types::parameter::TypeTerm::from(left_ty),
-                trait_ref,
-            );
+            let key = crate::generic_evidence::GenericConformanceKey::new(crate::types::parameter::TypeTerm::from(left_ty), trait_ref);
             ProofPredicateGoal::Conforms { key }
         }
     };
@@ -2638,9 +2639,7 @@ fn synthesize_associated_invoke_with_receiver(
             let Some(variant_info) = ctx.variant_info(variant).cloned() else {
                 return TypedExpression::unknown(UnknownReason::UncheckedExpression);
             };
-            if super::associated::authorize_variant_construction(ctx, &variant_info, invoke.range)
-                .is_err()
-            {
+            if super::associated::authorize_variant_construction(ctx, &variant_info, invoke.range).is_err() {
                 return TypedExpression::unknown(UnknownReason::UncheckedExpression);
             }
             let Some(constructor) = variant_info.constructor else {
@@ -4401,15 +4400,11 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
         .unwrap_or_default();
     let before = ctx.flow.clone();
 
-    let evaluate_step = |step_ctx: &mut CheckingContext<'_>,
-                         current_header: &FlowState|
-     -> (Option<FlowState>, FlowState, Vec<FlowState>, CausalInvalidity) {
+    let evaluate_step = |step_ctx: &mut CheckingContext<'_>, current_header: &FlowState| -> (Option<FlowState>, FlowState, Vec<FlowState>, CausalInvalidity) {
         step_ctx.flow = current_header.clone();
         let cond_typed = analyze_expression(step_ctx, &while_expr.condition, &expected_bool);
         let cond_typed = match (expected_bool.ty(), cond_typed.knowledge.ty()) {
-            (Some(expected_ty), Some(actual_ty)) if expected_ty != actual_ty => {
-                check_typed_expr(step_ctx, &while_expr.condition, &expected_bool)
-            }
+            (Some(expected_ty), Some(actual_ty)) if expected_ty != actual_ty => check_typed_expr(step_ctx, &while_expr.condition, &expected_bool),
             _ => cond_typed,
         };
         let condition_flow = step_ctx.flow.clone();
@@ -4422,12 +4417,7 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
             super::control::ConditionTruth::AlwaysFalse => FlowState::unreachable(),
             _ => {
                 step_ctx.flow = condition_flow.clone();
-                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(
-                    step_ctx,
-                    &while_expr.condition,
-                    &cond_typed,
-                    true,
-                ) {
+                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(step_ctx, &while_expr.condition, &cond_typed, true) {
                     step_ctx.apply_flow_predicate(&predicate);
                 }
                 step_ctx.flow.clone()
@@ -4437,12 +4427,7 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
             super::control::ConditionTruth::AlwaysTrue => FlowState::unreachable(),
             _ => {
                 step_ctx.flow = condition_flow;
-                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(
-                    step_ctx,
-                    &while_expr.condition,
-                    &cond_typed,
-                    false,
-                ) {
+                if let Some(predicate) = crate::checker::flow::extract_trusted_predicate(step_ctx, &while_expr.condition, &cond_typed, false) {
                     step_ctx.apply_flow_predicate(&predicate);
                 }
                 step_ctx.flow.clone()
@@ -4455,12 +4440,7 @@ fn synthesize_while_expr(ctx: &mut CheckingContext<'_>, while_expr: &phalcom_ast
 
         step_ctx.flow = when_true;
         step_ctx.push_loop_frame();
-        let body_res = super::control::analyze_executable_region(
-            step_ctx,
-            &while_expr.body.body,
-            while_expr.body.range,
-            &ExpectedType::None,
-        );
+        let body_res = super::control::analyze_executable_region(step_ctx, &while_expr.body.body, while_expr.body.range, &ExpectedType::None);
         let body_flow = step_ctx.flow.clone();
         let loop_frame = step_ctx.pop_loop_frame();
         let normal_backedge = if body_res.completes_normally() { Some(body_flow) } else { None };
@@ -4541,32 +4521,17 @@ fn synthesize_contextual_variant(
     range: SourceRange,
 ) -> Option<TypedExpression> {
     let mut owners = super::contextual_variant::expected_owners(ctx, expected);
-    owners.retain(|owner| {
-        ctx.enum_table
-            .is_some_and(|table| table.enums.contains_key(&owner.owner))
-    });
+    owners.retain(|owner| ctx.enum_table.is_some_and(|table| table.enums.contains_key(&owner.owner)));
     if owners.is_empty() {
         return None;
     }
-    let (mut candidates, refuted) =
-        super::contextual_variant::discover(ctx, &owners, |info| info.id.selector == *selector);
+    let (mut candidates, refuted) = super::contextual_variant::discover(ctx, &owners, |info| info.id.selector == *selector);
     let discovered = candidates.len();
     if candidates.len() > 1 {
         candidates.retain(|candidate| {
             let contradicted = ctx.run_candidate_probe(|probe| {
-                let inherited = probe
-                    .expressions
-                    .keys()
-                    .copied()
-                    .collect::<std::collections::BTreeSet<_>>();
-                let result = apply_contextual_variant(
-                    probe,
-                    name,
-                    args,
-                    &candidate.owner.expected,
-                    candidate.owner.owner_type,
-                    range,
-                );
+                let inherited = probe.expressions.keys().copied().collect::<std::collections::BTreeSet<_>>();
+                let result = apply_contextual_variant(probe, name, args, &candidate.owner.expected, candidate.owner.owner_type, range);
                 // Only an established contradiction eliminates an interpretation.
                 // Failed/blocked analysis is not negative evidence.
                 let unresolved = |status: &AnalysisStatus| {
@@ -4582,15 +4547,14 @@ fn synthesize_contextual_variant(
                 };
                 let blocked = probe.terminal_status.is_some()
                     || unresolved(&result.status)
-                    || probe.expressions.iter().any(|(id, expression)| {
-                        !inherited.contains(id) && unresolved(&expression.status)
-                    })
+                    || probe
+                        .expressions
+                        .iter()
+                        .any(|(id, expression)| !inherited.contains(id) && unresolved(&expression.status))
                     || probe.diagnostics.iter().any(|diagnostic| {
                         matches!(
                             diagnostic.code,
-                            DiagnosticCode::AnalysisBlocked
-                                | DiagnosticCode::AnalysisBudgetExceeded
-                                | DiagnosticCode::AnalysisInternalFailure
+                            DiagnosticCode::AnalysisBlocked | DiagnosticCode::AnalysisBudgetExceeded | DiagnosticCode::AnalysisInternalFailure
                         )
                     });
                 let contradiction = probe.diagnostics.iter().any(|diagnostic| {
@@ -4871,19 +4835,29 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
             // lanes. Solve the variadic constructor from its arguments first;
             // the ordinary type relation checks the completed result against
             // the contextual contract below.
-            let open_pack_context = decl == ctx.core_ids.pack && expected.ty().is_some_and(|ty| {
-                matches!(ctx.store.get(ty), TypeData::Pack(pack)
+            let open_pack_context = decl == ctx.core_ids.pack
+                && expected.ty().is_some_and(|ty| {
+                    matches!(ctx.store.get(ty), TypeData::Pack(pack)
                     if pack.positional_remainder != crate::types::store::AnonymousTupleRemainder::None
                         || pack.labeled_remainder != crate::types::store::AnonymousTupleRemainder::None)
-            });
+                });
             let constructor_expected = if open_pack_context { &ExpectedType::None } else { expected };
             let result = apply_resolved_callable(ctx, &target, &premise, &arguments, constructor_expected, call.range);
-            let result_type = result.knowledge.ty().or_else(|| target.signature.return_type.ty().filter(|ty| ctx.store.is_proper_type(*ty)));
+            let result_type = result
+                .knowledge
+                .ty()
+                .or_else(|| target.signature.return_type.ty().filter(|ty| ctx.store.is_proper_type(*ty)));
             let mut typed: TypedExpression = result.into();
-            if open_pack_context && typed.status.is_ready() && let Some(expected_type) = expected.ty() {
+            if open_pack_context
+                && typed.status.is_ready()
+                && let Some(expected_type) = expected.ty()
+            {
                 let application = ctx.apply_knowledge_against_type(
-                    &typed.knowledge, expected_type, DiagnosticCode::TypeMismatch,
-                    "Pack constructor result does not match the expected Pack type", call.range,
+                    &typed.knowledge,
+                    expected_type,
+                    DiagnosticCode::TypeMismatch,
+                    "Pack constructor result does not match the expected Pack type",
+                    call.range,
                 );
                 apply_relation_application_to_typed(&mut typed, &application);
             }
@@ -4905,35 +4879,50 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                         },
                     },
                 );
-                if ctx.phase == crate::checker::context::EvaluationPhase::Static && typed.status.is_ready()
+                if ctx.phase == crate::checker::context::EvaluationPhase::Static
+                    && typed.status.is_ready()
                     && decl == ctx.core_ids.pack
                     && ctx.store.kind_of(result_type) == KindId::TYPE
                 {
                     let mut labeled = false;
                     let mut labels = std::collections::HashSet::new();
-                    let checked = call.args.iter().enumerate().map(|(index, item)| {
-                        let (value, payload) = match item {
-                            PackItem::Positional { expr, .. } if !labeled => (expr, crate::static_definition::CheckedStaticPayloadId::PackPositional(index as u32)),
-                            PackItem::Labeled { label: PackLabel::Static { text, .. }, value, .. } => {
-                                labeled = true;
-                                if !labels.insert(text.as_str()) { return None; }
-                                (value, crate::static_definition::CheckedStaticPayloadId::PackLabeled(text.as_str().into()))
-                            }
-                            PackItem::Expand { expr, mode, .. } => {
-                                if labeled && *mode == phalcom_ast::ast::ExpansionMode::Positional {
-                                    return None;
+                    let checked = call
+                        .args
+                        .iter()
+                        .enumerate()
+                        .map(|(index, item)| {
+                            let (value, payload) = match item {
+                                PackItem::Positional { expr, .. } if !labeled => {
+                                    (expr, crate::static_definition::CheckedStaticPayloadId::PackPositional(index as u32))
                                 }
-                                if matches!(mode, phalcom_ast::ast::ExpansionMode::Labeled | phalcom_ast::ast::ExpansionMode::Complete) {
+                                PackItem::Labeled {
+                                    label: PackLabel::Static { text, .. },
+                                    value,
+                                    ..
+                                } => {
                                     labeled = true;
+                                    if !labels.insert(text.as_str()) {
+                                        return None;
+                                    }
+                                    (value, crate::static_definition::CheckedStaticPayloadId::PackLabeled(text.as_str().into()))
                                 }
-                                (expr, crate::static_definition::CheckedStaticPayloadId::PackExpansion(*mode))
-                            }
-                            _ => return None,
-                        };
-                        Some(crate::static_definition::CheckedStaticConstructionArgument {
-                            expression: ctx.expression_id_for_static_range(value.range())?, payload,
+                                PackItem::Expand { expr, mode, .. } => {
+                                    if labeled && *mode == phalcom_ast::ast::ExpansionMode::Positional {
+                                        return None;
+                                    }
+                                    if matches!(mode, phalcom_ast::ast::ExpansionMode::Labeled | phalcom_ast::ast::ExpansionMode::Complete) {
+                                        labeled = true;
+                                    }
+                                    (expr, crate::static_definition::CheckedStaticPayloadId::PackExpansion(*mode))
+                                }
+                                _ => return None,
+                            };
+                            Some(crate::static_definition::CheckedStaticConstructionArgument {
+                                expression: ctx.expression_id_for_static_range(value.range())?,
+                                payload,
+                            })
                         })
-                    }).collect::<Option<Vec<_>>>();
+                        .collect::<Option<Vec<_>>>();
                     if let Some(arguments) = checked {
                         ctx.record_checked_static_construction(crate::static_definition::CheckedStaticConstruction {
                             expression,
@@ -4942,28 +4931,37 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                             arguments: arguments.into_boxed_slice(),
                         });
                     }
-                } else if ctx.phase == crate::checker::context::EvaluationPhase::Static && typed.status.is_ready()
+                } else if ctx.phase == crate::checker::context::EvaluationPhase::Static
+                    && typed.status.is_ready()
                     && let Some(mapping) = argument_mapping.as_deref()
                     && mapping.len() == call.args.len()
                     && mapping.len() == data_info.components.len()
                 {
-                    let checked = call.args.iter().zip(mapping).map(|(item, component_index)| {
-                        let value = match item {
-                            PackItem::Positional { expr, .. } => expr,
-                            PackItem::Labeled { value, .. } => value,
-                            PackItem::Expand { .. } => return None,
-                        };
-                        let component = data_info.components.get(*component_index as usize)?;
-                        Some(crate::static_definition::CheckedStaticConstructionArgument {
-                            expression: ctx.expression_id_for_static_range(value.range())?,
-                            payload: crate::static_definition::CheckedStaticPayloadId::DataComponent(component.id.clone()),
+                    let checked = call
+                        .args
+                        .iter()
+                        .zip(mapping)
+                        .map(|(item, component_index)| {
+                            let value = match item {
+                                PackItem::Positional { expr, .. } => expr,
+                                PackItem::Labeled { value, .. } => value,
+                                PackItem::Expand { .. } => return None,
+                            };
+                            let component = data_info.components.get(*component_index as usize)?;
+                            Some(crate::static_definition::CheckedStaticConstructionArgument {
+                                expression: ctx.expression_id_for_static_range(value.range())?,
+                                payload: crate::static_definition::CheckedStaticPayloadId::DataComponent(component.id.clone()),
+                            })
                         })
-                    }).collect::<Option<Vec<_>>>();
+                        .collect::<Option<Vec<_>>>();
                     if let Some(checked) = checked {
-                        let distinct = checked.iter().filter_map(|argument| match &argument.payload {
-                            crate::static_definition::CheckedStaticPayloadId::DataComponent(component) => Some(component),
-                            _ => None,
-                        }).collect::<std::collections::BTreeSet<_>>();
+                        let distinct = checked
+                            .iter()
+                            .filter_map(|argument| match &argument.payload {
+                                crate::static_definition::CheckedStaticPayloadId::DataComponent(component) => Some(component),
+                                _ => None,
+                            })
+                            .collect::<std::collections::BTreeSet<_>>();
                         if distinct.len() == checked.len() {
                             ctx.record_checked_static_construction(crate::static_definition::CheckedStaticConstruction {
                                 expression,
@@ -5106,8 +5104,8 @@ fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, ex
         .ty()
         .is_some_and(|target| super::algebraic_realization::is_canonical_algebra_type(ctx, target));
     if !left_has_basis && !right_has_basis && !expects_algebra {
-        let has_binding_operand = matches!(binary.left.as_ref(), Expr::Var { .. } | Expr::GetProperty(_))
-            || matches!(binary.right.as_ref(), Expr::Var { .. } | Expr::GetProperty(_));
+        let has_binding_operand =
+            matches!(binary.left.as_ref(), Expr::Var { .. } | Expr::GetProperty(_)) || matches!(binary.right.as_ref(), Expr::Var { .. } | Expr::GetProperty(_));
         if matches!(binary.op, BinaryOp::Multiply) && has_binding_operand {
             return synthesize_binding_binary_expr(ctx, binary, expected);
         }
