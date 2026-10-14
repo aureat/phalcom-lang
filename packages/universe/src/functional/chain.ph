@@ -248,7 +248,7 @@ impl<T> Chain<T> {
   ==(_ other) -> Bool {
     if other is not Chain { return false }
     let mut left = self
-    let mut right = other
+    let mut right: Chain<T> = other
     while true {
       match left {
         Chain::Empty => { return right.isEmpty }

@@ -2729,6 +2729,7 @@ pub enum RelationOp {
 #[derive(Debug, Clone)]
 pub struct IfLetExpr {
     pub pattern: Pattern,
+    pub annotation: Option<TypeAnnotation>,
     pub value: Expr,
     pub then_body: LexicalBlock,
     pub else_body: Option<LexicalBlock>,
@@ -2739,6 +2740,7 @@ pub struct IfLetExpr {
 #[derive(Debug, Clone)]
 pub struct WhileLetExpr {
     pub pattern: Pattern,
+    pub annotation: Option<TypeAnnotation>,
     pub value: Expr,
     pub body: Vec<Statement>,
     pub range: SourceRange,

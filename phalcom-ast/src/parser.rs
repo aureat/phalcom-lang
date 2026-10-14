@@ -9078,6 +9078,7 @@ impl<'source> Parser<'source> {
         self.advance(); // 'if'
         if self.eat(&Token::Let) {
             let pattern = self.parse_pattern()?;
+            let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
             self.expect(&Token::Equal, &["\"=\""])?;
             let value = self.parse_expr_without_trailing_closures()?;
             let then_body = self.parse_lexical_block()?;
@@ -9085,6 +9086,7 @@ impl<'source> Parser<'source> {
             let range = (start..self.prev_end).into();
             return Ok(Expr::IfLet(Box::new(IfLetExpr {
                 pattern,
+                annotation,
                 value,
                 then_body,
                 else_body,
@@ -9123,6 +9125,7 @@ impl<'source> Parser<'source> {
         self.advance(); // 'while'
         if self.eat(&Token::Let) {
             let pattern = self.parse_pattern()?;
+            let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
             self.expect(&Token::Equal, &["\"=\""])?;
             let value = self.parse_expr_without_trailing_closures()?;
             let body = match self.parse_brace_block()? {
@@ -9130,7 +9133,7 @@ impl<'source> Parser<'source> {
                 _ => unreachable!("parse_brace_block must produce a block"),
             };
             let range = (start..self.prev_end).into();
-            return Ok(Expr::WhileLet(Box::new(WhileLetExpr { pattern, value, body, range })));
+            return Ok(Expr::WhileLet(Box::new(WhileLetExpr { pattern, annotation, value, body, range })));
         }
         let condition = self.parse_expr_without_trailing_closures()?;
         let body = self.parse_lexical_block()?;

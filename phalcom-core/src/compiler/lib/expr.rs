@@ -2668,9 +2668,9 @@ impl<'vm> Compiler<'vm> {
         // separate so an else-body cannot resolve them accidentally.
         self.begin_scope();
         let frame = self.setup_pattern_frame(&spec.bindings, node.pattern.range())?;
-        let pattern_scratch_count = self.functions.last().unwrap().num_locals - frame.scope_start as usize;
         let mut failures = Vec::new();
         self.emit_executable_pattern(&spec.pattern, value_slot, &frame, &mut failures, node.pattern.range())?;
+        let pattern_scratch_count = self.functions.last().unwrap().num_locals - frame.scope_start as usize;
         self.commit_pattern_frame(&frame, node.pattern.range())?;
         self.compile_inline_lexical_body(node.then_body.body, node.then_body.range)?;
         self.end_scope(range);
@@ -2749,8 +2749,15 @@ impl<'vm> Compiler<'vm> {
         let loop_start = self.chunk_len();
         self.compile_expr(node.value)?;
         self.emit(Bytecode::SetLocal(value_slot), range);
+        self.emit(Bytecode::Pop, range);
+
+        let temporary_base = self.functions.last().unwrap().num_locals;
         let mut failures = Vec::new();
         self.emit_executable_pattern(&spec.pattern, value_slot, &frame, &mut failures, node.pattern.range())?;
+        let temporary_count = self.functions.last().unwrap().num_locals - temporary_base;
+        if temporary_count > 0 {
+            self.release_pack_scratch_from(temporary_base as u16, temporary_count, range);
+        }
         self.commit_pattern_frame(&frame, node.pattern.range())?;
 
         self.begin_scope();
@@ -2771,8 +2778,16 @@ impl<'vm> Compiler<'vm> {
         self.emit_backward_loop(loop_start, range);
 
         let exit = self.chunk_len();
-        for jump in failures {
-            self.patch_forward_jump_to(jump, exit);
+        if temporary_count > 0 && !failures.is_empty() {
+            let failure_landing = self.chunk_len();
+            for jump in failures {
+                self.patch_forward_jump_to(jump, failure_landing);
+            }
+            self.emit_release_scratch_range(temporary_base as u16, temporary_count, range);
+        } else {
+            for jump in failures {
+                self.patch_forward_jump_to(jump, exit);
+            }
         }
         let (breaks, continues) = self.pop_loop_context();
         for jump in breaks {

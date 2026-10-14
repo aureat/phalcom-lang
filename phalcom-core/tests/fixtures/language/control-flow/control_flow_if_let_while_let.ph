@@ -66,3 +66,9 @@ let mut pg = PairGen.new()
 while let Some((idx, mult)) = pg.next {
   System.print("pair: \(idx), \(mult)")
 }
+
+// 5. while let with explicit type annotation
+let mut c2 = Counter.new()
+while let Some(v): Option<Int> = c2.next {
+  System.print("annotated: \(v)")
+}

@@ -257,8 +257,24 @@ impl<'a> MetadataExporter<'a> {
     }
 
     fn is_legacy_symbol_key_domain(&self, key_type: TypeId) -> bool {
-        let symbol = crate::core_surface::CoreDeclarationIds::default().symbol;
-        matches!(self.store.get(key_type), TypeData::Nominal { declaration } if declaration == &symbol)
+        let core = crate::core_surface::CoreDeclarationIds::default();
+        if matches!(self.store.get(key_type), TypeData::Nominal { declaration } if declaration == &core.symbol) {
+            return true;
+        }
+        if let TypeData::Union(types) = self.store.get(key_type) {
+            return types.len() == 4
+                && types.iter().all(|&ty| {
+                    matches!(
+                        self.store.get(ty),
+                        TypeData::Nominal { declaration }
+                            if declaration == &core.symbol
+                                || declaration == &core.string
+                                || declaration == &core.int
+                                || declaration == &core.bool_
+                    )
+                });
+        }
+        false
     }
 
     fn is_scoped_legacy_symbol_key_domain(&self, key_type: ScopedTypeId) -> bool {

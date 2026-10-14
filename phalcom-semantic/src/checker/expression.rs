@@ -891,7 +891,24 @@ fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, exp
             result
         }
         Expr::IfLet(if_let) => {
-            let val_typed = analyze_expression(ctx, &if_let.value, &ExpectedType::None);
+            let resolver = ctx.resolver.clone();
+            let (elaboration, _annotation_invalidity) = if let Some(annotation) = if_let.annotation.as_ref() {
+                ctx.elaborate_type_annotation(&resolver, annotation)
+            } else {
+                (None, crate::checker::causal::CausalInvalidity::Clean)
+            };
+
+            let expected_scrutinee = match &elaboration {
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
+                    ExpectedType::proper_from(*ty, ExpectationOrigin::DeclarationContract)
+                }
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context, term, .. }) => {
+                    ExpectedType::inference_from(*context, term.clone(), ExpectationOrigin::DeclarationContract)
+                }
+                None => ExpectedType::None,
+            };
+
+            let val_typed = analyze_expression(ctx, &if_let.value, &expected_scrutinee);
             let before = ctx.flow.clone();
 
             ctx.flow = before.clone();
@@ -947,12 +964,29 @@ fn analyze_non_binary_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, exp
         Expr::WhileLet(while_let) => {
             let before = ctx.flow.clone();
 
+            let resolver = ctx.resolver.clone();
+            let (elaboration, _annotation_invalidity) = if let Some(annotation) = while_let.annotation.as_ref() {
+                ctx.elaborate_type_annotation(&resolver, annotation)
+            } else {
+                (None, crate::checker::causal::CausalInvalidity::Clean)
+            };
+
+            let expected_scrutinee = match &elaboration {
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Canonical(ty)) => {
+                    ExpectedType::proper_from(*ty, ExpectationOrigin::DeclarationContract)
+                }
+                Some(crate::checker::annotation_elaboration::AnnotationElaboration::Inference { context, term, .. }) => {
+                    ExpectedType::inference_from(*context, term.clone(), ExpectationOrigin::DeclarationContract)
+                }
+                None => ExpectedType::None,
+            };
+
             let evaluate_step = |step_ctx: &mut CheckingContext<'_>,
                                  current_header: &FlowState,
                                  is_real_pass: bool|
              -> (Option<FlowState>, FlowState, Vec<FlowState>, CausalInvalidity) {
                 step_ctx.flow = current_header.clone();
-                let val_typed = analyze_expression(step_ctx, &while_let.value, &ExpectedType::None);
+                let val_typed = analyze_expression(step_ctx, &while_let.value, &expected_scrutinee);
                 let exit_flow = step_ctx.flow.clone();
                 let (subject, refinement_block) = coverage_subject_for_expression(step_ctx, &val_typed);
 
