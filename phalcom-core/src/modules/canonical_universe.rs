@@ -280,6 +280,7 @@ fn canonical_runtime_cycle_requirements(
         return String::new();
     };
     let members = cycle.iter().collect::<std::collections::BTreeSet<_>>();
+    let cycle_members = &members;
     let mut edges = [
         ("semantic-generated", semantic_requirements),
         ("metadata-type-owner", metadata_requirements),
@@ -288,7 +289,9 @@ fn canonical_runtime_cycle_requirements(
     .flat_map(|(origin, requirements)| {
         requirements
             .iter()
-            .filter(|requirement| members.contains(&requirement.importer) && members.contains(&requirement.dependency))
+            .filter(move |requirement| {
+                cycle_members.contains(&requirement.importer) && cycle_members.contains(&requirement.dependency)
+            })
             .map(move |requirement| {
                 format!(
                     "  [{origin}] {} -> {} at {:?} ({:?}, linked read: {:?})",
