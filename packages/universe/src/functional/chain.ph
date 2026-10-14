@@ -254,12 +254,12 @@ impl<T> Chain<T> {
         Chain::Empty => { return right.isEmpty }
         Chain::Link(a, rest) => {
           match right {
-            Chain::Empty => { return false }
             Chain::Link(b, tail) => {
               if a != b { return false }
               left = rest
               right = tail
             }
+            _ => { return false }
           }
         }
       }

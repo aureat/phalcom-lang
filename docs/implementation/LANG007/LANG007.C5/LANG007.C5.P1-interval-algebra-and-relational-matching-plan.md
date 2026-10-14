@@ -4,8 +4,8 @@ category: LANG
 program: LANG007
 checkpoint: LANG007.C5
 kind: implementation-plan
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 prepared: 2026-10-13
 prepared_against_revision: b9c8ddd9551c2e15a8a728085f2f259a3e92b6d3
