@@ -99,3 +99,56 @@ Core/semantic/LSP checks and focused linker/phase-evidence checks do not certify
 a working VM. Full workspace, collection/property suites, static metadata parity,
 and source-free PERF gates were deliberately not run. The latest canonical
 staging correction is a reviewable candidate, not accepted bootstrap closure.
+
+## Consolidation stabilization and cleanup — 2026-10-14
+
+Target branch: `feat/consolidation-universe`; the implementation remains
+`BLOCKED / PARTIAL / UNVERIFIED`. The historical checks above were completed
+on earlier revisions and do not verify the latest stabilization commits.
+
+### Canonical bootstrap guard and diagnostics
+
+- `5aeeffa8`, `e369d7dc`: require the canonical source-index initializer
+  order to respect each finalized runtime dependency between modules actually
+  executed by that bootstrap schedule. The check does not classify external
+  native-floor satisfaction and does not alter the linker DAG.
+- `8091f584`, `88729c3f`: preserve strict cycle rejection and augment the
+  canonical linking error with generated requirements whose endpoints lie in
+  the rejected strongly connected component, retaining module identity, source
+  range, dependency reason, and linked read target where present.
+- `b19df039`: isolate the bootstrap-order validator and add focused synthetic
+  reversed-order, dependency-first, and outside-closure regression tests.
+  **Tests were committed but not executed.**
+
+### Pattern-frame cleanup
+
+- `6de2796a`: correct executable List `*rest` temporary-depth accounting:
+  the extracted tail and copy-loop counter occupy two live slots. Nested rest
+  patterns reserve deeper slots as required. Remove the fallback that reserved
+  fresh compiler locals during pattern execution, which could invalidate
+  repeated `while let` or alternative-pattern scratch layouts. Add depth
+  regression tests. **No Cargo build or runtime gate was executed.**
+- The post-`60e6a3db` collections delta is not safe to copy wholesale:
+  consolidation has subsequent pattern-frame preallocation, generalized Record
+  metadata export, and updated semantic/Pack logic. Preserve these newer
+  developments and reconcile isolated collection fixes only after source-level
+  equivalence review. Do not import the concurrent enum inference change.
+
+### Remaining blockers and verification
+
+The canonical generated-requirement cycle is **not resolved**. The earlier
+failed bootstrap remains the latest completed execution evidence; the new
+diagnostic has not been exercised in a cargo run. The next owning-worktree
+action is:
+
+```sh
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core modules_linking::mat_01_export_slots_populated -- --exact --nocapture
+```
+
+Then run the two new focused unit-test filters via the core library target,
+followed by module linker, semantic phase evidence, and relevant collections
+integration tests. First establish the exact rejected edge provenance; do not
+remove graph-only edges merely because their `read_target` is `None`.
+Do not relax runtime cycles, add late compiler reads, or claim bootstrap
+acceptance without executable tests. Remote GitHub updates were committed;
+this execution environment has neither a Phalcom checkout nor Rust Cargo.
