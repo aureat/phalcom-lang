@@ -2039,6 +2039,341 @@ impl ProgramCompiler {
             classify_program_compile_error,
         )
     }
+
+    /// Compiles an entry selection against an explicit loaded `CanonicalUniverseFormalImage` without source acquisition (`P7.T12`).
+    pub fn compile_entry_selection_with_image(
+        entry: EntrySelection,
+        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+    ) -> Result<CompiledProgram, ProgramCompileError> {
+        Self::compile_entry_selection_with_options_and_image(entry, image, &ProgramCompilationOptions::default())
+    }
+
+    /// Compiles an entry selection with explicit options and a loaded `CanonicalUniverseFormalImage` (`P7.T12`).
+    pub fn compile_entry_selection_with_options_and_image(
+        entry: EntrySelection,
+        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+        options: &ProgramCompilationOptions,
+    ) -> Result<CompiledProgram, ProgramCompileError> {
+        crate::perf_span_result!(
+            telos_observability::PerfPhase::Compilation,
+            || {
+                let analyzed = ProgramAnalyzer::analyze_entry_selection_with_image(entry, image)?;
+                Self::compile_analyzed_with_options(&analyzed, options)
+            },
+            classify_program_compile_error,
+        )
+    }
+}
+
+impl ProgramAnalyzer {
+    /// Analyzes an entry selection using an explicitly supplied `CanonicalUniverseFormalImage` (`P7.T12`).
+    /// Never invokes source-backed `OnceLock` Universe initialization.
+    pub fn analyze_entry_selection_with_image(
+        entry: EntrySelection,
+        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        crate::perf_span_result!(
+            telos_observability::PerfPhase::SourceDiscovery,
+            || match entry {
+                EntrySelection::ModuleId(entry_id) => Err(ProgramCompileError::Io(format!(
+                    "EntrySelection::ModuleId({entry_id}) cannot be analyzed without an existing linked project universe"
+                ))),
+                EntrySelection::Project(root_dir) => {
+                    let manifest_path = if root_dir.ends_with("project.toml") {
+                        root_dir
+                    } else {
+                        root_dir.join("project.toml")
+                    };
+                    if !manifest_path.exists() {
+                        return Err(ProgramCompileError::Io(format!("project manifest not found at {}", manifest_path.display())));
+                    }
+                    let mut universe = ProjectUniverse::new();
+                    let root_id = universe.load_root(&manifest_path)?;
+                    let project = universe
+                        .get_project(root_id)
+                        .ok_or_else(|| ProgramCompileError::Io(format!("project {root_id:?} not found")))?;
+                    let entry_path = project
+                        .entry
+                        .clone()
+                        .ok_or_else(|| ProgramCompileError::ProjectNotExecutable(manifest_path.display().to_string()))?;
+                    let entry_id = ModuleId {
+                        project: root_id.into(),
+                        path: entry_path,
+                    };
+                    let provider = FilesystemSourceProvider::new();
+                    Self::discover_and_analyze_with_image(Arc::new(universe), provider, entry_id, image)
+                }
+                EntrySelection::Package(pkg_dir) => {
+                    let canonical_pkg = pkg_dir
+                        .canonicalize()
+                        .map_err(|e| ProgramCompileError::Io(format!("{}: {e}", pkg_dir.display())))?;
+                    let pkg_file = canonical_pkg.join("package.ph");
+                    if !pkg_file.is_file() {
+                        return Err(ProgramCompileError::Project(ProjectError::MissingRootPackage(canonical_pkg)));
+                    }
+                    let main_file = canonical_pkg.join("main.ph");
+                    if !main_file.is_file() {
+                        return Err(ProgramCompileError::PackageNotExecutable(canonical_pkg.display().to_string()));
+                    }
+                    let mut universe = ProjectUniverse::new();
+                    let root_id = universe.load_standalone_package(&canonical_pkg, Some("main"))?;
+                    let entry_id = ModuleId {
+                        project: root_id.into(),
+                        path: ModulePath::from_components(vec![
+                            ModuleComponent::from_identifier("main").map_err(|e| ProgramCompileError::Io(e.to_string()))?,
+                        ]),
+                    };
+                    let provider = FilesystemSourceProvider::new();
+                    Self::discover_and_analyze_with_image(Arc::new(universe), provider, entry_id, image)
+                }
+                EntrySelection::Module(file_path) => {
+                    let canonical = file_path
+                        .canonicalize()
+                        .map_err(|e| ProgramCompileError::Io(format!("{}: {}", file_path.display(), e)))?;
+                    let mut universe = ProjectUniverse::new();
+                    let ownership = classify_entry_ownership(&canonical, &mut universe)?;
+                    match ownership {
+                        EntryOwnership::ProjectOwned { project: root_id } => {
+                            let project = universe.get_project(root_id).unwrap();
+                            let rel_path = canonical.strip_prefix(&project.source_root).map_err(|_| {
+                                ProgramCompileError::Io(format!("file {} not under source root {}", file_path.display(), project.source_root.display()))
+                            })?;
+                            let module_path = relative_path_to_module_path(rel_path)?;
+                            let entry_id = ModuleId {
+                                project: root_id.into(),
+                                path: module_path,
+                            };
+                            let provider = FilesystemSourceProvider::new();
+                            Self::discover_and_analyze_with_image(Arc::new(universe), provider, entry_id, image)
+                        }
+                        EntryOwnership::StandalonePackageOwned { package_root } => {
+                            let root_id = universe.load_standalone_package(&package_root, None)?;
+                            let project = universe.get_project(root_id).unwrap();
+                            let rel_path = canonical.strip_prefix(&project.source_root).map_err(|_| {
+                                ProgramCompileError::Io(format!("file {} not under package root {}", file_path.display(), project.source_root.display()))
+                            })?;
+                            let module_path = relative_path_to_module_path(rel_path)?;
+                            let entry_id = ModuleId {
+                                project: root_id.into(),
+                                path: module_path,
+                            };
+                            let provider = FilesystemSourceProvider::new();
+                            Self::discover_and_analyze_with_image(Arc::new(universe), provider, entry_id, image)
+                        }
+                        EntryOwnership::StandaloneModule { file } => Self::analyze_standalone_module_with_image(file, image),
+                        EntryOwnership::Inline { .. } => Self::analyze_standalone_module_with_image(file_path, image),
+                    }
+                }
+                EntrySelection::Inline(source_text) => {
+                    let parsed = phalcom_ast::parse(&source_text, 0);
+                    if let Some(error) = parsed.errors.first() {
+                        return Err(ProgramCompileError::Parse(error.clone()));
+                    }
+                    if !parsed.program.preamble.dependencies.is_empty() {
+                        let dep = &parsed.program.preamble.dependencies[0];
+                        let import_name = match dep {
+                            phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(m)) => m.path.to_string(),
+                            phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(s)) => s.path.to_string(),
+                            phalcom_ast::ast::DependencyDecl::ReExport(r) => r.path.to_string(),
+                            phalcom_ast::ast::DependencyDecl::Expose(e) => e.child.name.clone(),
+                        };
+                        return Err(ProgramCompileError::ReplImportRequiresProjectContext {
+                            import_name: import_name.into(),
+                        });
+                    }
+                    let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
+                    let entry_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
+                    let universe = Arc::new(ProjectUniverse::new());
+                    let interface = InterfaceBuilder::build(entry_id.clone(), ModuleKind::Module, &parsed.program)?;
+                    let mut interfaces = BTreeMap::new();
+                    interfaces.insert(entry_id.clone(), interface);
+                    let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
+                        entry_id.clone(),
+                        ModuleKind::Module,
+                        None,
+                        source_text,
+                        Arc::new(parsed.program),
+                    ));
+                    let mut sources = BTreeMap::new();
+                    sources.insert(entry_id.clone(), parsed_unit);
+                    let resolved = BTreeMap::new();
+                    let linked = Arc::new(
+                        ModuleLinker::new(universe.clone(), interfaces.clone())
+                            .with_external_modules(image.modules().clone())
+                            .link_all(entry_id.clone(), &resolved)?,
+                    );
+                    let semantic_input = phalcom_semantic::SemanticWorkspaceInput::from_interfaces(
+                        linked.clone(),
+                        sources.clone(),
+                        interfaces
+                            .iter()
+                            .map(|(module, interface)| (module.clone(), Arc::new(interface.clone())))
+                            .collect(),
+                        0,
+                    )
+                    .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
+                    let mut semantic_session = phalcom_semantic::SemanticWorkspaceSession::from_image(phalcom_semantic::identity::WorkspaceId(1), image)
+                        .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
+                    let analysis = semantic_session
+                        .update_with_budget_and_cancel(
+                            semantic_input,
+                            phalcom_semantic::db::QueryBudget::default(),
+                            &phalcom_semantic::db::CancellationToken::new(),
+                        )
+                        .map_err(phalcom_semantic::SemanticUpdateFailure::from)?
+                        .snapshot;
+                    Ok(AnalyzedProgram {
+                        project_universe: universe,
+                        linked,
+                        semantic: analysis,
+                        sources,
+                        runtime_modules: BTreeSet::from([entry_id.clone()]),
+                        entry: entry_id,
+                    })
+                }
+            },
+            classify_program_compile_error,
+        )
+    }
+
+    fn analyze_standalone_module_with_image(
+        file_path: PathBuf,
+        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        let canonical = file_path
+            .canonicalize()
+            .map_err(|e| ProgramCompileError::Io(format!("{}: {e}", file_path.display())))?;
+        if !canonical.is_file() {
+            return Err(ProgramCompileError::Io(format!("{} is not a module file", canonical.display())));
+        }
+        let source_text: Arc<str> =
+            Arc::from(std::fs::read_to_string(&canonical).map_err(|e| ProgramCompileError::Io(format!("{}: {e}", canonical.display())))?);
+        let parsed = phalcom_ast::parse(&source_text, 0);
+        if let Some(error) = parsed.errors.first() {
+            return Err(ProgramCompileError::Parse(error.clone()));
+        }
+        let mut ids = phalcom_modules::SyntheticProjectIdAllocator;
+        let entry_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
+        let universe = Arc::new(ProjectUniverse::new());
+        let interface = InterfaceBuilder::build(entry_id.clone(), ModuleKind::Module, &parsed.program)?;
+        let interfaces = BTreeMap::from([(entry_id.clone(), interface)]);
+        let mut sources = BTreeMap::new();
+        let parsed_unit = Arc::new(phalcom_modules::source::ParsedModuleUnit::new(
+            entry_id.clone(),
+            ModuleKind::Module,
+            Some(SourceLocation {
+                source_id: SourceId(canonical.to_string_lossy().into()),
+                display_path: canonical.clone(),
+            }),
+            source_text,
+            Arc::new(parsed.program.clone()),
+        ));
+        sources.insert(entry_id.clone(), parsed_unit);
+        for dependency in &parsed.program.preamble.dependencies {
+            let path = match dependency {
+                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(decl)) => &decl.path,
+                phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(decl)) => &decl.path,
+                phalcom_ast::ast::DependencyDecl::ReExport(decl) => &decl.path,
+                phalcom_ast::ast::DependencyDecl::Expose(decl) => {
+                    return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
+                        import_name: decl.child.name.clone().into(),
+                    });
+                }
+            };
+            if !matches!(&path.root, phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "universe") {
+                return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
+                    import_name: path.to_string().into(),
+                });
+            }
+        }
+        let provider = FilesystemSourceProvider::new();
+        let mut resolver = ModuleResolver::with_external_modules(&universe, &provider, image.modules().clone());
+        let resolved = BTreeMap::new();
+        let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, [entry_id.clone()], Some(&entry_id))?;
+        let linked = Arc::new(
+            ModuleLinker::new(universe.clone(), discovered.interfaces.clone())
+                .with_external_modules(image.modules().clone())
+                .link_all(entry_id.clone(), &discovered.resolved)?,
+        );
+        let semantic_input = phalcom_semantic::SemanticWorkspaceInput::from_interfaces(
+            linked.clone(),
+            discovered.sources.clone(),
+            discovered
+                .interfaces
+                .iter()
+                .map(|(module, interface)| (module.clone(), Arc::new(interface.clone())))
+                .collect(),
+            0,
+        )
+        .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
+        let mut semantic_session = phalcom_semantic::SemanticWorkspaceSession::from_image(phalcom_semantic::identity::WorkspaceId(1), image)
+            .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
+        let analysis = semantic_session
+            .update_with_budget_and_cancel(
+                semantic_input,
+                phalcom_semantic::db::QueryBudget::default(),
+                &phalcom_semantic::db::CancellationToken::new(),
+            )
+            .map_err(phalcom_semantic::SemanticUpdateFailure::from)?
+            .snapshot;
+        Ok(AnalyzedProgram {
+            project_universe: universe,
+            linked,
+            semantic: analysis,
+            sources: discovered.sources,
+            runtime_modules: BTreeSet::from([entry_id.clone()]),
+            entry: entry_id,
+        })
+    }
+
+    fn discover_and_analyze_with_image(
+        universe: Arc<ProjectUniverse>,
+        source_provider: FilesystemSourceProvider,
+        entry: ModuleId,
+        image: Arc<phalcom_semantic::canonical_image::CanonicalUniverseFormalImage>,
+    ) -> Result<AnalyzedProgram, ProgramCompileError> {
+        let mut resolver = ModuleResolver::with_external_modules(&universe, &source_provider, image.modules().clone());
+        let interfaces = BTreeMap::new();
+        let sources = BTreeMap::new();
+        let resolved = BTreeMap::new();
+        let mut pending = vec![entry.clone()];
+        if let Some(project_id) = entry.project.as_resolved() {
+            let root_id = ModuleId::resolved(project_id, ModulePath::root());
+            pending.push(root_id);
+        }
+        let discovered = discover_reachable_dependencies(&mut resolver, &universe, interfaces, sources, resolved, pending, None)?;
+        let linker = ModuleLinker::new(universe.clone(), discovered.interfaces.clone()).with_external_modules(image.modules().clone());
+        let linked = Arc::new(linker.link_all(entry.clone(), &discovered.resolved)?);
+        let semantic_input = phalcom_semantic::SemanticWorkspaceInput::from_interfaces(
+            linked.clone(),
+            discovered.sources.clone(),
+            discovered
+                .interfaces
+                .iter()
+                .map(|(module, interface)| (module.clone(), Arc::new(interface.clone())))
+                .collect(),
+            0,
+        )
+        .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
+        let mut semantic_session = phalcom_semantic::SemanticWorkspaceSession::from_image(phalcom_semantic::identity::WorkspaceId(1), image)
+            .with_product_request(phalcom_semantic::SemanticProductRequest::runtime_minimal());
+        let analysis = semantic_session
+            .update_with_budget_and_cancel(
+                semantic_input,
+                phalcom_semantic::db::QueryBudget::default(),
+                &phalcom_semantic::db::CancellationToken::new(),
+            )
+            .map_err(phalcom_semantic::SemanticUpdateFailure::from)?
+            .snapshot;
+        Ok(AnalyzedProgram {
+            project_universe: universe,
+            runtime_modules: linked.modules.keys().filter(|id| !id.project.is_universe()).cloned().collect(),
+            linked,
+            semantic: analysis,
+            sources: discovered.sources,
+            entry,
+        })
+    }
 }
 
 fn relative_path_to_module_path(rel_path: &Path) -> Result<ModulePath, ProgramCompileError> {

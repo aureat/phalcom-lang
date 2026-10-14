@@ -3,7 +3,7 @@
 mod artifact;
 mod store;
 
-pub use artifact::{StaticRelocation, import_static_value_graph};
+pub use artifact::{StaticExportContext, StaticRelocation, import_static_value_graph};
 pub use store::{
     StaticDataValue, StaticDataValueId, StaticFloat, StaticInt, StaticPackBacking, StaticPackBackingId, StaticPackData, StaticPackId, StaticRecordField,
     StaticRecordId, StaticSequenceData, StaticSequenceFamily, StaticSequenceId, StaticStringId, StaticSymbolId, StaticTupleId, StaticValueData, StaticValueId,

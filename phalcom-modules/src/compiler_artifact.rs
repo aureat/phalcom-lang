@@ -945,9 +945,12 @@ fn validate_target(target: &LinkedReadSpec, interfaces: &BTreeMap<ModuleId, Arc<
     if let LinkedReadSpec::Binding(symbol) = target {
         if !interfaces
             .get(&symbol.module)
-            .is_some_and(|interface| interface.declarations.contains_key(symbol.name.as_ref()))
+            .is_some_and(|interface| {
+                interface.declarations.contains_key(symbol.name.as_ref())
+                    || interface.exports.contains_key(symbol.name.as_ref())
+            })
         {
-            return Err(invalid("linked binding has no owning declaration"));
+            return Err(invalid(format!("linked binding has no owning declaration: {:?}::{}", symbol.module, symbol.name)));
         }
     }
     Ok(())

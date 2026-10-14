@@ -2,3 +2,7 @@
 pub mod export;
 pub mod import;
 pub mod manifest;
+pub mod operational;
+pub mod query;
+pub mod roots;
+pub mod validate;

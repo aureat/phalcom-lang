@@ -5,7 +5,8 @@ use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeS
 use crate::declarations::DeclarationTypeTable;
 use crate::enum_semantics::{AlgebraicCasePayloadKind, EnumSemanticTable, VariantFieldSemantic, VariantShape, VariantVisibility};
 use crate::metadata::stable_identity::{
-    to_stable_callable, to_stable_declaration, to_stable_dispatch_side, to_stable_impl, to_stable_variant,
+    to_stable_callable, to_stable_declaration, to_stable_dispatch_side, to_stable_field, to_stable_impl, to_stable_module,
+    to_stable_variant,
 };
 use crate::type_alias::TypeAliasTable;
 use crate::types::case_environment::CaseTypeEnvironment;
@@ -643,4 +644,621 @@ pub fn export_structural_primary_contracts(
     };
     contracts.validate(limits)?;
     Ok(contracts)
+}
+
+use crate::artifact::operational::export_checked_static_definitions;
+use crate::artifact::query::validate_query_image_closure;
+use crate::artifact::validate::compute_witness_layout_fingerprint;
+use crate::canonical_image::CanonicalSemanticQueryImage;
+use crate::snapshot::SemanticSnapshot;
+use crate::static_value::StaticExportContext;
+use phalcom_compiler_artifact::query::{
+    DependencyEvidenceEntryV1, PortableQueryKeyV1, PortableQueryKindV1, QueryImageV1, QueryRootEntryV1,
+};
+use phalcom_compiler_artifact::semantic::world::{
+    AssociatedBindingEntryV1, AssociatedBindingValueV1, CallableAnalysisRecordV1, CallableParameterV1,
+    CallableSignatureRecordV1, ConformanceHeadRecordV1, ConformanceTargetV1,
+    ConstructorInitializationRecordV1, ConstructorParamFieldV1, DeclarationSurfaceRecordV1, FieldSignatureV1,
+    RequirementEntryV1, RequirementSelectionV1, SemanticWorldV1, TraitSurfaceRecordV1, WitnessPlanV1,
+};
+use phalcom_type_meta::identity::StableCallableRef;
+use std::collections::BTreeMap;
+
+pub fn export_semantic_world(
+    snapshot: &SemanticSnapshot,
+    types: &TypeExportContext,
+    statics: &StaticExportContext,
+    limits: &ValidationLimits,
+) -> Result<SemanticWorldV1, ArtifactError> {
+    validate_semantic_world_export_coverage(snapshot)?;
+
+    let type_graph = types.project_graph(&snapshot.store, limits)?;
+    let structural_contracts = export_structural_primary_contracts(
+        types,
+        &snapshot.data_semantics,
+        &snapshot.enum_semantics,
+        &snapshot.declarations,
+        &snapshot.hierarchy,
+        &snapshot.type_aliases,
+        limits,
+    )?;
+    let static_values = statics.project_graph(snapshot.static_values.as_ref(), types, limits)?;
+
+    let mut templates = Vec::new();
+    for (_, product) in snapshot.static_definitions.iter() {
+        if let Some(checked_body) = &product.checked_body {
+            if let crate::static_definition::StaticDefinitionBodyRepr::Operational(template) = &checked_body.root {
+                templates.push((**template).clone());
+            }
+        }
+    }
+    let checked_definitions = export_checked_static_definitions(&templates, statics, types, limits)?;
+
+    let mut witness_plans = Vec::new();
+    for (_, plan) in snapshot.conformance_witness_plans.iter() {
+        let impl_id = to_stable_impl(&plan.impl_id);
+        let source_module = to_stable_module(&plan.source_module);
+        let mut trait_args = Vec::with_capacity(plan.trait_ref_template.arguments.len());
+        for a in &plan.trait_ref_template.arguments {
+            trait_args.push(types.ty(*a)?);
+        }
+        let trait_ref_template = TraitRefV1 {
+            declaration: to_stable_declaration(&plan.trait_ref_template.declaration),
+            arguments: trait_args,
+        };
+        let target_template = types.ty(plan.target_template)?;
+        let generic_signature = if let Some(g) = &plan.generic_signature {
+            Some(export_generic_signature(g, types)?)
+        } else {
+            None
+        };
+        let mut requirements = Vec::with_capacity(plan.requirements.len());
+        for (req_id, selection) in &plan.requirements {
+            let side = match req_id.side {
+                crate::identity::DispatchSide::Instance => 0,
+                crate::identity::DispatchSide::Class => 1,
+            };
+            let sel_v1 = match selection {
+                crate::impls::RequirementSelectionTemplate::ConformanceCallable { callable } => {
+                    RequirementSelectionV1::ConformanceCallable { callable: to_stable_callable(callable) }
+                }
+                crate::impls::RequirementSelectionTemplate::InherentCallable { callable, .. } => {
+                    RequirementSelectionV1::InherentCallable { callable: to_stable_callable(callable) }
+                }
+                crate::impls::RequirementSelectionTemplate::TraitDefault { callable } => {
+                    RequirementSelectionV1::TraitDefault { callable: to_stable_callable(callable) }
+                }
+                crate::impls::RequirementSelectionTemplate::DataComponent { component, specialized_type } => {
+                    RequirementSelectionV1::DataComponent {
+                        owner: to_stable_declaration(&component.owner),
+                        index: component.index,
+                        specialized_type: types.ty(*specialized_type)?,
+                    }
+                }
+                crate::impls::RequirementSelectionTemplate::ConditionalInherent { .. } => {
+                    return Err(referential("unresolved conditional inherent cannot be exported to artifact"));
+                }
+            };
+            requirements.push(RequirementEntryV1 {
+                selector: req_id.selector.to_string().into_boxed_str(),
+                side,
+                selection: sel_v1,
+            });
+        }
+        let mut associated_types = Vec::with_capacity(plan.associated_type_plan.bindings.len());
+        for (req_id, template) in &plan.associated_type_plan.bindings {
+            let value = match template.value_template {
+                crate::impls::AssociatedTypeBindingValue::Type(ty) => {
+                    AssociatedBindingValueV1::Type { ty: types.ty(ty)? }
+                }
+                crate::impls::AssociatedTypeBindingValue::Dynamic => {
+                    AssociatedBindingValueV1::Dynamic
+                }
+            };
+            associated_types.push(AssociatedBindingEntryV1 {
+                index: req_id.index,
+                value,
+            });
+        }
+        let fingerprint = plan.fingerprint.0;
+        let ordered_selected_callables: Vec<StableCallableRef> = plan
+            .requirements
+            .values()
+            .filter_map(|req| match req {
+                crate::impls::RequirementSelectionTemplate::ConformanceCallable { callable }
+                | crate::impls::RequirementSelectionTemplate::InherentCallable { callable, .. }
+                | crate::impls::RequirementSelectionTemplate::TraitDefault { callable } => {
+                    Some(to_stable_callable(callable))
+                }
+                _ => None,
+            })
+            .collect();
+        let slot_layout_fingerprint = compute_witness_layout_fingerprint(&ordered_selected_callables);
+        let completeness = match plan.completeness {
+            crate::impls::ConformanceCompleteness::Complete => 0,
+            crate::impls::ConformanceCompleteness::Incomplete { .. } => 1,
+            crate::impls::ConformanceCompleteness::Unknown(_) => 2,
+            crate::impls::ConformanceCompleteness::Blocked(_) => 3,
+            crate::impls::ConformanceCompleteness::Dynamic(_) => 4,
+            crate::impls::ConformanceCompleteness::Cancelled => 5,
+            crate::impls::ConformanceCompleteness::BudgetExceeded(_) => 6,
+            crate::impls::ConformanceCompleteness::InternalFailure(_) => 7,
+        };
+        witness_plans.push(WitnessPlanV1 {
+            impl_id,
+            source_module,
+            trait_ref_template,
+            target_template,
+            generic_signature,
+            requirements,
+            associated_types,
+            fingerprint,
+            ordered_selected_callables,
+            slot_layout_fingerprint,
+            completeness,
+        });
+    }
+
+    let mut callable_signatures = Vec::new();
+    for (_, sig) in snapshot.callable_signatures.iter() {
+        let callable = to_stable_callable(&sig.callable);
+        let owner = to_stable_declaration(&sig.owner);
+        let side = match sig.side {
+            crate::identity::DispatchSide::Instance => 0,
+            crate::identity::DispatchSide::Class => 1,
+        };
+        let selector = sig.selector.to_string().into_boxed_str();
+        let generics = if let Some(g) = &sig.generics {
+            Some(export_generic_signature(g, types)?)
+        } else {
+            None
+        };
+        let mut parameters = Vec::with_capacity(sig.parameters.len());
+        for p in sig.parameters.iter() {
+            let declared_type = export_declared_type_fact(&p.contract.declared_type(), types)?;
+            let rest_mode = match p.contract.rest_mode() {
+                phalcom_ast::ast::RestMode::None => 0,
+                phalcom_ast::ast::RestMode::Positional => 1,
+                phalcom_ast::ast::RestMode::Labeled => 2,
+                phalcom_ast::ast::RestMode::Complete => 3,
+            };
+            parameters.push(CallableParameterV1 {
+                local_name: p.local_name.clone(),
+                external_label: p.external_label.clone(),
+                declared_type,
+                rest_mode,
+            });
+        }
+        let declared_return = export_declared_type_fact(&sig.declared_return, types)?;
+        let return_flow = match sig.flow {
+            phalcom_native_meta::ReturnFlowSpec::Value => 0,
+            phalcom_native_meta::ReturnFlowSpec::Receiver => 1,
+            phalcom_native_meta::ReturnFlowSpec::Argument(i) => (2 + i) as u8,
+            phalcom_native_meta::ReturnFlowSpec::Never => 254,
+            phalcom_native_meta::ReturnFlowSpec::Unknown => 255,
+        };
+        callable_signatures.push(CallableSignatureRecordV1 {
+            callable,
+            owner,
+            side,
+            selector,
+            generics,
+            parameters,
+            declared_return,
+            return_flow,
+        });
+    }
+
+    let mut callable_analyses = Vec::new();
+    for (callable_id, analysis) in snapshot.callable_analyses.iter() {
+        let callable = to_stable_callable(callable_id);
+        let effects = 0;
+        let is_terminating = analysis.exits.unreachable;
+        callable_analyses.push(CallableAnalysisRecordV1 {
+            callable,
+            effects,
+            is_terminating,
+        });
+    }
+
+    let mut trait_surfaces = Vec::new();
+    for (decl_id, surface) in snapshot.trait_surfaces.iter() {
+        let declaration = to_stable_declaration(decl_id);
+        let generic_signature = if let Some(g) = &surface.generic_signature {
+            Some(export_generic_signature(g, types)?)
+        } else {
+            None
+        };
+        let mut super_traits = Vec::new();
+        if let Some(generics) = &surface.generic_signature {
+            for constraint in &generics.constraints {
+                if let GenericConstraint::Conforms { subject, trait_ref } = constraint {
+                    if matches!(subject, TypeTerm::SelfType(_)) {
+                        let mut args = Vec::with_capacity(trait_ref.arguments.len());
+                        for a in &trait_ref.arguments {
+                            args.push(types.ty(*a)?);
+                        }
+                        super_traits.push(TraitRefV1 {
+                            declaration: to_stable_declaration(&trait_ref.declaration),
+                            arguments: args,
+                        });
+                    }
+                }
+            }
+        }
+        let mut required_callables = Vec::new();
+        let mut default_callables = Vec::new();
+        for (_, member) in surface.iter() {
+            let stable = to_stable_callable(&member.callable);
+            if member.default_present {
+                default_callables.push(stable);
+            } else {
+                required_callables.push(stable);
+            }
+        }
+        let associated_types = surface.associated_types.values().map(|req| req.name.clone()).collect();
+        trait_surfaces.push(TraitSurfaceRecordV1 {
+            declaration,
+            generic_signature,
+            super_traits,
+            required_callables,
+            default_callables,
+            associated_types,
+        });
+    }
+
+    let mut dispatch_surfaces = Vec::new();
+    for (decl_id, surface) in snapshot.surfaces.iter() {
+        let declaration = to_stable_declaration(decl_id);
+        let instance_callables = surface.instance.callables.keys().map(to_stable_callable).collect();
+        let class_callables = surface.class.callables.keys().map(to_stable_callable).collect();
+        let mut fields = Vec::new();
+        for (_, field_sig) in snapshot.field_signatures.iter_owner(decl_id) {
+            let owner = to_stable_declaration(&field_sig.owner);
+            let name = field_sig.name.clone();
+            let declared_type = export_declared_type_fact(&field_sig.declared_type, types)?;
+            let mutable = field_sig.mutable;
+            let side = match field_sig.side {
+                crate::identity::DispatchSide::Instance => 0,
+                crate::identity::DispatchSide::Class => 1,
+            };
+            fields.push(FieldSignatureV1 {
+                owner,
+                name,
+                declared_type,
+                mutable,
+                side,
+            });
+        }
+        dispatch_surfaces.push(DeclarationSurfaceRecordV1 {
+            declaration,
+            instance_callables,
+            class_callables,
+            fields,
+        });
+    }
+
+    let mut conformance_heads = Vec::new();
+    for (impl_id, contribution) in snapshot.conformance_index.iter() {
+        let stable_impl = to_stable_impl(impl_id);
+        let source_module = to_stable_module(&contribution.source_module);
+        let target = match &contribution.target {
+            crate::impls::ConformanceTarget::Declaration(decl) => {
+                ConformanceTargetV1::Declaration {
+                    declaration: to_stable_declaration(decl),
+                }
+            }
+            crate::impls::ConformanceTarget::ExactEnumCase(variant) => {
+                ConformanceTargetV1::ExactEnumCase {
+                    variant: to_stable_variant(variant),
+                }
+            }
+        };
+        let target_type = types.ty(contribution.target_head)?;
+        let trait_decl = to_stable_declaration(&contribution.trait_ref.declaration);
+        let mut args = Vec::with_capacity(contribution.trait_ref.arguments.len());
+        for a in &contribution.trait_ref.arguments {
+            args.push(types.ty(*a)?);
+        }
+        let generic_signature = if let Some(g) = &contribution.generic_signature {
+            Some(export_generic_signature(g, types)?)
+        } else {
+            None
+        };
+        conformance_heads.push(ConformanceHeadRecordV1 {
+            impl_id: stable_impl,
+            source_module,
+            target,
+            target_type,
+            trait_ref: TraitRefV1 {
+                declaration: trait_decl,
+                arguments: args,
+            },
+            generic_signature,
+            authorized: contribution.authorized,
+            eligible: contribution.eligible,
+        });
+    }
+
+    let mut constructor_initializations = Vec::new();
+    for (_, product) in snapshot.constructor_initializations.iter() {
+        let factory = to_stable_callable(&product.factory);
+        let initializer = to_stable_callable(&product.initializer);
+        let origin = match product.origin {
+            crate::signature::ConstructorOrigin::Source => 0,
+            crate::signature::ConstructorOrigin::Construct => 1,
+            crate::signature::ConstructorOrigin::Data => 2,
+            crate::signature::ConstructorOrigin::DefaultOnly => 3,
+        };
+        let field_input_fingerprint = product.field_input_fingerprint.0;
+        let default_fields = product.default_fields.iter().map(|f| f.name.clone()).collect();
+        let parameter_fields = product
+            .parameter_fields
+            .iter()
+            .map(|pf| ConstructorParamFieldV1 {
+                parameter_index: pf.parameter.index,
+                field_name: pf.field.name.clone(),
+                field_side: match pf.field.side {
+                    crate::identity::DispatchSide::Instance => 0,
+                    crate::identity::DispatchSide::Class => 1,
+                },
+            })
+            .collect();
+        constructor_initializations.push(ConstructorInitializationRecordV1 {
+            factory,
+            initializer,
+            origin,
+            field_input_fingerprint,
+            default_fields,
+            parameter_fields,
+        });
+    }
+
+    let world = SemanticWorldV1 {
+        type_graph,
+        structural_contracts,
+        static_values,
+        checked_definitions,
+        witness_plans,
+        callable_signatures,
+        callable_analyses,
+        trait_surfaces,
+        dispatch_surfaces,
+        conformance_heads,
+        constructor_initializations,
+    };
+    world.validate(limits)?;
+    Ok(world)
+}
+
+/// Stops the writer before it emits an image whose importer would have to
+/// fabricate or discard required compiler authority. As each omitted family
+/// gains an owner-controlled wire adapter, remove its corresponding blocker.
+fn validate_semantic_world_export_coverage(snapshot: &SemanticSnapshot) -> Result<(), ArtifactError> {
+    if !snapshot.callable_analyses.is_empty() {
+        return Err(referential(
+            "semantic artifact export does not yet encode callable analysis facts and cannot publish a complete image",
+        ));
+    }
+    if !snapshot.enum_requirements.requirements.is_empty()
+        || snapshot.associated_surfaces.surfaces.iter().next().is_some()
+        || snapshot.type_member_declarations.iter().next().is_some()
+        || !snapshot.associated_static_domains.is_empty()
+        || !snapshot.static_case_catalogs.is_empty()
+        || !snapshot.static_case_signatures.is_empty()
+        || snapshot.static_definitions.iter().next().is_some()
+        || !snapshot.static_constants.is_empty()
+        || snapshot.module_static_bindings.iter().next().is_some()
+        || !snapshot.derived_conformance_rules.is_empty()
+        || !snapshot.trait_dispatch_index.is_empty()
+    {
+        return Err(referential(
+            "semantic artifact export omits required primary owner families and cannot publish a complete image",
+        ));
+    }
+    for (_, plan) in snapshot.conformance_witness_plans.iter() {
+        if !plan.requirement_views.is_empty()
+            || plan.invalid_explicit_members
+            || !matches!(plan.completeness, crate::impls::ConformanceCompleteness::Complete)
+            || !plan.associated_type_plan.failures.is_empty()
+            || plan.requirements.values().any(|selection| {
+                matches!(
+                    selection,
+                    crate::impls::RequirementSelectionTemplate::InherentCallable {
+                        conditional_impl: Some(_),
+                        ..
+                    } | crate::impls::RequirementSelectionTemplate::InherentCallable {
+                        applicability: Some(_),
+                        ..
+                    } | crate::impls::RequirementSelectionTemplate::ConditionalInherent { .. }
+                )
+            })
+        {
+            return Err(referential(
+                "semantic artifact export cannot losslessly encode this conformance witness plan",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub fn export_query_image(
+    queries: &CanonicalSemanticQueryImage,
+    dependency_fingerprints: &BTreeMap<crate::db::QueryKey, crate::db::ProductFingerprint>,
+    limits: &ValidationLimits,
+) -> Result<QueryImageV1, ArtifactError> {
+    let mut candidate_roots = Vec::new();
+
+    for (key, entry) in queries.entries() {
+        if matches!(key, crate::db::QueryKey::ParsedModule(_)) {
+            continue;
+        }
+        let Some(kind) = portable_query_kind(key) else {
+            continue;
+        };
+        if kind.profile_support() != phalcom_compiler_artifact::query::QueryProfileSupport::SupportedReusableRoot {
+            continue;
+        }
+        let stable_owner_key = portable_query_owner_key(key)?;
+        let portable_key = PortableQueryKeyV1 {
+            kind,
+            stable_owner_key,
+        };
+        candidate_roots.push((key.clone(), portable_key, entry));
+    }
+
+    // Reverse pruning: only retain roots whose dependencies are ALL retained in candidate set!
+    let mut retained_keys: BTreeSet<crate::db::QueryKey> = candidate_roots.iter().map(|(k, _, _)| k.clone()).collect();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let mut to_remove = Vec::new();
+        for key in &retained_keys {
+            if let Some(entry) = queries.entry(key) {
+                if !entry.dependencies.iter().all(|dep| retained_keys.contains(&dep.dependency)) {
+                    to_remove.push(key.clone());
+                }
+            } else {
+                to_remove.push(key.clone());
+            }
+        }
+        if !to_remove.is_empty() {
+            changed = true;
+            for key in to_remove {
+                retained_keys.remove(&key);
+            }
+        }
+    }
+
+    let mut supported_roots = Vec::new();
+    let mut key_to_final_index = BTreeMap::new();
+    for (key, port_key, entry) in candidate_roots {
+        if retained_keys.contains(&key) {
+            let idx = supported_roots.len() as u32;
+            key_to_final_index.insert(key, idx);
+            supported_roots.push((port_key, entry));
+        }
+    }
+
+    let mut roots = Vec::with_capacity(supported_roots.len());
+    for (port_key, entry) in supported_roots {
+        let mut dependency_indices = Vec::new();
+        for dep in entry.dependencies.iter() {
+            if let Some(&dep_idx) = key_to_final_index.get(&dep.dependency) {
+                dependency_indices.push(dep_idx);
+            }
+        }
+        roots.push(QueryRootEntryV1 {
+            key: port_key,
+            dependency_indices,
+        });
+    }
+
+    let mut dependency_evidence = Vec::new();
+    for (key, _) in dependency_fingerprints {
+        if matches!(key, crate::db::QueryKey::ParsedModule(_)) {
+            continue;
+        }
+        let Some(kind) = portable_query_kind(key) else {
+            continue;
+        };
+        let stable_owner_key = portable_query_owner_key(key)?;
+        let stable_aggregate_owner = stable_owner_key.clone();
+        dependency_evidence.push(DependencyEvidenceEntryV1 {
+            key: PortableQueryKeyV1 {
+                kind,
+                stable_owner_key,
+            },
+            stable_aggregate_owner,
+        });
+    }
+
+    let image = QueryImageV1 {
+        supported_roots: roots,
+        dependency_evidence,
+    };
+    image.validate(limits)?;
+    validate_query_image_closure(&image)?;
+    Ok(image)
+}
+
+pub(crate) fn portable_query_owner_key(key: &crate::db::QueryKey) -> Result<String, ArtifactError> {
+    fn typed_json<T: serde::Serialize>(tag: &str, value: &T) -> Result<String, ArtifactError> {
+        let encoded = serde_json::to_string(value).map_err(|error| referential(format!("cannot encode stable query owner: {error}")))?;
+        Ok(format!("{tag}:{encoded}"))
+    }
+
+    match key {
+        crate::db::QueryKey::UnlinkedInterface(m)
+        | crate::db::QueryKey::ResolvedImports(m)
+        | crate::db::QueryKey::LinkedInterface(m)
+        | crate::db::QueryKey::SemanticComponent(m)
+        | crate::db::QueryKey::SourceStructure(m)
+        | crate::db::QueryKey::AdvisoryModule(m)
+        | crate::db::QueryKey::ModuleDiagnostics(m)
+        | crate::db::QueryKey::ModuleMetadata(m)
+        | crate::db::QueryKey::ModuleStaticBindingCatalog(m)
+        | crate::db::QueryKey::ModuleStaticBindings(m) => typed_json("module", &to_stable_module(m)),
+        crate::db::QueryKey::DeclarationShell(d)
+        | crate::db::QueryKey::DeclarationSurface(d)
+        | crate::db::QueryKey::TraitHeader(d)
+        | crate::db::QueryKey::TraitSurface(d)
+        | crate::db::QueryKey::HierarchyEdge(d)
+        | crate::db::QueryKey::ConstructorInitialization(d)
+        | crate::db::QueryKey::DataDeclaration(d)
+        | crate::db::QueryKey::EnumDeclaration(d)
+        | crate::db::QueryKey::EnumRequirements(d)
+        | crate::db::QueryKey::AssociatedSurface(d)
+        | crate::db::QueryKey::StaticDefinition(d) => typed_json("declaration", &to_stable_declaration(d)),
+        crate::db::QueryKey::CallableDefinition(c)
+        | crate::db::QueryKey::CallableSignature(c)
+        | crate::db::QueryKey::CallableBody(c)
+        | crate::db::QueryKey::CallableEffects(c)
+        | crate::db::QueryKey::CallableControl(c)
+        | crate::db::QueryKey::CallableTermination(c)
+        | crate::db::QueryKey::CallableContracts(c)
+        | crate::db::QueryKey::VerificationConditions(c)
+        | crate::db::QueryKey::SourceFormalAttachment(c)
+        | crate::db::QueryKey::AdvisoryCallable(c) => {
+            typed_json("callable", &to_stable_callable(c))
+        }
+        crate::db::QueryKey::FieldSignature(f) => {
+            typed_json("field", &to_stable_field(f))
+        }
+        crate::db::QueryKey::TypeMemberDeclaration(id) => {
+            let selector = match &id.selector {
+                crate::types::type_member::TypeMemberSelector::Named(name) => (0_u8, name.as_ref()),
+                crate::types::type_member::TypeMemberSelector::Subscript => (1_u8, ""),
+            };
+            typed_json("type-member", &(to_stable_declaration(&id.owner), selector))
+        }
+        crate::db::QueryKey::ConformanceDispatch(impl_id) => {
+            typed_json("impl", &to_stable_impl(impl_id))
+        }
+        _ => Err(referential("query kind has no portable stable owner-key encoding")),
+    }
+}
+
+fn portable_query_kind(key: &crate::db::QueryKey) -> Option<PortableQueryKindV1> {
+    match key {
+        crate::db::QueryKey::ParsedModule(_) => Some(PortableQueryKindV1::ParsedModule),
+        crate::db::QueryKey::UnlinkedInterface(_) => Some(PortableQueryKindV1::UnlinkedInterface),
+        crate::db::QueryKey::ResolvedImports(_) => Some(PortableQueryKindV1::ResolvedImports),
+        crate::db::QueryKey::LinkedInterface(_) => Some(PortableQueryKindV1::LinkedInterface),
+        crate::db::QueryKey::DeclarationShell(_) => Some(PortableQueryKindV1::DeclarationShell),
+        crate::db::QueryKey::HierarchyEdge(_) => Some(PortableQueryKindV1::HierarchyEdge),
+        crate::db::QueryKey::CallableDefinition(_) => Some(PortableQueryKindV1::CallableDefinition),
+        crate::db::QueryKey::CallableSignature(_) => Some(PortableQueryKindV1::CallableSignature),
+        crate::db::QueryKey::FieldSignature(_) => Some(PortableQueryKindV1::FieldSignature),
+        crate::db::QueryKey::DeclarationSurface(_) => Some(PortableQueryKindV1::DeclarationSurface),
+        crate::db::QueryKey::TraitHeader(_) => Some(PortableQueryKindV1::TraitHeader),
+        crate::db::QueryKey::TraitSurface(_) => Some(PortableQueryKindV1::TraitSurface),
+        crate::db::QueryKey::DataDeclaration(_) => Some(PortableQueryKindV1::DataDeclaration),
+        crate::db::QueryKey::EnumDeclaration(_) => Some(PortableQueryKindV1::EnumDeclaration),
+        crate::db::QueryKey::AssociatedSurface(_) => Some(PortableQueryKindV1::AssociatedSurface),
+        crate::db::QueryKey::TypeMemberDeclaration(_) => Some(PortableQueryKindV1::TypeMemberDeclaration),
+        crate::db::QueryKey::ModuleStaticBindingCatalog(_) => Some(PortableQueryKindV1::ModuleStaticBindingCatalog),
+        crate::db::QueryKey::ModuleStaticBindings(_) => Some(PortableQueryKindV1::ModuleStaticBindings),
+        _ => None,
+    }
 }

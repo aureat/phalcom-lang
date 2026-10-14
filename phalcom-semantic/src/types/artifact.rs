@@ -90,6 +90,16 @@ impl TypeExportContext {
         }
     }
 
+    pub fn new_full(store: &TypeStore) -> Result<Self, ArtifactError> {
+        let ids = ExportIds::new_full(store)?;
+        Ok(Self {
+            expected_lineage: TypeStoreLineageId(store.id().raw()),
+            closed: true,
+            ids: Some(ids),
+            sorted_roots: BTreeMap::new(),
+        })
+    }
+
     pub fn expected_lineage(&self) -> TypeStoreLineageId {
         self.expected_lineage
     }
@@ -2451,7 +2461,12 @@ impl TypeStore {
     /// Decodes and relocates into a fresh store. No semantic analysis is performed.
     pub fn decode_artifact(bytes: &[u8], limits: &ValidationLimits) -> Result<(Self, TypeRelocation), ArtifactError> {
         let graph = TypeGraphV1::decode(bytes, limits)?;
-        let mut import = Import::new(&graph, limits);
+        Self::import_type_graph(&graph, limits)
+    }
+
+    /// Relocates a validated `TypeGraphV1` into a fresh store.
+    pub fn import_type_graph(graph: &TypeGraphV1, limits: &ValidationLimits) -> Result<(Self, TypeRelocation), ArtifactError> {
+        let mut import = Import::new(graph, limits);
         for index in 0..graph.kinds.len() {
             import.kind(ArtifactKindId(index as u32))?;
         }

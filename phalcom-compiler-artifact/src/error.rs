@@ -7,6 +7,9 @@ use thiserror::Error;
 /// Top-level error for artifact processing.
 #[derive(Debug, Error)]
 pub enum ArtifactError {
+    #[error("metadata envelope: {0}")]
+    MetadataEnvelope(#[from] crate::metadata::MetadataSectionError),
+
     #[error("container error: {0}")]
     Container(#[from] ContainerError),
 

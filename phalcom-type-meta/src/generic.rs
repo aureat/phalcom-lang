@@ -6,6 +6,7 @@ use crate::type_node::TypeNodeId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub enum StableTypeParameterOwnerRef {
     Declaration(StableDeclarationRef),
     Callable(StableCallableRef),
@@ -13,12 +14,14 @@ pub enum StableTypeParameterOwnerRef {
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct StableTypeParameterRef {
     pub owner: StableTypeParameterOwnerRef,
     pub index: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub enum VarianceRef {
     Covariant,
     Contravariant,
@@ -26,6 +29,7 @@ pub enum VarianceRef {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub enum GenericParameterModeRef {
     #[default]
     Single,
@@ -35,6 +39,7 @@ pub enum GenericParameterModeRef {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct TypeParameterRecord {
     pub id: StableTypeParameterRef,
     pub name: Box<str>,
@@ -47,9 +52,11 @@ pub struct TypeParameterRecord {
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct GenericSignatureRecordId(pub u32);
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct GenericSignatureRecord {
     pub owner: StableTypeParameterOwnerRef,
     pub parameters: Box<[StableTypeParameterRef]>,
@@ -62,18 +69,21 @@ pub struct GenericSignatureRecord {
 /// declaration and its canonical type arguments are carried explicitly.
 /// Stable identity for an associated type requirement within a trait declaration.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct StableAssociatedTypeRequirementRef {
     pub owner: StableDeclarationRef,
     pub index: u32,
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct StableTraitApplicationRef {
     pub declaration: StableDeclarationRef,
     pub arguments: Box<[TypeNodeId]>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub enum GenericConstraintRef {
     Subtype {
         lower: crate::type_node::TypeNodeId,

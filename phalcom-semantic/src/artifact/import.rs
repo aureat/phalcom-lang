@@ -14,7 +14,8 @@ use crate::enum_semantics::{
 };
 use crate::identity::{DataComponentId, DataConstructorId, VariantConstructorId, VariantFieldId, VariantId};
 use crate::metadata::stable_identity::{
-    from_stable_callable, from_stable_declaration, from_stable_dispatch_side, from_stable_impl, from_stable_variant,
+    from_stable_callable, from_stable_declaration, from_stable_dispatch_side, from_stable_impl,
+    from_stable_module, from_stable_variant,
 };
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
 use crate::types::case_environment::CaseTypeEnvironment;
@@ -617,5 +618,605 @@ pub fn import_structural_primary_contracts(
         data_table,
         enum_table,
         generic_signatures,
+    })
+}
+
+use crate::artifact::operational::import_checked_static_definitions;
+use crate::artifact::validate::{compute_witness_layout_fingerprint, validate_pending_static_references};
+use crate::static_definition::OperationalTemplate;
+use crate::static_value::{import_static_value_graph, StaticRelocation, StaticValueStore};
+use phalcom_compiler_artifact::semantic::world::{
+    AssociatedBindingValueV1, ConformanceTargetV1, RequirementSelectionV1, SemanticWorldV1,
+};
+use phalcom_type_meta::identity::StableDeclarationRef;
+
+#[derive(Debug, Default)]
+pub struct ReconstructedModuleOwnerIndexes {
+    pub declarations_by_module: BTreeMap<String, Vec<StableDeclarationRef>>,
+    pub data_by_module: BTreeMap<String, Vec<StableDeclarationRef>>,
+    pub enums_by_module: BTreeMap<String, Vec<StableDeclarationRef>>,
+}
+
+pub struct ValidatedSemanticParts {
+    pub structural_contracts: LoadedStructuralContracts,
+    pub type_store: TypeStore,
+    pub type_relocation: TypeRelocation,
+    pub static_values: StaticValueStore,
+    pub static_relocation: StaticRelocation,
+    pub operational_templates: Vec<OperationalTemplate>,
+    pub owner_indexes: ReconstructedModuleOwnerIndexes,
+    pub snapshot: Arc<crate::snapshot::SemanticSnapshot>,
+}
+
+/// Executes stages 3–7 of the P7 loader construction order (`T4/T5` -> `T7.A` -> `T6` -> `T7.B` -> `T8`).
+pub fn validate_and_import_semantic_world(
+    world: SemanticWorldV1,
+    limits: &ValidationLimits,
+) -> Result<ValidatedSemanticParts, ArtifactError> {
+    // 3. Fresh TypeStore with checked TypeRelocation
+    let (mut type_store, type_relocation) = TypeStore::import_type_graph(&world.type_graph, limits)?;
+
+    // 4. Structural primary contracts (shells, hierarchy, aliases, data/enum contracts, signatures)
+    let structural_contracts = import_structural_primary_contracts(
+        &world.structural_contracts,
+        &mut type_store,
+        &type_relocation,
+        limits,
+    )?;
+
+    // 5. Fresh StaticValueStore through validated factories
+    let (static_values, static_relocation) = import_static_value_graph(
+        &world.static_values,
+        &type_store,
+        &type_relocation,
+        &structural_contracts.data_table,
+        &structural_contracts.enum_table,
+        &|decl_ref| from_stable_declaration(decl_ref).map_err(referential),
+        &|var_ref| from_stable_variant(var_ref).map_err(referential),
+        limits,
+    )?;
+
+    // Cross-validate pending static references
+    validate_pending_static_references(&world.structural_contracts, &static_relocation)?;
+
+    // 6. Checked operational static definitions
+    let operational_templates = import_checked_static_definitions(
+        &world.checked_definitions,
+        &static_relocation,
+        &type_relocation,
+        limits,
+    )?;
+
+    // 7. Verify witness plans and layout fingerprints (P7.T8)
+    for witness in &world.witness_plans {
+        let actual = compute_witness_layout_fingerprint(&witness.ordered_selected_callables);
+        if actual != witness.slot_layout_fingerprint {
+            return Err(referential("witness plan slot layout fingerprint mismatch"));
+        }
+    }
+
+    // 8. Reconstruct callable signatures and definitions (P7.T7.B)
+    let mut callable_signatures = crate::signature::CallableSignatureTable::new();
+    let mut callable_definitions_map = std::collections::HashMap::new();
+    for rec in &world.callable_signatures {
+        let callable = from_stable_callable(&rec.callable).map_err(referential)?;
+        let owner = from_stable_declaration(&rec.owner).map_err(referential)?;
+        let side = if rec.side == 0 {
+            crate::identity::DispatchSide::Instance
+        } else {
+            crate::identity::DispatchSide::Class
+        };
+        let selector = callable.selector.clone();
+        let generics = if let Some(g) = &rec.generics {
+            Some(import_generic_signature(g, &type_relocation, &mut type_store)?)
+        } else {
+            None
+        };
+        let mut parameters = Vec::with_capacity(rec.parameters.len());
+        for (idx, p) in rec.parameters.iter().enumerate() {
+            let declared_type = import_declared_type_fact(&p.declared_type, &type_relocation)?;
+            let rest_mode = match p.rest_mode {
+                1 => phalcom_ast::ast::RestMode::Positional,
+                2 => phalcom_ast::ast::RestMode::Labeled,
+                3 => phalcom_ast::ast::RestMode::Complete,
+                _ => phalcom_ast::ast::RestMode::None,
+            };
+            parameters.push(
+                crate::signature::CallableParameterSemantic::new(
+                    crate::identity::CallableParameterId::new(callable.clone(), idx as u32),
+                    p.local_name.clone(),
+                    declared_type,
+                )
+                .with_rest(rest_mode),
+            );
+        }
+        let declared_return = import_declared_type_fact(&rec.declared_return, &type_relocation)?;
+        let flow = match rec.return_flow {
+            1 => phalcom_native_meta::ReturnFlowSpec::Receiver,
+            254 => phalcom_native_meta::ReturnFlowSpec::Never,
+            255 => phalcom_native_meta::ReturnFlowSpec::Unknown,
+            n if n >= 2 => phalcom_native_meta::ReturnFlowSpec::Argument((n - 2) as usize),
+            _ => phalcom_native_meta::ReturnFlowSpec::Value,
+        };
+        let sig = crate::signature::CallableSemanticSignature {
+            callable: callable.clone(),
+            owner,
+            side,
+            selector,
+            generics,
+            parameters: parameters.into_boxed_slice(),
+            declared_return,
+            return_validation: crate::signature::ReturnContractValidation::NotApplicable,
+            inferred_return: None,
+            source: None,
+            implementation: phalcom_common::modifier::ImplementationKind::Phalcom,
+            native_id: None,
+            effects: phalcom_native_meta::EffectSpec::Unknown,
+            raises: phalcom_native_meta::RaisesSpec::Unknown,
+            flow,
+            lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
+        };
+        callable_definitions_map.insert(
+            callable.clone(),
+            crate::impls::EffectiveCallableDefinition {
+                callable: callable.clone(),
+                origin: crate::impls::CallableDefinitionOrigin::PrimaryDeclaration,
+                source_member_index: 0,
+                signature: sig.clone(),
+                inherent_body_context: None,
+            },
+        );
+        callable_signatures.insert(sig);
+    }
+
+    // 9. Reconstruct callable analyses (P7.T7.B)
+    let mut callable_analyses = crate::checker::analysis::CallableAnalysisTable::new();
+    for rec in &world.callable_analyses {
+        let callable = from_stable_callable(&rec.callable).map_err(referential)?;
+        callable_analyses.insert(
+            callable.clone(),
+            Arc::new(crate::checker::analysis::CallableAnalysis {
+                callable,
+                body_range: phalcom_common::range::SourceRange::default(),
+                expressions: BTreeMap::new(),
+                bindings: BTreeMap::new(),
+                for_iteration_lanes: Arc::new(BTreeMap::new()),
+                positional_expansions: Arc::new(BTreeMap::new()),
+                known_invalid_positional_expansions: Arc::new(BTreeMap::new()),
+                sequence_literals: Arc::new(BTreeMap::new()),
+                associated_resolutions: Arc::new(BTreeMap::new()),
+                callable_reference_resolutions: Arc::new(BTreeMap::new()),
+                family_applications: Arc::new(BTreeMap::new()),
+                match_resolutions: Arc::new(BTreeMap::new()),
+                pattern_site_resolutions: Arc::new(BTreeMap::new()),
+                flow_graph: Arc::new(crate::checker::flow::graph::FlowGraph::default()),
+                entry_flow: crate::checker::analysis::FlowStateSummary::default(),
+                exits: crate::checker::analysis::BodyExitFacts {
+                    normal_returns: Vec::new(),
+                    throws: Vec::new(),
+                    unreachable: rec.is_terminating,
+                },
+                return_validation: crate::signature::ReturnContractValidation::NotApplicable,
+                diagnostics: Arc::from([]),
+                internal_incidents: Arc::from([]),
+                explanations: Arc::new(crate::explain::ExplanationArena::default()),
+                return_explanation: None,
+                dependencies: Arc::from([]),
+                semantic_dependencies: Arc::from([]),
+                constructor_super_initializer: None,
+                dependency_fingerprint: crate::db::ProductFingerprint::new(0),
+                status: crate::checker::analysis::CallableAnalysisStatus::Complete,
+            }),
+        );
+    }
+
+    // 10. Reconstruct trait surfaces and trait headers (P7.T7.B)
+    let mut trait_surfaces = crate::traits::TraitSurfaceTable::new();
+    let mut trait_headers = crate::traits::TraitHeaderTable::new();
+    for rec in &world.trait_surfaces {
+        let decl = from_stable_declaration(&rec.declaration).map_err(referential)?;
+        let generic_signature = if let Some(g) = &rec.generic_signature {
+            Some(import_generic_signature(g, &type_relocation, &mut type_store)?)
+        } else {
+            None
+        };
+        let mut surface = crate::traits::TraitSurface::new(decl.clone(), generic_signature.clone());
+        for (idx, name) in rec.associated_types.iter().enumerate() {
+            let req_id = crate::traits::AssociatedTypeRequirementId::new(decl.clone(), idx as u32);
+            surface.associated_types.insert(
+                req_id.clone(),
+                crate::traits::TraitAssociatedTypeRequirement {
+                    requirement: req_id,
+                    name: name.clone(),
+                    domain: crate::types::type_member::TypeMemberDomain::Kind(crate::types::id::KindId(0)),
+                    source: crate::diagnostic::SemanticSourceSpan::new(decl.module.clone(), phalcom_common::range::SourceRange::default()),
+                },
+            );
+        }
+        for call_ref in &rec.required_callables {
+            let cid = from_stable_callable(call_ref).map_err(referential)?;
+            let req_id = crate::traits::TraitRequirementId {
+                owner: decl.clone(),
+                selector: cid.selector.clone(),
+                side: cid.side,
+            };
+            if let Some(sig) = callable_signatures.get(&cid) {
+                surface.members.insert(
+                    req_id.clone(),
+                    crate::traits::TraitSurfaceMember {
+                        requirement: req_id,
+                        callable: cid,
+                        signature: sig.clone(),
+                        visibility: Visibility::Public,
+                        source: crate::diagnostic::SemanticSourceSpan::new(decl.module.clone(), phalcom_common::range::SourceRange::default()),
+                        default_present: false,
+                        default_source: None,
+                    },
+                );
+            }
+        }
+        for call_ref in &rec.default_callables {
+            let cid = from_stable_callable(call_ref).map_err(referential)?;
+            let req_id = crate::traits::TraitRequirementId {
+                owner: decl.clone(),
+                selector: cid.selector.clone(),
+                side: cid.side,
+            };
+            if let Some(sig) = callable_signatures.get(&cid) {
+                surface.members.insert(
+                    req_id.clone(),
+                    crate::traits::TraitSurfaceMember {
+                        requirement: req_id,
+                        callable: cid,
+                        signature: sig.clone(),
+                        visibility: Visibility::Public,
+                        source: crate::diagnostic::SemanticSourceSpan::new(decl.module.clone(), phalcom_common::range::SourceRange::default()),
+                        default_present: true,
+                        default_source: None,
+                    },
+                );
+            }
+        }
+        surface.finalize_requirement_layout();
+        trait_surfaces.insert(Arc::new(surface));
+        trait_headers.insert(Arc::new(crate::traits::TraitHeader {
+            declaration: decl.clone(),
+            generic_signature,
+            source: crate::diagnostic::SemanticSourceSpan::new(decl.module.clone(), phalcom_common::range::SourceRange::default()),
+        }));
+    }
+
+    // 11. Reconstruct surfaces, dispatch resolver, and field signatures (P7.T7.B)
+    let mut dispatch_resolver = crate::dispatch::SurfaceDispatchResolver::new();
+    let mut field_signatures = crate::signature::FieldSignatureTable::new();
+    for rec in &world.dispatch_surfaces {
+        let decl = from_stable_declaration(&rec.declaration).map_err(referential)?;
+        let mut surface = crate::surface::DeclarationSurface::new(Some(decl.clone()));
+        for call_ref in &rec.instance_callables {
+            let cid = from_stable_callable(call_ref).map_err(referential)?;
+            surface.instance.callables.insert(cid.clone(), crate::types::evidence::TypeKnowledge::assumed(crate::types::id::TypeId(0), crate::types::evidence::EvidenceOrigin::Flow));
+            surface.instance.callables_by_selector.insert(cid.selector.clone(), cid);
+        }
+        for call_ref in &rec.class_callables {
+            let cid = from_stable_callable(call_ref).map_err(referential)?;
+            surface.class.callables.insert(cid.clone(), crate::types::evidence::TypeKnowledge::assumed(crate::types::id::TypeId(0), crate::types::evidence::EvidenceOrigin::Flow));
+            surface.class.callables_by_selector.insert(cid.selector.clone(), cid);
+        }
+        for f in &rec.fields {
+            let f_owner = from_stable_declaration(&f.owner).map_err(referential)?;
+            let f_side = match f.side {
+                0 => crate::identity::DispatchSide::Instance,
+                _ => crate::identity::DispatchSide::Class,
+            };
+            let declared_type = import_declared_type_fact(&f.declared_type, &type_relocation)?;
+            let field_id = crate::identity::FieldId::new(f_owner.clone(), f.name.clone(), f_side);
+            field_signatures.insert(crate::signature::FieldSemanticSignature {
+                field: field_id,
+                owner: f_owner,
+                side: f_side,
+                name: f.name.clone(),
+                mutable: f.mutable,
+                declared_type,
+                source: None,
+            });
+        }
+        dispatch_resolver.register_surface(decl, surface);
+    }
+
+    // 12. Reconstruct conformance index (P7.T7.B)
+    let mut conformance_index = crate::impls::ConformanceIndex::new();
+    for rec in &world.conformance_heads {
+        let impl_id = from_stable_impl(&rec.impl_id).map_err(referential)?;
+        let source_module = from_stable_module(&rec.source_module).map_err(referential)?;
+        let target = match &rec.target {
+            ConformanceTargetV1::Declaration { declaration } => {
+                crate::impls::ConformanceTarget::Declaration(
+                    from_stable_declaration(declaration).map_err(referential)?,
+                )
+            }
+            ConformanceTargetV1::ExactEnumCase { variant } => {
+                crate::impls::ConformanceTarget::ExactEnumCase(
+                    from_stable_variant(variant).map_err(referential)?,
+                )
+            }
+        };
+        let target_head = type_relocation.ty(rec.target_type)?;
+        let trait_decl = from_stable_declaration(&rec.trait_ref.declaration).map_err(referential)?;
+        let mut args = Vec::new();
+        for &a in &rec.trait_ref.arguments {
+            args.push(type_relocation.ty(a)?);
+        }
+        let generic_signature = if let Some(g) = &rec.generic_signature {
+            Some(import_generic_signature(g, &type_relocation, &mut type_store)?)
+        } else {
+            None
+        };
+        conformance_index.insert(
+            crate::impls::ConformanceContribution {
+                impl_id: impl_id.clone(),
+                source_module,
+                trait_ref: crate::traits::TraitRef::new(trait_decl, args),
+                target,
+                target_head,
+                generic_signature,
+                authorized: rec.authorized,
+                eligible: rec.eligible,
+                source: crate::diagnostic::SemanticSourceSpan::new(impl_id.module.clone(), phalcom_common::range::SourceRange::default()),
+                diagnostics: Box::new([]),
+            },
+        );
+    }
+
+    let mut witness_plans_map = BTreeMap::new();
+    for witness in &world.witness_plans {
+        let impl_id = from_stable_impl(&witness.impl_id).map_err(referential)?;
+        let source_module = from_stable_module(&witness.source_module).map_err(referential)?;
+        let trait_decl = from_stable_declaration(&witness.trait_ref_template.declaration).map_err(referential)?;
+        let mut trait_args = Vec::with_capacity(witness.trait_ref_template.arguments.len());
+        for &a in &witness.trait_ref_template.arguments {
+            trait_args.push(type_relocation.ty(a)?);
+        }
+        let trait_ref_template = crate::traits::TraitRef::new(trait_decl.clone(), trait_args);
+        let target_template = type_relocation.ty(witness.target_template)?;
+        let generic_signature = if let Some(g) = &witness.generic_signature {
+            Some(import_generic_signature(g, &type_relocation, &mut type_store)?)
+        } else {
+            None
+        };
+        let mut requirements = BTreeMap::new();
+        for entry in &witness.requirements {
+            let side = match entry.side {
+                0 => crate::identity::DispatchSide::Instance,
+                _ => crate::identity::DispatchSide::Class,
+            };
+            let selector = phalcom_common::selector::Selector::decode(&entry.selector);
+            let req_id = crate::traits::TraitRequirementId {
+                owner: trait_decl.clone(),
+                selector,
+                side,
+            };
+            let selection = match &entry.selection {
+                RequirementSelectionV1::ConformanceCallable { callable } => {
+                    let c = from_stable_callable(callable).map_err(referential)?;
+                    crate::impls::RequirementSelectionTemplate::ConformanceCallable { callable: c }
+                }
+                RequirementSelectionV1::InherentCallable { callable } => {
+                    let c = from_stable_callable(callable).map_err(referential)?;
+                    crate::impls::RequirementSelectionTemplate::InherentCallable {
+                        callable: c,
+                        conditional_impl: None,
+                        applicability: None,
+                    }
+                }
+                RequirementSelectionV1::TraitDefault { callable } => {
+                    let c = from_stable_callable(callable).map_err(referential)?;
+                    crate::impls::RequirementSelectionTemplate::TraitDefault { callable: c }
+                }
+                RequirementSelectionV1::DataComponent { owner, index, specialized_type } => {
+                    let d = from_stable_declaration(owner).map_err(referential)?;
+                    let specialized_type = type_relocation.ty(*specialized_type)?;
+                    crate::impls::RequirementSelectionTemplate::DataComponent {
+                        component: crate::identity::DataComponentId::new(d, *index),
+                        specialized_type,
+                    }
+                }
+            };
+            requirements.insert(req_id, selection);
+        }
+        let mut bindings = BTreeMap::new();
+        for b in &witness.associated_types {
+            let req_id = crate::traits::AssociatedTypeRequirementId::new(trait_decl.clone(), b.index);
+            let value_template = match b.value {
+                AssociatedBindingValueV1::Type { ty } => {
+                    crate::impls::AssociatedTypeBindingValue::Type(type_relocation.ty(ty)?)
+                }
+                AssociatedBindingValueV1::Dynamic => {
+                    crate::impls::AssociatedTypeBindingValue::Dynamic
+                }
+            };
+            bindings.insert(
+                req_id.clone(),
+                crate::impls::AssociatedTypeBindingTemplate {
+                    requirement: req_id,
+                    value_template,
+                    source_impl: impl_id.clone(),
+                    source: crate::diagnostic::SemanticSourceSpan::new(impl_id.module.clone(), phalcom_common::range::SourceRange::default()),
+                },
+            );
+        }
+        let completeness = match witness.completeness {
+            0 => crate::impls::ConformanceCompleteness::Complete,
+            1 => crate::impls::ConformanceCompleteness::Incomplete { failures: Box::new([]) },
+            2 => crate::impls::ConformanceCompleteness::Unknown(crate::types::evidence::UnknownReason::NoTypeEvidence),
+            3 => crate::impls::ConformanceCompleteness::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint),
+            4 => crate::impls::ConformanceCompleteness::Dynamic(crate::types::outcome::DynamicBoundaryObligation { reason: "dynamic".into() }),
+            5 => crate::impls::ConformanceCompleteness::Cancelled,
+            6 => crate::impls::ConformanceCompleteness::BudgetExceeded(crate::types::outcome::BudgetReport::new(crate::types::outcome::BudgetKind::Steps, 0, 0)),
+            _ => crate::impls::ConformanceCompleteness::InternalFailure("restored from artifact".into()),
+        };
+        let mut associated_type_plan = crate::impls::ConformanceAssociatedTypePlan::empty(impl_id.clone());
+        associated_type_plan.bindings = bindings;
+        witness_plans_map.insert(
+            impl_id.clone(),
+            Arc::new(crate::impls::ConformanceWitnessPlan {
+                impl_id: impl_id.clone(),
+                source_module,
+                trait_ref_template,
+                target_template,
+                generic_signature,
+                requirement_views: BTreeMap::new(),
+                requirements,
+                associated_type_plan,
+                fingerprint: crate::db::ProductFingerprint(witness.fingerprint),
+                invalid_explicit_members: false,
+                completeness,
+                diagnostics: Box::new([]),
+            }),
+        );
+    }
+
+    let mut constructor_initializations = crate::signature::ConstructorInitializationTable::default();
+    for rec in &world.constructor_initializations {
+        let factory = from_stable_callable(&rec.factory).map_err(referential)?;
+        let initializer = from_stable_callable(&rec.initializer).map_err(referential)?;
+        let origin = match rec.origin {
+            0 => crate::signature::ConstructorOrigin::Source,
+            1 => crate::signature::ConstructorOrigin::Construct,
+            2 => crate::signature::ConstructorOrigin::Data,
+            _ => crate::signature::ConstructorOrigin::DefaultOnly,
+        };
+        let field_input_fingerprint = crate::db::ProductFingerprint(rec.field_input_fingerprint);
+        let default_fields: Box<[crate::identity::FieldId]> = rec
+            .default_fields
+            .iter()
+            .map(|name| {
+                crate::identity::FieldId::new(
+                    initializer.owner.declaration().clone(),
+                    name.clone(),
+                    crate::identity::DispatchSide::Instance,
+                )
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        let parameter_fields: Box<[crate::signature::ConstructorParameterField]> = rec
+            .parameter_fields
+            .iter()
+            .map(|pf| {
+                let side = match pf.field_side {
+                    0 => crate::identity::DispatchSide::Instance,
+                    _ => crate::identity::DispatchSide::Class,
+                };
+                crate::signature::ConstructorParameterField {
+                    parameter: crate::identity::CallableParameterId::new(factory.clone(), pf.parameter_index),
+                    field: crate::identity::FieldId::new(
+                        initializer.owner.declaration().clone(),
+                        pf.field_name.clone(),
+                        side,
+                    ),
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        constructor_initializations.insert(crate::signature::ConstructorInitializationProduct {
+            factory,
+            initializer,
+            origin,
+            field_input_fingerprint,
+            default_fields,
+            parameter_fields,
+        });
+    }
+
+    let mut callable_definitions_by_module: BTreeMap<crate::identity::ModuleId, Vec<crate::identity::CallableId>> = BTreeMap::new();
+    for (_, sig) in callable_signatures.iter() {
+        callable_definitions_by_module
+            .entry(sig.callable.owner.module().clone())
+            .or_default()
+            .push(sig.callable.clone());
+    }
+    let callable_definitions_by_module: BTreeMap<crate::identity::ModuleId, Box<[crate::identity::CallableId]>> = callable_definitions_by_module
+        .into_iter()
+        .map(|(m, v)| (m, v.into_boxed_slice()))
+        .collect();
+
+    let surfaces = dispatch_resolver.surfaces().clone();
+    let mut snapshot = crate::snapshot::SemanticSnapshot {
+        id: crate::identity::SnapshotId::new(crate::identity::WorkspaceId(1), crate::identity::SemanticRevision(1), type_store.id()),
+        generation: 1,
+        store: Arc::new(type_store.clone()),
+        sources: Arc::new(BTreeMap::new()),
+        presentation_sources: Arc::new(BTreeMap::new()),
+        surfaces,
+        dispatch: Arc::new(dispatch_resolver),
+        callable_signatures: Arc::new(callable_signatures),
+        constructor_initializations: Arc::new(constructor_initializations),
+        callable_definitions: Arc::new(crate::parent_map::ParentMap::from(&callable_definitions_map)),
+        callable_definitions_by_module: Arc::new(callable_definitions_by_module),
+        conformance_index: Arc::new(conformance_index),
+        conformance_witness_plans: Arc::new(witness_plans_map),
+        derived_conformance_rules: Arc::new(crate::derived_conformance::DerivedConformanceRuleIndex::new()),
+        trait_dispatch_index: Arc::new(crate::trait_dispatch::TraitDispatchIndex::default()),
+        field_signatures: Arc::new(field_signatures),
+        declarations: Arc::new(structural_contracts.declaration_table.clone()),
+        type_aliases: Arc::new(structural_contracts.type_aliases.clone()),
+        trait_headers: Arc::new(trait_headers),
+        trait_surfaces: Arc::new(trait_surfaces),
+        hierarchy: Arc::new(structural_contracts.hierarchy.clone()),
+        diagnostics: Arc::new(BTreeMap::new()),
+        semantic_graph: Arc::new(phalcom_modules::graph::SemanticGraph::default()),
+        callable_analyses: Arc::new(callable_analyses),
+        internal_incidents: Arc::from([]),
+        formal_projection: Arc::new(crate::presentation::FormalSemanticProjection::default()),
+        source_index: Arc::new(crate::source_index::SourceSemanticIndex::default()),
+        advisory: Arc::new(crate::advisory::AdvisoryWorkspace::default()),
+        module_products: Arc::new(crate::snapshot::ModuleQueryProducts::empty()),
+        data_semantics: Arc::new(structural_contracts.data_table.clone()),
+        enum_semantics: Arc::new(structural_contracts.enum_table.clone()),
+        enum_requirements: Arc::new(crate::enum_requirements::EnumRequirementTable::new()),
+        associated_surfaces: Arc::new(crate::associated::AssociatedFamilyTable::new()),
+        type_member_declarations: Arc::new(crate::parent_map::ParentMap::default()),
+        associated_static_domains: Arc::new(BTreeMap::new()),
+        static_case_catalogs: Arc::new(BTreeMap::new()),
+        static_case_signatures: Arc::new(BTreeMap::new()),
+        static_definitions: Arc::new(crate::static_definition::StaticDefinitionTable::new()),
+        static_constants: Arc::new(crate::static_constant::StaticConstantTable::new()),
+        static_values: Arc::new(static_values.clone()),
+        module_static_bindings: Arc::new(crate::parent_map::ParentMap::default()),
+        semantic_structure_shards: Arc::new(BTreeMap::new()),
+        // Imported rows are not promoted to Complete until every canonical
+        // source-free owner family passes the final completeness check below.
+        status: crate::snapshot::SnapshotStatus::Partial { blocked_modules: 0 },
+    };
+
+    if !snapshot.has_source_free_artifact_contents() {
+        return Err(referential("reconstructed snapshot is not source-free complete"));
+    }
+    snapshot.status = crate::snapshot::SnapshotStatus::Complete;
+    let snapshot = Arc::new(snapshot);
+
+    // Build secondary owner indexes in a single O(N) pass (P7.T8)
+    let mut owner_indexes = ReconstructedModuleOwnerIndexes::default();
+    for shell in &world.structural_contracts.declaration_shells {
+        let key = format!("{:?}", shell.declaration.module);
+        owner_indexes.declarations_by_module.entry(key).or_default().push(shell.declaration.clone());
+    }
+    for data in &world.structural_contracts.data_contracts {
+        let key = format!("{:?}", data.owner.module);
+        owner_indexes.data_by_module.entry(key).or_default().push(data.owner.clone());
+    }
+    for enm in &world.structural_contracts.enum_contracts {
+        let key = format!("{:?}", enm.owner.module);
+        owner_indexes.enums_by_module.entry(key).or_default().push(enm.owner.clone());
+    }
+
+    Ok(ValidatedSemanticParts {
+        structural_contracts,
+        type_store,
+        type_relocation,
+        static_values,
+        static_relocation,
+        operational_templates,
+        owner_indexes,
+        snapshot,
     })
 }

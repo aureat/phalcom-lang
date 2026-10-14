@@ -16,6 +16,7 @@ members = [
     "phalcom-test-support",
     "phalcom-diagnostics",
     "phalcom-type-meta",
+    "phalcom-type-meta-derive",
     "phalcom-compiler-artifact",
     "telos-observability",
 ]

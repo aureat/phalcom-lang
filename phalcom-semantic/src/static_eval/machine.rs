@@ -15,7 +15,10 @@ use crate::identity::{BindingId, DeclarationId, ExpressionId};
 use crate::match_semantics::{BranchProofEnvironment, MatchResolutionIndex, PatternSiteKey, PatternSiteKind, PatternSiteResolutionIndex};
 use crate::member_projection::{MemberDeclarationIdentity, MemberProjection, MemberProjectionArgument, MemberProjectionSubject};
 use crate::static_constant::{CheckedStaticConstantInitializer, CheckedStaticExpression, StaticConstantTable};
-use crate::static_definition::{CheckedStaticApplication, CheckedStaticBody, CheckedStaticConstruction, StaticApplicationId, StaticDefinitionTable};
+use crate::static_definition::{
+    CheckedStaticApplication, CheckedStaticBody, CheckedStaticConstruction, OperationalNode, OperationalTarget,
+    StaticApplicationId, StaticBinaryOp, StaticBodyId, StaticDefinitionTable, StaticUnaryOp,
+};
 use crate::static_domain::StaticValueDomain;
 use crate::static_eval::application::{
     CanonicalStaticProofFact, StaticApplicationEnvironmentKey, StaticApplicationKey, StaticArgumentIdentity, StaticArgumentSummary, StaticCycle,
@@ -27,7 +30,7 @@ use crate::static_eval::residual::{
 };
 use crate::static_intrinsic::{StaticIntrinsicOperation, StaticOperationResolutionIndex};
 use crate::static_value::{
-    StaticDataValueId, StaticPackId, StaticRecordId, StaticSequenceId, StaticTupleId, StaticValueData, StaticValueRef, StaticValueStore,
+    StaticDataValueId, StaticFloat, StaticPackId, StaticRecordId, StaticSequenceId, StaticTupleId, StaticValueData, StaticValueRef, StaticValueStore,
 };
 use crate::traits::TraitRef;
 use crate::types::id::{KindId, TypeId};
@@ -447,8 +450,30 @@ enum Work<'a> {
     EvaluateOperational(&'a crate::static_definition::OperationalNode),
     ApplyOperationalBinary(crate::static_definition::StaticBinaryOp),
     ApplyOperationalUnary(crate::static_definition::StaticUnaryOp),
-    FinishOperationalIf(&'a Option<Box<crate::static_definition::OperationalNode>>),
+    AfterOperationalLogicalLeft(
+        crate::static_definition::StaticBinaryOp,
+        &'a crate::static_definition::OperationalNode,
+    ),
+    AfterOperationalCondition(
+        &'a crate::static_definition::OperationalNode,
+        &'a Option<Box<crate::static_definition::OperationalNode>>,
+    ),
     StoreOperationalLocal(u32),
+    PopOperationalStatement,
+    PushUnit,
+    FinishOperationalSequence(crate::types::id::TypeId, usize),
+    FinishOperationalConstruction(
+        crate::static_definition::OperationalTarget,
+        crate::types::id::TypeId,
+        usize,
+    ),
+    FinishOperationalMemberProjection(Box<str>),
+    CollectOperationalArgument(
+        crate::identity::DeclarationId,
+        &'a [crate::static_definition::OperationalNode],
+        usize,
+        Vec<StaticArgument>,
+    ),
     FinishRoot,
     StatementNext(StatementContainer<'a>, usize, Option<StaticValueRef>),
     StatementAfter(StatementContainer<'a>, usize),
@@ -3059,6 +3084,7 @@ impl<'a> StaticEvaluator<'a> {
                         crate::static_definition::StaticDefinitionBodyRepr::Expression(expression) => work.push(Work::Evaluate(expression)),
                         crate::static_definition::StaticDefinitionBodyRepr::Block(block) => work.push(Work::EvaluateBlock(block)),
                         crate::static_definition::StaticDefinitionBodyRepr::TypeForm(annotation) => work.push(Work::EvaluateTypeForm(annotation)),
+                        crate::static_definition::StaticDefinitionBodyRepr::Operational(template) => work.push(Work::EvaluateOperational(&template.root)),
                     }
                 }
                 Work::FinishStaticApplication(application, key, stack_base) => {
@@ -3117,6 +3143,479 @@ impl<'a> StaticEvaluator<'a> {
                     if pending_control.is_some() {
                         self.pending_application_arguments.remove(&application);
                         self.trace.pop();
+                    }
+                }
+                Work::EvaluateOperational(node) => {
+                    match node {
+                        OperationalNode::Constant(val) => {
+                            stack.push(*val);
+                        }
+                        OperationalNode::ReadParameter(index) => {
+                            let mut found = false;
+                            if let EvaluatorBody::Definition(body) = self.body {
+                                if let Some(binding) = body.parameter_bindings.get(index) {
+                                    if let Some(val) = self.parameter_values.get(binding) {
+                                        stack.push(*val);
+                                        found = true;
+                                    } else if let Some(residual) = self.residual_values.get(binding) {
+                                        self.complete_residual_result(*residual)?;
+                                        found = true;
+                                    }
+                                }
+                                if !found {
+                                    if let Some(ty) = self.kinded_arguments.get(index) {
+                                        self.completed_kinded_result = Some(*ty);
+                                        found = true;
+                                    } else if let Some(residual) = self.residual_kinded_arguments.get(index) {
+                                        self.complete_residual_result(*residual)?;
+                                        found = true;
+                                    }
+                                }
+                            }
+                            if !found {
+                                if let Some(val) = self.parameter_values.get(&crate::identity::BindingId(*index)) {
+                                    stack.push(*val);
+                                } else {
+                                    return Err(Stop::invalid(StaticEvalError::InvalidArgumentKind { index: *index }));
+                                }
+                            }
+                        }
+                        OperationalNode::ReadLocal(slot) => {
+                            let val = self
+                                .locals
+                                .get(*slot as usize)
+                                .copied()
+                                .flatten()
+                                .ok_or_else(|| Stop::invalid(StaticEvalError::UnboundBinding(crate::identity::BindingId(*slot))))?;
+                            stack.push(val);
+                        }
+                        OperationalNode::WriteLocal(slot, val_node) => {
+                            work.push(Work::StoreOperationalLocal(*slot));
+                            work.push(Work::EvaluateOperational(val_node));
+                        }
+                        OperationalNode::TypeForm(type_id) => {
+                            let specialized = self.specialize_active_kinded_term(*type_id, phalcom_common::range::SourceRange::default())?;
+                            self.completed_kinded_result = Some(specialized);
+                        }
+                        OperationalNode::Binary { op, left, right } => {
+                            if matches!(op, StaticBinaryOp::And | StaticBinaryOp::Or) {
+                                work.push(Work::AfterOperationalLogicalLeft(*op, right));
+                                work.push(Work::EvaluateOperational(left));
+                            } else {
+                                work.push(Work::ApplyOperationalBinary(*op));
+                                work.push(Work::EvaluateOperational(right));
+                                work.push(Work::EvaluateOperational(left));
+                            }
+                        }
+                        OperationalNode::Unary { op, operand } => {
+                            work.push(Work::ApplyOperationalUnary(*op));
+                            work.push(Work::EvaluateOperational(operand));
+                        }
+                        OperationalNode::If { condition, then_branch, else_branch } => {
+                            work.push(Work::AfterOperationalCondition(then_branch, else_branch));
+                            work.push(Work::EvaluateOperational(condition));
+                        }
+                        OperationalNode::Tuple { elements } => {
+                            work.push(Work::FinishTuple(elements.len()));
+                            for el in elements.iter().rev() {
+                                work.push(Work::EvaluateOperational(el));
+                            }
+                        }
+                        OperationalNode::Sequence { result_type, elements } => {
+                            work.push(Work::FinishOperationalSequence(*result_type, elements.len()));
+                            for el in elements.iter().rev() {
+                                work.push(Work::EvaluateOperational(el));
+                            }
+                        }
+                        OperationalNode::StaticConstruction { target, result_type, arguments } => {
+                            work.push(Work::FinishOperationalConstruction(target.clone(), *result_type, arguments.len()));
+                            for arg in arguments.iter().rev() {
+                                work.push(Work::EvaluateOperational(arg));
+                            }
+                        }
+                        OperationalNode::MemberProjection { target, member } => {
+                            work.push(Work::FinishOperationalMemberProjection(member.clone()));
+                            work.push(Work::EvaluateOperational(target));
+                        }
+                        OperationalNode::StaticApplication { target, arguments } => {
+                            if arguments.is_empty() {
+                                self.execute_operational_static_application(target.clone(), Vec::new(), &mut work, &mut stack)?;
+                            } else {
+                                work.push(Work::CollectOperationalArgument(
+                                    target.clone(),
+                                    arguments.as_slice(),
+                                    0,
+                                    Vec::with_capacity(arguments.len()),
+                                ));
+                                work.push(Work::EvaluateOperational(&arguments[0]));
+                            }
+                        }
+                        OperationalNode::Block { statements, result, .. } => {
+                            if let Some(res) = result {
+                                work.push(Work::EvaluateOperational(res));
+                            } else {
+                                work.push(Work::PushUnit);
+                            }
+                            for stmt in statements.iter().rev() {
+                                work.push(Work::PopOperationalStatement);
+                                work.push(Work::EvaluateOperational(stmt));
+                            }
+                        }
+                        OperationalNode::Return(val_opt) => {
+                            if let Some(val) = val_opt {
+                                work.push(Work::FinishReturn);
+                                work.push(Work::EvaluateOperational(val));
+                            } else {
+                                pending_control = Some(EvalControl::Return(StaticEvalResult::Value(self.values.intern_unit())));
+                            }
+                        }
+                    }
+                }
+                Work::ApplyOperationalBinary(op) => {
+                    let right = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let left = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let l_data = self.values.get(left).map_err(Stop::from)?.clone();
+                    let r_data = self.values.get(right).map_err(Stop::from)?.clone();
+                    let result = match op {
+                        StaticBinaryOp::Add => {
+                            match (&l_data, &r_data) {
+                                (StaticValueData::Int(l), StaticValueData::Int(r)) => {
+                                    let bits = integer_bits(l).saturating_add(integer_bits(r));
+                                    self.charge_variable_work(bits)?;
+                                    self.values.intern_int(l.to_bigint() + r.to_bigint())
+                                }
+                                (StaticValueData::Float(l), StaticValueData::Float(r)) => {
+                                    self.values.intern_float(StaticFloat::from_f64(l.to_f64() + r.to_f64()))
+                                }
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticBinaryOp::Sub => {
+                            match (&l_data, &r_data) {
+                                (StaticValueData::Int(l), StaticValueData::Int(r)) => {
+                                    let bits = integer_bits(l).saturating_add(integer_bits(r));
+                                    self.charge_variable_work(bits)?;
+                                    self.values.intern_int(l.to_bigint() - r.to_bigint())
+                                }
+                                (StaticValueData::Float(l), StaticValueData::Float(r)) => {
+                                    self.values.intern_float(StaticFloat::from_f64(l.to_f64() - r.to_f64()))
+                                }
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticBinaryOp::Mul => {
+                            match (&l_data, &r_data) {
+                                (StaticValueData::Int(l), StaticValueData::Int(r)) => {
+                                    let bits = integer_bits(l).saturating_add(integer_bits(r));
+                                    self.charge_variable_work(bits)?;
+                                    self.values.intern_int(l.to_bigint() * r.to_bigint())
+                                }
+                                (StaticValueData::Float(l), StaticValueData::Float(r)) => {
+                                    self.values.intern_float(StaticFloat::from_f64(l.to_f64() * r.to_f64()))
+                                }
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticBinaryOp::Div => {
+                            match (&l_data, &r_data) {
+                                (StaticValueData::Int(l), StaticValueData::Int(r)) => {
+                                    let r_bi = r.to_bigint();
+                                    if r_bi == BigInt::from(0) {
+                                        return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands));
+                                    }
+                                    let bits = integer_bits(l).saturating_add(integer_bits(r));
+                                    self.charge_variable_work(bits)?;
+                                    self.values.intern_int(l.to_bigint() / r_bi)
+                                }
+                                (StaticValueData::Float(l), StaticValueData::Float(r)) => {
+                                    self.values.intern_float(StaticFloat::from_f64(l.to_f64() / r.to_f64()))
+                                }
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticBinaryOp::Mod => {
+                            match (&l_data, &r_data) {
+                                (StaticValueData::Int(l), StaticValueData::Int(r)) => {
+                                    let r_bi = r.to_bigint();
+                                    if r_bi == BigInt::from(0) {
+                                        return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands));
+                                    }
+                                    let bits = integer_bits(l).saturating_add(integer_bits(r));
+                                    self.charge_variable_work(bits)?;
+                                    self.values.intern_int(l.to_bigint() % r_bi)
+                                }
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticBinaryOp::BitAnd => {
+                            match (&l_data, &r_data) {
+                                (StaticValueData::Int(l), StaticValueData::Int(r)) => {
+                                    self.values.intern_int(l.to_bigint() & r.to_bigint())
+                                }
+                                (StaticValueData::Bool(l), StaticValueData::Bool(r)) => {
+                                    self.values.intern_bool(*l && *r)
+                                }
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticBinaryOp::BitOr => {
+                            match (&l_data, &r_data) {
+                                (StaticValueData::Int(l), StaticValueData::Int(r)) => {
+                                    self.values.intern_int(l.to_bigint() | r.to_bigint())
+                                }
+                                (StaticValueData::Bool(l), StaticValueData::Bool(r)) => {
+                                    self.values.intern_bool(*l || *r)
+                                }
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticBinaryOp::BitXor => {
+                            match (&l_data, &r_data) {
+                                (StaticValueData::Int(l), StaticValueData::Int(r)) => {
+                                    self.values.intern_int(l.to_bigint() ^ r.to_bigint())
+                                }
+                                (StaticValueData::Bool(l), StaticValueData::Bool(r)) => {
+                                    self.values.intern_bool(*l ^ *r)
+                                }
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticBinaryOp::Shl => {
+                            match (&l_data, &r_data) {
+                                (StaticValueData::Int(l), StaticValueData::Int(r)) => {
+                                    let shift = r.try_to_i64().ok_or_else(|| Stop::invalid(StaticEvalError::InvalidOperationOperands))?;
+                                    if shift < 0 {
+                                        return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands));
+                                    }
+                                    self.values.intern_int(l.to_bigint() << (shift as usize))
+                                }
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticBinaryOp::Shr => {
+                            match (&l_data, &r_data) {
+                                (StaticValueData::Int(l), StaticValueData::Int(r)) => {
+                                    let shift = r.try_to_i64().ok_or_else(|| Stop::invalid(StaticEvalError::InvalidOperationOperands))?;
+                                    if shift < 0 {
+                                        return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands));
+                                    }
+                                    self.values.intern_int(l.to_bigint() >> (shift as usize))
+                                }
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticBinaryOp::Eq => {
+                            let eq = left == right;
+                            self.values.intern_bool(eq)
+                        }
+                        StaticBinaryOp::NotEq => {
+                            let ne = left != right;
+                            self.values.intern_bool(ne)
+                        }
+                        StaticBinaryOp::Less => {
+                            match (&l_data, &r_data) {
+                                (StaticValueData::Int(l), StaticValueData::Int(r)) => self.values.intern_bool(l.to_bigint() < r.to_bigint()),
+                                (StaticValueData::Float(l), StaticValueData::Float(r)) => self.values.intern_bool(l.to_f64() < r.to_f64()),
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticBinaryOp::LessEq => {
+                            match (&l_data, &r_data) {
+                                (StaticValueData::Int(l), StaticValueData::Int(r)) => self.values.intern_bool(l.to_bigint() <= r.to_bigint()),
+                                (StaticValueData::Float(l), StaticValueData::Float(r)) => self.values.intern_bool(l.to_f64() <= r.to_f64()),
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticBinaryOp::Greater => {
+                            match (&l_data, &r_data) {
+                                (StaticValueData::Int(l), StaticValueData::Int(r)) => self.values.intern_bool(l.to_bigint() > r.to_bigint()),
+                                (StaticValueData::Float(l), StaticValueData::Float(r)) => self.values.intern_bool(l.to_f64() > r.to_f64()),
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticBinaryOp::GreaterEq => {
+                            match (&l_data, &r_data) {
+                                (StaticValueData::Int(l), StaticValueData::Int(r)) => self.values.intern_bool(l.to_bigint() >= r.to_bigint()),
+                                (StaticValueData::Float(l), StaticValueData::Float(r)) => self.values.intern_bool(l.to_f64() >= r.to_f64()),
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticBinaryOp::And | StaticBinaryOp::Or => unreachable!("short-circuit handled separately"),
+                    };
+                    stack.push(result);
+                }
+                Work::ApplyOperationalUnary(op) => {
+                    let val = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let val_data = self.values.get(val).map_err(Stop::from)?.clone();
+                    let result = match op {
+                        StaticUnaryOp::Neg => {
+                            match &val_data {
+                                StaticValueData::Int(n) => self.values.intern_int(-n.to_bigint()),
+                                StaticValueData::Float(f) => self.values.intern_float(StaticFloat::from_f64(-f.to_f64())),
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticUnaryOp::Not => {
+                            match &val_data {
+                                StaticValueData::Bool(b) => self.values.intern_bool(!b),
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                        StaticUnaryOp::BitNot => {
+                            match &val_data {
+                                StaticValueData::Int(n) => self.values.intern_int(!n.to_bigint()),
+                                _ => return Err(Stop::invalid(StaticEvalError::InvalidOperationOperands)),
+                            }
+                        }
+                    };
+                    stack.push(result);
+                }
+                Work::AfterOperationalLogicalLeft(op, right) => {
+                    let left = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let StaticValueData::Bool(condition) = self.values.get(left).map_err(Stop::from)? else {
+                        return Err(Stop::invalid(StaticEvalError::ExpectedBool));
+                    };
+                    match (op, condition) {
+                        (StaticBinaryOp::And, false) | (StaticBinaryOp::Or, true) => {
+                            stack.push(self.values.intern_bool(*condition));
+                        }
+                        (StaticBinaryOp::And, true) => {
+                            work.push(Work::FinishAnd);
+                            work.push(Work::EvaluateOperational(right));
+                        }
+                        (StaticBinaryOp::Or, false) => {
+                            work.push(Work::FinishOr);
+                            work.push(Work::EvaluateOperational(right));
+                        }
+                        _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
+                    }
+                }
+                Work::AfterOperationalCondition(then_branch, else_branch) => {
+                    let condition = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let StaticValueData::Bool(condition) = self.values.get(condition).map_err(Stop::from)? else {
+                        return Err(Stop::invalid(StaticEvalError::ExpectedBool));
+                    };
+                    if *condition {
+                        work.push(Work::EvaluateOperational(then_branch));
+                    } else if let Some(else_branch) = else_branch {
+                        work.push(Work::EvaluateOperational(else_branch));
+                    } else {
+                        stack.push(self.values.intern_unit());
+                    }
+                }
+                Work::StoreOperationalLocal(slot) => {
+                    let value = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let slot = slot as usize;
+                    if slot >= self.locals.len() {
+                        self.locals.resize(slot + 1, None);
+                    }
+                    self.locals[slot] = Some(value);
+                    stack.push(self.values.intern_unit());
+                }
+                Work::PopOperationalStatement => {
+                    let _ = stack.pop();
+                }
+                Work::PushUnit => {
+                    stack.push(self.values.intern_unit());
+                }
+                Work::FinishOperationalSequence(result_type, count) => {
+                    let Some(start) = stack.len().checked_sub(count) else {
+                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                    };
+                    let elements = stack.split_off(start);
+                    let types = evaluator_type_store_ref(&self.canonical_types).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    stack.push(self.values.intern_sequence(result_type, elements, types).map_err(Stop::from)?);
+                }
+                Work::FinishOperationalConstruction(target, result_type, count) => {
+                    let Some(start) = stack.len().checked_sub(count) else {
+                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                    };
+                    let values = stack.split_off(start);
+                    let (data, enums) = self.semantic_tables.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let types = evaluator_type_store_ref(&self.canonical_types).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                    let value = match target {
+                        OperationalTarget::DataConstructor(owner) => {
+                            let info = data.get(&owner).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                            let components = info.components.iter().zip(values).map(|(c, v)| (c.id.clone(), v)).collect();
+                            self.values.intern_data(info, result_type, components, types).map_err(Stop::from)?
+                        }
+                        OperationalTarget::VariantConstructor(variant_id) => {
+                            let info = enums.variant_info(&variant_id).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                            let fields = info.fields.iter().zip(values).map(|(f, v)| (f.id.clone(), v)).collect();
+                            self.values.intern_variant(info, result_type, fields, types).map_err(Stop::from)?
+                        }
+                        OperationalTarget::Declaration(decl) => {
+                            if let Some(info) = data.get(&decl) {
+                                let components = info.components.iter().zip(values).map(|(c, v)| (c.id.clone(), v)).collect();
+                                self.values.intern_data(info, result_type, components, types).map_err(Stop::from)?
+                            } else {
+                                return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                            }
+                        }
+                    };
+                    stack.push(value);
+                }
+                Work::FinishOperationalMemberProjection(member) => {
+                    if let Some(ty) = self.completed_kinded_result.take() {
+                        let (data, enums) = self.semantic_tables.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                        let (_, _, _, declarations) = self.conformance.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                        static STRUCTURAL_IDS: std::sync::OnceLock<crate::core_surface::identity::StructuralUniverseIds> = std::sync::OnceLock::new();
+                        let ids = STRUCTURAL_IDS.get_or_init(crate::core_surface::identity::StructuralUniverseIds::new);
+                        let classifier = crate::structural::StructuralClassifier::new(data, enums);
+                        let types = evaluator_type_store_mut(&mut self.canonical_types).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                        let mut projector = crate::structural_reflection::StructuralReflectionProjector::new(classifier, ids, types, self.values, declarations, data, enums);
+                        let outcome = projector
+                            .project_ordered_product_member(ty, &member)
+                            .or_else(|_| projector.project_unordered_product_member(ty, &member))
+                            .map_err(|e| Stop::invalid(StaticEvalError::MemberProjection(e.to_string().into_boxed_str())))?;
+                        match outcome {
+                            crate::member_projection::StaticMemberProjectionOutcome::ReducedValue(val) => stack.push(val),
+                            crate::member_projection::StaticMemberProjectionOutcome::ReducedKinded(ty) => self.completed_kinded_result = Some(ty),
+                            _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
+                        }
+                    } else {
+                        let val = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                        let data = self.values.get(val).map_err(Stop::from)?;
+                        match data {
+                            StaticValueData::Record(rid) => {
+                                let rec = self.values.records_arena().get(rid.raw() as usize).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                                let found = rec.iter().find(|f| {
+                                    if let crate::field_key::FieldKey::Symbol(sym) = &f.key {
+                                        sym.as_ref() == &*member
+                                    } else {
+                                        false
+                                    }
+                                });
+                                let field = found.ok_or_else(|| Stop::invalid(StaticEvalError::MemberProjection(format!("field {} not found", member).into_boxed_str())))?;
+                                stack.push(field.value);
+                            }
+                            StaticValueData::Data(did) => {
+                                let (data_table, _) = self.semantic_tables.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                                let data_val = self.values.data_values_arena().get(did.raw() as usize).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                                let info = data_table.get(&data_val.owner).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                                let idx = info.components.iter().position(|c| c.local_name.as_ref() == &*member).ok_or_else(|| Stop::invalid(StaticEvalError::MemberProjection(format!("component {} not found", member).into_boxed_str())))?;
+                                let component = data_val.components.get(idx).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                                stack.push(component.1);
+                            }
+                            _ => return Err(Stop::invalid(StaticEvalError::UnsupportedExpression)),
+                        }
+                    }
+                }
+                Work::CollectOperationalArgument(target, arguments, index, mut args) => {
+                    let arg = if let Some(ty) = self.completed_kinded_result.take() {
+                        StaticArgument::Kinded(ty)
+                    } else if let Some(res) = self.completed_residual_result.take() {
+                        StaticArgument::Residual(res)
+                    } else {
+                        let val = stack.pop().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+                        StaticArgument::Value(val)
+                    };
+                    args.push(arg);
+                    if index + 1 < arguments.len() {
+                        work.push(Work::CollectOperationalArgument(target, arguments, index + 1, args));
+                        work.push(Work::EvaluateOperational(&arguments[index + 1]));
+                    } else {
+                        self.execute_operational_static_application(target, args, &mut work, &mut stack)?;
                     }
                 }
             }
@@ -3465,6 +3964,117 @@ impl<'a> StaticEvaluator<'a> {
                 continue;
             };
             *argument = StaticArgument::Residual(self.intern_parameter_residual(parameter)?);
+        }
+        Ok(())
+    }
+
+    fn execute_operational_static_application(
+        &mut self,
+        target: DeclarationId,
+        args: Vec<StaticArgument>,
+        work: &mut Vec<Work<'a>>,
+        stack: &mut Vec<StaticValueRef>,
+    ) -> Result<(), Stop> {
+        let definitions = self.definitions.ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+        let product = definitions.get(&target).ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+        let target_body = product.checked_body.as_ref().ok_or_else(|| Stop::invalid(StaticEvalError::UnsupportedExpression))?;
+        let mut args = args;
+        for argument in &mut args {
+            if let StaticArgument::Kinded(term) = argument {
+                *term = self.specialize_active_kinded_term(*term, SourceRange::default())?;
+            }
+        }
+        self.residualize_open_type_arguments(&mut args)?;
+        self.validate_application_arguments(&product.definition.signature, &args)?;
+        if target_body.result != product.definition.signature.result_domain {
+            return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+        }
+        let environment = self.capture_residual_environment()?;
+        let trusted_context = self.capture_trusted_branch_context();
+        let application_env = environment
+            .application_identity_projection()
+            .with_trusted_branch_context(trusted_context.clone());
+        let key = StaticApplicationKey::new(target.clone(), args.iter().copied(), application_env);
+        if let Some(&cycle_start) = self.active_application_index.get(&key) {
+            return Err(Stop::Recursive(self.make_cycle(&key, None, cycle_start)));
+        }
+        if let Some(memoized) = self.application_memo.get(&key).cloned() {
+            self.memo_hits = self.memo_hits.saturating_add(1);
+            match memoized {
+                StaticMemoResult::Reduced(StaticEvalTerm::Value(value)) => stack.push(value),
+                StaticMemoResult::Reduced(StaticEvalTerm::Kinded(ty)) => {
+                    if self.completed_kinded_result.replace(ty).is_some() {
+                        return Err(Stop::invalid(StaticEvalError::UnsupportedExpression));
+                    }
+                }
+                StaticMemoResult::Reduced(StaticEvalTerm::Residual(residual)) | StaticMemoResult::Symbolic(residual) => {
+                    self.complete_residual_result(residual)?;
+                }
+            }
+            return Ok(());
+        }
+        if args.iter().any(|argument| matches!(argument, StaticArgument::Residual(_))) {
+            let residual_arguments = args
+                .iter()
+                .map(|argument| match argument {
+                    StaticArgument::Kinded(term) => StaticEvalTerm::Kinded(*term),
+                    StaticArgument::Value(value) => StaticEvalTerm::Value(*value),
+                    StaticArgument::Residual(residual) => StaticEvalTerm::Residual(*residual),
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            let residual = {
+                let budget = &mut *self.budget;
+                let store = if let Some(ref mut residuals) = self.residuals {
+                    residuals
+                } else {
+                    self.owned_residuals.get_or_insert_with(StaticResidualStore::new)
+                };
+                store
+                    .intern_with_trusted_context(
+                        StaticResidualData::Apply {
+                            application: StaticResidualApplication {
+                                definition: target.clone(),
+                                arguments: residual_arguments,
+                                environment: environment.clone(),
+                            },
+                            result_domain: product.definition.signature.result_domain,
+                        },
+                        trusted_context,
+                        budget,
+                    )
+                    .map_err(Stop::from)?
+            };
+            self.application_memo.insert(key, StaticMemoResult::Symbolic(residual));
+            self.complete_residual_result(residual)?;
+            return Ok(());
+        }
+        let stack_base = stack.len();
+        self.save_current_frame();
+        if let Err(error) = self.load_frame(target_body, &args) {
+            self.restore_frame()?;
+            return Err(error);
+        }
+        let active_index = self.active_applications.len();
+        self.active_application_index.insert(key.clone(), active_index);
+        self.active_applications.push(key.clone());
+        self.active_application_ranges.push(None);
+        self.current_application_key = Some(key.clone());
+        self.inherited_specialization_environment = key.environment.to_specialization_key();
+        self.push_trace(StaticEvalTraceFrame::Definition(target.clone()))?;
+        work.push(Work::FinishStaticApplication(
+            StaticApplicationId {
+                body: StaticBodyId(target),
+                ordinal: 0,
+            },
+            key,
+            stack_base,
+        ));
+        match &target_body.root {
+            crate::static_definition::StaticDefinitionBodyRepr::Expression(expression) => work.push(Work::Evaluate(expression)),
+            crate::static_definition::StaticDefinitionBodyRepr::Block(block) => work.push(Work::EvaluateBlock(block)),
+            crate::static_definition::StaticDefinitionBodyRepr::TypeForm(annotation) => work.push(Work::EvaluateTypeForm(annotation)),
+            crate::static_definition::StaticDefinitionBodyRepr::Operational(template) => work.push(Work::EvaluateOperational(&template.root)),
         }
         Ok(())
     }
@@ -4022,7 +4632,7 @@ fn integer_bits(value: &crate::static_value::StaticInt) -> usize {
     }
 }
 
-fn canonical_symbol_spelling(kind: &SymbolLiteralKind) -> Option<String> {
+pub(crate) fn canonical_symbol_spelling(kind: &SymbolLiteralKind) -> Option<String> {
     use phalcom_common::selector::{Selector, SelectorSlot};
 
     let slots = |labels: &[Option<String>]| {

@@ -4,7 +4,7 @@
 
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
-use crate::identity::{BindingId, DeclarationId, ExpressionId, ModuleId};
+use crate::identity::{BindingId, DeclarationId, ExpressionId, ModuleId, VariantId};
 use crate::member_projection::MemberProjection;
 use crate::static_domain::{StaticValueDomain, resolve_static_domain};
 use crate::type_alias::TypeAliasInfo;
@@ -61,7 +61,7 @@ pub enum OperationalTarget {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum OperationalNode {
-    Constant(crate::static_value::store::StaticValueRef),
+    Constant(crate::static_value::StaticValueRef),
     ReadParameter(u32),
     ReadLocal(u32),
     WriteLocal(u32, Box<OperationalNode>),

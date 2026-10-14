@@ -6,9 +6,11 @@ use serde::{Deserialize, Serialize};
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct KindNodeId(pub u32);
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub enum StaticDomainRef {
     ConstInt,
     Nominal {
@@ -21,6 +23,7 @@ pub enum StaticDomainRef {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub enum KindNode {
     Type,
     RecordRow,
@@ -32,6 +35,7 @@ pub enum KindNode {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct KindNodeEntry {
     pub node: KindNode,
     pub structural_fingerprint: Fingerprint128,

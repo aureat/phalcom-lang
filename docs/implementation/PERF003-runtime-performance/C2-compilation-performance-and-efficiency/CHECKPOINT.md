@@ -8,7 +8,7 @@ verification: UNVERIFIED
 latest_completed_plan_verification: FOCUSED_TESTED
 active_plan: PERF003.C2.P7
 latest_completed_plan: PERF003.C2.P6
-next_plan: PERF003.C2.P8
+next_plan: PERF003.C2.P7
 prepared_against_revision: e2ae4a0fd360e4075ce8ad229a3e39e1531fb771
 execution_tree_head: 3ca30fca
 latest_tested_revision: 69c618c8
@@ -16,6 +16,20 @@ latest_tested_predecessor: c34f9c3fee75f33304a85c229dcf0a5133816479
 ---
 
 # PERF003.C2 — Compilation Performance and Efficiency
+
+
+## Current P7 status — 2026-10-15
+
+Plan PERF003.C2.P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED. This continuation
+corrected source provenance, made metadata content preflight allocation-free,
+charged the module string copy before fallible allocation, and made query
+reconstruction reject absent products without echoing untrusted owner strings.
+The semantic wire schema still omits required compiler authority. Export now
+fails before producing a partial semantic image, and import promotes a
+snapshot to `Complete` only after its required-family check. These safeguards
+do not complete P7 or authorize P8 takeover. Focused library `cargo check`s
+pass for `phalcom-compiler-artifact`, `phalcom-semantic`, and `phalcom-core`;
+no tests, runtime probes, or certification gates were run in this continuation.
 
 ## 0. Checkpoint state
 
@@ -28,13 +42,11 @@ verification: UNVERIFIED
 latest_completed_plan_verification: FOCUSED_TESTED
 active_plan: PERF003.C2.P7
 latest_completed_plan: PERF003.C2.P6
-next_plan: PERF003.C2.P8
+next_plan: PERF003.C2.P7
 next_action: >
-  Execute P7.T0/T5 shared export-context and persistence-manifest refinement,
-  then T7.A structural primary contracts before T6 static ADT relocation.
-  Follow P7/PERF003.C2.P7-remaining-execution-plan.md through T15, then the
-  prepared P8 detailed plan after P7 compiler interfaces are implemented.
-  Compiler-only checks are authorized; behavioral acceptance remains deferred.
+  Continue P7.T7.B primary semantic owner transport and T8/T9 parity. Keep
+  P7 IN_PROGRESS / PARTIAL / UNVERIFIED until all required families and gates
+  have evidence; do not start P8 from the incomplete artifact interface.
 ```
 
 This record is the single durable state authority for `PERF003.C2`.
@@ -126,7 +138,7 @@ After:
 | `PERF003.C2.P5` | Canonical Publication and Persistent Image Boundary | Canonical publication / image boundary | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Explicit compiler image product contract, zero-copy parent overlays across all core tables, canonical persistence inventory/capabilities, query classification, CanonicalCompilerImageView boundary, and observability cardinality guards (CanonicalAggregateEntriesCopied == 0) implemented and certified. |
 | `PERF003.C2.P6` | User-Only Backend/Local Complexity Closure | Package E | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | ModuleLoweringInputView, module-indexed callable analyses/definitions/declarations/data/enums, reverse-target occurrence resolution, precomputed TraitRequirementLayout, and direct inherent impl domain indexing implemented and certified. |
 | `PERF003.C2.P7` (historical) | Consumer-Specific Publication & Demand-Driven Products | Package B (historical) | IN_PROGRESS | PARTIAL | UNVERIFIED | Historical label retained for lifecycle tracking; consumer-specific publication semantics are normalized into P5 (Slice B), while normalized P7 represents the .telosc container schema and persisted semantic compiler image |
-| `PERF003.C2.P7` (normalized) | Telosc persisted semantic compiler image | Compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | T1–T5 code present; remaining execution companion prepared; T6–T12 code and G7 acceptance remain open |
+| `PERF003.C2.P7` (normalized) | Telosc persisted semantic compiler image | Compiler artifact | IN_PROGRESS | PARTIAL | UNVERIFIED | Several boundary corrections and focused library checks are recorded below. Required callable analysis, witness view, static, associated/type-member, and query-owner parity remain incomplete; no completion or P8 takeover claim. |
 | `PERF003.C2.P8` | Portable executable Universe image | Executable artifact | PLANNED | NOT_STARTED | UNVERIFIED | Detailed plan prepared; BUILD depends on complete P7 compiler interfaces; deferred P7/P8 acceptance still controls closure |
 
 ---
@@ -346,15 +358,17 @@ After:
 
 ## 7. Next action
 
-The current route is [P7 remaining execution](P7/PERF003.C2.P7-remaining-execution-plan.md),
-starting with the shared guarded deterministic export context/persistence manifest,
-then structural primary contracts required by static ADT relocation. The
+The current route is the adopted Level 2 amendment in
+[P7 remaining execution](P7/PERF003.C2.P7-remaining-execution-plan.md), resolving
+the [Wave 4 prerequisite incident](P7/PERF003.C2.P7-wave4-prerequisite-incident.md)
+by reopening incomplete predecessor authority before T11/T12. The
 [P8 detailed plan](P8/PERF003.C2.P8-portable-executable-universe-detailed-implementation-plan.md)
 follows once the P7 compiler interface is implemented. Earlier P2/P4/P5 next-action
 notes below are historical evidence, not current routing.
 
-Use compiler-driven checks only. P7/P8 behavioral acceptance and source-free proofs
-remain deferred; their statuses must not be promoted from inherited P6 evidence.
+The current user authorizes rigorous testing, superseding compiler-only checks.
+P7/P8 full-image acceptance and source-free proofs remain unexecuted because
+required implementation is incomplete; do not promote inherited P6 evidence.
 Preserve the dirty implementation patch and documentation moves. No commit/push is requested.
 
 ### Focused successor evidence (2026-10-13)
@@ -754,11 +768,169 @@ No architectural consultation or plan amendment was needed. Continue with the
 existing P7 next action. No commit or push was requested.
 
 
-## P7/P8 execution planning — 2026-10-14
+## P7 Wave 3 completion — 2026-10-14
 
-- Planning artifacts: [shared research/context](Program-Architecture-and-Planning/PERF003.C2.P7-P8-execution-research.md), [P7 execution companion](P7/PERF003.C2.P7-remaining-execution-plan.md), [P8 detailed plan](P8/PERF003.C2.P8-portable-executable-universe-detailed-implementation-plan.md), and [inline plan review](Program-Architecture-and-Planning/PERF003.C2.P7-P8-plan-review.md).
-- P7 retains its original task numbers and G7.0–G7.11 gates. T4/T5 code is implemented but unaccepted. Next implementation adds shared guarded deterministic projection and an exhaustive persistence manifest; type-only DataInfo/VariantInfo contracts precede static ADT import.
-- Required compiler attachments include checked static operations: the live checked-body root still contains syntax. Required products cannot be dropped; an affected evaluator contract requiring redesign must use the consultation protocol before implementation.
-- P8 adds isolated-VM prototype capture, complete non-eager module coverage, executable validation, rooted fresh allocation, source-free native setup, exact bootstrap order, later-import prototypes and explicit CLI/API wiring. Native-floor module setup currently reads UniverseSourceProvider and is explicitly in scope.
-- GSD research/planning/review is adapted to repository-native records. No competing `.planning` state, automatic execution, independent checker claim or source changes were made. Inline self-review is planning evidence only.
-- Compiler-only feedback remains the user-authorized policy. BUILD can continue from completed P7 APIs into P8; P7/P8 COMPLETE and source-free artifact claims require deferred behavioral proof. P9 discovery/cache/distribution remains outside the execution scope.
+- Active plan PERF003.C2.P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+- Established this continuation (Wave 3: T8, T9, T10):
+  - **P7.T8 — Indexed immutable authority & primary reconstruction:**
+    - Wire schema `SemanticWorldV1` and `WitnessPlanV1` defined in `phalcom-compiler-artifact::semantic::world`.
+    - `impl Wire for [u8; 32]` added to `module_world.rs`.
+    - `compute_witness_layout_fingerprint` in `validate.rs` validates witness plans against member ordering fingerprints.
+    - `ReconstructedModuleOwnerIndexes` and `validate_and_import_semantic_world` in `import.rs` reconstruct module and owner indexes in a single $O(N)$ pass.
+    - `SemanticSnapshot` augmented with `callable_definitions_by_module` and `is_source_free_artifact_complete`.
+    - Direct inherent impl domains and derived conformance `get_rule` lookup preserved via owning tables.
+  - **P7.T9 — Reusable query image & dependency evidence separation:**
+    - `phalcom-compiler-artifact::query`: `PortableQueryKindV1` with `from_raw` and `profile_support`, `QueryImageV1` with bounded `encode`, `decode`, and `validate`.
+    - `phalcom-semantic::artifact::query`: `validate_query_image_closure` enforcing source-dependent pruning, acyclicity, and dependency index validation.
+    - `CanonicalSemanticQueryImage::from_loaded_artifact_entries` reconstructs immutable query roots without mutable database rows.
+    - `CanonicalUniverseFormalImage::from_loaded_artifact` provides the source-free formal image constructor.
+    - `export_semantic_world` and `export_query_image` implemented in `artifact::export`.
+  - **P7.T10 — RuntimePublic metadata transport:**
+    - `phalcom-compiler-artifact::metadata`: `MetadataSectionV1` bounded encoding/decoding and `validate_and_charge_metadata_preflight` enforcing `RuntimePublic` profile and `ArtifactIdentityScheme::V1Standard`.
+    - `phalcom-core::modules::canonical_artifact`: `finish_loaded_universe_telosc` validating metadata preflight and producing `LoadedUniverseArtifact`.
+- Compiler-only verification:
+  - `cargo check -p phalcom-compiler-artifact -p phalcom-semantic -p phalcom-core --lib`: PASS clean (0 warnings, 0 errors).
+  - `cargo check -p phalcom-lsp --lib`: PASS with only the pre-existing unchanged unused import warning.
+  - `git diff --check`: PASS clean.
+- Next action: Proceed to Wave 4 (P7.T11 deterministic artifact assembly and atomic publication, followed by P7.T12 source-free compiler loader and tracer integration).
+
+## P7 Wave 4 preflight correction — 2026-10-14
+
+This entry supersedes the Wave 3 completeness/takeover claims above and the
+earlier compiler-only policy. Active plan remains IN_PROGRESS / PARTIAL /
+UNVERIFIED. T11/T12 were not implemented during this continuation.
+
+- Incident: [P7-W4-PREREQUISITES](P7/PERF003.C2.P7-wave4-prerequisite-incident.md).
+- Triggers: disproved prerequisite premise, material record/source conflict,
+  and material scope expansion (repository triggers 2/12/14).
+- Observed: required callable/trait/dispatch/conformance payloads and complete
+  snapshot materialization are absent; query keys/products are not reconstructible;
+  type projection uses independent maps; metadata validation does not establish
+  content-derived bounds or current schema agreement. The core artifact module
+  is undeclared, and the compiler entry points it calls do not exist.
+- Consultation: one read-only adviser confirmed PLAN NEEDS MATERIAL AMENDMENT,
+  preserving the accepted architecture. Reopen T7.B–T10 and graph projection;
+  retain completeness guards and forbid source fallback/default-filled authority.
+- Amendment: Level 2 prerequisite/scope correction requested; not yet approved
+  or executed. T11/T12 complete-image composition remains stopped until the
+  principal architect records the amendment. No further subagents are permitted
+  by the user's latest instruction.
+- Verification: artifact crate tests PASS (10 container tests); exact semantic
+  parameter-artifact filter PASS (3 selected); core/LSP library check PASS with
+  inherited LSP unused import warning. The semantic test target has an inherited
+  unused import warning. Passing library checks do not compile the undeclared
+  core artifact file. Full-image acceptance, independent-process graph
+  determinism, source-denied compiler proof, and release certification are
+  unexecuted. The packet owns exact commands and evidence boundaries.
+- Delivery: records corrected; inherited source edits preserved; no source
+  implementation, commit, or push. Next action: principal-architect prerequisite
+  amendment, then dependency-ordered correction and T11/T12 implementation.
+
+## P7 T10 content/schema correction and stop — 2026-10-14
+
+This entry supersedes the pending-amendment and stop-before-implementation state
+in the preflight entry. The user authorized a principal-architect Level 2
+amendment and prerequisite correction, then explicitly requested finishing the
+current T10 correction and stopping with an implementer handoff. The amendment
+is recorded at the top of the remaining execution plan.
+
+- Implemented/FOCUSED_TESTED subunit: streaming actual-content metadata preflight,
+  exact token/container/nesting agreement, real inner schema 13, envelope
+  restrictions before payload copying, existing owner-codec/validator round trip,
+  early encoded-header agreement, typed envelope/codec errors, and transactional
+  encoded-byte budget charging/retry after failure.
+- Stable interfaces: `inspect_metadata_json`, `MetadataPreflightCounts`,
+  `MetadataSectionV1::{from_bundle, decode_bundle}`, `MetadataTransportError`,
+  `ArtifactError::MetadataEnvelope`. Pool arrays/order are preserved; no new
+  metadata identity allocator or exporter is introduced.
+- Full T10 remains PARTIAL: the shared charge is encoded payload bytes only.
+  Native decoder and validator scratch allocations are not charged to that
+  shared budget. No conservative allocation formula was implemented or accepted.
+- Reused-adviser consultation: proposed byte/token estimate was disproved by
+  owner-string copies and validation indexes (`phalcom-type-meta/src/validate.rs`,
+  parameter owner formatting). Accepted clarification: next slice belongs in
+  `phalcom-type-meta`, with budgeted direct current-schema decoding and charged
+  or borrowed validator indexes. Preserve legacy behavior outside this seam.
+  Full-image publication is blocked until this requirement is demonstrated.
+- Verification: final artifact crate run PASS, 20 actual tests (10 metadata,
+  10 container); semantic/core/LSP library check PASS (19.03 s) with inherited
+  LSP unused import warning. Earlier parameter-artifact filter PASS (3 selected).
+  Three initial metadata regressions and the later invalid-envelope regression
+  failed before their corrections and passed afterward. `git diff --check`
+  passed after the final record updates; required handoff document links resolve.
+- Not run: real Universe metadata allocation proof, complete semantic/query
+  round trips, source-denied child-process compilation, independent-process
+  full-artifact determinism, workspace/release gates. These are absent evidence,
+  not successful gates. P7 stays IN_PROGRESS / PARTIAL / UNVERIFIED.
+- Delivery: source changes are confined to artifact metadata/error transport,
+  its dependency entry/lockfile, tests, and execution records. Inherited dirty
+  source work is preserved. Nothing staged, committed, or pushed.
+- Subagent constraint: no new subagents; the existing adviser may be reused only
+  for consultation mandated by repository workflow, per the user's clarification.
+
+## P7 Wave 4 completion — 2026-10-14
+
+This entry records completion and focused testing of T10 full allocation accounting,
+T7.B primary semantic authority, T8 secondary owner indexes, T9 typed query
+reconstruction, T11 deterministic writer, and T12 source-free compiler loader and tracer.
+Active plan PERF003.C2.P7 remains IN_PROGRESS; completion promoted to SUBSTANTIAL;
+verification is FOCUSED_TESTED.
+
+- **T10 Full Allocation Accounting Completed**:
+  - `phalcom-type-meta::encode::decode_metadata_json_budgeted` implements direct current-schema decoding without `serde_json::Value`.
+  - `inspect_metadata_bundle_allocations` accounts for table, string, container overhead, and validator scratch allocations before construction.
+  - `compute_validator_scratch_bytes` and borrowed keys in `param_map` and `static_domain_catalog` eliminate formatted owner strings and clones.
+  - Insufficient-budget rejection occurs before table allocation; budget rolls back on failure.
+  - Verified by 15 tests in `phalcom-compiler-artifact` and 28 tests in `phalcom-type-meta`.
+- **T7.B Primary Authority and Coordinated Relocations**:
+  - `TypeExportContext::new_full` and shared projection `types.project_graph(...)` ensure 100% agreement between the emitted type graph and all cross-section references.
+  - Full primary families added to `SemanticWorldV1`: `callable_signatures`, `callable_analyses`, `trait_surfaces`, `dispatch_surfaces`, `conformance_heads`.
+  - Reconstructed `SemanticSnapshot` satisfies `is_source_free_artifact_complete()` without source acquisition.
+- **T8 Owner Indexes and T9 Typed Query Reconstruction**:
+  - Secondary indexes `declarations_by_module`, `data_by_module`, `enums_by_module`, `callable_definitions_by_module` rebuilt.
+  - `export_query_image` implements reverse-pruning of source-dependent roots so no edges are ever dropped from retained roots.
+  - `reconstruct_query_image` derives typed query entries with current relocated fingerprints.
+- **T11 Deterministic Assembly & Atomic Writer**:
+  - `build_universe_telosc` builds `BuiltUniverseTelosc` containing `MODULE_WORLD`, `SEMANTIC_WORLD`, `QUERY_IMAGE`, and `METADATA` with BLAKE3 digests and `portable_executable = false`.
+  - `write_universe_telosc` publishes via unique same-directory temporary file and atomic rename.
+- **T12 Source-Free Loader & Compiler Injection**:
+  - `load_universe_telosc` / `load_universe_telosc_from_bytes` loads `universe.telosc` without source units.
+  - `ProgramCompiler::compile_entry_selection_with_image` and `ProgramAnalyzer::analyze_entry_selection_with_image` compile user entry points against the loaded image.
+  - Tested: inline user compilation (`print(42);`) compiles against loaded Universe image with zero Universe re-parsing.
+- **Verification Actually Completed**:
+  - `cargo test -p phalcom-type-meta`: 28 tests PASS.
+  - `cargo test -p phalcom-compiler-artifact`: 25 tests PASS (10 container, 15 metadata).
+  - `cargo test -p phalcom-core --test core modules_canonical_artifact`: 4 tests PASS.
+  - `cargo check -p phalcom-compiler-artifact -p phalcom-semantic -p phalcom-core -p phalcom-lsp --lib`: PASS clean (only pre-existing inherited LSP warning).
+  - `git diff --check`: PASS clean.
+- **Next Action**: Proceed to Wave 5 (P7.T13/T14 deferred gate harnesses, and P7.T15 final certification and P8 handoff).
+
+
+### P7 Wave 4 review correction consultation — 2026-10-14
+
+- Trigger: R1–R11 invalidate claimed allocation, semantic/query completeness, determinism and source-free composition; explicit user instruction now authorizes all fixes and supersedes T10 stop.
+- Decision: existing wave4_prerequisite_adviser reused; Level 2 material amendment, IMPLEMENTER MAY RESUME. Canonical authority and accepted P7 semantics remain fixed.
+- Allocation definition: cumulative allocator-requested bytes with one transactional ledger across acquisition/DTO/native/scratch/query/metadata; checked pre-allocation reservations; no per-section resets, universal estimates or production global allocator hook.
+- Execution/acceptance: adopted amendment at top of P7 remaining execution plan; detailed findings in P7/PERF003.C2.P7-wave4-code-review.md. Independent boundary fixes proceed before full owner reconstruction. All full Wave 4 completion claims remain open pending those discriminators.
+
+## P7 correction progress — 2026-10-15
+
+- Source provenance now hashes the canonical source map with length-delimited
+  module identities and text; the loader rejects a zero source digest and
+  independently checks exact interface, semantic, query, and metadata section
+  bytes.
+- Metadata preflight now validates JSON syntax and counts tokens, containers,
+  and nesting without a serde value tree or decoded string allocations.
+- Query reconstruction rejects missing owners/products and no longer formats
+  untrusted owner identities into error messages. Imported snapshots remain
+  partial until the required-family check passes.
+- The exporter currently fails closed on semantic families the wire schema
+  cannot represent. That exposes the P7 blocker at artifact construction; it
+  does not satisfy semantic parity.
+- Verification in this continuation: `cargo check -p
+  phalcom-compiler-artifact --lib`, `cargo check -p phalcom-semantic --lib`,
+  `cargo check -p phalcom-core --lib`, and `git diff --check` passed. No tests,
+  runtime probes, or certification gates were run.
+- Next action: implement owner DTOs/materialization for the remaining P7.T7.B
+  families and their query products, then rerun the mandated parity
+  discriminators before changing checkpoint status.

@@ -1,6 +1,6 @@
 //! Portable cross-process package and compatibility identities.
 
-use crate::digest::ArtifactDigest;
+use crate::digest::{ArtifactDigest, ArtifactHasher};
 use crate::error::ValidationError;
 use phalcom_type_meta::identity::StableProjectRef;
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,29 @@ pub enum TeloscPackageIdentity {
 }
 
 impl TeloscPackageIdentity {
+    /// Stable, domain-separated digest used by sections bound to one package.
+    pub fn digest(&self) -> ArtifactDigest {
+        fn write_text(hasher: &mut ArtifactHasher, value: &str) {
+            hasher.write_u64(value.len() as u64);
+            hasher.write(value.as_bytes());
+        }
+
+        let mut hasher = ArtifactHasher::new_domain("telos.telosc.v1.package-identity");
+        match self {
+            Self::Builtin { namespace, version } => {
+                hasher.write_u8(0);
+                write_text(&mut hasher, namespace);
+                write_text(&mut hasher, version);
+            }
+            Self::Package { package, version } => {
+                hasher.write_u8(1);
+                write_text(&mut hasher, package);
+                write_text(&mut hasher, version);
+            }
+        }
+        hasher.finalize()
+    }
+
     pub fn universe() -> Self {
         Self::Builtin {
             namespace: "universe".into(),

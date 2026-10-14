@@ -370,6 +370,74 @@ impl CanonicalSemanticQueryImage {
         })
     }
 
+    /// Constructs an immutable query image from validated artifact entries without a mutable `SemanticDb` (`P7.T9`).
+    pub fn from_loaded_artifact_entries(
+        world: CanonicalSemanticWorldId,
+        entries: BTreeMap<QueryKey, CanonicalQueryEntry>,
+        store: Arc<TypeStore>,
+        static_values: Arc<StaticValueStore>,
+    ) -> Result<Self, CanonicalImageError> {
+        let mut census = CanonicalQueryCensus {
+            total_rows_examined: entries.len(),
+            ..CanonicalQueryCensus::default()
+        };
+        for (key, entry) in &entries {
+            if matches!(key, QueryKey::ParsedModule(_))
+                || canonical_query_persistence(key.kind()) != CanonicalQueryPersistence::EligibleStructural
+            {
+                return Err(CanonicalImageError::IncompletePublication(format!(
+                    "unsupported or source-dependent query in artifact image: {key:?}"
+                )));
+            }
+            for edge in entry.dependencies.iter() {
+                if &edge.dependent != key {
+                    return Err(CanonicalImageError::IncompletePublication(format!(
+                        "malformed dependency edge dependent for {key:?}"
+                    )));
+                }
+                let Some(dep_entry) = entries.get(&edge.dependency) else {
+                    return Err(CanonicalImageError::IncompletePublication(format!(
+                        "unclosed query dependency {:?} -> {:?}",
+                        key, edge.dependency
+                    )));
+                };
+                if dep_entry.product_fingerprint != edge.observed_fingerprint {
+                    return Err(CanonicalImageError::IncompletePublication(format!(
+                        "stale observed dependency fingerprint on {:?} -> {:?}",
+                        key, edge.dependency
+                    )));
+                }
+            }
+            *census.retained_by_kind.entry(key.kind()).or_default() += 1;
+        }
+        let mut pending: BTreeSet<_> = entries.keys().cloned().collect();
+        loop {
+            let leaves = pending
+                .iter()
+                .filter(|key| entries[*key].dependencies.iter().all(|edge| !pending.contains(&edge.dependency)))
+                .cloned()
+                .collect::<Vec<_>>();
+            if leaves.is_empty() {
+                break;
+            }
+            for key in leaves {
+                pending.remove(&key);
+            }
+        }
+        if !pending.is_empty() {
+            return Err(CanonicalImageError::IncompletePublication(
+                "cyclic query dependency graph in loaded artifact".into(),
+            ));
+        }
+        Ok(Self {
+            world,
+            entries,
+            census,
+            store,
+            static_values,
+        })
+    }
+
     fn freeze(
         db: &SemanticDb,
         world: CanonicalSemanticWorldId,
@@ -685,6 +753,10 @@ impl CanonicalUniverseFormalImage {
     pub fn query_image(&self) -> &Arc<CanonicalSemanticQueryImage> {
         &self.queries
     }
+    /// Dependency fingerprints for all aggregated queries.
+    pub fn dependency_fingerprints(&self) -> &BTreeMap<QueryKey, ProductFingerprint> {
+        &self.dependency_fingerprints
+    }
     /// Final arena identity and extent.
     pub fn type_prefix(&self) -> CanonicalTypePrefixId {
         self.type_prefix
@@ -701,12 +773,64 @@ impl CanonicalUniverseFormalImage {
             frozen_query_count: self.queries.len(),
             canonical_type_count: self.type_prefix.types,
             runtime_metadata_composed: false,
-            portable_artifact_available: false,
+            portable_artifact_available: matches!(self.world.provenance, CanonicalWorldProvenance::Artifact { .. }),
         }
     }
     /// Reader using the image's own validated arenas.
     pub fn reader(&self) -> Result<CanonicalQueryReader<'_>, CanonicalImageError> {
         self.queries.reader(&self.world, &self.snapshot.store, &self.snapshot.static_values)
+    }
+
+    /// Atomically constructs a source-free `CanonicalUniverseFormalImage` from validated loaded artifact parts (`P7.T9/T12`).
+    pub fn from_loaded_artifact(
+        world: CanonicalSemanticWorldId,
+        modules: Arc<CanonicalExternalModuleWorld>,
+        snapshot: Arc<SemanticSnapshot>,
+        queries: Arc<CanonicalSemanticQueryImage>,
+        dependency_fingerprints: BTreeMap<QueryKey, ProductFingerprint>,
+    ) -> Result<Arc<Self>, CanonicalImageError> {
+        if !matches!(world.provenance, CanonicalWorldProvenance::Artifact { .. }) {
+            return Err(CanonicalImageError::ForeignSemanticWorld);
+        }
+        if !snapshot.is_source_free_artifact_complete() {
+            return Err(CanonicalImageError::IncompletePublication(
+                "loaded artifact snapshot failed source-free completeness check".into(),
+            ));
+        }
+        if !snapshot.advisory.modules.is_empty() || !snapshot.advisory.callables.is_empty() {
+            return Err(CanonicalImageError::IncompletePublication(
+                "suppressed advisory products present in loaded compiler image".into(),
+            ));
+        }
+        queries.reader(&world, &snapshot.store, &snapshot.static_values)?;
+        for (key, fp) in &dependency_fingerprints {
+            if let Some(expected) = aggregate_structural_fingerprint(&snapshot, key) {
+                if expected != *fp {
+                    return Err(CanonicalImageError::IncompletePublication(format!(
+                        "loaded dependency fingerprint disagrees with relocated aggregate: {key:?}"
+                    )));
+                }
+            }
+            if queries.entry(key).is_some_and(|entry| entry.product_fingerprint != *fp) {
+                return Err(CanonicalImageError::IncompletePublication(format!(
+                    "loaded query entry disagrees with dependency fingerprint: {key:?}"
+                )));
+            }
+        }
+        let type_prefix = CanonicalTypePrefixId {
+            store: snapshot.store.id(),
+            types: snapshot.store.len(),
+        };
+        Ok(Arc::new(Self {
+            world,
+            modules,
+            build_sources: BTreeMap::new(),
+            presentation_provider: None,
+            snapshot,
+            queries,
+            dependency_fingerprints,
+            type_prefix,
+        }))
     }
 }
 
@@ -899,7 +1023,7 @@ fn build(provider: &UniverseSourceProvider) -> Result<Arc<CanonicalUniverseForma
     Ok(image)
 }
 
-fn aggregate_structural_fingerprint(snapshot: &SemanticSnapshot, key: &QueryKey) -> Option<ProductFingerprint> {
+pub(crate) fn aggregate_structural_fingerprint(snapshot: &SemanticSnapshot, key: &QueryKey) -> Option<ProductFingerprint> {
     use crate::db::fingerprint;
     match key {
         QueryKey::CallableSignature(id) => snapshot.callable_signatures.get(id).map(fingerprint::callable_signature_product_fingerprint),

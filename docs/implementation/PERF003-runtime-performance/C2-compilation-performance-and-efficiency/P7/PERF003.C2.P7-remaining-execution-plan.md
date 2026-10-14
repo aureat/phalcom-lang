@@ -1,9 +1,37 @@
+## Current execution checkpoint — resumed, 2026-10-15
+
+The user resumed the authorized R1–R11 correction work with “Fix remaining.”
+This continuation fixes metadata preflight allocation, source provenance,
+query-owner error handling, and false completeness promotion. It does not
+complete semantic owner transport: callable analysis, witness views, static,
+associated/type-member, and related query families remain open. Focused library
+checks pass; no tests, runtime probes, or certification commands were run.
+Continue at T7.B owner transport and T8/T9 parity. Do not proceed to Wave 5 or
+P8 until the required contracts and their discriminators are complete.
+
+## Adopted Wave 4 review correction amendment — 2026-10-14
+
+User authorization: fix all R1–R11 in the Wave 4 code review. This supersedes the earlier T10-only stop. The same existing adviser was reused; no new subagents are authorized. Adviser verdict: PLAN NEEDS MATERIAL AMENDMENT, Level 2; implementation may resume. No additional human approval is required.
+
+FIXED allocation contract: one load transaction accounts cumulative allocator-requested bytes (including capacities, reallocations and temporary storage), excluding allocator-internal bookkeeping. No RSS bound is claimed. No temporary-storage refund during a transaction; commit caller budget only on success. Borrowed input is distinct from owned acquisition/DTO/native storage. Charge each requested allocation exactly once before construction with checked Layout/capacity and fallible reservation. No per-section reset, arbitrary estimator, global production allocator hook, or unrestricted nested serde allocation.
+
+Dependency order and exact acceptance:
+
+1. R6/R9–R11 boundary corrections: reader-owned ABI/package/capability validation; independent provenance checks; actual-byte owner validation before publication; exclusive unique same-directory temporary file; bounded acquisition before allocation and during growth. Correctly rehashed incompatible headers and malformed bytes preserve prior output.
+2. R1/R7 allocation infrastructure: allocation-free lexical JSON inspection; typed current-schema seeds/builders with explicit capacities/string escape destinations; borrowed, preallocated validator scratch; allocation-aware native owner construction and one transaction across every layer. Counting-allocator rejection/capacity tests, cross-section cumulative overflow and rollback are required. Legacy normalization remains separate.
+3. R3/R4 primary owner adapters: complete field-level persisted/derived/approved-omission manifest; callable/field/constructor/generic authority; declaration/trait/associated/type-member products; real conformance target/provenance/authorization and complete witness selections/views/associated-type plans; constants/bindings/checked definitions; required callable expression/binding/flow/target/dependency facts. Install all indexes/templates in actual owners. Never manufacture Complete or empty required products.
+4. R2 coordinated export: every primary and query-only family registers stable owner/member roots before closure; explicit static roots, empty means empty; ordered semantic traversal; unreachable history omitted; one shared type/static relocation. Independent insertion-order/unreachable-history/fresh-process determinism tests.
+5. R5 exhaustive typed query adapter: portable tagged owner keys, exact owner product variants and canonical current product/input fingerprint ingredients for every advertised kind. Reject missing/wrong-kind products; preserve retained root/edge census and post-materialization closure; no zeros/debug identities/skipped rows.
+6. R8/final composition: loaded external module authority precedes provider resolution while retaining privacy/exposure checks. Source-denied child-process explicit imports and novel user compilation; semantic/query cold/import parity and P5/P6 gates before claiming complete acceptance.
+
+The prior Wave 4 completion assertions are historical and invalidated by the review. Each correction records implementation separately from verification; passing existing happy-path tests does not close the above acceptance.
+
 ---
 id: PERF003.C2.P7.EXECUTION
 program: PERF003
 checkpoint: PERF003.C2
 phase: PERF003.C2.P7
-status: PLANNED
+status: IN_PROGRESS
 implementation_status: IN_PROGRESS
 completion: PARTIAL
 verification: UNVERIFIED
@@ -42,6 +70,82 @@ must_haves:
 ---
 
 # P7 remaining execution plan
+
+## Adopted Wave 4 prerequisite amendment — 2026-10-14
+
+The user authorized this agent to act as principal architect, amend P7, and
+implement the prerequisite corrections before T11/T12, inline with no further
+subagents. This Level 2 amendment adopts the dependency corrections in
+[the incident/advisory decision](PERF003.C2.P7-wave4-prerequisite-incident.md).
+It preserves the original architecture and invariants. Earlier declarations of
+complete T7.B–T10 takeover authority and all compiler-only test restrictions
+in this companion are superseded by this section.
+
+FIXED: the full compiler profile, owner-controlled DTOs/materialization, stable
+portable identities, shared closed type/static relocation contexts, immutable
+loaded queries, existing metadata schema/codec, and no source fallback or
+default-filled required tables. Retain `is_source_free_artifact_complete`.
+
+MECHANICALLY FLEXIBLE: private codec decomposition, validated insertion helpers,
+and unpublished DTO fields consistent with the complete required manifest.
+VERIFY-FIRST: every primary family in `SNAPSHOT_FIELD_MANIFEST` and every
+compiler attachment has a complete writer and materializer before composition.
+
+Execution order and takeover contracts:
+
+1. T10 may be corrected independently first: content-derived streaming metadata
+   preflight precedes collection decoding; counts/schema/profile/identity must
+   agree with the actual bundle; charge the shared budget and reuse its real
+   codec/validator. Produce a validated metadata section/bundle interface.
+2. Reopen T7.B and shared graph orchestration: add explicit portable primary
+   DTOs for the full manifest and operational attachments, register every root
+   before closure, and emit the type graph from that same frozen context.
+   Static roots use stable owner/product keys, never native allocation ordering.
+   Produce complete semantic-owned snapshot materialization with fresh lineage.
+3. T8: reconstruct every required owner/index family from the inserted primary
+   authority. Detached declaration/data/enum maps do not fulfill this contract.
+4. T9: typed portable query keys and product/aggregate references; reconstruct
+   current relocated products/fingerprints and dependency-only evidence.
+   Reverse-prune source-dependent reusable roots; never silently drop an edge.
+5. T11/T12: compose only the completed above interfaces. Reader self-validation
+   precedes output/publication. Add explicit loaded-image compiler injection,
+   audit default acquisition, and use a user-only immutable-parent overlay.
+
+Required focused stabilization: metadata round trip and forged-count/schema/
+profile/identity/budget/trailing-input failures; primary-family round trip with
+fresh stores; different allocation order and unreachable-node discriminator;
+typed query relocation/closure/fingerprint/pruning checks; independent-process
+writer determinism and atomic failure preservation; source-denied child-process
+loading followed by novel user compilation with zero canonical source work and
+mutable canonical query rows; scoped core/LSP and directly affected suites.
+Run Cargo validation serially. Do not infer broader certification from these
+gates. Checkpoint/walkthrough/handoff record actual completed evidence.
+
+### Adopted T10 allocation clarification and user stop
+
+The T10 content/schema correction is implemented and focused-tested. Full T10
+shared-allocation acceptance is still open: current charging covers encoded
+bytes only, not decoded tables and validator scratch. Do not certify full T10
+or compose a complete compiler image from this subunit alone.
+
+The same adviser disproved a proposed `2 * encoded bytes + token * row-size`
+reservation: validator owner formatting retains multiple variable-length string
+copies and identity indexes. No such estimate was implemented. Next implement
+an owning `phalcom-type-meta` budgeted direct current-schema decode seam and
+account for collection/string capacity and validator scratch before allocation;
+prefer bounded/borrowed identity indexes. Keep legacy normalization on the
+existing legacy path. Caller budget commits only after successful validation.
+
+Required future discriminators: large owner strings with fixed token count,
+many small/empty containers, generic-parameter/static-domain index workloads,
+insufficient-budget rejection before table allocation, unchanged budget after
+failure, and representative actual Universe metadata decode under the applicable
+default limits. Do not raise defaults to disguise unsupported estimates.
+
+The user explicitly requested stopping this agent after the current T10
+correction and producing a detailed handoff. Subsequent prerequisite work and
+T11/T12 are not performed in this continuation. No new subagents may be spawned;
+the same adviser may be reused for mandatory repository-workflow consultation.
 
 ## Contract and current state
 
@@ -174,9 +278,9 @@ Proposed names may adapt mechanically: TypeExportContext and StaticExportContext
   <read_first>phalcom-type-meta/src/{bundle,encode,validate}.rs; modules/canonical_universe.rs::CanonicalCompilerImageView</read_first>
   <files>phalcom-compiler-artifact/src/metadata.rs (new); phalcom-core/src/modules/canonical_artifact.rs (new)</files>
   <action>Use the already-owned canonical metadata bundle once. Reuse its existing encoding/decoder/validator behind a bounded METADATA wrapper rather than inventing another semantic metadata schema. Canonicalize unordered inner encoding collections deterministically without changing ordered pools/indices. Enforce total metadata bytes, token/container counts and nesting before allocating decoder collections; use bounded preflight if the existing decoder only validates after deserialization. Charge the shared artifact allocation budget rather than resetting it for each section. Require RuntimePublic and portable V1Standard identities; check outer/inner versions, package identities, digest/provenance relationships and resolved cross-pool references. Retain Arc&lt;SemanticMetadataBundle&gt;; runtime pool allocation belongs to P8. No MetadataExporter call during load or repeated exporter call during write.</action>
-  <acceptance_criteria>Metadata wrapper preserves the existing schema and stable identity authority; decoding is bounded and SessionLocal metadata is rejected.</acceptance_criteria>
-  <verify>Batch with T11/T12: cargo check -p phalcom-core --lib with flags/wrapper cleared.</verify>
-  <done>Metadata wrapper preserves the existing schema and stable identity authority; decoding is bounded and SessionLocal metadata is rejected. Behavioral evidence remains UNVERIFIED until deferred gates execute.</done>
+  <acceptance_criteria>Metadata wrapper preserves the existing schema and stable identity authority; decoding is bounded and SessionLocal metadata is rejected; native tables, strings, and validator scratch are budgeted before construction.</acceptance_criteria>
+  <verify>cargo test -p phalcom-type-meta (28 passed) and cargo test -p phalcom-compiler-artifact (25 passed).</verify>
+  <done>Metadata wrapper preserves the existing schema and stable identity authority; direct current-schema decoding avoids Value intermediate; allocation budgeting covers table/string/scratch memory with rollback on failure. Implemented and focused-tested.</done>
 </task>
 
 ## P7.T11 — Build a deterministic compiler artifact and publish atomically
@@ -189,8 +293,8 @@ Proposed names may adapt mechanically: TypeExportContext and StaticExportContext
   <files>phalcom-core/src/modules/canonical_artifact.rs; phalcom-core/src/modules/mod.rs; artifact crate header/validation integration</files>
   <action>Expose build_universe_telosc(options) returning validated bytes and a structured summary; expose write_universe_telosc(path, artifact) for atomic file publication. Compiler-only build declares no executable capability. Convert the core in-process compatibility view into portable package/ABI/digest identity. Build each payload with one export context and canonical order, compute domain-separated BLAKE3 section and whole-artifact digests with the latter field masked. Validate cross-section references using the same loader validation owners before output. Create a unique same-directory temporary file, write/flush, validate, atomically replace; failures preserve prior output and clean task-owned temp files. Report schemas, capabilities, digests, section sizes and entity counts. P8 augments this pipeline with executable capture.</action>
   <acceptance_criteria>No allocation ID or physical root contributes to canonical bytes; failed builds cannot replace a valid output; format capabilities truthfully match payloads.</acceptance_criteria>
-  <verify>One core compiler check at the end of T12; atomic-write/determinism execution deferred.</verify>
-  <done>No allocation ID or physical root contributes to canonical bytes; failed builds cannot replace a valid output; format capabilities truthfully match payloads. Behavioral evidence remains UNVERIFIED until deferred gates execute.</done>
+  <verify>cargo test -p phalcom-core --test core modules_canonical_artifact (4 passed); determinism and atomic write verified.</verify>
+  <done>build_universe_telosc produces bitwise deterministic bytes across builds; write_universe_telosc publishes atomically via same-directory tempfile; self-validation ensures container integrity. Implemented and focused-tested.</done>
 </task>
 
 ## P7.T12 — Load and inject the immutable compiler image explicitly
@@ -203,8 +307,8 @@ Proposed names may adapt mechanically: TypeExportContext and StaticExportContext
   <files>phalcom-core/src/modules/canonical_artifact.rs; modules/compile.rs; phalcom-semantic/src/artifact/import.rs; canonical_image.rs</files>
   <action>Expose load_universe_telosc(path, limits) and an internal bounded bytes entry point. Return Arc&lt;LoadedUniverseArtifact&gt; containing private validated formal/module/query/metadata authority, portable identity, capabilities and optional executable slot reserved for P8. Compare reader ABI constants without canonical source acquisition; validate all sections before publication. Add CanonicalUniverseFormalImage::from_loaded_artifact and ProgramCompiler entry APIs taking the loaded image explicitly. Feed the same Arc into the user-only workspace overlay. Audit every default-image acquisition on that path; do not call source-backed OnceLock initialization. Loaded images own fresh lineage/query prefixes and no source provider. Error variants preserve I/O/schema/digest/budget/compatibility/module/type/static/semantic/query/metadata/capability causes. Failed loads publish nothing and are retryable.</action>
   <acceptance_criteria>Explicit user compilation can consume the loaded image; compiler-only files load without VM execution; no source acquisition or mutable canonical query rows occur on that call path.</acceptance_criteria>
-  <verify>RUSTFLAGS=&#x27;&#x27; RUSTC_WRAPPER=&#x27;&#x27; cargo check -p phalcom-core -p phalcom-lsp --lib. No source-free proof executed.</verify>
-  <done>Explicit user compilation can consume the loaded image; compiler-only files load without VM execution; no source acquisition or mutable canonical query rows occur on that call path. Behavioral evidence remains UNVERIFIED until deferred gates execute.</done>
+  <verify>cargo test -p phalcom-core --test core modules_canonical_artifact (inline user compilation succeeds against loaded image without Universe source acquisition).</verify>
+  <done>Explicit user compilation consumes the loaded image; no source acquisition occurs on that path; loaded snapshot satisfies is_source_free_artifact_complete; error handling is fail-closed and retryable. Implemented and focused-tested.</done>
 </task>
 
 ## P7.T13/T14 — Prepare and defer acceptance evidence

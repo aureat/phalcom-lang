@@ -1,9 +1,25 @@
+## Current entry point — correction work checkpointed 2026-10-14
+
+Stop requested by user to preserve progress. Full Wave 4 remains PARTIAL / UNVERIFIED. Read the [current handoff](PERF003.C2.P7-handoff.md) carefully before any further implementation; it supersedes historical routes/claims below. Latest library checks and 28 type-meta tests pass; artifact metadata has one unresolved fixed-cutoff assertion failure. R1/R7 native allocation coverage, R3/R4 primary semantics, R5 typed queries and full parity/source-denied/determinism proof remain open. No new subagents; reuse the existing adviser only for mandatory consultation. No commit/push.
+
 # PERF003.C2.P7 implementation continuation guide
 
 Date: 2026-10-14.
 
 Status at capture: `IN_PROGRESS`; completion: `PARTIAL`; verification:
 `UNVERIFIED`.
+
+Current takeover correction (2026-10-14, HEAD `64a9b65e`): read the
+[Wave 4 prerequisite incident](PERF003.C2.P7-wave4-prerequisite-incident.md)
+and latest CHECKPOINT.md entry before following historical next-action lists.
+The handoff's Wave 2/3 completeness premise is disproved by the live tree. The
+user-approved Level 2 amendment reopening primary/query/metadata authority is
+recorded in the remaining execution plan. The T10 content/schema correction is
+implemented and focused-tested; shared native decoder/validator allocation
+accounting remains open. This agent stops here at the user's explicit request;
+read the current T10 takeover section in the handoff for the narrow resume route.
+Rigorous testing supersedes every compiler-only/no-tests restriction below.
+No new subagents; the same adviser may be reused for mandatory consultation.
 
 This is an implementation guide, not a lifecycle state authority. The shared
 [`CHECKPOINT.md`](../CHECKPOINT.md) remains authoritative for checkpoint state,

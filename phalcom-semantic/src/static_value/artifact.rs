@@ -19,7 +19,7 @@ use crate::static_value::store::{
 use crate::types::store::artifact::{TypeExportContext, TypeRelocation};
 use num_bigint::BigInt;
 use phalcom_compiler_artifact::semantic::static_value::*;
-use phalcom_compiler_artifact::semantic::type_store::FieldKeyV1;
+use phalcom_compiler_artifact::semantic::type_store::{FieldKeyV1, CanonicalTypeRootKey};
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
 use phalcom_type_meta::identity::{StableDeclarationRef, StableVariantRef};
 use std::collections::{BTreeMap, BTreeSet};
@@ -57,7 +57,7 @@ impl StaticRelocation {
 pub struct StaticExportContext {
     store_id: StaticValueStoreId,
     closed: bool,
-    roots: BTreeSet<StaticValueRef>,
+    roots: BTreeMap<CanonicalTypeRootKey, StaticValueRef>,
     value_ids: BTreeMap<StaticValueId, ArtifactStaticValueId>,
     string_ids: BTreeMap<StaticStringId, ArtifactStaticStringId>,
     symbol_ids: BTreeMap<StaticSymbolId, ArtifactStaticSymbolId>,
@@ -85,7 +85,7 @@ impl StaticExportContext {
         Self {
             store_id: store.id(),
             closed: false,
-            roots: BTreeSet::new(),
+            roots: BTreeMap::new(),
             value_ids: BTreeMap::new(),
             string_ids: BTreeMap::new(),
             symbol_ids: BTreeMap::new(),
@@ -120,14 +120,48 @@ impl StaticExportContext {
         Ok(())
     }
 
-    pub fn register_root(&mut self, reference: StaticValueRef) -> Result<(), ArtifactError> {
+    pub fn register_root(&mut self, key: CanonicalTypeRootKey, reference: StaticValueRef) -> Result<(), ArtifactError> {
         if self.store_id != reference.store_id() {
             return Err(referential("registered static root belongs to foreign store lineage"));
         }
         if self.closed {
             return Err(referential("static export graph is already closed"));
         }
-        self.roots.insert(reference);
+        if self.roots.get(&key).is_some_and(|previous| *previous != reference) {
+            return Err(referential("conflicting stable static root"));
+        }
+        self.roots.insert(key, reference);
+        Ok(())
+    }
+
+    /// Register result and embedded type references from reachable static values
+    /// before the shared type graph closes.
+    pub fn register_type_roots(&self, store: &StaticValueStore, types: &mut TypeExportContext, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+        self.verify_store(store)?;
+        fn visit(store: &StaticValueStore, value: StaticValueRef, key: &CanonicalTypeRootKey, ordinal: &mut u32,
+            types: &mut TypeExportContext, active: &mut BTreeSet<StaticValueId>, depth: usize, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+            if depth > limits.max_recursion_depth || !active.insert(value.value_id()) { return Err(referential("cyclic or too deep static root")); }
+            let data=store.values_arena().get(value.value_id().raw() as usize).ok_or_else(|| referential("unknown static root"))?;
+            let mut children=Vec::new();
+            let ty=match data {
+                StaticValueData::Type(ty)|StaticValueData::StaticTerm(ty)=>Some(*ty),
+                StaticValueData::Tuple(id)=>{children.extend(store.tuples_arena().get(id.raw() as usize).ok_or_else(||referential("unknown tuple"))?.iter().copied());None},
+                StaticValueData::Sequence(id)=>{let s=store.sequences_arena().get(id.raw() as usize).ok_or_else(||referential("unknown sequence"))?;children.extend(s.elements().iter().copied());Some(s.result_type())},
+                StaticValueData::Record(id)=>{children.extend(store.records_arena().get(id.raw() as usize).ok_or_else(||referential("unknown record"))?.iter().map(|f|f.value));None},
+                StaticValueData::Data(id)=>{let d=store.data_values_arena().get(id.raw() as usize).ok_or_else(||referential("unknown data"))?;children.extend(d.components.iter().map(|(_,v)|*v));Some(d.result_type)},
+                StaticValueData::Variant(id)=>{let v=store.variant_values_arena().get(id.raw() as usize).ok_or_else(||referential("unknown variant"))?;children.extend(v.fields.iter().map(|(_,v)|*v));Some(v.result_type)},
+                StaticValueData::Pack(id)=>{let p=store.packs_arena().get(id.raw() as usize).ok_or_else(||referential("unknown pack"))?;let backing=store.pack_backings_arena().get(p.backing.raw() as usize).ok_or_else(||referential("unknown pack backing"))?;children.extend(backing.positionals.iter().copied());children.extend(backing.labeled_values.iter().copied());None},
+                StaticValueData::Unit|StaticValueData::Bool(_)|StaticValueData::Char(_)|StaticValueData::Int(_)|StaticValueData::Float(_)|StaticValueData::String(_)|StaticValueData::Symbol(_)=>None,
+            };
+            if let Some(ty)=ty {let mut key=key.clone();key.family_tag=phalcom_compiler_artifact::semantic::type_store::CanonicalRootFamilyTag::StaticValue;key.product_subkey=*ordinal;
+                *ordinal=ordinal.checked_add(1).ok_or_else(||referential("static type root ordinal overflow"))?;
+                types.register_type_root(types.expected_lineage(),key,ty)?;
+            }
+            for child in children {visit(store,child,key,ordinal,types,active,depth+1,limits)?;}
+            active.remove(&value.value_id());Ok(())
+        }
+        let mut ordinals=BTreeMap::new();
+        for (key,&value) in &self.roots {let ordinal=ordinals.entry(key.owner.clone()).or_insert(0);visit(store,value,key,ordinal,types,&mut BTreeSet::new(),0,limits)?;}
         Ok(())
     }
 
@@ -141,13 +175,7 @@ impl StaticExportContext {
         if self.closed {
             return Err(referential("static export graph is already closed"));
         }
-        let roots: Vec<StaticValueId> = if self.roots.is_empty() {
-            (0..store.values_arena().len())
-                .map(|idx| StaticValueId::from_raw(idx as u32))
-                .collect()
-        } else {
-            self.roots.iter().map(|r| r.value_id()).collect()
-        };
+        let roots: Vec<StaticValueId> = self.roots.values().map(|r| r.value_id()).collect();
 
         struct Walker<'a> {
             store: &'a StaticValueStore,

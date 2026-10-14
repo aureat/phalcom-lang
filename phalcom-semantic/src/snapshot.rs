@@ -169,7 +169,7 @@ pub struct SemanticSnapshot {
     /// directly and must not reconstruct acceptance from source locations.
     pub callable_definitions: Arc<crate::parent_map::ParentMap<crate::identity::CallableId, EffectiveCallableDefinition>>,
     /// Derived lookup index; definition values remain owned by `callable_definitions`.
-    callable_definitions_by_module: Arc<BTreeMap<ModuleId, Box<[crate::identity::CallableId]>>>,
+    pub callable_definitions_by_module: Arc<BTreeMap<ModuleId, Box<[crate::identity::CallableId]>>>,
     /// Explicit conformance heads published for this exact semantic snapshot.
     /// The index contains source-head matches only, never witness evidence.
     pub conformance_index: Arc<ConformanceIndex>,
@@ -762,6 +762,61 @@ impl SemanticSnapshot {
             .into_iter()
             .flat_map(|callables| callables.iter())
             .filter_map(|callable| self.callable_definitions.get(callable).map(|definition| (callable, definition)))
+    }
+
+    /// Returns the derived module-to-callable-definitions index (`P7.T8`).
+    pub fn callable_definitions_by_module(&self) -> &Arc<BTreeMap<ModuleId, Box<[crate::identity::CallableId]>>> {
+        &self.callable_definitions_by_module
+    }
+
+    /// Checks structural completeness for a source-free loaded artifact snapshot (`P7.T7.B/T8`).
+    pub fn is_source_free_artifact_complete(&self) -> bool {
+        self.status.is_complete() && self.has_source_free_artifact_contents()
+    }
+
+    /// Checks required source-free artifact families without asserting that
+    /// the snapshot has already been promoted to `Complete`.
+    pub fn has_source_free_artifact_contents(&self) -> bool {
+        let has_callable_body_facts = self.callable_analyses.values().any(|analysis| {
+            !analysis.expressions.is_empty()
+                || !analysis.bindings.is_empty()
+                || !analysis.associated_resolutions.is_empty()
+                || !analysis.callable_reference_resolutions.is_empty()
+                || !analysis.family_applications.is_empty()
+                || !analysis.match_resolutions.is_empty()
+                || !analysis.pattern_site_resolutions.is_empty()
+        });
+        self.sources.is_empty()
+            && self.presentation_sources.is_empty()
+            && !self.callable_analyses.is_empty()
+            && has_callable_body_facts
+            && !self.callable_signatures.is_empty()
+            && !self.callable_definitions.is_empty()
+            && self.constructor_initializations.len() > 0
+            && !self.field_signatures.is_empty()
+            && self.trait_surfaces.iter().next().is_some()
+            && self.trait_headers.iter().next().is_some()
+            && self.declarations.iter().next().is_some()
+            && !self.hierarchy.superclasses.is_empty()
+            && !self.dispatch.surfaces().is_empty()
+            && !self.data_semantics.data_decls.is_empty()
+            && !self.enum_semantics.enums.is_empty()
+            && !self.enum_requirements.requirements.is_empty()
+            && self.type_aliases.iter().next().is_some()
+            && self.conformance_index.iter().next().is_some()
+            && !self.conformance_witness_plans.is_empty()
+            && !self.derived_conformance_rules.is_empty()
+            && !self.trait_dispatch_index.is_empty()
+            && self.associated_surfaces.surfaces.iter().next().is_some()
+            && self.type_member_declarations.iter().next().is_some()
+            && !self.associated_static_domains.is_empty()
+            && !self.static_case_catalogs.is_empty()
+            && !self.static_case_signatures.is_empty()
+            && self.static_definitions.iter().next().is_some()
+            && !self.static_constants.is_empty()
+            && self.module_static_bindings.iter().next().is_some()
+            && !self.module_products.unlinked.is_empty()
+            && !self.module_products.linked.is_empty()
     }
 
     /// Returns source semantic products published with this snapshot.

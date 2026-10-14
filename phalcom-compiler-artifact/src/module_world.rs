@@ -60,6 +60,15 @@ primitive!(u16, write_u16, read_u16);
 primitive!(u32, write_u32, read_u32);
 primitive!(u64, write_u64, read_u64);
 primitive!(bool, write_bool, read_bool);
+impl Wire for [u8; 32] {
+    fn write(&self, out: &mut BinaryWriter) -> Result<(), ArtifactError> {
+        out.write_fixed(self);
+        Ok(())
+    }
+    fn read(input: &mut Decode<'_>) -> Result<Self, ArtifactError> {
+        Ok(input.reader.read_fixed::<32>()?)
+    }
+}
 impl Wire for ArtifactModuleId {
     fn write(&self, out: &mut BinaryWriter) -> Result<(), ArtifactError> {
         self.0.write(out)
@@ -78,7 +87,10 @@ impl Wire for String {
     fn read(input: &mut Decode<'_>) -> Result<Self, ArtifactError> {
         let text = input.reader.read_str(input.limits.max_string_bytes)?;
         input.allocate(text.len() as u64)?;
-        Ok(text.to_owned())
+        let mut owned = String::new();
+        owned.try_reserve_exact(text.len()).map_err(|_| invalid("module payload string allocation failed"))?;
+        owned.push_str(text);
+        Ok(owned)
     }
 }
 impl<T: Wire> Wire for Vec<T> {
@@ -132,7 +144,11 @@ impl<T: Wire> Wire for Box<T> {
         self.as_ref().write(out)
     }
     fn read(input: &mut Decode<'_>) -> Result<Self, ArtifactError> {
-        T::read(input).map(Box::new)
+        let allocation_size = u64::try_from(std::alloc::Layout::new::<T>().size())
+            .map_err(|_| ArtifactError::LimitExceeded("module payload box layout overflow".into()))?;
+        input.allocate(allocation_size)?;
+        let value = T::read(input)?;
+        Box::try_new(value).map_err(|_| invalid("module payload box allocation failed"))
     }
 }
 macro_rules! record {
@@ -256,14 +272,11 @@ impl ModuleWorldV1 {
         self.write(&mut out)?;
         Ok(out.into_vec())
     }
-    pub fn decode(bytes: &[u8], limits: &ValidationLimits) -> Result<Self, ArtifactError> {
-        if bytes.len() as u64 > limits.max_decoded_section_bytes {
-            return Err(invalid("module section exceeds decoded byte limit"));
-        }
+    pub fn decode_with_budget(bytes: &[u8], limits: &ValidationLimits, remaining_budget: &mut u64) -> Result<Self, ArtifactError> {
         let mut input = Decode {
             reader: BinaryReader::new(bytes),
             limits: *limits,
-            allocations_left: limits.max_decoded_section_bytes,
+            allocations_left: *remaining_budget,
             items_left: limits.max_semantic_entries_per_family,
             depth: 0,
         };
@@ -277,7 +290,12 @@ impl ModuleWorldV1 {
         if world.modules.len() > limits.max_modules {
             return Err(invalid("module count exceeds limit"));
         }
+        *remaining_budget = input.allocations_left;
         Ok(world)
+    }
+    pub fn decode(bytes: &[u8], limits: &ValidationLimits) -> Result<Self, ArtifactError> {
+        let mut budget = limits.max_decoded_section_bytes;
+        Self::decode_with_budget(bytes, limits, &mut budget)
     }
 }
 

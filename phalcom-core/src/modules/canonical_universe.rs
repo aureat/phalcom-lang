@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// The product may be shared between VMs because it contains no heap handles,
 /// runtime classes, closures, chunks, or mutable runtime registries.
 #[derive(Clone, Debug)]
-pub(crate) struct CanonicalUniverseProgram {
+pub struct CanonicalUniverseProgram {
     /// VM-independent linked and lowered module program.
     program: Arc<CompiledProgram>,
     /// Semantic-owned immutable formal image.
@@ -117,7 +117,7 @@ impl CanonicalUniverseProgram {
 
 /// Failure while deriving the process-shared canonical compiler product.
 #[derive(Debug, Error)]
-pub(crate) enum CanonicalUniverseBuildError {
+pub enum CanonicalUniverseBuildError {
     /// Canonical source discovery or parsing failed.
     #[error("canonical Universe source index failed: {0}")]
     SourceIndex(String),
@@ -185,7 +185,7 @@ pub(crate) static CANONICAL_SEMANTIC_ANALYSES: AtomicUsize = AtomicUsize::new(0)
 pub(crate) static CANONICAL_PROGRAM_PROJECTIONS: AtomicUsize = AtomicUsize::new(0);
 
 /// Returns the one immutable canonical Universe compiler product for this process.
-pub(crate) fn canonical_universe_program() -> Result<&'static CanonicalUniverseProgram, &'static CanonicalUniverseBuildError> {
+pub fn canonical_universe_program() -> Result<&'static CanonicalUniverseProgram, &'static CanonicalUniverseBuildError> {
     #[cfg(feature = "perf-observability")]
     if CANONICAL_UNIVERSE_PROGRAM.get().is_some() {
         crate::perf_counter!(telos_observability::PerfCounter::CanonicalUniverseCacheHits, 1);

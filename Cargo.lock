@@ -1153,6 +1153,7 @@ dependencies = [
  "blake3",
  "phalcom-type-meta",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 
@@ -1173,6 +1174,7 @@ dependencies = [
  "num-traits",
  "phalcom-ast",
  "phalcom-common",
+ "phalcom-compiler-artifact",
  "phalcom-diagnostics",
  "phalcom-modules",
  "phalcom-native-macros",
@@ -1306,6 +1308,8 @@ dependencies = [
  "phalcom-native-meta",
  "phalcom-native-surface",
  "phalcom-type-meta",
+ "serde",
+ "serde_json",
  "telos-observability",
  "tempfile",
  "thiserror",
@@ -1326,9 +1330,19 @@ name = "phalcom-type-meta"
 version = "0.1.0"
 dependencies = [
  "num-bigint",
+ "phalcom-type-meta-derive",
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "phalcom-type-meta-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
 ]
 
 [[package]]

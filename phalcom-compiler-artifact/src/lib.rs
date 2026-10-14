@@ -1,5 +1,7 @@
 //! `.telosc` persisted semantic compiler image artifact container and codec.
 
+#![feature(allocator_api)]
+
 pub mod codec;
 pub mod container;
 pub mod digest;
@@ -7,7 +9,9 @@ pub mod error;
 pub mod header;
 pub mod identity;
 pub mod limits;
+pub mod metadata;
 pub mod module_world;
+pub mod query;
 pub mod section;
 pub mod semantic;
 

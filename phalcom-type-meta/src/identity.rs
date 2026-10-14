@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// Stable project reference.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub enum StableProjectRef {
     Builtin {
         namespace: Box<str>,
@@ -26,6 +27,7 @@ pub enum StableProjectRef {
 
 /// Stable module reference within a project.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct StableModuleRef {
     pub project: StableProjectRef,
     pub path: Box<[Box<str>]>,
@@ -33,6 +35,7 @@ pub struct StableModuleRef {
 
 /// Stable declaration reference.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct StableDeclarationRef {
     pub module: StableModuleRef,
     pub path: Box<[Box<str>]>,
@@ -40,6 +43,7 @@ pub struct StableDeclarationRef {
 
 /// Stable dispatch side (instance or class).
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub enum StableDispatchSide {
     Instance,
     Class,
@@ -47,6 +51,7 @@ pub enum StableDispatchSide {
 
 /// Stable exact-case owner, retaining the canonical encoded case selector.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct StableVariantRef {
     pub owner: StableDeclarationRef,
     pub selector: Box<str>,
@@ -54,6 +59,7 @@ pub struct StableVariantRef {
 
 /// Source ownership of a callable, independent of exact specialization evidence.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub enum StableCallableOwnerRef {
     Declaration(StableDeclarationRef),
     Variant(StableVariantRef),
@@ -103,6 +109,7 @@ impl StableCallableOwnerRef {
 
 /// Stable callable reference.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct StableCallableRef {
     pub owner: StableCallableOwnerRef,
     pub side: StableDispatchSide,
@@ -111,6 +118,7 @@ pub struct StableCallableRef {
 
 /// Stable field reference.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct StableFieldRef {
     pub owner: StableDeclarationRef,
     pub side: StableDispatchSide,
@@ -119,6 +127,7 @@ pub struct StableFieldRef {
 
 /// Stable source type-member declaration identity.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct StableTypeMemberRef {
     pub owner: StableDeclarationRef,
     pub selector: Box<str>,
@@ -127,6 +136,7 @@ pub struct StableTypeMemberRef {
 /// Stable associated static-domain declaration identity, independent of owner
 /// specialization and implementation-fragment location.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct StableAssociatedStaticDomainDeclarationRef {
     pub owner: StableDeclarationRef,
     pub name: Box<str>,
@@ -135,6 +145,7 @@ pub struct StableAssociatedStaticDomainDeclarationRef {
 /// Stable identity of a declared static domain, independent of any concrete
 /// associated-owner specialization.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub enum StableStaticDomainDeclarationRef {
     Nominal(StableDeclarationRef),
     Associated(StableAssociatedStaticDomainDeclarationRef),
@@ -142,6 +153,7 @@ pub enum StableStaticDomainDeclarationRef {
 
 /// Stable impl reference.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct StableImplRef {
     pub module: StableModuleRef,
     pub local_id: u32,
@@ -149,6 +161,7 @@ pub struct StableImplRef {
 
 /// Stable source span reference.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[derive(phalcom_type_meta_derive::BudgetDecode)]
 pub struct SourceSpanRef {
     pub start: u32,
     pub end: u32,

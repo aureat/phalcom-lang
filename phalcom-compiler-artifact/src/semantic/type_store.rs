@@ -46,6 +46,7 @@ pub enum CanonicalRootFamilyTag {
     StaticDefAndBinding = 13,
     CallableAnalysis = 14,
     SelectedQueryRoot = 15,
+    StaticValue = 16,
 }
 
 impl Wire for CanonicalRootFamilyTag {
@@ -70,6 +71,7 @@ impl Wire for CanonicalRootFamilyTag {
             13 => Ok(Self::StaticDefAndBinding),
             14 => Ok(Self::CallableAnalysis),
             15 => Ok(Self::SelectedQueryRoot),
+            16 => Ok(Self::StaticValue),
             _ => Err(invalid("invalid CanonicalRootFamilyTag")),
         }
     }
@@ -421,9 +423,18 @@ impl TypeGraphV1 {
         if input.reader.has_remaining() {
             return Err(invalid("trailing type graph bytes"));
         }
-        if graph.kinds.len() > limits.max_kind_nodes || graph.scoped.len() > limits.max_type_nodes || graph.lambdas.len() > limits.max_type_nodes {
+        graph.validate(limits)?;
+        Ok(graph)
+    }
+    pub fn validate(&self, limits: &ValidationLimits) -> Result<(), ArtifactError> {
+        if self.kinds.len() > limits.max_kind_nodes
+            || self.scoped.len() > limits.max_type_nodes
+            || self.lambdas.len() > limits.max_type_nodes
+            || self.types.len() > limits.max_type_nodes
+            || self.parameters.len() > limits.max_parameters
+        {
             return Err(invalid("type graph node budget exceeded"));
         }
-        Ok(graph)
+        Ok(())
     }
 }
