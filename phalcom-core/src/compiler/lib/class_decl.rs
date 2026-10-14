@@ -26,10 +26,7 @@ use super::{Compiler, UnitKind};
 /// `attribute-classes.md` §"What the compiler lowers"). `@On` is *not* in
 /// this set: it names an ordinary `Attribute` subclass instance (retained via
 /// `__attach` like any other) even though its own expansion is also a
-/// compiler-side no-op (see `compiler::attributes::OnExpander`). `@variant`
-/// never reaches this set at all — it is stripped from `class.members`
-/// entirely by `compiler::attributes::expand_variants` before this point, so
-/// it can never appear in `class_level_attrs`.
+/// compiler-side no-op (see `compiler::attributes::OnExpander`).
 const COMPILER_ONLY_ATTRS: &[&str] = &[
     "requires",
     "ensures",
@@ -116,7 +113,6 @@ fn validate_rest_usage(member: &ClassMember) -> Result<(), CompilerError> {
         | ClassMember::Setter(_)
         | ClassMember::Delegation(_)
         | ClassMember::Field(_)
-        | ClassMember::Variant(_)
         | ClassMember::TypeMember(_) => {}
     }
     Ok(())
@@ -309,7 +305,6 @@ impl<'vm> Compiler<'vm> {
             compile_mode: self.vm.compile_mode,
             strip_metadata,
             class_parents: &self.vm.class_parents,
-            sealed_classes: &self.vm.sealed_classes,
             module: self.module,
             universe_module,
             privileged_universe: is_privileged,
@@ -320,17 +315,8 @@ impl<'vm> Compiler<'vm> {
             constructor_products_by_range: Default::default(),
         };
         let registry = AttributeRegistry::new();
-        // DEC-ANNOT-G (U-ANNOT-LAYOUT §3.4): `expand_class_attributes`
-        // returns `(ClassDef, Vec<Statement>)`, not a bare `ClassDef` — the
-        // second element is every sibling top-level `Statement::Class` a
-        // `@variant` arm inside `class_def`'s body expanded into (empty for
-        // every class with no `@variant` arms). Compiled recursively at the
-        // very end of this function, once `class_def` itself is fully
-        // defined (`sibling_classes`'s own doc there explains why: each
-        // sibling `extends` this class by name, so its own `Bytecode::Class`
-        // resolves that name via `GetGlobal`, which requires this class's
-        // `DefineGlobal` to have already run).
-        let (mut class_def, sibling_classes, mut constructor_projections) = expand_class_attributes(class_def, &mut ctx, &registry, is_attribute_class)?;
+        let (mut class_def, mut constructor_projections) =
+            expand_class_attributes(class_def, &mut ctx, &registry, is_attribute_class)?;
         drop(ctx);
         // Native source members are declaration anchors for the descriptor
         // installer, not bytecode bodies. Their implementation kind is the
@@ -342,7 +328,7 @@ impl<'vm> Compiler<'vm> {
             ClassMember::Setter(setter) => setter.implementation != ImplementationKind::Native,
             ClassMember::Index(index) => index.implementation != ImplementationKind::Native,
             ClassMember::TypeMember(_) => false,
-            ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) => true,
+            ClassMember::Field(_) | ClassMember::Delegation(_) => true,
         });
         for projection in &mut constructor_projections {
             projection.factory_member = class_def
@@ -383,7 +369,6 @@ impl<'vm> Compiler<'vm> {
                 | ClassMember::Setter(_)
                 | ClassMember::Delegation(_)
                 | ClassMember::Field(_)
-                | ClassMember::Variant(_)
                 | ClassMember::TypeMember(_) => {}
             }
         }
@@ -401,9 +386,9 @@ impl<'vm> Compiler<'vm> {
         // - Duplicate field declarations -> `class.duplicate_field`
         // - Same-side canonical selector collisions -> `class.duplicate_selector`
         //
-        // Runs over `class_def.members` post-expansion before any member compiles,
+        // Runs over `class_def.members` after attribute expansion and before
+        // any member compiles,
         // using the member's encoded selector identity (`encode_selector`/`SignatureKind`).
-        // `Variant` never appears here (`expand_variants` already stripped it).
         {
             #[derive(PartialEq, Eq, Hash)]
             enum MemberKey {
@@ -467,7 +452,6 @@ impl<'vm> Compiler<'vm> {
                         let sel = encode_selector("", &labels, kind);
                         (MemberKey::Selector(false, sel.clone()), sel, idx.name_range)
                     }
-                    ClassMember::Variant(_) => continue,
                     ClassMember::Delegation(_) => continue,
                     ClassMember::TypeMember(_) => continue,
                 };
@@ -1170,11 +1154,6 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
                 ClassMember::Field(_) => {}
-                // Unreachable in practice — `expand_class_attributes`
-                // (`compiler::attributes::expand_variants`) always strips
-                // every `Variant` member before returning; kept for match
-                // exhaustiveness over `ClassMember`'s full variant set.
-                ClassMember::Variant(_) => {}
                 ClassMember::Delegation(delegation) => {
                     let setters = match delegation.kind {
                         DelegatedAccessorKind::Getter => [false, false],
@@ -1324,21 +1303,6 @@ impl<'vm> Compiler<'vm> {
         // above where its own superclass is resolved.
         if class_level_attrs.iter().any(|a| a.name == "sealed") {
             self.vm.sealed_classes.insert(name_key, self.module);
-        }
-
-        // DEC-ANNOT-G: compile every `@variant`-generated sibling class now,
-        // immediately after this class's own `DefineGlobal` — each sibling
-        // `extends` this class by name, so its `Bytecode::Class` opcode's
-        // `GetGlobal` superclass lookup requires this class to already be a
-        // defined global, which it now is. A recursive `compile_class` call
-        // reuses this exact function for the sibling (including its own
-        // `@data` expansion, `@sealed` bookkeeping, and any further sibling
-        // splicing, though `@variant` classes never themselves carry nested
-        // `@variant` arms in Draft 0.1).
-        for sibling in sibling_classes {
-            if let Statement::Class(sibling_def) = sibling {
-                self.compile_class_impl(sibling_def, true)?;
-            }
         }
 
         Ok(())

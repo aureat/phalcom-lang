@@ -380,6 +380,17 @@ impl ModuleDiagnostic {
                 range: SourceRange::default(),
                 message: format!("module {} is absent from the link universe", module),
             },
+            error @ (LinkError::InvalidImportSlot { .. }
+            | LinkError::UncoveredRuntimeRead { .. }
+            | LinkError::RuntimeReadTargetMismatch { .. }) => {
+                let module = error.module().cloned().unwrap_or_else(ModuleId::universe_root);
+                Self {
+                    module,
+                    kind: ModuleDiagnosticKind::InterfaceError(error.to_string()),
+                    range: SourceRange::default(),
+                    message: error.to_string(),
+                }
+            }
             LinkError::CyclicReExport { module, name } => Self {
                 module: module.clone(),
                 kind: ModuleDiagnosticKind::CyclicReExport { name: name.clone() },

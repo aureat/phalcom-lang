@@ -1,0 +1,6 @@
+[project]
+name = "uuid"
+namespace = "uuid"
+version = "0.1.0"
+source = "src"
+entry = "uuid.main"

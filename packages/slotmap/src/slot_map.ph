@@ -19,10 +19,8 @@ impl<Tag> SlotKey<Tag> {
 }
 
 data SlotState<T> {
-  @variant
   Occupied(_ value: T)
 
-  @variant
   Vacant(_ next: Option<Int>)
 }
 

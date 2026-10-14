@@ -385,8 +385,8 @@ trait StatusReport {
 }
 
 data Status {
-  @variant Active
-  @variant Inactive
+  Active
+  Inactive
 }
 
 impl StatusReport for Status::Active {

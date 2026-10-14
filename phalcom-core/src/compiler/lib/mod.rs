@@ -49,7 +49,7 @@ use crate::error::PhResult;
 use crate::heap::ClosureObject;
 use crate::heap::{ObjRef, Object};
 use crate::interner::Symbol;
-use crate::modules::CompileBindings;
+use crate::modules::{BindingRef, CompileBindings};
 use crate::value::Value;
 use crate::vm::{ClassKey, VM};
 use phalcom_ast::ast::{BindingKind, ClosureParameters, Expr, MethodCallExpr, Pattern, Program, Statement};
@@ -291,6 +291,28 @@ impl<'vm> Compiler<'vm> {
         ClassKey { module: self.module, name }
     }
 
+    /// Maps a VM-local binding to its canonical linker target.
+    pub(crate) fn linked_read_target(&self, binding: BindingRef) -> Option<phalcom_modules::LinkedReadSpec> {
+        let owner = self.vm.heap.module(binding.module);
+        let name = owner
+            .name_to_slot
+            .iter()
+            .find_map(|(name, slot)| (*slot == usize::from(binding.slot)).then_some(*name))?;
+        Some(phalcom_modules::LinkedReadSpec::Binding(phalcom_modules::SymbolId {
+            module: owner.id.clone(),
+            name: self.vm.resolve_symbol(name).to_owned().into_boxed_str(),
+        }))
+    }
+
+    /// Resolves a canonical runtime read through the immutable finalized
+    /// namespace, if this compiler was seeded from an executable link.
+    pub(crate) fn finalized_linked_read(&self, target: &phalcom_modules::LinkedReadSpec) -> Option<phalcom_modules::ImportBindingId> {
+        self.linked_bindings
+            .as_ref()
+            .filter(|bindings| bindings.is_finalized())
+            .and_then(|bindings| bindings.runtime_binding(target))
+    }
+
     /// Emits a read for a bare class/global name using its canonical linked
     /// prelude slot when one was materialized for this compilation unit.
     pub(crate) fn emit_global_reference(&mut self, name: Symbol, range: SourceRange) -> Result<(), CompilerError> {
@@ -300,13 +322,23 @@ impl<'vm> Compiler<'vm> {
         } else if let Some(binding) = self.linked_binding(name) {
             self.emit(Bytecode::GetLinked(binding.0 as u16), range);
         } else if let Some(binding) = self.vm.canonical_universe_binding(name) {
-            let index = self.vm.heap.module(self.module).linked_reads.len();
-            self.vm
-                .heap
-                .module_mut(self.module)
-                .linked_reads
-                .push(crate::modules::RuntimeLinkedRead::Binding(binding));
-            self.emit(Bytecode::GetLinked(u16::try_from(index).unwrap_or(u16::MAX)), range);
+            if self.linked_bindings.as_ref().is_some_and(CompileBindings::is_finalized) {
+                let target = self
+                    .linked_read_target(binding)
+                    .ok_or_else(|| CompilerError::Message(format!("finalized runtime read target for `{}` is missing", self.vm.resolve_symbol(name))))?;
+                let slot = self
+                    .finalized_linked_read(&target)
+                    .ok_or_else(|| CompilerError::Message(format!("finalized executable link has no runtime read for `{}`", self.vm.resolve_symbol(name))))?;
+                self.emit(Bytecode::GetLinked(slot.0 as u16), range);
+            } else {
+                let index = self.vm.heap.module(self.module).linked_reads.len();
+                self.vm
+                    .heap
+                    .module_mut(self.module)
+                    .linked_reads
+                    .push(crate::modules::RuntimeLinkedRead::Binding(binding));
+                self.emit(Bytecode::GetLinked(u16::try_from(index).unwrap_or(u16::MAX)), range);
+            }
         } else {
             let name_idx = self.add_constant(crate::value::Value::symbol(name), range)?;
             self.emit(Bytecode::GetGlobal(name_idx), range);
@@ -684,20 +716,10 @@ impl<'vm> Compiler<'vm> {
     /// Predeclare known globals in the compilation unit before member lowering.
     ///
     /// Inventories direct top-level declarations (class names, pattern bindings,
-    /// and linked import bindings) as well as generated sibling class names from
-    /// direct `@variant` definitions (`ClassMember::Variant`), so that references
-    /// to sibling variants from within enclosing class member bodies resolve as
-    /// global names rather than falling back to implicit self-sends.
-    /// Note: compile-time name visibility is established here, while runtime sibling
-    /// class definition remains sequenced after the enclosing class definition.
+    /// and linked import bindings) before member lowering.
     fn predeclare_known_globals(&mut self, program: &Program) {
         fn collect_class_global_names(class: &phalcom_ast::ast::ClassDef, out: &mut Vec<String>) {
             out.push(class.name.clone());
-            for member in &class.members {
-                if let phalcom_ast::ast::ClassMember::Variant(variant) = member {
-                    out.push(variant.name.clone());
-                }
-            }
         }
 
         fn collect_pattern(pattern: &phalcom_ast::ast::Pattern, out: &mut Vec<String>) {

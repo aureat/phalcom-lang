@@ -8,11 +8,6 @@
 // half (a cross-unit subclass) is NOT reachable for a user class — see
 // `decorators_sealed_cross_unit_needs_isolation.ph` for why.
 //
-// Before DEFERRED CB-3 this file's `@variant` sibling would have been fine but
-// the equivalent inside a *bootstrap*-sealed class raised a false
-// `@variant requires @sealed`; the gate now reads the attribute list OR
-// `VM::sealed_classes`.
-
 @sealed class Shape {}
 class Square is Shape { area { 4 }
 }

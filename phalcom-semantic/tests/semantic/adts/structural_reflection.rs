@@ -54,20 +54,20 @@ fn sum_reflection_is_ordered_shallow_and_specializes_variant_fields() {
     let case = super::support::analyze_adt(
         r#"
 data Result<T, E> {
-    @variant Ok(_ value: T) -> Result<T, E>
-    @variant Err(_ error: E) -> Result<T, E>
+    Ok(_ value: T) -> Result<T, E>
+    Err(_ error: E) -> Result<T, E>
 }
 data Node {
-    @variant Next(_ child: Node) -> Node
+    Next(_ child: Node) -> Node
 }
 data Family {
-    @variant Same
-    @variant Same()
-    @variant Same(_ value: Int)
+    Same
+    Same()
+    Same(_ value: Int)
 }
 data Expr<T> {
-    @variant Int(_ value: Int) -> Expr<Int>
-    @variant Bool(_ value: Bool) -> Expr<Bool>
+    Int(_ value: Int) -> Expr<Int>
+    Bool(_ value: Bool) -> Expr<Bool>
 }
 "#,
     );

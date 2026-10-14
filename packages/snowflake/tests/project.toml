@@ -1,0 +1,9 @@
+[project]
+name = "snowflake-tests"
+namespace = "snowflake_tests"
+version = "0.0.0"
+source = "src"
+entry = "snowflake_tests.main"
+
+[dependencies]
+snowflake = { path = ".." }

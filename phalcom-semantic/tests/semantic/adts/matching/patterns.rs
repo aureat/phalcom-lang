@@ -13,8 +13,8 @@ fn test_module() -> ModuleId {
 fn resolve_exact_and_labeled_variant_patterns() {
     let source = r#"
 data Result<T, E> {
-    @variant Ok(_ value: T) -> Result<T, E>
-    @variant Error(_ code: Int, reason: E) -> Result<T, E>
+    Ok(_ value: T) -> Result<T, E>
+    Error(_ code: Int, reason: E) -> Result<T, E>
 }
 
 class Test {
@@ -37,10 +37,10 @@ class Test {
 fn resolve_family_and_gap_patterns() {
     let source = r#"
 data Animal {
-    @variant Dog(_ name: String) -> Animal
-    @variant Dog(_ name: String, age: Int) -> Animal
-    @variant Dog(_ name: String, age: Int, breed: String) -> Animal
-    @variant Cat -> Animal
+    Dog(_ name: String) -> Animal
+    Dog(_ name: String, age: Int) -> Animal
+    Dog(_ name: String, age: Int, breed: String) -> Animal
+    Cat -> Animal
 }
 
 class Test {
@@ -62,7 +62,7 @@ class Test {
 #[test]
 fn match_pat_01_wildcard_payload_publishes_no_binding() {
     let case = analyze_adt(
-        "data Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\nclass Test { run(_ value: Option<Int>) { match value { Option::Some(_) => 1 _ => 0 } } }\n",
+        "data Option<T> { Some(_ value: T) -> Option<T> None -> Option<T> }\nclass Test { run(_ value: Option<Int>) { match value { Option::Some(_) => 1 _ => 0 } } }\n",
     );
     assert!(case.only_match().arm(0).resolution().bindings.is_empty());
 }
@@ -70,7 +70,7 @@ fn match_pat_01_wildcard_payload_publishes_no_binding() {
 #[test]
 fn match_pat_02_nested_adt_resolution_is_recursive() {
     let case = analyze_adt(
-        "data Result<T, E> { @variant Ok(_ value: T) -> Result<T, E> @variant Error(_ value: E) -> Result<T, E> }\ndata Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\nclass Test { run(_ value: Option<Result<Int, String>>) { match value { Some(Ok(x)) => x _ => 0 } } }\n",
+        "data Result<T, E> { Ok(_ value: T) -> Result<T, E> Error(_ value: E) -> Result<T, E> }\ndata Option<T> { Some(_ value: T) -> Option<T> None -> Option<T> }\nclass Test { run(_ value: Option<Result<Int, String>>) { match value { Some(Ok(x)) => x _ => 0 } } }\n",
     );
     let handle = case.only_match();
     let arm = handle.arm(0);
@@ -86,7 +86,7 @@ fn match_pat_02_nested_adt_resolution_is_recursive() {
 #[test]
 fn match_pat_03_tuple_pattern_is_published_as_recursive_product() {
     let case = analyze_adt(
-        "data Color { @variant Red @variant Green }\nclass Test { run(_ value: (Color, Color)) { match value { (Color::Red, Color::Green) => 1 _ => 0 } } }\n",
+        "data Color { Red Green }\nclass Test { run(_ value: (Color, Color)) { match value { (Color::Red, Color::Green) => 1 _ => 0 } } }\n",
     );
     let handle = case.only_match();
     assert!(matches!(
@@ -98,7 +98,7 @@ fn match_pat_03_tuple_pattern_is_published_as_recursive_product() {
 #[test]
 fn match_pat_04_adt_payload_tuple_keeps_child_pattern() {
     let case = analyze_adt(
-        "data Pair { @variant Pair(_ values: (Int, String)) }\nclass Test { run(_ value: Pair) { match value { Pair::Pair((x, y)) => x _ => 0 } } }\n",
+        "data Pair { Pair(_ values: (Int, String)) }\nclass Test { run(_ value: Pair) { match value { Pair::Pair((x, y)) => x _ => 0 } } }\n",
     );
     let handle = case.only_match();
     assert_eq!(handle.arm(0).resolution().bindings.len(), 2);
@@ -107,7 +107,7 @@ fn match_pat_04_adt_payload_tuple_keeps_child_pattern() {
 #[test]
 fn match_pat_05_nested_or_pattern_remains_one_resolved_or_node() {
     let case = analyze_adt(
-        "data Result { @variant Ok(_ value: Int) @variant Cached(_ value: Int) @variant Error }\ndata Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\nclass Test { run(_ value: Option<Result>) { match value { Some(Ok(x) | Cached(x)) => x _ => 0 } } }\n",
+        "data Result { Ok(_ value: Int) Cached(_ value: Int) Error }\ndata Option<T> { Some(_ value: T) -> Option<T> None -> Option<T> }\nclass Test { run(_ value: Option<Result>) { match value { Some(Ok(x) | Cached(x)) => x _ => 0 } } }\n",
     );
     let handle = case.only_match();
     let arm = handle.arm(0);
@@ -123,7 +123,7 @@ fn match_pat_05_nested_or_pattern_remains_one_resolved_or_node() {
 #[test]
 fn match_pat_06_family_pattern_joins_candidate_specific_field_projections() {
     let case = analyze_adt(
-        "data Animal { @variant Dog(_ name: String) @variant Dog(_ name: String, age: Int) }\nclass Test { run(_ value: Animal) { match value { Dog(name, ...) => name _ => \"unknown\" } } }\n",
+        "data Animal { Dog(_ name: String) Dog(_ name: String, age: Int) }\nclass Test { run(_ value: Animal) { match value { Dog(name, ...) => name _ => \"unknown\" } } }\n",
     );
     let handle = case.only_match();
     let arm = handle.arm(0);
@@ -136,12 +136,12 @@ fn match_pat_08_r1_t03_selector_gap_suffix_position() {
     use phalcom_semantic::match_semantics::PatternResolution;
     let case = analyze_adt(
         r#"
-data Left { @variant A }
-data Middle { @variant M }
-data Right { @variant B @variant Other }
+data Left { A }
+data Middle { M }
+data Right { B Other }
 
 data E {
-    @variant V(_ first: Left, _ middle: Middle, last: Right)
+    V(_ first: Left, _ middle: Middle, last: Right)
 }
 
 class Test {
@@ -176,8 +176,8 @@ fn match_pat_09_r1_t04_candidate_specific_family_layouts() {
     let case = analyze_adt(
         r#"
 data Animal {
-    @variant Dog(_ name: String)
-    @variant Dog(_ name: String, _ breed: String, age: Int)
+    Dog(_ name: String)
+    Dog(_ name: String, _ breed: String, age: Int)
 }
 
 class Test {

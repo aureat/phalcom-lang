@@ -12,8 +12,8 @@ fn explicit_generic_enum_owner_specializes_direct_and_family_resolution() {
     let source: Arc<str> = Arc::from(
         r#"
 data Option<T> {
-  @variant Some(_ value: T)
-  @variant None
+  Some(_ value: T)
+  None
 }
 class Probe {
   @class direct() { Option<Int>::Some(42) }

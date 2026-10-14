@@ -9,8 +9,8 @@ use phalcom_semantic::tooling::GeneratedMatchPlan;
 fn test_vertical_gadt_architecture_proof() {
     let source = r#"
 data Expr<T> {
-    @variant Int(_ value: Int) -> Expr<Int>
-    @variant Bool(_ value: Bool) -> Expr<Bool>
+    Int(_ value: Int) -> Expr<Int>
+    Bool(_ value: Bool) -> Expr<Bool>
 }
 
 class Evaluator {

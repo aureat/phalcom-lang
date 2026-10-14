@@ -341,6 +341,15 @@ impl<'vm> Compiler<'vm> {
             return Ok(());
         }
 
+        let target = phalcom_modules::LinkedReadSpec::Binding(phalcom_modules::SymbolId {
+            module: declaration.module.clone(),
+            name: declaration.name.clone(),
+        });
+        if let Some(binding) = self.finalized_linked_read(&target) {
+            self.emit(Bytecode::GetLinked(binding.0 as u16), range);
+            return Ok(());
+        }
+
         if let Some(bindings) = self.linked_bindings.as_ref() {
             if let Some(import) = bindings.imports.values().find(|import| {
                 import
@@ -362,6 +371,13 @@ impl<'vm> Compiler<'vm> {
                 self.emit_invoke(0, index, range, InvocationAuthority::Ordinary)?;
                 return Ok(());
             }
+        }
+
+        if self.linked_bindings.as_ref().is_some_and(crate::modules::CompileBindings::is_finalized) {
+            return Err(CompilerError::Message(format!(
+                "finalized executable link has no runtime read for class `{}` from `{}`",
+                declaration.name, declaration.module
+            )));
         }
 
         let symbol = self.vm.interner.intern(&declaration.name);
@@ -457,8 +473,8 @@ impl<'vm> Compiler<'vm> {
         source: Expr,
         spec: std::sync::Arc<crate::modules::semantic_lowering::ContextualRealizationLoweringSpec>,
     ) -> Result<(), CompilerError> {
-        use phalcom_semantic::checker::analysis::{RealizationCoefficientSource, RealizationEvaluationPlan};
         use crate::modules::semantic_lowering::ContextualRealizationOperationLowering;
+        use phalcom_semantic::checker::analysis::{RealizationCoefficientSource, RealizationEvaluationPlan};
 
         let range = spec.source_range;
         self.emit_contextual_class_receiver(&spec.target_receiver, range)?;
@@ -3015,5 +3031,59 @@ fn bilateral_operator_spec(op: &BinaryOp) -> (&'static str, &'static str, &'stat
         BinaryOp::BitXor => ("^", "^", "^", false),
         BinaryOp::Compare => ("<=>", "compare", "compare", true),
         _ => unreachable!("non-bilateral operator passed to bilateral_operator_spec"),
+    }
+}
+
+#[cfg(test)]
+mod finalized_runtime_read_tests {
+    use super::Compiler;
+    use crate::compiler::lib::{ProductOptimizationMode, UnitKind};
+    use crate::modules::CompileBindings;
+    use crate::vm::VM;
+    use phalcom_ast::parser::parse;
+    use phalcom_modules::{
+        ExecutableLinkedProgram, InterfaceBuilder, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse, ResolvedProjectId,
+    };
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    #[test]
+    fn finalized_declaration_reference_fails_closed_without_appending_a_read() {
+        let importer = ModuleId::resolved(
+            ResolvedProjectId::from_raw(24),
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("importer").expect("valid module component")]),
+        );
+        let program = parse("let result = 0\n", 0).program;
+        let interface = InterfaceBuilder::build(importer.clone(), ModuleKind::Module, &program).expect("module interface");
+        let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), BTreeMap::from([(importer.clone(), interface)]));
+        let linked = linker.link(importer.clone(), &BTreeMap::new()).expect("conservative linked program");
+        let executable = ExecutableLinkedProgram::from_conservative_link(linked).expect("validated executable link");
+        let bindings = CompileBindings::from_executable_linked_program(&executable, &importer).expect("finalized compiler namespace");
+
+        let mut vm = VM::new_kernel();
+        let module = vm.create_module_with_id(importer, ModuleKind::Module, "importer", "<test>");
+        let declaration = phalcom_modules::DeclarationId::new(
+            ModuleId::resolved(
+                ResolvedProjectId::from_raw(25),
+                ModulePath::from_components(vec![ModuleComponent::from_identifier("owner").expect("valid module component")]),
+            ),
+            "ExternalClass".into(),
+        );
+        let mut compiler = Compiler::new_with_bindings_and_mode(&mut vm, module, 0, UnitKind::File, Some(bindings), ProductOptimizationMode::Enabled);
+
+        let error = compiler
+            .emit_declaration_class_reference(&declaration, Default::default())
+            .expect_err("a missing declaration read must fail closed");
+        assert!(
+            error
+                .to_string()
+                .contains("finalized executable link has no runtime read for class `ExternalClass`"),
+            "unexpected compiler error: {error}"
+        );
+        drop(compiler);
+        assert!(
+            vm.heap.module(module).linked_reads.is_empty(),
+            "failed declaration lookup must not append a late read"
+        );
     }
 }

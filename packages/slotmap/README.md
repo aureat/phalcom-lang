@@ -166,9 +166,9 @@ slotmap/
 ## Verification status
 
 The package is written against the current Phalcom/Telos repository conventions
-observed on `main`: `project.toml`, `.ph` modules, `src/package.ph`, `@variant`
-data constructors, `@constructor call`, `List` indexed mutation, and canonical
-`Iterable` / `Iterator` conformances.
+observed on `main`: `project.toml`, `.ph` modules, `src/package.ph`, bare data
+cases, `@constructor call`, `List` indexed mutation, and canonical `Iterable` /
+`Iterator` conformances.
 
 The execution environment used to produce this archive does not contain a local
 Phalcom compiler checkout/binary, so the archive has not been compiler-executed

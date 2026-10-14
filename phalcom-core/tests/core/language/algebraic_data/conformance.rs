@@ -19,8 +19,8 @@ fn run_inline(source: &str) -> Result<(VM, phalcom_core::heap::ObjRef), PhError>
 fn generic_constructor_keeps_runtime_identity_and_payload_without_type_proof() {
     let source = r#"
 data Option<T> {
-  @variant Some(_ value: T)
-  @variant None
+  Some(_ value: T)
+  None
 }
 
 let some = Option<Int>::Some(42)
@@ -42,8 +42,8 @@ let some = Option<Int>::Some(42)
 fn gadt_result_type_is_erased_from_runtime_case_representation() {
     let source = r#"
 data Expr<T> {
-  @variant IntLit(_ value: Int) -> Expr<Int>
-  @variant BoolLit(_ value: Bool) -> Expr<Bool>
+  IntLit(_ value: Int) -> Expr<Int>
+  BoolLit(_ value: Bool) -> Expr<Bool>
 }
 
 let expr = Expr<Int>::IntLit(42)

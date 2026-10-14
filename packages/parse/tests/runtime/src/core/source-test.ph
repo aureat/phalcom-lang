@@ -38,13 +38,10 @@ Testing.Test.expect(cursor.current == Some(105), "cursor current reads the byte"
 
 // ListSource over a token stream.
 data Token {
-  @variant
   Integer(_ value: Int)
 
-  @variant
   Word(_ text: String)
 
-  @variant
   Comma
 }
 

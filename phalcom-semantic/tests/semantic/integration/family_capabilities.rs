@@ -12,7 +12,7 @@ fn stored_family_capture_preserves_its_denotation_through_local_flow() {
     let source: Arc<str> = Arc::from(
         r#"
 data State {
-  @variant Ready
+  Ready
 }
 class Probe {
   @class run() {

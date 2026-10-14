@@ -1,9 +1,7 @@
 data Either<L, R> {
 
-    @variant
     Left(_ value: L)
 
-    @variant
     Right(_ value: R)
 
     isLeft -> Bool {

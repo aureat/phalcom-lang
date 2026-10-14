@@ -15,31 +15,26 @@ from .base import (
 // const expr2 = z + w
 // System.print(z.toRepr)
 
-@sealed @data
-class Ordering {
-  @variant Less()
-  @variant Equal()
-  @variant Greater()
-  @variant Unordered(type1:, type2:)
+data Ordering {
+  Less
+  Equal
+  Greater
+  Unordered(_ type1: Object, _ type2: Object)
+}
 
-  @private
-  @constructor
-  create(_ kind) {
-    _kind = kind
-  }
-
-  @class less { Less.new() }
-  @class equal { Equal.new() }
-  @class greater { Greater.new() }
-  @class unordered(_ type1, _ type2) { Unordered.new(type1: type1, type2: type2) }
+impl Ordering {
+  @class less { Ordering::Less }
+  @class equal { Ordering::Equal }
+  @class greater { Ordering::Greater }
+  @class unordered(_ type1: Object, _ type2: Object) { Ordering::Unordered(type1, type2) }
 
   reverse {
-    if (self == Ordering.less) {
-      return Ordering.greater
+    if (self == Ordering::Less) {
+      return Ordering::Greater
     }
 
-    if (self == Ordering.greater) {
-      return Ordering.less
+    if (self == Ordering::Greater) {
+      return Ordering::Less
     }
 
     self

@@ -13,10 +13,8 @@ data DimensionTerm(
 /// rather than a mutable `List`. Dimension operations rebuild only the path
 /// they change and may share untouched tails.
 data DimensionTerms {
-  @variant
   Empty
 
-  @variant
   Cons(
     _ term: DimensionTerm,
     _ rest: DimensionTerms

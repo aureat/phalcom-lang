@@ -14,9 +14,9 @@ fn captured_variant_family_preserves_exact_authorized_member_shapes() {
     let source: Arc<str> = Arc::from(
         r#"
 data Weird {
-  @variant Marker
-  @variant Marker()
-  @variant Marker(_ value: Int)
+  Marker
+  Marker()
+  Marker(_ value: Int)
 }
 class Probe {
   @class run() { &Weird::Marker... }

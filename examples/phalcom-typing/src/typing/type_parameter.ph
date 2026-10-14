@@ -56,7 +56,7 @@ class TypeParameter is Descriptors.TypeDescriptor || {
       name: name,
       owner: owner,
       index: index,
-      variance: Variances.Variance.Invariant,
+      variance: Variances.Variance::Invariant,
       bound: None,
       constraints: const []
     )

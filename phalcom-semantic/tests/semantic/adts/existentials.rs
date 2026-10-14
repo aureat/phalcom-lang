@@ -12,7 +12,7 @@ fn direct_escape_source(branch: &str, return_type: &str) -> String {
     format!(
         r#"
 data Expr<T> {{
-  @variant Pack<U>(_ value: U) -> Expr<U> where U <: Object
+  Pack<U>(_ value: U) -> Expr<U> where U <: Object
 }}
 
 class Eval {{
@@ -44,7 +44,7 @@ fn outer_assignment_rejects_local_existential_value() {
     let fixture = Fixture::new(
         r#"
 data Expr<T> {
-  @variant Pack<U>(_ value: U) -> Expr<U> where U <: Object
+  Pack<U>(_ value: U) -> Expr<U> where U <: Object
 }
 
 class Eval {
@@ -66,7 +66,7 @@ fn incompatible_call_argument_rejects_local_existential_value() {
     let fixture = Fixture::new(
         r#"
 data Expr<T> {
-  @variant Pack<U>(_ value: U) -> Expr<U> where U <: Object
+  Pack<U>(_ value: U) -> Expr<U> where U <: Object
 }
 
 class Sink {
@@ -98,7 +98,7 @@ fn closure_capture_cannot_package_local_existential() {
     let fixture = Fixture::new(
         r#"
 data Expr<T> {
-  @variant Pack<U>(_ value: U) -> Expr<U> where U <: Object
+  Pack<U>(_ value: U) -> Expr<U> where U <: Object
 }
 
 class Eval {
@@ -119,7 +119,7 @@ fn exact_case_elimination_reopens_hidden_locals_without_changing_canonical_case(
     let fixture = Fixture::new(
         r#"
 data Expr<T> {
-  @variant Pack<U>(_ value: U) -> Expr<U> where U <: Object
+  Pack<U>(_ value: U) -> Expr<U> where U <: Object
 }
 
 class Eval {

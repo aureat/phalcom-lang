@@ -2,7 +2,7 @@
 
 use crate::heap::ObjRef;
 use crate::interner::Symbol;
-use phalcom_modules::{ImportBindingId, LinkedModule, LinkedReadSpec, SymbolId};
+use phalcom_modules::{ExecutableLinkedProgram, ImportBindingId, LinkedModule, LinkedReadSpec, ModuleId, SymbolId};
 use std::collections::BTreeMap;
 
 /// Runtime reference to one mutable module global slot.
@@ -81,8 +81,12 @@ pub struct CompileBindings {
     pub entries: BTreeMap<Box<str>, TopLevelBindingInfo>,
     /// Detailed imported reads.
     pub imports: BTreeMap<Box<str>, LinkedImportInfo>,
-    /// Canonical prelude reads appended to the module's runtime linked-read table.
+    /// Compiler-visible prelude names mapped to runtime linked-read slots.
     pub prelude: BTreeMap<Box<str>, ImportBindingId>,
+    /// Canonical read targets allocated by executable finalization.
+    runtime_reads: BTreeMap<LinkedReadSpec, ImportBindingId>,
+    /// Whether this namespace is backed by an immutable executable link.
+    finalized: bool,
 }
 
 impl CompileBindings {
@@ -116,17 +120,41 @@ impl CompileBindings {
                 LinkedImportInfo {
                     local_name: name.clone(),
                     binding,
-                    target,
+                    target: target.clone(),
                     symbol,
                 },
             );
+            bindings.runtime_reads.entry(target).or_insert(binding);
         }
         bindings
+    }
+
+    /// Constructs a finalized compiler namespace with every canonical runtime
+    /// read mapped to the immutable slot allocated by the executable linker.
+    pub fn from_executable_linked_program(program: &ExecutableLinkedProgram, module: &ModuleId) -> Option<Self> {
+        let linked_module = program.modules.get(module)?;
+        let mut bindings = Self::from_linked_module(linked_module);
+        bindings.finalized = true;
+        for (target, slot) in program.runtime_reads_for(module) {
+            bindings.runtime_reads.insert(target.clone(), slot);
+        }
+        Some(bindings)
     }
 
     /// Returns an immutable linked import by local name.
     pub fn import(&self, name: &str) -> Option<&LinkedImportInfo> {
         self.imports.get(name)
+    }
+
+    /// Returns the finalized or legacy slot for a canonical runtime target.
+    pub fn runtime_binding(&self, target: &LinkedReadSpec) -> Option<ImportBindingId> {
+        self.runtime_reads.get(target).copied()
+    }
+
+    /// Whether this namespace must use finalized slots and fail closed on
+    /// missing runtime reads.
+    pub fn is_finalized(&self) -> bool {
+        self.finalized
     }
 
     /// Adds one compiler-visible canonical prelude read.

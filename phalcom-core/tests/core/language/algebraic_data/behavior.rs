@@ -19,8 +19,8 @@ fn run_inline(source: &str) -> Result<(VM, phalcom_core::heap::ObjRef), PhError>
 fn enum_root_and_hidden_case_classes_have_descriptor_backed_hierarchy() {
     let source = r#"
 data Shape {
-  @variant None
-  @variant Pair(_ left: Int, _ right: Int)
+  None
+  Pair(_ left: Int, _ right: Int)
 }
 
 let none = Shape::None
@@ -80,7 +80,7 @@ let pair = Shape::Pair(1, 2)
 fn enum_root_direct_instantiation_remains_rejected() {
     let source = r#"
 data Status {
-  @variant Pending
+  Pending
 }
 
 let invalid = Status.new()

@@ -8517,6 +8517,8 @@ impl SemanticWorkspaceSession {
                     semantic_linked,
                     &input.sources,
                     &snapshot_obj.callable_analyses,
+                    Some(snapshot_obj.store.as_ref()),
+                    Some(&snapshot_obj.static_constants),
                     is_complete,
                 );
             snapshot_obj.import_phase_products = Arc::new(import_phase_products);
@@ -11641,7 +11643,7 @@ fn advisory_callable_member<'a>(declaration: &DeclarationId, member: &'a ClassMe
                 index.range,
             ))
         }
-        ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => None,
+        ClassMember::Field(_) | ClassMember::Delegation(_) | ClassMember::TypeMember(_) => None,
     }
 }
 

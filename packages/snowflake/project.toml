@@ -1,0 +1,6 @@
+[project]
+name = "snowflake"
+namespace = "snowflake"
+version = "0.1.0"
+source = "src"
+entry = "snowflake.main"

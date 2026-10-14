@@ -3,7 +3,7 @@
 // status: PASS
 // Regression guard: an ordinary class with zero declared `FieldDef`s (fields
 // wholly inferred by first-assignment scan, the pre-U-ANNOT-LAYOUT path) and
-// no `@data`/`@sealed`/`@variant` attribute anywhere is byte-for-byte
+// no declaration-product attribute anywhere is byte-for-byte
 // unaffected by this unit's changes.
 
 class Counter {

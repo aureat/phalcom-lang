@@ -6,8 +6,8 @@ fn recursive_binary_adt_outer_patterns_terminate_and_are_exhaustive() {
     let case = analyze_adt(
         r#"
 data Tree<T> {
-    @variant Leaf(_ value: T) -> Tree<T>
-    @variant Node(_ left: Tree<T>, _ right: Tree<T>) -> Tree<T>
+    Leaf(_ value: T) -> Tree<T>
+    Node(_ left: Tree<T>, _ right: Tree<T>) -> Tree<T>
 }
 
 class Eval {
@@ -31,8 +31,8 @@ fn indexed_recursive_apply_outer_match() {
     let case = analyze_adt(
         r#"
 data Expr<T> {
-    @variant IntLit(_ value: Int) -> Expr<Int>
-    @variant Apply<A, B>(
+    IntLit(_ value: Int) -> Expr<Int>
+    Apply<A, B>(
         _ function: Expr<(A) -> B>,
         _ argument: Expr<A>
     ) -> Expr<B>
@@ -59,8 +59,8 @@ fn explicit_nested_recursive_pattern_requires_only_source_depth() {
     let case = analyze_adt(
         r#"
 data Tree<T> {
-    @variant Leaf(_ value: T) -> Tree<T>
-    @variant Node(_ left: Tree<T>, _ right: Tree<T>) -> Tree<T>
+    Leaf(_ value: T) -> Tree<T>
+    Node(_ left: Tree<T>, _ right: Tree<T>) -> Tree<T>
 }
 
 class Eval {
@@ -86,7 +86,7 @@ fn recursive_uninhabited_family_is_vacuously_exhaustive() {
     let case = analyze_adt(
         r#"
 data Loop {
-    @variant Next(_ next: Loop) -> Loop
+    Next(_ next: Loop) -> Loop
 }
 
 class Check {
@@ -104,8 +104,8 @@ fn recursive_family_with_base_constructor_is_inhabited() {
     let case = analyze_adt(
         r#"
 data Tree {
-    @variant Leaf -> Tree
-    @variant Next(_ next: Tree) -> Tree
+    Leaf -> Tree
+    Next(_ next: Tree) -> Tree
 }
 
 class Check {

@@ -1,0 +1,1 @@
+`@variant` is retired for class declarations; declare cases inside a `data` declaration

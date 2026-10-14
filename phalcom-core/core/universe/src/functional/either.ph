@@ -1,7 +1,7 @@
 //! A neutral choice between two payload types; neither side denotes an error.
 data Either<L, R> {
-  @variant Left(_ value: L)
-  @variant Right(_ value: R)
+  Left(_ value: L)
+  Right(_ value: R)
 }
 impl<L, R> Either<L, R> {
   fold<T>(left: (L) -> T, right: (R) -> T) -> T {

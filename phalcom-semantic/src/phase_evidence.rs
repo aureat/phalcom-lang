@@ -7,16 +7,18 @@
 
 use crate::checker::analysis::CallableAnalysis;
 use crate::identity::{CallableId, ModuleId};
+use crate::prelude::PreludeTypeMap;
 use crate::source::ParsedModuleUnit;
+use crate::static_constant::StaticConstantTable;
+use crate::types::store::TypeStore;
 use phalcom_ast::ast::{
-    BehaviorMember, CasePayloadSyntax, ClassMember, GenericArgumentSyntax, GenericConstraintSyntax,
-    Statement, TraitRequirementSyntax, TypeAnnotation, TypeAnnotationExpr, TypeCallableItem,
-    TypeTupleItem, WhereClauseSyntax,
+    AttrKind, Attribute, BehaviorMember, CasePayloadSyntax, ClassMember, Expr, GenericArgumentSyntax, GenericConstraintSyntax, ImplKind, Statement,
+    TraitMember, TraitRequirementSyntax, TypeAnnotation, TypeAnnotationExpr, TypeCallableItem, TypeTupleItem, WhereClauseSyntax,
 };
-use phalcom_modules::graph::{DependencyPhase, ReferenceKind, RuntimeDependencyEdge, RuntimeDependencyReason};
+use phalcom_modules::graph::{DependencyPhase, ReferenceKind, RuntimeDependencyReason};
 use phalcom_modules::identity::SourceImportBindingId;
 use phalcom_modules::linker::{
-    ImportPhaseSummary, ModuleImportPhaseProduct, PhaseEvidenceCoverage, SemanticLinkedProgram,
+    ImportPhaseSummary, LinkedReadSpec, ModuleImportPhaseProduct, PhaseEvidenceCoverage, RuntimeDependencyRequirement, SemanticLinkedProgram, SymbolId,
     SymbolicImportTarget,
 };
 use std::collections::{BTreeMap, HashMap};
@@ -34,7 +36,11 @@ pub fn collect_type_annotation_roots(annotation: &TypeAnnotation, roots: &mut Ve
                 }
             }
         }
-        TypeAnnotationExpr::ExactEnumCase { enum_target, generic_arguments, .. } => {
+        TypeAnnotationExpr::ExactEnumCase {
+            enum_target,
+            generic_arguments,
+            ..
+        } => {
             collect_type_annotation_roots(enum_target, roots);
             for arg in generic_arguments {
                 collect_type_annotation_roots(arg, roots);
@@ -157,18 +163,688 @@ fn collect_behavior_member_roots(behavior: &BehaviorMember, roots: &mut Vec<Stri
     }
 }
 
+fn push_runtime_requirement(
+    importer: &ModuleId,
+    dependency: &ModuleId,
+    range: phalcom_common::range::SourceRange,
+    read_target: Option<LinkedReadSpec>,
+    requirements: &mut Vec<RuntimeDependencyRequirement>,
+) {
+    if importer == dependency {
+        return;
+    }
+    requirements.push(RuntimeDependencyRequirement {
+        importer: importer.clone(),
+        dependency: dependency.clone(),
+        range,
+        reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+        read_target,
+    });
+}
+
+fn push_declaration_read_requirement(
+    importer: &ModuleId,
+    declaration: &crate::identity::DeclarationId,
+    range: phalcom_common::range::SourceRange,
+    requirements: &mut Vec<RuntimeDependencyRequirement>,
+) {
+    push_runtime_requirement(
+        importer,
+        &declaration.module,
+        range,
+        Some(LinkedReadSpec::Binding(SymbolId {
+            module: declaration.module.clone(),
+            name: declaration.name.clone(),
+        })),
+        requirements,
+    );
+}
+
+fn push_import_read_requirement(
+    importer: &ModuleId,
+    target: &SymbolicImportTarget,
+    range: phalcom_common::range::SourceRange,
+    requirements: &mut Vec<RuntimeDependencyRequirement>,
+) {
+    let (dependency, read_target) = match target {
+        SymbolicImportTarget::Module(module) => (module.clone(), LinkedReadSpec::Module(module.clone())),
+        SymbolicImportTarget::Binding(symbol) => (symbol.module.clone(), LinkedReadSpec::Binding(symbol.clone())),
+    };
+    push_runtime_requirement(importer, &dependency, range, Some(read_target), requirements);
+}
+
+fn push_compiler_generated_read_requirement(
+    importer: &ModuleId,
+    name: &str,
+    range: phalcom_common::range::SourceRange,
+    prelude: &PreludeTypeMap,
+    requirements: &mut Vec<RuntimeDependencyRequirement>,
+) -> bool {
+    let declaration = match name {
+        "Error" => prelude.get("Error").cloned(),
+        "ZipLengthMismatchError" => Some(crate::identity::DeclarationId::new(
+            crate::core_surface::identity::universe_module(&["errors", "iteration"]),
+            "ZipLengthMismatchError".into(),
+        )),
+        _ => None,
+    };
+    if let Some(declaration) = declaration {
+        push_declaration_read_requirement(importer, &declaration, range, requirements);
+        true
+    } else {
+        false
+    }
+}
+
+fn push_callable_owner_requirement(
+    importer: &ModuleId,
+    dependency: &ModuleId,
+    range: phalcom_common::range::SourceRange,
+    requirements: &mut Vec<RuntimeDependencyRequirement>,
+) {
+    push_runtime_requirement(importer, dependency, range, None, requirements);
+}
+
+fn add_conformance_type_owner_requirements(
+    importer: &ModuleId,
+    range: phalcom_common::range::SourceRange,
+    evidence: &crate::generic_evidence::GenericConformanceEvidence,
+    type_store: &TypeStore,
+    requirements: &mut Vec<RuntimeDependencyRequirement>,
+) {
+    let bindings = match evidence {
+        crate::generic_evidence::GenericConformanceEvidence::Exact(evidence) => evidence.impl_environment.bindings.values().copied().collect::<Vec<_>>(),
+        crate::generic_evidence::GenericConformanceEvidence::Derived(evidence) => evidence.impl_bindings.bindings().values().copied().collect(),
+        crate::generic_evidence::GenericConformanceEvidence::Assumed(_) | crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(_) => Vec::new(),
+    };
+    for ty in bindings {
+        if let Some(declaration) = type_store.nominal_origin_declaration(ty) {
+            push_callable_owner_requirement(importer, &declaration.module, range, requirements);
+        }
+    }
+}
+
+fn add_pattern_requirements(
+    importer: &ModuleId,
+    range: phalcom_common::range::SourceRange,
+    pattern: &crate::match_semantics::PatternResolution,
+    prelude: &PreludeTypeMap,
+    requirements: &mut Vec<RuntimeDependencyRequirement>,
+    complete: &mut bool,
+) {
+    use crate::match_semantics::PatternResolution;
+
+    match pattern {
+        PatternResolution::Variant(resolved) => {
+            for owner in resolved.owner_candidates.iter() {
+                push_runtime_requirement(importer, &owner.module, range, None, requirements);
+            }
+            for candidate in resolved.candidates.iter() {
+                push_runtime_requirement(importer, &candidate.variant.owner.module, range, None, requirements);
+                for field in candidate.fields.iter() {
+                    add_pattern_requirements(importer, range, &field.child, prelude, requirements, complete);
+                }
+            }
+        }
+        PatternResolution::Or(resolved) => {
+            for alternative in resolved.alternatives.iter() {
+                add_pattern_requirements(importer, range, alternative, prelude, requirements, complete);
+            }
+        }
+        PatternResolution::Tuple(items) => {
+            add_pattern_class_requirement(importer, "Tuple", range, prelude, requirements, complete);
+            add_pattern_class_requirement(importer, "Error", range, prelude, requirements, complete);
+            for item in items.iter() {
+                add_pattern_requirements(importer, range, item, prelude, requirements, complete);
+            }
+        }
+        PatternResolution::List(list) => {
+            add_pattern_class_requirement(importer, "List", range, prelude, requirements, complete);
+            add_pattern_class_requirement(importer, "Error", range, prelude, requirements, complete);
+            for item in list.prefix.iter() {
+                add_pattern_requirements(importer, range, item, prelude, requirements, complete);
+            }
+            if let Some(rest) = list.rest.as_deref() {
+                add_pattern_requirements(importer, range, rest, prelude, requirements, complete);
+            }
+        }
+        PatternResolution::Record(fields) => {
+            add_pattern_class_requirement(importer, "Record", range, prelude, requirements, complete);
+            add_pattern_class_requirement(importer, "Error", range, prelude, requirements, complete);
+            for field in fields.iter() {
+                add_pattern_requirements(importer, range, &field.child, prelude, requirements, complete);
+            }
+        }
+        PatternResolution::Map(entries) => {
+            add_pattern_class_requirement(importer, "Map", range, prelude, requirements, complete);
+            add_pattern_class_requirement(importer, "Error", range, prelude, requirements, complete);
+            for entry in entries.iter() {
+                add_pattern_requirements(importer, range, &entry.child, prelude, requirements, complete);
+            }
+        }
+        PatternResolution::Wildcard | PatternResolution::Char(_) | PatternResolution::Binding { .. } => {}
+    }
+}
+
+fn add_pattern_class_requirement(
+    importer: &ModuleId,
+    name: &str,
+    range: phalcom_common::range::SourceRange,
+    prelude: &PreludeTypeMap,
+    requirements: &mut Vec<RuntimeDependencyRequirement>,
+    complete: &mut bool,
+) {
+    if let Some(declaration) = prelude.get(name) {
+        push_declaration_read_requirement(importer, declaration, range, requirements);
+    } else {
+        *complete = false;
+    }
+}
+
+/// Collects source roots in an executable attribute argument. Attribute
+/// expressions are compiled by core but are not part of callable analysis, so
+/// this syntax walk supplies only canonical prelude read targets; imported
+/// names are still conservatively retained as Runtime below.
+fn collect_attribute_pack_roots(items: &[phalcom_ast::ast::PackItem], roots: &mut Vec<String>, complete: &mut bool) {
+    for item in items {
+        match item {
+            phalcom_ast::ast::PackItem::Positional { expr, .. }
+            | phalcom_ast::ast::PackItem::Labeled { value: expr, .. }
+            | phalcom_ast::ast::PackItem::Expand { expr, .. } => collect_attribute_expr_roots(expr, roots, complete),
+        }
+    }
+}
+
+fn collect_attribute_expr_roots(expression: &Expr, roots: &mut Vec<String>, complete: &mut bool) {
+    use phalcom_ast::ast::{BracketLiteralElement, IfElseBody, MapLiteralKey, MatchArmBody, RecordLiteralEntry, SetLiteralEntry, TupleLiteralEntry};
+
+    match expression {
+        Expr::Var { value, .. } => roots.push(value.clone()),
+        Expr::UnqualifiedCall(call) => {
+            roots.push(call.name.clone());
+            collect_attribute_pack_roots(&call.args, roots, complete);
+        }
+        Expr::TypeForm(annotation) => collect_type_annotation_roots(annotation, roots),
+        Expr::Assignment(assignment) => {
+            collect_attribute_expr_roots(&assignment.name, roots, complete);
+            collect_attribute_expr_roots(&assignment.value, roots, complete);
+        }
+        Expr::Range(range) => {
+            if let Some(lower) = &range.lower {
+                collect_attribute_expr_roots(lower, roots, complete);
+            }
+            if let Some(upper) = &range.upper {
+                collect_attribute_expr_roots(upper, roots, complete);
+            }
+        }
+        Expr::Unary(unary) => collect_attribute_expr_roots(&unary.expr, roots, complete),
+        Expr::Binary(binary) => {
+            collect_attribute_expr_roots(&binary.left, roots, complete);
+            collect_attribute_expr_roots(&binary.right, roots, complete);
+        }
+        Expr::ComparisonChain(chain) => {
+            for operand in &chain.operands {
+                collect_attribute_expr_roots(operand, roots, complete);
+            }
+        }
+        Expr::IfLet(expr) => {
+            *complete = false;
+            collect_pattern_syntax_roots(&expr.pattern, roots);
+            collect_attribute_expr_roots(&expr.value, roots, complete);
+            collect_attribute_block_roots(&expr.then_body.body, roots, complete);
+            if let Some(else_body) = &expr.else_body {
+                collect_attribute_block_roots(&else_body.body, roots, complete);
+            }
+        }
+        Expr::WhileLet(expr) => {
+            *complete = false;
+            collect_pattern_syntax_roots(&expr.pattern, roots);
+            collect_attribute_expr_roots(&expr.value, roots, complete);
+            collect_attribute_block_roots(&expr.body, roots, complete);
+        }
+        Expr::If(expr) => {
+            collect_attribute_expr_roots(&expr.condition, roots, complete);
+            collect_attribute_block_roots(&expr.then_body.body, roots, complete);
+            if let Some(else_body) = &expr.else_body {
+                match else_body {
+                    IfElseBody::Block(block) => collect_attribute_block_roots(&block.body, roots, complete),
+                    IfElseBody::ElseIf(expr) => collect_attribute_expr_roots(expr, roots, complete),
+                }
+            }
+        }
+        Expr::While(expr) => {
+            collect_attribute_expr_roots(&expr.condition, roots, complete);
+            collect_attribute_block_roots(&expr.body.body, roots, complete);
+        }
+        Expr::MethodCall(call) => {
+            collect_attribute_expr_roots(&call.object, roots, complete);
+            collect_attribute_pack_roots(&call.args, roots, complete);
+        }
+        Expr::GetProperty(property) => collect_attribute_expr_roots(&property.object, roots, complete),
+        Expr::SetProperty(property) => {
+            collect_attribute_expr_roots(&property.object, roots, complete);
+            collect_attribute_expr_roots(&property.value, roots, complete);
+        }
+        Expr::Index(index) => {
+            collect_attribute_expr_roots(&index.object, roots, complete);
+            collect_attribute_pack_roots(&index.args, roots, complete);
+        }
+        Expr::SetIndex(index) => {
+            collect_attribute_expr_roots(&index.object, roots, complete);
+            collect_attribute_pack_roots(&index.args, roots, complete);
+            collect_attribute_expr_roots(&index.value, roots, complete);
+        }
+        Expr::Block(block) => {
+            *complete = false;
+            collect_attribute_block_roots(&block.body, roots, complete);
+        }
+        Expr::AssociatedLookup(lookup) => collect_attribute_expr_roots(&lookup.receiver, roots, complete),
+        Expr::AssociatedInvoke(invoke) => {
+            collect_attribute_expr_roots(&invoke.receiver, roots, complete);
+            collect_attribute_pack_roots(&invoke.args, roots, complete);
+        }
+        Expr::CallableReference(reference) => {
+            *complete = false;
+            match &reference.target {
+                phalcom_ast::ast::CallableReferenceTarget::Bound { receiver, .. }
+                | phalcom_ast::ast::CallableReferenceTarget::Associated { receiver, .. }
+                | phalcom_ast::ast::CallableReferenceTarget::PrimaryDataConstructor { receiver, .. } => {
+                    collect_attribute_expr_roots(receiver, roots, complete);
+                }
+            }
+        }
+        Expr::TupleLiteral(tuple) => {
+            for entry in &tuple.entries {
+                match entry {
+                    TupleLiteralEntry::Positional { expr, .. } | TupleLiteralEntry::Expand { expr, .. } => {
+                        collect_attribute_expr_roots(expr, roots, complete);
+                    }
+                    TupleLiteralEntry::Labeled { label, value, .. } => {
+                        if let phalcom_ast::ast::ProductLabel::Computed { expr, .. } = label {
+                            collect_attribute_expr_roots(expr, roots, complete);
+                        }
+                        collect_attribute_expr_roots(value, roots, complete);
+                    }
+                }
+            }
+        }
+        Expr::RecordLiteral(record) => {
+            for entry in &record.entries {
+                match entry {
+                    RecordLiteralEntry::Field(field) => {
+                        if let phalcom_ast::ast::ProductLabel::Computed { expr, .. } = &field.label {
+                            collect_attribute_expr_roots(expr, roots, complete);
+                        }
+                        collect_attribute_expr_roots(&field.value, roots, complete);
+                    }
+                    RecordLiteralEntry::Expansion { expr, .. } => collect_attribute_expr_roots(expr, roots, complete),
+                }
+            }
+        }
+        Expr::RecordConstruction(record) => {
+            roots.push(record.target.root.clone());
+            for annotation in &record.type_arguments {
+                collect_type_annotation_roots(annotation, roots);
+            }
+            for entry in &record.entries {
+                collect_attribute_expr_roots(&entry.value, roots, complete);
+            }
+        }
+        Expr::MapLiteral(map) => {
+            roots.push(map.head.root.clone());
+            if let Some(arguments) = &map.type_arguments {
+                for annotation in arguments {
+                    collect_type_annotation_roots(annotation, roots);
+                }
+            }
+            for entry in &map.entries {
+                match entry {
+                    phalcom_ast::ast::MapLiteralEntry::Association { key, value, .. } => {
+                        if let MapLiteralKey::Computed { expr, .. } = key {
+                            collect_attribute_expr_roots(expr, roots, complete);
+                        }
+                        collect_attribute_expr_roots(value, roots, complete);
+                    }
+                    phalcom_ast::ast::MapLiteralEntry::Expansion { expr, .. } => collect_attribute_expr_roots(expr, roots, complete),
+                }
+            }
+        }
+        Expr::SetLiteral(set) => {
+            roots.push("Set".to_owned());
+            for entry in &set.entries {
+                match entry {
+                    SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => {
+                        collect_attribute_expr_roots(expr, roots, complete);
+                    }
+                }
+            }
+        }
+        Expr::BracketLiteral(list) => {
+            roots.push("List".to_owned());
+            for element in &list.elements {
+                match element {
+                    BracketLiteralElement::Element { expr, .. } | BracketLiteralElement::Expansion { expr, .. } => {
+                        collect_attribute_expr_roots(expr, roots, complete);
+                    }
+                }
+            }
+        }
+        Expr::Membership(expr) => {
+            collect_attribute_expr_roots(&expr.left, roots, complete);
+            collect_attribute_expr_roots(&expr.right, roots, complete);
+        }
+        Expr::IsMembership(expr) => {
+            collect_attribute_expr_roots(&expr.left, roots, complete);
+            collect_attribute_expr_roots(&expr.candidates, roots, complete);
+        }
+        Expr::Match(expr) => {
+            *complete = false;
+            collect_attribute_expr_roots(&expr.value, roots, complete);
+            for arm in &expr.arms {
+                collect_pattern_syntax_roots(&arm.pattern, roots);
+                match &arm.branch {
+                    MatchArmBody::Expression(expr) => collect_attribute_expr_roots(expr, roots, complete),
+                    MatchArmBody::Block(block) => collect_attribute_block_roots(&block.body, roots, complete),
+                }
+            }
+        }
+        Expr::Char { .. }
+        | Expr::Int { .. }
+        | Expr::Float { .. }
+        | Expr::Imaginary { .. }
+        | Expr::String { .. }
+        | Expr::Boolean { .. }
+        | Expr::Field { .. }
+        | Expr::SelfVar { .. }
+        | Expr::SuperVar { .. }
+        | Expr::Symbol(_)
+        | Expr::Ellipsis { .. } => {}
+    }
+}
+
+fn collect_attribute_block_roots(statements: &[Statement], roots: &mut Vec<String>, complete: &mut bool) {
+    for statement in statements {
+        match statement {
+            Statement::Expr { expr, .. } | Statement::Throw { expr, .. } => collect_attribute_expr_roots(expr, roots, complete),
+            Statement::Let(binding) => {
+                collect_pattern_syntax_roots(&binding.pattern, roots);
+                if let Some(annotation) = &binding.annotation {
+                    collect_type_annotation_roots(annotation, roots);
+                }
+                if let Some(value) = &binding.value {
+                    collect_attribute_expr_roots(value, roots, complete);
+                }
+            }
+            Statement::Return(return_stmt) => {
+                if let Some(value) = &return_stmt.value {
+                    collect_attribute_expr_roots(value, roots, complete);
+                }
+            }
+            Statement::For(for_stmt) => {
+                // Core emits these canonical reads while lowering every
+                // executable `for`; strict lockstep zip adds its dedicated
+                // mismatch error class.
+                roots.push("Error".to_owned());
+                if for_stmt.lanes.len() > 1 {
+                    roots.push("ZipLengthMismatchError".to_owned());
+                }
+                for lane in &for_stmt.lanes {
+                    collect_pattern_syntax_roots(&lane.pattern, roots);
+                    collect_attribute_expr_roots(&lane.iter, roots, complete);
+                }
+                collect_attribute_block_roots(&for_stmt.body, roots, complete);
+                *complete = false;
+            }
+            Statement::Break { .. } | Statement::Continue { .. } => {
+                // Materialized-block control may lower to an Error trap. The
+                // current semantic product does not distinguish that case.
+                roots.push("Error".to_owned());
+                *complete = false;
+            }
+            _ => *complete = false,
+        }
+    }
+}
+
+/// Adds implicit runtime class roots emitted by structural pattern lowering.
+fn collect_pattern_syntax_roots(pattern: &phalcom_ast::ast::Pattern, roots: &mut Vec<String>) {
+    use phalcom_ast::ast::Pattern;
+
+    match pattern {
+        Pattern::Tuple { elements, .. } => {
+            roots.extend(["Tuple".to_owned(), "Error".to_owned()]);
+            for element in elements {
+                collect_pattern_syntax_roots(element, roots);
+            }
+        }
+        Pattern::List { elements, rest, .. } => {
+            roots.extend(["List".to_owned(), "Error".to_owned()]);
+            for element in elements {
+                collect_pattern_syntax_roots(element, roots);
+            }
+            if let Some(rest) = rest {
+                collect_pattern_syntax_roots(rest, roots);
+            }
+        }
+        Pattern::Record { entries, rest, .. } => {
+            roots.extend(["Record".to_owned(), "Error".to_owned()]);
+            for entry in entries {
+                collect_pattern_syntax_roots(&entry.pattern, roots);
+            }
+            if let Some(rest) = rest {
+                collect_pattern_syntax_roots(rest, roots);
+            }
+        }
+        Pattern::Map { entries, .. } => {
+            roots.extend(["Map".to_owned(), "Error".to_owned()]);
+            for entry in entries {
+                collect_pattern_syntax_roots(&entry.pattern, roots);
+            }
+        }
+        Pattern::Variant(variant) => {
+            if let phalcom_ast::ast::VariantPatternMode::ExactCall { arguments }
+            | phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix: arguments, .. } = &variant.mode
+            {
+                for argument in arguments {
+                    collect_pattern_syntax_roots(&argument.pattern, roots);
+                }
+            }
+            if let phalcom_ast::ast::VariantPatternMode::CallablePattern { suffix, .. } = &variant.mode {
+                for argument in suffix {
+                    collect_pattern_syntax_roots(&argument.pattern, roots);
+                }
+            }
+        }
+        Pattern::Or { alternatives, .. } => {
+            for alternative in alternatives {
+                collect_pattern_syntax_roots(alternative, roots);
+            }
+        }
+        Pattern::Wildcard { .. } | Pattern::Char { .. } | Pattern::Name { .. } => {}
+    }
+}
+
+/// Adds exact canonical reads for compiler-generated loop/control-flow paths.
+fn add_lowering_runtime_requirements(
+    importer: &ModuleId,
+    parsed: &phalcom_ast::ast::Program,
+    prelude: &PreludeTypeMap,
+    requirements: &mut Vec<RuntimeDependencyRequirement>,
+    module_complete: &mut bool,
+) {
+    use phalcom_ast::ast::{ClassMember, ImplMember, MemberBody, Statement, TraitMember};
+
+    fn collect_body(body: &MemberBody, roots: &mut Vec<(String, phalcom_common::range::SourceRange)>, complete: &mut bool) {
+        if let MemberBody::Block(statements) = body {
+            let mut found_roots = Vec::new();
+            collect_attribute_block_roots(statements, &mut found_roots, complete);
+            for root in found_roots {
+                if root == "Error" || root == "ZipLengthMismatchError" {
+                    roots.push((root, Default::default()));
+                }
+            }
+        }
+    }
+
+    fn collect_statement_roots(statements: &[Statement], roots: &mut Vec<(String, phalcom_common::range::SourceRange)>, complete: &mut bool) {
+        let mut names = Vec::new();
+        collect_attribute_block_roots(statements, &mut names, complete);
+        for name in names {
+            if name == "Error" || name == "ZipLengthMismatchError" {
+                roots.push((name, Default::default()));
+            }
+        }
+    }
+
+    let mut roots = Vec::new();
+    let mut ignored_complete = true;
+    for statement in &parsed.statements {
+        #[allow(deprecated)]
+        match statement {
+            // These declaration forms are traversed below through their
+            // callable bodies. Passing them to the block walker would mark
+            // every module incomplete because declarations are not executable
+            // statements in that context.
+            Statement::Class(_)
+            | Statement::Trait(_)
+            | Statement::Impl(_)
+            | Statement::Data(_)
+            | Statement::TypeDefinition(_)
+            | Statement::TypeAlias(_)
+            | Statement::Export(_) => {}
+            _ => collect_statement_roots(std::slice::from_ref(statement), &mut roots, &mut ignored_complete),
+        }
+    }
+    for statement in &parsed.statements {
+        match statement {
+            Statement::Class(class) => {
+                for member in &class.members {
+                    match member {
+                        ClassMember::Method(method) => collect_body(&method.body, &mut roots, &mut ignored_complete),
+                        ClassMember::Getter(getter) => collect_body(&getter.body, &mut roots, &mut ignored_complete),
+                        ClassMember::Setter(setter) => collect_body(&setter.body, &mut roots, &mut ignored_complete),
+                        ClassMember::Index(index) => collect_body(&index.body, &mut roots, &mut ignored_complete),
+                        ClassMember::Field(field) => {
+                            if let Some(default) = &field.default {
+                                let mut found_roots = Vec::new();
+                                collect_attribute_expr_roots(default, &mut found_roots, &mut ignored_complete);
+                                roots.extend(
+                                    found_roots
+                                        .into_iter()
+                                        .filter(|root| root == "Error" || root == "ZipLengthMismatchError")
+                                        .map(|root| (root, default.range())),
+                                );
+                            }
+                        }
+                        ClassMember::Delegation(_) | ClassMember::TypeMember(_) => {}
+                    }
+                }
+            }
+            Statement::Trait(trait_def) => {
+                for member in &trait_def.members {
+                    if let TraitMember::Behavior(behavior) = member {
+                        match behavior {
+                            phalcom_ast::ast::BehaviorMember::Method(method) => collect_body(&method.body, &mut roots, &mut ignored_complete),
+                            phalcom_ast::ast::BehaviorMember::Getter(getter) => collect_body(&getter.body, &mut roots, &mut ignored_complete),
+                            phalcom_ast::ast::BehaviorMember::Setter(setter) => collect_body(&setter.body, &mut roots, &mut ignored_complete),
+                            phalcom_ast::ast::BehaviorMember::Index(index) => collect_body(&index.body, &mut roots, &mut ignored_complete),
+                        }
+                    }
+                }
+            }
+            Statement::Impl(implementation) => {
+                for member in &implementation.members {
+                    if let ImplMember::Behavior(behavior) = member {
+                        match behavior {
+                            phalcom_ast::ast::BehaviorMember::Method(method) => collect_body(&method.body, &mut roots, &mut ignored_complete),
+                            phalcom_ast::ast::BehaviorMember::Getter(getter) => collect_body(&getter.body, &mut roots, &mut ignored_complete),
+                            phalcom_ast::ast::BehaviorMember::Setter(setter) => collect_body(&setter.body, &mut roots, &mut ignored_complete),
+                            phalcom_ast::ast::BehaviorMember::Index(index) => collect_body(&index.body, &mut roots, &mut ignored_complete),
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for (root, range) in roots {
+        if !push_compiler_generated_read_requirement(importer, &root, range, prelude, requirements) {
+            *module_complete = false;
+        }
+    }
+    // Break/continue lowered through materialized blocks can emit an Error
+    // trap. The semantic product does not currently distinguish that boundary.
+    // We project Error conservatively above and retain incomplete coverage.
+    if !ignored_complete {
+        *module_complete = false;
+    }
+}
+
+fn statement_attributes(statement: &Statement) -> Vec<&Attribute> {
+    let mut attributes = Vec::new();
+    match statement {
+        Statement::Class(class) => {
+            attributes.extend(class.attributes.iter());
+            for associated_type_data in &class.associated_type_data {
+                attributes.extend(associated_type_data.attributes.iter());
+            }
+            for member in &class.members {
+                attributes.extend(member.attributes().iter());
+            }
+        }
+        Statement::Data(data) => {
+            attributes.extend(data.attributes.iter());
+            if let Some(cases) = data.cases() {
+                for case in cases {
+                    attributes.extend(case.attributes.iter());
+                }
+            }
+        }
+        Statement::Trait(trait_def) => {
+            attributes.extend(trait_def.attributes.iter());
+            for member in &trait_def.members {
+                match member {
+                    TraitMember::Behavior(behavior) => attributes.extend(behavior.attributes().iter()),
+                    TraitMember::Property(property) => attributes.extend(property.attributes.iter()),
+                    TraitMember::AssociatedType(associated) => attributes.extend(associated.attributes.iter()),
+                }
+            }
+        }
+        Statement::Impl(impl_def) => {
+            for member in &impl_def.members {
+                if let Some(behavior) = member.behavior() {
+                    attributes.extend(behavior.attributes().iter());
+                }
+                match member {
+                    phalcom_ast::ast::ImplMember::Delegation(delegation) => attributes.extend(delegation.attributes.iter()),
+                    phalcom_ast::ast::ImplMember::AssociatedTypeBinding(binding) => attributes.extend(binding.attributes.iter()),
+                    phalcom_ast::ast::ImplMember::TypeMember(type_member) => attributes.extend(type_member.attributes.iter()),
+                    phalcom_ast::ast::ImplMember::Behavior(_) => {}
+                }
+            }
+        }
+        _ => {}
+    }
+    attributes
+}
+
 /// Aggregates joined phase evidence and generated runtime requirements for all modules in a workspace.
 pub fn compute_module_import_phase_products(
     semantic_linked: &SemanticLinkedProgram,
     sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     callable_analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
+    type_store: Option<&TypeStore>,
+    static_constants: Option<&StaticConstantTable>,
     is_complete: bool,
-) -> (BTreeMap<ModuleId, ModuleImportPhaseProduct>, Vec<RuntimeDependencyEdge>) {
+) -> (BTreeMap<ModuleId, ModuleImportPhaseProduct>, Vec<RuntimeDependencyRequirement>) {
     let mut products = BTreeMap::new();
     let mut generated_requirements = Vec::new();
+    let prelude = PreludeTypeMap::shared_canonical_universe();
 
     for (module_id, sem_mod) in &semantic_linked.modules {
         let mut observed_uses: BTreeMap<SourceImportBindingId, DependencyPhase> = BTreeMap::new();
+        let mut module_complete = is_complete;
 
         // 1. Whole-module imports and direct re-exports are always Runtime (§9.2).
         for binding in sem_mod.imports.bindings.values() {
@@ -184,10 +860,204 @@ pub fn compute_module_import_phase_products(
         for (callable_id, analysis) in callable_analyses {
             if callable_id.module() == module_id {
                 for (import_id, phase) in analysis.observed_import_phases.as_ref() {
-                    observed_uses
-                        .entry(import_id.clone())
-                        .and_modify(|p| *p = p.join(*phase))
-                        .or_insert(*phase);
+                    observed_uses.entry(import_id.clone()).and_modify(|p| *p = p.join(*phase)).or_insert(*phase);
+                }
+
+                for expression in analysis.expressions.values() {
+                    if let Some(crate::types::denotation::SemanticDenotation::TypeForm(ty)) = expression.denotation.as_ref()
+                        && let Some(declaration) = type_store.and_then(|store| store.nominal_origin_declaration(*ty))
+                    {
+                        // Keep this in parity with core's `project_type_form_values`:
+                        // nominal and applied class forms both emit a class-object read.
+                        push_declaration_read_requirement(module_id, declaration, expression.range, &mut generated_requirements);
+                    }
+
+                    if let Some(specialization) = expression.call_specialization.as_ref() {
+                        push_callable_owner_requirement(module_id, specialization.callable.module(), expression.range, &mut generated_requirements);
+                        if let Some(store) = type_store {
+                            for (_, ty) in specialization.bindings.iter() {
+                                if let Some(declaration) = store.nominal_origin_declaration(*ty) {
+                                    push_callable_owner_requirement(module_id, &declaration.module, expression.range, &mut generated_requirements);
+                                }
+                            }
+                        }
+                        if let Some(store) = type_store {
+                            for conformance in specialization.conformances.iter() {
+                                match &conformance.source {
+                                    crate::checker::analysis::GenericCallConformanceSource::Exact { evidence } => {
+                                        push_callable_owner_requirement(module_id, &evidence.source_impl.module, expression.range, &mut generated_requirements);
+                                        add_conformance_type_owner_requirements(
+                                            module_id,
+                                            expression.range,
+                                            &crate::generic_evidence::GenericConformanceEvidence::Exact(evidence.clone()),
+                                            store,
+                                            &mut generated_requirements,
+                                        );
+                                    }
+                                    crate::checker::analysis::GenericCallConformanceSource::Derived { evidence } => {
+                                        match &evidence.origin {
+                                            crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => {
+                                                push_callable_owner_requirement(
+                                                    module_id,
+                                                    &exact_source.source_impl.module,
+                                                    expression.range,
+                                                    &mut generated_requirements,
+                                                );
+                                            }
+                                            crate::generic_evidence::DerivedConformanceOrigin::GuardedRule { rule, .. } => {
+                                                push_callable_owner_requirement(module_id, &rule.impl_id.module, expression.range, &mut generated_requirements);
+                                            }
+                                        }
+                                        add_conformance_type_owner_requirements(
+                                            module_id,
+                                            expression.range,
+                                            &crate::generic_evidence::GenericConformanceEvidence::Derived(evidence.clone()),
+                                            store,
+                                            &mut generated_requirements,
+                                        );
+                                    }
+                                    crate::checker::analysis::GenericCallConformanceSource::Forwarded { .. }
+                                    | crate::checker::analysis::GenericCallConformanceSource::CompilerDerived { .. } => {}
+                                }
+                            }
+                        }
+                    }
+                    if let Some(callable) = expression.callable.as_ref() {
+                        push_callable_owner_requirement(module_id, callable.module(), expression.range, &mut generated_requirements);
+                    }
+                    if let Some(capability) = expression.conditional_capability.as_ref() {
+                        push_callable_owner_requirement(module_id, &capability.selection.impl_id.module, expression.range, &mut generated_requirements);
+                        push_callable_owner_requirement(module_id, capability.selection.callable.module(), expression.range, &mut generated_requirements);
+                    }
+                    if let Some(selection) = expression.conditional_dispatch.as_ref() {
+                        push_callable_owner_requirement(module_id, &selection.impl_id.module, expression.range, &mut generated_requirements);
+                        push_callable_owner_requirement(module_id, selection.callable.module(), expression.range, &mut generated_requirements);
+                    }
+                    if let Some(crate::trait_dispatch::TraitDispatchSite::Evidenced(selection)) = expression.trait_dispatch.as_ref() {
+                        push_callable_owner_requirement(module_id, &selection.source_impl.module, expression.range, &mut generated_requirements);
+                        if let Some(callable) = selection.callable.as_ref() {
+                            push_callable_owner_requirement(module_id, callable.module(), expression.range, &mut generated_requirements);
+                        }
+                        if let Some(store) = type_store {
+                            add_conformance_type_owner_requirements(module_id, expression.range, &selection.evidence, store, &mut generated_requirements);
+                        }
+                    }
+                    if let Some(realization) = expression.contextual_realization.as_ref() {
+                        let mut add_selection = |selection: &crate::checker::analysis::RealizationCapabilitySelection| {
+                            if let crate::checker::analysis::RealizationCapabilitySelection::Evidenced(selection) = selection {
+                                push_callable_owner_requirement(
+                                    module_id,
+                                    &selection.source_impl.module,
+                                    realization.source_range,
+                                    &mut generated_requirements,
+                                );
+                                if let Some(callable) = selection.callable.as_ref() {
+                                    push_callable_owner_requirement(module_id, callable.module(), realization.source_range, &mut generated_requirements);
+                                }
+                                if let Some(store) = type_store {
+                                    let bindings = match &selection.evidence {
+                                        crate::generic_evidence::GenericConformanceEvidence::Exact(evidence) => {
+                                            evidence.impl_environment.bindings.values().copied().collect::<Vec<_>>()
+                                        }
+                                        crate::generic_evidence::GenericConformanceEvidence::Derived(evidence) => {
+                                            evidence.impl_bindings.bindings().values().copied().collect::<Vec<_>>()
+                                        }
+                                        crate::generic_evidence::GenericConformanceEvidence::Assumed(_)
+                                        | crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(_) => Vec::new(),
+                                    };
+                                    for ty in bindings {
+                                        if let Some(declaration) = store.nominal_origin_declaration(ty) {
+                                            push_callable_owner_requirement(
+                                                module_id,
+                                                &declaration.module,
+                                                realization.source_range,
+                                                &mut generated_requirements,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        };
+                        add_selection(&realization.realization);
+                        if let crate::checker::analysis::ContextualRealizationOperation::Basis {
+                            coefficient: crate::checker::analysis::RealizationCoefficientSource::One { one, .. },
+                            ..
+                        } = &realization.operation
+                        {
+                            add_selection(one);
+                        }
+                    }
+                }
+
+                for (expression_id, resolution) in analysis.callable_reference_resolutions.iter() {
+                    let range = analysis.expressions.get(expression_id).map(|expression| expression.range).unwrap_or_default();
+                    if let crate::checker::associated::CallableReferenceResolutionKind::BoundFamily { members, .. } = &resolution.kind {
+                        for member in members.iter() {
+                            match &member.target {
+                                crate::identity::InvocationTargetId::Behavioral(callable) => {
+                                    push_callable_owner_requirement(module_id, callable.module(), range, &mut generated_requirements);
+                                }
+                                crate::identity::InvocationTargetId::VariantConstructor(variant) => {
+                                    push_callable_owner_requirement(module_id, &variant.variant.owner.module, range, &mut generated_requirements);
+                                }
+                                crate::identity::InvocationTargetId::DataConstructor(constructor) => {
+                                    push_callable_owner_requirement(module_id, &constructor.owner.module, range, &mut generated_requirements);
+                                }
+                            }
+                            if let Some(selection) = member.conditional.as_ref() {
+                                push_callable_owner_requirement(module_id, &selection.impl_id.module, range, &mut generated_requirements);
+                            }
+                            if let Some(selection) = member.trait_dispatch.as_ref() {
+                                push_callable_owner_requirement(module_id, &selection.source_impl.module, range, &mut generated_requirements);
+                            }
+                        }
+                    }
+                }
+
+                for (expression_id, resolution) in analysis.match_resolutions.iter() {
+                    let range = analysis.expressions.get(expression_id).map(|expression| expression.range).unwrap_or_default();
+                    for arm in resolution.arms.iter() {
+                        add_pattern_requirements(module_id, range, &arm.pattern, &prelude, &mut generated_requirements, &mut module_complete);
+                    }
+                }
+                for site in analysis.pattern_site_resolutions.values() {
+                    add_pattern_requirements(
+                        module_id,
+                        site.range,
+                        &site.pattern,
+                        &prelude,
+                        &mut generated_requirements,
+                        &mut module_complete,
+                    );
+                }
+                for lane in analysis.for_iteration_lanes.values() {
+                    for resolution in [&lane.iterator, &lane.next] {
+                        if let crate::checker::ForIterationRequirementResolution::Evidence { evidence, .. } = resolution {
+                            match evidence {
+                                crate::generic_evidence::GenericConformanceEvidence::Exact(exact) => {
+                                    push_callable_owner_requirement(module_id, &exact.source_impl.module, lane.source_range, &mut generated_requirements);
+                                }
+                                crate::generic_evidence::GenericConformanceEvidence::Derived(derived) => match &derived.origin {
+                                    crate::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => {
+                                        push_callable_owner_requirement(
+                                            module_id,
+                                            &exact_source.source_impl.module,
+                                            lane.source_range,
+                                            &mut generated_requirements,
+                                        );
+                                    }
+                                    crate::generic_evidence::DerivedConformanceOrigin::GuardedRule { rule, .. } => {
+                                        push_callable_owner_requirement(module_id, &rule.impl_id.module, lane.source_range, &mut generated_requirements);
+                                    }
+                                },
+                                crate::generic_evidence::GenericConformanceEvidence::Assumed(_)
+                                | crate::generic_evidence::GenericConformanceEvidence::CompilerDerived(_) => {}
+                            }
+                            if let Some(store) = type_store {
+                                add_conformance_type_owner_requirements(module_id, lane.source_range, evidence, store, &mut generated_requirements);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -196,9 +1066,58 @@ pub fn compute_module_import_phase_products(
         // field annotations (InterfaceOnly), signature annotations (InterfaceOnly),
         // type aliases (InterfaceOnly), ADT/Enum payload types (InterfaceOnly).
         if let Some(parsed) = sources.get(module_id) {
+            add_lowering_runtime_requirements(module_id, &parsed.program, &prelude, &mut generated_requirements, &mut module_complete);
             let mut decl_type_roots = Vec::new();
 
             for stmt in &parsed.program.statements {
+                for attribute in statement_attributes(stmt) {
+                    if matches!(&attribute.kind, AttrKind::User(_)) {
+                        if let Some(binding) = sem_mod.imports.get(&attribute.name) {
+                            observed_uses
+                                .entry(binding.id.clone())
+                                .and_modify(|phase| *phase = phase.join(DependencyPhase::Runtime))
+                                .or_insert(DependencyPhase::Runtime);
+                            push_import_read_requirement(module_id, &binding.target, attribute.range, &mut generated_requirements);
+                        } else if let Some(declaration) = prelude.get(&attribute.name) {
+                            push_declaration_read_requirement(module_id, declaration, attribute.range, &mut generated_requirements);
+                        } else if !sem_mod.local_globals.contains_key(attribute.name.as_str()) {
+                            // Runtime user attributes are lowered by core today.
+                            // An unclassified constructor cannot prove any selected
+                            // import interface-only.
+                            module_complete = false;
+                        }
+                    }
+                    if !attribute.args.is_empty() {
+                        // User-attribute arguments and builtin contract/invariant
+                        // arguments are compiled expressions, but are not ordinary
+                        // callable-analysis products. Retain all imports until
+                        // those references have canonical body evidence of their own.
+                        module_complete = false;
+                        for binding in sem_mod.imports.bindings.values() {
+                            observed_uses
+                                .entry(binding.id.clone())
+                                .and_modify(|phase| *phase = phase.join(DependencyPhase::Runtime))
+                                .or_insert(DependencyPhase::Runtime);
+                        }
+                        let mut argument_roots = Vec::new();
+                        for argument in &attribute.args {
+                            collect_attribute_expr_roots(argument, &mut argument_roots, &mut module_complete);
+                        }
+                        for root in argument_roots {
+                            if let Some(binding) = sem_mod.imports.get(&root) {
+                                observed_uses
+                                    .entry(binding.id.clone())
+                                    .and_modify(|phase| *phase = phase.join(DependencyPhase::Runtime))
+                                    .or_insert(DependencyPhase::Runtime);
+                                push_import_read_requirement(module_id, &binding.target, attribute.range, &mut generated_requirements);
+                            } else if let Some(declaration) = prelude.get(&root) {
+                                push_declaration_read_requirement(module_id, declaration, attribute.range, &mut generated_requirements);
+                            } else if root == "ZipLengthMismatchError" {
+                                push_compiler_generated_read_requirement(module_id, &root, attribute.range, &prelude, &mut generated_requirements);
+                            }
+                        }
+                    }
+                }
                 match stmt {
                     Statement::Class(class_def) => {
                         // Superclass reference is ALWAYS Runtime (§9.3).
@@ -209,16 +1128,9 @@ pub fn compute_module_import_phase_products(
                                     .and_modify(|p| *p = p.join(DependencyPhase::Runtime))
                                     .or_insert(DependencyPhase::Runtime);
 
-                                let target_mod = match &binding.target {
-                                    SymbolicImportTarget::Module(m) => m.clone(),
-                                    SymbolicImportTarget::Binding(s) => s.module.clone(),
-                                };
-                                generated_requirements.push(RuntimeDependencyEdge {
-                                    importer: module_id.clone(),
-                                    dependency: target_mod,
-                                    range: super_ref.range,
-                                    reason: RuntimeDependencyReason::RuntimeDeclarationReference,
-                                });
+                                push_import_read_requirement(module_id, &binding.target, super_ref.range, &mut generated_requirements);
+                            } else if let Some(declaration) = prelude.get(&super_ref.root) {
+                                push_declaration_read_requirement(module_id, declaration, super_ref.range, &mut generated_requirements);
                             }
                         }
 
@@ -326,6 +1238,9 @@ pub fn compute_module_import_phase_products(
                         }
                     }
                     Statement::Impl(impl_def) => {
+                        if let ImplKind::Conformance { trait_ref, .. } = &impl_def.kind {
+                            collect_type_annotation_roots(trait_ref, &mut decl_type_roots);
+                        }
                         collect_type_annotation_roots(&impl_def.target, &mut decl_type_roots);
                         if let Some(wc) = &impl_def.where_clause {
                             collect_where_clause_roots(wc, &mut decl_type_roots);
@@ -368,10 +1283,7 @@ pub fn compute_module_import_phase_products(
         let mut binding_summaries = BTreeMap::new();
         for (id, _binding) in &sem_mod.imports.bindings {
             let summary = if let Some(phase) = observed_uses.get(id) {
-                ImportPhaseSummary {
-                    phase: *phase,
-                    observed: true,
-                }
+                ImportPhaseSummary { phase: *phase, observed: true }
             } else {
                 // §9.5: Unused selective imports remain Runtime in P4.
                 ImportPhaseSummary {
@@ -382,7 +1294,7 @@ pub fn compute_module_import_phase_products(
             binding_summaries.insert(id.clone(), summary);
         }
 
-        let coverage = if is_complete {
+        let coverage = if module_complete {
             PhaseEvidenceCoverage::Complete
         } else {
             PhaseEvidenceCoverage::Incomplete
@@ -396,6 +1308,39 @@ pub fn compute_module_import_phase_products(
                 coverage,
             },
         );
+    }
+
+    if let Some(static_constants) = static_constants {
+        for (_, product) in static_constants.iter() {
+            let importer = &product.id.0.module;
+            for symbol in product.checked.static_constant_reads.iter() {
+                if &symbol.module == importer {
+                    continue;
+                }
+                if let Some(module) = semantic_linked.modules.get(importer) {
+                    for binding in module
+                        .imports
+                        .bindings
+                        .values()
+                        .filter(|binding| matches!(&binding.target, SymbolicImportTarget::Binding(target) if target == symbol))
+                    {
+                        if let Some(phase_product) = products.get_mut(importer)
+                            && let Some(summary) = phase_product.bindings.get_mut(&binding.id)
+                        {
+                            summary.phase = summary.phase.join(DependencyPhase::Runtime);
+                            summary.observed = true;
+                        }
+                    }
+                }
+                push_runtime_requirement(
+                    importer,
+                    &symbol.module,
+                    product.initializer_range,
+                    Some(LinkedReadSpec::Binding(symbol.clone())),
+                    &mut generated_requirements,
+                );
+            }
+        }
     }
 
     (products, generated_requirements)

@@ -354,7 +354,7 @@ fn parser_retains_exact_written_declaration_and_method_reference_ranges() {
     };
     assert_eq!(named.base, "method");
 
-    let source = "data Shape {\n  @variant Circle(radius: Float)\n}\n";
+    let source = "data Shape {\n  Circle(radius: Float)\n}\n";
     let program = parse_source(source, 0).expect("variant enum parses");
     let Statement::Data(enum_def) = &program.statements[0] else {
         panic!("expected data");

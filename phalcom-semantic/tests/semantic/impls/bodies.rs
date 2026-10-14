@@ -1185,8 +1185,8 @@ fn test_enum_root_inherent_impl_body() {
     let module = test_module();
     let src = r#"
 data Status {
-  @variant Active
-  @variant Inactive
+  Active
+  Inactive
 }
 
 impl Status {

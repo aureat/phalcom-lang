@@ -49,7 +49,7 @@ pub use interface::{
     UnlinkedExportTarget, UnlinkedModuleInterface,
 };
 pub use linker::{
-    ExecutableLinkedProgram, ImportPhaseSummary, ModuleImportPhaseProduct, PhaseEvidenceCoverage, SemanticLinkedModule, SemanticLinkedProgram,
+    ExecutableLinkedProgram, ImportPhaseSummary, ModuleImportPhaseProduct, PhaseEvidenceCoverage, RuntimeDependencyRequirement, SemanticLinkedModule, SemanticLinkedProgram,
     SymbolicImportBinding, SymbolicImportTable, SymbolicImportTarget,
     GlobalBindingId, ImportBindingId, LinkError, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, ModuleLinker, SymbolId, dependency_phase,
     module_path, resolution_key,

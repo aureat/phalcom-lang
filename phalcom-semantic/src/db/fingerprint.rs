@@ -248,9 +248,6 @@ pub fn declaration_surface_source_input_fingerprint(
                     hash_optional_source_region(&unit.text, index.return_annotation.as_ref().map(|annotation| annotation.range), &mut hasher);
                 }
             }
-            ClassMember::Variant(_) => {
-                5u8.hash(&mut hasher);
-            }
             ClassMember::Delegation(delegation) => {
                 6u8.hash(&mut hasher);
                 delegation.name.hash(&mut hasher);

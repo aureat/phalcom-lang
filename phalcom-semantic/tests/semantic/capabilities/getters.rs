@@ -151,7 +151,7 @@ fn enum_generic_getter_uses_canonical_application_path() {
     let fixture = Fixture::new(
         r#"
 data Box {
-  @variant Empty
+  Empty
 }
 
 impl Box {

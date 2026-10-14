@@ -93,11 +93,6 @@ pub fn selector_from_member(member: &ClassMember) -> Selector {
             }),
         },
         ClassMember::Field(f) => selector_from_field(f),
-        ClassMember::Variant(v) => Selector::getter(&v.name).unwrap_or_else(|_| Selector {
-            base: SelectorBase::Named(v.name.clone()),
-            kind: SelectorKind::Getter,
-            slots: Box::new([]),
-        }),
         ClassMember::Index(ix) => selector_from_index(ix),
         ClassMember::TypeMember(t) => match &t.selector {
             TypeMemberSelectorSyntax::Named { name, .. } => Selector::getter(name).unwrap_or_else(|_| Selector {

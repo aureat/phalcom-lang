@@ -5,9 +5,9 @@ from .algebra import Semigroup, Monoid
 /// Constant-time concatenation without copying accumulated entries.
 /// Entries are materialized using an explicit work stack, not tree recursion.
 data Journal<T> {
-  @variant Empty
-  @variant Entry(_ value: T)
-  @variant Concat(_ left: Journal<T>, _ right: Journal<T>)
+  Empty
+  Entry(_ value: T)
+  Concat(_ left: Journal<T>, _ right: Journal<T>)
 }
 
 impl<T> Journal<T> {

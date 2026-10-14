@@ -21,8 +21,8 @@ fn run_inline(source: &str) -> Result<(VM, phalcom_core::heap::ObjRef), PhError>
 fn exact_variant_constructor_reference_reifies_callable_thunk() {
     let source = r#"
 data Option<T> {
-  @variant Some(_ value: T)
-  @variant None
+  Some(_ value: T)
+  None
 }
 
 let ctor = &Option<Int>::Some(_)
@@ -43,7 +43,7 @@ let some = ctor(42)
 fn constructor_reference_lowering_is_distinct_from_direct_construction() {
     let source = r#"
 data Option<T> {
-  @variant Some(_ value: T)
+  Some(_ value: T)
 }
 
 let ctor = &Option<Int>::Some(_)

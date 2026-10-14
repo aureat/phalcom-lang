@@ -20,13 +20,11 @@ native data Result<T, E> {
     /// A successful result containing a value.
     ///
     /// @param value The successful value.
-    @variant
     Ok(_ value: T)
 
     /// A failed result containing an error.
     ///
     /// @param error The failure value.
-    @variant
     Error(_ error: E)
 }
 

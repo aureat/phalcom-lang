@@ -22,6 +22,7 @@ expose .json
 expose .math
 expose .numbers
 expose .random
+expose .crypto
 expose .process
 expose .net
 expose .testing
@@ -77,6 +78,7 @@ import .json
 import .math
 import .numbers
 import .random
+import .crypto
 import .process
 import .net
 import .testing
@@ -130,6 +132,7 @@ export json
 export math
 export numbers
 export random
+export crypto
 export process
 export net
 export testing

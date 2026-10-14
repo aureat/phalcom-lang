@@ -9,8 +9,8 @@ fn generic_associated_owner_conflict_reports_gadt_mismatch_only() {
     let source: Arc<str> = Arc::from(
         r#"
 data Expr<T> {
-  @variant IntLit(_ value: Int) -> Expr<Int>
-  @variant BoolLit(_ value: Bool) -> Expr<Bool>
+  IntLit(_ value: Int) -> Expr<Int>
+  BoolLit(_ value: Bool) -> Expr<Bool>
 }
 class Probe {
   @class run() { Expr<String>::IntLit(1) }

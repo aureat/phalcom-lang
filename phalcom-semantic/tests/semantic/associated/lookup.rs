@@ -74,8 +74,8 @@ fn associated_lookup_resolves_variant_invocation_and_singleton_getter() {
     let source: Arc<str> = Arc::from(
         r#"
 data Option<T> {
-  @variant Some(_ value: T)
-  @variant None
+  Some(_ value: T)
+  None
 }
 
 class Test {
@@ -127,13 +127,13 @@ fn nullary_variant_lookup_uses_generic_expected_result_without_accepting_unconst
     let source: Arc<str> = Arc::from(
         r#"
 data Option<T> {
-  @variant Some(_ value: T)
-  @variant None
+  Some(_ value: T)
+  None
 }
 
 data Result<T, E> {
-  @variant Ok(_ value: T)
-  @variant Error(_ error: E)
+  Ok(_ value: T)
+  Error(_ error: E)
 }
 
 impl<T, E> Result<T, E> {
@@ -438,8 +438,8 @@ fn associated_owner_rejects_conflicting_gadt_specialization() {
     let source: Arc<str> = Arc::from(
         r#"
 data Expr<T> {
-  @variant IntLit(_ value: Int) -> Expr<Int>
-  @variant BoolLit(_ value: Bool) -> Expr<Bool>
+  IntLit(_ value: Int) -> Expr<Int>
+  BoolLit(_ value: Bool) -> Expr<Bool>
 }
 
 class Test {
@@ -476,8 +476,8 @@ fn associated_reification_rejects_unconstrained_generic_owner() {
     let source: Arc<str> = Arc::from(
         r#"
 data Option<T> {
-  @variant Some(_ value: T)
-  @variant None
+  Some(_ value: T)
+  None
 }
 
 class Test {

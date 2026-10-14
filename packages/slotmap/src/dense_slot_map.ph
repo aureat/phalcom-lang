@@ -2,10 +2,8 @@ from .slot_map import SlotKey
 from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
 
 data DenseSlotState {
-  @variant
   Occupied(_ denseIndex: Int)
 
-  @variant
   Vacant(_ next: Option<Int>)
 }
 

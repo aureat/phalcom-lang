@@ -4558,6 +4558,12 @@ impl<'source> Parser<'source> {
         let mut pending_attrs: Vec<Attribute> = Vec::new();
         loop {
             self.skip_newlines();
+            if let Some(variant_attr) = pending_attrs.iter().find(|a| a.name == "variant") {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::ClassVariantMarkerRetired,
+                    range: variant_attr.range.start..variant_attr.range.end,
+                });
+            }
             match self.peek() {
                 Token::RBrace if pending_attrs.is_empty() => break,
                 Token::RBrace => return Err(self.dangling_attribute_error(&pending_attrs)),
@@ -4587,12 +4593,6 @@ impl<'source> Parser<'source> {
                 }
                 Token::Eof => return Err(self.error_here(strs(&["\"}\""]))),
                 _ => {}
-            }
-            if let Some(variant_attr) = pending_attrs.iter().find(|a| a.name == "variant") {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::VariantOutsideEnum,
-                    range: variant_attr.range.start..variant_attr.range.end,
-                });
             }
             if matches!(self.peek(), Token::TypeKw) && matches!(self.peek_next(), Token::Data) {
                 let Statement::Data(declaration) = self.parse_type_data(std::mem::take(&mut pending_attrs), ParsedModifiers::default())? else {
@@ -5182,14 +5182,8 @@ impl<'source> Parser<'source> {
     }
 
     fn parse_sum_case(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<AlgebraicCaseSyntax> {
-        let variant_attr = pending_attrs.iter().find(|a| a.name == "variant").cloned();
-        let variant_marker_range = variant_attr.as_ref().map(|a| a.range);
-        let start = if let Some(ref attr) = variant_attr {
-            attr.range.start
-        } else {
-            pending_attrs.first().map(|a| a.range.start).unwrap_or_else(|| self.cur_start())
-        };
-        let non_variant_attrs: Vec<Attribute> = pending_attrs.into_iter().filter(|a| a.name != "variant").collect();
+        let start = pending_attrs.first().map(|a| a.range.start).unwrap_or_else(|| self.cur_start());
+        let case_attrs = pending_attrs;
 
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["case name"])?;
@@ -5324,12 +5318,11 @@ impl<'source> Parser<'source> {
         Ok(AlgebraicCaseSyntax {
             name,
             name_range,
-            variant_marker_range,
             generic_parameters,
             where_clause,
             payload,
             result_annotation,
-            attributes: non_variant_attrs,
+            attributes: case_attrs,
             range,
         })
     }
@@ -5358,6 +5351,12 @@ impl<'source> Parser<'source> {
                 Token::Eof => return Err(self.error_here(strs(&["\"}\""]))),
                 Token::At => {
                     let attr = self.parse_attribute()?;
+                    if attr.name == "variant" {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::DataVariantMarkerRetired,
+                            range: attr.range.start..attr.range.end,
+                        });
+                    }
                     self.skip_newlines();
                     pending_attrs.push(attr);
                     continue;
@@ -5402,7 +5401,7 @@ impl<'source> Parser<'source> {
                     range,
                 }));
             } else {
-                let is_case = pending_attrs.iter().any(|a| a.name == "variant") || !self.is_record_field_start();
+                let is_case = !self.is_record_field_start();
 
                 if is_case {
                     let case = self.parse_sum_case(std::mem::take(&mut pending_attrs))?;
@@ -5972,14 +5971,6 @@ impl<'source> Parser<'source> {
             ClassMember::Setter(s) => s.attributes = attrs,
             ClassMember::Delegation(d) => d.attributes = attrs,
             ClassMember::Field(f) => f.attributes = attrs,
-            // Unreachable in practice — `parse_class_body` diverts a pending
-            // `@variant` straight to `parse_variant_decl`, which consumes
-            // every pending attribute itself before this function could ever
-            // be called with a `Variant` member. Kept for match exhaustiveness
-            // and future-proofing (a hypothetical attribute placed *after*
-            // `@variant` in source, which the grammar does not currently
-            // support attaching, would land here rather than panicking).
-            ClassMember::Variant(v) => v.attributes = attrs,
             ClassMember::Index(ix) => ix.attributes = attrs,
             ClassMember::TypeMember(t) => t.attributes = attrs,
         }
@@ -6983,13 +6974,6 @@ impl<'source> Parser<'source> {
                 // shape as the top-level `parse_top_item`, but nesting itself
                 // is rejected below rather than accepted.
                 //
-                // Synthesized `Statement::Class` nodes (`@variant`,
-                // `compiler/attributes.rs`) never reach this arm — they are
-                // built as Rust struct literals and handed straight to the
-                // compiler, bypassing the parser entirely (U-CLASSCLOSE §1.3).
-                // This ban is therefore a syntax-level check only; any future
-                // desugar that synthesizes a `Statement::Class` inherits the
-                // same bypass silently.
                 // A declaration starts `class Name`; `class.` is an expression
                 // spelling for `self.class` and must continue through small
                 // statement parsing below. `@` keeps its existing decorated
