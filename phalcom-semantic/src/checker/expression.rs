@@ -4656,11 +4656,22 @@ fn synthesize_contextual_variant(
     }
     let candidate = candidates.into_iter().next()?;
     debug_assert_eq!(candidate.variant.selector, *selector);
+    // A single independently established owner does not require narrowing.
+    // Retain the originating inference term and its query-local variables:
+    // eagerly replacing them with a canonical owner type can manufacture
+    // conflicting generic constraints (e.g. Some(value) in Option<T>).
+    // With competing owner specializations, use the selected branch-specific
+    // expectation to retain the candidate isolation contract.
+    let application_expected = if owners.len() == 1 && discovered == 1 {
+        expected
+    } else {
+        &candidate.owner.expected
+    };
     Some(apply_contextual_variant(
         ctx,
         name,
         args,
-        &candidate.owner.expected,
+        application_expected,
         candidate.owner.owner_type,
         range,
     ))
