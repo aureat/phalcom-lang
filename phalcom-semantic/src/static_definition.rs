@@ -42,6 +42,50 @@ pub struct StaticDefinitionSignature {
     pub where_clause: Option<WhereClauseSyntax>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StaticBinaryOp {
+    Add, Sub, Mul, Div, Mod, BitAnd, BitOr, BitXor, Shl, Shr, Eq, NotEq, Less, LessEq, Greater, GreaterEq, And, Or,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StaticUnaryOp {
+    Neg, Not, BitNot,
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum OperationalTarget {
+    Declaration(DeclarationId),
+    DataConstructor(DeclarationId),
+    VariantConstructor(VariantId),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OperationalNode {
+    Constant(crate::static_value::store::StaticValueRef),
+    ReadParameter(u32),
+    ReadLocal(u32),
+    WriteLocal(u32, Box<OperationalNode>),
+    TypeForm(crate::types::id::TypeId),
+    Binary { op: StaticBinaryOp, left: Box<OperationalNode>, right: Box<OperationalNode> },
+    Unary { op: StaticUnaryOp, operand: Box<OperationalNode> },
+    StaticApplication { target: DeclarationId, arguments: Vec<OperationalNode> },
+    StaticConstruction { target: OperationalTarget, result_type: crate::types::id::TypeId, arguments: Vec<OperationalNode> },
+    MemberProjection { target: Box<OperationalNode>, member: Box<str> },
+    If { condition: Box<OperationalNode>, then_branch: Box<OperationalNode>, else_branch: Option<Box<OperationalNode>> },
+    Sequence { result_type: crate::types::id::TypeId, elements: Vec<OperationalNode> },
+    Tuple { elements: Vec<OperationalNode> },
+    Block { local_count: u32, statements: Vec<OperationalNode>, result: Option<Box<OperationalNode>> },
+    Return(Option<Box<OperationalNode>>),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OperationalTemplate {
+    pub owner: DeclarationId,
+    pub parameter_count: u32,
+    pub local_count: u32,
+    pub root: OperationalNode,
+}
+
 /// Body representation of a static definition.
 #[derive(Clone, Debug)]
 pub enum StaticDefinitionBodyRepr {
@@ -51,6 +95,8 @@ pub enum StaticDefinitionBodyRepr {
     Expression(Expr),
     /// Lexical block body.
     Block(LexicalBlock),
+    /// Source-independent operational template for persistent compiler artifacts.
+    Operational(std::sync::Arc<OperationalTemplate>),
 }
 
 impl StaticDefinitionBodyRepr {
@@ -59,6 +105,7 @@ impl StaticDefinitionBodyRepr {
             Self::TypeForm(ann) => ann.range,
             Self::Expression(expr) => expr.range(),
             Self::Block(block) => block.range,
+            Self::Operational(_) => phalcom_common::range::SourceRange::default(),
         }
     }
 }

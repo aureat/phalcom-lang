@@ -1013,6 +1013,18 @@ impl TypeStore {
             .copied()
     }
 
+    /// Returns an already-interned class-object type without mutating the store.
+    pub fn class_object_type_id(&self, declaration: &DeclarationId) -> Option<TypeId> {
+        self.type_to_id
+            .get(&(
+                TypeData::ClassObject {
+                    declaration: declaration.clone(),
+                },
+                KindId::TYPE,
+            ))
+            .copied()
+    }
+
     pub fn class_object_type(&mut self, declaration: DeclarationId) -> TypeId {
         self.intern_with_kind(TypeData::ClassObject { declaration }, KindId::TYPE)
     }

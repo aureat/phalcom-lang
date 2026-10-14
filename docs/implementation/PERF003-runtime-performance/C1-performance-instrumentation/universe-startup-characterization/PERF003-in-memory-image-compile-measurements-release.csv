@@ -1,0 +1,4 @@
+scenario,samples,session_init_ms,compile_fixture_ms,compile_io_ms,compile_parse_ms,compile_link_ms,semantic_update_ms,compile_projection_ms,instrumented_phase_sum_ms,cache_builds,cache_hits
+cold_process,3 median,12197.584,9.322,0.000,0.011,1.236,6.817,1.043,12206.736,1,0
+warm_process_first,1,0.052,7.612,0.000,0.038,1.061,6.374,0.099,7.620,0,1
+warm_retained_session,2-20 median,0.000,15.644,0.000,0.013,0.154,15.437,0.090,15.638,0,1

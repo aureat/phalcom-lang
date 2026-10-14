@@ -2969,6 +2969,12 @@ pub fn static_definition_product_fingerprint(product: &crate::static_definition:
             2u8.hash(&mut hasher);
             hash_debug_without_source_ranges(block, &mut hasher);
         }
+        crate::static_definition::StaticDefinitionBodyRepr::Operational(template) => {
+            3u8.hash(&mut hasher);
+            template.owner.hash(&mut hasher);
+            template.parameter_count.hash(&mut hasher);
+            template.local_count.hash(&mut hasher);
+        }
     }
     match product.checked_body.as_ref() {
         Some(body) => {

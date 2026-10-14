@@ -67,6 +67,7 @@ pub enum EvaluatorRootWork<'a> {
     Expression(&'a Expr),
     Block(&'a LexicalBlock),
     TypeForm(&'a phalcom_ast::ast::TypeAnnotation),
+    Operational(&'a crate::static_definition::OperationalTemplate),
 }
 
 impl<'a> EvaluatorBody<'a> {
@@ -197,6 +198,7 @@ impl<'a> EvaluatorBody<'a> {
                 crate::static_definition::StaticDefinitionBodyRepr::Expression(expression) => EvaluatorRootWork::Expression(expression),
                 crate::static_definition::StaticDefinitionBodyRepr::Block(block) => EvaluatorRootWork::Block(block),
                 crate::static_definition::StaticDefinitionBodyRepr::TypeForm(annotation) => EvaluatorRootWork::TypeForm(annotation),
+                crate::static_definition::StaticDefinitionBodyRepr::Operational(template) => EvaluatorRootWork::Operational(template),
             },
             Self::Constant(c) => EvaluatorRootWork::Expression(&c.root),
             Self::Expression(expression) => EvaluatorRootWork::Expression(&expression.root),
@@ -442,6 +444,11 @@ enum Work<'a> {
     Evaluate(&'a Expr),
     EvaluateTypeForm(&'a phalcom_ast::ast::TypeAnnotation),
     EvaluateBlock(&'a LexicalBlock),
+    EvaluateOperational(&'a crate::static_definition::OperationalNode),
+    ApplyOperationalBinary(crate::static_definition::StaticBinaryOp),
+    ApplyOperationalUnary(crate::static_definition::StaticUnaryOp),
+    FinishOperationalIf(&'a Option<Box<crate::static_definition::OperationalNode>>),
+    StoreOperationalLocal(u32),
     FinishRoot,
     StatementNext(StatementContainer<'a>, usize, Option<StaticValueRef>),
     StatementAfter(StatementContainer<'a>, usize),
@@ -1841,6 +1848,7 @@ impl<'a> StaticEvaluator<'a> {
             EvaluatorRootWork::Expression(expression) => Work::Evaluate(expression),
             EvaluatorRootWork::Block(block) => Work::EvaluateBlock(block),
             EvaluatorRootWork::TypeForm(annotation) => Work::EvaluateTypeForm(annotation),
+            EvaluatorRootWork::Operational(template) => Work::EvaluateOperational(&template.root),
         });
         let mut stack = Vec::new();
         let mut pending_control = None;

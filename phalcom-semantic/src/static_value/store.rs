@@ -34,6 +34,11 @@ impl StaticValueStoreId {
 pub struct StaticValueId(u32);
 
 impl StaticValueId {
+    /// Creates a store-local index from raw value.
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+
     /// Returns this value's store-local index.
     pub const fn raw(self) -> u32 {
         self.0
@@ -402,6 +407,46 @@ impl StaticValueStore {
     /// Returns whether this store has no interned value nodes.
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()
+    }
+
+    pub(crate) fn values_arena(&self) -> &Vector<StaticValueData> {
+        &self.values
+    }
+
+    pub(crate) fn strings_arena(&self) -> &Vector<Box<str>> {
+        &self.strings
+    }
+
+    pub(crate) fn symbols_arena(&self) -> &Vector<Box<str>> {
+        &self.symbols
+    }
+
+    pub(crate) fn tuples_arena(&self) -> &Vector<Box<[StaticValueRef]>> {
+        &self.tuples
+    }
+
+    pub(crate) fn sequences_arena(&self) -> &Vector<StaticSequenceData> {
+        &self.sequences
+    }
+
+    pub(crate) fn records_arena(&self) -> &Vector<Box<[StaticRecordField]>> {
+        &self.records
+    }
+
+    pub(crate) fn data_values_arena(&self) -> &Vector<StaticDataValue> {
+        &self.data_values
+    }
+
+    pub(crate) fn variant_values_arena(&self) -> &Vector<StaticVariantValue> {
+        &self.variant_values
+    }
+
+    pub(crate) fn pack_backings_arena(&self) -> &Vector<StaticPackBacking> {
+        &self.pack_backings
+    }
+
+    pub(crate) fn packs_arena(&self) -> &Vector<StaticPackData> {
+        &self.packs
     }
 
     /// Interns and returns the unit value.

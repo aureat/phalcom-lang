@@ -670,6 +670,7 @@ fn analyze_static_body_inner(
         }
         StaticDefinitionBodyRepr::Expression(expression) => Some(analyze_expression(&mut context, expression, &expected)),
         StaticDefinitionBodyRepr::Block(block) => analyze_executable_region(&mut context, &block.body, block.range, &expected).value,
+        StaticDefinitionBodyRepr::Operational(_) => None,
     };
 
     let result_range = definition.body.range();

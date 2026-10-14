@@ -9,15 +9,20 @@ use crate::data_semantics::DataSemanticTable;
 use crate::enum_semantics::EnumSemanticTable;
 use crate::field_key::FieldKey;
 use crate::identity::{DeclarationId, VariantId};
+use crate::metadata::stable_identity::{to_stable_declaration, to_stable_variant};
 use crate::scalar::StaticInt;
-use crate::static_value::store::{StaticFloat, StaticSymbolId, StaticValueRef, StaticValueStore, StaticValueStoreError, StaticValueStoreId};
-use crate::types::artifact::TypeRelocation;
+use crate::static_value::store::{
+    StaticDataValueId, StaticFloat, StaticPackBackingId, StaticPackId, StaticRecordId, StaticSequenceFamily, StaticSequenceId,
+    StaticStringId, StaticSymbolId, StaticTupleId, StaticValueData, StaticValueId, StaticValueRef, StaticValueStore,
+    StaticValueStoreError, StaticValueStoreId, StaticVariantValueId,
+};
+use crate::types::store::artifact::{TypeExportContext, TypeRelocation};
 use num_bigint::BigInt;
-use phalcom_compiler_artifact::semantic::static_value::{ArtifactStaticPackBackingId, ArtifactStaticSymbolId, ArtifactStaticValueId, StaticValueGraphV1, StaticValueV1};
+use phalcom_compiler_artifact::semantic::static_value::*;
 use phalcom_compiler_artifact::semantic::type_store::FieldKeyV1;
 use phalcom_compiler_artifact::{ArtifactError, ValidationError, ValidationLimits};
 use phalcom_type_meta::identity::{StableDeclarationRef, StableVariantRef};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Relocation from artifact-local static identities into one fresh store lineage.
 #[derive(Clone, Debug)]
@@ -44,6 +49,563 @@ impl StaticRelocation {
             return Err(referential("static relocation belongs to a different store lineage"));
         }
         Ok(())
+    }
+}
+
+/// Guarded export context for projecting static values into a portable graph.
+#[derive(Debug)]
+pub struct StaticExportContext {
+    store_id: StaticValueStoreId,
+    closed: bool,
+    roots: BTreeSet<StaticValueRef>,
+    value_ids: BTreeMap<StaticValueId, ArtifactStaticValueId>,
+    string_ids: BTreeMap<StaticStringId, ArtifactStaticStringId>,
+    symbol_ids: BTreeMap<StaticSymbolId, ArtifactStaticSymbolId>,
+    tuple_ids: BTreeMap<StaticTupleId, ArtifactStaticTupleId>,
+    sequence_ids: BTreeMap<StaticSequenceId, ArtifactStaticSequenceId>,
+    record_ids: BTreeMap<StaticRecordId, ArtifactStaticRecordId>,
+    data_ids: BTreeMap<StaticDataValueId, ArtifactStaticDataId>,
+    variant_ids: BTreeMap<StaticVariantValueId, ArtifactStaticVariantId>,
+    pack_backing_ids: BTreeMap<StaticPackBackingId, ArtifactStaticPackBackingId>,
+    pack_ids: BTreeMap<StaticPackId, ArtifactStaticPackId>,
+    value_order: Vec<StaticValueId>,
+    string_order: Vec<StaticStringId>,
+    symbol_order: Vec<StaticSymbolId>,
+    tuple_order: Vec<StaticTupleId>,
+    sequence_order: Vec<StaticSequenceId>,
+    record_order: Vec<StaticRecordId>,
+    data_order: Vec<StaticDataValueId>,
+    variant_order: Vec<StaticVariantValueId>,
+    pack_backing_order: Vec<StaticPackBackingId>,
+    pack_order: Vec<StaticPackId>,
+}
+
+impl StaticExportContext {
+    pub fn new(store: &StaticValueStore) -> Self {
+        Self {
+            store_id: store.id(),
+            closed: false,
+            roots: BTreeSet::new(),
+            value_ids: BTreeMap::new(),
+            string_ids: BTreeMap::new(),
+            symbol_ids: BTreeMap::new(),
+            tuple_ids: BTreeMap::new(),
+            sequence_ids: BTreeMap::new(),
+            record_ids: BTreeMap::new(),
+            data_ids: BTreeMap::new(),
+            variant_ids: BTreeMap::new(),
+            pack_backing_ids: BTreeMap::new(),
+            pack_ids: BTreeMap::new(),
+            value_order: Vec::new(),
+            string_order: Vec::new(),
+            symbol_order: Vec::new(),
+            tuple_order: Vec::new(),
+            sequence_order: Vec::new(),
+            record_order: Vec::new(),
+            data_order: Vec::new(),
+            variant_order: Vec::new(),
+            pack_backing_order: Vec::new(),
+            pack_order: Vec::new(),
+        }
+    }
+
+    pub fn expected_lineage(&self) -> StaticValueStoreId {
+        self.store_id
+    }
+
+    pub fn verify_store(&self, store: &StaticValueStore) -> Result<(), ArtifactError> {
+        if self.store_id != store.id() {
+            return Err(referential("foreign static value store lineage"));
+        }
+        Ok(())
+    }
+
+    pub fn register_root(&mut self, reference: StaticValueRef) -> Result<(), ArtifactError> {
+        if self.store_id != reference.store_id() {
+            return Err(referential("registered static root belongs to foreign store lineage"));
+        }
+        if self.closed {
+            return Err(referential("static export graph is already closed"));
+        }
+        self.roots.insert(reference);
+        Ok(())
+    }
+
+    pub fn close_graph(
+        &mut self,
+        store: &StaticValueStore,
+        type_export: &TypeExportContext,
+        limits: &ValidationLimits,
+    ) -> Result<(), ArtifactError> {
+        self.verify_store(store)?;
+        if self.closed {
+            return Err(referential("static export graph is already closed"));
+        }
+        let roots: Vec<StaticValueId> = if self.roots.is_empty() {
+            (0..store.values_arena().len())
+                .map(|idx| StaticValueId::from_raw(idx as u32))
+                .collect()
+        } else {
+            self.roots.iter().map(|r| r.value_id()).collect()
+        };
+
+        struct Walker<'a> {
+            store: &'a StaticValueStore,
+            type_export: &'a TypeExportContext,
+            limits: &'a ValidationLimits,
+            seen: BTreeSet<StaticValueId>,
+            context: &'a mut StaticExportContext,
+        }
+
+        impl<'a> Walker<'a> {
+            fn walk(&mut self, val_id: StaticValueId, depth: usize) -> Result<(), ArtifactError> {
+                if depth > self.limits.max_recursion_depth {
+                    return Err(referential("static value graph recursion limit exceeded"));
+                }
+                if self.context.value_ids.contains_key(&val_id) {
+                    return Ok(());
+                }
+                if !self.seen.insert(val_id) {
+                    return Err(referential("cycle detected in static value graph"));
+                }
+                let data = self
+                    .store
+                    .values_arena()
+                    .get(val_id.raw() as usize)
+                    .ok_or_else(|| referential(format!("unknown static value id {}", val_id.raw())))?;
+
+                match data {
+                    StaticValueData::Unit
+                    | StaticValueData::Bool(_)
+                    | StaticValueData::Char(_)
+                    | StaticValueData::Int(_)
+                    | StaticValueData::Float(_) => {}
+                    StaticValueData::String(sid) => {
+                        if !self.context.string_ids.contains_key(sid) {
+                            let wid = ArtifactStaticStringId(self.context.string_order.len() as u32);
+                            self.context.string_ids.insert(*sid, wid);
+                            self.context.string_order.push(*sid);
+                        }
+                    }
+                    StaticValueData::Symbol(sym) => {
+                        if !self.context.symbol_ids.contains_key(sym) {
+                            let wid = ArtifactStaticSymbolId(self.context.symbol_order.len() as u32);
+                            self.context.symbol_ids.insert(*sym, wid);
+                            self.context.symbol_order.push(*sym);
+                        }
+                    }
+                    StaticValueData::Type(ty) | StaticValueData::StaticTerm(ty) => {
+                        self.type_export.ty(*ty)?;
+                    }
+                    StaticValueData::Tuple(tid) => {
+                        let tuple = self
+                            .store
+                            .tuples_arena()
+                            .get(tid.raw() as usize)
+                            .ok_or_else(|| referential(format!("unknown static tuple id {}", tid.raw())))?;
+                        for child in tuple.iter() {
+                            self.walk(child.value_id(), depth + 1)?;
+                        }
+                        if !self.context.tuple_ids.contains_key(tid) {
+                            let wid = ArtifactStaticTupleId(self.context.tuple_order.len() as u32);
+                            self.context.tuple_ids.insert(*tid, wid);
+                            self.context.tuple_order.push(*tid);
+                        }
+                    }
+                    StaticValueData::Sequence(sid) => {
+                        let seq = self
+                            .store
+                            .sequences_arena()
+                            .get(sid.raw() as usize)
+                            .ok_or_else(|| referential(format!("unknown static sequence id {}", sid.raw())))?;
+                        self.type_export.ty(seq.result_type())?;
+                        for child in seq.elements().iter() {
+                            self.walk(child.value_id(), depth + 1)?;
+                        }
+                        if !self.context.sequence_ids.contains_key(sid) {
+                            let wid = ArtifactStaticSequenceId(self.context.sequence_order.len() as u32);
+                            self.context.sequence_ids.insert(*sid, wid);
+                            self.context.sequence_order.push(*sid);
+                        }
+                    }
+                    StaticValueData::Record(rid) => {
+                        let rec = self
+                            .store
+                            .records_arena()
+                            .get(rid.raw() as usize)
+                            .ok_or_else(|| referential(format!("unknown static record id {}", rid.raw())))?;
+                        for field in rec.iter() {
+                            self.walk(field.value.value_id(), depth + 1)?;
+                        }
+                        if !self.context.record_ids.contains_key(rid) {
+                            let wid = ArtifactStaticRecordId(self.context.record_order.len() as u32);
+                            self.context.record_ids.insert(*rid, wid);
+                            self.context.record_order.push(*rid);
+                        }
+                    }
+                    StaticValueData::Data(did) => {
+                        let data_val = self
+                            .store
+                            .data_values_arena()
+                            .get(did.raw() as usize)
+                            .ok_or_else(|| referential(format!("unknown static data id {}", did.raw())))?;
+                        self.type_export.ty(data_val.result_type)?;
+                        for (_, child) in data_val.components.iter() {
+                            self.walk(child.value_id(), depth + 1)?;
+                        }
+                        if !self.context.data_ids.contains_key(did) {
+                            let wid = ArtifactStaticDataId(self.context.data_order.len() as u32);
+                            self.context.data_ids.insert(*did, wid);
+                            self.context.data_order.push(*did);
+                        }
+                    }
+                    StaticValueData::Variant(vid) => {
+                        let var_val = self
+                            .store
+                            .variant_values_arena()
+                            .get(vid.raw() as usize)
+                            .ok_or_else(|| referential(format!("unknown static variant id {}", vid.raw())))?;
+                        self.type_export.ty(var_val.result_type)?;
+                        for (_, child) in var_val.fields.iter() {
+                            self.walk(child.value_id(), depth + 1)?;
+                        }
+                        if !self.context.variant_ids.contains_key(vid) {
+                            let wid = ArtifactStaticVariantId(self.context.variant_order.len() as u32);
+                            self.context.variant_ids.insert(*vid, wid);
+                            self.context.variant_order.push(*vid);
+                        }
+                    }
+                    StaticValueData::Pack(pid) => {
+                        let pack_data = self
+                            .store
+                            .packs_arena()
+                            .get(pid.raw() as usize)
+                            .ok_or_else(|| referential(format!("unknown static pack id {}", pid.raw())))?;
+                        let backing = self
+                            .store
+                            .pack_backings_arena()
+                            .get(pack_data.backing.raw() as usize)
+                            .ok_or_else(|| referential(format!("unknown static pack backing id {}", pack_data.backing.raw())))?;
+                        for p in backing.positionals.iter() {
+                            self.walk(p.value_id(), depth + 1)?;
+                        }
+                        for l in backing.labels.iter() {
+                            if !self.context.symbol_ids.contains_key(l) {
+                                let wid = ArtifactStaticSymbolId(self.context.symbol_order.len() as u32);
+                                self.context.symbol_ids.insert(*l, wid);
+                                self.context.symbol_order.push(*l);
+                            }
+                        }
+                        for lv in backing.labeled_values.iter() {
+                            self.walk(lv.value_id(), depth + 1)?;
+                        }
+                        if !self.context.pack_backing_ids.contains_key(&pack_data.backing) {
+                            let wid = ArtifactStaticPackBackingId(self.context.pack_backing_order.len() as u32);
+                            self.context.pack_backing_ids.insert(pack_data.backing, wid);
+                            self.context.pack_backing_order.push(pack_data.backing);
+                        }
+                        if !self.context.pack_ids.contains_key(pid) {
+                            let wid = ArtifactStaticPackId(self.context.pack_order.len() as u32);
+                            self.context.pack_ids.insert(*pid, wid);
+                            self.context.pack_order.push(*pid);
+                        }
+                    }
+                }
+                self.seen.remove(&val_id);
+                let wid = ArtifactStaticValueId(self.context.value_order.len() as u32);
+                self.context.value_ids.insert(val_id, wid);
+                self.context.value_order.push(val_id);
+                Ok(())
+            }
+        }
+
+        let mut walker = Walker {
+            store,
+            type_export,
+            limits,
+            seen: BTreeSet::new(),
+            context: self,
+        };
+
+        for root in roots {
+            walker.walk(root, 0)?;
+        }
+
+        self.closed = true;
+        Ok(())
+    }
+
+    pub fn value(&self, reference: StaticValueRef) -> Result<ArtifactStaticValueId, ArtifactError> {
+        if reference.store_id() != self.store_id {
+            return Err(referential("static value reference belongs to foreign store lineage"));
+        }
+        self.value_ids
+            .get(&reference.value_id())
+            .copied()
+            .ok_or_else(|| referential(format!("unregistered static value reference {}", reference.value_id().raw())))
+    }
+
+    pub fn symbol(&self, symbol: StaticSymbolId) -> Result<ArtifactStaticSymbolId, ArtifactError> {
+        self.symbol_ids
+            .get(&symbol)
+            .copied()
+            .ok_or_else(|| referential(format!("unregistered static symbol reference {}", symbol.raw())))
+    }
+
+    pub fn project_graph(
+        &self,
+        store: &StaticValueStore,
+        type_export: &TypeExportContext,
+        limits: &ValidationLimits,
+    ) -> Result<StaticValueGraphV1, ArtifactError> {
+        self.verify_store(store)?;
+        if !self.closed {
+            return Err(referential("static export graph is not closed"));
+        }
+
+        let strings: Vec<String> = self
+            .string_order
+            .iter()
+            .map(|sid| {
+                store
+                    .strings_arena()
+                    .get(sid.raw() as usize)
+                    .map(|s| s.to_string())
+                    .ok_or_else(|| referential("unknown static string"))
+            })
+            .collect::<Result<_, _>>()?;
+
+        let symbols: Vec<String> = self
+            .symbol_order
+            .iter()
+            .map(|sym| {
+                store
+                    .symbols_arena()
+                    .get(sym.raw() as usize)
+                    .map(|s| s.to_string())
+                    .ok_or_else(|| referential("unknown static symbol"))
+            })
+            .collect::<Result<_, _>>()?;
+
+        let tuples: Vec<Vec<ArtifactStaticValueId>> = self
+            .tuple_order
+            .iter()
+            .map(|tid| {
+                let tuple = store
+                    .tuples_arena()
+                    .get(tid.raw() as usize)
+                    .ok_or_else(|| referential("unknown static tuple"))?;
+                tuple.iter().map(|&v| self.value(v)).collect::<Result<Vec<_>, _>>()
+            })
+            .collect::<Result<_, _>>()?;
+
+        let sequences: Vec<StaticSequenceV1> = self
+            .sequence_order
+            .iter()
+            .map(|sid| {
+                let seq = store
+                    .sequences_arena()
+                    .get(sid.raw() as usize)
+                    .ok_or_else(|| referential("unknown static sequence"))?;
+                let family = match seq.family() {
+                    StaticSequenceFamily::Array => SequenceFamilyV1::Array,
+                    StaticSequenceFamily::Vector => SequenceFamilyV1::Vector,
+                };
+                let result_type = type_export.ty(seq.result_type())?;
+                let elements = seq.elements().iter().map(|&v| self.value(v)).collect::<Result<Vec<_>, _>>()?;
+                Ok(StaticSequenceV1 {
+                    family,
+                    result_type,
+                    elements,
+                })
+            })
+            .collect::<Result<Vec<StaticSequenceV1>, ArtifactError>>()?;
+
+        let records: Vec<Vec<StaticRecordFieldV1>> = self
+            .record_order
+            .iter()
+            .map(|rid| {
+                let rec = store
+                    .records_arena()
+                    .get(rid.raw() as usize)
+                    .ok_or_else(|| referential("unknown static record"))?;
+                rec.iter()
+                    .map(|f| {
+                        Ok(StaticRecordFieldV1 {
+                            key: key_to_wire(&f.key),
+                            value: self.value(f.value)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ArtifactError>>()
+            })
+            .collect::<Result<Vec<_>, ArtifactError>>()?;
+
+        let data_values: Vec<StaticDataValueV1> = self
+            .data_order
+            .iter()
+            .map(|did| {
+                let d = store
+                    .data_values_arena()
+                    .get(did.raw() as usize)
+                    .ok_or_else(|| referential("unknown static data"))?;
+                let owner = to_stable_declaration(&d.owner);
+                let constructor_owner = to_stable_declaration(&d.constructor.owner);
+                let result_type = type_export.ty(d.result_type)?;
+                let components = d
+                    .components
+                    .iter()
+                    .map(|(cid, v)| {
+                        Ok(StaticDataComponentV1 {
+                            index: cid.index,
+                            value: self.value(*v)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ArtifactError>>()?;
+                Ok(StaticDataValueV1 {
+                    owner,
+                    constructor_owner,
+                    result_type,
+                    components,
+                })
+            })
+            .collect::<Result<Vec<StaticDataValueV1>, ArtifactError>>()?;
+
+        let variant_values: Vec<StaticVariantValueV1> = self
+            .variant_order
+            .iter()
+            .map(|vid| {
+                let v = store
+                    .variant_values_arena()
+                    .get(vid.raw() as usize)
+                    .ok_or_else(|| referential("unknown static variant"))?;
+                let variant = to_stable_variant(&v.variant);
+                let result_type = type_export.ty(v.result_type)?;
+                let fields = v
+                    .fields
+                    .iter()
+                    .map(|(fid, val)| {
+                        Ok(StaticVariantFieldV1 {
+                            index: fid.index,
+                            value: self.value(*val)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ArtifactError>>()?;
+                Ok(StaticVariantValueV1 {
+                    variant,
+                    result_type,
+                    fields,
+                })
+            })
+            .collect::<Result<Vec<StaticVariantValueV1>, ArtifactError>>()?;
+
+        let pack_backings: Vec<StaticPackBackingV1> = self
+            .pack_backing_order
+            .iter()
+            .map(|bid| {
+                let b = store
+                    .pack_backings_arena()
+                    .get(bid.raw() as usize)
+                    .ok_or_else(|| referential("unknown static pack backing"))?;
+                let positionals = b.positionals.iter().map(|&v| self.value(v)).collect::<Result<Vec<_>, _>>()?;
+                let labels = b.labels.iter().map(|&s| self.symbol(s)).collect::<Result<Vec<_>, _>>()?;
+                let labeled_values = b.labeled_values.iter().map(|&v| self.value(v)).collect::<Result<Vec<_>, _>>()?;
+                Ok(StaticPackBackingV1 {
+                    positionals,
+                    labels,
+                    labeled_values,
+                })
+            })
+            .collect::<Result<Vec<StaticPackBackingV1>, ArtifactError>>()?;
+
+        let packs: Vec<StaticPackSliceV1> = self
+            .pack_order
+            .iter()
+            .map(|pid| {
+                let p = store
+                    .packs_arena()
+                    .get(pid.raw() as usize)
+                    .ok_or_else(|| referential("unknown static pack"))?;
+                let backing = *self
+                    .pack_backing_ids
+                    .get(&p.backing)
+                    .ok_or_else(|| referential("unrelocated pack backing"))?;
+                Ok(StaticPackSliceV1 {
+                    backing,
+                    positional_start: p.positional_start,
+                    positional_len: p.positional_len,
+                    labeled_start: p.labeled_start,
+                    labeled_len: p.labeled_len,
+                })
+            })
+            .collect::<Result<Vec<StaticPackSliceV1>, ArtifactError>>()?;
+
+        let values: Vec<StaticValueV1> = self
+            .value_order
+            .iter()
+            .map(|vid| {
+                let data = store
+                    .values_arena()
+                    .get(vid.raw() as usize)
+                    .ok_or_else(|| referential("unknown static value"))?;
+                Ok(match data {
+                    StaticValueData::Unit => StaticValueV1::Unit,
+                    StaticValueData::Bool(b) => StaticValueV1::Bool { value: *b },
+                    StaticValueData::Char(c) => StaticValueV1::Char { scalar: *c as u32 },
+                    StaticValueData::Int(i) => StaticValueV1::Int { decimal: i.to_string() },
+                    StaticValueData::Float(f) => StaticValueV1::Float { bits: f.bits() },
+                    StaticValueData::String(sid) => StaticValueV1::String {
+                        id: *self.string_ids.get(sid).ok_or_else(|| referential("missing string id"))?,
+                    },
+                    StaticValueData::Symbol(sym) => StaticValueV1::Symbol {
+                        id: *self.symbol_ids.get(sym).ok_or_else(|| referential("missing symbol id"))?,
+                    },
+                    StaticValueData::Type(ty) => StaticValueV1::Type { ty: type_export.ty(*ty)? },
+                    StaticValueData::StaticTerm(ty) => StaticValueV1::StaticTerm { ty: type_export.ty(*ty)? },
+                    StaticValueData::Tuple(tid) => StaticValueV1::Tuple {
+                        id: *self.tuple_ids.get(tid).ok_or_else(|| referential("missing tuple id"))?,
+                    },
+                    StaticValueData::Sequence(sid) => StaticValueV1::Sequence {
+                        id: *self.sequence_ids.get(sid).ok_or_else(|| referential("missing sequence id"))?,
+                    },
+                    StaticValueData::Record(rid) => StaticValueV1::Record {
+                        id: *self.record_ids.get(rid).ok_or_else(|| referential("missing record id"))?,
+                    },
+                    StaticValueData::Data(did) => StaticValueV1::Data {
+                        id: *self.data_ids.get(did).ok_or_else(|| referential("missing data id"))?,
+                    },
+                    StaticValueData::Variant(vid) => StaticValueV1::Variant {
+                        id: *self.variant_ids.get(vid).ok_or_else(|| referential("missing variant id"))?,
+                    },
+                    StaticValueData::Pack(pid) => StaticValueV1::Pack {
+                        id: *self.pack_ids.get(pid).ok_or_else(|| referential("missing pack id"))?,
+                    },
+                })
+            })
+            .collect::<Result<_, ArtifactError>>()?;
+
+        let graph = StaticValueGraphV1 {
+            values,
+            strings,
+            symbols,
+            tuples,
+            sequences,
+            records,
+            data_values,
+            variant_values,
+            pack_backings,
+            packs,
+        };
+        graph.validate(limits)?;
+        Ok(graph)
+    }
+}
+
+pub fn key_to_wire(key: &FieldKey) -> FieldKeyV1 {
+    match key {
+        FieldKey::Symbol(s) => FieldKeyV1::Symbol { value: s.to_string() },
+        FieldKey::String(s) => FieldKeyV1::String { value: s.to_string() },
+        FieldKey::Int(i) => FieldKeyV1::Int { decimal: i.to_string() },
+        FieldKey::Bool(b) => FieldKeyV1::Bool { value: *b },
     }
 }
 

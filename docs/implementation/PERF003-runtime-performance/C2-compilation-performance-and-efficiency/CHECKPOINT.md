@@ -701,6 +701,45 @@ The three requested review fixes are implemented in the existing worktree:
 - TypeStore artifact relocation rejects RecordRow parameters in TypeData::Parameter
   and rejects a node kind differing from its relocated parameter definition.
 
+
+## P7 continuation — T7.A/T6 transport seam — 2026-10-14
+
+- Active plan PERF003.C2.P7 remains IN_PROGRESS / PARTIAL / UNVERIFIED.
+- Source state checkpointed at user commit `5196d002`; one uncommitted
+  import-path correction to `phalcom-semantic/src/static_value/artifact.rs`.
+- Established this continuation:
+  - `semantic::static_value` is exported in `phalcom-compiler-artifact` and
+    compiles; its codec is bounded, fail-closed, validates canonical scalar
+    encodings, record-key ordering, pack slice bounds, and static DAG acyclicity,
+    and returns dependency-first reconstruction order.
+  - `semantic::aggregates` is now a versioned structural-contract DTO codec
+    (schema 1) with owner-identity and declaration-order validation; it stays a
+    DTO crate with no semantic projection.
+  - `phalcom_semantic::static_value::{StaticRelocation, import_static_value_graph}`
+    reconstructs all static families into a fresh lineage through the ordinary
+    validated factories, resolving DataInfo/VariantInfo via loader-supplied
+    tables (T7.A-before-T6 staged dependency honored) and preserving shared pack
+    backings.
+- Compiler-only evidence (flags/wrapper cleared, serial): artifact crate check
+  PASS clean; semantic lib check PASS 14.19 s; core+lsp lib check PASS 8.22 s
+  with only the inherited LSP unused-import warning. `git diff --check` PASS.
+- Not established: T6 export projection, T7.A semantic-owned projection/loading
+  (exhaustive DataInfo/EnumInfo/VariantInfo coverage), T7.B checked attachments.
+- Escalation resolved 2026-10-14 (user decision, session continuation): T7.B
+  source-independent checked operational templates are APPROVED — wire design
+  with relocated operands, stable targets, and retained evaluation order, plus
+  the corresponding evaluator contract change. No empty attachment tables.
+  Execute T7.A exhaustive DTO coverage first, then T6 export projection, then
+  T7.B. Packet recorded in the P7 handoff.
+- T7.A exhaustive DTO rewrite of the artifact-crate structural contracts is
+  implemented but UNCOMPILED and unverified (uncommitted over `5196d002`):
+  declared-type states, visibility, shape templates, case environments, and
+  real generic constraints now mirror live shapes; invented wire-only fields
+  (pending static defaults/discriminants) were removed. Continuation facts and
+  next actions are recorded in the P7 handoff (second 2026-10-14 section).
+- T13/T14 acceptance remains deferred under the compiler-only policy. No
+  behavioral gate is claimed. No commit/push performed by the agent.
+
 Compiler-only validation completed with local flags and wrapper cleared:
 `cargo check -p phalcom-core -p phalcom-lsp --lib`,
 `cargo check -p phalcom-semantic --test semantic -p phalcom-core --test core --lib`,

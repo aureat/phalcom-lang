@@ -127,6 +127,14 @@ impl<T: Wire> Wire for Option<T> {
         }
     }
 }
+impl<T: Wire> Wire for Box<T> {
+    fn write(&self, out: &mut BinaryWriter) -> Result<(), ArtifactError> {
+        self.as_ref().write(out)
+    }
+    fn read(input: &mut Decode<'_>) -> Result<Self, ArtifactError> {
+        T::read(input).map(Box::new)
+    }
+}
 macro_rules! record {
     ($name:ident { $($field:ident: $ty:ty),* $(,)? }) => { record!($name limit max_semantic_entries_per_family { $($field: $ty),* }); };
     ($name:ident limit $limit:ident { $($field:ident: $ty:ty),* $(,)? }) => {

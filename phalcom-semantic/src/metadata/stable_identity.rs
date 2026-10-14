@@ -152,6 +152,19 @@ pub fn to_stable_impl(r#impl: &crate::identity::ImplId) -> phalcom_type_meta::id
     }
 }
 
+pub fn to_stable_variant(variant: &crate::identity::VariantId) -> StableVariantRef {
+    StableVariantRef {
+        owner: to_stable_declaration(&variant.owner),
+        selector: variant.selector.encode().into_boxed_str(),
+    }
+}
+
+pub fn from_stable_variant(variant: &StableVariantRef) -> Result<crate::identity::VariantId, &'static str> {
+    let owner = from_stable_declaration(&variant.owner)?;
+    let selector = phalcom_common::selector::Selector::try_decode_exact(&variant.selector).map_err(|_| "invalid variant selector")?;
+    Ok(crate::identity::VariantId::new(owner, selector))
+}
+
 pub fn from_stable_project(proj: &StableProjectRef) -> Result<ProjectIdentity, &'static str> {
     match proj {
         StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe" => {
