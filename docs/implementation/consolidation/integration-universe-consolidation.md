@@ -164,3 +164,39 @@ remove graph-only edges merely because their `read_target` is `None`.
 Do not relax runtime cycles, add late compiler reads, or claim bootstrap
 acceptance without executable tests. Remote GitHub updates were committed;
 this execution environment has neither a Phalcom checkout nor Rust Cargo.
+
+### Failure-only cycle producer differential (2026-10-14)
+
+- `d8791b4f`: when (and only when) canonical executable finalization rejects a
+  runtime cycle, rerun immutable finalization over **authored imports only**,
+  **authored + semantic-generated requirements**, and
+  **authored + metadata-type-owner requirements**. Report acyclic/cyclic/other
+  outcomes without publishing candidate executables or altering the original
+  failure. This identifies whether a requirement family creates a cycle by
+  itself or whether families interact.
+- `d45108fe`, `70572fbd`: add a synthetic case where authored imports and
+  each generated requirement family are independently acyclic, but the
+  combination forms a strict runtime cycle. The test specifically protects
+  against incorrectly exonerating one family based on an isolated probe.
+- **Execution status: UNVERIFIED.** These Rust changes and the focused test were
+  committed through GitHub but cannot be Cargo-tested in the current session.
+  The diagnostic can prove which requirement families participate in a cycle;
+  it does **not** prove that any particular edge can be dropped.
+
+Proposed test filter after local checkout/build:
+
+```sh
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib canonical_cycle_differential_ -- --nocapture
+```
+
+**Architectural hypothesis requiring evidence:** the semantic producer
+aggregates reads from declared callable bodies regardless of whether those
+bodies execute during module initialization. The executable finalizer currently
+adds every generated read/owner requirement as an *eager initialization edge*.
+Consequently, deferred callable reads and metadata identity requirements could
+overconstrain the initialization DAG. This is not yet proved as the sole cause
+of the reported canonical SCC. Implementer must distinguish (1) allocation of
+an immutable read target, (2) actual availability of the runtime value, and
+(3) dependency-first execution of a source initializer, without treating
+preallocated-but-uninitialized slots as available values. Do not simply erase
+owner-only requirements or relax the DAG.
