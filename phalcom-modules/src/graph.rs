@@ -108,6 +108,114 @@ pub enum RuntimeDependencyReason {
     RuntimeDeclarationReference,
 }
 
+/// Product a generated runtime requirement needs from its canonical target.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum RuntimeRequirementProduct {
+    /// Stable semantic identity only.
+    CanonicalIdentity,
+    /// A descriptor installed from the semantic metadata bundle.
+    MetadataDescriptor,
+    /// A runtime module or object already materialized by the VM.
+    RuntimeObject,
+    /// A value produced by executing a source module initializer.
+    SourceInitializedValue,
+}
+
+/// Latest point by which a generated requirement must be available.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum RuntimeRequirementTiming {
+    /// Before any canonical source initializer runs.
+    BeforeSourceExecution,
+    /// While a source module initializer is running.
+    DuringModuleInitializer,
+    /// After the canonical Universe bootstrap has completed.
+    AfterBootstrap,
+}
+
+/// Semantic producer of a generated runtime requirement.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum RuntimeRequirementProducer {
+    /// A lowered read of a canonical declaration.
+    DeclarationRead,
+    /// A lowered read originating from an import binding.
+    ImportRead,
+    /// A compiler-inserted canonical runtime read.
+    CompilerGeneratedRead,
+    /// A callable owner needed while materializing a callable.
+    CallableOwner,
+    /// A pattern or variant owner needed by runtime matching.
+    PatternOwner,
+    /// A generic-conformance type owner.
+    ConformanceTypeOwner,
+    /// A contextual receiver value read.
+    ContextualReceiverRead,
+    /// A runtime type metadata owner.
+    MetadataTypeOwner,
+    /// A static constant initializer read.
+    StaticConstantRead,
+}
+
+/// Exact canonical target retained for a generated requirement.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum RuntimeRequirementTarget {
+    /// The canonical module object itself.
+    Module(ModuleId),
+    /// A canonical module-owned binding.
+    Binding { module: ModuleId, name: Box<str> },
+}
+
+impl RuntimeRequirementTarget {
+    /// Returns the canonical module owning the exact target.
+    pub fn module(&self) -> &ModuleId {
+        match self {
+            Self::Module(module) | Self::Binding { module, .. } => module,
+        }
+    }
+
+    /// Returns the conservative product implied by the exact target.
+    ///
+    /// Only a binding named by the native installation catalog is guaranteed
+    /// to exist before source execution. Other bindings and whole-module
+    /// values may depend on their source initializer.
+    pub fn conservative_product(&self) -> RuntimeRequirementProduct {
+        match self {
+            Self::Module(_) => RuntimeRequirementProduct::SourceInitializedValue,
+            Self::Binding { module, name } => {
+                let native_floor_binding = module.project.is_universe()
+                    && phalcom_native_meta::UNIVERSE_BINDINGS.iter().any(|binding| {
+                        binding.name == name.as_ref()
+                            && binding
+                                .key
+                                .source_path()
+                                .iter()
+                                .copied()
+                                .eq(module.path.components().iter().map(|component| component.as_str()))
+                    });
+                if native_floor_binding {
+                    RuntimeRequirementProduct::RuntimeObject
+                } else {
+                    RuntimeRequirementProduct::SourceInitializedValue
+                }
+            }
+        }
+    }
+}
+
+/// Provenance retained on a generated dependency edge.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct RuntimeRequirementProvenance {
+    /// Consumer module (same as the edge importer).
+    pub consumer: ModuleId,
+    /// Requirement producer.
+    pub producer: RuntimeRequirementProducer,
+    /// Exact canonical target.
+    pub target: RuntimeRequirementTarget,
+    /// Product required from the target.
+    pub product: RuntimeRequirementProduct,
+    /// Required availability timing.
+    pub timing: RuntimeRequirementTiming,
+}
+
 /// One eager runtime initialization dependency.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RuntimeDependencyEdge {
@@ -119,6 +227,9 @@ pub struct RuntimeDependencyEdge {
     pub range: SourceRange,
     /// Dependency reason.
     pub reason: RuntimeDependencyReason,
+    /// Requirement details carried through executable finalization. Provisional
+    /// legacy projections may not have source-phase provenance yet.
+    pub provenance: Option<RuntimeRequirementProvenance>,
 }
 
 /// Graph of statically resolved source references.
@@ -277,11 +388,8 @@ impl RuntimeDependencyGraph {
 
     /// Validates that eager initialization dependencies form a DAG.
     pub fn validate_acyclic(&self) -> Result<(), crate::error::ModuleGraphError> {
-        let components = self.components();
-        for component in components {
-            if component.len() > 1 || self.has_self_edge(&component[0]) {
-                return Err(crate::error::ModuleGraphError::RuntimeCycle { cycle: component });
-            }
+        if let Some(error) = self.cycle_error() {
+            return Err(error);
         }
         Ok(())
     }
@@ -315,7 +423,11 @@ impl RuntimeDependencyGraph {
             }
         }
         if order.len() != nodes.len() {
-            return Err(crate::error::ModuleGraphError::RuntimeCycle { cycle: nodes });
+            return Err(self.cycle_error().unwrap_or_else(|| crate::error::ModuleGraphError::RuntimeCycle {
+                cycle: nodes.clone(),
+                components: vec![nodes],
+                path: Vec::new(),
+            }));
         }
         Ok(order)
     }
@@ -327,7 +439,67 @@ impl RuntimeDependencyGraph {
     pub fn components(&self) -> Vec<Vec<ModuleId>> {
         let nodes = self.nodes();
         let adjacency = nodes.iter().map(|node| (node.clone(), self.dependencies(node))).collect::<BTreeMap<_, _>>();
-        strongly_connected_components(nodes, |node| adjacency.get(node).cloned().unwrap_or_default())
+        let mut components = strongly_connected_components(nodes, |node| adjacency.get(node).cloned().unwrap_or_default());
+        for component in &mut components {
+            component.sort();
+        }
+        components.sort_by(|left, right| left.first().cmp(&right.first()));
+        components
+    }
+
+    fn cycle_error(&self) -> Option<crate::error::ModuleGraphError> {
+        let components = self
+            .components()
+            .into_iter()
+            .filter(|component| component.len() > 1 || self.has_self_edge(&component[0]))
+            .collect::<Vec<_>>();
+        let first = components.first()?.clone();
+        let allowed = first.iter().cloned().collect::<BTreeSet<_>>();
+        let start = first[0].clone();
+        let mut path = Vec::new();
+        let mut visited = BTreeSet::from([start.clone()]);
+        let _ = self.find_cycle_path(&start, &start, &allowed, &mut visited, &mut path);
+        Some(crate::error::ModuleGraphError::RuntimeCycle {
+            cycle: first,
+            components,
+            path,
+        })
+    }
+
+    fn find_cycle_path(
+        &self,
+        current: &ModuleId,
+        start: &ModuleId,
+        allowed: &BTreeSet<ModuleId>,
+        visited: &mut BTreeSet<ModuleId>,
+        path: &mut Vec<RuntimeDependencyEdge>,
+    ) -> bool {
+        let mut edges = self
+            .edges_from(current)
+            .iter()
+            .filter(|edge| allowed.contains(&edge.dependency))
+            .cloned()
+            .collect::<Vec<_>>();
+        edges.sort_by(|left, right| {
+            (&left.dependency, left.reason, left.range, &left.provenance).cmp(&(&right.dependency, right.reason, right.range, &right.provenance))
+        });
+        for edge in edges {
+            if edge.dependency == *start {
+                path.push(edge);
+                return true;
+            }
+            if !visited.insert(edge.dependency.clone()) {
+                continue;
+            }
+            let next = edge.dependency.clone();
+            path.push(edge);
+            if self.find_cycle_path(&next, start, allowed, visited, path) {
+                return true;
+            }
+            path.pop();
+            visited.remove(&next);
+        }
+        false
     }
 
     /// Returns a filtered subgraph containing only the specified nodes and edges between them.

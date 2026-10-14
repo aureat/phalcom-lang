@@ -6,7 +6,8 @@ use phalcom_common::range::SourceRange;
 use phalcom_modules::{
     EntryOwnership, ExecutableLinkedProgram, FilesystemSourceProvider, ImportSurface, InterfaceBuilder, InterfaceError, LinkError, LinkedModule,
     LinkedReadSpec, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse,
-    RuntimeDependencyReason, RuntimeDependencyRequirement, SourceError, SourceId, SourceLocation, SourceProvider, SymbolId, UniverseSourceProvider,
+    RuntimeDependencyReason, RuntimeDependencyRequirement, RuntimeRequirementProducer, RuntimeRequirementProduct, RuntimeRequirementProvenance,
+    RuntimeRequirementTarget, RuntimeRequirementTiming, SourceError, SourceId, SourceLocation, SourceProvider, SymbolId, UniverseSourceProvider,
     classify_entry_ownership,
 };
 use phalcom_semantic::SemanticDiagnostic;
@@ -515,15 +516,28 @@ fn contextual_receiver_read_requirement(
     store: &phalcom_semantic::types::store::TypeStore,
 ) -> Option<RuntimeDependencyRequirement> {
     let declaration = store.nominal_origin_declaration(target_type)?;
-    (&declaration.module != importer).then(|| RuntimeDependencyRequirement {
-        importer: importer.clone(),
-        dependency: declaration.module.clone(),
-        range,
-        reason: RuntimeDependencyReason::RuntimeDeclarationReference,
-        read_target: Some(LinkedReadSpec::Binding(SymbolId {
+    (&declaration.module != importer).then(|| {
+        let target = RuntimeRequirementTarget::Binding {
             module: declaration.module.clone(),
             name: declaration.name.clone(),
-        })),
+        };
+        RuntimeDependencyRequirement {
+            importer: importer.clone(),
+            dependency: declaration.module.clone(),
+            range,
+            reason: RuntimeDependencyReason::RuntimeDeclarationReference,
+            read_target: Some(LinkedReadSpec::Binding(SymbolId {
+                module: declaration.module.clone(),
+                name: declaration.name.clone(),
+            })),
+            provenance: RuntimeRequirementProvenance {
+                consumer: importer.clone(),
+                producer: RuntimeRequirementProducer::ContextualReceiverRead,
+                product: target.conservative_product(),
+                target,
+                timing: RuntimeRequirementTiming::DuringModuleInitializer,
+            },
+        }
     })
 }
 
@@ -652,10 +666,17 @@ pub(super) fn runtime_metadata_type_requirements(
             }
             requirements.push(RuntimeDependencyRequirement {
                 importer: importer.clone(),
-                dependency,
+                dependency: dependency.clone(),
                 range,
                 reason: RuntimeDependencyReason::RuntimeDeclarationReference,
                 read_target: None,
+                provenance: RuntimeRequirementProvenance {
+                    consumer: importer.clone(),
+                    producer: RuntimeRequirementProducer::MetadataTypeOwner,
+                    target: RuntimeRequirementTarget::Module(dependency.clone()),
+                    product: RuntimeRequirementProduct::CanonicalIdentity,
+                    timing: RuntimeRequirementTiming::BeforeSourceExecution,
+                },
             });
         }
     }
@@ -949,6 +970,9 @@ pub enum ProgramCompileError {
     /// Canonical generic evidence could not be represented for lowering.
     #[error("generic evidence layout error: {0}")]
     GenericEvidenceLayout(String),
+    /// Canonical availability proofs could not be established.
+    #[error("canonical availability contract error: {0}")]
+    AvailabilityContract(String),
 }
 
 /// Fully analyzed program snapshot ready for code generation.
@@ -1089,7 +1113,13 @@ fn link_analyze_finalize(
         .collect::<Vec<_>>();
     generated_requirements.extend(runtime_metadata_type_requirements(&snapshot, sources, runtime_modules));
 
-    let executable = linker.finalize_executable_with_requirements((*semantic).clone(), &snapshot.import_phase_products, &generated_requirements)?;
+    let canonical = crate::modules::canonical_universe_program().map_err(|error| ProgramCompileError::AvailabilityContract(error.to_string()))?;
+    let executable = linker.finalize_executable_with_availability(
+        (*semantic).clone(),
+        &snapshot.import_phase_products,
+        &generated_requirements,
+        canonical.availability_after_bootstrap(),
+    )?;
     Ok((Arc::new(executable), snapshot))
 }
 
@@ -2648,7 +2678,10 @@ fn compile_module(
 mod tests {
     use super::{ProgramCompileError, RuntimeMetadataTypeOwnerCollector, SourceRange, contextual_receiver_read_requirement};
     use crate::typing::RuntimeTypeRecipe;
-    use phalcom_modules::{LinkedReadSpec, ModuleComponent, ModuleId, ModulePath, RuntimeDependencyReason, RuntimeDependencyRequirement, SymbolId};
+    use phalcom_modules::{
+        LinkedReadSpec, ModuleComponent, ModuleId, ModulePath, RuntimeDependencyReason, RuntimeDependencyRequirement, RuntimeRequirementProducer,
+        RuntimeRequirementProduct, RuntimeRequirementProvenance, RuntimeRequirementTarget, RuntimeRequirementTiming, SymbolId,
+    };
     use phalcom_semantic::identity::DeclarationId;
     use phalcom_semantic::types::id::StaticDomainId;
     use phalcom_semantic::types::kind::KindData;
@@ -2811,6 +2844,16 @@ mod tests {
                     module: owner.clone(),
                     name: "Scalar".into(),
                 })),
+                provenance: RuntimeRequirementProvenance {
+                    consumer: importer.clone(),
+                    producer: RuntimeRequirementProducer::ContextualReceiverRead,
+                    target: RuntimeRequirementTarget::Binding {
+                        module: owner.clone(),
+                        name: "Scalar".into(),
+                    },
+                    product: RuntimeRequirementProduct::RuntimeObject,
+                    timing: RuntimeRequirementTiming::DuringModuleInitializer,
+                },
             }
         );
         assert!(

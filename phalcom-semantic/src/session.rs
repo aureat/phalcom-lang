@@ -8599,6 +8599,7 @@ impl SemanticWorkspaceSession {
                 crate::phase_evidence::compute_module_import_phase_products(
                     semantic_linked,
                     &input.sources,
+                    snapshot_obj.source_index.as_ref(),
                     &snapshot_obj.callable_analyses,
                     Some(snapshot_obj.store.as_ref()),
                     Some(&snapshot_obj.static_constants),

@@ -423,6 +423,32 @@ fn comp_08_standalone_module_succeeds() {
 #[test]
 fn mat_01_export_slots_populated() {
     let mut vm = VM::new();
+    let option_module = vm
+        .module_registry
+        .iter()
+        .find(|(id, _)| id.to_string() == "universe:option.option")
+        .expect("canonical Option module materialized")
+        .1
+        .object;
+    let none_sym = vm.interner.intern("None");
+    assert_eq!(
+        vm.heap.module(option_module).get(none_sym),
+        Some(Value::none()),
+        "canonical None binding remains immediate absence"
+    );
+    let option_sym = vm.interner.intern("Option");
+    assert_eq!(
+        vm.heap.module(option_module).get(option_sym),
+        Some(Value::obj(vm.universe.classes.option_class)),
+        "source reopen preserves the native Option class identity"
+    );
+    let is_none_sym = vm.interner.intern("isNone");
+    assert!(
+        vm.heap.class(vm.universe.classes.option_class).methods.contains_key(&is_none_sym),
+        "source Option reopen installs its behavior on the canonical class"
+    );
+    assert!(vm.heap.module(option_module).metadata.is_some(), "canonical module metadata is installed");
+
     let selection = EntrySelection::Project(fixture_path("simple_export"));
     let program = ProgramCompiler::compile_entry_selection(selection).expect("compile simple_export");
     vm.run_compiled(&program).expect("run simple_export");
@@ -438,6 +464,102 @@ fn mat_01_export_slots_populated() {
     let widget_val = vm.heap.module(exporter_obj).get(widget_sym).expect("Widget slot exists");
     assert!(!widget_val.is_none(), "Widget slot must not be None");
     assert!(widget_val.is_obj(), "Widget slot must be an object");
+
+    let (importer_id, _) = program
+        .modules
+        .iter()
+        .find(|(id, _)| id.path.to_string().contains("importer"))
+        .expect("importer module present");
+    let importer_obj = vm.module_registry.get(importer_id).unwrap().object;
+    let linked_read = vm
+        .heap
+        .module(importer_obj)
+        .linked_reads
+        .first()
+        .copied()
+        .expect("finalized Widget linked read");
+    let linked_value = match linked_read {
+        RuntimeLinkedRead::Module(module) => Value::obj(module),
+        RuntimeLinkedRead::Binding(binding) => vm.heap.module(binding.module).get_by_slot(binding.slot as usize).expect("linked binding value"),
+        RuntimeLinkedRead::StaticConstant(reference) => vm.heap.module(reference.module).static_constants[&reference.name],
+    };
+    assert_eq!(linked_value, widget_val, "finalized user linked read preserves the exported class identity");
+
+    let temp = tempfile::tempdir().expect("temporary availability-contract project");
+    let source_dir = temp.path().join("src");
+    std::fs::create_dir_all(&source_dir).expect("create project source directory");
+    std::fs::write(
+        temp.path().join("project.toml"),
+        "[project]\nname = \"availability_probe\"\nnamespace = \"availability_probe\"\nversion = \"0.1.0\"\nsource = \"src\"\nentry = \"availability_probe.main\"\n",
+    )
+    .expect("write project manifest");
+    std::fs::write(source_dir.join("package.ph"), "expose .main\n").expect("write package source");
+    std::fs::write(
+        source_dir.join("main.ph"),
+        "from universe.errors.unsupported import unsupported\nlet observed = unsupported\nexport observed\n",
+    )
+    .expect("write Universe-importing user module");
+    let user_program = ProgramCompiler::compile_entry_selection(EntrySelection::Project(temp.path().to_path_buf()))
+        .expect("compile user project against fully initialized Universe contract");
+    vm.run_compiled(&user_program).expect("run Universe-importing user project");
+    let (user_module_id, _) = user_program
+        .modules
+        .iter()
+        .find(|(id, _)| id.path.to_string().ends_with("main"))
+        .expect("user main module present");
+    let user_module = vm.module_registry.get(user_module_id).unwrap().object;
+    let (unsupported_module_id, unsupported_module) = vm
+        .module_registry
+        .iter()
+        .find(|(id, _)| id.to_string() == "universe:errors.unsupported")
+        .expect("canonical exported binding module materialized");
+    let unsupported_module_id = unsupported_module_id.clone();
+    let unsupported_module = unsupported_module.object;
+    let unsupported_target = phalcom_modules::RuntimeRequirementTarget::Binding {
+        module: unsupported_module_id.clone(),
+        name: "unsupported".into(),
+    };
+    let source_requirement = user_program
+        .linked
+        .runtime_requirements()
+        .iter()
+        .find(|requirement| &requirement.importer == user_module_id && requirement.provenance.target == unsupported_target)
+        .expect("finalized user requirement retains exact source binding provenance");
+    assert_eq!(
+        source_requirement.provenance.product,
+        phalcom_modules::RuntimeRequirementProduct::SourceInitializedValue,
+        "authored source binding requires its initializer value"
+    );
+    assert!(
+        !user_program
+            .linked
+            .graphs
+            .runtime
+            .edges_from(user_module_id)
+            .iter()
+            .any(|edge| edge.dependency == unsupported_module_id),
+        "fully initialized Universe proof removes only the eager ordering edge"
+    );
+    let unsupported_read = vm
+        .heap
+        .module(user_module)
+        .linked_reads
+        .iter()
+        .find_map(|read| match read {
+            RuntimeLinkedRead::Binding(binding) if binding.module == unsupported_module => Some(*binding),
+            _ => None,
+        })
+        .expect("finalized exported Universe binding linked read remains allocated");
+    let unsupported_value = vm
+        .heap
+        .module(user_module)
+        .get(vm.interner.intern("observed"))
+        .expect("user module observed binding is populated");
+    assert_eq!(
+        vm.heap.module(unsupported_read.module).get_by_slot(unsupported_read.slot as usize),
+        Some(unsupported_value),
+        "post-bootstrap exact proof preserves the exported Universe value in its linked read"
+    );
 }
 
 /// MAT-02 — __module__ intrinsic resolves to the module object itself

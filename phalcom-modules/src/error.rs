@@ -189,8 +189,15 @@ pub enum InterfaceError {
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ModuleGraphError {
     /// Eager runtime initialization would require a cyclic order.
-    #[error("cyclic module initialization: {cycle:?}")]
-    RuntimeCycle { cycle: Vec<ModuleId> },
+    #[error("cyclic module initialization: SCCs {components:?}; deterministic cycle path {path:?}")]
+    RuntimeCycle {
+        /// First cyclic strongly connected component, retained for compatibility.
+        cycle: Vec<ModuleId>,
+        /// Every cyclic strongly connected component in deterministic order.
+        components: Vec<Vec<ModuleId>>,
+        /// One deterministic directed cycle, including complete edge provenance.
+        path: Vec<crate::graph::RuntimeDependencyEdge>,
+    },
 }
 
 // ── Name Validation Error ──────────────────────────────────────────────────

@@ -69,6 +69,85 @@ cross-stage acceptance are still open. The T5 finalizer and T6 executable
 compiler boundary are implemented and focused-tested; see the checkpoint and
 current continuation handoff for evidence and remaining acceptance gaps.
 
+## Approved Level 2 amendment — canonical runtime availability closure (2026-10-14)
+
+The user approved continuation of the canonical bootstrap blocker under this
+P4 checkpoint. This amendment closes the integrated canonical Universe
+generated-requirement cycle only; the other P4 producer-family and CV/T8 gaps
+remain open.
+
+Fixed contract:
+
+1. Preserve strict runtime DAG validation. Do not exempt Universe modules or
+   discard generated requirements by module name.
+2. Carry deterministic provenance for every runtime requirement through
+   finalization: producer, source range, exact canonical target when known,
+   consumer, required product, and the stage at which the consumer needs it.
+3. Keep canonical read-slot allocation independent of eager initialization
+   ordering. A requirement may lose its DAG edge only when an exact immutable
+   availability proof satisfies its product at the required stage.
+4. Canonical compilation receives a native-floor contract; ordinary user
+   compilation receives the fully initialized canonical-Universe contract.
+   Proofs contain no VM handles and cannot cross from a binding to a whole
+   module. Reserved source-only slots are not initialized values.
+5. Metadata-only identity/descriptor use does not imply a source-initialization
+   edge. Consumers that need a runtime object or source-installed behavior must
+   say so. Missing or ambiguous evidence keeps a conservative edge or fails
+   closed.
+6. If verified source-initialization cycles remain after classification,
+   change only implicated source modules, preserving canonical identity,
+   reopen behavior, registration order, and initialization effects.
+
+Continuation tasks:
+
+- **T9:** Add deterministic requirement provenance, categorized effective-edge
+  diagnostics, SCCs, and an explicit cycle path without changing classification.
+- **T10:** Add typed requirement product/timing and exact availability-contract
+  inputs; separate read slots from initialization edges and audit metadata and
+  generated-read consumers.
+- **T11:** Produce and verify native-floor and fully initialized Universe
+  contracts, then resolve only cycles proven to be genuine source-init cycles.
+
+Focused acceptance covers exact proof matching, metadata-only requirements,
+source-only reservations, authored imports, deterministic producer ordering,
+strict cycle rejection, native-floor binding identity, canonical bootstrap,
+source reopens, metadata installation, and finalized linked reads. The exact
+canonical bootstrap discriminator remains `modules_linking::mat_01_export_slots_populated`.
+Workspace/release certification is deferred. See the active incident record
+for baseline facts and the implementation handoff for remaining P4 work.
+
+### Execution outcome — canonical bootstrap blocker (2026-10-14)
+
+T9–T11 close the canonical bootstrap blocker under this amendment. Requirement
+provenance remains on generated requirements, finalized products, runtime
+edges, and cycle diagnostics; cycle errors expose sorted SCCs and a deterministic
+edge path. Product/timing classification and immutable exact availability
+contracts control only eager-edge removal. Read slots remain present when an
+exact proof satisfies ordering. Unknown and mismatched cases remain
+conservative, and whole-module imports require a module proof.
+
+The native-floor inventory was derived from the native binding catalog and
+verified against populated values and class identities in a fresh native VM.
+Reserved source-only class slots have neither an initialized value nor a floor
+proof. The exact bootstrap discriminator now passes. Its runtime investigation
+found that materialization had overwritten the catalog's immediate `None`
+value with the hidden `None` class handle; eager and lazy materialization now
+preserve the singleton binding while class identity remains canonical. The
+class-membership source methods compare class identities directly. No genuine
+source-initialization cycle remained after exact proof matching, so no source
+initializer body or declaration order was changed to work around the graph.
+
+The exact discriminator also compiles and runs an ordinary user project that
+imports the exported `universe.errors.unsupported.unsupported` binding and
+checks its finalized linked read. It passed with the native-floor, reopen,
+metadata, and None-preservation assertions in 188.46 seconds. Its retained
+requirement is typed as `SourceInitializedValue`; the exact full-bootstrap
+proof removes the eager edge and leaves the canonical read slot allocated.
+
+Focused evidence is recorded in the updated checkpoint and continuation
+handoff. MODL001.C2.P4 remains `IN_PROGRESS / PARTIAL / FOCUSED_TESTED` because
+the other T4 producer-coverage and T7/T8 cross-stage acceptance gaps remain.
+
 ## 0. Executor contract
 
 Implement a sound source-to-runtime dependency path under the architecture below. The work may adapt private helpers and data layout to the live tree. It must not add import syntax, weaken cycle validation, or infer interface-only status from missing runtime edges. Stop for architectural consultation if semantic usage cannot be proven before executable linking, or if any runtime read cannot be represented in the finalized runtime graph.
