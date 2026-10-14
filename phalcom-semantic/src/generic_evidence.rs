@@ -1000,11 +1000,19 @@ fn evaluate_conformance_goal(key: &GenericConformanceKey, context: &mut Conforma
 
             let is_satisfied = matches!(
                 (kind, &classification),
-                (CompilerDerivedConformanceKind::Product, crate::structural::StructuralClassification::OrderedProduct(_))
-                    | (CompilerDerivedConformanceKind::Product, crate::structural::StructuralClassification::UnorderedProduct(_))
-                    | (CompilerDerivedConformanceKind::OrderedProduct, crate::structural::StructuralClassification::OrderedProduct(_))
-                    | (CompilerDerivedConformanceKind::UnorderedProduct, crate::structural::StructuralClassification::UnorderedProduct(_))
-                    | (CompilerDerivedConformanceKind::Sum, crate::structural::StructuralClassification::Sum { .. })
+                (
+                    CompilerDerivedConformanceKind::Product,
+                    crate::structural::StructuralClassification::OrderedProduct(_)
+                ) | (
+                    CompilerDerivedConformanceKind::Product,
+                    crate::structural::StructuralClassification::UnorderedProduct(_)
+                ) | (
+                    CompilerDerivedConformanceKind::OrderedProduct,
+                    crate::structural::StructuralClassification::OrderedProduct(_)
+                ) | (
+                    CompilerDerivedConformanceKind::UnorderedProduct,
+                    crate::structural::StructuralClassification::UnorderedProduct(_)
+                ) | (CompilerDerivedConformanceKind::Sum, crate::structural::StructuralClassification::Sum { .. })
             );
 
             if is_satisfied {

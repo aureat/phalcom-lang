@@ -92,9 +92,9 @@ fn resolve_pattern_with_mode(
                     && !pattern_is_variant_of_scrutinee_family(ctx.store, &resolution, subject.canonical)
                 {
                     ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
-                            ctx.current_module.clone(),
-                            crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
-                            "impossible or-pattern alternative: it cannot match any value of the scrutinee type",
+                        ctx.current_module.clone(),
+                        crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
+                        "impossible or-pattern alternative: it cannot match any value of the scrutinee type",
                         alternative.range(),
                     ));
                 }

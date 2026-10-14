@@ -6279,9 +6279,9 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
             && !crate::checker::pattern::pattern_is_variant_of_scrutinee_family(ctx.store, &pattern_res, scrutinee_subject.canonical)
         {
             ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
-                    ctx.current_module.clone(),
-                    crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
-                    "impossible match pattern: it cannot match any value of the scrutinee type",
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::MatchPatternImpossible,
+                "impossible match pattern: it cannot match any value of the scrutinee type",
                 arm.range,
             ));
         }
