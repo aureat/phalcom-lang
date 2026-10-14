@@ -52,7 +52,10 @@ async function completionLabels(
     return lastLabels;
 }
 
-suite('Phalcom LSP extension E2E', () => {
+suite('Phalcom LSP extension E2E', function () {
+    // Completion probes deliberately poll for semantic publication; Mocha's
+    // default two-second limit expires before this contract can be observed.
+    this.timeout(30_000);
     let tempDir: string;
 
     suiteSetup(async () => {
