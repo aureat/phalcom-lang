@@ -467,3 +467,47 @@ fn data_incr_04_visibility_edit_changes_access_without_changing_identity() {
     );
     assert_eq!(second_info, *cold.snapshot.data_semantics.data_info(&owner).expect("cold data info"));
 }
+
+#[test]
+fn contextual_enum_completion_variant_selector_edit_restores_exact_target_without_stale_ambiguity() {
+    let module = module();
+    let original = r#"
+data One { make(_ value: Int) }
+data Two { other }
+class Probe { @class run() -> One | Two { make(1) } }
+"#;
+    let competing = original.replace("data Two { other }", "data Two { make(_ value: Int) }");
+    let callable = CallableId::new(
+        DeclarationId::new(module.clone(), "Probe".into()),
+        Selector::method("run", []).expect("run selector"),
+        DispatchSide::Class,
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session.update(single_module_input(module.clone(), original, 1)).expect("initial publication");
+    assert!(
+        !first.snapshot.all_diagnostics().any(|d| d.code == DiagnosticCode::AssociatedCallAmbiguous),
+        "unique owner must resolve before the edit"
+    );
+    let first_resolution = &first.snapshot.callable_analyses[&callable].associated_resolutions;
+    assert!(!first_resolution.is_empty(), "initial candidate publishes canonical associated target");
+
+    let second = session.update(single_module_input(module.clone(), &competing, 2)).expect("competing owner publication");
+    assert!(
+        second.snapshot.all_diagnostics().any(|d| d.code == DiagnosticCode::AssociatedCallAmbiguous),
+        "adding a same-selector case in another eligible owner must invalidate the winner"
+    );
+    assert!(
+        second.snapshot.callable_analyses[&callable].associated_resolutions.is_empty(),
+        "ambiguous site must not retain a stale associated target"
+    );
+
+    let third = session.update(single_module_input(module.clone(), original, 3)).expect("restored selector publication");
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold = cold.update(single_module_input(module, original, 1)).expect("cold publication");
+    let diagnostic_codes = |snapshot: &SemanticSnapshot| snapshot.all_diagnostics().map(|d| d.code).collect::<Vec<_>>();
+    assert_eq!(diagnostic_codes(&third.snapshot), diagnostic_codes(&cold.snapshot));
+    assert!(
+        !third.snapshot.callable_analyses[&callable].associated_resolutions.is_empty(),
+        "restoring the unique owner must recreate canonical associated resolution"
+    );
+}
