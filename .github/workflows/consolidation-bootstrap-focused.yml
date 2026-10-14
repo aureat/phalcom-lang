@@ -53,6 +53,7 @@ jobs:
         run: |
           cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --lib finalized_bootstrap_order_ -- --nocapture
           cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --lib pattern_temp_depth_tests -- --nocapture
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --lib unexecuted_universe_modules_cannot_publish_source_initialized_value_proofs -- --nocapture
       - name: Exact native-floor inventory
         run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --lib native_floor_contract_matches_fresh_vm_values_and_excludes_source_only_slots -- --nocapture
       - name: Canonical Universe bootstrap and finalized user linked reads
