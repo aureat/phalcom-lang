@@ -1,8 +1,9 @@
 # Phalcom Universe Package — Architecture and Semantic Contract
 
-**Status:** Authoritative design specification  
-**Scope:** Builtin package identity, source ownership, module/package semantics, prelude policy, semantic integration, runtime bootstrap, reflection, and tooling  
-**Canonical package:** `universe`
+- **Status:** Authoritative design specification
+- **Scope:** Builtin package identity, source ownership, module/package semantics, prelude policy,
+  semantic integration, runtime bootstrap, reflection, and tooling
+- **Canonical package:** `universe`
 
 ---
 
@@ -14,21 +15,33 @@ Phalcom has one canonical builtin package:
 universe
 ```
 
-`universe` contains the language/runtime substrate and everything distributed as part of the default Phalcom platform. It is not a compatibility namespace, a synthetic compiler module, or a presentation-only facade. It is a real package in the module graph, composed of real packages and modules with real source units, declarations, exports, source locations, runtime module objects, and reflection identities.
+`universe` contains the language/runtime substrate and everything distributed as part of the default
+Phalcom platform. It is not a compatibility namespace, a synthetic compiler module, or a
+presentation-only facade. It is a real package in the module graph, composed of real packages and
+modules with real source units, declarations, exports, source locations, runtime module objects, and
+reflection identities.
 
 The governing invariant is:
 
-> Every builtin declaration, module, package, runtime behavior, reflection product, semantic identity, and tooling location must refer to the same canonical Universe module graph.
+> Every builtin declaration, module, package, runtime behavior, reflection product, semantic
+> identity, and tooling location must refer to the same canonical Universe module graph.
 
-Different compiler/runtime layers may project different representations of one entity, but they must not create competing builtin ownership models.
+Different compiler/runtime layers may project different representations of one entity, but they must
+not create competing builtin ownership models.
 
-This document defines that contract. It intentionally does not enumerate the full API of the Universe library, define every native primitive ABI, or prescribe patch-by-patch implementation work. The source-visible UTF-8 text contract is owned by [Text and String Model](text.md); the public type-reflection API is owned by [Runtime Typing Reflection](typing/runtime-reflection.md).
+This document defines that contract. It intentionally does not enumerate the full API of the
+Universe library, define every native primitive ABI, or prescribe patch-by-patch implementation
+work. The source-visible UTF-8 text contract is owned by [Text and String Model](text.md); the
+public type-reflection API is
+owned by [Runtime Typing Reflection](typing/runtime-reflection.md).
 
 ---
 
 ## 2. One builtin package, multiple policies
 
-There is no independent `core` package and no independent `std` package. Facilities historically thought of as language core, runtime library, or standard library all belong to `universe`.
+There is no independent `core` package and no independent `std` package. Facilities historically
+thought
+of as language core, runtime library, or standard library all belong to `universe`.
 
 Conceptually:
 
@@ -161,7 +174,8 @@ universe.collections.list::List
 universe.collections.map::Map
 ```
 
-The compiler must not flatten these declarations into the Universe root and must not reconstruct them under a synthetic builtin module merely because they have native implementations.
+The compiler must not flatten these declarations into the Universe root and must not reconstruct
+them under a synthetic builtin module merely because they have native implementations.
 
 The following are different declarations even though their short names match:
 
@@ -185,7 +199,8 @@ UniverseKey::Result
 UniverseKey::Ordering
 ```
 
-These keys are runtime/native associations, not a second declaration database. Each key maps to the canonical source declaration or to an explicitly internal runtime-support identity:
+These keys are runtime/native associations, not a second declaration database. Each key maps to the
+canonical source declaration or to an explicitly internal runtime-support identity:
 
 ```text
 UniverseKey::Int
@@ -247,7 +262,9 @@ universe/
 └── testing/
 ```
 
-The precise set may evolve. The invariant is that each node has one canonical `ModuleId` and one canonical authored source unit.
+The precise set may evolve. The invariant is that each node has one canonical `ModuleId` and one
+canonical
+authored source unit.
 
 Canonical virtual URIs use the module graph directly:
 
@@ -268,9 +285,13 @@ ModuleId <-> canonical Universe URI
 
 LSP/editor code must consume that codec rather than reimplementing it.
 
-A physical sysroot override may substitute physical source files for bundled source, but only the source location changes. Semantic identity remains the same.
+A physical sysroot override may substitute physical source files for bundled source, but only the
+source location changes. Semantic identity remains the same.
 
-There must be no aggregate synthetic source document equivalent to `phalcom://core` that concatenates all builtins into one pseudo-module. Such a document destroys exact module ownership, package structure, import provenance, source navigation, and reflection fidelity.
+There must be no aggregate synthetic source document equivalent to `phalcom://core` that
+concatenates all
+builtins into one pseudo-module. Such a document destroys exact module ownership, package structure,
+import provenance, source navigation, and reflection fidelity.
 
 ---
 
@@ -310,9 +331,12 @@ not to a synthetic root declaration and not to a local import-site declaration.
 
 ### 5.2 Relative imports
 
-Universe modules belong to a real package hierarchy and therefore use the same relative import semantics as ordinary packages. `ProjectIdentity::Universe` must be sufficient context for canonical relative resolution.
+Universe modules belong to a real package hierarchy and therefore use the same relative import
+semantics as ordinary packages. `ProjectIdentity::Universe` must be sufficient context for canonical
+relative resolution.
 
-A separate bootstrap dependency mechanism may cache or precompute dependencies, but it must not define different language semantics.
+A separate bootstrap dependency mechanism may cache or precompute dependencies, but it must not
+define different language semantics.
 
 ### 5.3 `expose`
 
@@ -330,11 +354,13 @@ module is prelude-visible
 
 External imports must respect package exposure at every relevant boundary.
 
-Compiler resolution and editor completion must consume the same exposure model; it is invalid for completion to hide a child that compilation accepts.
+Compiler resolution and editor completion must consume the same exposure model; it is invalid for
+completion to hide a child that compilation accepts.
 
 ### 5.4 Exports
 
-Universe module public surfaces derive from ordinary source/interface semantics. Native metadata may augment a module only where runtime-provided declarations require it.
+Universe module public surfaces derive from ordinary source/interface semantics. Native metadata may
+augment a module only where runtime-provided declarations require it.
 
 The model is:
 
@@ -356,7 +382,8 @@ Root-level convenience re-exports do not change the defining declaration's ident
 
 ## 6. Prelude semantics
 
-The prelude is a visibility policy over canonical declarations. It is not an alternate declaration namespace.
+The prelude is a visibility policy over canonical declarations. It is not an alternate declaration
+namespace.
 
 Conceptually:
 
@@ -412,11 +439,14 @@ Prelude lookup must not be implemented as:
 if UniverseKey has this spelling, accept it
 ```
 
-because native/runtime metadata contains names that are not necessarily prelude-visible or source-visible.
+because native/runtime metadata contains names that are not necessarily prelude-visible or
+source-visible.
 
 ### 6.3 Runtime-support identities
 
-The VM may require behavior classes corresponding to implementation concepts such as `Some` and `None`. That does not imply that bare `Some` or `None` are ordinary nominal source types.
+The VM may require behavior classes corresponding to implementation concepts such as `Some` and
+`None`.
+That does not imply that bare `Some` or `None` are ordinary nominal source types.
 
 The semantic model must distinguish:
 
@@ -426,15 +456,19 @@ runtime-support behavior
 exact variant type
 ```
 
-For example, an exact case such as `ExactCase<Option<Int>, Some>` must not be conflated with a VM support class merely because the runtime uses such a class for dispatch or `.class` behavior.
+For example, an exact case such as `ExactCase<Option<Int>, Some>` must not be conflated with a VM
+support class merely because
+the runtime uses such a class for dispatch or `.class` behavior.
 
 ---
 
 ## 7. Semantic Universe baseline
 
-The semantic analyzer must know enough about Universe to analyze user code without rebuilding the complete platform on every edit.
+The semantic analyzer must know enough about Universe to analyze user code without rebuilding the
+complete platform on every edit.
 
-The intended model is a reusable semantic baseline, whether represented by one structure or several immutable shared products.
+The intended model is a reusable semantic baseline, whether represented by one structure or several
+immutable shared products.
 
 Conceptually it contains:
 
@@ -474,7 +508,9 @@ from:
 deep method/body semantic analysis
 ```
 
-A compiler/LSP must be able to discover `universe.json` or navigate to `List<T>` without eagerly analyzing every Universe body.
+A compiler/LSP must be able to discover `universe.json` or navigate to `List<T>` without eagerly
+analyzing every
+Universe body.
 
 ### 7.1 Identity convergence
 
@@ -521,14 +557,16 @@ Their semantic forms retain the same information as user declarations:
 - substitution semantics;
 - exact-case and ADT relationships.
 
-Native implementation does not justify weakening public signatures to `Dynamic` when the formal type system can express the real contract.
+Native implementation does not justify weakening public signatures to `Dynamic` when the formal type
+system can express the real contract.
 
 Source-owned intrinsic type members likewise use the formal type-level domain
 and type-member contracts. For example, a compiler-intrinsic structural `Map<F>`
 is not a runtime message send and does not make anonymous structural types legal
 ordinary inherent-`impl` targets.
 
-A native body exemption is not a signature-soundness exemption. Source-owned Universe declarations must themselves be semantically valid.
+A native body exemption is not a signature-soundness exemption. Source-owned Universe declarations
+must themselves be semantically valid.
 
 For example, a method equivalent to:
 
@@ -538,7 +576,8 @@ unwrapOr<U>(_ default: U) -> U
 
 is invalid if one branch can return unrelated `T` without a constraint relating `T` and `U`.
 
-The Universe therefore acts as a consumer of Phalcom's own type system, not as a privileged escape hatch from it.
+The Universe therefore consumes Phalcom's own type system. It has no privileged escape hatch from
+it.
 
 ---
 
@@ -584,9 +623,12 @@ runtime behavior class
 source spelling
 ```
 
-Therefore compiler/runtime lowering must not recognize variants by strings such as `"Ok"`, `"Some"`, or `"Equal"`. A user enum may legally use the same names.
+Therefore compiler/runtime lowering must not recognize variants by strings such as `"Ok"`, `"Some"`,
+or `"Equal"`.
+A user enum may legally use the same names.
 
-Semantic resolution must determine the `VariantId`, and executable lowering must carry that identity forward.
+Semantic resolution must determine the `VariantId`, and executable lowering must carry that identity
+forward.
 
 ### 9.1 Representation independence
 
@@ -601,15 +643,19 @@ other specialized storage
 
 without changing semantic identity.
 
-For example, `Option<Int>` remains an application of canonical `universe.option.option::Option` regardless of how `Some(42)` is encoded in `Value`.
+For example, `Option<Int>` remains an application of canonical `universe.option.option::Option`
+regardless of how `Some(42)` is encoded in `Value`.
 
 ---
 
 ## 10. Runtime bootstrap and nominal identity
 
-Some runtime objects must exist before authored Universe source can execute. Primordial allocation is therefore legitimate for the object/class/metaclass substrate and other runtime-critical identities.
+Some runtime objects must exist before authored Universe source can execute. Primordial allocation
+is therefore legitimate for the object/class/metaclass substrate and other runtime-critical
+identities.
 
-The crucial rule is that primordial runtime objects implement canonical declarations; they do not replace them.
+The rule is that primordial runtime objects implement canonical declarations; they do not replace
+them.
 
 A representative bootstrap sequence is:
 
@@ -623,11 +669,14 @@ A representative bootstrap sequence is:
 7. publish completed runtime/reflection products.
 ```
 
-Universe source executes in the runtime module object corresponding to its canonical `ModuleId`. For example, `scalar/number.ph` executes in `universe:scalar.number`, not in the root package and not in a hidden `core` module.
+Universe source executes in the runtime module object corresponding to its canonical `ModuleId`. For
+example, `scalar/number.ph` executes in `universe:scalar.number`, not in the root package and not in
+a hidden `core` module.
 
 ### 10.1 One nominal runtime root
 
-Within one VM, one canonical nominal declaration corresponds to one canonical root runtime class identity.
+Within one VM, one canonical nominal declaration corresponds to one canonical root runtime class
+identity.
 
 For `Result`:
 
@@ -648,7 +697,8 @@ reflection
     same nominal Result identity
 ```
 
-The runtime must not allocate another closed-sum root merely because generic ADT registration also needs a class.
+The runtime must not allocate another closed-sum root merely because generic ADT registration also
+needs a class.
 
 Variant behavior classes may be distinct runtime objects, but they must attach
 to the same canonical closed-sum/case semantics.
@@ -716,15 +766,18 @@ Runtime initialization graph
 
 ### Materialization
 
-The VM may preallocate module/package objects for the complete Universe graph. This is useful for stable identities, parent/root links, circular dependencies, reflection, and import targets.
+The VM may preallocate module/package objects for the complete Universe graph. This is useful for
+stable identities, parent/root links, circular dependencies, reflection, and import targets.
 
 ### Initialization
 
-Top-level execution is separate. Only modules required by the runtime's initialization/reachability policy should execute.
+Top-level execution is separate. Only modules required by the runtime's initialization/reachability
+policy should execute.
 
 The presence of a module in the Universe catalog does not imply it must run during VM startup.
 
-This separation becomes essential as Universe includes platform facilities such as filesystem, networking, regex, JSON, or testing.
+This separation becomes essential as Universe includes platform facilities such as filesystem,
+networking, regex, JSON, or testing.
 
 ### Runtime linked reads
 
@@ -757,7 +810,8 @@ The current module object.
 
 ### `__package__`
 
-The package context defined by Phalcom's ordinary module/package semantics. Equivalent Universe and user package/module shapes must behave consistently.
+The package context defined by Phalcom's ordinary module/package semantics. Equivalent Universe and
+user package/module shapes must behave consistently.
 
 ### `__root__`
 
@@ -765,9 +819,12 @@ The Universe root package for Universe modules.
 
 ### `__project__`
 
-Universe is toolchain-owned rather than a user's development project. Unless Phalcom explicitly defines a reflective project object for Universe, ordinary development-project semantics must not be fabricated.
+Universe is toolchain-owned rather than a user's development project. Unless Phalcom explicitly
+defines a reflective project object for Universe, ordinary development-project semantics must not be
+fabricated.
 
-Builtin materialization and ordinary program materialization must agree on these language-visible meanings.
+Builtin materialization and ordinary program materialization must agree on these language-visible
+meanings.
 
 ---
 
@@ -782,7 +839,7 @@ between runtime reflection and static type semantics is specified by the
 
 Reflection must expose canonical Universe ownership.
 
-For example, reflecting on `Int` must identify:
+For example, the reflection of `Int` must identify:
 
 ```text
 declaration: universe.scalar.number::Int
@@ -790,9 +847,12 @@ module:      universe.scalar.number
 source:      phalcom://universe/scalar/number
 ```
 
-Reflecting on `Result<T,E>` preserves its closed-sum identity, generic parameters, exact module, cases, and relevant native/runtime implementation metadata.
+A reflection of `Result<T,E>` preserves its closed-sum identity, generic parameters, exact module,
+cases, and
+relevant native/runtime implementation metadata.
 
-Reflection must not expose obsolete semantic ownership such as a `core` module or separate `builtin_std` project.
+Reflection must not expose obsolete semantic ownership such as a `core` module or separate
+`builtin_std` project.
 
 ### Generic specialization
 
@@ -806,7 +866,9 @@ Result<Int, Error>
 
 are specializations of canonical Universe declarations.
 
-Runtime type descriptors may be lightweight and selectively reified, but their constructor/declaration identity remains canonical. Reification must never cause specializations to appear owned by a synthetic builtin namespace.
+Runtime type descriptors may be lightweight and selectively reified, but their
+constructor/declaration identity remains canonical. Reification must never cause specializations to
+appear owned by a synthetic builtin namespace.
 
 ---
 
@@ -850,7 +912,8 @@ import universe.json as json
 
 ### Hover
 
-Hover must use compiler-owned semantic presentation. Prelude and explicit-import references to the same declaration must present equivalent type/declaration identity.
+Hover must use compiler-owned semantic presentation. Prelude and explicit-import references to the
+same declaration must present equivalent type/declaration identity.
 
 ### Completion
 
@@ -892,13 +955,16 @@ collections  -> universe.collections
 list         -> universe.collections.list
 ```
 
-For selective imports, aliases, re-exports, and `expose`, tooling should consume the canonical targets already established by module/semantic analysis.
+For selective imports, aliases, re-exports, and `expose`, tooling should consume the canonical
+targets
+already established by module/semantic analysis.
 
 ---
 
 ## 15. Stable identity, persistence, and diagnostics
 
-Universe has a durable builtin identity suitable for metadata and reflection. A stable reference may conceptually contain:
+Universe has a durable builtin identity suitable for metadata and reflection. A stable reference may
+conceptually contain:
 
 ```text
 namespace: universe
@@ -907,9 +973,13 @@ module path
 declaration path
 ```
 
-Resolved user projects require their own durable identity. Session-local graph IDs such as `proj#1` must not be serialized as stable project identity.
+Resolved user projects require their own durable identity. Session-local graph IDs such as `proj#1`
+must
+not be serialized as stable project identity.
 
-Historical persisted references to removed `core` or `std` ownership must be versioned, invalidated, or explicitly migrated. They must not be silently reinterpreted.
+Historical persisted references to removed `core` or `std` ownership must be versioned, invalidated,
+or
+explicitly migrated. They must not be silently reinterpreted.
 
 Diagnostics likewise use exact source ownership:
 
@@ -931,7 +1001,8 @@ Universe may be divided into conceptual bootstrap/dependency tiers while remaini
 
 ### Tier 0 — primordial substrate
 
-Object/class/metaclass foundations, scalar foundations, and runtime-critical callable infrastructure.
+Object/class/metaclass foundations, scalar foundations, and runtime-critical callable
+infrastructure.
 
 ### Tier 1 — foundational language library
 
@@ -947,9 +1018,11 @@ Testing and tooling-oriented facilities.
 
 The exact membership may evolve. The rule is:
 
-> Lower bootstrap tiers must not acquire dependencies on higher tiers that require those higher facilities before the substrate needed to implement them exists.
+> Lower bootstrap tiers must not acquire dependencies on higher tiers that require those higher
+> facilities before the substrate needed to implement them exists.
 
-Tiering controls dependency and initialization policy; it never creates separate builtin package identities.
+Tiering controls dependency and initialization policy; it never creates separate builtin package
+identities.
 
 ---
 
@@ -983,7 +1056,8 @@ The following are non-conforming unless the architecture is explicitly amended.
 
 ### Hidden-core preservation
 
-Renaming a synthetic `core` module to `universe` while preserving declaration flattening is not sufficient.
+Renaming a synthetic `core` module to `universe` while preserving declaration flattening is not
+sufficient.
 
 ### Root flattening
 
@@ -1011,7 +1085,8 @@ must not replace canonical identity when semantic identity matters.
 
 ### Parallel LSP semantics
 
-LSP/editor tooling must not independently reinterpret Universe paths, imports, exports, or declaration ownership.
+LSP/editor tooling must not independently reinterpret Universe paths, imports, exports, or
+declaration ownership.
 
 ### Native metadata as declaration authority
 
@@ -1023,7 +1098,8 @@ Moving bundled sources or supplying a physical sysroot override must not change 
 
 ### Silent compatibility namespaces
 
-`core` or `std` must not survive as transparent aliases unless compatibility behavior is explicitly specified as part of the language.
+`core` or `std` must not survive as transparent aliases unless compatibility behavior is explicitly
+specified as part of the language.
 
 ---
 
@@ -1151,13 +1227,15 @@ When adding a new Universe facility:
 8. add initialization dependencies only where necessary;
 9. avoid introducing a new builtin namespace category.
 
-Moving a declaration between Universe modules is identity-affecting unless an explicit migration/aliasing scheme says otherwise.
+Moving a declaration between Universe modules is identity-affecting unless an explicit
+migration/aliasing scheme says otherwise.
 
 ---
 
 ## 21. Summary
 
-Phalcom's Universe is not merely "the standard library under one name." It is the canonical builtin module graph shared by every layer of the implementation.
+Phalcom's Universe is not merely "the standard library under one name." It is the canonical builtin
+module graph shared by every layer of the implementation.
 
 ```text
 one builtin package
@@ -1183,6 +1261,9 @@ The central rule is:
 
 > Canonical semantic identity is singular; implementation representations may be plural.
 
-A builtin declaration may simultaneously have authored source, a native implementation, a primordial runtime class, an optimized value representation, a reified type descriptor, a prelude binding, reflection metadata, and LSP presentation. These are projections of one canonical declaration and one canonical Universe module graph.
+A builtin declaration may simultaneously have authored source, a native implementation, a primordial
+runtime class, an optimized value representation, a reified type descriptor, a prelude binding,
+reflection metadata, and LSP presentation. These are projections of one canonical declaration and
+one canonical Universe module graph.
 
 The implementation is correct only when those projections agree.

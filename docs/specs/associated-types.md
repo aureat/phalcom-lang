@@ -1,9 +1,10 @@
 # Associated Types
 
-**Status:** Normative  
-**Language area:** Traits, conformances, type projection  
-**Implementation checkpoint:** LANG005.C5, extended by LANG005.C6 generic evidence  
-**Specification role:** Authoritative language specification for associated type declarations, bindings, projections, and normalization
+- **Status:** Normative
+- **Language area:** Traits, conformances, type projection
+- **Implementation checkpoint:** LANG005.C5, extended by LANG005.C6 generic evidence
+- **Specification role:** Authoritative language specification for associated type declarations,
+  bindings, projections, and normalization
 
 Trait-associated types are evidence-bound declarations owned by a trait. The
 separate `type data` form declares a compiler-known static domain, and an
@@ -12,7 +13,8 @@ domains do not create trait conformance evidence. See
 [Type-Level Domains](type-level-domains.md) for static-domain ownership and
 application rules.
 
-Associated types are trait-owned type requirements whose concrete meaning is supplied by a conformance.
+Associated types are trait-owned type requirements whose concrete meaning is supplied by a
+conformance.
 
 ```phalcom
 trait Iterator {
@@ -35,7 +37,8 @@ impl<T> Iterator for SequenceIterator<T> {
 }
 ```
 
-For the exact conformance of `SequenceIterator<Int>` to `Iterator`, the associated value of `Iterator::Item` is `Int`.
+For the exact conformance of `SequenceIterator<Int>` to `Iterator`, the associated value of
+`Iterator::Item` is `Int`.
 
 The governing model is:
 
@@ -55,7 +58,9 @@ normalization
 
 > **Core invariant**
 >
-> An associated type is a trait-owned semantic declaration. A conformance supplies its value. A projection refers to that declaration through a subject and trait context; it is never identified by a written name alone.
+> An associated type is a trait-owned semantic declaration. A conformance supplies its value. A
+> projection refers to that declaration through a subject and trait context; it is never identified
+> by a written name alone.
 
 ---
 
@@ -94,7 +99,10 @@ This specification does not define:
 - public reflection descriptors for associated declarations;
 - runtime associated-type lookup.
 
-Generic-subject projections, explicit qualification, associated equality, and associated specialization in generic bounds are governed by [Generic Constraints](generic-constraints.md). Trait and conformance semantics are governed by [Traits](objects/traits.md) and [Implementation Declarations](objects/impl.md).
+Generic-subject projections, explicit qualification, associated equality, and associated
+specialization in generic bounds are governed by [Generic Constraints](generic-constraints.md).
+Trait and conformance semantics are governed
+by [Traits](objects/traits.md) and [Implementation Declarations](objects/impl.md).
 
 ---
 
@@ -137,11 +145,13 @@ impl<T> Container for Box<T> {
 
 binds `Container::Item` for that conformance.
 
-The binding belongs to the conformance. It does not mutate the trait declaration and does not create an inherent member named `Item` on `Box<T>`.
+The binding belongs to the conformance. It does not mutate the trait declaration and does not create
+an inherent member named `Item` on `Box<T>`.
 
 ### 2.3 Associated projection
 
-A projection denotes the associated value of one associated declaration for one subject under one trait context.
+A projection denotes the associated value of one associated declaration for one subject under one
+trait context.
 
 The associated specialization of the contextual projection form is:
 
@@ -157,7 +167,8 @@ and conformance evidence for associated members.
 
 > **Category-separation invariant**
 >
-> Associated declarations, associated bindings, and associated projections are distinct semantic products even when they refer to the same trait requirement.
+> Associated declarations, associated bindings, and associated projections are distinct semantic
+> products even when they refer to the same trait requirement.
 
 ---
 
@@ -183,7 +194,8 @@ Their shared spelling does not merge them:
 Collection::Item ≠ Stream::Item
 ```
 
-Canonical identity therefore includes the owning trait and the associated declaration within that trait.
+Canonical identity therefore includes the owning trait and the associated declaration within that
+trait.
 
 It does not derive from:
 
@@ -192,7 +204,8 @@ It does not derive from:
 - declaration order alone;
 - the type to which a particular conformance happens to bind the declaration.
 
-Two traits may independently declare associated types with the same name. One trait may not declare the same associated name twice.
+Two traits may independently declare associated types with the same name. One trait may not declare
+the same associated name twice.
 
 ```phalcom
 trait Invalid {
@@ -292,7 +305,8 @@ The complete trait surface determines whether `Item` exists.
 
 > **Trait-order invariant**
 >
-> Reordering an associated declaration relative to behavioral requirements that refer to it does not change the trait contract.
+> Reordering an associated declaration relative to behavioral requirements that refer to it does not
+> change the trait contract.
 
 ---
 
@@ -327,7 +341,8 @@ Both conformances bind the same declaration, `Container::Item`, to different ass
 
 ### 6.1 Binding-name resolution
 
-The left-hand side of a binding resolves only against associated declarations of the trait reference being conformed to.
+The left-hand side of a binding resolves only against associated declarations of the trait reference
+being conformed to.
 
 ```phalcom
 trait Collection {
@@ -345,7 +360,8 @@ impl Collection for Buffer {
 }
 ```
 
-The binding satisfies `Collection::Item`. It does not search for another `Item` declaration elsewhere.
+The binding satisfies `Collection::Item`. It does not search for another `Item` declaration
+elsewhere.
 
 An unknown binding is invalid:
 
@@ -383,13 +399,15 @@ This does not create multiple source conformance declarations.
 
 > **Specialization invariant**
 >
-> One generic source conformance may produce different exact associated values while remaining one source conformance.
+> One generic source conformance may produce different exact associated values while remaining one
+> source conformance.
 
 ---
 
 ## 7. Conformance completeness
 
-Associated requirements participate in the same conformance-validity decision as behavioral requirements.
+Associated requirements participate in the same conformance-validity decision as behavioral
+requirements.
 
 ```phalcom
 trait PairLike {
@@ -417,16 +435,20 @@ because `Right` has no binding.
 At minimum, the following associated-binding failures are distinct:
 
 - **missing binding** — a required associated declaration has no binding;
-- **duplicate binding** — the same associated declaration is bound more than once in one conformance;
+- **duplicate binding** — the same associated declaration is bound more than once in one
+  conformance;
 - **unknown binding** — a binding names no associated declaration of the conformed trait;
-- **invalid binding** — the right-hand side is not valid in the associated declaration's result domain;
+- **invalid binding** — the right-hand side is not valid in the associated declaration's result
+  domain;
 - **recursive binding** — the associated dependency graph contains a cycle.
 
-A conformance is not valid unless all required associated bindings and all applicable behavioral obligations are valid.
+A conformance is not valid unless all required associated bindings and all applicable behavioral
+obligations are valid.
 
 > **Unified-completeness invariant**
 >
-> Associated and behavioral obligations form one conformance contract. Success in one lane cannot erase failure in the other.
+> Associated and behavioral obligations form one conformance contract. Success in one lane cannot
+> erase failure in the other.
 
 ---
 
@@ -472,11 +494,13 @@ impl<T> Collection for Box<T> {
 
 `Self::Item` denotes the same trait-owned declaration projected from the conformance subject.
 
-An unrelated inherent implementation does not acquire an associated projection context merely because the target conforms to a trait elsewhere.
+An unrelated inherent implementation does not acquire an associated projection context merely
+because the target conforms to a trait elsewhere.
 
 > **Context invariant**
 >
-> Contextual projection resolves through an already-established trait or conformance context. It does not search globally for a same-named associated declaration.
+> Contextual projection resolves through an already-established trait or conformance context. It
+> does not search globally for a same-named associated declaration.
 
 ---
 
@@ -509,7 +533,9 @@ trait B {
 }
 ```
 
-A projection of `A::Item` and a projection of `B::Item` from the same subject remain different projections unless language rules independently prove an equivalence between their resulting types.
+A projection of `A::Item` and a projection of `B::Item` from the same subject remain different
+projections
+unless language rules independently prove an equivalence between their resulting types.
 
 For generic traits, the trait application is part of the context:
 
@@ -519,11 +545,14 @@ trait Converter<Target> {
 }
 ```
 
-`Converter<Int>` and `Converter<String>` are different trait references. Projection identity therefore retains the relevant trait application, not only the bare `Converter` declaration.
+`Converter<Int>` and `Converter<String>` are different trait references. Projection identity
+therefore retains the relevant trait
+application, not only the bare `Converter` declaration.
 
 > **Projection-identity invariant**
 >
-> Canonical associated projection identity includes subject, trait context, and associated declaration identity.
+> Canonical associated projection identity includes subject, trait context, and associated
+> declaration identity.
 
 ---
 
@@ -531,7 +560,8 @@ trait Converter<Target> {
 
 Projection formation constructs the semantic projection denoted by source.
 
-Projection normalization determines whether that projection can be reduced using valid associated evidence.
+Projection normalization determines whether that projection can be reduced using valid associated
+evidence.
 
 Inside an abstract trait:
 
@@ -542,7 +572,8 @@ trait Iterator {
 }
 ```
 
-`Self::Item` is well formed even though no concrete binding is available. The projection remains symbolic.
+`Self::Item` is well formed even though no concrete binding is available. The projection remains
+symbolic.
 
 It must not become:
 
@@ -585,7 +616,11 @@ Ordinary type operations may:
 
 Ordinary structural substitution does not itself prove conformance.
 
-For example, substituting `T = Int` into a projection whose subject is `Box<T>` may produce the corresponding projection over `Box<Int>`. Whether that projection reduces to an ordinary type is a separate evidence question.
+For example, substituting `T = Int` into a projection whose subject is `Box<T>` may produce the
+corresponding
+projection over `Box<Int>`. Whether that projection reduces to an ordinary type is a separate
+evidence
+question.
 
 > **Substitution boundary**
 >
@@ -625,7 +660,8 @@ Associated normalization has three principal semantic contexts.
 
 ### 12.1 Abstract trait context
 
-In an abstract trait contract, associated projections remain symbolic unless another already-established proposition determines them.
+In an abstract trait contract, associated projections remain symbolic unless another
+already-established proposition determines them.
 
 ```phalcom
 trait IdentityCell {
@@ -637,9 +673,11 @@ trait IdentityCell {
 }
 ```
 
-The default can be type-checked symbolically. No concrete associated value is required merely to validate the identity operation.
+The default can be type-checked symbolically. No concrete associated value is required merely to
+validate the identity operation.
 
-A symbolic associated type has no capabilities beyond those established by the ordinary type and evidence environment.
+A symbolic associated type has no capabilities beyond those established by the ordinary type and
+evidence environment.
 
 ### 12.2 Source-conformance context
 
@@ -664,7 +702,8 @@ impl<T> Collection for Box<T> {
 
 Within this conformance, `Self::Item` may normalize to the source binding template `T`.
 
-Source-conformance checking must not require already-published exact conformance evidence for the conformance currently being established.
+Source-conformance checking must not require already-published exact conformance evidence for the
+conformance currently being established.
 
 Conceptually:
 
@@ -682,11 +721,13 @@ publish exact evidence for valid exact applications
 
 > **Source-normalization invariant**
 >
-> A conformance may use its own valid staged associated bindings while being checked; it does not depend circularly on final evidence that exists only after the conformance is accepted.
+> A conformance may use its own valid staged associated bindings while being checked; it does not
+> depend circularly on final evidence that exists only after the conformance is accepted.
 
 ### 12.3 Exact-conformance context
 
-When an exact subject and exact trait reference have valid exact conformance evidence, projection normalization consumes that evidence.
+When an exact subject and exact trait reference have valid exact conformance evidence, projection
+normalization consumes that evidence.
 
 For:
 
@@ -706,11 +747,13 @@ Container for Box<String>
     Item → String
 ```
 
-Exact normalization does not rediscover conformance by scanning source declarations or matching associated names.
+Exact normalization does not rediscover conformance by scanning source declarations or matching
+associated names.
 
 > **Exact-evidence invariant**
 >
-> Exact projection normalization consumes canonical evidence for the exact subject and trait reference.
+> Exact projection normalization consumes canonical evidence for the exact subject and trait
+> reference.
 
 ---
 
@@ -737,7 +780,8 @@ Element = Byte
 Sequence = List<Byte>
 ```
 
-Binding semantics are source-order independent. Reversing those two binding declarations does not change their meaning.
+Binding semantics are source-order independent. Reversing those two binding declarations does not
+change their meaning.
 
 Dependencies are tracked by associated declaration identity, not by spelling alone.
 
@@ -783,7 +827,8 @@ impl Recursive for X {
 
 > **Cycle invariant**
 >
-> Associated values must have a finite semantic meaning. Cyclic associated definitions are invalid and never degrade to `Dynamic`.
+> Associated values must have a finite semantic meaning. Cyclic associated definitions are invalid
+> and never degrade to `Dynamic`.
 
 ---
 
@@ -822,11 +867,13 @@ write(_ value: Int) -> ()
 
 for witness compatibility and trait-evidenced use.
 
-This specialization does not mutate the trait declaration. The abstract trait contract remains expressed in terms of `Self::Item`.
+This specialization does not mutate the trait declaration. The abstract trait contract remains
+expressed in terms of `Self::Item`.
 
 > **Contract-specialization invariant**
 >
-> Associated bindings specialize a conformance's requirement view; they do not rewrite the owning trait declaration.
+> Associated bindings specialize a conformance's requirement view; they do not rewrite the owning
+> trait declaration.
 
 ### 14.1 Witness compatibility
 
@@ -864,7 +911,8 @@ impl Cell for StoredCell {
 }
 ```
 
-The binding is associated evidence. The method/getter bodies are behavioral evidence. They remain distinct parts of one conformance.
+The binding is associated evidence. The method/getter bodies are behavioral evidence. They remain
+distinct parts of one conformance.
 
 ### 14.3 Trait defaults
 
@@ -892,7 +940,8 @@ Selecting a default does not convert it into an inherent member of the target.
 
 ## 15. Exact closed-sum case subjects
 
-An exact case of a closed-sum `data` declaration may be a conformance subject where the trait and closed-sum specifications permit it.
+An exact case of a closed-sum `data` declaration may be a conformance subject where the trait and
+closed-sum specifications permit it.
 
 ```phalcom
 data Result<T> {
@@ -927,7 +976,10 @@ and does not apply to the sibling `Error` case.
 
 ## 16. Relationship to generic constraints
 
-This specification defines the associated-type semantic substrate. [Generic Constraints](generic-constraints.md) defines how generic code introduces evidence assumptions and how projections are written outside a lexical `Self` trait/conformance context.
+This specification defines the associated-type semantic substrate.
+[Generic Constraints](generic-constraints.md) defines how generic code
+introduces evidence assumptions and how projections are written outside a lexical `Self`
+trait/conformance context.
 
 That specification owns forms such as:
 
@@ -964,29 +1016,39 @@ same conformance evidence model
 same normalization semantics
 ```
 
-A generic conformance assumption may justify a projection without an exact monomorphic source conformance being selected at generic-body checking time. The generic-constraint specification governs that assumed-evidence path.
+A generic conformance assumption may justify a projection without an exact monomorphic source
+conformance being selected at generic-body checking time. The generic-constraint specification
+governs that assumed-evidence path.
 
-This specification continues to govern what the associated declaration means and what value an exact conformance supplies.
+This specification continues to govern what the associated declaration means and what value an exact
+conformance supplies.
 
 > **Single-model invariant**
 >
-> Contextual `Self::Item`, generic `T::Item`, and qualified `<T as Trait>::Item` are different source contexts for one associated projection model, not separate type systems.
+> Contextual `Self::Item`, generic `T::Item`, and qualified `<T as Trait>::Item` are different
+> source contexts for one associated
+> projection model, not separate type systems.
 
 ---
 
 ## 17. Type relations and `Dynamic`
 
-A projection may participate in subtype, equivalence, assignability, and other ordinary type relations.
+A projection may participate in subtype, equivalence, assignability, and other ordinary type
+relations.
 
-When a projection is reducible under the evidence available to that relation, the relation may normalize it before making a judgment that depends on its associated value.
+When a projection is reducible under the evidence available to that relation, the relation may
+normalize it before making a judgment that depends on its associated value.
 
 Canonically identical symbolic projections may compare as the same symbolic type.
 
-A projection that remains abstract must not be treated as an unrelated nominal type merely because it has not normalized.
+A projection that remains abstract must not be treated as an unrelated nominal type merely because
+it has not normalized.
 
 `Dynamic` is not the recovery meaning of a failed projection.
 
-A projection may normalize to `Dynamic` only when language semantics establish `Dynamic` as its associated value.
+A projection may normalize to `Dynamic` only when language semantics establish `Dynamic` as its
+associated
+value.
 
 These facts are distinct:
 
@@ -1017,7 +1079,9 @@ lookupAssociatedType(receiver, trait, "Item")
 
 to decide what an associated type means.
 
-Executable lowering may transport already-established type or conformance evidence required by generic execution, but that transport does not redefine associated declarations or perform a second independent associated-type search.
+Executable lowering may transport already-established type or conformance evidence required by
+generic execution, but that transport does not redefine associated declarations or perform a second
+independent associated-type search.
 
 Likewise:
 
@@ -1028,7 +1092,8 @@ Likewise:
 
 > **Static-authority invariant**
 >
-> Runtime execution may consume associated specialization and generic evidence, but associated type meaning is determined by the language's semantic conformance model.
+> Runtime execution may consume associated specialization and generic evidence, but associated type
+> meaning is determined by the language's semantic conformance model.
 
 ---
 
@@ -1070,7 +1135,8 @@ trait T {
 }
 ```
 
-Every associated declaration defined here requires each valid conformance to establish its associated value.
+Every associated declaration defined here requires each valid conformance to establish its
+associated value.
 
 ### 20.2 Parameterized associated members
 
@@ -1091,7 +1157,9 @@ compiler/domain-native members such as structural `At<I>` and `Map<F>`.
 ### 20.3 Non-`Type` and higher-kinded result domains
 
 An associated declaration may have an explicit result domain where its owning
-grammar permits it. A result such as `PositionalTypePack` or `ProductShape` is a static result rather than an ordinary proper runtime-Type result, and a
+grammar permits it. A result such as `PositionalTypePack` or `ProductShape` is a static result
+rather than an ordinary proper
+runtime-Type result, and a
 higher-kinded result is not implicitly saturated. The declaration's domain is
 part of its identity and binding contract.
 
@@ -1126,8 +1194,10 @@ A program is invalid when, among other ordinary trait/conformance failures:
   result domain;
 - associated bindings form a recursive dependency cycle;
 - a behavioral witness is incompatible after associated specialization;
-- an exact-case binding is incorrectly treated as a binding for the closed-sum root or another exact case;
-- generic projection syntax is used without the evidence required by the generic-constraint specification.
+- an exact-case binding is incorrectly treated as a binding for the closed-sum root or another exact
+  case;
+- generic projection syntax is used without the evidence required by the generic-constraint
+  specification.
 
 ---
 
@@ -1166,11 +1236,18 @@ Associated types depend on, and deliberately delegate to, the following specific
   projection identity, lookup, and symbolic/invalid normalization states;
 - [Type-Level Domains](type-level-domains.md) — kinds, packs, rows, and
   compile-time parameter domains;
-- [Generic Constraints](generic-constraints.md) — `where`, `|=`, generic evidence, generic-subject projections, qualified projections, associated equality, and associated specialization in trait bounds;
-- [Traits](objects/traits.md) — trait requirements, conformance, witnesses, defaults, coherence, and evidence;
-- [Implementation Declarations](objects/impl.md) — conformance declaration structure, generic scope, and implementation ownership;
-- [Enumerated Types and Variants](objects/enums.md) — exact enum-case identity and exact-case conformance subjects;
-- [Callables](callables/INDEX.md) — callable requirement and witness shape where associated values appear in behavioral signatures.
+- [Generic Constraints](generic-constraints.md) — `where`, `|=`, generic evidence, generic-subject
+  projections, qualified projections, associated
+  equality, and associated specialization in trait bounds;
+- [Traits](objects/traits.md) — trait requirements, conformance, witnesses, defaults, coherence, and
+  evidence;
+- [Implementation Declarations](objects/impl.md) — conformance declaration structure, generic scope,
+  and implementation ownership;
+- [Enumerated Types and Variants](objects/enums.md) — exact enum-case identity and exact-case
+  conformance subjects;
+- [Callables](callables/INDEX.md) — callable requirement and witness shape where associated values
+  appear in behavioral
+  signatures.
 
 The semantic dependency is one-way:
 
