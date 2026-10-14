@@ -22,6 +22,8 @@ let lspClient: LanguageClient | undefined
 let lspOutput: OutputChannel | undefined
 
 export interface LspClientLifecycleHandle {
+    /** Optional for test doubles. Real LanguageClient instances start asynchronously. */
+    start?(): Promise<void>
     stop(): Promise<void>
     dispose(): void
 }
@@ -63,6 +65,24 @@ export function createLspClientLifecycle<T extends LspClientLifecycleHandle>(
         }
     }
 
+    const startNext = async (): Promise<void> => {
+        const client = options.start()
+        options.setClient(client)
+        try {
+            // Serialize start completion with subsequent stop/restart requests.
+            // Calling stop() while a LanguageClient is still starting fails and
+            // disposing it then invalidates its in-flight start continuation.
+            await client.start?.()
+        } catch (error) {
+            if (options.getClient() === client) {
+                options.setClient(undefined)
+            }
+            client.dispose()
+            options.log(`Language server startup failed: ${String(error)}`)
+            throw error
+        }
+    }
+
     const enqueue = (operation: () => Promise<void>): Promise<void> => {
         const result = transition.then(operation, operation)
         transition = result.catch(() => undefined)
@@ -72,13 +92,13 @@ export function createLspClientLifecycle<T extends LspClientLifecycleHandle>(
     return {
         startIfEnabled: () => enqueue(async () => {
             if (options.isEnabled() && !options.getClient()) {
-                options.setClient(options.start())
+                await startNext()
             }
         }),
         restart: () => enqueue(async () => {
             await stopCurrent()
             if (options.isEnabled()) {
-                options.setClient(options.start())
+                await startNext()
             }
         }),
         stop: () => enqueue(stopCurrent),
@@ -159,8 +179,7 @@ function startLspClient(context: ExtensionContext): LanguageClient {
         statusBarController.attach(client)
     }
 
-    void client.start()
-
+    // The lifecycle coordinator awaits start() before allowing a replacement.
     return client
 }
 
@@ -252,7 +271,9 @@ export function activate(context: ExtensionContext) {
         }
     }))
 
-    void ensureLspClientLifecycle(context).startIfEnabled()
+    void ensureLspClientLifecycle(context).startIfEnabled().catch(error => {
+        lspOutput?.appendLine(`Initial language server startup failed: ${String(error)}`)
+    })
 }
 
 export function deactivate(): Thenable<void> | undefined {
