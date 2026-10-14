@@ -64,3 +64,15 @@ fn fixture_blocks_escaping_counter() {
     // (ADR-0013).
     assert_golden("tests/fixtures/golden/blocks_escaping_counter.ph", "1\n2\n3\n");
 }
+
+#[test]
+fn fixture_control_flow_if_let_while_let() {
+    let expected = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/language/control-flow/control_flow_if_let_while_let.expected"),
+    )
+    .expect("read expected");
+    assert_golden(
+        "tests/fixtures/language/control-flow/control_flow_if_let_while_let.ph",
+        &expected,
+    );
+}

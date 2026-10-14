@@ -2,15 +2,18 @@
 // spec: if let and while let
 
 // 1. if let with Some / None
-let mut opt = Some(42)
-if let Some(x) = opt {
+let mut opt = Option::Some(42)
+if let Option::Some(x) = opt {
   System.print("some: \(x)")
 } else {
   System.print("none")
 }
 
-let mut optNone = None
-if let Some(y) = optNone {
+class Helper {
+  @class makeNone -> Option<Int> { Option::None }
+}
+let mut optNone = Helper.makeNone
+if let Option::Some(y) = optNone {
   System.print("some: \(y)")
 } else {
   System.print("none")
@@ -32,18 +35,18 @@ class Counter {
   @get mut _curr
   @constructor new() { _curr = 0 }
 
-  next {
+  next -> Option<Int> {
     if (_curr < 3) {
       let mut v = _curr
       _curr = _curr + 1
-      return Some(v)
+      return Option::Some(v)
     }
-    None
+    Option::None
   }
 }
 
 let mut c = Counter.new()
-while let Some(val) = c.next {
+while let Option::Some(val) = c.next {
   System.print("count: \(val)")
 }
 
@@ -52,17 +55,23 @@ class PairGen {
   @get mut _step
   @constructor new() { _step = 0 }
 
-  next {
+  next -> Option<(Int, Int)> {
     if (_step < 2) {
       let mut s = _step
       _step = _step + 1
-      return Some((s, s * 10))
+      return Option::Some((s, s * 10))
     }
-    None
+    Option::None
   }
 }
 
 let mut pg = PairGen.new()
-while let Some((idx, mult)) = pg.next {
+while let Option::Some((idx, mult)) = pg.next {
   System.print("pair: \(idx), \(mult)")
+}
+
+// 5. while let with explicit type annotation
+let mut c2 = Counter.new()
+while let Option::Some(v): Option<Int> = c2.next {
+  System.print("annotated: \(v)")
 }
