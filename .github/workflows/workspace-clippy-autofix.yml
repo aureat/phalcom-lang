@@ -40,6 +40,11 @@ jobs:
           result=$?
           set -e
           echo "Clippy fix command status: $result"
+          # Rust compiler suggestions can introduce trailing blanks in test fixtures.
+          # Strip only trailing horizontal whitespace from changed Rust files.
+          git diff --name-only --diff-filter=ACM -- '*.rs' | while IFS= read -r file; do
+            sed -i 's/[[:blank:]]*$//' "$file"
+          done
           git diff --check
           git diff --stat
       - name: Commit suggested edits on isolated branch only
