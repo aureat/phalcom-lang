@@ -331,7 +331,7 @@ fn validate_canonical_product(
         .map(|(index, module)| (module.clone(), index))
         .collect::<BTreeMap<_, _>>();
     for importer in bootstrap_order {
-        for dependency in program.linked.program.graphs.runtime.dependencies(importer) {
+        for dependency in program.linked.as_program().graphs.runtime.dependencies(importer) {
             if let Some(&dependency_position) = positions.get(&dependency) {
                 if dependency_position >= positions[importer] {
                     return Err(CanonicalUniverseBuildError::BootstrapRuntimeDependencyOrder {
