@@ -225,7 +225,15 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
                     &requirements[..semantic_requirement_count],
                     &requirements[semantic_requirement_count..],
                 );
-                CanonicalUniverseBuildError::Linking(format!("{error}{detail}"))
+                let differential = canonical_runtime_cycle_differential(
+                    &error,
+                    &linker,
+                    symbolic.as_ref(),
+                    &semantic.snapshot.import_phase_products,
+                    &requirements[..semantic_requirement_count],
+                    &requirements[semantic_requirement_count..],
+                );
+                CanonicalUniverseBuildError::Linking(format!("{error}{detail}{differential}"))
             })?,
     );
 
@@ -321,6 +329,49 @@ fn canonical_runtime_cycle_requirements(
         "\ngenerated requirements inside rejected runtime SCC:\n{}{}",
         edges.join("\n"),
         omitted_note
+    )
+}
+
+/// Re-run only the immutable linker finalization after a strict cycle error,
+/// to identify which producer family introduced the initialization cycle.
+///
+/// This is *failure-only* diagnostics; it does not publish any of these
+/// candidate executable programs or relax the required complete finalization.
+fn canonical_runtime_cycle_differential(
+    error: &phalcom_modules::LinkError,
+    linker: &ModuleLinker,
+    symbolic: &phalcom_modules::SemanticLinkedProgram,
+    phase_products: &BTreeMap<ModuleId, phalcom_modules::ModuleImportPhaseProduct>,
+    semantic_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
+    metadata_requirements: &[phalcom_modules::RuntimeDependencyRequirement],
+) -> String {
+    if !matches!(error, phalcom_modules::LinkError::RuntimeCycle(_)) {
+        return String::new();
+    }
+
+    let mut results = Vec::with_capacity(3);
+    for (description, requirements) in [
+        ("authored imports only", &[][..]),
+        ("authored + semantic-generated", semantic_requirements),
+        ("authored + metadata-type-owner", metadata_requirements),
+    ] {
+        let status = match linker.finalize_executable_with_requirements(
+            symbolic.clone(),
+            phase_products,
+            requirements,
+        ) {
+            Ok(_) => "acyclic".to_owned(),
+            Err(phalcom_modules::LinkError::RuntimeCycle(
+                phalcom_modules::ModuleGraphError::RuntimeCycle { cycle },
+            )) => format!("cyclic ({} modules)", cycle.len()),
+            Err(other) => format!("other linker failure: {other}"),
+        };
+        results.push(format!("  {description}: {status}"));
+    }
+
+    format!(
+        "\nrejected-runtime-cycle producer isolation (diagnostic-only):\n{}",
+        results.join("\n")
     )
 }
 
