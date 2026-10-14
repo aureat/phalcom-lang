@@ -109,6 +109,9 @@ pub(crate) enum CanonicalUniverseBuildError {
     /// A bootstrap module is absent from the linked program.
     #[error("canonical Universe bootstrap module {0} has no linked module")]
     MissingBootstrapLinkedModule(ModuleId),
+    /// A finalized runtime dependency would initialize after its importer.
+    #[error("canonical Universe bootstrap order initializes {importer} before runtime dependency {dependency}")]
+    BootstrapRuntimeDependencyOrder { importer: ModuleId, dependency: ModuleId },
     /// The explicit eager bootstrap order must be a set-like ordering.
     #[error("canonical Universe bootstrap order contains duplicate module {0}")]
     DuplicateBootstrapModule(ModuleId),
@@ -316,6 +319,27 @@ fn validate_canonical_product(
         }
         if !program.linked.modules.contains_key(id) {
             return Err(CanonicalUniverseBuildError::MissingReachableLinkedModule(id.clone()));
+        }
+    }
+
+    // The source-index execution order and the finalized executable DAG are
+    // independent products. Validate their agreement before materialization:
+    // a generated read must never observe a source dependency initialized later.
+    let positions = bootstrap_order
+        .iter()
+        .enumerate()
+        .map(|(index, module)| (module.clone(), index))
+        .collect::<BTreeMap<_, _>>();
+    for importer in bootstrap_order {
+        for dependency in program.linked.program.graphs.runtime.dependencies(importer) {
+            if let Some(&dependency_position) = positions.get(&dependency) {
+                if dependency_position >= positions[importer] {
+                    return Err(CanonicalUniverseBuildError::BootstrapRuntimeDependencyOrder {
+                        importer: importer.clone(),
+                        dependency,
+                    });
+                }
+            }
         }
     }
 
