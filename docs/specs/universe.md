@@ -24,6 +24,33 @@ Different compiler/runtime layers may project different representations of one e
 
 This document defines that contract. It intentionally does not enumerate the full API of the Universe library, define every native primitive ABI, or prescribe patch-by-patch implementation work. The source-visible UTF-8 text contract is owned by [Text and String Model](text.md); the public type-reflection API is owned by [Runtime Typing Reflection](typing/runtime-reflection.md).
 
+## Source authority and migration status
+
+This specification defines the approved post-migration canonical architecture. The module and declaration examples below describe the **TARGET** identity after the shadow migration is integrated unless explicitly marked **ACTIVE**. They do not claim that the current production compiler or VM already loads every target path.
+
+At repository revision `a1621a7cec577952612685508a4c87c90aea86cd` on `feat/telos-collections`, the production compiler and VM still use the legacy source tree under `phalcom-core/core/universe/`. `packages/universe/` is an unregistered shadow tree. `ProjectIdentity::Universe` is the conceptual builtin identity of either source layout, but loading `packages/universe/project.toml` through the ordinary filesystem project loader yields a resolved filesystem project; the manifest does not activate the shadow tree as the builtin.
+
+| Declaration | ACTIVE production owner | TARGET canonical owner after integration |
+|---|---|---|
+| `Number` | `universe.scalar.number::Number` | `universe.scalar.number::Number` |
+| `Int` | `universe.scalar.number::Int` | `universe.scalar.int::Int` |
+| `Float` | `universe.scalar.number::Float` | `universe.scalar.float::Float` |
+| `Option` | `universe.option.option::Option` | `universe.option::Option` |
+| `Result` | `universe.errors.result::Result` | `universe.result::Result` |
+| `Unit` | `universe.option.unit::Unit` | `universe.scalar.unit::Unit` |
+| `System` | `universe.concurrency.fiber::System` | `universe.system::System` |
+| `Fiber` | `universe.concurrency.fiber::Fiber` | `universe.concurrency.fiber::Fiber` |
+| `Future` | `universe.concurrency.fiber::Future` | `universe.concurrency.future::Future` |
+| `FutureSubscription` | `universe.concurrency.fiber::FutureSubscription` | `universe.concurrency.future_subscription::FutureSubscription` |
+| `CompletionSource` | `universe.concurrency.fiber::CompletionSource` | `universe.concurrency.completion_source::CompletionSource` |
+| `Backoff` | `universe.concurrency.fiber::Backoff` | `universe.concurrency.backoff::Backoff` |
+| `Tracer` | `universe.concurrency.fiber::Tracer` | `universe.diagnostics.tracer::Tracer` |
+| `OffBehavior` | `universe.concurrency.fiber::OffBehavior` | `universe.features.off_behavior::OffBehavior` |
+| `Iterator` | `universe.collections.iterator_laws::Iterator` | `universe.collections.iteration.protocols::Iterator` (proposed; unactivated) |
+| `Iterable` | `universe.collections.iterator_laws::Iterable` | `universe.collections.iteration.protocols::Iterable` (proposed; unactivated) |
+
+The TARGET column names the intended single declaration owners after integration. It is not a second production Universe or a permanent alias layer. The shadow-source owner moves for `Number`, `Int`, `Float`, `Option`, `Result`, and `Unit` are approved migration targets; production remains on the ACTIVE owners until a separate integration decision. The S5 target owners record the approved System/concurrency organization. `Tracer` and `OffBehavior` are assigned to diagnostics and feature-flag policy after review of their public purposes and consumers. Source-only moves that do not depend on import-phase changes may proceed without activating those owners in production. The S4 shadow source currently authors the iteration protocols and adapters together in `universe.collections.iteration`; that cohesive placement preserves the source while the proposed `universe.collections.iteration.protocols` owner and adapter-module split remain deferred. Ordinary source imports currently carry runtime dependency edges, so the iteration and System/concurrency splits with dependency cycles must wait for a supported interface-only dependency model or another validated design. Neither the current shadow owner nor the proposed split has been activated in production. Current implementation and synchronization evidence is maintained in [`packages/universe/docs/migration-status.md`](../../packages/universe/docs/migration-status.md) and [`packages/universe/docs/identity-migration.md`](../../packages/universe/docs/identity-migration.md).
+
 ---
 
 ## 2. One builtin package, multiple policies
@@ -100,6 +127,10 @@ Universe ≠ native
 
 ## 3. Canonical identity model
 
+The identity mappings in this section describe the TARGET architecture. Where
+an owner differs from the current build, the ACTIVE production owner is shown
+in the source-authority table above.
+
 ### 3.1 Project identity
 
 Universe has a distinct project identity, conceptually:
@@ -122,13 +153,18 @@ A Universe module is identified by:
 ProjectIdentity::Universe + ModulePath
 ```
 
-Examples:
+TARGET module-path examples:
 
 ```text
 universe:<root>
 universe:scalar.number
+universe:scalar.int
+universe:scalar.float
+universe:scalar.unit
+universe:option
+universe:result
 universe:collections.list
-universe:errors.result
+universe:errors.error
 universe:reflection.typing
 universe:json
 ```
@@ -146,15 +182,16 @@ The exact API is implementation-specific; the semantics are not.
 
 ### 3.3 Declaration identity
 
-Every source-visible builtin declaration is owned by the exact module in which it is authored:
+Every source-visible builtin declaration is owned by the exact module in which it is authored. Each identity shown below is a TARGET identity:
 
 ```text
 universe.scalar.number::Number
-universe.scalar.number::Int
-universe.scalar.number::Float
+universe.scalar.int::Int
+universe.scalar.float::Float
 
-universe.option.option::Option
-universe.errors.result::Result
+universe.scalar.unit::Unit
+universe.option::Option
+universe.result::Result
 universe.object.ordering::Ordering
 
 universe.collections.list::List
@@ -166,7 +203,7 @@ The compiler must not flatten these declarations into the Universe root and must
 The following are different declarations even though their short names match:
 
 ```text
-universe.errors.result::Result
+universe.result::Result
 my_project.domain.result::Result
 third_party.validation.result::Result
 ```
@@ -180,22 +217,26 @@ The runtime may maintain compact keys such as:
 ```text
 UniverseKey::Object
 UniverseKey::Int
+UniverseKey::Float
 UniverseKey::Option
 UniverseKey::Result
 UniverseKey::Ordering
 ```
 
-These keys are runtime/native associations, not a second declaration database. Each key maps to the canonical source declaration or to an explicitly internal runtime-support identity:
+These keys are runtime/native associations, not a second declaration database. The following mappings describe the TARGET associations after integration; current ACTIVE paths are listed above:
 
 ```text
 UniverseKey::Int
-    -> universe.scalar.number::Int
+    -> universe.scalar.int::Int
+
+UniverseKey::Float
+    -> universe.scalar.float::Float
 
 UniverseKey::Option
-    -> universe.option.option::Option
+    -> universe.option::Option
 
 UniverseKey::Result
-    -> universe.errors.result::Result
+    -> universe.result::Result
 ```
 
 Native and intrinsic metadata may enrich canonical declarations with
@@ -231,7 +272,10 @@ universe/
 ├── option/
 ├── errors/
 ├── collections/
+├── system.ph
 ├── concurrency/
+├── diagnostics/
+├── features/
 ├── reflection/
 ├── io/
 ├── fs/
@@ -255,8 +299,12 @@ Canonical virtual URIs use the module graph directly:
 phalcom://universe/
 phalcom://universe/object/object
 phalcom://universe/scalar/number
+phalcom://universe/scalar/int
+phalcom://universe/scalar/float
+phalcom://universe/scalar/unit
+phalcom://universe/option
+phalcom://universe/result
 phalcom://universe/collections/list
-phalcom://universe/errors/result
 phalcom://universe/json
 ```
 
@@ -358,15 +406,19 @@ Root-level convenience re-exports do not change the defining declaration's ident
 
 The prelude is a visibility policy over canonical declarations. It is not an alternate declaration namespace.
 
+The conceptual bindings below describe the TARGET prelude after integration. The current ACTIVE production prelude still resolves through the owners in the source-authority table.
+
 Conceptually:
 
 ```text
 PreludeBindings {
     "Object" -> universe.object.object::Object
-    "Int" -> universe.scalar.number::Int
+    "Int" -> universe.scalar.int::Int
+    "Float" -> universe.scalar.float::Float
     "String" -> universe.scalar.string::String
-    "Option" -> universe.option.option::Option
-    "Result" -> universe.errors.result::Result
+    "Option" -> universe.option::Option
+    "Result" -> universe.result::Result
+    "Unit" -> universe.scalar.unit::Unit
     ...
 }
 ```
@@ -380,7 +432,7 @@ const x: Int = 42
 resolves `Int` directly to:
 
 ```text
-universe.scalar.number::Int
+universe.scalar.int::Int
 ```
 
 ### 6.1 Lookup precedence
@@ -478,20 +530,20 @@ A compiler/LSP must be able to discover `universe.json` or navigate to `List<T>`
 
 ### 7.1 Identity convergence
 
-The compiler should obtain the same declaration no matter which canonical route reaches it:
+For the TARGET identity, the compiler should obtain the same declaration no matter which canonical route reaches it:
 
 ```text
 UniverseKey::Result
     ↓
-universe.errors.result::Result
+universe.result::Result
 
 Prelude "Result"
     ↓
-universe.errors.result::Result
+universe.result::Result
 
 Authored source declaration
     ↓
-universe.errors.result::Result
+universe.result::Result
 ```
 
 These are different lookup mechanisms over one identity, not three declarations.
@@ -570,7 +622,7 @@ A variant identity is conceptually:
 
 ```text
 VariantId(
-    owner = universe.errors.result::Result,
+    owner = universe.result::Result,
     selector = Ok(_)
 )
 ```
@@ -601,11 +653,15 @@ other specialized storage
 
 without changing semantic identity.
 
-For example, `Option<Int>` remains an application of canonical `universe.option.option::Option` regardless of how `Some(42)` is encoded in `Value`.
+For example, `Option<Int>` remains an application of canonical `universe.option::Option` regardless of how `Some(42)` is encoded in `Value`.
 
 ---
 
 ## 10. Runtime bootstrap and nominal identity
+
+This section specifies the TARGET bootstrap model for the single canonical
+Universe authority. At the current repository revision, production bootstrap
+continues to use the ACTIVE legacy owners listed in the source-authority table.
 
 Some runtime objects must exist before authored Universe source can execute. Primordial allocation is therefore legitimate for the object/class/metaclass substrate and other runtime-critical identities.
 
@@ -633,7 +689,7 @@ For `Result`:
 
 ```text
 semantic declaration
-    universe.errors.result::Result
+    universe.result::Result
 
 ADT registry root class
     same canonical Result ClassId
@@ -732,7 +788,7 @@ Prelude/import access should resolve to canonical module bindings, conceptually:
 
 ```text
 LinkedReadSpec::Binding(
-    universe.scalar.number::Int
+    universe.scalar.int::Int
 )
 ```
 
@@ -785,9 +841,9 @@ Reflection must expose canonical Universe ownership.
 For example, reflecting on `Int` must identify:
 
 ```text
-declaration: universe.scalar.number::Int
-module:      universe.scalar.number
-source:      phalcom://universe/scalar/number
+declaration: universe.scalar.int::Int
+module:      universe.scalar.int
+source:      phalcom://universe/scalar/int
 ```
 
 Reflecting on `Result<T,E>` preserves its closed-sum identity, generic parameters, exact module, cases, and relevant native/runtime implementation metadata.
@@ -825,7 +881,7 @@ const x: Int = 42
 definition navigation targets the authored `Int` declaration in:
 
 ```text
-phalcom://universe/scalar/number
+phalcom://universe/scalar/int
 ```
 
 For:
@@ -1038,8 +1094,8 @@ const x: Int = 42
 Required:
 
 ```text
-Declaration: universe.scalar.number::Int
-Source:      phalcom://universe/scalar/number
+Declaration: universe.scalar.int::Int
+Source:      phalcom://universe/scalar/int
 Runtime:     canonical Int ClassId
 ```
 
@@ -1054,7 +1110,7 @@ Required:
 
 ```text
 List -> universe.collections.list::List
-Int  -> universe.scalar.number::Int
+Int  -> universe.scalar.int::Int
 ```
 
 If `List` is also prelude-visible, both routes denote the same declaration.
@@ -1090,7 +1146,7 @@ data Result {
 Required:
 
 ```text
-user Result      != universe.errors.result::Result
+user Result      != universe.result::Result
 user Result::Ok  != canonical Universe Result::Ok
 ```
 
@@ -1107,7 +1163,7 @@ The VM may encode the value immediately.
 Required regardless of representation:
 
 ```text
-nominal declaration -> universe.option.option::Option
+nominal declaration -> universe.option::Option
 variant identity     -> canonical Option::Some VariantId
 reflection           -> Option<Int>
 .class/dispatch       -> behavior associated with canonical Option/Some semantics

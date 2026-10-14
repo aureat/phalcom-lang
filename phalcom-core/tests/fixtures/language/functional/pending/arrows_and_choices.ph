@@ -1,0 +1,22 @@
+// status: PENDING
+from universe.functional import Arrow, Either, Validation, NonEmpty
+let increment = Arrow<Int, Int>.new(|n| { n + 1 })
+let double = Arrow<Int, Int>.new(|n| { n * 2 })
+System.print(increment.then(double).call(3))
+System.print(increment.first<String>().call((3, "kept"))[0])
+System.print(increment.first<String>().call((3, "kept"))[1])
+let parts = increment.fanout(double).call(3)
+System.print(parts[0])
+System.print(parts[1])
+let mut calls = 0
+let length = Arrow<String, Int>.new(|s| { calls = calls + 1; s.rawByteCount })
+let dispatch = increment.choose(length)
+System.print(dispatch.call(Either<Int, String>::Left(3)).merge)
+System.print(calls)
+System.print(dispatch.call(Either<Int, String>::Right("abc")).merge)
+System.print(calls)
+System.print(Either<Int, String>::Left(7).swap.right.unwrap)
+let left = Validation<Int, NonEmpty<String>>::Invalid(NonEmpty<String>.one("first"))
+let right = Validation<Int, NonEmpty<String>>::Invalid(NonEmpty<String>.one("second"))
+System.print(left.combineWith(right, using: |a, b| { a + b }).toResult.err.unwrap.size)
+System.print(Validation<Int, String>::Valid(2).ensure(|n| { n > 3 }, error: |_| { "small" }).toResult.err.unwrap)

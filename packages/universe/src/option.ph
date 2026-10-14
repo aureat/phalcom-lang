@@ -1,0 +1,368 @@
+@!documentation("Option algebraic type for explicit absence: Option, Some, None.")
+
+//! Representation of optional values and absence handling.
+//!
+//! `Option<T>` is the foundational type for representing values that may or may not be
+//! present. It encapsulates either `Some(value)` of type `T` or `None` representing absence.
+
+/// Represents the presence or absence of a value.
+///
+/// `Option<T>` contains either `Some(value)`, which carries a value of type `T`,
+/// or `None`, which represents absence.
+///
+/// `Option` is the standard way to represent values that may be absent. Phalcom
+/// does not expose a general-purpose `nil` value for this purpose.
+///
+/// Most operations preserve absence: transformations are applied to `Some`
+/// values while `None` propagates through the operation.
+///
+/// @typeparam T The type of value carried by `Some`.
+native data Option<T> {
+
+  /// An `Option` containing a value.
+  ///
+  /// @param value The wrapped value.
+  @variant
+  Some(_ value: T)
+
+  /// An `Option` containing no value.
+  @variant
+  None
+}
+
+impl<T> Option<T> {
+  /// Tests a present value; absence is false and never invokes the predicate.
+  isSomeAnd(_ predicate: (T) -> Bool) -> Bool {
+    match self {
+      Option::Some(value) => predicate.call(value)
+      Option::None => false
+    }
+  }
+
+  /// Extracts a value or computes a fallback once, only for None.
+  unwrapOrElse(_ fallback: () -> T) -> T {
+    match self {
+      Option::Some(value) => value
+      Option::None => fallback.call()
+    }
+  }
+
+  /// Converts absence into an error computed lazily, only for None.
+  okOrElse<E>(_ error: () -> E) -> Result<T, E> {
+    match self {
+      Option::Some(value) => Result::Ok(value)
+      Option::None => Result::Error(error.call())
+    }
+  }
+
+  /// Combines two present values. Neither absence invokes combine.
+  /// The other argument is evaluated before the method is called.
+  zipWith<U, R>(_ other: Option<U>, combine: (T, U) -> R) -> Option<R> {
+    match self {
+      Option::Some(left) => {
+        match other {
+          Option::Some(right) => Option::Some(combine.call(left, right))
+          Option::None => Option::None
+        }
+      }
+      Option::None => Option::None
+    }
+  }
+
+  /// Removes one Option layer; Some(None) and None both become None.
+  flatten<U>() -> Option<U> where T == Option<U> {
+    match self {
+      Option::Some(inner) => inner
+      Option::None => Option::None
+    }
+  }
+
+  /// Exchanges Option and Result nesting without discarding an error.
+  /// None -> Ok(None), Some(Ok(v)) -> Ok(Some(v)), Some(Error(e)) -> Error(e).
+  transpose<U, E>() -> Result<Option<U>, E> where T == Result<U, E> {
+    match self {
+      Option::Some(result) => {
+        match result {
+          Result::Ok(value) => Result::Ok(Option::Some(value))
+          Result::Error(error) => Result::Error(error)
+        }
+      }
+      Option::None => Result::Ok(Option::None)
+    }
+  }
+
+  /// Retains the sole present option; two present or two absent values give None.
+  xor(_ other: Option<T>) -> Option<T> {
+    match self {
+      Option::Some(_) => {
+        match other {
+          Option::Some(_) => Option::None
+          Option::None => self
+        }
+      }
+      Option::None => other
+    }
+  }
+
+  /// Eliminates this option by invoking the callback corresponding to its
+  /// current variant.
+  ///
+  /// When this option is `Some(value)`, `some` is invoked with the wrapped
+  /// value. When this option is `None`, the zero-argument `none` callback is
+  /// invoked.
+  ///
+  /// Exactly one callback is invoked.
+  ///
+  /// @typeparam R The common return type of both callbacks.
+  /// @param some A one-argument callback invoked with the wrapped value when
+  /// this option is `Some`.
+  /// @param none A zero-argument callback invoked when this option is `None`.
+  /// @returns The value returned by the invoked callback.
+  native match<R>(some: (T) -> R, none: () -> R) -> R
+
+  /// Performs an action when this option is `None`.
+  ///
+  /// If this option is `None`, invokes the zero-argument callback `f`. If this
+  /// option is `Some`, the callback is not invoked.
+  ///
+  /// The option itself is returned unchanged, making this operation suitable
+  /// for observing absence inside a chain without extracting or transforming
+  /// the contained value.
+  ///
+  /// @param f A zero-argument callback invoked only when this option is `None`.
+  /// @returns This option unchanged.
+  ifNone(_ f: () -> Unit) -> Option<T> {
+    match self {
+      Option::Some(_) => self
+      Option::None => {
+        f.call()
+        self
+      }
+    }
+  }
+
+  /// Returns this option when it contains a value, or computes an alternative
+  /// option when it is `None`.
+  ///
+  /// The fallback is evaluated lazily: `f` is invoked only when this option is
+  /// `None`.
+  ///
+  /// This operation is the method-level target of the `??` operator.
+  ///
+  /// @param f A zero-argument callback that produces the fallback option.
+  /// @returns This option when it is `Some`; otherwise, the option returned by
+  /// `f`.
+  orElse(_ f: () -> Option<T>) -> Option<T> {
+    match self {
+      Option::Some(_) => self
+      Option::None => f.call()
+    }
+  }
+
+  /// Tests whether this option contains a value.
+  ///
+  /// @returns `true` when this option is `Some`; otherwise `false`.
+  isSome -> Bool {
+    match self {
+      Option::Some(_) => true
+      Option::None => false
+    }
+  }
+
+  /// Tests whether this option represents absence.
+  ///
+  /// @returns `true` when this option is `None`; otherwise `false`.
+  isNone -> Bool {
+    match self {
+      Option::Some(_) => false
+      Option::None => true
+    }
+  }
+
+  /// Transforms the value contained by this option.
+  ///
+  /// If this option is `Some(value)`, invokes `f` with `value` and wraps the
+  /// returned value in `Some`. If this option is `None`, the callback is not
+  /// invoked and absence is propagated unchanged.
+  ///
+  /// @typeparam U The transformed payload type.
+  /// @param f A one-argument callback that transforms the wrapped value.
+  /// @returns `Some` containing the transformed value when this option is
+  /// `Some`; otherwise `None`.
+  map<U>(_ f: (T) -> U) -> Option<U> {
+    match self {
+      Option::Some(v) => Option::Some(f.call(v))
+      Option::None => self
+    }
+  }
+
+  /// Transforms the value contained by this option using an operation that
+  /// itself returns an `Option`.
+  ///
+  /// Unlike `map`, the option returned by `f` is used directly rather than
+  /// being wrapped in another `Some`. This allows option-producing operations
+  /// to be chained without creating nested options.
+  ///
+  /// If this option is `None`, `f` is not invoked and absence is propagated.
+  ///
+  /// @typeparam U The payload type of the returned option.
+  /// @param f A one-argument callback that receives the wrapped value and
+  /// returns an option.
+  /// @returns The option returned by `f` when this option is `Some`; otherwise
+  /// `None`.
+  flatMap<U>(_ f: (T) -> Option<U>) -> Option<U> {
+    match self {
+      Option::Some(v) => f.call(v)
+      Option::None => self
+    }
+  }
+
+  /// Retains a contained value only when it satisfies a predicate.
+  ///
+  /// If this option is `Some(value)`, invokes `pred` with `value`. The original
+  /// `Some` is retained when the predicate returns `true`; otherwise the result
+  /// is `None`.
+  ///
+  /// If this option is already `None`, the predicate is not invoked and
+  /// absence is propagated unchanged.
+  ///
+  /// @param pred A one-argument predicate evaluated for a contained value.
+  /// @returns This option when it is `None` or when the predicate succeeds;
+  /// otherwise `None`.
+  filter(_ pred: (T) -> Bool) -> Option<T> {
+    match self {
+      Option::Some(v) => {
+        if pred.call(v) {
+          self
+        } else {
+          Option::None
+        }
+      }
+      Option::None => self
+    }
+  }
+
+  /// Performs an action on the contained value without changing this option.
+  ///
+  /// If this option is `Some(value)`, invokes `f` with `value`. If this option
+  /// is `None`, the callback is not invoked.
+  ///
+  /// The option itself is returned unchanged, making this operation suitable
+  /// for observation, logging, or other side effects within an option chain.
+  ///
+  /// @param f A one-argument callback invoked with the wrapped value when this
+  /// option is `Some`.
+  /// @returns This option unchanged.
+  ifSome(_ f: (T) -> Unit) -> Option<T> {
+    match self {
+      Option::Some(v) => {
+        f.call(v)
+        self
+      }
+      Option::None => self
+    }
+  }
+
+  /// Extracts the contained value or returns a fallback value.
+  ///
+  /// If this option is `Some(value)`, returns `value`. If this option is
+  /// `None`, returns `default`.
+  ///
+  /// The fallback value is evaluated before this method is called. Use
+  /// `orElse` when the fallback should be produced lazily as another option.
+  ///
+  /// @param default A value of the option's payload type `T` to return when
+  /// this option is `None`.
+  /// @returns The contained value when this option is `Some`; otherwise
+  /// `default`. The result type is `T`.
+  unwrapOr(_ default: T) -> T {
+    match self {
+      Option::Some(v) => v
+      Option::None => default
+    }
+  }
+
+  /// Extracts the contained value from this option.
+  ///
+  /// If this option is `Some(value)`, returns `value`. If this option is
+  /// `None`, raises an error.
+  unwrap -> T {
+    match self {
+      Option::Some(v) => v
+      Option::None => ArgumentError.new("called Option.unwrap on a None value").raise()
+    }
+  }
+
+  /// Returns a string representation of this option.
+  ///
+  /// A `Some(value)` is represented as `Some(<value>)`, using the contained
+  /// value's own `toString` representation. `None` is represented as `None`.
+  ///
+  /// @returns The string representation of this option.
+  toString -> String {
+    match self {
+      Option::Some(v) => "Some(" + v.toString + ")"
+      Option::None => "None"
+    }
+  }
+
+  /// Converts this option into a `Result`, supplying an error for the absent
+  /// case.
+  ///
+  /// `Some(value)` becomes `Ok(value)`. `None` becomes `Error(err)`.
+  ///
+  /// The error value is used only for the `None` case.
+  ///
+  /// @typeparam E The error type of the resulting `Result`.
+  /// @param err The error value to use when this option is `None`.
+  /// @returns `Ok` containing the wrapped value when this option is `Some`;
+  /// otherwise `Error` containing `err`.
+  okOr<E>(_ err: E) -> Result<T, E> {
+    match self {
+      Option::Some(v) => Result::Ok(v)
+      Option::None => Result::Error(err)
+    }
+  }
+
+  /// Tests this option for value equality with another option.
+  ///
+  /// Two `Some` values are equal when their wrapped values are equal. Two
+  /// `None` values are equal. A `Some` and a `None` are never equal.
+  ///
+  /// Values that are not options compare unequal.
+  ///
+  /// @param other The value to compare with this option.
+  /// @returns `true` when `other` is an equivalent option; otherwise `false`.
+  ==(_ other) -> Bool {
+    if not other.is(Option) {
+      return false
+    }
+
+    match self {
+      Option::Some(v) => {
+        match other {
+          Option::Some(ov) => v == ov
+          _ => false
+        }
+      }
+      Option::None => other.isNone
+    }
+  }
+
+  /// Computes the hash value of this option.
+  ///
+  /// `Some(value)` uses the wrapped value's hash. `None` uses the canonical
+  /// hash value for absence.
+  ///
+  /// Equal options produce equal hash values.
+  ///
+  /// @returns The hash value of this option.
+  hash -> Int {
+    match self {
+      Option::Some(v) => v.hash
+      Option::None => 0
+    }
+  }
+}
+
+export Option

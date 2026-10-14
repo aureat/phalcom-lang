@@ -67,8 +67,8 @@ use phalcom_modules::linker::{LinkedProgram, SymbolId};
 use phalcom_modules::{WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleUpdate, WorkspaceSourceBatchMutation, WorkspaceSourceMutation};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
 
 static CANONICAL_LINKED_UNIVERSE: OnceLock<Arc<LinkedProgram>> = OnceLock::new();
@@ -935,6 +935,7 @@ impl SemanticWorkspaceSession {
         let result = self.update_with_budget_and_cancel_and_delta(
             SemanticWorkspaceInput {
                 linked: update.linked,
+                semantic_linked: None,
                 sources: update.sources,
                 interfaces: update.interfaces,
                 import_products: update.import_products,
@@ -984,6 +985,7 @@ impl SemanticWorkspaceSession {
         let result = self.update_with_delta(
             SemanticWorkspaceInput {
                 linked: update.linked,
+                semantic_linked: None,
                 sources: update.sources,
                 interfaces: update.interfaces,
                 import_products: update.import_products,
@@ -1034,6 +1036,16 @@ impl SemanticWorkspaceSession {
     /// Performs an incremental semantic analysis update on this session.
     pub fn update(&mut self, input: SemanticWorkspaceInput) -> Result<SemanticWorkspaceUpdate, SemanticUpdateFailure> {
         self.update_with_delta(input, None)
+    }
+
+    /// Performs an incremental update and returns operational failures without publishing stale snapshots.
+    pub fn try_update(&mut self, input: SemanticWorkspaceInput) -> Result<SemanticWorkspaceUpdate, SemanticUpdateFailure> {
+        self.update(input)
+    }
+
+    /// Fallible form of [`Self::update_module_workspace`].
+    pub fn try_update_module_workspace(&mut self, update: WorkspaceModuleUpdate) -> Result<SemanticWorkspaceUpdate, SemanticUpdateFailure> {
+        self.update_module_workspace(update)
     }
 
     fn update_with_delta(
@@ -1278,22 +1290,44 @@ impl SemanticWorkspaceSession {
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        for (module_id, linked_module) in &input.linked.modules {
-            let imported_seeds = linked_module
-                .bindings
-                .imports
-                .iter()
-                .filter_map(|(local_name, import_id)| {
-                    let Some(phalcom_modules::linker::LinkedReadSpec::Binding(symbol)) = linked_module.linked_reads.get(import_id.0 as usize) else {
-                        return None;
-                    };
-                    let seed = module_static_binding_catalogs.get(&symbol.module)?.get(symbol)?.clone();
-                    Some((local_name.to_string(), seed))
-                })
-                .collect::<Vec<_>>();
-            if let Some(catalog) = module_static_binding_catalogs.get_mut(module_id) {
-                for (local_name, seed) in imported_seeds {
-                    Arc::make_mut(catalog).insert_imported_binding(&local_name, seed);
+        if let Some(semantic_linked) = input.semantic_linked.as_ref() {
+            for (module_id, sem_mod) in &semantic_linked.modules {
+                let imported_seeds = sem_mod
+                    .imports
+                    .bindings
+                    .values()
+                    .filter_map(|import_binding| {
+                        let phalcom_modules::linker::SymbolicImportTarget::Binding(ref symbol) = import_binding.target else {
+                            return None;
+                        };
+                        let seed = module_static_binding_catalogs.get(&symbol.module)?.get(symbol)?.clone();
+                        Some((import_binding.local_name.to_string(), seed))
+                    })
+                    .collect::<Vec<_>>();
+                if let Some(catalog) = module_static_binding_catalogs.get_mut(module_id) {
+                    for (local_name, seed) in imported_seeds {
+                        Arc::make_mut(catalog).insert_imported_binding(&local_name, seed);
+                    }
+                }
+            }
+        } else {
+            for (module_id, linked_module) in &input.linked.modules {
+                let imported_seeds = linked_module
+                    .bindings
+                    .imports
+                    .iter()
+                    .filter_map(|(local_name, import_id)| {
+                        let Some(phalcom_modules::linker::LinkedReadSpec::Binding(symbol)) = linked_module.linked_reads.get(import_id.0 as usize) else {
+                            return None;
+                        };
+                        let seed = module_static_binding_catalogs.get(&symbol.module)?.get(symbol)?.clone();
+                        Some((local_name.to_string(), seed))
+                    })
+                    .collect::<Vec<_>>();
+                if let Some(catalog) = module_static_binding_catalogs.get_mut(module_id) {
+                    for (local_name, seed) in imported_seeds {
+                        Arc::make_mut(catalog).insert_imported_binding(&local_name, seed);
+                    }
                 }
             }
         }
@@ -1405,7 +1439,6 @@ impl SemanticWorkspaceSession {
 
         #[cfg(test)]
         self.fail_at_test_publication_point(SemanticPublicationFailpoint::AfterSourceFingerprints)?;
-
         // Generic declaration headers form a second exact dependency graph:
         // a provider header edit must reach only headers whose bounds,
         // constraints, or superclass template mention that provider.
@@ -1485,7 +1518,8 @@ impl SemanticWorkspaceSession {
             ModuleId::universe_root(),
             self.alias_forms.clone(),
         )
-        .with_canonical_linked(canonical_linked);
+        .with_canonical_linked(canonical_linked)
+        .with_semantic_linked(input.semantic_linked.clone());
         let mut current_signature_fingerprints = self.declaration_signature_fingerprints.clone();
         for module in &structural_recomputed_modules {
             current_signature_fingerprints.retain(|node, _| signature_node_module(node) != module);
@@ -2257,6 +2291,7 @@ impl SemanticWorkspaceSession {
             self.alias_forms.clone(),
         )
         .with_canonical_linked(canonical_linked)
+        .with_semantic_linked(input.semantic_linked.clone())
         .with_trait_associated_types(Arc::new(trait_associated_types.clone()));
 
         // Resolve contextual binder kinds only after every nominal declaration
@@ -6188,6 +6223,7 @@ impl SemanticWorkspaceSession {
                         type_member_declarations: Some(&type_member_declarations_table),
                         conformance_semantics: Some(&conformance_semantics),
                         module_values: None,
+                        semantic_linked: input.semantic_linked.as_deref(),
                     };
                     let outcome = query_callable_body_with_formal_inputs(
                         &mut self.db,
@@ -6339,6 +6375,7 @@ impl SemanticWorkspaceSession {
                                     type_member_declarations: Some(&type_member_declarations_table),
                                     conformance_semantics: Some(&conformance_semantics),
                                     module_values: None,
+                                    semantic_linked: input.semantic_linked.as_deref(),
                                 };
 
                                 let forced = callable_body_work.contains(&callable_id);
@@ -6516,6 +6553,7 @@ impl SemanticWorkspaceSession {
                                     type_member_declarations: Some(&type_member_declarations_table),
                                     conformance_semantics: Some(&conformance_semantics),
                                     module_values: None,
+                                    semantic_linked: input.semantic_linked.as_deref(),
                                 };
                                 let forced = callable_body_work.contains(&callable);
                                 if forced {
@@ -6722,6 +6760,7 @@ impl SemanticWorkspaceSession {
                                     type_member_declarations: Some(&type_member_declarations_table),
                                     conformance_semantics: Some(&conformance_semantics),
                                     module_values: None,
+                                    semantic_linked: input.semantic_linked.as_deref(),
                                 };
 
                                 let forced = callable_body_work.contains(&callable_id);
@@ -6849,6 +6888,7 @@ impl SemanticWorkspaceSession {
                 type_member_declarations: Some(&type_member_declarations_table),
                 conformance_semantics: Some(&conformance_semantics),
                 module_values: None,
+                semantic_linked: input.semantic_linked.as_deref(),
             };
             let has_declared_return = callable_signatures
                 .get_for_body(&callable)
@@ -6951,6 +6991,7 @@ impl SemanticWorkspaceSession {
                 type_member_declarations: Some(&type_member_declarations_table),
                 conformance_semantics: Some(&reanalysis_conformance_semantics),
                 module_values: None,
+                semantic_linked: input.semantic_linked.as_deref(),
             };
             for callable in &cycle_reanalysis_roots {
                 let Some(unit) = retained_sources.get(callable.module()) else {
@@ -7108,6 +7149,7 @@ impl SemanticWorkspaceSession {
                 type_member_declarations: Some(&type_member_declarations_table),
                 conformance_semantics: Some(&reanalysis_conformance_semantics),
                 module_values: None,
+                semantic_linked: input.semantic_linked.as_deref(),
             };
             for callable in &affected_plan_clients {
                 let Some(unit) = retained_sources.get(callable.module()) else {
@@ -7222,22 +7264,44 @@ impl SemanticWorkspaceSession {
                 ))
             })
             .collect::<BTreeMap<_, _>>();
-        for (module_id, linked_module) in &input.linked.modules {
-            let imported_facts = linked_module
-                .bindings
-                .imports
-                .iter()
-                .filter_map(|(local_name, import_id)| {
-                    let phalcom_modules::linker::LinkedReadSpec::Binding(symbol) = linked_module.linked_reads.get(import_id.0 as usize)? else {
-                        return None;
-                    };
-                    let fact = module_static_bindings.get(&symbol.module)?.get(symbol)?.clone();
-                    Some((local_name.to_string(), fact))
-                })
-                .collect::<Vec<_>>();
-            if let Some(bindings) = module_static_bindings.get_mut(module_id) {
-                for (local_name, fact) in imported_facts {
-                    Arc::make_mut(bindings).insert_imported_binding(&local_name, fact);
+        if let Some(semantic_linked) = input.semantic_linked.as_ref() {
+            for (module_id, sem_mod) in &semantic_linked.modules {
+                let imported_facts = sem_mod
+                    .imports
+                    .bindings
+                    .values()
+                    .filter_map(|import_binding| {
+                        let phalcom_modules::linker::SymbolicImportTarget::Binding(ref symbol) = import_binding.target else {
+                            return None;
+                        };
+                        let fact = module_static_bindings.get(&symbol.module)?.get(symbol)?.clone();
+                        Some((import_binding.local_name.to_string(), fact))
+                    })
+                    .collect::<Vec<_>>();
+                if let Some(bindings) = module_static_bindings.get_mut(module_id) {
+                    for (local_name, fact) in imported_facts {
+                        Arc::make_mut(bindings).insert_imported_binding(&local_name, fact);
+                    }
+                }
+            }
+        } else {
+            for (module_id, linked_module) in &input.linked.modules {
+                let imported_facts = linked_module
+                    .bindings
+                    .imports
+                    .iter()
+                    .filter_map(|(local_name, import_id)| {
+                        let phalcom_modules::linker::LinkedReadSpec::Binding(symbol) = linked_module.linked_reads.get(import_id.0 as usize)? else {
+                            return None;
+                        };
+                        let fact = module_static_bindings.get(&symbol.module)?.get(symbol)?.clone();
+                        Some((local_name.to_string(), fact))
+                    })
+                    .collect::<Vec<_>>();
+                if let Some(bindings) = module_static_bindings.get_mut(module_id) {
+                    for (local_name, fact) in imported_facts {
+                        Arc::make_mut(bindings).insert_imported_binding(&local_name, fact);
+                    }
                 }
             }
         }
@@ -7275,16 +7339,10 @@ impl SemanticWorkspaceSession {
             ctx.attach_associated_families(&associated_surfaces_table);
             ctx.attach_conformance_semantics(&conformance_semantics);
 
-            if let Some(linked_module) = input.linked.modules.get(module_id) {
-                for (local_name, import_id) in &linked_module.bindings.imports {
-                    let Some(phalcom_modules::linker::LinkedReadSpec::Binding(symbol)) = linked_module.linked_reads.get(import_id.0 as usize) else {
-                        continue;
-                    };
-                    let Some(fact) = module_static_bindings.get(&symbol.module).and_then(|bindings| bindings.get(symbol)) else {
-                        continue;
-                    };
-                    ctx.declare_checked_binding(local_name.to_string(), &fact.state, fact.phase);
-                }
+            if let Some(semantic_module) = input.semantic_linked.as_ref().and_then(|sl| sl.modules.get(module_id)) {
+                ctx.seed_symbolic_module_import_values(semantic_module, &module_static_bindings);
+            } else if let Some(linked_module) = input.linked.modules.get(module_id) {
+                ctx.seed_linked_module_import_values(linked_module, &module_static_bindings);
             }
 
             for stmt in &parsed_unit.program.statements {
@@ -7345,6 +7403,7 @@ impl SemanticWorkspaceSession {
                 bindings: &module_static_bindings,
                 exports: &module_value_exports,
             }),
+            semantic_linked: input.semantic_linked.as_deref(),
         };
         let module_body_callables = callable_analyses.keys().cloned().collect::<BTreeSet<_>>();
         for callable in module_body_callables {
@@ -7430,18 +7489,35 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        for (mod_id, linked_mod) in &input.linked.modules {
-            linked_map.insert(mod_id.clone(), linked_mod.interface.clone());
-            for (name, import_id) in &linked_mod.bindings.imports {
-                let Some(read_spec) = linked_mod.linked_reads.get(import_id.0 as usize) else {
-                    continue;
-                };
-                match read_spec {
-                    phalcom_modules::linker::LinkedReadSpec::Binding(sym) => {
-                        resolved_imports_map.insert((mod_id.clone(), name.to_string()), sym.module.clone());
+        if let Some(semantic_linked) = input.semantic_linked.as_ref() {
+            for (mod_id, sem_mod) in &semantic_linked.modules {
+                linked_map.insert(mod_id.clone(), sem_mod.interface.clone());
+                for import_binding in sem_mod.imports.bindings.values() {
+                    let local_name = import_binding.local_name.to_string();
+                    match &import_binding.target {
+                        phalcom_modules::linker::SymbolicImportTarget::Binding(sym) => {
+                            resolved_imports_map.insert((mod_id.clone(), local_name), sym.module.clone());
+                        }
+                        phalcom_modules::linker::SymbolicImportTarget::Module(target_mod) => {
+                            resolved_imports_map.insert((mod_id.clone(), local_name), target_mod.clone());
+                        }
                     }
-                    phalcom_modules::linker::LinkedReadSpec::Module(target_mod) => {
-                        resolved_imports_map.insert((mod_id.clone(), name.to_string()), target_mod.clone());
+                }
+            }
+        } else {
+            for (mod_id, linked_mod) in &input.linked.modules {
+                linked_map.insert(mod_id.clone(), linked_mod.interface.clone());
+                for (name, import_id) in &linked_mod.bindings.imports {
+                    let Some(read_spec) = linked_mod.linked_reads.get(import_id.0 as usize) else {
+                        continue;
+                    };
+                    match read_spec {
+                        phalcom_modules::linker::LinkedReadSpec::Binding(sym) => {
+                            resolved_imports_map.insert((mod_id.clone(), name.to_string()), sym.module.clone());
+                        }
+                        phalcom_modules::linker::LinkedReadSpec::Module(target_mod) => {
+                            resolved_imports_map.insert((mod_id.clone(), name.to_string()), target_mod.clone());
+                        }
                     }
                 }
             }
@@ -7694,22 +7770,44 @@ impl SemanticWorkspaceSession {
                 ))
             })
             .collect::<BTreeMap<_, _>>();
-        for (module_id, linked_module) in &input.linked.modules {
-            let imported_facts = linked_module
-                .bindings
-                .imports
-                .iter()
-                .filter_map(|(local_name, import_id)| {
-                    let Some(phalcom_modules::linker::LinkedReadSpec::Binding(symbol)) = linked_module.linked_reads.get(import_id.0 as usize) else {
-                        return None;
-                    };
-                    let fact = module_static_bindings.get(&symbol.module)?.get(symbol)?.clone();
-                    Some((local_name.to_string(), fact))
-                })
-                .collect::<Vec<_>>();
-            if let Some(module_bindings) = module_static_bindings.get_mut(module_id) {
-                for (local_name, fact) in imported_facts {
-                    Arc::make_mut(module_bindings).insert_imported_binding(&local_name, fact);
+        if let Some(semantic_linked) = input.semantic_linked.as_ref() {
+            for (module_id, sem_mod) in &semantic_linked.modules {
+                let imported_facts = sem_mod
+                    .imports
+                    .bindings
+                    .values()
+                    .filter_map(|import_binding| {
+                        let phalcom_modules::linker::SymbolicImportTarget::Binding(ref symbol) = import_binding.target else {
+                            return None;
+                        };
+                        let fact = module_static_bindings.get(&symbol.module)?.get(symbol)?.clone();
+                        Some((import_binding.local_name.to_string(), fact))
+                    })
+                    .collect::<Vec<_>>();
+                if let Some(module_bindings) = module_static_bindings.get_mut(module_id) {
+                    for (local_name, fact) in imported_facts {
+                        Arc::make_mut(module_bindings).insert_imported_binding(&local_name, fact);
+                    }
+                }
+            }
+        } else {
+            for (module_id, linked_module) in &input.linked.modules {
+                let imported_facts = linked_module
+                    .bindings
+                    .imports
+                    .iter()
+                    .filter_map(|(local_name, import_id)| {
+                        let Some(phalcom_modules::linker::LinkedReadSpec::Binding(symbol)) = linked_module.linked_reads.get(import_id.0 as usize) else {
+                            return None;
+                        };
+                        let fact = module_static_bindings.get(&symbol.module)?.get(symbol)?.clone();
+                        Some((local_name.to_string(), fact))
+                    })
+                    .collect::<Vec<_>>();
+                if let Some(module_bindings) = module_static_bindings.get_mut(module_id) {
+                    for (local_name, fact) in imported_facts {
+                        Arc::make_mut(module_bindings).insert_imported_binding(&local_name, fact);
+                    }
                 }
             }
         }
@@ -7745,6 +7843,7 @@ impl SemanticWorkspaceSession {
             type_member_declarations: Some(&type_member_declarations_table),
             conformance_semantics: Some(&conformance_semantics),
             module_values: None,
+            semantic_linked: input.semantic_linked.as_deref(),
         };
         let static_definitions = static_definitions_table
             .iter()
@@ -8493,6 +8592,18 @@ impl SemanticWorkspaceSession {
             snapshot_obj.status = crate::snapshot::SnapshotStatus::Partial {
                 blocked_modules: input.blocked_modules.len() as u32,
             };
+        }
+        if let Some(semantic_linked) = input.semantic_linked.as_ref() {
+            let is_complete = input.blocked_modules.is_empty();
+            let (import_phase_products, generated_runtime_requirements) =
+                crate::phase_evidence::compute_module_import_phase_products(
+                    semantic_linked,
+                    &input.sources,
+                    &snapshot_obj.callable_analyses,
+                    is_complete,
+                );
+            snapshot_obj.import_phase_products = Arc::new(import_phase_products);
+            snapshot_obj.generated_runtime_requirements = Arc::from(generated_runtime_requirements);
         }
         let snapshot = Arc::new(snapshot_obj);
 
@@ -12420,6 +12531,7 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                             access_topology: Some(topology),
                             module_values: None,
                             linked_module: None,
+                            semantic_linked_module: None,
                         },
                         crate::checker::body::CallableBodyRequest {
                             callable: callable.clone(),

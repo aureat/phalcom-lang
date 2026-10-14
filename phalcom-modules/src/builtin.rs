@@ -27,6 +27,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
             "errors",
             "callable",
             "option",
+            "functional",
             "concurrency",
             "collections",
             "reflection",
@@ -49,6 +50,114 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["io"],
         kind: ModuleKind::Package,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional"],
+        kind: ModuleKind::Package,
+        children: &[
+            "state",
+            "reader",
+            "validation",
+            "lens",
+            "chain",
+            "algebra",
+            "writer",
+            "journal",
+            "state_result",
+            "reader_result",
+            "higher_kinded",
+            "effects",
+            "folds",
+            "fold",
+            "optics",
+            "either",
+            "arrow",
+        ],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "state"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "reader"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "validation"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "lens"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "chain"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "algebra"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "writer"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "journal"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "state_result"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "reader_result"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "higher_kinded"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "effects"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "folds"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "fold"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "optics"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "either"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["functional", "arrow"],
+        kind: ModuleKind::Module,
         children: &[],
     },
     UniverseNodeSpec {
@@ -550,7 +659,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["collections"],
         kind: ModuleKind::Package,
-        children: &["collection", "iterator_laws", "list", "array", "vector", "slice", "buffer", "map", "set", "mutable_bag", "indexed_dict", "ordered_set", "bag", "bijection", "tuple", "record", "pack", "range", "bytes"],
+        children: &["collection", "iterator_laws", "list", "array", "vector", "slice", "buffer", "map", "set", "mutable_bag", "indexed_dict", "ordered_set", "bag", "bijection", "tuple", "record", "pack", "range", "bytes", "interval", "range_map"],
     },
     UniverseNodeSpec {
         path: &["collections", "collection"],
@@ -644,6 +753,16 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     },
     UniverseNodeSpec {
         path: &["collections", "bytes"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["collections", "interval"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["collections", "range_map"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -923,6 +1042,58 @@ impl UniverseSourceProvider {
         let components = id.path.components();
         let content = match components {
             [] => include_str!("../../phalcom-core/core/universe/src/package.ph"),
+            [c] if c.as_str() == "functional" => include_str!("../../phalcom-core/core/universe/src/functional/package.ph"),
+            [c, m] if c.as_str() == "functional" && m.as_str() == "state" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/state.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "reader" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/reader.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "validation" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/validation.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "lens" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/lens.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "chain" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/chain.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "algebra" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/algebra.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "writer" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/writer.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "journal" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/journal.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "state_result" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/state_result.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "reader_result" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/reader_result.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "higher_kinded" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/higher_kinded.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "effects" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/effects.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "folds" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/folds.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "fold" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/fold.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "optics" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/optics.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "either" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/either.ph")
+            }
+            [c, m] if c.as_str() == "functional" && m.as_str() == "arrow" => {
+                include_str!("../../phalcom-core/core/universe/src/functional/arrow.ph")
+            }
             [c] if c.as_str() == "io" => include_str!("../../phalcom-core/core/universe/src/io/package.ph"),
             [c] if c.as_str() == "fs" => include_str!("../../phalcom-core/core/universe/src/fs/package.ph"),
             [c] if c.as_str() == "path" => include_str!("../../phalcom-core/core/universe/src/path/package.ph"),
@@ -1181,6 +1352,12 @@ impl UniverseSourceProvider {
             }
             [c, m] if c.as_str() == "collections" && m.as_str() == "bytes" => {
                 include_str!("../../phalcom-core/core/universe/src/collections/bytes.ph")
+            }
+            [c, m] if c.as_str() == "collections" && m.as_str() == "interval" => {
+                include_str!("../../phalcom-core/core/universe/src/collections/interval.ph")
+            }
+            [c, m] if c.as_str() == "collections" && m.as_str() == "range_map" => {
+                include_str!("../../phalcom-core/core/universe/src/collections/range_map.ph")
             }
             [c] if c.as_str() == "errors" => include_str!("../../phalcom-core/core/universe/src/errors/package.ph"),
             [c, m] if c.as_str() == "errors" && m.as_str() == "error" => {

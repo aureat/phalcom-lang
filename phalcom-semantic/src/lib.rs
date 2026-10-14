@@ -43,6 +43,7 @@ pub mod member_projection;
 pub mod metadata;
 pub mod module_bindings;
 pub mod module_product;
+pub mod phase_evidence;
 pub mod prelude;
 pub mod presentation;
 pub mod prover;
@@ -223,4 +224,6 @@ pub use types::{
     is_subtype, normalize_native_type, register_native_surfaces, register_native_surfaces_from_records, resolve_native_type_form, resolve_type_annotation,
     resolve_type_form, substitution_for_applied,
 };
-pub use workspace::{SemanticAnalysis, SemanticWorkspaceInput, analyze_single_module, analyze_workspace};
+pub use workspace::{
+    SemanticAnalysis, SemanticWorkspaceInput, analyze_single_module, analyze_workspace, try_analyze_single_module, try_analyze_workspace,
+};

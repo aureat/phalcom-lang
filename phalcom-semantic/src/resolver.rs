@@ -3,7 +3,7 @@
 use crate::identity::{DeclarationId, ModuleId};
 use crate::prelude::PreludeTypeMap;
 use crate::types::annotation::TypeResolver;
-use phalcom_modules::linker::{LinkedProgram, LinkedReadSpec};
+use phalcom_modules::linker::{LinkedProgram, LinkedReadSpec, SemanticLinkedProgram, SymbolicImportTarget};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -18,7 +18,8 @@ struct AssociatedTypeMemberProducts {
 /// and known declaration tables without resorting to global heuristics.
 #[derive(Clone, Debug)]
 pub struct LinkedTypeResolver {
-    linked: Arc<LinkedProgram>,
+    linked: Option<Arc<LinkedProgram>>,
+    semantic_linked: Option<Arc<SemanticLinkedProgram>>,
     canonical_linked: Option<Arc<LinkedProgram>>,
     known_declarations: HashSet<DeclarationId>,
     prelude_types: Arc<PreludeTypeMap>,
@@ -46,7 +47,8 @@ impl LinkedTypeResolver {
     /// Constructs a resolver with an explicitly shared prelude map.
     pub fn with_prelude(linked: Arc<LinkedProgram>, known_declarations: HashSet<DeclarationId>, prelude_types: Arc<PreludeTypeMap>) -> Self {
         Self {
-            linked,
+            linked: Some(linked),
+            semantic_linked: None,
             canonical_linked: None,
             known_declarations,
             prelude_types,
@@ -71,7 +73,8 @@ impl LinkedTypeResolver {
         retained_alias_forms: Arc<BTreeMap<DeclarationId, crate::types::id::TypeId>>,
     ) -> Self {
         Self {
-            linked,
+            linked: Some(linked),
+            semantic_linked: None,
             canonical_linked: None,
             known_declarations,
             prelude_types: PreludeTypeMap::shared_canonical_universe(),
@@ -85,6 +88,47 @@ impl LinkedTypeResolver {
         }
     }
 
+    /// Constructs a resolver backed by a symbolic semantic link product without
+    /// requiring executable runtime slots or initialization order.
+    pub fn from_semantic(
+        semantic_linked: Arc<SemanticLinkedProgram>,
+        known_declarations: HashSet<DeclarationId>,
+    ) -> Self {
+        Self::from_semantic_with_prelude(
+            semantic_linked,
+            known_declarations,
+            PreludeTypeMap::shared_canonical_universe(),
+        )
+    }
+
+    /// Constructs a resolver backed by a symbolic semantic link product with an
+    /// explicitly shared prelude map.
+    pub fn from_semantic_with_prelude(
+        semantic_linked: Arc<SemanticLinkedProgram>,
+        known_declarations: HashSet<DeclarationId>,
+        prelude_types: Arc<PreludeTypeMap>,
+    ) -> Self {
+        Self {
+            linked: None,
+            semantic_linked: Some(semantic_linked),
+            canonical_linked: None,
+            known_declarations,
+            prelude_types,
+            retained_alias_forms: Arc::new(BTreeMap::new()),
+            alias_form_overrides: RefCell::new(BTreeMap::new()),
+            trait_associated_types: Arc::new(BTreeMap::new()),
+            associated_type_members: Arc::new(RwLock::new(AssociatedTypeMemberProducts::default())),
+            static_case_catalogs: Arc::new(RwLock::new(BTreeMap::new())),
+            static_case_signatures: Arc::new(RwLock::new(BTreeMap::new())),
+            static_definitions: Arc::new(RwLock::new(BTreeMap::new())),
+        }
+    }
+
+    pub fn with_semantic_linked(mut self, semantic_linked: impl Into<Option<Arc<SemanticLinkedProgram>>>) -> Self {
+        self.semantic_linked = semantic_linked.into();
+        self
+    }
+
     pub fn with_canonical_linked(mut self, canonical_linked: Arc<LinkedProgram>) -> Self {
         self.canonical_linked = Some(canonical_linked);
         self
@@ -92,8 +136,8 @@ impl LinkedTypeResolver {
 
     fn linked_module(&self, module: &ModuleId) -> Option<&phalcom_modules::linker::LinkedModule> {
         self.linked
-            .modules
-            .get(module)
+            .as_ref()
+            .and_then(|linked| linked.modules.get(module))
             .or_else(|| self.canonical_linked.as_ref().and_then(|canonical| canonical.modules.get(module)))
     }
 
@@ -216,10 +260,30 @@ impl TypeResolver for LinkedTypeResolver {
     }
 
     fn resolve_module_alias(&self, current_module: &ModuleId, alias: &str) -> Option<ModuleId> {
+        if let Some(semantic) = &self.semantic_linked {
+            if let Some(sem_mod) = semantic.modules.get(current_module) {
+                if let Some(binding) = sem_mod.imports.get(alias) {
+                    if let SymbolicImportTarget::Module(target_mod) = &binding.target {
+                        return Some(target_mod.clone());
+                    }
+                }
+            }
+        }
         if let Some(linked_mod) = self.linked_module(current_module) {
             if let Some(&import_id) = linked_mod.bindings.imports.get::<str>(alias) {
                 if let Some(LinkedReadSpec::Module(target_mod)) = linked_mod.linked_reads.get(import_id.0 as usize) {
                     return Some(target_mod.clone());
+                }
+            }
+        }
+        None
+    }
+
+    fn resolve_import_binding_id(&self, current_module: &ModuleId, name: &str) -> Option<phalcom_modules::identity::SourceImportBindingId> {
+        if let Some(semantic) = &self.semantic_linked {
+            if let Some(sem_mod) = semantic.modules.get(current_module) {
+                if let Some(binding) = sem_mod.imports.get(name) {
+                    return Some(binding.id.clone());
                 }
             }
         }
@@ -249,6 +313,18 @@ impl TypeResolver for LinkedTypeResolver {
             }
 
             // 2. Selective import binding in current_module.
+            if let Some(semantic) = &self.semantic_linked {
+                if let Some(sem_mod) = semantic.modules.get(current_module) {
+                    if let Some(binding) = sem_mod.imports.get(root) {
+                        if let SymbolicImportTarget::Binding(sym) = &binding.target {
+                            let decl = DeclarationId::new(sym.module.clone(), sym.name.clone());
+                            if self.known_declarations.contains(&decl) {
+                                return Some(decl);
+                            }
+                        }
+                    }
+                }
+            }
             if let Some(linked_mod) = self.linked_module(current_module) {
                 if let Some(&import_id) = linked_mod.bindings.imports.get::<str>(root) {
                     if let Some(LinkedReadSpec::Binding(sym)) = linked_mod.linked_reads.get(import_id.0 as usize) {
@@ -261,6 +337,21 @@ impl TypeResolver for LinkedTypeResolver {
             }
 
             // 3. Re-export/current linked namespace.
+            if let Some(semantic) = &self.semantic_linked {
+                if let Some(sem_mod) = semantic.modules.get(current_module) {
+                    if let Some(export) = sem_mod.interface.exports.get::<str>(root) {
+                        match &export.target {
+                            phalcom_modules::interface::LinkedExportTarget::Binding(sym) => {
+                                let decl = DeclarationId::new(sym.module.clone(), sym.name.clone());
+                                if self.known_declarations.contains(&decl) {
+                                    return Some(decl);
+                                }
+                            }
+                            phalcom_modules::interface::LinkedExportTarget::Module(_) => {}
+                        }
+                    }
+                }
+            }
             if let Some(linked_mod) = self.linked_module(current_module) {
                 if let Some(export) = linked_mod.interface.exports.get::<str>(root) {
                     match &export.target {
@@ -293,6 +384,29 @@ impl TypeResolver for LinkedTypeResolver {
             // `root.a.Leaf` as `root.Leaf`.
             if members.len() != 1 {
                 return None;
+            }
+            if let Some(semantic) = &self.semantic_linked {
+                if let Some(sem_mod) = semantic.modules.get(current_module) {
+                    if let Some(binding) = sem_mod.imports.get(root) {
+                        if let SymbolicImportTarget::Module(target_mod) = &binding.target {
+                            let export = if let Some(target) = semantic.modules.get(target_mod) {
+                                target.interface.exports.get::<str>(&members[0])
+                            } else if let Some(target) = self.linked_module(target_mod) {
+                                target.interface.exports.get::<str>(&members[0])
+                            } else {
+                                None
+                            };
+                            if let Some(export) = export {
+                                if let phalcom_modules::interface::LinkedExportTarget::Binding(symbol) = &export.target {
+                                    let declaration = DeclarationId::new(symbol.module.clone(), symbol.name.clone());
+                                    if self.known_declarations.contains(&declaration) {
+                                        return Some(declaration);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             if let Some(linked_mod) = self.linked_module(current_module) {
                 if let Some(&import_id) = linked_mod.bindings.imports.get::<str>(root) {

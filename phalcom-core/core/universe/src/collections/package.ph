@@ -18,3 +18,5 @@ expose .pack
 expose .record
 expose .range
 expose .bytes
+expose .interval
+expose .range_map

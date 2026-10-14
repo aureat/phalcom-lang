@@ -1,7 +1,8 @@
 use phalcom_ast::parser::parse;
 use phalcom_modules::{
-    ImportBindingId, InterfaceBuilder, LinkError, LinkedReadSpec, ModuleComponent, ModuleDiagnostic, ModuleDiagnosticKind, ModuleId, ModuleKind, ModuleLinker,
-    ModulePath, ProjectUniverse, ResolvedProjectId, SymbolId, UnlinkedModuleInterface,
+    DependencyPhase, ImportBindingId, ImportPhaseSummary, InterfaceBuilder, LinkError, LinkedReadSpec, ModuleComponent, ModuleDiagnostic,
+    ModuleDiagnosticKind, ModuleId, ModuleImportPhaseProduct, ModuleKind, ModuleLinker, ModulePath, PhaseEvidenceCoverage, ProjectUniverse,
+    ResolvedProjectId, SymbolId, UnlinkedModuleInterface,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -43,6 +44,81 @@ fn link_01_selective_import_produces_binding() {
     };
     assert_eq!(linked.modules[&importer].linked_reads, vec![LinkedReadSpec::Binding(expected_symbol)]);
     assert_eq!(linked.modules[&importer].bindings.imports["Exported"], ImportBindingId(0));
+}
+
+#[test]
+fn semantic_link_preserves_item_identity_without_executable_slots() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let iface_map = interfaces(&[
+        (exporter.clone(), "class First {}\nclass Second {}\nexport First\nexport Second\n"),
+        (importer.clone(), "from .exporter import First as One, Second\n"),
+    ]);
+    let resolved = BTreeMap::from([((importer.clone(), ".exporter".to_string()), exporter.clone())]);
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map);
+
+    let linked = linker.link_semantic(importer.clone(), &resolved).expect("symbolic link should succeed");
+    let module = &linked.modules[&importer];
+    let one = module.imports.by_local_name.get("One").expect("alias should be symbolically resolvable");
+    let second = module.imports.by_local_name.get("Second").expect("second item should be symbolically resolvable");
+
+    assert_ne!(one, second);
+    assert_eq!(one.site, second.site);
+    assert_eq!(one.local.0, 0);
+    assert_eq!(second.local.0, 1);
+    assert_eq!(module.imports.bindings[one].target, phalcom_modules::SymbolicImportTarget::Binding(SymbolId {
+        module: exporter.clone(),
+        name: "First".into(),
+    }));
+    assert_eq!(module.imports.bindings[second].target, phalcom_modules::SymbolicImportTarget::Binding(SymbolId {
+        module: exporter,
+        name: "Second".into(),
+    }));
+}
+
+#[test]
+fn semantic_link_resolves_a_cycle_before_executable_validation() {
+    let a = module("a");
+    let b = module("b");
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), interfaces(&[
+        (a.clone(), "from .b import B\nclass A {}\nexport A\n"),
+        (b.clone(), "from .a import A\nclass B {}\nexport B\n"),
+    ]));
+    let resolved = BTreeMap::from([
+        ((a.clone(), ".b".to_string()), b.clone()),
+        ((b.clone(), ".a".to_string()), a.clone()),
+    ]);
+    let symbolic = linker.link_semantic(a.clone(), &resolved).expect("symbolic cycles are not runtime cycles");
+    assert_eq!(symbolic.modules[&a].imports.get("B").unwrap().target,
+        phalcom_modules::SymbolicImportTarget::Binding(SymbolId { module: b, name: "B".into() }));
+    assert!(matches!(linker.link_all(a, &resolved), Err(LinkError::RuntimeCycle(_))));
+}
+
+#[test]
+fn finalization_omits_proven_interface_import_and_keeps_unknown_runtime() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), interfaces(&[
+        (exporter.clone(), "class TypeOnly {}\nclass Unknown {}\nexport TypeOnly\nexport Unknown\n"),
+        (importer.clone(), "from .exporter import TypeOnly, Unknown\n"),
+    ]));
+    let resolved = BTreeMap::from([((importer.clone(), ".exporter".to_string()), exporter)]);
+    let semantic = linker.link_semantic(importer.clone(), &resolved).expect("symbolic link should succeed");
+    let type_only = semantic.modules[&importer].imports.by_local_name["TypeOnly"].clone();
+    let unknown = semantic.modules[&importer].imports.by_local_name["Unknown"].clone();
+    let phase = ModuleImportPhaseProduct {
+        module: importer.clone(),
+        bindings: BTreeMap::from([(type_only, ImportPhaseSummary { phase: DependencyPhase::InterfaceOnly, observed: true })]),
+        coverage: PhaseEvidenceCoverage::Complete,
+    };
+    let executable = linker
+        .finalize_executable(semantic, &BTreeMap::from([(importer.clone(), phase)]))
+        .expect("runtime projection should succeed");
+    let linked = executable.as_program();
+    assert!(!linked.modules[&importer].bindings.imports.contains_key("TypeOnly"));
+    assert!(linked.modules[&importer].bindings.imports.contains_key("Unknown"));
+    assert_eq!(linked.modules[&importer].linked_reads.len(), 1);
+    assert_eq!(unknown.local.0, 1);
 }
 
 /// LINK-02 — Selective import of non-exported name produces LinkError::MissingExport

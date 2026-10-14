@@ -4,7 +4,7 @@ use crate::error::ModuleGraphError;
 use crate::graph::{
     DependencyPhase, ModuleGraphs, ReferenceEdge, ReferenceKind, RuntimeDependencyEdge, RuntimeDependencyReason, SemanticEdge, SemanticEdgeKind, SemanticNodeId,
 };
-use crate::identity::{ModuleId, ModulePath};
+use crate::identity::{ImportBindingLocalId, ModuleId, ModulePath, SourceImportBindingId};
 use crate::interface::{ImportSurface, LinkedExport, LinkedModuleInterface, UnlinkedExportTarget, UnlinkedModuleInterface};
 use crate::project::ProjectUniverse;
 use phalcom_ast::ast::{ImportPath, StaticSymbolRef};
@@ -29,6 +29,92 @@ pub enum LinkedReadSpec {
     Module(ModuleId),
     /// Read a mutable global slot owned by the canonical symbol.
     Binding(SymbolId),
+}
+
+/// Canonical semantic target, independent of runtime read allocation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SymbolicImportTarget {
+    Module(ModuleId),
+    Binding(SymbolId),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SymbolicImportBinding {
+    pub id: SourceImportBindingId,
+    pub local_name: Box<str>,
+    pub target: SymbolicImportTarget,
+    /// Authored provider, which may differ from the canonical declaration owner.
+    pub provider: ModuleId,
+    pub kind: ReferenceKind,
+    pub range: SourceRange,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SymbolicImportTable {
+    pub bindings: BTreeMap<SourceImportBindingId, SymbolicImportBinding>,
+    pub by_local_name: BTreeMap<Box<str>, SourceImportBindingId>,
+}
+
+impl SymbolicImportTable {
+    pub fn get(&self, name: &str) -> Option<&SymbolicImportBinding> {
+        self.by_local_name.get(name).and_then(|id| self.bindings.get(id))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SemanticLinkedModule {
+    pub interface: LinkedModuleInterface,
+    pub local_globals: BTreeMap<Box<str>, GlobalBindingId>,
+    pub imports: SymbolicImportTable,
+}
+
+/// Symbolic linkage has no runtime slots, graph or initialization order.
+/// Executable consumers accept `LinkedProgram`, never this provisional type.
+#[derive(Clone, Debug)]
+pub struct SemanticLinkedProgram {
+    pub universe: Arc<ProjectUniverse>,
+    pub modules: BTreeMap<ModuleId, SemanticLinkedModule>,
+    pub references: crate::graph::ReferenceGraph,
+    pub semantics: crate::graph::SemanticGraph,
+    pub entry: ModuleId,
+}
+
+/// Whether semantic analysis covered every phase-relevant owner of a module.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PhaseEvidenceCoverage {
+    Complete,
+    Incomplete,
+}
+
+/// Conservative phase evidence for one source import binding.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportPhaseSummary {
+    pub phase: DependencyPhase,
+    pub observed: bool,
+}
+
+/// Semantic phase product consumed by executable finalization.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModuleImportPhaseProduct {
+    pub module: ModuleId,
+    pub bindings: BTreeMap<SourceImportBindingId, ImportPhaseSummary>,
+    pub coverage: PhaseEvidenceCoverage,
+}
+
+/// The only linked product accepted by executable compilation/materialization.
+#[derive(Clone, Debug)]
+pub struct ExecutableLinkedProgram {
+    pub program: LinkedProgram,
+}
+
+impl ExecutableLinkedProgram {
+    pub fn as_program(&self) -> &LinkedProgram {
+        &self.program
+    }
+
+    pub fn into_program(self) -> LinkedProgram {
+        self.program
+    }
 }
 
 /// Linked local binding layout. IDs are symbolic and VM-independent.
@@ -283,6 +369,142 @@ impl ModuleLinker {
             graphs,
             entry,
             initialization_order,
+        })
+    }
+
+    /// Links all canonical names without runtime cycle validation or slot
+    /// allocation. Semantic analysis can therefore resolve interface cycles.
+    pub fn link_semantic(&self, entry: ModuleId, resolved: &BTreeMap<(ModuleId, String), ModuleId>) -> Result<SemanticLinkedProgram, LinkError> {
+        if !self.interfaces.contains_key(&entry) {
+            return Err(LinkError::MissingModule { module: entry });
+        }
+        let mut context = LinkContext::new(self, resolved, false, false);
+        context.collect_imports_and_graphs()?;
+        let mut modules = BTreeMap::new();
+        for (module, interface) in &self.interfaces {
+            let mut imports = SymbolicImportTable::default();
+            for (site, import) in interface.import_sites() {
+                let provider = context.target(module, import.path(), import.range())?;
+                let items: Vec<(String, SourceRange, ReferenceKind)> = match import {
+                    ImportSurface::Module(decl) => vec![(
+                        decl.alias.as_ref().map(|alias| alias.name.clone())
+                            .or_else(|| default_module_binding(&decl.path).map(str::to_owned))
+                            .unwrap_or_else(|| provider.path.to_string()),
+                        decl.range, ReferenceKind::WholeModuleImport,
+                    )],
+                    ImportSurface::Selective(decl) => decl.items.iter().map(|item| (
+                        item.alias.as_ref().map(|alias| alias.name.clone()).unwrap_or_else(|| item.name.clone()),
+                        item.range, ReferenceKind::SelectiveImport,
+                    )).collect(),
+                    ImportSurface::ReExport(decl) => decl.items.iter().map(|item| (
+                        item.local_or_remote_name.clone(), item.range, ReferenceKind::ReExport,
+                    )).collect(),
+                };
+                for (ordinal, (local, range, kind)) in items.into_iter().enumerate() {
+                    let target = match &context.import_targets[&(module.clone(), local.clone())] {
+                        LinkedReadSpec::Module(target) => SymbolicImportTarget::Module(target.clone()),
+                        LinkedReadSpec::Binding(target) => SymbolicImportTarget::Binding(target.clone()),
+                    };
+                    let id = SourceImportBindingId { site: site.clone(), local: ImportBindingLocalId(ordinal as u32) };
+                    imports.by_local_name.insert(local.clone().into_boxed_str(), id.clone());
+                    imports.bindings.insert(id.clone(), SymbolicImportBinding {
+                        id, local_name: local.into_boxed_str(), target, provider: provider.clone(), kind, range,
+                    });
+                }
+            }
+            let local_globals = interface.declarations.keys().enumerate()
+                .map(|(index, name)| (name.clone().into_boxed_str(), GlobalBindingId(index as u32))).collect();
+            modules.insert(module.clone(), SemanticLinkedModule { interface: context.linked_interface(module)?, local_globals, imports });
+        }
+        Ok(SemanticLinkedProgram {
+            universe: self.universe.clone(), modules, references: context.graphs.references, semantics: context.graphs.semantics, entry,
+        })
+    }
+
+    /// Finalizes runtime slots and the strict initialization DAG from the
+    /// symbolic product and semantic phase evidence. Missing or incomplete
+    /// evidence remains runtime by construction.
+    pub fn finalize_executable(
+        &self,
+        semantic: SemanticLinkedProgram,
+        phase_products: &BTreeMap<ModuleId, ModuleImportPhaseProduct>,
+    ) -> Result<ExecutableLinkedProgram, LinkError> {
+        let SemanticLinkedProgram {
+            universe,
+            modules: semantic_modules,
+            references,
+            semantics,
+            entry,
+        } = semantic;
+        let mut modules = BTreeMap::new();
+        let mut graphs = ModuleGraphs {
+            references,
+            semantics,
+            runtime: crate::graph::RuntimeDependencyGraph::default(),
+        };
+        for (module, symbolic) in semantic_modules {
+            graphs.runtime.add_node(module.clone());
+            let evidence = phase_products.get(&module);
+            let mut bindings = ModuleBindingLayout {
+                local_globals: symbolic.local_globals.clone(),
+                imports: BTreeMap::new(),
+            };
+            let mut linked_reads = Vec::new();
+            for (id, import) in symbolic.imports.bindings {
+                let target_module = match &import.target {
+                    SymbolicImportTarget::Module(target) => target.clone(),
+                    SymbolicImportTarget::Binding(symbol) => symbol.module.clone(),
+                };
+                let runtime = match import.kind {
+                    ReferenceKind::WholeModuleImport | ReferenceKind::ReExport => true,
+                    ReferenceKind::SelectiveImport => {
+                        evidence.is_none_or(|product| product.coverage != PhaseEvidenceCoverage::Complete)
+                            || evidence.and_then(|product| product.bindings.get(&id)).is_none_or(|summary| {
+                                !summary.observed || summary.phase == DependencyPhase::Runtime
+                            })
+                    }
+                    ReferenceKind::InterfaceOnly => false,
+                };
+                if !runtime {
+                    continue;
+                }
+                let read = match &import.target {
+                    SymbolicImportTarget::Module(target) => LinkedReadSpec::Module(target.clone()),
+                    SymbolicImportTarget::Binding(symbol) => LinkedReadSpec::Binding(symbol.clone()),
+                };
+                let slot = ImportBindingId(linked_reads.len() as u32);
+                linked_reads.push(read);
+                bindings.imports.insert(import.local_name.clone(), slot);
+                let reason = match import.kind {
+                    ReferenceKind::WholeModuleImport => RuntimeDependencyReason::WholeModuleImport,
+                    ReferenceKind::ReExport => RuntimeDependencyReason::ReExport,
+                    _ => RuntimeDependencyReason::SelectiveValueImport,
+                };
+                graphs.runtime.add(RuntimeDependencyEdge {
+                    importer: module.clone(),
+                    dependency: target_module,
+                    range: import.range,
+                    reason,
+                });
+            }
+            let mut runtime_dependencies = graphs.runtime.dependencies(&module);
+            runtime_dependencies.sort();
+            modules.insert(module, LinkedModule {
+                interface: symbolic.interface,
+                bindings,
+                linked_reads,
+                runtime_dependencies,
+            });
+        }
+        let initialization_order = graphs.runtime.initialization_order().map_err(LinkError::RuntimeCycle)?;
+        Ok(ExecutableLinkedProgram {
+            program: LinkedProgram {
+                universe,
+                modules,
+                graphs,
+                entry,
+                initialization_order,
+            },
         })
     }
 

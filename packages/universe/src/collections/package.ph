@@ -1,0 +1,22 @@
+/// Public collection types and iterator protocols.
+expose .collection
+expose .iteration
+expose .list
+expose .array
+expose .vector
+expose .slice
+expose .buffer
+expose .map
+expose .set
+expose .mutable_bag
+expose .indexed_dict
+expose .ordered_set
+expose .bag
+expose .bijection
+expose .tuple
+expose .pack
+expose .record
+expose .range
+expose .bytes
+expose .interval
+expose .range_map

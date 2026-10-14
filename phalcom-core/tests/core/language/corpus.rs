@@ -5,6 +5,13 @@
 
 use super::support;
 
+/// Deliberately separate from existing labels: source implementation is present,
+/// but the first behavior-verification run is deferred to the follow-up task.
+#[test]
+fn functional() {
+    support::check_pending("functional");
+}
+
 #[test]
 fn random() {
     support::check_pass("random");

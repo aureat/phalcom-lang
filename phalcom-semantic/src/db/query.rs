@@ -58,6 +58,7 @@ pub struct FormalQueryInputs<'a> {
     pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
     /// Checked module value facts used by the ordinary callable body checker.
     pub module_values: Option<crate::module_bindings::ModuleValueEnvironment<'a>>,
+    pub semantic_linked: Option<&'a phalcom_modules::linker::SemanticLinkedProgram>,
 }
 
 pub struct HierarchyEdgeQueryInputs<'a> {
@@ -3722,6 +3723,7 @@ fn query_callable_body_with_requirement(
             conformance_semantics: formal_inputs.and_then(|inputs| inputs.conformance_semantics),
             module_values: formal_inputs.and_then(|inputs| inputs.module_values),
             linked_module: formal_inputs.and_then(|inputs| inputs.linked.modules.get(&module)),
+            semantic_linked_module: formal_inputs.and_then(|inputs| inputs.semantic_linked.and_then(|sl| sl.modules.get(&module))),
             module,
             caller_package,
             access_topology: formal_inputs.map(|inputs| inputs.topology),
